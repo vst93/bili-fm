@@ -8,5 +8,8 @@
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "vst"
+  },
+  "options": {
+    "disableCORS": true
   }
 }

@@ -1,38 +1,13 @@
 var videoInfo = {}
-var collectList = undefined;
+var collectList = [];
 
 //获取视频分集列表
-function getCList(bvid, func) {
-    if (bvid == '') {
-        return;
-    }
-    var url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
-    $.getJSON(url, function (data) {
-
-        if (data.code != 0) {
-            layer.msg('未找到相关视频', {
-                time: 1500, //20s后自动关闭
-            });
-            return;
-        }
-        videoInfo = {
-            bvid: data.data.bvid,
-            aid: data.data.aid,
-            title: data.data.title,
-            desc: data.data.desc,
-            videos: data.data.videos,
-            pic: data.data.pic,
-            owner_mid: data.data.owner.mid,
-            owner_name: data.data.owner.name,
-            owner_face: data.data.owner.face,
-            pages: data.data.pages,
-        }
-        // $.each(data.data.pages, function (i, item) {
-        //     list.push(item)
-        // });
-        func(videoInfo);
-    });
-}
+// async function getCList(bvid, func) {
+//     window.go.main.BL.GetCList(bvid).then(videoInfo => { 
+//         console.log(videoInfo)
+//         func(videoInfo);
+//     })
+// }
 
 function convertToDuration(seconds) {
     var hours = Math.floor(seconds / 3600);
@@ -55,23 +30,23 @@ function convertToDuration(seconds) {
     return duration;
 }
 
-function getUrlByCid(aid, cid, func) {
-    var url = '';
-    if (cid == '') {
-        return '';
-    }
-    var url = "https://api.bilibili.com/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=0&type=json&platform=html5";
-    $.getJSON(url, function (data) {
-        if (data.code != 0) {
-            return;
-        }
-        var info = {
-            url: data.data.durl[0].url
+// function getUrlByCid(aid, cid) {
+//     var url = '';
+//     if (cid == '') {
+//         return '';
+//     }
+//     var url = "https://api.bilibili.com/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=0&type=json&platform=html5";
+//     $.getJSON(url, function (data) {
+//         if (data.code != 0) {
+//             return;
+//         }
+//         var info = {
+//             url: data.data.durl[0].url
 
-        }
-        func(info);
-    });
-}
+//         }
+//         return info;
+//     });
+// }
 
 function getCollectList() {
     if (collectList == undefined) {

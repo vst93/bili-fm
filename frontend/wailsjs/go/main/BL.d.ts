@@ -4,11 +4,15 @@ import {main} from '../models';
 
 export function GetBiliTicket(arg1:string):Promise<string>;
 
+export function GetCList(arg1:string):Promise<main.VideoInfo>;
+
 export function GetLoginQRCode():Promise<string>;
 
 export function GetLoginStatus():Promise<boolean>;
 
 export function GetSESSDATA():Promise<string>;
+
+export function GetUrlByCid(arg1:number,arg2:number):Promise<main.PlayURLInfo>;
 
 export function HmacSha256(arg1:string,arg2:string):Promise<string>;
 

@@ -12,7 +12,9 @@
     <script src="assets/player/js/green-audio-player.min.js"></script>
     <script src="assets/array.utils.js"></script>
     <script src="assets/abv.js"></script>
-
+    <script type="text/javascript">
+        document.domain = 'www.bilibili.com';
+    </script>
 </head>
 
 <body>
@@ -291,7 +293,8 @@
                 elem: '#c_list', // 流加载容器
                 scrollElem: '#page-list-div', 
                 done: function (page, next) { // 执行下一页的回调
-                    getCList(bvid, function (videoInfo) {
+                    window.go.main.BL.GetCList(bvid).then(videoInfo => {
+                        console.log(videoInfo)
                         $('#video-title').html(videoInfo.title)
                         $('#video-desc').html(videoInfo.desc)
                         $('#video-owner-name').html(videoInfo.owner_name)
@@ -323,8 +326,6 @@
                         $(".page-list-div").addClass("slide-in");;
                         showCollect();
                     });
-
-
                 }
             });
             return false; // 阻止默认 form 跳转
@@ -400,14 +401,12 @@
                         $('#video-cover').css('background-image', "url('./logo.png')")
                     }
 
-
                     $('.page-list-flow .list-item').removeClass('list-item-playing')
                     $('.page-list-flow .list-item').eq(selected.part_num - 1).addClass('list-item-playing')
 
-
                     $('#video-part').html(part)
-                    getUrlByCid(aid, cid, function (info) {
-                        // console.log(info.url)  
+                    window.go.main.BL.GetUrlByCid(aid, cid).then(info => {
+                        console.log(info.url)  
                         $('#player').html('<audio crossorigin preload="none" id="audio-souce"></audio>');
                         $('#audio-souce').html('<source src="' + info.url + '" type="video/mp4">');
                         GreenAudioPlayer.init({
@@ -418,11 +417,16 @@
                             showTooltips: true
                         });
                         $('#slideBtn').click()
-                        $('.play-pause-btn').click()
+                        // 1 s后开始播放
+                        setTimeout(function () {
+                            $('#audio-souce').trigger('play');
+                            // $('.play-pause-btn').click()
+                        }, 500);
+                        // $('.play-pause-btn').click()
                         $('#video-cover').addClass('layui-anim-rotate');
                         $('#video-cover').addClass('layui-anim-loop');
                         bind();
-                    })
+                    }); 
                 },
                 "show-page-list": function () {
                     $('.list-div').removeClass("slide-in");

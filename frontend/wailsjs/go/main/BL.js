@@ -6,6 +6,10 @@ export function GetBiliTicket(arg1) {
   return window['go']['main']['BL']['GetBiliTicket'](arg1);
 }
 
+export function GetCList(arg1) {
+  return window['go']['main']['BL']['GetCList'](arg1);
+}
+
 export function GetLoginQRCode() {
   return window['go']['main']['BL']['GetLoginQRCode']();
 }
@@ -16,6 +20,10 @@ export function GetLoginStatus() {
 
 export function GetSESSDATA() {
   return window['go']['main']['BL']['GetSESSDATA']();
+}
+
+export function GetUrlByCid(arg1, arg2) {
+  return window['go']['main']['BL']['GetUrlByCid'](arg1, arg2);
 }
 
 export function HmacSha256(arg1, arg2) {

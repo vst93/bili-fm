@@ -258,3 +258,149 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 
 	return results
 }
+
+// ----------- begin - getCList -----------
+type VideoInfo struct {
+	Bvid         string `json:"bvid"`
+	Aid          int 	`json:"aid"`
+	Title        string `json:"title"`
+	Desc         string `json:"desc"`
+	Videos       int 	`json:"videos"`
+	Pic          string `json:"pic"`
+	OwnerMid     int 	`json:"owner_mid"`
+	OwnerName    string `json:"owner_name"`
+	OwnerFace    string `json:"owner_face"`
+	Pages        []Page `json:"pages"`
+}
+
+type Page struct {
+	Cid        int    `json:"cid"`
+	Page       int    `json:"page"`
+	From       string `json:"from"`
+	Part       string `json:"part"`
+	Duration   int    `json:"duration"`
+	Vid        string `json:"vid"`
+	Weblink    string `json:"weblink"`
+	Dimension  struct {
+		Width   int `json:"width"`
+		Height  int `json:"height"`
+		Rotate  int `json:"rotate"`
+	} `json:"dimension"`
+	FirstFrame string `json:"first_frame"`
+}
+
+func (bl *BL) GetCList(bvid string) (videoInfo VideoInfo) {
+	if bvid == "" {
+		return
+	}
+	url := "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Println("Error fetching data:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Bvid         string `json:"bvid"`
+			Aid          int    `json:"aid"`
+			Title        string `json:"title"`
+			Desc         string `json:"desc"`
+			Videos       int    `json:"videos"`
+			Pic          string `json:"pic"`
+			Owner        struct {
+				Mid   int    `json:"mid"`
+				Name  string `json:"name"`
+				Face  string `json:"face"`
+			} `json:"owner"`
+			Pages []Page `json:"pages"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		fmt.Println("Error unmarshalling JSON:", err)
+		return
+	}
+
+	if result.Code != 0 {
+		fmt.Println("未找到相关视频")
+		return
+	}
+
+	videoInfo = VideoInfo{
+		Bvid:         result.Data.Bvid,
+		Aid:          result.Data.Aid,
+		Title:        result.Data.Title,
+		Desc:         result.Data.Desc,
+		Videos:       result.Data.Videos,
+		Pic:          result.Data.Pic,
+		OwnerMid:     result.Data.Owner.Mid,
+		OwnerName:    result.Data.Owner.Name,
+		OwnerFace:    result.Data.Owner.Face,
+		Pages:        result.Data.Pages,
+	}
+
+	return videoInfo
+}
+// ----------- end - getCList -----------
+
+// ----------- begin - getUrlByCid -----------
+
+type PlayURLInfo struct {
+	URL string `json:"url"`
+}
+
+func (bl *BL) GetUrlByCid(aid int,cid int) (ret PlayURLInfo) {
+	if cid == 0 {
+		return 
+	}
+	url := fmt.Sprintf("https://api.bilibili.com/x/player/playurl?avid=%d&cid=%d&qn=0&type=json&platform=html5", aid, cid)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return 
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Durl []struct {
+				URL string `json:"url"`
+			} `json:"durl"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return 
+	}
+
+	if result.Code != 0 {
+		return 
+	}
+
+	if len(result.Data.Durl) == 0 {
+		return 
+	}
+
+	return PlayURLInfo{URL: result.Data.Durl[0].URL}
+}
+// ----------- end - getUrlByCid -----------
