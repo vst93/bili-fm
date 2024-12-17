@@ -69,22 +69,22 @@ func main() {
 
 	AppMenu := menu.NewMenu()
 	AppMenu.AddSubmenu("bili-FM")
-	aboutMenu := AppMenu.AddSubmenu("Operation")
-	aboutMenu.AddText("About", nil, func(_ *menu.CallbackData) {
+	aboutMenu := AppMenu.AddSubmenu("设置")
+	aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
 		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
-			Title:   "About",
-			Message: "bili-FM is a simple and lightweight bilibili audio player built with Wails framework. https://github.com/vst93/bili-fm",
+			Title:   "关于",
+			Message: "通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。\n\n项目开源地址：https://github.com/vst93/bili-fm",
 			Type:    "info",
-			Buttons: []string{"OK"},
+			Buttons: []string{"好的"},
 		})
 	})
 	// VersionMenu := AppMenu.AddSubmenu("Version")
-	aboutMenu.AddText("Version", nil, func(_ *menu.CallbackData) {
+	aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
 		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
-			Title:   "Version",
+			Title:   "版本",
 			Message: APP_VERSION,
 			Type:    "info",
-			Buttons: []string{"OK"},
+			Buttons: []string{"好的"},
 		})
 	})
 
