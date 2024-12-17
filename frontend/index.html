@@ -3,33 +3,35 @@
 
 <head>
     <meta charset="utf8" />
-    <script src="preload.js"></script>
-    <link rel="stylesheet" type="text/css" href="assets/index.css">
-    <link rel="stylesheet" type="text/css" href="assets/dist/css/layui.css">
-    <script src="assets/dist/layui.js"></script>
-    <script src="assets/jquery-3.3.1.min.js"></script>
-    <link rel="stylesheet" type="text/css" href="assets/player/css/green-audio-player.min.css">
-    <script src="assets/player/js/green-audio-player.min.js"></script>
-    <script src="assets/array.utils.js"></script>
-    <script src="assets/abv.js"></script>
+    <script src="/preload.js"></script>
+    <link rel="stylesheet" type="text/css" href="/assets/dist/css/layui.css">
+    <script src="/assets/dist/layui.js"></script>
+    <script src="/assets/jquery-3.3.1.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="/assets/player/css/green-audio-player.min.css">
+    <script src="/assets/player/js/green-audio-player.min.js"></script>
+    <script src="/assets/array.utils.js"></script>
+    <script src="/assets/abv.js"></script>
     <script type="text/javascript">
         document.domain = 'www.bilibili.com';
     </script>
+    <link rel="stylesheet" type="text/css" href="/assets/index.css">
 </head>
 
 <body>
     <!-- 输入框 -->
-    <form class="layui-form layui-form-pane" action="">
+    <form class="layui-form layui-form-pane" action="" onsubmit="return false;">
         <div class="layui-form-item center-container">
             <div class="layui-inline">
-                <label class="layui-form-label">B站</label>
+                <label class="layui-form-label search-line-border-color">B站</label>
                 <div class="layui-input-inline layui-input-wrap">
-                    <input type="text" name="b_url" lay-verify="" autocomplete="off" lay-reqtext="" lay-affix="clear" id="search-input-keywrd"
-                        class="layui-input" placeholder="视频地址/搜索关键词">
+                    <input type="text" name="b_url" lay-verify="" autocomplete="off" lay-reqtext="" lay-affix="clear"
+                        id="search-input-keywrd" class="layui-input search-line-border-color" placeholder="视频地址/搜索关键词">
                 </div>
                 <div class="layui-form-mid" style="padding: 0 !important;">
-                    <button type="button" class="layui-btn layui-btn-primary" lay-submit lay-filter="go-search">搜索</button>
-                    <button type="button" class="layui-btn layui-btn-primary" lay-submit lay-filter="go-bvid">链接跳转</button>
+                    <button type="button" class="layui-btn layui-btn-primary search-line-border-color" lay-submit
+                        lay-filter="go-search">搜索</button>
+                    <button type="button" class="layui-btn layui-btn-primary search-line-border-color" lay-submit
+                        lay-filter="go-bvid" style="margin-left: 0px;">链接跳转</button>
                 </div>
             </div>
         </div>
@@ -44,9 +46,9 @@
             <img id="video-owner-face" src="" />
             <span id="video-owner-name" lay-on="click-video-owner-name" style="cursor: pointer;"></span>
         </div>
-        <div class="" id="video-title">暂无播放内容</div>
-        <div class="" id="video-desc">&nbsp;</div>
-        <div class="" id="video-part">&nbsp;</div>
+        <div class="can-seelect" id="video-title">暂无播放内容</div>
+        <div class="can-seelect" id="video-desc">&nbsp;</div>
+        <div class="can-seelect" id="video-part">&nbsp;</div>
 
         <!-- 操作工具 -->
         <div class="info-tools">
@@ -54,37 +56,36 @@
             <div class="info-tools-button"
                 style="background-image: url(assets/Search.svg);background-color: #e4e4e485;width: 60px;background-size: 22px;"
                 lay-on="show-search-list" title="搜索"></div>
-            <div class="info-tools-button" 
+            <div class="info-tools-button"
                 style="background-image: url(assets/ChevronsUp.svg);background-color: #e4e4e485;width: 60px;"
                 lay-on="show-page-list" title="选集"></div>
-            <div class="info-tools-button"
+            <!-- <div class="info-tools-button"
                 style="background-image: url(assets/StarReview.svg);background-color: #e4e4e485;width: 60px;background-size: 22px;"
-                lay-on="show-collect-list" title="收藏列表"></div>
+                lay-on="show-collect-list" title="收藏列表"></div> -->
             <div class="info-tools-button"
-                style="background-image: url(assets/OpenInNewRound.svg);background-size: 22px;" lay-on="open-browser"
+                style="background-image: url(/assets/OpenInNewRound.svg);background-size: 22px;" lay-on="open-browser"
                 title="浏览器打开"></div>
-            <div class="info-tools-button" id="info-tools-button-collect" style="background:url(assets/Star.svg);"
+            <!-- <div class="info-tools-button" id="info-tools-button-collect" style="background:url(assets/Star.svg);"
                 lay-on="user-collect" title="加入收藏">
-            </div>
+            </div> -->
             <br>
             <div class="info-tools-bl-user-group">
-            
                 <div class="info-tools-button bl-feed"
-                style="background-image: url(assets/Feed.svg);width: 60px;background-size: 22px;"
-                lay-on="show-bl-feed-list" title="B站账号关注UP视频动态列表"></div>
+                    style="background-image: url(assets/Feed.svg);width: 60px;background-size: 22px;"
+                    lay-on="show-bl-feed-list" title="B站账号关注UP视频动态列表"></div>
 
                 <div class="info-tools-button bl-rcmd"
-                style="background-image: url(assets/Recommend.svg);width: 60px;background-size: 22px;"
-                lay-on="show-bl-rcmd-list" title="B站账号推荐视频列表"></div>
-                  
-                <div class="info-tools-button bl-collect"
-                style="background-image: url(assets/Favorite.svg);width: 60px;background-size: 22px;"
-                lay-on="show-bl-collect-list" title="B站账号收藏列表"></div>
-                
-                <div class="info-tools-button user-avatar" style="background: url(assets/UserAvatar.svg);" title="登录或重新登录"></div>
+                    style="background-image: url(assets/Recommend.svg);width: 60px;background-size: 22px;"
+                    lay-on="show-bl-rcmd-list" title="B站账号推荐视频列表"></div>
 
+                <div class="info-tools-button bl-collect"
+                    style="background-image: url(assets/Favorite.svg);width: 60px;background-size: 22px;"
+                    lay-on="show-bl-collect-list" title="B站账号收藏列表"></div>
+
+                <div class="info-tools-button user-avatar" style="background: url(assets/UserAvatar.svg);"
+                    title="登录或重新登录"></div>
             </div>
-            
+
         </div>
 
     </div>
@@ -113,13 +114,13 @@
         </div>
     </div>
 
-     <!-- 搜索列表 -->
-     <div class="search-list-div list-div" id="search-list-div">
-        <legend>搜索 
-            <button class="layui-btn layui-btn-sm search-list-sort" lay-on="go-search-default">综合排序</button> 
+    <!-- 搜索列表 -->
+    <div class="search-list-div list-div" id="search-list-div">
+        <legend>搜索
+            <button class="layui-btn layui-btn-sm search-list-sort" lay-on="go-search-default">综合排序</button>
             <button class="layui-btn layui-btn-sm search-list-sort" lay-on="go-search-click">最多播放</button>
             <button class="layui-btn layui-btn-sm search-list-sort" lay-on="go-search-update">最新发布</button>
-            <span id="page-num"></span><button id="slideBtn3"  class="slideBtnClass">
+            <span id="page-num"></span><button id="slideBtn3" class="slideBtnClass">
                 <i class="layui-icon layui-icon-error"></i></button>
         </legend>
         <div class="layui-row layui-col-space15 page-list-flow" style="width: 100%;" id="search-list">
@@ -130,7 +131,9 @@
     <div class="login-panel">
         <div class="login-panel-close"></div>
         <div class="login-panel-title">使用BiLiBiLi APP 扫码登录</div>
-        <img id="bl-loginqrcode" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath fill='currentColor' d='M3 21V3h18v18zm3-8.425l4-4l4 4l4-4l1 1V5H5v6.575zM5 19h14v-6.6l-1-1l-4 4l-4-4l-4 4l-1-1zm0 0v-6.6v2V5z'/%3E%3C/svg%3E" alt="qrcode">
+        <img id="bl-loginqrcode"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath fill='currentColor' d='M3 21V3h18v18zm3-8.425l4-4l4 4l4-4l1 1V5H5v6.575zM5 19h14v-6.6l-1-1l-4 4l-4-4l-4 4l-1-1zm0 0v-6.6v2V5z'/%3E%3C/svg%3E"
+            alt="qrcode">
     </div>
 
     <!-- BL收藏列表 -->
@@ -142,19 +145,23 @@
 
     <!-- BL订阅动态列表 -->
     <div class="bl-feed-list-div list-div" id="bl-feed-list-div">
-        <legend class="bl-feed-list-fav-folder">BL订阅动态列表 <button class="bl-feed-list-refresh" lay-on="refresh-bl-feed-list"> </button> <button id="slideBtn" class="slideBtnClass"><i class="layui-icon layui-icon-error"></i></button></legend>
+        <legend class="bl-feed-list-fav-folder">BL订阅动态列表 <button class="bl-feed-list-refresh"
+                lay-on="refresh-bl-feed-list"> </button> <button id="slideBtn4" class="slideBtnClass"><i
+                    class="layui-icon layui-icon-error"></i></button></legend>
         <div class="layui-row layui-col-space15 page-list-flow" style="width: 100%;" id="bl-feed-list">
         </div>
     </div>
 
     <!-- BL视频推荐列表 -->
     <div class="bl-rcmd-list-div list-div" id="bl-rcmd-list-div">
-        <legend class="bl-rcmd-list-fav-folder">BL视频推荐列表 <button class="bl-feed-list-refresh" lay-on="refresh-bl-rcmd-list"> </button> <button id="slideBtn" class="slideBtnClass"><i class="layui-icon layui-icon-error"></i></button></legend>
+        <legend class="bl-rcmd-list-fav-folder">BL视频推荐列表 <button class="bl-feed-list-refresh"
+                lay-on="refresh-bl-rcmd-list"> </button> <button id="slideBtn5" class="slideBtnClass"><i
+                    class="layui-icon layui-icon-error"></i></button></legend>
         <div class="layui-row layui-col-space15 page-list-flow" style="width: 100%;" id="bl-rcmd-list">
         </div>
     </div>
 
-    <script src="assets/index.js"></script>
+    <script src="/assets/index.js"></script>
     <script>
         var selected = {
             part_num: 0,
@@ -164,26 +171,26 @@
         }
 
         var bl_fav_folder_list = {
-            id : 0,
-            part_num : 1,
-            count : 0,
+            id: 0,
+            part_num: 1,
+            count: 0,
         }
 
-        var feedOffset = 0;
+        var feedOffset = "";
         var lockTime = 0;
 
         GreenAudioPlayer.init({
             selector: '#player', // inits Green Audio Player on each audio container that has class "player"
             stopOthersOnPlay: true,
-            showDownloadButton: true,
+            showDownloadButton: false,
             enableKeystrokes: true,
             showTooltips: true
         });
 
         $(function () {
             $(document).keyup(function (e) {
-                 if (document.activeElement.tagName.toLowerCase() == 'input') {
-                    if (e.keyCode == 13){
+                if (document.activeElement.tagName.toLowerCase() == 'input') {
+                    if (e.keyCode == 13) {
                         //点击搜索
                         e.preventDefault();
                         e.stopPropagation();
@@ -215,12 +222,12 @@
             });
 
             $('.user-avatar').on('click', function () {
-                setLoginStatus(true);
+                window.go.main.BL.SetLoginStatus(true);
                 $('.login-panel').show();
                 BLLogin();
             });
             $('.login-panel-close').on('click', function () {
-                setLoginStatus(false);
+                window.go.main.BL.SetLoginStatus(false);
                 $('.login-panel').hide();
             });
             refreshUserInfo();
@@ -291,10 +298,10 @@
             // 流加载实例,节目列表
             flow.load({
                 elem: '#c_list', // 流加载容器
-                scrollElem: '#page-list-div', 
+                scrollElem: '#page-list-div',
                 done: function (page, next) { // 执行下一页的回调
                     window.go.main.BL.GetCList(bvid).then(videoInfo => {
-                        console.log(videoInfo)
+                        // console.log(videoInfo)
                         $('#video-title').html(videoInfo.title)
                         $('#video-desc').html(videoInfo.desc)
                         $('#video-owner-name').html(videoInfo.owner_name)
@@ -305,6 +312,13 @@
                         $('#page-num').html(' ( ' + list.length + ' )')
                         for (var i = 0; i < list.length; i++) {
                             var theTitle = list[i].part == '' ? videoInfo.title : list[i].part;
+                            // 封面图片代理
+                            if (list[i].first_frame) {
+                                // list[i].first_frame = 'https://i0.wp.com/' + list[i].first_frame.replace('http://', '').replace('https://', '');
+                                list[i].first_frame = graftingImage(list[i].first_frame)
+                            } else {
+                                list[i].first_frame = '/logo.png';
+                            }
                             lis.push('<div class="layui-col-xs4 list-item">' +
                                 '<div class="layui-card cursor-pointer" lay-on="select-cid" ' +
                                 'data-cid="' + list[i].cid + '" ' +
@@ -316,7 +330,7 @@
                                 '<div class="layui-card-header page-item-header" title="' + theTitle + '">' + theTitle + '</div>' +
                                 '<div class="layui-card-body padding-0 img-container">' +
                                 '<span class="layui-badge layui-bg-blue duration-badge">' + convertToDuration(list[i].duration) + '</span>' +
-                                '<img class="c-cover" src="' + list[i].first_frame + '" onerror="this.src=\'./cover.png\'"/>' +
+                                '<img class="c-cover" src="' + list[i].first_frame + '" onerror="this.src=\'/cover.png\'"/>' +
                                 '</div></div ></div>');
                         }
                         // 执行下一页渲染，第二参数为：满足“加载更多”的条件，即后面仍有分页
@@ -331,7 +345,7 @@
             return false; // 阻止默认 form 跳转
         }
 
-        function goSearch(keyword,order='default',isOrder=false){
+        function goSearch(keyword, order = 'default', isOrder = false) {
             if (keyword == '') {
                 layer.msg('请输入关键词', {
                     time: 1500, //20s后自动关闭
@@ -343,11 +357,11 @@
                 for (var i = 0; i < list.length; i++) {
                     htmlString = htmlString + '<div class="layui-col-xs4 list-item">' +
                         '<div class="layui-card cursor-pointer" lay-on="select-vurl" ' +
-                        'data-vurl="' + list[i].url + '" ' +'>' +
+                        'data-vurl="' + list[i].url + '" ' + '>' +
                         '<div class="layui-card-header page-item-header" title="' + list[i].title + '">' + list[i].title + '</div>' +
                         '<div class="layui-card-body padding-0 img-container">' +
-                        '<span class="layui-badge layui-bg-blue duration-badge">'+ list[i].author + ' | ' + list[i].date + ' | ' + list[i].views + '</span>' +
-                        '<img class="c-cover" src="' + list[i].picture_url + '" onerror="this.src=\'./cover.png\'"/>' +
+                        '<span class="layui-badge layui-bg-blue duration-badge">' + list[i].author + ' | ' + list[i].date + ' | ' + list[i].views + '</span>' +
+                        '<img class="c-cover" src="' + list[i].picture_url + '" onerror="this.src=\'/cover.png\'"/>' +
                         '</div></div ></div>';
                 }
                 $('#search-list').html(htmlString)
@@ -398,7 +412,7 @@
                     if (cover != 'undefined') {
                         $('#video-cover').css('background-image', "url('" + cover + "')")
                     } else {
-                        $('#video-cover').css('background-image', "url('./logo.png')")
+                        $('#video-cover').css('background-image', "url('/logo.png')")
                     }
 
                     $('.page-list-flow .list-item').removeClass('list-item-playing')
@@ -406,13 +420,13 @@
 
                     $('#video-part').html(part)
                     window.go.main.BL.GetUrlByCid(aid, cid).then(info => {
-                        console.log(info.url)  
+                        // console.log(info.url)
                         $('#player').html('<audio crossorigin preload="none" id="audio-souce"></audio>');
                         $('#audio-souce').html('<source src="' + info.url + '" type="video/mp4">');
                         GreenAudioPlayer.init({
                             selector: '#player', // inits Green Audio Player on each audio container that has class "player"
                             stopOthersOnPlay: true,
-                            showDownloadButton: true,
+                            showDownloadButton: false,
                             enableKeystrokes: true,
                             showTooltips: true
                         });
@@ -426,7 +440,7 @@
                         $('#video-cover').addClass('layui-anim-rotate');
                         $('#video-cover').addClass('layui-anim-loop');
                         bind();
-                    }); 
+                    });
                 },
                 "show-page-list": function () {
                     $('.list-div').removeClass("slide-in");
@@ -445,7 +459,8 @@
                 },
                 "open-browser": function () {
                     if (selected.bvid.length > 0) {
-                        utools.shellOpenExternal('https://www.bilibili.com/video/' + selected.bvid + '/?p=' + selected.part_num);
+                        let url = 'https://www.bilibili.com/video/' + selected.bvid + '/?p=' + selected.part_num;
+                        window.runtime.BrowserOpenURL(url)
                     }
                 },
                 "user-collect": function () {
@@ -464,12 +479,12 @@
                     for (var i = 0; i < list.length; i++) {
                         htmlString = '<div class="layui-col-xs4 list-item">' +
                             '<div class="layui-card cursor-pointer" lay-on="select-video" ' +
-                            'data-bvid="' + list[i].bvid + '" ' +'>' +
-                            '<img class="cancel_collect_span" src="assets/Delete.svg" lay-on="cancel_collect"></img>' +
+                            'data-bvid="' + list[i].bvid + '" ' + '>' +
+                            '<img class="cancel_collect_span" src="/assets/Delete.svg" lay-on="cancel_collect"></img>' +
                             '<div class="layui-card-header page-item-header" title="' + list[i].title + '">' + list[i].title + '</div>' +
                             '<div class="layui-card-body padding-0 img-container">' +
                             '<span class="layui-badge layui-bg-blue duration-badge">' + list[i].videos + '</span>' +
-                            '<img class="c-cover" src="' + list[i].pic + '" onerror="this.src=\'./cover.png\'"/>' +
+                            '<img class="c-cover" src="' + list[i].pic + '" onerror="this.src=\'/cover.png\'"/>' +
                             '</div></div ></div>' + htmlString;
                     }
                     $('#collect-list').html(htmlString)
@@ -491,17 +506,17 @@
                     makePageList(bvid)
                     return false;
                 },
-                "go-search-default":function(){
+                "go-search-default": function () {
                     var keyword = $('#search-input-keywrd').val()
-                    goSearch(keyword,'',true)
+                    goSearch(keyword, '', true)
                 },
-                "go-search-update":function(){
+                "go-search-update": function () {
                     var keyword = $('#search-input-keywrd').val()
-                    goSearch(keyword,'update',true)
+                    goSearch(keyword, 'update', true)
                 },
-                "go-search-click":function(){
+                "go-search-click": function () {
                     var keyword = $('#search-input-keywrd').val()
-                    goSearch(keyword,'click',true)
+                    goSearch(keyword, 'click', true)
                 },
                 "click-video-owner-name": function (othis) {
                     var nickname = $(othis).text()
@@ -512,10 +527,10 @@
                     $('.list-div').removeClass("slide-in");
                     $(".search-list-div").addClass("slide-in");
                 },
-                "cancel_collect":function (othis){
+                "cancel_collect": function (othis) {
                     lockTime = Date.now();
                     var bvid = $(othis).parent().data('bvid')
-                    console.log(bvid)
+                    // console.log(bvid)
                     var ok = deleteCollect(bvid);
                     if (!ok) {
                         layer.msg('操作失败', {
@@ -527,66 +542,81 @@
                     }
                     return true;
                 },
-                "show-bl-collect-list":function(){
-                    if(bl_fav_folder_list.id != 0){
-                       $(".bl-collect-list-div").addClass("slide-in");
+                "show-bl-collect-list": function () {
+                    if (bl_fav_folder_list.id != 0) {
+                        $(".bl-collect-list-div").addClass("slide-in");
                         return;
                     }
-                    getBLFavFolderList().then(list => {
+                    window.go.main.BL.GetBLFavFolderList().then((list, err) => {
                         // console.log(list)
                         let folderHtml = 'BL收藏夹列表 ';
                         for (let i = 0; i < list.length; i++) {
-                            folderHtml += '<button class="layui-btn layui-btn-sm search-list-sort" data-media_id="' + list[i].id +'" data-media_count="' + list[i].media_count +'" lay-on="show-bl-collect-list-with-fid">'+ list[i].title +'</button>';
-                            if(bl_fav_folder_list.id == 0){
+                            folderHtml += '<button class="layui-btn layui-btn-sm search-list-sort" data-media_id="' + list[i].id + '" data-media_count="' + list[i].media_count + '" lay-on="show-bl-collect-list-with-fid">' + list[i].title + '</button>';
+                            if (bl_fav_folder_list.id == 0) {
                                 bl_fav_folder_list.id = list[i].id;
                                 bl_fav_folder_list.part_num = 1;
                                 bl_fav_folder_list.count = list[i].media_count;
                             }
                         }
-                        folderHtml += '<button id="slideBtn" class="slideBtnClass"><i class="layui-icon layui-icon-error"></i></button>';
+                        folderHtml += '<button id="slideBtn6" class="slideBtnClass"><i class="layui-icon layui-icon-error"></i></button>';
                         $('.bl-collect-list-fav-folder').html(folderHtml);
                         $(".bl-collect-list-div").addClass("slide-in");
-                        if(bl_fav_folder_list.id != 0){
+                        if (bl_fav_folder_list.id != 0) {
                             makeBLFavFolderList();
-                        } 
+                        }
+                        $("#slideBtn6").on('click', function () {
+                            $(".bl-collect-list-div").removeClass("slide-in");
+                        });
                     });
                 },
-                "show-bl-collect-list-with-fid":function(othis){
+                "show-bl-collect-list-with-fid": function (othis) {
                     bl_fav_folder_list.id = $(othis).data('media_id');
                     bl_fav_folder_list.count = $(othis).data('media_count')
                     bl_fav_folder_list.part_num = 1;
                     makeBLFavFolderList();
                 },
-                "show-bl-feed-list":function(){
-                    if(feedOffset == 0){
+                "show-bl-feed-list": function () {
+                    if (feedOffset == '') {
                         makeBLFeedList();
                     }
                     $(".bl-feed-list-div").addClass("slide-in");
                 },
-                "refresh-bl-feed-list":function(){
-                    feedOffset = 0;
+                "refresh-bl-feed-list": function () {
+                    feedOffset = '';
                     makeBLFeedList();
                 },
-                "show-bl-rcmd-list":function(){
+                "show-bl-rcmd-list": function () {
                     makeBLRCMDList();
                     $(".bl-rcmd-list-div").addClass("slide-in");
                 },
-                "refresh-bl-rcmd-list":function(){
+                "refresh-bl-rcmd-list": function () {
                     makeBLRCMDList();
                     // $(".bl-rcmd-list-div").addClass("slide-in");
                 }
             });
             // 监听按钮点击事件
-            $("#slideBtn").click(function () {
-                $(".page-list-div").removeClass("slide-in");
+            // $("#slideBtn").click(function () {
+            //     $(".page-list-div").removeClass("slide-in");
+            // });
+            // $("#slideBtn2").click(function () {
+            //     $(".collect-list-div").removeClass("slide-in");
+            // });
+            // $("#slideBtn3").click(function () {
+            //     $(".search-list-div").removeClass("slide-in");
+            // });
+            // $("#slideBtn4").click(function () {
+            //     $(".bl-feed-list-div").removeClass("slide-in");
+            // });
+            // $("#slideBtn5").click(function () {
+            //     $(".bl-rcmd-list-div").removeClass("slide-in");
+            // });
+            // $("#slideBtn6").on('click', function () {
+            //     $(".bl-collect-list-div").removeClass("slide-in");
+            // });
+            $('.slideBtnClass').on('click', function () {
+                $(this).parent().parent().removeClass("slide-in");
             });
-            $("#slideBtn2").click(function () {
-                $(".collect-list-div").removeClass("slide-in");
-            });
-            $("#slideBtn3").click(function () {
-                $(".search-list-div").removeClass("slide-in");
-            });
-  
+
             document.addEventListener("click", function (event) {
                 if (!document.getElementById('collect-list-div').contains(event.target)
                     && !document.getElementById('page-list-div').contains(event.target)
@@ -599,14 +629,18 @@
                 ) {
                     $('.list-div').removeClass("slide-in");
                 }
-                return 
+                return
             });
         });
 
         function refreshUserInfo() {
-            getBLUserInfo().then(userInfo => {
+            window.go.main.BL.GetBLUserInfo().then(userInfo => {
                 // console.log(userInfo);
-                if(userInfo != null && userInfo.face){
+                if (userInfo != null && userInfo.face) {
+                    if (userInfo.face) {
+                        // userInfo.face = 'https://i0.wp.com/' + userInfo.face.replace('http://', '').replace('https://', '');
+                        userInfo.face = graftingImage(userInfo.face);
+                    }
                     $('.user-avatar').css('background-image', "url('" + userInfo.face + "')")
                 }
             });
@@ -622,8 +656,8 @@
             const second = date.getSeconds().toString().padStart(2, '0');
             return `${year}-${month}-${day} ${hour}:${minute}`;
         }
-    
-         // 显示收藏列表
+
+        // 显示收藏列表
         function makeBLFavFolderList() {
             $('#bl-collect-list').html('');
             var flow = layui.flow;
@@ -633,22 +667,23 @@
             flow.load({
                 elem: '#bl-collect-list', // 流加载容器
                 scrollElem: '#bl-collect-list-div', // 流加载容器
-                isAuto: true, 
-                mb:200,
+                isAuto: true,
+                mb: 200,
                 done: function (page, next) { // 执行下一页的回调
-                    getBLFavFolderListDetail(bl_fav_folder_list.id, page).then(list => {
-                        // console.log(page)   
+                    window.go.main.BL.GetBLFavFolderListDetail(bl_fav_folder_list.id, page).then((list, err) => {
+                        // console.log(list)   
                         let htmlString = '';
                         var lis = []
                         for (let i = 0; i < list.length; i++) {
+                            list[i].cover = graftingImage(list[i].cover);
                             lis.push('<div class="layui-col-xs4 list-item">' +
                                 '<div class="layui-card cursor-pointer" lay-on="select-video" ' +
-                                'data-bvid="' + list[i].bvid + '" ' +'>' +
+                                'data-bvid="' + list[i].bvid + '" ' + '>' +
                                 '<div class="layui-card-header page-item-header" title="' + list[i].title + '">' + list[i].title + '</div>' +
                                 '<div class="layui-card-body padding-0 img-container">' +
                                 '<span class="layui-badge layui-bg-blue duration-badge">' + list[i].upper.name + ' | ' + timestamp2Date(list[i].ctime) + '</span>' +
-                                '<img class="c-cover" src="' + list[i].cover + '" onerror="this.src=\'./cover.png\'"/>' +
-                                '</div></div ></div>'                                    )
+                                '<img class="c-cover" src="' + list[i].cover + '" onerror="this.src=\'/cover.png\'"/>' +
+                                '</div></div ></div>')
                         }
                         next(lis.join(''), page < maxPage); // 此处假设总页数为 10
                     });
@@ -657,7 +692,7 @@
             return false;
         }
 
-         // 显示订阅列表
+        // 显示订阅列表
         function makeBLFeedList() {
             $('#bl-feed-list').html('');
             var flow = layui.flow;
@@ -665,10 +700,11 @@
             flow.load({
                 elem: '#bl-feed-list', // 流加载容器
                 scrollElem: '#bl-feed-list-div', // 流加载容器
-                isAuto: true, 
-                mb:200,
+                isAuto: true,
+                mb: 200,
                 done: function (page, next) { // 执行下一页的回调
-                    getBLFeedList(feedOffset).then(data => {
+                    window.go.main.BL.GetBLFeedList(feedOffset).then((data, err) => {
+                        // console.log(data);
                         let htmlString = '';
                         var lis = []
                         let list = data.items;
@@ -676,13 +712,14 @@
                             let info = list[i].modules.module_dynamic.major.archive;
                             let publishTime = list[i].modules.module_author.pub_time;
                             let userName = list[i].modules.module_author.name;
+                            info.cover = graftingImage(info.cover);
                             lis.push('<div class="layui-col-xs4 list-item">' +
                                 '<div class="layui-card cursor-pointer" lay-on="select-video" ' +
-                                'data-bvid="' + info.bvid + '" ' +'>' +
+                                'data-bvid="' + info.bvid + '" ' + '>' +
                                 '<div class="layui-card-header page-item-header" title="' + info.title + '">' + info.title + '</div>' +
                                 '<div class="layui-card-body padding-0 img-container">' +
                                 '<span class="layui-badge layui-bg-blue duration-badge">' + userName + ' | ' + publishTime + '</span>' +
-                                '<img class="c-cover" src="' + info.cover + '" onerror="this.src=\'./cover.png\'"/>' +
+                                '<img class="c-cover" src="' + info.cover + '" onerror="this.src=\'/cover.png\'"/>' +
                                 '</div></div ></div>')
                         }
                         feedOffset = data.offset;
@@ -692,33 +729,34 @@
             });
             return false;
         }
-        
+
         // 显示推荐列表
         function makeBLRCMDList() {
             $('#bl-rcmd-list').html('');
             var flow = layui.flow;
-        
+
             // 流加载实例
             flow.load({
                 elem: '#bl-rcmd-list', // 流加载容器
                 scrollElem: '#bl-rcmd-list-div', // 流加载容器
-                isAuto: true, 
-                mb:200,
+                isAuto: true,
+                mb: 200,
                 done: function (page, next) { // 执行下一页的回调
-                    getBLRCMDList(page).then(data => {
+                    window.go.main.BL.GetBLRCMDList(page).then(data => {
                         let htmlString = '';
                         var lis = []
                         let list = data.items;
                         for (let i = 0; i < list.length; i++) {
                             let info = list[i];
                             let publishTime = list[i].owner.name + ' | ' + timestamp2Date(list[i].pubdate);
+                            info.pic = graftingImage(info.pic);
                             lis.push('<div class="layui-col-xs4 list-item">' +
                                 '<div class="layui-card cursor-pointer" lay-on="select-video" ' +
-                                'data-bvid="' + info.bvid + '" ' +'>' +
+                                'data-bvid="' + info.bvid + '" ' + '>' +
                                 '<div class="layui-card-header page-item-header" title="' + info.title + '">' + info.title + '</div>' +
                                 '<div class="layui-card-body padding-0 img-container">' +
                                 '<span class="layui-badge layui-bg-blue duration-badge">' + publishTime + '</span>' +
-                                '<img class="c-cover" src="' + info.pic + '" onerror="this.src=\'./cover.png\'"/>' +
+                                '<img class="c-cover" src="' + info.pic + '" onerror="this.src=\'/cover.png\'"/>' +
                                 '</div></div ></div>')
                         }
                         next(lis.join(''), data.has_more); // 此处假设总页数为 10
@@ -728,6 +766,53 @@
             return false;
         }
 
+        // 登录
+        function BLLogin() {
+            window.go.main.BL.GetLoginQRCode().then((qrcodeUrl, err) => {
+                if (err) {
+                    console.log(err);
+                    return;
+                }
+                $('#bl-loginqrcode').attr('src', 'https://api.pwmqr.com/qrcode/create/?url=' + encodeURIComponent(qrcodeUrl));
+                loopLoginStatus();
+            });
+
+        }
+
+        // 循环获取登录状态
+        function loopLoginStatus() {
+            console.log('loopLoginStatus');
+            window.go.main.BL.GetLoginStatus().then(status => {
+                if (!status) {
+                    // 已关闭登录页面
+                    console.log('已关闭登录页面');
+                    return;
+                } else {
+                    // 获取扫码状态
+                    window.go.main.BL.GetLoginQRCodeStatus().then(status => {
+                        if (status) {
+                            // 扫码成功
+                            console.log('扫码成功');
+                            $('.login-panel').hide();
+                            refreshUserInfo();
+                        } else {
+                            loopLoginStatus();
+                        }
+                    });
+                }
+            });
+
+        }
+
+        // 代理图片
+        function graftingImage(img) {
+            if (img) {
+                // 随机 0 到 3 中的一个数字
+                let randomNum = Math.floor(Math.random() * 4);
+                img = 'https://i' + randomNum + '.wp.com/' + img.replace('http://', '').replace('https://', '');
+            }
+            return img;
+        }
     </script>
 </body>
 

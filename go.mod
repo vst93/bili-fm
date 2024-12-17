@@ -4,6 +4,8 @@ go 1.21
 
 toolchain go1.21.4
 
+// replace github.com/wailsapp/wails/v2 v2.6.0 => /Users/vst/Code/Go/pkg/mod
+
 require github.com/wailsapp/wails/v2 v2.6.0
 
 require (
@@ -33,5 +35,3 @@ require (
 	golang.org/x/sys v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
 )
-
-// replace github.com/wailsapp/wails/v2 v2.6.0 => /Users/vst/Code/Go/pkg/mod

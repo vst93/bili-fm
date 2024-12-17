@@ -1,5 +1,21 @@
 export namespace main {
 	
+	export class FeedList {
+	    items: any[];
+	    has_more: boolean;
+	    offset: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FeedList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = source["items"];
+	        this.has_more = source["has_more"];
+	        this.offset = source["offset"];
+	    }
+	}
 	export class Page {
 	    cid: number;
 	    page: number;
@@ -33,7 +49,7 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
-		    if (a.slice && a.map) {
+		    if (a.slice) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
 		        if (asMap) {
@@ -59,6 +75,22 @@ export namespace main {
 	        this.url = source["url"];
 	    }
 	}
+	export class RCMDList {
+	    items: any[];
+	    has_more: boolean;
+	    page: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RCMDList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = source["items"];
+	        this.has_more = source["has_more"];
+	        this.page = source["page"];
+	    }
+	}
 	export class SearchResult {
 	    picture_url: string;
 	    url: string;
@@ -81,6 +113,22 @@ export namespace main {
 	        this.danmuCount = source["danmuCount"];
 	        this.author = source["author"];
 	        this.date = source["date"];
+	    }
+	}
+	export class UserInfo {
+	    uname: string;
+	    face: string;
+	    mid: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UserInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uname = source["uname"];
+	        this.face = source["face"];
+	        this.mid = source["mid"];
 	    }
 	}
 	export class VideoInfo {
@@ -117,7 +165,7 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
-		    if (a.slice && a.map) {
+		    if (a.slice) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
 		        if (asMap) {

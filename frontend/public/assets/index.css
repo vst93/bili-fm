@@ -1,7 +1,7 @@
 body {
     margin: 0;
     padding: 0;
-    background: #ffffff;
+    background: #fefefe;
     user-select: none;
     /** 禁止选择文本 */
     -webkit-user-select: none;
