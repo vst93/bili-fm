@@ -73,7 +73,7 @@ func main() {
 	aboutMenu.AddText("About", nil, func(_ *menu.CallbackData) {
 		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
 			Title:   "About",
-			Message: "bili-FM is a simple and lightweight bilibili audio player built with Wails framework.",
+			Message: "bili-FM is a simple and lightweight bilibili audio player built with Wails framework. https://github.com/vst93/bili-fm",
 			Type:    "info",
 			Buttons: []string{"OK"},
 		})
