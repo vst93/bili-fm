@@ -2,9 +2,9 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "bili-FM",
   "outputfilename": "bili-FM",
-  "frontend:install": "npm install",
-  "frontend:build": "npm run build",
-  "frontend:dev:watcher": "npm run dev",
+  "frontend:install": "yarn",
+  "frontend:build": "yarn build",
+  "frontend:dev:watcher": "yarn dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
     "name": "vst"
