@@ -2,13 +2,8 @@ package main
 
 import (
 	"embed"
-	"fmt"
-
+	"io"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
-
-	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -23,45 +18,55 @@ var APP_DIR = ""
 var APP_VERSION = "0.1.0"
 var APP_VERSION_NO = 1
 
+// 图片代理处理函数
+func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
+	// 从查询参数中获取图片 URL
+	imageURL := r.URL.Query().Get("url")
+	if imageURL == "" {
+		http.Error(w, "Missing 'url' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	// 发送 HTTP 请求获取图片
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		http.Error(w, "Failed to fetch image", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 检查响应状态码
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "Failed to fetch image", http.StatusInternalServerError)
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// 将图片数据写入响应
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to write image data", http.StatusInternalServerError)
+		return
+	}
+}
+
 func main() {
 
 	InitDb()
 
-	// 设置代理处理函数
-	http.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) {
-
-		// 解析图片URL
-		path := r.URL.Path
-		fmt.Println(path)
-		path = strings.TrimPrefix(path, "/proxy/https:/")
-
-		targetUrl, err := url.Parse("https://" + path)
-		fmt.Println(targetUrl)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+	// 注册图片代理处理函数
+	http.HandleFunc("/image-proxy", imageProxyHandler)
+	// 启动 HTTP 服务器
+	go func() {
+		if err := http.ListenAndServe(":4654", nil); err != nil {
+			println("Error:", err.Error())
+		} else {
+			println("Image proxy server started on port 4654")
 		}
-
-		// 创建一个反向代理
-		proxy := httputil.NewSingleHostReverseProxy(targetUrl)
-
-		// 修改请求头
-		originalDirector := proxy.Director
-		proxy.Director = func(req *http.Request) {
-			originalDirector(req)
-			// req.Header.Set("Origin", "https://www.bilibili.com")
-			req.Header.Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36")
-			// req.Header.Set("Refresh", "https://www.bilibili.com") // 5秒刷新一次
-			// req.Header.Set("Host", "www.bilibili.com") // 防盗链
-			req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-			req.Header.Set("Connection", "keep-alive")
-			req.Header.Set("Accept", "*/*")
-		}
-
-		// 使用代理服务请求图片
-		proxy.ServeHTTP(w, r)
-	})
-	go http.ListenAndServe(":4653", nil)
+	}()
 
 	// Create an instance of the app structure
 	app := NewApp()
