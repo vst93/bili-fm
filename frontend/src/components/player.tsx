@@ -2,13 +2,21 @@ import { AudioPlayer } from "react-audio-play";
 
 interface PlayerProps {
   src?: string;
+  onEnded?: () => void;
+  onPlayStateChange?: (isPlaying: boolean) => void;
 }
 
-export default function Player({ src }: PlayerProps) {
+export default function Player({
+  src,
+  onEnded,
+  onPlayStateChange,
+}: PlayerProps) {
   let autoPlay = true;
 
   if (!src) {
     autoPlay = false;
+  } else {
+    onPlayStateChange?.(true);
   }
 
   return (
@@ -16,10 +24,13 @@ export default function Player({ src }: PlayerProps) {
       <AudioPlayer
         autoPlay={autoPlay}
         hasKeyBindings={false}
-        loop={true}
+        loop={false}
         sliderColor="#68bca4"
         src={src || ""}
         width="100%"
+        onEnd={onEnded}
+        onPause={() => onPlayStateChange?.(false)}
+        onPlay={() => onPlayStateChange?.(true)}
       />
     </div>
   );

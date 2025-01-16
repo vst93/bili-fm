@@ -19,8 +19,15 @@ interface PageListProps {
   pageNum?: number;
   onSlideClick?: () => void;
   videoInfo?: main.VideoInfo;
-  onVideoSelect?: (cid: number, aid: number, part: string) => void;
+  onVideoSelect?: (
+    cid: number,
+    aid: number,
+    part: string,
+    index: number,
+    first_frame: string,
+  ) => void;
   currentBvid?: string;
+  currentPart?: string;
 }
 
 const PageList: FC<PageListProps> = ({
@@ -28,6 +35,7 @@ const PageList: FC<PageListProps> = ({
   onSlideClick,
   videoInfo,
   onVideoSelect,
+  currentPart,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
 
@@ -36,6 +44,17 @@ const PageList: FC<PageListProps> = ({
       onSlideClick?.();
     }
     onOpenChange();
+  };
+
+  const handleVideoSelect = (
+    cid: number,
+    aid: number,
+    part: string,
+    index: number,
+    first_frame: string,
+  ) => {
+    onVideoSelect?.(cid, aid, part, index, first_frame);
+    handleOpenChange(false);
   };
 
   return (
@@ -62,9 +81,18 @@ const PageList: FC<PageListProps> = ({
                   <Card
                     key={index}
                     isPressable
+                    className={
+                      currentPart === page.part ? "border-2 border-primary" : ""
+                    }
                     shadow="sm"
                     onPress={() =>
-                      onVideoSelect?.(page.cid, videoInfo.aid, page.part)
+                      handleVideoSelect(
+                        page.cid,
+                        videoInfo.aid,
+                        page.part,
+                        index,
+                        page.first_frame,
+                      )
                     }
                   >
                     <CardBody className="overflow-visible p-0 img-container">

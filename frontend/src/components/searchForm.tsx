@@ -13,8 +13,11 @@ export default function SearchForm({ onSearch, onUrlJump }: SearchFormProps) {
     onSearch(inputValue);
   };
 
-  const handleUrlJump = () => {
-    onUrlJump(inputValue);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSearch();
+    }
   };
 
   return (
@@ -25,14 +28,14 @@ export default function SearchForm({ onSearch, onUrlJump }: SearchFormProps) {
           className="max-w-full"
           id="search-input-keywrd"
           name="b_url"
-          placeholder="B站视频地址 / 搜索关键词"
+          placeholder="B站｜搜索关键词"
           type="text"
           value={inputValue}
-          onClear={() => setInputValue("")}
           onChange={(e) => setInputValue(e.target.value)}
+          onClear={() => setInputValue("")}
+          onKeyDown={handleKeyDown}
         />
         <Button onClick={handleSearch}>搜索</Button>
-        <Button onClick={handleUrlJump}>链接跳转</Button>
       </div>
     </Form>
   );

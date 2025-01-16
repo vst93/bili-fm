@@ -6,18 +6,22 @@ interface VideoInfoProps {
   ownerName?: string;
   ownerFace?: string;
   part?: string;
+  onSearchClick?: () => void;
+  onPageListClick?: () => void;
 }
 
-export default function VideoInfo({ 
+export default function VideoInfo({
   title = "暂无播放内容",
   desc = "",
   ownerName = "",
   ownerFace = "",
   part = "",
+  onSearchClick,
+  onPageListClick,
 }: VideoInfoProps) {
   return (
     <div id="video-info">
-      <div id="video-owner">
+      <div className="flex items-center gap-2" id="video-owner">
         <img alt="" id="video-owner-face" src={ownerFace} />
         <span className="cursor-pointer" id="video-owner-name">
           {ownerName}
@@ -34,10 +38,18 @@ export default function VideoInfo({
       </div>
 
       <div className="info-tools">
-        <Button className="info-tools-button" title="搜索">
+        <Button
+          className="info-tools-button"
+          title="搜索"
+          onClick={onSearchClick}
+        >
           搜索
         </Button>
-        <Button className="info-tools-button" title="选集">
+        <Button
+          className="info-tools-button"
+          title="选集"
+          onClick={onPageListClick}
+        >
           选集
         </Button>
         <Button className="info-tools-button" title="浏览器打开">
