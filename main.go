@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -16,7 +19,47 @@ import (
 var assets embed.FS
 var APP_DIR = ""
 var APP_VERSION = "1.0.0"
-var APP_VERSION_NO = 1
+var APP_VERSION_NO = 2
+
+type GithubRelease struct {
+	TagName string `json:"tag_name"`
+	HtmlUrl string `json:"html_url"`
+	Assets  []struct {
+		BrowserDownloadUrl string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func checkForUpdates(ctx context.Context) {
+	resp, err := http.Get("https://api.github.com/repos/vst93/bili-fm/releases/latest")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var release GithubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return
+	}
+
+	// 移除版本号前的 'v' 如果存在
+	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	currentVersion := strings.TrimPrefix(APP_VERSION, "v")
+
+	if latestVersion > currentVersion {
+		choice, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Title:         "发现新版本",
+			Message:       "发现新版本 " + latestVersion + "\n是否前往下载？",
+			Type:          runtime.QuestionDialog,
+			Buttons:       []string{"是", "否"},
+			DefaultButton: "是",
+			CancelButton:  "否",
+		})
+
+		if err == nil && choice == "是" {
+			runtime.BrowserOpenURL(ctx, release.HtmlUrl)
+		}
+	}
+}
 
 // 图片代理处理函数
 func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +126,6 @@ func main() {
 			Buttons: []string{"好的"},
 		})
 	})
-	// VersionMenu := AppMenu.AddSubmenu("Version")
 	aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
 		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
 			Title:   "版本",
@@ -91,6 +133,9 @@ func main() {
 			Type:    "info",
 			Buttons: []string{"好的"},
 		})
+	})
+	aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
+		checkForUpdates(app.ctx)
 	})
 
 	// Create application with options
@@ -102,7 +147,11 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: options.NewRGB(235, 235, 235),
-		OnStartup:        app.startup,
+		OnStartup: func(ctx context.Context) {
+			app.startup(ctx)
+			// 启动时检查更新
+			checkForUpdates(ctx)
+		},
 		Bind: []interface{}{
 			app,
 			bl,
