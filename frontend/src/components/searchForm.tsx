@@ -1,91 +1,83 @@
-import { Form, Input, Button, Avatar } from "@nextui-org/react";
-import { useState, useEffect } from "react";
+import { FC } from "react";
+import { Avatar, Input } from "@nextui-org/react";
 import { Search } from "@icon-park/react";
 
 interface SearchFormProps {
-  onSearch: (keyword: string) => void;
-  onUrlJump: (url: string) => void;
-  onInputChange?: (value: string) => void;
   value?: string;
+  onInputChange?: (value: string) => void;
+  onSearch?: (keyword: string) => void;
+  onUrlJump?: (url: string) => void;
   onLoginClick?: () => void;
   userFace?: string;
 }
 
-export default function SearchForm({
-  onSearch,
+const SearchForm: FC<SearchFormProps> = ({
   value = "",
   onInputChange,
+  onSearch,
+  onUrlJump,
   onLoginClick,
   userFace,
-}: SearchFormProps) {
-  const [inputValue, setInputValue] = useState(value);
-
-  const handleSearch = () => {
-    onSearch(inputValue);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+}) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      // 只在按下 Enter 键时阻止事件冒泡和默认行为
-      e.stopPropagation();
-      e.preventDefault();
-      handleSearch();
-    } else if (e.key === "space" || e.key === " ") {
-      e.stopPropagation();
+      const inputValue = (e.target as HTMLInputElement).value;
+      if (inputValue.includes("bilibili.com/video/")) {
+        onUrlJump?.(inputValue);
+      } else {
+        onSearch?.(inputValue);
+      }
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-
-    setInputValue(newValue);
-    onInputChange?.(newValue);
-  };
-
-  // 当外部 value 改变时更新输入框
-  useEffect(() => {
-    setInputValue(value);
-  }, [value]);
-
   return (
-    <Form className="items-center" onSubmit={(e) => e.preventDefault()}>
-      <div className="flex gap-2 items-center">
+    <div className="flex items-center justify-center gap-2 p-2">
+      <div className="w-[300px]">
         <Input
-          isClearable
-          className="max-w-full"
-          id="search-input-keywrd"
-          name="b_url"
-          placeholder="B站｜搜索关键词"
-          type="text"
-          value={inputValue}
-          onChange={handleInputChange}
-          onClear={() => {
-            setInputValue("");
-            onInputChange?.("");
-          }}
+          value={value}
+          onValueChange={onInputChange}
           onKeyDown={handleKeyDown}
-        />
-        <Button onClick={handleSearch}>
-          <Search fill="#333" size="24" theme="outline" />
-        </Button>
-        <Avatar
-          isBordered
-          classNames={{
-            base: "h-10 w-16",
-            img: "opacity-100",
-          }}
+          placeholder="B站｜关键词搜索"
           size="md"
-          style={{
-            cursor: "pointer",
+          radius="md"
+          classNames={{
+            base: "max-w-full",
+            mainWrapper: "h-12",
+            input: "text-small",
+            inputWrapper: "h-12 pr-0",
           }}
-          title="登录或重新登录"
-          onClick={onLoginClick}
-          src={userFace}
-          imgProps={{
-            crossOrigin: "anonymous"
-          }}
+          endContent={
+            <button
+              className="bg-transparent border-none cursor-pointer h-12 w-12 flex items-center justify-center hover:bg-default-100/50 active:bg-default-200/70 transition-colors border-l border-default-200"
+              onClick={() => onSearch?.(value)}
+            >
+              <Search theme="outline" size="20" fill="#333" />
+            </button>
+          }
         />
       </div>
-    </Form>
+      {userFace ? (
+        <Avatar
+          src={userFace}
+          className="cursor-pointer"
+          onClick={onLoginClick}
+          size="md"
+          isBordered
+          classNames={{
+            img: "opacity-100",
+          }}
+        />
+      ) : (
+        <Avatar
+          showFallback
+          className="cursor-pointer"
+          onClick={onLoginClick}
+          size="md"
+          isBordered
+        />
+      )}
+    </div>
   );
-}
+};
+
+export default SearchForm;

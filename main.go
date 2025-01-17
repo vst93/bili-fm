@@ -15,7 +15,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 var APP_DIR = ""
-var APP_VERSION = "0.1.0"
+var APP_VERSION = "1.0.0"
 var APP_VERSION_NO = 1
 
 // 图片代理处理函数
