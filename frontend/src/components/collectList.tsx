@@ -1,5 +1,4 @@
 import type { FC } from "react";
-import type { main } from "../../wailsjs/go/models";
 import { Refresh, Left, Right } from "@icon-park/react";
 
 import { useDisclosure } from "@nextui-org/react";
