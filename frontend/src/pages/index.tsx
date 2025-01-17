@@ -677,6 +677,9 @@ export default function IndexPage() {
           </div>
         </div>
       )}
+      <div className="fixed bottom-0 right-0 opacity-0">
+        <img src="https://sstatic1.histats.com/0.gif?4923382&101" alt="" />
+      </div>
     </DefaultLayout>
   );
 }
