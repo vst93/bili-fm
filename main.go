@@ -29,15 +29,31 @@ type GithubRelease struct {
 	} `json:"assets"`
 }
 
-func checkForUpdates(ctx context.Context) {
+func checkForUpdates(ctx context.Context, isManualCheck bool) {
 	resp, err := http.Get("https://api.github.com/repos/vst93/bili-fm/releases/latest")
 	if err != nil {
+		if isManualCheck {
+			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+				Title:   "检查更新失败",
+				Message: "网络连接失败，请稍后重试",
+				Type:    runtime.ErrorDialog,
+				Buttons: []string{"确定"},
+			})
+		}
 		return
 	}
 	defer resp.Body.Close()
 
 	var release GithubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		if isManualCheck {
+			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+				Title:   "检查更新失败",
+				Message: "解析版本信息失败，请稍后重试",
+				Type:    runtime.ErrorDialog,
+				Buttons: []string{"确定"},
+			})
+		}
 		return
 	}
 
@@ -58,6 +74,13 @@ func checkForUpdates(ctx context.Context) {
 		if err == nil && choice == "是" {
 			runtime.BrowserOpenURL(ctx, release.HtmlUrl)
 		}
+	} else if isManualCheck {
+		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Title:   "检查更新",
+			Message: "当前已是最新版本",
+			Type:    runtime.InfoDialog,
+			Buttons: []string{"确定"},
+		})
 	}
 }
 
@@ -135,7 +158,7 @@ func main() {
 		})
 	})
 	aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
-		checkForUpdates(app.ctx)
+		checkForUpdates(app.ctx, true)
 	})
 
 	// Create application with options
@@ -150,7 +173,7 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			// 启动时检查更新
-			checkForUpdates(ctx)
+			checkForUpdates(ctx, false)
 		},
 		Bind: []interface{}{
 			app,
