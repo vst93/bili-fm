@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { main as MainModels } from "../../wailsjs/go/models";
-import { SearchVideo, GetCList, GetUrlByCid } from "../../wailsjs/go/main/BL";
+import { SearchVideo, GetCList, GetUrlByCid, GetLoginQRCode, GetLoginStatus, GetLoginQRCodeStatus, SetLoginStatus, GetBLUserInfo, GetBLFeedList, GetBLRCMDList, GetBLFavFolderList, GetBLFavFolderListDetail } from "../../wailsjs/go/main/BL";
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
@@ -10,12 +10,16 @@ import VideoInfo from "@/components/videoInfo";
 import Player from "@/components/player";
 import PageList from "@/components/pageList";
 import SearchList from "@/components/searchList";
+import FeedList from "@/components/feedList";
+import RecommendList from "@/components/recommendList";
 import DefaultLayout from "@/layouts/default";
 import { graftingImage, urlToBVID } from "@/utils/string";
+import CollectList from "@/components/collectList";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [showSearchList, setShowSearchList] = useState(false);
+  const [showFeedList, setShowFeedList] = useState(false);
   const [pageNum, setPageNum] = useState(0);
   const [searchResults, setSearchResults] = useState<MainModels.SearchResult[]>(
     [],
@@ -31,7 +35,30 @@ export default function IndexPage() {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [pageFirstFrame, setPageFirstFrame] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [showLoginPanel, setShowLoginPanel] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [userFace, setUserFace] = useState("");
+  const [feedList, setFeedList] = useState<MainModels.FeedList>();
+  const [feedOffset, setFeedOffset] = useState("");
+  const [showRecommendList, setShowRecommendList] = useState(false);
+  const [recommendList, setRecommendList] = useState<any>();
+  const [recommendPage, setRecommendPage] = useState(1);
+  const [showCollectList, setShowCollectList] = useState(false);
+  const [collectList, setCollectList] = useState<any>();
+  const [collectGroups, setCollectGroups] = useState<any[]>([]);
+  const [currentGroupId, setCurrentGroupId] = useState<number>();
+  const [collectPage, setCollectPage] = useState(1);
 
+  useEffect(() => {
+    // 初始化时获取用户信息
+    refreshUserInfo();
+  }, []);
+
+  /**
+   * 键盘事件处理函数
+   * @param event 键盘事件对象
+   * @description 处理空格键（播放/暂停）和左右方向键（上一个/下一个视频）的按键事件
+   */
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
       if (
@@ -88,6 +115,122 @@ export default function IndexPage() {
   }, [videoInfo, currentIndex]);
 
   /**
+   * 处理登录按钮点击事件
+   * @description 显示登录面板，获取登录二维码，并开始轮询登录状态
+   */
+  const handleLogin = async () => {
+    try {
+      await SetLoginStatus(true);
+      setShowLoginPanel(true);
+      const qrcodeUrl = await GetLoginQRCode();
+      setQrCodeUrl(`https://api.pwmqr.com/qrcode/create/?url=${encodeURIComponent(qrcodeUrl)}`);
+      loopLoginStatus();
+    } catch (error) {
+      console.error("登录失败:", error);
+    }
+  };
+
+  /**
+   * 轮询检查登录状态
+   * @description 每2秒检查一次登录状态，直到用户扫码成功或关闭登录面板
+   */
+  const loopLoginStatus = async () => {
+    try {
+      const status = await GetLoginStatus();
+      if (!status) {
+        console.log("已关闭登录页面");
+        return;
+      }
+
+      const qrCodeStatus = await GetLoginQRCodeStatus();
+      if (qrCodeStatus) {
+        console.log("扫码成功");
+        setShowLoginPanel(false);
+        refreshUserInfo();
+      } else {
+        setTimeout(loopLoginStatus, 2000);
+      }
+    } catch (error) {
+      console.error("获取登录状态失败:", error);
+    }
+  };
+
+  /**
+   * 刷新用户信息
+   * @description 获取用户信息并更新头像
+   */
+  const refreshUserInfo = async () => {
+    try {
+      const userInfo = await GetBLUserInfo();
+      if (userInfo?.face) {
+        const processedFace = graftingImage(userInfo.face);
+        setUserFace(processedFace);
+      }
+    } catch (error) {
+      console.error("获取用户信息失败:", error);
+    }
+  };
+
+  /**
+   * 处理关闭登录面板事件
+   * @description 关闭登录面板并重置登录状态
+   */
+  const handleCloseLogin = async () => {
+    await SetLoginStatus(false);
+    setShowLoginPanel(false);
+  };
+
+  /**
+   * 处理动态按钮点击事件
+   * @description 获取并显示用户关注的UP主的动态列表
+   */
+  const handleFeedClick = async () => {
+    try {
+      const data = await GetBLFeedList(feedOffset);
+      setFeedList(data);
+      setShowFeedList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+    } catch (error) {
+      console.error("获取动态列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理动态列表刷新事件
+   * @description 重置偏移量并重新获取动态列表
+   */
+  const handleFeedRefresh = async () => {
+    try {
+      setFeedOffset("");
+      const data = await GetBLFeedList("");
+      setFeedList(data);
+    } catch (error) {
+      console.error("刷新动态列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理动态列表加载更多事件
+   * @param offset 下一页的偏移量
+   * @description 根据偏移量加载更多动态内容
+   */
+  const handleLoadMore = async (offset: string) => {
+    try {
+      const data = await GetBLFeedList(offset);
+      if (data?.items && feedList?.items) {
+        setFeedList({
+          ...data,
+          items: [...feedList.items, ...data.items],
+        });
+      }
+      setFeedOffset(data?.offset || "");
+    } catch (error) {
+      console.error("加载更多动态失败:", error);
+    }
+  };
+
+  /**
    * 处理搜索操作
    * @param keyword 搜索关键词
    * @description 根据关键词搜索视频，并显示搜索结果列表
@@ -96,7 +239,6 @@ export default function IndexPage() {
     if (!keyword) {
       // TODO: 显示错误提示
       console.log("请输入关键词");
-
       return;
     }
 
@@ -107,6 +249,7 @@ export default function IndexPage() {
       setSearchResults(results);
       setShowSearchList(true);
       setShowPageList(false);
+      setShowFeedList(false);
     } catch (error) {
       console.error("搜索失败:", error);
     }
@@ -122,7 +265,6 @@ export default function IndexPage() {
 
     try {
       const results = await SearchVideo(currentKeyword, order);
-
       setSearchResults(results);
     } catch (error) {
       console.error("搜索失败:", error);
@@ -130,7 +272,7 @@ export default function IndexPage() {
   };
 
   /**
-   * 处理视频链接跳转
+   * 处理视频链接跳转事件
    * @param url B站视频链接
    * @description 解析B站视频链接，获取视频信息并显示选集列表
    */
@@ -138,7 +280,6 @@ export default function IndexPage() {
     if (!url) {
       // TODO: 显示错误提示
       console.log("请输入B站视频地址");
-
       return;
     }
 
@@ -146,7 +287,6 @@ export default function IndexPage() {
 
     if (!bvid) {
       console.log("无效的视频地址");
-
       return;
     }
 
@@ -156,6 +296,9 @@ export default function IndexPage() {
       setCurrentBvid(bvid);
       setShowPageList(true);
       setShowSearchList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
       setPageNum(info.pages?.length || 0);
       // 使用新的视频信息
       setVideoInfo(MainModels.VideoInfo.createFrom(info));
@@ -165,20 +308,12 @@ export default function IndexPage() {
   };
 
   /**
-   * 处理抽屉关闭事件
-   * @description 关闭选集列表和搜索结果列表
-   */
-  // const handleSlideClick = () => {
-  //   setShowPageList(false);
-  //   setShowSearchList(false);
-  // };
-
-  /**
    * 处理视频选集选择
    * @param cid 视频分P的cid
    * @param aid 视频aid
    * @param part 分P标题
    * @param index 分P索引
+   * @param first_frame 分P的预览图
    * @description 选择视频分P后获取播放地址并更新视频信息
    */
   const handleVideoSelect = async (
@@ -188,7 +323,7 @@ export default function IndexPage() {
     index?: number,
     first_frame?: string,
   ) => {
-    setPageFirstFrame(first_frame || "");
+    setPageFirstFrame(first_frame || videoInfo?.pic || "");
 
     try {
       const info = await GetUrlByCid(aid, cid);
@@ -241,26 +376,29 @@ export default function IndexPage() {
   };
 
   /**
-   * 处理搜索按钮点击
-   * @description 显示搜索结果列表，隐藏选集列表
+   * 处理搜索按钮点击事件
+   * @description 显示搜索结果列表，隐藏其他列表
    */
   const handleSearchClick = () => {
     setShowSearchList(true);
     setShowPageList(false);
+    setShowFeedList(false);
   };
 
   /**
-   * 处理选集按钮点击
-   * @description 显示选集列表，隐藏搜索结果列表
+   * 处理选集按钮点击事件
+   * @description 显示选集列表，隐藏其他列表
    */
   const handlePageListClick = () => {
     setShowPageList(true);
     setShowSearchList(false);
+    setShowFeedList(false);
+    setShowRecommendList(false);
   };
 
   /**
-   * 处理搜索结果视频选择
-   * @param bvid 视频bvid
+   * 处理搜索结果视频选择事件
+   * @param bvid 视频的BV号
    * @description 从搜索结果中选择视频后跳转到该视频
    */
   const handleSearchVideoSelect = async (bvid: string) => {
@@ -271,18 +409,170 @@ export default function IndexPage() {
     }
   };
 
+  /**
+   * 处理封面点击事件
+   * @param playing 是否开始播放
+   * @description 更新视频播放状态
+   */
   const handleCoverClick = (playing: boolean) => {
     setIsPlaying(playing);
   };
 
+  /**
+   * 处理分享按钮点击事件
+   * @description 在浏览器中打开当前视频的B站页面
+   */
   const handleShareClick = () => {
     if (videoInfo?.bvid) {
       BrowserOpenURL(`https://www.bilibili.com/video/${videoInfo.bvid}`);
     }
   };
 
+  /**
+   * 处理UP主名称点击事件
+   * @param name UP主名称
+   * @description 将UP主名称设置为搜索框的值
+   */
   const handleOwnerClick = (name: string) => {
     setSearchInputValue(name);
+  };
+
+  /**
+   * 处理推荐按钮点击事件
+   * @description 获取并显示推荐视频列表，如果已有数据则直接显示
+   */
+  const handleRecommendClick = async () => {
+    // 如果已经有数据，直接显示
+    if (recommendList?.items?.length > 0) {
+      setShowRecommendList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      return;
+    }
+
+    try {
+      const data = await GetBLRCMDList(recommendPage);
+      setRecommendList(data);
+      setShowRecommendList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+    } catch (error) {
+      console.error("获取推荐列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理推荐列表刷新事件
+   * @description 重置页码并重新获取推荐列表
+   */
+  const handleRecommendRefresh = async () => {
+    try {
+      setRecommendPage(1);
+      const data = await GetBLRCMDList(1);
+      setRecommendList(data);
+    } catch (error) {
+      console.error("刷新推荐列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理推荐列表加载更多事件
+   * @description 加载下一页推荐内容
+   */
+  const handleRecommendLoadMore = async () => {
+    try {
+      const nextPage = recommendPage + 1;
+      const data = await GetBLRCMDList(nextPage);
+      if (data?.items && recommendList?.items) {
+        setRecommendList({
+          ...data,
+          items: [...recommendList.items, ...data.items],
+        });
+        setRecommendPage(nextPage);
+      }
+    } catch (error) {
+      console.error("加载更多推荐失败:", error);
+    }
+  };
+
+  /**
+   * 处理收藏按钮点击事件
+   * @description 获取并显示收藏夹列表，如果是首次点击则先获取收藏夹分组
+   */
+  const handleCollectClick = async () => {
+    try {
+      // 如果还没有获取过收藏夹组，先获取
+      if (collectGroups.length === 0) {
+        const groups = await GetBLFavFolderList();
+        setCollectGroups(groups);
+        if (groups.length > 0) {
+          setCurrentGroupId(groups[0].id);
+          const data = await GetBLFavFolderListDetail(groups[0].id, 1);
+          setCollectList(data);
+        }
+      }
+      
+      setShowCollectList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+    } catch (error) {
+      console.error("获取收藏列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理收藏列表刷新事件
+   * @description 重置页码并重新获取当前收藏夹的内容
+   */
+  const handleCollectRefresh = async () => {
+    try {
+      if (currentGroupId) {
+        setCollectPage(1);
+        const data = await GetBLFavFolderListDetail(currentGroupId, 1);
+        setCollectList(data);
+      }
+    } catch (error) {
+      console.error("刷新收藏列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理收藏列表加载更多事件
+   * @description 加载当前收藏夹的下一页内容
+   */
+  const handleCollectLoadMore = async () => {
+    try {
+      if (currentGroupId) {
+        const nextPage = collectPage + 1;
+        const data = await GetBLFavFolderListDetail(currentGroupId, nextPage);
+        if (Array.isArray(data) && Array.isArray(collectList)) {
+          setCollectList([...collectList, ...data]);
+          setCollectPage(nextPage);
+        }
+      }
+    } catch (error) {
+      console.error("加载更多收藏失败:", error);
+    }
+  };
+
+  /**
+   * 处理收藏夹分组选择事件
+   * @param groupId 收藏夹分组ID
+   * @description 切换到指定的收藏夹分组并加载其内容
+   */
+  const handleCollectGroupSelect = async (groupId: number) => {
+    try {
+      setCurrentGroupId(groupId);
+      setCollectPage(1);
+      const data = await GetBLFavFolderListDetail(groupId, 1);
+      setCollectList(data);
+    } catch (error) {
+      console.error("切换收藏夹失败:", error);
+    }
   };
 
   return (
@@ -292,6 +582,8 @@ export default function IndexPage() {
         onInputChange={setSearchInputValue}
         onSearch={handleSearch}
         onUrlJump={handleUrlJump}
+        onLoginClick={handleLogin}
+        userFace={userFace}
       />
       <VideoCover
         cover={graftingImage(pageFirstFrame)}
@@ -309,6 +601,9 @@ export default function IndexPage() {
         onPageListClick={handlePageListClick}
         onSearchClick={handleSearchClick}
         onShareClick={handleShareClick}
+        onFeedClick={handleFeedClick}
+        onRecommendClick={handleRecommendClick}
+        onCollectClick={handleCollectClick}
       />
       <Player
         isPlaying={isPlaying}
@@ -333,6 +628,54 @@ export default function IndexPage() {
           onSlideClick={() => setShowPageList(false)}
           onVideoSelect={handleVideoSelect}
         />
+      )}
+      {showFeedList && (
+        <FeedList
+          feedList={feedList}
+          onSlideClick={() => setShowFeedList(false)}
+          onVideoSelect={handleSearchVideoSelect}
+          onRefresh={handleFeedRefresh}
+          onLoadMore={handleLoadMore}
+        />
+      )}
+      {showRecommendList && (
+        <RecommendList
+          recommendList={recommendList}
+          onSlideClick={() => setShowRecommendList(false)}
+          onVideoSelect={handleSearchVideoSelect}
+          onRefresh={handleRecommendRefresh}
+          onLoadMore={handleRecommendLoadMore}
+        />
+      )}
+      {showCollectList && (
+        <CollectList
+          collectList={collectList}
+          collectGroups={collectGroups}
+          currentGroupId={currentGroupId}
+          onSlideClick={() => setShowCollectList(false)}
+          onVideoSelect={handleSearchVideoSelect}
+          onRefresh={handleCollectRefresh}
+          onLoadMore={handleCollectLoadMore}
+          onGroupSelect={handleCollectGroupSelect}
+        />
+      )}
+      {showLoginPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="relative w-80 rounded-lg bg-white p-6">
+            <button
+              className="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
+              onClick={handleCloseLogin}
+            >
+              ×
+            </button>
+            <h3 className="mb-4 text-center text-lg font-semibold">使用BiLiBiLi APP 扫码登录</h3>
+            <img
+              src={qrCodeUrl}
+              alt="登录二维码"
+              className="mx-auto h-48 w-48"
+            />
+          </div>
+        </div>
       )}
     </DefaultLayout>
   );

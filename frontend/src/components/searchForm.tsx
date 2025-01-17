@@ -7,12 +7,16 @@ interface SearchFormProps {
   onUrlJump: (url: string) => void;
   onInputChange?: (value: string) => void;
   value?: string;
+  onLoginClick?: () => void;
+  userFace?: string;
 }
 
 export default function SearchForm({
   onSearch,
   value = "",
   onInputChange,
+  onLoginClick,
+  userFace,
 }: SearchFormProps) {
   const [inputValue, setInputValue] = useState(value);
 
@@ -68,15 +72,19 @@ export default function SearchForm({
           isBordered
           classNames={{
             base: "h-10 w-16",
+            img: "opacity-100",
           }}
           size="md"
           style={{
             cursor: "pointer",
           }}
           title="登录或重新登录"
-        >
-          头像
-        </Avatar>
+          onClick={onLoginClick}
+          src={userFace}
+          imgProps={{
+            crossOrigin: "anonymous"
+          }}
+        />
       </div>
     </Form>
   );

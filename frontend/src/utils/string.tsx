@@ -23,7 +23,7 @@ export const graftingImage = (img: string) => {
   //     let randomNum = Math.floor(Math.random() * 4);
   //     img = 'https://i' + randomNum + '.wp.com/' + img.replace('http://', '').replace('https://', '');
   //   }
-  //   return img;
+  // return img;
   if (img) {
     return `http://127.0.0.1:4654/image-proxy?url=${img}`;
   }

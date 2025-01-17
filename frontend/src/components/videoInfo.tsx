@@ -1,5 +1,5 @@
 import { Button } from "@nextui-org/react";
-import { Search, DoubleUp, Share } from "@icon-park/react";
+import { Search, DoubleUp, Share, ShareSys, ChartRing, WeixinFavorites } from "@icon-park/react";
 
 interface VideoInfoProps {
   title?: string;
@@ -12,6 +12,9 @@ interface VideoInfoProps {
   onPageListClick?: () => void;
   onShareClick?: () => void;
   onOwnerClick?: (name: string) => void;
+  onFeedClick?: () => void;
+  onRecommendClick?: () => void;
+  onCollectClick?: () => void;
 }
 
 export default function VideoInfo({
@@ -25,6 +28,9 @@ export default function VideoInfo({
   onPageListClick,
   onShareClick,
   onOwnerClick,
+  onFeedClick,
+  onRecommendClick,
+  onCollectClick,
 }: VideoInfoProps) {
   console.log(bvid);
 
@@ -88,22 +94,25 @@ export default function VideoInfo({
             className="info-tools-button bl-feed"
             size="sm"
             title="B站账号关注UP视频动态列表"
+            onClick={onFeedClick}
           >
-            动态
+            <ShareSys theme="outline" size="24" fill="#333" />
           </Button>
           <Button
             className="info-tools-button bl-rcmd"
             size="sm"
             title="B站账号推荐视频列表"
+            onClick={onRecommendClick}
           >
-            推荐
+            <ChartRing theme="outline" size="24" fill="#333" />
           </Button>
           <Button
             className="info-tools-button bl-collect"
             size="sm"
             title="B站账号收藏列表"
+            onClick={onCollectClick}
           >
-            收藏
+            <WeixinFavorites theme="outline" size="24" fill="#333" />
           </Button>
         </div>
       </div>
