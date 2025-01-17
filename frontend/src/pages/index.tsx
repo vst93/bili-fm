@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
+import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { main as MainModels } from "../../wailsjs/go/models";
 import { SearchVideo, GetCList, GetUrlByCid } from "../../wailsjs/go/main/BL";
 
@@ -21,6 +22,7 @@ export default function IndexPage() {
   );
   const [currentBvid, setCurrentBvid] = useState("");
   const [currentKeyword, setCurrentKeyword] = useState("");
+  const [searchInputValue, setSearchInputValue] = useState("");
   const [videoInfo, setVideoInfo] = useState<
     MainModels.VideoInfo | undefined
   >();
@@ -29,6 +31,61 @@ export default function IndexPage() {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [pageFirstFrame, setPageFirstFrame] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (event.code === "Space" && !event.repeat) {
+        event.preventDefault();
+        setIsPlaying((prev) => !prev);
+      } else if (
+        event.code === "ArrowLeft" &&
+        !event.repeat &&
+        videoInfo?.pages
+      ) {
+        event.preventDefault();
+        const prevIndex =
+          (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
+        const prevPage = videoInfo.pages[prevIndex];
+
+        handleVideoSelect(
+          prevPage.cid,
+          videoInfo.aid,
+          prevPage.part,
+          prevIndex,
+          prevPage.first_frame,
+        );
+      } else if (
+        event.code === "ArrowRight" &&
+        !event.repeat &&
+        videoInfo?.pages
+      ) {
+        event.preventDefault();
+        const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
+        const nextPage = videoInfo.pages[nextIndex];
+
+        handleVideoSelect(
+          nextPage.cid,
+          videoInfo.aid,
+          nextPage.part,
+          nextIndex,
+          nextPage.first_frame,
+        );
+      }
+    };
+
+    window.addEventListener("keyup", handleKeyPress);
+
+    return () => {
+      window.removeEventListener("keyup", handleKeyPress);
+    };
+  }, [videoInfo, currentIndex]);
 
   /**
    * 处理搜索操作
@@ -111,10 +168,10 @@ export default function IndexPage() {
    * 处理抽屉关闭事件
    * @description 关闭选集列表和搜索结果列表
    */
-  const handleSlideClick = () => {
-    setShowPageList(false);
-    setShowSearchList(false);
-  };
+  // const handleSlideClick = () => {
+  //   setShowPageList(false);
+  //   setShowSearchList(false);
+  // };
 
   /**
    * 处理视频选集选择
@@ -179,6 +236,7 @@ export default function IndexPage() {
       videoInfo.aid,
       nextPage.part,
       nextIndex,
+      nextPage.first_frame,
     );
   };
 
@@ -213,20 +271,47 @@ export default function IndexPage() {
     }
   };
 
+  const handleCoverClick = (playing: boolean) => {
+    setIsPlaying(playing);
+  };
+
+  const handleShareClick = () => {
+    if (videoInfo?.bvid) {
+      BrowserOpenURL(`https://www.bilibili.com/video/${videoInfo.bvid}`);
+    }
+  };
+
+  const handleOwnerClick = (name: string) => {
+    setSearchInputValue(name);
+  };
+
   return (
     <DefaultLayout>
-      <SearchForm onSearch={handleSearch} onUrlJump={handleUrlJump} />
-      <VideoCover cover={graftingImage(pageFirstFrame)} isPlaying={isPlaying} />
+      <SearchForm
+        value={searchInputValue}
+        onInputChange={setSearchInputValue}
+        onSearch={handleSearch}
+        onUrlJump={handleUrlJump}
+      />
+      <VideoCover
+        cover={graftingImage(pageFirstFrame)}
+        isPlaying={isPlaying}
+        onPlayStateChange={handleCoverClick}
+      />
       <VideoInfo
+        bvid={videoInfo?.bvid}
         desc={videoInfo?.desc}
         ownerFace={videoInfo?.owner_face}
         ownerName={videoInfo?.owner_name}
         part={currentPart}
         title={videoInfo?.title}
+        onOwnerClick={handleOwnerClick}
         onPageListClick={handlePageListClick}
         onSearchClick={handleSearchClick}
+        onShareClick={handleShareClick}
       />
       <Player
+        isPlaying={isPlaying}
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
