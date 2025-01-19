@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -182,6 +183,12 @@ func main() {
 		DisableResize: true,
 		Fullscreen:    false,
 		Menu:          AppMenu,
+		Mac: &mac.Options{
+			Appearance: mac.NSAppearanceNameAqua,
+		},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "bili-fm",
+		},
 	})
 
 	if err != nil {
