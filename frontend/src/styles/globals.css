@@ -2,18 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* html{
+    cursor: default;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    background: #0000 !important;   
+} */
+
 body {
     margin: 0;
     padding: 0;
     background: #fefefe;
-    user-select: none;
-    /** 禁止选择文本 */
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    -o-user-select: none;
-    overscroll-behavior: none;
+    /* border-radius: 10px !important; */
+    /* background: #0000 !important; */
     overflow: hidden;
+    font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+/* #root{
+    border-radius: 10px !important;
+    background-color: #fefefe;
+} */
+
+
+.app-title-bar {
+    --wails-draggable: drag;
+    widows: 1;
+    cursor: default;
+    user-select: none;
+    height: 32px;
+    background-color: #fefefe;
+    border-bottom: 1px solid #eaeaea;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #1a1a1a;
+    overflow: hidden;
+    border-radius: 10px 10px 0 0 !important;
+}
+
+img{
+    -webkit-user-drag: none;
+    -khtml-user-drag: none;
+    -moz-user-drag: none;
+    -o-user-drag: none;
+    user-drag: none;
+    --wails-draggable: no-drag
 }
 
 .img-container {
@@ -170,7 +207,7 @@ body {
 
 #video-owner-name {
     font-size: 18px;
-    margin-left: 8px;
+    margin-left: 0px;
 }
 
 #video-title {
@@ -198,8 +235,11 @@ body {
 
 .info-tools {
     /* background-color: aqua; */
-    margin: 10vh 0 0 0;
+    margin: 3vh 0 0 0;
     float: left;
+    position: absolute;
+    bottom: 15vh;
+    /* bottom: 20vh; */
 }
 
 .info-tools-button {
@@ -247,8 +287,6 @@ body {
     font-size: smaller;
     font-weight: 400;
 }
-
-
 
 .page-item-header {
     overflow: hidden;
@@ -370,7 +408,8 @@ body {
     margin-top: 10px;
     padding-right: 0px;
     background-color: #34495e;
-    /* width: 256px; */
+    display: inline-flex;
+    gap: 0px;
 }
 
 .info-tools-bl-user-group .info-tools-button{

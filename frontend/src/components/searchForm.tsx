@@ -28,11 +28,18 @@ const SearchForm: FC<SearchFormProps> = ({
         onSearch?.(inputValue);
       }
     }
+
+    // 处理全选快捷键 (Ctrl+A 或 Command+A)
+    // if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    //   e.preventDefault(); // 阻止默认行为
+    //   e.currentTarget.select(); // 全选输入框文本
+    // }
+
   };
 
   return (
     <div className="flex items-center justify-center gap-2 p-2">
-      <div className="w-[300px]">
+      <div className="w-[350px]">
         <Input
           value={value}
           onValueChange={onInputChange}
@@ -40,6 +47,7 @@ const SearchForm: FC<SearchFormProps> = ({
           placeholder="B站｜关键词搜索"
           size="md"
           radius="md"
+          spellCheck={false}
           classNames={{
             base: "max-w-full",
             mainWrapper: "h-12",

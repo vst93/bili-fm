@@ -2,7 +2,22 @@ import { useState, useEffect } from "react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { main as MainModels } from "../../wailsjs/go/models";
-import { SearchVideo, GetCList, GetUrlByCid, GetLoginQRCode, GetLoginStatus, GetLoginQRCodeStatus, SetLoginStatus, GetBLUserInfo, GetBLFeedList, GetBLRCMDList, GetBLFavFolderList, GetBLFavFolderListDetail } from "../../wailsjs/go/main/BL";
+import {
+  SearchVideo,
+  GetCList,
+  GetUrlByCid,
+  GetLoginQRCode,
+  GetLoginStatus,
+  GetLoginQRCodeStatus,
+  SetLoginStatus,
+  GetBLUserInfo,
+  GetBLFeedList,
+  GetBLRCMDList,
+  GetBLFavFolderList,
+  GetBLFavFolderListDetail,
+  GetUpVideoList,
+} from "../../wailsjs/go/main/BL";
+import { CloseOne } from "@icon-park/react"
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
@@ -15,6 +30,7 @@ import RecommendList from "@/components/recommendList";
 import DefaultLayout from "@/layouts/default";
 import { graftingImage, urlToBVID } from "@/utils/string";
 import CollectList from "@/components/collectList";
+import UpVideoList from "@/components/upVideoList";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -48,6 +64,11 @@ export default function IndexPage() {
   const [collectGroups, setCollectGroups] = useState<any[]>([]);
   const [currentGroupId, setCurrentGroupId] = useState<number>();
   const [collectPage, setCollectPage] = useState(1);
+  const [showUpVideoList, setShowUpVideoList] = useState(false);
+  const [upVideoList, setUpVideoList] = useState<MainModels.FeedList>();
+  const [upVideoOffset, setUpVideoOffset] = useState("");
+  const [currentUpMid, setCurrentUpMid] = useState(0);
+  const [currentUpName, setCurrentUpName] = useState("");
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -429,12 +450,60 @@ export default function IndexPage() {
   };
 
   /**
-   * 处理UP主名称点击事件
-   * @param name UP主名称
-   * @description 将UP主名称设置为搜索框的值
+   * 处理UP主点击事件
+   * @param mid UP主的mid
+   * @param name UP主的名称
+   * @description 获取并显示UP主的视频列表
    */
-  const handleOwnerClick = (name: string) => {
-    setSearchInputValue(name);
+  const handleOwnerClick = async (mid: number, name: string) => {
+    try {
+      setCurrentUpMid(mid);
+      setCurrentUpName(name);
+      const data = await GetUpVideoList(mid, "");
+      setUpVideoList(data);
+      setShowUpVideoList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+    } catch (error) {
+      console.error("获取UP主视频列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理UP主视频列表刷新事件
+   * @description 重置偏移量并重新获取UP主视频列表
+   */
+  const handleUpVideoRefresh = async () => {
+    try {
+      setUpVideoOffset("");
+      const data = await GetUpVideoList(currentUpMid, "");
+      setUpVideoList(data);
+    } catch (error) {
+      console.error("刷新UP主视频列表失败:", error);
+    }
+  };
+
+  /**
+   * 处理UP主视频列表加载更多事件
+   * @param offset 下一页的偏移量
+   * @description 根据偏移量加载更多UP主视频
+   */
+  const handleUpVideoLoadMore = async () => {
+    try {
+      const data = await GetUpVideoList(currentUpMid, upVideoOffset);
+      if (data?.items && upVideoList?.items) {
+        setUpVideoList({
+          ...data,
+          items: [...upVideoList.items, ...data.items],
+        });
+      }
+      setUpVideoOffset(data?.offset || "");
+    } catch (error) {
+      console.error("加载更多UP主视频失败:", error);
+    }
   };
 
   /**
@@ -595,6 +664,7 @@ export default function IndexPage() {
         desc={videoInfo?.desc}
         ownerFace={videoInfo?.owner_face}
         ownerName={videoInfo?.owner_name}
+        ownerMid={videoInfo?.owner_mid}
         part={currentPart}
         title={videoInfo?.title}
         onOwnerClick={handleOwnerClick}
@@ -659,14 +729,24 @@ export default function IndexPage() {
           onGroupSelect={handleCollectGroupSelect}
         />
       )}
+      {showUpVideoList && (
+        <UpVideoList
+          upVideoList={upVideoList}
+          onSlideClick={() => setShowUpVideoList(false)}
+          onVideoSelect={handleSearchVideoSelect}
+          onRefresh={handleUpVideoRefresh}
+          onLoadMore={handleUpVideoLoadMore}
+          upName={currentUpName}
+        />
+      )}
       {showLoginPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="relative w-80 rounded-lg bg-white p-6">
             <button
-              className="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
               onClick={handleCloseLogin}
+              className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
             >
-              ×
+              <CloseOne theme="outline" size="24" fill="#333" />
             </button>
             <h3 className="mb-4 text-center text-lg font-semibold">使用BiLiBiLi APP 扫码登录</h3>
             <img

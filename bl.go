@@ -806,3 +806,335 @@ func (bl *BL) GetBLFavFolderListDetail(fid int, page int) ([]interface{}, error)
 }
 
 // ----------- end - getBLFavFolderListDetail -----------
+
+// ----------- begin - likeVideo -----------
+func (bl *BL) LikeVideo(bid string, like int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	ticket, err := bl.GetBiliTicket("")
+	if err != nil {
+		return false, err
+	}
+
+	if bid == "" {
+		return false, errors.New("未选择作品")
+	}
+
+	// 从cookie中获取bili_jct作为csrf
+	csrfStart := strings.Index(cookie, "bili_jct=")
+	if csrfStart == -1 {
+		return false, errors.New("无法获取csrf")
+	}
+	csrfStart += 9 // "bili_jct="的长度
+	csrfEnd := strings.Index(cookie[csrfStart:], ";")
+	if csrfEnd == -1 {
+		csrfEnd = len(cookie[csrfStart:])
+	}
+	csrfEnd = csrfEnd + csrfStart
+	csrf := cookie[csrfStart:csrfEnd]
+
+	baseURL := "https://api.bilibili.com/x/web-interface/archive/like"
+	params := url.Values{}
+	// 去掉bid中的开头的BV
+	bid = strings.Replace(bid, "BV", "", 1)
+
+	fmt.Println(bid, like, csrf)
+	params.Add("bvid", bid)
+	params.Add("like", fmt.Sprintf("%d", like)) // 1: 点赞, 2: 取消点赞
+	params.Add("csrf", csrf)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("bili_ticket", ticket)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	fmt.Println(response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return true, nil
+}
+
+// ----------- end - likeVideo -----------
+
+// ----------- begin - hasLiked -----------
+func (bl *BL) HasLiked(bid string) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	if bid == "" {
+		return false, errors.New("未选择作品")
+	}
+
+	baseURL := "https://api.bilibili.com/x/web-interface/archive/has/like"
+	params := url.Values{}
+	// 去掉bid中的开头的BV
+	bid = strings.Replace(bid, "BV", "", 1)
+	params.Add("bvid", bid)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Data    int    `json:"data"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return response.Data == 1, nil
+}
+
+// ----------- end - hasLiked -----------
+
+// ----------- begin - coinVideo -----------
+func (bl *BL) CoinVideo(bid string, multiply int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	if bid == "" {
+		return false, errors.New("未选择作品")
+	}
+
+	// 从cookie中获取bili_jct作为csrf
+	csrfStart := strings.Index(cookie, "bili_jct=")
+	if csrfStart == -1 {
+		return false, errors.New("无法获取csrf")
+	}
+	csrfStart += 9 // "bili_jct="的长度
+	csrfEnd := strings.Index(cookie[csrfStart:], ";")
+	if csrfEnd == -1 {
+		csrfEnd = len(cookie[csrfStart:])
+	}
+	csrfEnd = csrfEnd + csrfStart
+	csrf := cookie[csrfStart:csrfEnd]
+
+	baseURL := "https://api.bilibili.com/x/web-interface/coin/add"
+	params := url.Values{}
+	// 去掉bid中的开头的BV
+	bid = strings.Replace(bid, "BV", "", 1)
+	params.Add("bvid", bid)
+	params.Add("multiply", fmt.Sprintf("%d", multiply)) // 投币数量
+	params.Add("csrf", csrf)
+	params.Add("select_like", "0") // 是否同时点赞，0：不点赞，1：同时点赞
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return true, nil
+}
+
+// ----------- end - coinVideo -----------
+
+// ----------- begin - hasCoin -----------
+func (bl *BL) HasCoin(bid string) (int, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return 0, errors.New("未登录")
+	}
+
+	if bid == "" {
+		return 0, errors.New("未选择作品")
+	}
+
+	baseURL := "https://api.bilibili.com/x/web-interface/archive/coins"
+	params := url.Values{}
+	// 去掉bid中的开头的BV
+	bid = strings.Replace(bid, "BV", "", 1)
+	params.Add("bvid", bid)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return 0, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Multiply int `json:"multiply"`
+		} `json:"data"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return 0, err
+	}
+
+	if response.Code != 0 {
+		return 0, errors.New(response.Message)
+	}
+
+	return response.Data.Multiply, nil
+}
+
+// ----------- end - hasCoin -----------
+
+// ----------- begin - getUpVideoList -----------
+func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return &FeedList{
+			Items:   []interface{}{},
+			HasMore: false,
+			Offset:  "",
+		}, nil
+	}
+
+	apiUrl := "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space"
+	params := url.Values{}
+	params.Add("type", "video")
+	params.Add("host_mid", fmt.Sprintf("%d", host_mid))
+	if len(offset) > 0 {
+		params.Add("offset", offset)
+	}
+
+	req, err := http.NewRequest("GET", apiUrl+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResponse struct {
+		Code int `json:"code"`
+		Data struct {
+			Items   []interface{} `json:"items"`
+			HasMore bool          `json:"has_more"`
+			Offset  string        `json:"offset"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if apiResponse.Code != 0 {
+		return nil, errors.New("API returned non-zero code")
+	}
+
+	feedList := &FeedList{
+		Items:   apiResponse.Data.Items,
+		HasMore: apiResponse.Data.HasMore,
+		Offset:  apiResponse.Data.Offset,
+	}
+
+	return feedList, nil
+}
+
+// ----------- end - getUpVideoList -----------
