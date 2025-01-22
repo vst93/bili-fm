@@ -50,6 +50,10 @@ export function GetSESSDATA() {
   return window['go']['main']['BL']['GetSESSDATA']();
 }
 
+export function GetUpVideoList(arg1, arg2) {
+  return window['go']['main']['BL']['GetUpVideoList'](arg1, arg2);
+}
+
 export function GetUrlByCid(arg1, arg2) {
   return window['go']['main']['BL']['GetUrlByCid'](arg1, arg2);
 }

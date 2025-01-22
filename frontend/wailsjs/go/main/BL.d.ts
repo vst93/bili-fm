@@ -26,6 +26,8 @@ export function GetLoginStatus():Promise<boolean>;
 
 export function GetSESSDATA():Promise<string>;
 
+export function GetUpVideoList(arg1:number,arg2:string):Promise<main.FeedList>;
+
 export function GetUrlByCid(arg1:number,arg2:number):Promise<main.PlayURLInfo>;
 
 export function HasCoin(arg1:string):Promise<number>;

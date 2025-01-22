@@ -19,8 +19,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 var APP_DIR = ""
-var APP_VERSION = "1.0.0"
-var APP_VERSION_NO = 2
+var APP_VERSION = "1.1.0"
+var APP_VERSION_NO = 3
 
 type GithubRelease struct {
 	TagName string `json:"tag_name"`

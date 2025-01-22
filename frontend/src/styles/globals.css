@@ -198,8 +198,10 @@ body {
 
 .info-tools {
     /* background-color: aqua; */
-    margin: 10vh 0 0 0;
+    margin: 3vh 0 0 0;
     float: left;
+    position: absolute;
+    bottom: 15vh;
 }
 
 .info-tools-button {
@@ -370,7 +372,8 @@ body {
     margin-top: 10px;
     padding-right: 0px;
     background-color: #34495e;
-    /* width: 256px; */
+    display: inline-flex;
+    gap: 0px;
 }
 
 .info-tools-bl-user-group .info-tools-button{

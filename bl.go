@@ -1070,3 +1070,71 @@ func (bl *BL) HasCoin(bid string) (int, error) {
 }
 
 // ----------- end - hasCoin -----------
+
+// ----------- begin - getUpVideoList -----------
+func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return &FeedList{
+			Items:   []interface{}{},
+			HasMore: false,
+			Offset:  "",
+		}, nil
+	}
+
+	apiUrl := "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space"
+	params := url.Values{}
+	params.Add("type", "video")
+	params.Add("host_mid", fmt.Sprintf("%d", host_mid))
+	if len(offset) > 0 {
+		params.Add("offset", offset)
+	}
+
+	req, err := http.NewRequest("GET", apiUrl+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResponse struct {
+		Code int `json:"code"`
+		Data struct {
+			Items   []interface{} `json:"items"`
+			HasMore bool          `json:"has_more"`
+			Offset  string        `json:"offset"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if apiResponse.Code != 0 {
+		return nil, errors.New("API returned non-zero code")
+	}
+
+	feedList := &FeedList{
+		Items:   apiResponse.Data.Items,
+		HasMore: apiResponse.Data.HasMore,
+		Offset:  apiResponse.Data.Offset,
+	}
+
+	return feedList, nil
+}
+
+// ----------- end - getUpVideoList -----------

@@ -1,4 +1,4 @@
-import { Button } from "@nextui-org/react";
+import { Button, Image } from "@nextui-org/react";
 import {
   Search,
   DoubleUp,
@@ -24,13 +24,14 @@ interface VideoInfoProps {
   desc?: string;
   ownerName?: string;
   ownerFace?: string;
+  ownerMid?: number;
   part?: string;
   bvid?: string;
   aid?: number;
   onSearchClick?: () => void;
   onPageListClick?: () => void;
   onShareClick?: () => void;
-  onOwnerClick?: (name: string) => void;
+  onOwnerClick?: (mid: number, name: string) => void;
   onFeedClick?: () => void;
   onRecommendClick?: () => void;
   onCollectClick?: () => void;
@@ -41,6 +42,7 @@ export default function VideoInfo({
   desc = "",
   ownerName = "",
   ownerFace = "",
+  ownerMid = 0,
   part = "",
   bvid = "",
   onSearchClick,
@@ -137,23 +139,37 @@ export default function VideoInfo({
   return (
     <div id="video-info">
       <div className="flex items-center gap-2" id="video-owner">
-        <img alt="" id="video-owner-face" src={ownerFace} />
+        <Image
+          alt={ownerName}
+          className="cursor-pointer min-w-[48px]"
+          id="video-owner-face"
+          loading="lazy"
+          src={ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg"}
+          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
+          width={50}
+          height={50}
+          radius="full"
+          classNames={{
+            wrapper: "min-w-[48px]",
+            img: "object-cover opacity-100",
+          }}
+        />
         <button
           className="cursor-pointer bg-transparent border-none p-0"
           id="video-owner-name"
-          onClick={() => onOwnerClick?.(ownerName)}
+          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
         >
           {ownerName}
         </button>
       </div>
       <div className="can-seelect" id="video-title">
-        {title}
+        {title || "无标题"}
       </div>
       <div className="can-seelect" id="video-desc">
-        {desc || "\u00A0"}
+        {desc || "无描述"}
       </div>
       <div className="can-seelect" id="video-part">
-        {part || "\u00A0"}
+        {part || "无选集标题"}
       </div>
       <div className="info-tools">
         <Button

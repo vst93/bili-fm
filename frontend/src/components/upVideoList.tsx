@@ -1,4 +1,5 @@
 import type { FC } from "react";
+import type { main } from "../../wailsjs/go/models";
 import { Refresh } from "@icon-park/react";
 
 import { useDisclosure } from "@nextui-org/react";
@@ -16,20 +17,22 @@ import {
 
 import { graftingImage } from "@/utils/string";
 
-interface RecommendListProps {
+interface UpVideoListProps {
+  upVideoList?: main.FeedList;
   onSlideClick?: () => void;
-  recommendList?: any;
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;
-  onLoadMore?: () => void;
+  onLoadMore?: (offset: string) => void;
+  upName?: string;
 }
 
-const RecommendList: FC<RecommendListProps> = ({
+const UpVideoList: FC<UpVideoListProps> = ({
+  upVideoList,
   onSlideClick,
-  recommendList,
   onVideoSelect,
   onRefresh,
   onLoadMore,
+  upName = "",
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
 
@@ -41,23 +44,20 @@ const RecommendList: FC<RecommendListProps> = ({
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop === e.currentTarget.clientHeight;
-    if (bottom) {
-      onLoadMore?.();
+    const bottom =
+      e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
+      e.currentTarget.clientHeight;
+    if (bottom && upVideoList?.offset) {
+      onLoadMore?.(upVideoList.offset);
     }
   };
 
   const handleRefresh = () => {
-    const drawerBody = document.querySelector('.recommend-drawer-body');
+    const drawerBody = document.querySelector(".up-video-drawer-body");
     if (drawerBody) {
       drawerBody.scrollTop = 0;
     }
     onRefresh?.();
-  };
-
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
   return (
@@ -73,7 +73,7 @@ const RecommendList: FC<RecommendListProps> = ({
         {() => (
           <>
             <DrawerHeader className="flex gap-2">
-              推荐视频
+              「{upName}」的视频
               <Button
                 isIconOnly
                 size="sm"
@@ -83,42 +83,47 @@ const RecommendList: FC<RecommendListProps> = ({
                 <Refresh theme="outline" size="20" fill="#333" />
               </Button>
             </DrawerHeader>
-            <DrawerBody className="recommend-drawer-body" onScroll={handleScroll}>
+            <DrawerBody
+              className="up-video-drawer-body"
+              onScroll={handleScroll}
+            >
               <div
                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                 style={{ width: "100%" }}
               >
-                {recommendList?.items?.map((item: any, index: number) => {
-                  const coverUrl = item.pic || item.cover;
+                {upVideoList?.items?.map((item: any, index) => {
+                  const info = item.modules.module_dynamic.major.archive;
+                  const publishTime = item.modules.module_author.pub_time;
+
                   return (
                     <Card
                       key={index}
                       isPressable
                       shadow="sm"
-                      onPress={() => onVideoSelect?.(item.bvid)}
+                      onPress={() => onVideoSelect?.(info.bvid)}
                     >
                       <CardBody className="overflow-visible p-0 img-container">
                         <Image
-                          alt={item.title}
+                          alt={info.title || "视频封面"}
                           className="c-cover"
                           crossOrigin="anonymous"
                           fallbackSrc="/cover.png"
                           loading="lazy"
                           radius="sm"
                           shadow="sm"
-                          src={graftingImage(coverUrl)}
+                          src={graftingImage(info.cover)}
                           width="100%"
                         />
                       </CardBody>
                       <CardFooter className="text-small flex-col items-start px-2 py-1">
                         <b
                           className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                          title={item.title}
+                          title={info.title}
                         >
-                          {item.title}
+                          {info.title}
                         </b>
                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          {item.owner?.name || item.author} | {formatTimestamp(item.pubdate)}
+                          {publishTime}
                         </p>
                       </CardFooter>
                     </Card>
@@ -133,4 +138,4 @@ const RecommendList: FC<RecommendListProps> = ({
   );
 };
 
-export default RecommendList; 
+export default UpVideoList;

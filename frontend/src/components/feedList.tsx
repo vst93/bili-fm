@@ -18,19 +18,21 @@ import {
 import { graftingImage } from "@/utils/string";
 
 interface FeedListProps {
-  onSlideClick?: () => void;
   feedList?: main.FeedList;
+  onSlideClick?: () => void;
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;
   onLoadMore?: (offset: string) => void;
+  title?: string;
 }
 
 const FeedList: FC<FeedListProps> = ({
-  onSlideClick,
   feedList,
+  onSlideClick,
   onVideoSelect,
   onRefresh,
   onLoadMore,
+  title = "动态列表",
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
 
@@ -71,12 +73,12 @@ const FeedList: FC<FeedListProps> = ({
             <DrawerHeader className="flex gap-2">
               动态列表
               <Button
-                size="sm"
-                variant="flat"
-                onClick={handleRefresh}
                 isIconOnly
+                size="sm"
+                variant="light"
+                onClick={handleRefresh}
               >
-                <Refresh theme="outline" size="24" fill="#333" />
+                <Refresh theme="outline" size="20" fill="#333" />
               </Button>
             </DrawerHeader>
             <DrawerBody className="feed-drawer-body" onScroll={handleScroll}>
@@ -98,7 +100,7 @@ const FeedList: FC<FeedListProps> = ({
                     >
                       <CardBody className="overflow-visible p-0 img-container">
                         <Image
-                          alt={info.title}
+                          alt={info.title || "视频封面"}
                           className="c-cover"
                           crossOrigin="anonymous"
                           fallbackSrc="/cover.png"
