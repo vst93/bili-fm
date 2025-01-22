@@ -21,6 +21,7 @@ var assets embed.FS
 var APP_DIR = ""
 var APP_VERSION = "1.1.0"
 var APP_VERSION_NO = 3
+var APP_NAME = "bili-FM"
 
 type GithubRelease struct {
 	TagName string `json:"tag_name"`
@@ -140,7 +141,7 @@ func main() {
 	bl := NewBL()
 
 	AppMenu := menu.NewMenu()
-	AppMenu.AddSubmenu("bili-FM")
+	AppMenu.AddSubmenu(APP_NAME)
 	aboutMenu := AppMenu.AddSubmenu("设置")
 	aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
 		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
@@ -164,13 +165,32 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "bili-FM",
+		Title:  APP_NAME,
 		Width:  800,
 		Height: 580,
+		// Height: 620,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: options.NewRGB(235, 235, 235),
+		BackgroundColour: options.NewRGBA(255, 255, 255, 0),
+		// Mac: &mac.Options{
+		// 	TitleBar: mac.TitleBarHiddenInset(),
+		// 	About: &mac.AboutInfo{
+		// 		Title: fmt.Sprintf("%s %s", APP_NAME, APP_VERSION),
+		// 	},
+		// 	WebviewIsTransparent: true,
+		// 	WindowIsTranslucent:  true,
+		// },
+		// Windows: &windows.Options{
+		// 	WebviewIsTransparent:              false,
+		// 	WindowIsTranslucent:               false,
+		// 	DisableFramelessWindowDecorations: false,
+		// },
+		// Linux: &linux.Options{
+		// 	ProgramName:         APP_NAME,
+		// 	WebviewGpuPolicy:    linux.WebviewGpuPolicyOnDemand,
+		// 	WindowIsTranslucent: true,
+		// },
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			// 启动时检查更新
@@ -189,6 +209,9 @@ func main() {
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "bili-fm",
 		},
+		// Frameless:       true,
+		// CSSDragProperty: "widows",
+		// CSSDragValue:    "1",
 	})
 
 	if err != nil {

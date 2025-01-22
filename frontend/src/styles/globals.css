@@ -2,20 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+/* html{
+    cursor: default;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    background: #0000 !important;   
+} */
+
 body {
     margin: 0;
     padding: 0;
     background: #fefefe;
-    /** 禁止选择文本 */
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    -o-user-select: none;
-    overscroll-behavior: none;
+    /* border-radius: 10px !important; */
+    /* background: #0000 !important; */
     overflow: hidden;
+    font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
+/* #root{
+    border-radius: 10px !important;
+    background-color: #fefefe;
+} */
+
+
+.app-title-bar {
+    --wails-draggable: drag;
+    widows: 1;
+    cursor: default;
+    user-select: none;
+    height: 32px;
+    background-color: #fefefe;
+    border-bottom: 1px solid #eaeaea;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #1a1a1a;
+    overflow: hidden;
+    border-radius: 10px 10px 0 0 !important;
+}
+
+img{
+    -webkit-user-drag: none;
+    -khtml-user-drag: none;
+    -moz-user-drag: none;
+    -o-user-drag: none;
+    user-drag: none;
+    --wails-draggable: no-drag
+}
 
 .img-container {
     width: 100%;
@@ -203,6 +239,7 @@ body {
     float: left;
     position: absolute;
     bottom: 15vh;
+    /* bottom: 20vh; */
 }
 
 .info-tools-button {
@@ -250,8 +287,6 @@ body {
     font-size: smaller;
     font-weight: 400;
 }
-
-
 
 .page-item-header {
     overflow: hidden;
