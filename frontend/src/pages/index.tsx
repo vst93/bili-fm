@@ -490,9 +490,9 @@ export default function IndexPage() {
    * @param offset 下一页的偏移量
    * @description 根据偏移量加载更多UP主视频
    */
-  const handleUpVideoLoadMore = async (offset: string) => {
+  const handleUpVideoLoadMore = async () => {
     try {
-      const data = await GetUpVideoList(currentUpMid, offset);
+      const data = await GetUpVideoList(currentUpMid, upVideoOffset);
       if (data?.items && upVideoList?.items) {
         setUpVideoList({
           ...data,

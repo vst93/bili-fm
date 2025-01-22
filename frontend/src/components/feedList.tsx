@@ -23,7 +23,6 @@ interface FeedListProps {
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;
   onLoadMore?: (offset: string) => void;
-  title?: string;
 }
 
 const FeedList: FC<FeedListProps> = ({
@@ -32,7 +31,6 @@ const FeedList: FC<FeedListProps> = ({
   onVideoSelect,
   onRefresh,
   onLoadMore,
-  title = "动态列表",
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
 
