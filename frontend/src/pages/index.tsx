@@ -17,6 +17,7 @@ import {
   GetBLFavFolderListDetail,
   GetUpVideoList,
 } from "../../wailsjs/go/main/BL";
+import { CloseOne } from "@icon-park/react"
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
@@ -742,10 +743,10 @@ export default function IndexPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="relative w-80 rounded-lg bg-white p-6">
             <button
-              className="absolute right-4 top-4 text-gray-500 hover:text-gray-700"
               onClick={handleCloseLogin}
+              className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
             >
-              ×
+              <CloseOne theme="outline" size="24" fill="#333" />
             </button>
             <h3 className="mb-4 text-center text-lg font-semibold">使用BiLiBiLi APP 扫码登录</h3>
             <img

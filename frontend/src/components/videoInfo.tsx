@@ -146,8 +146,8 @@ export default function VideoInfo({
           loading="lazy"
           src={ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg"}
           onClick={() => onOwnerClick?.(ownerMid, ownerName)}
-          width={50}
-          height={50}
+          width={48}
+          height={48}
           radius="full"
           classNames={{
             wrapper: "min-w-[48px]",
@@ -159,7 +159,7 @@ export default function VideoInfo({
           id="video-owner-name"
           onClick={() => onOwnerClick?.(ownerMid, ownerName)}
         >
-          {ownerName}
+          {ownerName || "神秘的up主"}
         </button>
       </div>
       <div className="can-seelect" id="video-title">
