@@ -1,5 +1,23 @@
 import { Button } from "@nextui-org/react";
-import { Search, DoubleUp, Share, ShareSys, ChartRing, WeixinFavorites } from "@icon-park/react";
+import {
+  Search,
+  DoubleUp,
+  Share,
+  ShareSys,
+  ChartRing,
+  WeixinFavorites,
+  ThumbsUp,
+  HandleB,
+} from "@icon-park/react";
+import { useState, useEffect } from "react";
+
+import {
+  LikeVideo,
+  HasLiked,
+  CoinVideo,
+  HasCoin,
+} from "../../wailsjs/go/main/BL";
+import { toast } from "../utils/toast";
 
 interface VideoInfoProps {
   title?: string;
@@ -8,6 +26,7 @@ interface VideoInfoProps {
   ownerFace?: string;
   part?: string;
   bvid?: string;
+  aid?: number;
   onSearchClick?: () => void;
   onPageListClick?: () => void;
   onShareClick?: () => void;
@@ -32,14 +51,95 @@ export default function VideoInfo({
   onRecommendClick,
   onCollectClick,
 }: VideoInfoProps) {
-  console.log(bvid);
+  const [isLiked, setIsLiked] = useState(false);
+  const [coinCount, setCoinCount] = useState(0);
+
+  useEffect(() => {
+    if (bvid) {
+      checkLikeStatus();
+      checkCoinStatus();
+    } else {
+      setIsLiked(false);
+      setCoinCount(0);
+    }
+  }, [bvid]);
+
+  const checkLikeStatus = async () => {
+    try {
+      const hasLiked = await HasLiked(bvid);
+
+      setIsLiked(hasLiked);
+    } catch (error) {
+      console.error("检查点赞状态失败:", error);
+    }
+  };
+
+  const checkCoinStatus = async () => {
+    try {
+      const coins = await HasCoin(bvid);
+
+      setCoinCount(coins);
+    } catch (error) {
+      console.error("检查投币状态失败:", error);
+    }
+  };
+
+  const handleLike = async () => {
+    try {
+      const result = await LikeVideo(bvid, isLiked ? 2 : 1);
+
+      if (result) {
+        setIsLiked(!isLiked);
+        toast({
+          type: "success",
+          content: isLiked ? "取消点赞成功" : "点赞成功",
+        });
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.toString() || "未知错误";
+
+      toast({
+        type: "error",
+        content: "点赞失败: " + errorMsg,
+      });
+    }
+  };
+
+  const handleCoin = async () => {
+    if (coinCount >= 2) {
+      toast({
+        type: "info",
+        content: "已经投过币了",
+      });
+
+      return;
+    }
+    try {
+      const result = await CoinVideo(bvid, 2);
+
+      if (result) {
+        setCoinCount(2);
+        toast({
+          type: "success",
+          content: "投币成功",
+        });
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.toString() || "未知错误";
+
+      toast({
+        type: "error",
+        content: "投币失败: " + errorMsg,
+      });
+    }
+  };
 
   return (
     <div id="video-info">
       <div className="flex items-center gap-2" id="video-owner">
         <img alt="" id="video-owner-face" src={ownerFace} />
-        <button 
-          className="cursor-pointer bg-transparent border-none p-0" 
+        <button
+          className="cursor-pointer bg-transparent border-none p-0"
           id="video-owner-name"
           onClick={() => onOwnerClick?.(ownerName)}
         >
@@ -56,6 +156,44 @@ export default function VideoInfo({
         {part || "\u00A0"}
       </div>
       <div className="info-tools">
+        <Button
+          className="info-tools-button"
+          size="sm"
+          style={{
+            backgroundColor: "transparent",
+            minWidth: "32px",
+            width: "32px",
+            padding: "0",
+          }}
+          title={isLiked ? "取消点赞" : "点赞"}
+          variant="light"
+          onClick={handleLike}
+        >
+          <ThumbsUp
+            fill={isLiked ? "#00aeec" : "#333"}
+            size="24"
+            theme="outline"
+          />
+        </Button>
+        <Button
+          className="info-tools-button"
+          size="sm"
+          style={{
+            backgroundColor: "transparent",
+            minWidth: "32px",
+            width: "32px",
+            padding: "0",
+          }}
+          title={coinCount >= 2 ? "已投2币" : "投2币"}
+          variant="light"
+          onClick={handleCoin}
+        >
+          <HandleB
+            fill={coinCount >= 2 ? "#00aeec" : "#333"}
+            size="24"
+            theme="outline"
+          />
+        </Button>
         <Button
           className="info-tools-button"
           size="sm"
@@ -96,7 +234,7 @@ export default function VideoInfo({
             title="B站账号关注UP视频动态列表"
             onClick={onFeedClick}
           >
-            <ShareSys theme="outline" size="24" fill="#333" />
+            <ShareSys fill="#333" size="24" theme="outline" />
           </Button>
           <Button
             className="info-tools-button bl-rcmd"
@@ -104,7 +242,7 @@ export default function VideoInfo({
             title="B站账号推荐视频列表"
             onClick={onRecommendClick}
           >
-            <ChartRing theme="outline" size="24" fill="#333" />
+            <ChartRing fill="#333" size="24" theme="outline" />
           </Button>
           <Button
             className="info-tools-button bl-collect"
@@ -112,7 +250,7 @@ export default function VideoInfo({
             title="B站账号收藏列表"
             onClick={onCollectClick}
           >
-            <WeixinFavorites theme="outline" size="24" fill="#333" />
+            <WeixinFavorites fill="#333" size="24" theme="outline" />
           </Button>
         </div>
       </div>
