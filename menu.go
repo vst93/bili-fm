@@ -12,7 +12,7 @@ import (
 type Menu struct {
 }
 
-var AppContext context.Context	
+var AppContext context.Context
 
 func NewMenu() *Menu {
 	return &Menu{}
@@ -76,7 +76,7 @@ func (m *Menu) CheckForUpdates(isManualCheck bool) {
 	if latestVersion > currentVersion {
 		choice, err := runtime.MessageDialog(AppContext, runtime.MessageDialogOptions{
 			Title:         "发现新版本",
-			Message:       "发现新版本 " + latestVersion + "\n是否前往下载？",
+			Message:       "发现新版本 " + latestVersion + "，下载地址 " + release.HtmlUrl + "\n是否前往下载？",
 			Type:          runtime.QuestionDialog,
 			Buttons:       []string{"是", "否"},
 			DefaultButton: "是",

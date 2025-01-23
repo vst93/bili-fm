@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { GetImageProxyPort } from "../wailsjs/go/main/BL";
 
 import ToastContainer from "./components/toast/ToastContainer";
-import TitleBar from "./components/TitleBar";
+import TitleBar from "./components/titleBar";
 import { setProxyImagePort } from "./config";
 
 import IndexPage from "@/pages/index";

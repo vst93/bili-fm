@@ -51,10 +51,10 @@ const TitleBar: React.FC = () => {
           </>
         ) : (
           <>
-            <div className="flex-1 flex items-center gap-2 px-0">
+            <div className="flex-1 flex items-center gap-0 px-0">
               <img alt="logo" className="w-8 h-8" src="/logo.png" />
               <span className="text-sm">bili-FM</span>
-              <div className="relative ml-4">
+              <div className="relative ml-2">
                 <button
                   aria-controls="settings-menu"
                   aria-expanded={showMenu}
