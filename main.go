@@ -111,13 +111,13 @@ func main() {
 	if isMacOS {
 		aboutMenu := AppMenu.AddSubmenu("设置")
 		aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
-			appMenu.ShowAbout(app.ctx)
+			appMenu.ShowAbout()
 		})
 		aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
-			appMenu.ShowVersion(app.ctx)
+			appMenu.ShowVersion()
 		})
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
-			appMenu.CheckForUpdates(app.ctx, true)
+			appMenu.CheckForUpdates(true)
 		})
 	}
 
@@ -154,8 +154,9 @@ func main() {
 		},
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
+			appMenu.SetAppContext(ctx)
 			// 启动时检查更新
-			appMenu.CheckForUpdates(ctx, false)
+			appMenu.CheckForUpdates(false)
 		},
 		Bind: []interface{}{
 			app,
