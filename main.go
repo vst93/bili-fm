@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
+
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -18,7 +18,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
@@ -35,61 +34,6 @@ type GithubRelease struct {
 	Assets  []struct {
 		BrowserDownloadUrl string `json:"browser_download_url"`
 	} `json:"assets"`
-}
-
-func checkForUpdates(ctx context.Context, isManualCheck bool) {
-	resp, err := http.Get("https://api.github.com/repos/vst93/bili-fm/releases/latest")
-	if err != nil {
-		if isManualCheck {
-			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-				Title:   "检查更新失败",
-				Message: "网络连接失败，请稍后重试",
-				Type:    runtime.ErrorDialog,
-				Buttons: []string{"确定"},
-			})
-		}
-		return
-	}
-	defer resp.Body.Close()
-
-	var release GithubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		if isManualCheck {
-			runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-				Title:   "检查更新失败",
-				Message: "解析版本信息失败，请稍后重试",
-				Type:    runtime.ErrorDialog,
-				Buttons: []string{"确定"},
-			})
-		}
-		return
-	}
-
-	// 移除版本号前的 'v' 如果存在
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
-	currentVersion := strings.TrimPrefix(APP_VERSION, "v")
-
-	if latestVersion > currentVersion {
-		choice, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Title:         "发现新版本",
-			Message:       "发现新版本 " + latestVersion + "\n是否前往下载？",
-			Type:          runtime.QuestionDialog,
-			Buttons:       []string{"是", "否"},
-			DefaultButton: "是",
-			CancelButton:  "否",
-		})
-
-		if err == nil && choice == "是" {
-			runtime.BrowserOpenURL(ctx, release.HtmlUrl)
-		}
-	} else if isManualCheck {
-		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
-			Title:   "检查更新",
-			Message: "当前已是最新版本",
-			Type:    runtime.InfoDialog,
-			Buttons: []string{"确定"},
-		})
-	}
 }
 
 // 图片代理处理函数
@@ -160,40 +104,33 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 	bl := NewBL()
+	appMenu := NewMenu()
 
+	isMacOS := runtime.GOOS == "darwin"
 	AppMenu := menu.NewMenu()
-	AppMenu.AddSubmenu(APP_NAME)
-	aboutMenu := AppMenu.AddSubmenu("设置")
-	aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
-		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
-			Title:   "关于",
-			Message: "通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。\n\n项目开源地址：https://github.com/vst93/bili-fm",
-			Type:    "info",
-			Buttons: []string{"好的"},
+	if isMacOS {
+		aboutMenu := AppMenu.AddSubmenu("设置")
+		aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
+			appMenu.ShowAbout(app.ctx)
 		})
-	})
-	aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
-		runtime.MessageDialog(app.ctx, runtime.MessageDialogOptions{
-			Title:   "版本",
-			Message: APP_VERSION,
-			Type:    "info",
-			Buttons: []string{"好的"},
+		aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
+			appMenu.ShowVersion(app.ctx)
 		})
-	})
-	aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
-		checkForUpdates(app.ctx, true)
-	})
+		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
+			appMenu.CheckForUpdates(app.ctx, true)
+		})
+	}
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title: APP_NAME,
-		Width: 800,
-		// Height: 580,
+		Title:  APP_NAME,
+		Width:  800,
 		Height: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: options.NewRGBA(255, 255, 255, 0),
+
+		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
@@ -202,11 +139,13 @@ func main() {
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 			Appearance:           mac.NSAppearanceNameAqua,
+			DisableZoom:          true,
 		},
 		Windows: &windows.Options{
 			WebviewIsTransparent:              false,
 			WindowIsTranslucent:               false,
 			DisableFramelessWindowDecorations: false,
+			IsZoomControlEnabled:              false,
 		},
 		Linux: &linux.Options{
 			ProgramName:         APP_NAME,
@@ -216,21 +155,25 @@ func main() {
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			// 启动时检查更新
-			checkForUpdates(ctx, false)
+			appMenu.CheckForUpdates(ctx, false)
 		},
 		Bind: []interface{}{
 			app,
 			bl,
+			appMenu,
 		},
 		DisableResize: true,
 		Fullscreen:    false,
 		Menu:          AppMenu,
+		Frameless:     !isMacOS,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "bili-fm",
 		},
-		// Frameless:       true,
-		// CSSDragProperty: "widows",
-		// CSSDragValue:    "1",
+		CSSDragProperty: "widows",
+		CSSDragValue:    "1",
+		// Debug: options.Debug{
+		// 	OpenInspectorOnStartup: true,
+		// },
 	})
 
 	if err != nil {
