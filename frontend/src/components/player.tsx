@@ -47,6 +47,7 @@ export default function Player({
         onError={() => onPlayStateChange?.(false)}
         onPause={() => onPlayStateChange?.(false)}
         onPlay={() => onPlayStateChange?.(true)}
+        className="bg-transparent"
       />
     </div>
   );

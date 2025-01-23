@@ -34,6 +34,10 @@ export function GetCList(arg1) {
   return window['go']['main']['BL']['GetCList'](arg1);
 }
 
+export function GetImageProxyPort() {
+  return window['go']['main']['BL']['GetImageProxyPort']();
+}
+
 export function GetLoginQRCode() {
   return window['go']['main']['BL']['GetLoginQRCode']();
 }
@@ -72,6 +76,10 @@ export function HmacSha256(arg1, arg2) {
 
 export function LikeVideo(arg1, arg2) {
   return window['go']['main']['BL']['LikeVideo'](arg1, arg2);
+}
+
+export function ProxyImage(arg1) {
+  return window['go']['main']['BL']['ProxyImage'](arg1);
 }
 
 export function SearchVideo(arg1, arg2) {

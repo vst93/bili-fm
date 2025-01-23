@@ -18,6 +18,8 @@ export function GetBiliTicket(arg1:string):Promise<string>;
 
 export function GetCList(arg1:string):Promise<main.VideoInfo>;
 
+export function GetImageProxyPort():Promise<number>;
+
 export function GetLoginQRCode():Promise<string>;
 
 export function GetLoginQRCodeStatus():Promise<boolean>;
@@ -37,6 +39,8 @@ export function HasLiked(arg1:string):Promise<boolean>;
 export function HmacSha256(arg1:string,arg2:string):Promise<string>;
 
 export function LikeVideo(arg1:string,arg2:number):Promise<boolean>;
+
+export function ProxyImage(arg1:string):Promise<string>;
 
 export function SearchVideo(arg1:string,arg2:string):Promise<Array<main.SearchResult>>;
 

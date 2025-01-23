@@ -50,7 +50,7 @@ const SearchList: FC<SearchListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2">
+            <DrawerHeader className="flex gap-2 py-2">
               搜索
               <Button
                 size="sm"

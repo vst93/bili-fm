@@ -72,7 +72,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2">
+            <DrawerHeader className="flex gap-2 py-2">
               「{upName}」的视频
               <Button
                 isIconOnly

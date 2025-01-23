@@ -19,6 +19,8 @@ import {
 } from "../../wailsjs/go/main/BL";
 import { toast } from "../utils/toast";
 
+import { graftingImage } from "@/utils/string";
+
 interface VideoInfoProps {
   title?: string;
   desc?: string;
@@ -142,17 +144,19 @@ export default function VideoInfo({
         <Image
           alt={ownerName}
           className="cursor-pointer min-w-[48px]"
-          id="video-owner-face"
-          loading="lazy"
-          src={ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg"}
-          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
-          width={48}
-          height={48}
-          radius="full"
           classNames={{
             wrapper: "min-w-[48px]",
             img: "object-cover opacity-100",
           }}
+          height={48}
+          id="video-owner-face"
+          loading="lazy"
+          radius="full"
+          src={graftingImage(
+            ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+          )}
+          width={48}
+          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
         />
         <button
           className="cursor-pointer bg-transparent border-none p-0"

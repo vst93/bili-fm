@@ -72,7 +72,7 @@ const RecommendList: FC<RecommendListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2">
+            <DrawerHeader className="flex gap-2 py-2">
               推荐视频
               <Button
                 isIconOnly
