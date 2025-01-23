@@ -2,13 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* html{
+html{
     cursor: default;
     -webkit-user-select: none;
     -moz-user-select: none;
     user-select: none;
-    background: #0000 !important;   
-} */
+    /* background: #0000 !important;    */
+}
 
 body {
     margin: 0;
@@ -31,9 +31,8 @@ body {
     widows: 1;
     cursor: default;
     user-select: none;
-    height: 32px;
+    height: 38px;
     background-color: #fefefe;
-    border-bottom: 1px solid #eaeaea;
     display: flex;
     align-items: center;
     padding: 0 16px;
@@ -41,7 +40,12 @@ body {
     font-weight: 500;
     color: #1a1a1a;
     overflow: hidden;
-    border-radius: 10px 10px 0 0 !important;
+    /* border-radius: 10px 10px 0 0 !important; */
+    padding-left: 10%;
+}
+
+.app-title-bar:hover{
+    border-bottom: 1px solid #eaeaea;
 }
 
 img{
@@ -211,7 +215,7 @@ img{
 }
 
 #video-title {
-    font-size: 18px;
+    font-size: 16px;
     margin-top: 8px;
     max-height: 15vh;
     overflow: hidden;
@@ -220,26 +224,25 @@ img{
 #video-desc {
     font-size: 12px;
     color: #999;
-    margin-top: 8px;
-    max-height: 10vh;
+    margin-top: 6px;
+    max-height: 12vh;
     overflow: hidden;
 
 }
 
 #video-part {
-    font-size: 20px;
-    margin-top: 8px;
+    font-size: 18px;
+    margin-top: 6px;
     overflow: hidden;
     max-height: 10vh;
 }
 
 .info-tools {
-    /* background-color: aqua; */
     margin: 3vh 0 0 0;
     float: left;
     position: absolute;
-    bottom: 15vh;
-    /* bottom: 20vh; */
+    /* bottom: 15vh; */
+    bottom: 20vh;
 }
 
 .info-tools-button {

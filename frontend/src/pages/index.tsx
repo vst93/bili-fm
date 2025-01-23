@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { main as MainModels } from "../../wailsjs/go/models";
@@ -17,7 +18,6 @@ import {
   GetBLFavFolderListDetail,
   GetUpVideoList,
 } from "../../wailsjs/go/main/BL";
-import { CloseOne } from "@icon-park/react"
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
@@ -144,7 +144,10 @@ export default function IndexPage() {
       await SetLoginStatus(true);
       setShowLoginPanel(true);
       const qrcodeUrl = await GetLoginQRCode();
-      setQrCodeUrl(`https://api.pwmqr.com/qrcode/create/?url=${encodeURIComponent(qrcodeUrl)}`);
+
+      setQrCodeUrl(
+        `https://api.pwmqr.com/qrcode/create/?url=${encodeURIComponent(qrcodeUrl)}`,
+      );
       loopLoginStatus();
     } catch (error) {
       console.error("登录失败:", error);
@@ -158,12 +161,15 @@ export default function IndexPage() {
   const loopLoginStatus = async () => {
     try {
       const status = await GetLoginStatus();
+
       if (!status) {
         console.log("已关闭登录页面");
+
         return;
       }
 
       const qrCodeStatus = await GetLoginQRCodeStatus();
+
       if (qrCodeStatus) {
         console.log("扫码成功");
         setShowLoginPanel(false);
@@ -183,8 +189,10 @@ export default function IndexPage() {
   const refreshUserInfo = async () => {
     try {
       const userInfo = await GetBLUserInfo();
+
       if (userInfo?.face) {
         const processedFace = graftingImage(userInfo.face);
+
         setUserFace(processedFace);
       }
     } catch (error) {
@@ -208,6 +216,7 @@ export default function IndexPage() {
   const handleFeedClick = async () => {
     try {
       const data = await GetBLFeedList(feedOffset);
+
       setFeedList(data);
       setShowFeedList(true);
       setShowSearchList(false);
@@ -225,6 +234,7 @@ export default function IndexPage() {
     try {
       setFeedOffset("");
       const data = await GetBLFeedList("");
+
       setFeedList(data);
     } catch (error) {
       console.error("刷新动态列表失败:", error);
@@ -239,6 +249,7 @@ export default function IndexPage() {
   const handleLoadMore = async (offset: string) => {
     try {
       const data = await GetBLFeedList(offset);
+
       if (data?.items && feedList?.items) {
         setFeedList({
           ...data,
@@ -260,6 +271,7 @@ export default function IndexPage() {
     if (!keyword) {
       // TODO: 显示错误提示
       console.log("请输入关键词");
+
       return;
     }
 
@@ -286,6 +298,7 @@ export default function IndexPage() {
 
     try {
       const results = await SearchVideo(currentKeyword, order);
+
       setSearchResults(results);
     } catch (error) {
       console.error("搜索失败:", error);
@@ -301,6 +314,7 @@ export default function IndexPage() {
     if (!url) {
       // TODO: 显示错误提示
       console.log("请输入B站视频地址");
+
       return;
     }
 
@@ -308,6 +322,7 @@ export default function IndexPage() {
 
     if (!bvid) {
       console.log("无效的视频地址");
+
       return;
     }
 
@@ -460,6 +475,7 @@ export default function IndexPage() {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
       const data = await GetUpVideoList(mid, "");
+
       setUpVideoList(data);
       setShowUpVideoList(true);
       setShowSearchList(false);
@@ -480,6 +496,7 @@ export default function IndexPage() {
     try {
       setUpVideoOffset("");
       const data = await GetUpVideoList(currentUpMid, "");
+
       setUpVideoList(data);
     } catch (error) {
       console.error("刷新UP主视频列表失败:", error);
@@ -494,6 +511,7 @@ export default function IndexPage() {
   const handleUpVideoLoadMore = async () => {
     try {
       const data = await GetUpVideoList(currentUpMid, upVideoOffset);
+
       if (data?.items && upVideoList?.items) {
         setUpVideoList({
           ...data,
@@ -517,11 +535,13 @@ export default function IndexPage() {
       setShowSearchList(false);
       setShowPageList(false);
       setShowFeedList(false);
+
       return;
     }
 
     try {
       const data = await GetBLRCMDList(recommendPage);
+
       setRecommendList(data);
       setShowRecommendList(true);
       setShowSearchList(false);
@@ -540,6 +560,7 @@ export default function IndexPage() {
     try {
       setRecommendPage(1);
       const data = await GetBLRCMDList(1);
+
       setRecommendList(data);
     } catch (error) {
       console.error("刷新推荐列表失败:", error);
@@ -554,6 +575,7 @@ export default function IndexPage() {
     try {
       const nextPage = recommendPage + 1;
       const data = await GetBLRCMDList(nextPage);
+
       if (data?.items && recommendList?.items) {
         setRecommendList({
           ...data,
@@ -575,14 +597,16 @@ export default function IndexPage() {
       // 如果还没有获取过收藏夹组，先获取
       if (collectGroups.length === 0) {
         const groups = await GetBLFavFolderList();
+
         setCollectGroups(groups);
         if (groups.length > 0) {
           setCurrentGroupId(groups[0].id);
           const data = await GetBLFavFolderListDetail(groups[0].id, 1);
+
           setCollectList(data);
         }
       }
-      
+
       setShowCollectList(true);
       setShowSearchList(false);
       setShowPageList(false);
@@ -602,6 +626,7 @@ export default function IndexPage() {
       if (currentGroupId) {
         setCollectPage(1);
         const data = await GetBLFavFolderListDetail(currentGroupId, 1);
+
         setCollectList(data);
       }
     } catch (error) {
@@ -618,6 +643,7 @@ export default function IndexPage() {
       if (currentGroupId) {
         const nextPage = collectPage + 1;
         const data = await GetBLFavFolderListDetail(currentGroupId, nextPage);
+
         if (Array.isArray(data) && Array.isArray(collectList)) {
           setCollectList([...collectList, ...data]);
           setCollectPage(nextPage);
@@ -638,6 +664,7 @@ export default function IndexPage() {
       setCurrentGroupId(groupId);
       setCollectPage(1);
       const data = await GetBLFavFolderListDetail(groupId, 1);
+
       setCollectList(data);
     } catch (error) {
       console.error("切换收藏夹失败:", error);
@@ -647,12 +674,12 @@ export default function IndexPage() {
   return (
     <DefaultLayout>
       <SearchForm
+        userFace={userFace}
         value={searchInputValue}
         onInputChange={setSearchInputValue}
+        onLoginClick={handleLogin}
         onSearch={handleSearch}
         onUrlJump={handleUrlJump}
-        onLoginClick={handleLogin}
-        userFace={userFace}
       />
       <VideoCover
         cover={graftingImage(pageFirstFrame)}
@@ -663,17 +690,17 @@ export default function IndexPage() {
         bvid={videoInfo?.bvid}
         desc={videoInfo?.desc}
         ownerFace={videoInfo?.owner_face}
-        ownerName={videoInfo?.owner_name}
         ownerMid={videoInfo?.owner_mid}
+        ownerName={videoInfo?.owner_name}
         part={currentPart}
         title={videoInfo?.title}
+        onCollectClick={handleCollectClick}
+        onFeedClick={handleFeedClick}
         onOwnerClick={handleOwnerClick}
         onPageListClick={handlePageListClick}
+        onRecommendClick={handleRecommendClick}
         onSearchClick={handleSearchClick}
         onShareClick={handleShareClick}
-        onFeedClick={handleFeedClick}
-        onRecommendClick={handleRecommendClick}
-        onCollectClick={handleCollectClick}
       />
       <Player
         isPlaying={isPlaying}
@@ -702,63 +729,65 @@ export default function IndexPage() {
       {showFeedList && (
         <FeedList
           feedList={feedList}
+          onLoadMore={handleLoadMore}
+          onRefresh={handleFeedRefresh}
           onSlideClick={() => setShowFeedList(false)}
           onVideoSelect={handleSearchVideoSelect}
-          onRefresh={handleFeedRefresh}
-          onLoadMore={handleLoadMore}
         />
       )}
       {showRecommendList && (
         <RecommendList
           recommendList={recommendList}
+          onLoadMore={handleRecommendLoadMore}
+          onRefresh={handleRecommendRefresh}
           onSlideClick={() => setShowRecommendList(false)}
           onVideoSelect={handleSearchVideoSelect}
-          onRefresh={handleRecommendRefresh}
-          onLoadMore={handleRecommendLoadMore}
         />
       )}
       {showCollectList && (
         <CollectList
-          collectList={collectList}
           collectGroups={collectGroups}
+          collectList={collectList}
           currentGroupId={currentGroupId}
+          onGroupSelect={handleCollectGroupSelect}
+          onLoadMore={handleCollectLoadMore}
+          onRefresh={handleCollectRefresh}
           onSlideClick={() => setShowCollectList(false)}
           onVideoSelect={handleSearchVideoSelect}
-          onRefresh={handleCollectRefresh}
-          onLoadMore={handleCollectLoadMore}
-          onGroupSelect={handleCollectGroupSelect}
         />
       )}
       {showUpVideoList && (
         <UpVideoList
+          upName={currentUpName}
           upVideoList={upVideoList}
+          onLoadMore={handleUpVideoLoadMore}
+          onRefresh={handleUpVideoRefresh}
           onSlideClick={() => setShowUpVideoList(false)}
           onVideoSelect={handleSearchVideoSelect}
-          onRefresh={handleUpVideoRefresh}
-          onLoadMore={handleUpVideoLoadMore}
-          upName={currentUpName}
         />
       )}
       {showLoginPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
           <div className="relative w-80 rounded-lg bg-white p-6">
             <button
-              onClick={handleCloseLogin}
               className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
+              onClick={handleCloseLogin}
             >
-              <CloseOne theme="outline" size="24" fill="#333" />
+              <CloseSmall fill="#333" size="24" theme="outline" />
             </button>
-            <h3 className="mb-4 text-center text-lg font-semibold">使用BiLiBiLi APP 扫码登录</h3>
+            <h3 className="mb-4 text-center text-lg font-semibold">
+              使用BiLiBiLi APP 扫码登录
+            </h3>
             <img
-              src={qrCodeUrl}
               alt="登录二维码"
               className="mx-auto h-48 w-48"
+              src={qrCodeUrl}
             />
           </div>
         </div>
       )}
       <div className="fixed bottom-0 right-0 opacity-0">
-        <img src="https://sstatic1.histats.com/0.gif?4923382&101" alt="" />
+        <img alt="" src="https://sstatic1.histats.com/0.gif?4923382&101" />
       </div>
     </DefaultLayout>
   );

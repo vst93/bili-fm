@@ -1,3 +1,5 @@
+import { proxyImagePort } from "../config";
+
 export const urlToBVID = (url: string) => {
   // 提取BV号的正则表达式
   const bvRegex = /BV[a-zA-Z0-9]+/;
@@ -23,10 +25,11 @@ export const graftingImage = (img: string) => {
   //     let randomNum = Math.floor(Math.random() * 4);
   //     img = 'https://i' + randomNum + '.wp.com/' + img.replace('http://', '').replace('https://', '');
   //   }
-  // return img;
   if (img) {
-    return `http://127.0.0.1:4654/image-proxy?url=${img}`;
+    return `http://127.0.0.1:${proxyImagePort}/image-proxy?url=${img}`;
   }
 
   return img;
+
+  // return ProxyImage(img);
 };

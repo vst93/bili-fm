@@ -4,24 +4,30 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 var APP_DIR = ""
-var APP_VERSION = "1.1.0"
-var APP_VERSION_NO = 3
+var APP_VERSION = "1.1.1"
+var APP_VERSION_NO = 4
 var APP_NAME = "bili-FM"
+var IMAGE_PROXY_PROT = 4654
 
 type GithubRelease struct {
 	TagName string `json:"tag_name"`
@@ -129,10 +135,25 @@ func main() {
 	http.HandleFunc("/image-proxy", imageProxyHandler)
 	// 启动 HTTP 服务器
 	go func() {
-		if err := http.ListenAndServe(":4654", nil); err != nil {
-			println("Error:", err.Error())
-		} else {
-			println("Image proxy server started on port 4654")
+		proxyListenTryNum := 0
+		for proxyListenTryNum < 10 {
+			thePort := strconv.Itoa(IMAGE_PROXY_PROT)
+			//检查端口是否使用
+			_, err := net.Dial("tcp", "localhost:"+thePort)
+			if err == nil {
+				IMAGE_PROXY_PROT++
+				proxyListenTryNum++
+				continue
+			}
+			if err := http.ListenAndServe(":"+thePort, nil); err != nil {
+				println("Error:", err.Error())
+				IMAGE_PROXY_PROT++
+				proxyListenTryNum++
+				continue
+			} else {
+				println("Image proxy server started on port " + thePort)
+				break
+			}
 		}
 	}()
 
@@ -165,32 +186,33 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  APP_NAME,
-		Width:  800,
-		Height: 580,
-		// Height: 620,
+		Title: APP_NAME,
+		Width: 800,
+		// Height: 580,
+		Height: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: options.NewRGBA(255, 255, 255, 0),
-		// Mac: &mac.Options{
-		// 	TitleBar: mac.TitleBarHiddenInset(),
-		// 	About: &mac.AboutInfo{
-		// 		Title: fmt.Sprintf("%s %s", APP_NAME, APP_VERSION),
-		// 	},
-		// 	WebviewIsTransparent: true,
-		// 	WindowIsTranslucent:  true,
-		// },
-		// Windows: &windows.Options{
-		// 	WebviewIsTransparent:              false,
-		// 	WindowIsTranslucent:               false,
-		// 	DisableFramelessWindowDecorations: false,
-		// },
-		// Linux: &linux.Options{
-		// 	ProgramName:         APP_NAME,
-		// 	WebviewGpuPolicy:    linux.WebviewGpuPolicyOnDemand,
-		// 	WindowIsTranslucent: true,
-		// },
+		Mac: &mac.Options{
+			TitleBar: mac.TitleBarHiddenInset(),
+			About: &mac.AboutInfo{
+				Title: fmt.Sprintf("%s %s", APP_NAME, APP_VERSION),
+			},
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			Appearance:           mac.NSAppearanceNameAqua,
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent:              false,
+			WindowIsTranslucent:               false,
+			DisableFramelessWindowDecorations: false,
+		},
+		Linux: &linux.Options{
+			ProgramName:         APP_NAME,
+			WebviewGpuPolicy:    linux.WebviewGpuPolicyOnDemand,
+			WindowIsTranslucent: true,
+		},
 		OnStartup: func(ctx context.Context) {
 			app.startup(ctx)
 			// 启动时检查更新
@@ -203,9 +225,6 @@ func main() {
 		DisableResize: true,
 		Fullscreen:    false,
 		Menu:          AppMenu,
-		Mac: &mac.Options{
-			Appearance: mac.NSAppearanceNameAqua,
-		},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "bili-fm",
 		},
