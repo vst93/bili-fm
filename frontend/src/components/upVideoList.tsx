@@ -1,8 +1,8 @@
 import type { FC } from "react";
 import type { main } from "../../wailsjs/go/models";
-import { Refresh } from "@icon-park/react";
 
-import { useDisclosure } from "@nextui-org/react";
+import { Refresh } from "@icon-park/react";
+import { useDisclosure } from "@heroui/react";
 import {
   Button,
   Drawer,
@@ -13,7 +13,7 @@ import {
   CardBody,
   CardFooter,
   Image,
-} from "@nextui-org/react";
+} from "@heroui/react";
 
 import { graftingImage } from "@/utils/string";
 
@@ -47,6 +47,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
     const bottom =
       e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
       e.currentTarget.clientHeight;
+
     if (bottom && upVideoList?.offset) {
       onLoadMore?.(upVideoList.offset);
     }
@@ -54,6 +55,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
 
   const handleRefresh = () => {
     const drawerBody = document.querySelector(".up-video-drawer-body");
+
     if (drawerBody) {
       drawerBody.scrollTop = 0;
     }
@@ -80,7 +82,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                 variant="light"
                 onClick={handleRefresh}
               >
-                <Refresh theme="outline" size="20" fill="#333" />
+                <Refresh fill="#333" size="20" theme="outline" />
               </Button>
             </DrawerHeader>
             <DrawerBody

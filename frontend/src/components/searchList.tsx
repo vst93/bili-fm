@@ -1,7 +1,7 @@
 import type { FC } from "react";
 import type { main } from "../../wailsjs/go/models";
 
-import { useDisclosure } from "@nextui-org/react";
+import { useDisclosure } from "@heroui/react";
 import {
   Button,
   Drawer,
@@ -12,7 +12,7 @@ import {
   CardBody,
   CardFooter,
   Image,
-} from "@nextui-org/react";
+} from "@heroui/react";
 
 import { graftingImage } from "@/utils/string";
 

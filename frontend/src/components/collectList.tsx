@@ -1,7 +1,7 @@
 import type { FC } from "react";
 
 import { Refresh, Left, Right } from "@icon-park/react";
-import { useDisclosure } from "@nextui-org/react";
+import { useDisclosure } from "@heroui/react";
 import {
   Button,
   Drawer,
@@ -14,7 +14,7 @@ import {
   Image,
   Tabs,
   Tab,
-} from "@nextui-org/react";
+} from "@heroui/react";
 import { useRef } from "react";
 
 import { graftingImage } from "@/utils/string";

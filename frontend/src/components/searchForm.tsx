@@ -1,5 +1,5 @@
 import { FC } from "react";
-import { Avatar, Input } from "@nextui-org/react";
+import { Avatar, Input } from "@heroui/react";
 import { Search } from "@icon-park/react";
 
 interface SearchFormProps {

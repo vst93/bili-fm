@@ -1140,7 +1140,7 @@ func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
 // ----------- end - getUpVideoList -----------
 
 // ----------- begin - proxyImage -----------
-func (bl *BL) ProxyImage(url string) (string) {
+func (bl *BL) ProxyImage(url string) string {
 	if url == "" {
 		return ""
 	}

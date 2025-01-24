@@ -83,7 +83,7 @@ func (m *Menu) CheckForUpdates(isManualCheck bool) {
 			CancelButton:  "否",
 		})
 
-		if err == nil && choice == "是" {
+		if err == nil && (choice == "是" || choice == "Ok" || choice == "Yes") {
 			runtime.BrowserOpenURL(AppContext, release.HtmlUrl)
 		}
 	} else if isManualCheck {

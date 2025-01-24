@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* windows {
-    background-color: #0000 !important;
-} */
-
 html {
     cursor: default;
     -webkit-user-select: none;

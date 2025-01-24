@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card } from "@nextui-org/react";
+import { Card } from "@heroui/react";
 import { CheckOne, CloseOne, Attention, Info } from "@icon-park/react";
 
 interface ToastProps {
