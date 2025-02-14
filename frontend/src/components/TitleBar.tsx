@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Close, Minus } from "@icon-park/react";
 
-import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates } from "../../wailsjs/go/main/Menu";
+import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts } from "../../wailsjs/go/main/Menu";
 
 const TitleBar: React.FC = () => {
   const [isMac, setIsMac] = useState(false);
@@ -35,7 +35,12 @@ const TitleBar: React.FC = () => {
   };
 
   const handleCheckUpdate = async () => {
-    await CheckForUpdates(true);
+    await CheckForUpdates(true, "");
+    setShowMenu(false);
+  };
+
+  const handleShowKeyboardShortcuts = async () => {
+    await ShowKeyboardShortcuts();
     setShowMenu(false);
   };
 
@@ -88,6 +93,15 @@ const TitleBar: React.FC = () => {
                           role="menuitem"
                         >
                           版本
+                        </button>
+                      </li>
+                      <li role="none">
+                        <button
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
+                          onClick={handleShowKeyboardShortcuts}
+                          role="menuitem"
+                        >
+                          快捷键
                         </button>
                       </li>
                       <li role="none">

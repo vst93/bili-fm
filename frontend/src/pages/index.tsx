@@ -81,6 +81,19 @@ export default function IndexPage() {
    * @description 处理空格键（播放/暂停）和左右方向键（上一个/下一个视频）的按键事件
    */
   useEffect(() => {
+
+    //监听快捷键
+    const listener = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "w") {
+        // @ts-ignore
+        window.runtime.WindowMinimise();
+      } else if ((event.metaKey || event.ctrlKey) && event.key === "q") { 
+        // @ts-ignore
+        window.runtime.Quit();
+      }
+    };
+
+    //监听键盘事件
     const handleKeyPress = (event: KeyboardEvent) => {
       if (
         event.target instanceof HTMLInputElement ||
@@ -129,9 +142,11 @@ export default function IndexPage() {
     };
 
     window.addEventListener("keyup", handleKeyPress);
+    window.addEventListener("keydown", listener);
 
     return () => {
       window.removeEventListener("keyup", handleKeyPress);
+      window.removeEventListener("keydown", listener);
     };
   }, [videoInfo, currentIndex]);
 

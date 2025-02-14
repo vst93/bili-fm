@@ -2,7 +2,7 @@
 
 `通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。`
 
-![https://github.com/vst93/bili-fm/blob/main/screenshot.png?raw=true](https://github.com/vst93/bili-fm/blob/main/screenshot.png?raw=true)
+![https://gitee.com/vst93/bili-fm/raw/main/screenshot.png](https://gitee.com/vst93/bili-fm/raw/main/screenshot.png)
 
 #### 功能
 迫于B站电脑端没有“听视频”模式，故做了这个小工具方便自己使用。

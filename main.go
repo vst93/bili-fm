@@ -23,8 +23,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 var APP_DIR = ""
-var APP_VERSION = "1.1.2"
-var APP_VERSION_NO = 5
+var APP_VERSION = "1.1.3"
+var APP_VERSION_NO = 6
 var APP_NAME = "bili-FM"
 var IMAGE_PROXY_PROT = 4654
 
@@ -116,8 +116,11 @@ func main() {
 		aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
 			appMenu.ShowVersion()
 		})
+		aboutMenu.AddText("快捷键", nil, func(_ *menu.CallbackData) {
+			appMenu.ShowKeyboardShortcuts()
+		})
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
-			appMenu.CheckForUpdates(true)
+			appMenu.CheckForUpdates(true, "")
 		})
 	}
 
@@ -156,7 +159,7 @@ func main() {
 			app.startup(ctx)
 			appMenu.SetAppContext(ctx)
 			// 启动时检查更新
-			appMenu.CheckForUpdates(false)
+			appMenu.CheckForUpdates(false, "")
 		},
 		Bind: []interface{}{
 			app,
