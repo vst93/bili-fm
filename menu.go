@@ -44,7 +44,7 @@ func (m *Menu) ShowVersion() {
 func (m *Menu) ShowKeyboardShortcuts() {
 	runtime.MessageDialog(AppContext, runtime.MessageDialogOptions{
 		Title:   "快捷键",
-		Message: "播放/暂停：空格键\n上一首：<-\n下一首：->\nctrl/cmd + w\nctrl/cmd + q",
+		Message: "播放/暂停：空格键\n上一首：<-\n下一首：->\n最小化：ctrl/cmd + w\n退出：ctrl/cmd + q",
 		Type:    "info",
 		Buttons: []string{"好的"},
 	})
