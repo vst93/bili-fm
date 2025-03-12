@@ -10,6 +10,8 @@ export function GetBLFavFolderListDetail(arg1:number,arg2:number):Promise<Array<
 
 export function GetBLFeedList(arg1:string):Promise<main.FeedList>;
 
+export function GetBLHistoryList(arg1:number,arg2:number,arg3:string,arg4:number):Promise<main.HistoryList>;
+
 export function GetBLRCMDList(arg1:number):Promise<main.RCMDList>;
 
 export function GetBLUserInfo():Promise<main.UserInfo>;
@@ -41,6 +43,8 @@ export function HmacSha256(arg1:string,arg2:string):Promise<string>;
 export function LikeVideo(arg1:string,arg2:number):Promise<boolean>;
 
 export function ProxyImage(arg1:string):Promise<string>;
+
+export function ReportPlayProgress(arg1:number,arg2:number,arg3:number):Promise<boolean>;
 
 export function SearchVideo(arg1:string,arg2:string):Promise<Array<main.SearchResult>>;
 

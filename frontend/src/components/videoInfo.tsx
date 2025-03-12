@@ -8,6 +8,7 @@ import {
   WeixinFavorites,
   ThumbsUp,
   HandleB,
+  History,
 } from "@icon-park/react";
 import { useState, useEffect } from "react";
 
@@ -37,6 +38,7 @@ interface VideoInfoProps {
   onFeedClick?: () => void;
   onRecommendClick?: () => void;
   onCollectClick?: () => void;
+  onHistoryClick?: () => void;
 }
 
 export default function VideoInfo({
@@ -54,6 +56,7 @@ export default function VideoInfo({
   onFeedClick,
   onRecommendClick,
   onCollectClick,
+  onHistoryClick,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
@@ -271,6 +274,14 @@ export default function VideoInfo({
             onClick={onCollectClick}
           >
             <WeixinFavorites fill="#333" size="24" theme="outline" />
+          </Button>
+          <Button
+            className="info-tools-button bl-collect"
+            size="sm"
+            title="B站账号历史记录"
+            onClick={onHistoryClick}
+          >
+            <History theme="outline" size="24" fill="#333" />
           </Button>
         </div>
       </div>

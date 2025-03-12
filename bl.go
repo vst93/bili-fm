@@ -276,6 +276,7 @@ type VideoInfo struct {
 	OwnerName string `json:"owner_name"`
 	OwnerFace string `json:"owner_face"`
 	Pages     []Page `json:"pages"`
+	Cid       int    `json:"cid"`
 }
 
 type Page struct {
@@ -1152,3 +1153,152 @@ func (bl *BL) GetImageProxyPort() int {
 }
 
 // ----------- end - proxyImage -----------
+
+// ----------- begin - reportPlayProgress -----------
+// ReportPlayProgress 上报视频播放进度
+func (bl *BL) ReportPlayProgress(aid int, cid int, progress int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	// 从cookie中获取bili_jct作为csrf
+	csrfStart := strings.Index(cookie, "bili_jct=")
+	if csrfStart == -1 {
+		return false, errors.New("无法获取csrf")
+	}
+	csrfStart += 9 // "bili_jct="的长度
+	csrfEnd := strings.Index(cookie[csrfStart:], ";")
+	if csrfEnd == -1 {
+		csrfEnd = len(cookie[csrfStart:])
+	}
+	csrfEnd = csrfEnd + csrfStart
+	csrf := cookie[csrfStart:csrfEnd]
+
+	baseURL := "https://api.bilibili.com/x/v2/history/report"
+	params := url.Values{}
+	params.Add("aid", fmt.Sprintf("%d", aid))
+	params.Add("cid", fmt.Sprintf("%d", cid))
+	params.Add("progress", fmt.Sprintf("%d", progress))
+	params.Add("csrf", csrf)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return true, nil
+}
+
+// ----------- end - reportPlayProgress -----------
+
+// ----------- begin - getBLHistoryList -----------
+type HistoryList struct {
+	List   []interface{} `json:"list"`
+	Cursor struct {
+		Max      int    `json:"max"`
+		ViewAt   int    `json:"view_at"`
+		Business string `json:"business"`
+	} `json:"cursor"`
+}
+
+func (bl *BL) GetBLHistoryList(max int, viewAt int, business string, ps int) (*HistoryList, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return &HistoryList{}, nil
+	}
+
+	apiUrl := "https://api.bilibili.com/x/web-interface/history/cursor"
+	params := url.Values{}
+	params.Add("type", "archive") //类型：稿件
+	params.Add("max", fmt.Sprintf("%d", max))
+	params.Add("view_at", fmt.Sprintf("%d", viewAt))
+	if len(business) > 0 {
+		params.Add("business", business)
+	} else {
+		params.Add("business", "archive")
+	}
+	if ps > 0 {
+		params.Add("ps", fmt.Sprintf("%d", ps))
+	} else {
+		params.Add("ps", "20")
+	}
+
+	req, err := http.NewRequest("GET", apiUrl+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResponse struct {
+		Code int `json:"code"`
+		Data struct {
+			List   []interface{} `json:"list"`
+			Cursor struct {
+				Max      int    `json:"max"`
+				ViewAt   int    `json:"view_at"`
+				Business string `json:"business"`
+			} `json:"cursor"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if apiResponse.Code != 0 {
+		return nil, errors.New("API returned non-zero code")
+	}
+
+	historyList := &HistoryList{
+		List:   apiResponse.Data.List,
+		Cursor: apiResponse.Data.Cursor,
+	}
+
+	return historyList, nil
+}
+
+// ----------- end - getBLHistoryList -----------

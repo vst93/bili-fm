@@ -18,6 +18,10 @@ export function GetBLFeedList(arg1) {
   return window['go']['main']['BL']['GetBLFeedList'](arg1);
 }
 
+export function GetBLHistoryList(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['BL']['GetBLHistoryList'](arg1, arg2, arg3, arg4);
+}
+
 export function GetBLRCMDList(arg1) {
   return window['go']['main']['BL']['GetBLRCMDList'](arg1);
 }
@@ -80,6 +84,10 @@ export function LikeVideo(arg1, arg2) {
 
 export function ProxyImage(arg1) {
   return window['go']['main']['BL']['ProxyImage'](arg1);
+}
+
+export function ReportPlayProgress(arg1, arg2, arg3) {
+  return window['go']['main']['BL']['ReportPlayProgress'](arg1, arg2, arg3);
 }
 
 export function SearchVideo(arg1, arg2) {

@@ -17,6 +17,7 @@ import {
   GetBLFavFolderList,
   GetBLFavFolderListDetail,
   GetUpVideoList,
+  GetBLHistoryList,
 } from "../../wailsjs/go/main/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -31,6 +32,7 @@ import DefaultLayout from "@/layouts/default";
 import { graftingImage, urlToBVID } from "@/utils/string";
 import CollectList from "@/components/collectList";
 import UpVideoList from "@/components/upVideoList";
+import HistoryList from "@/components/historyList";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -69,6 +71,9 @@ export default function IndexPage() {
   const [upVideoOffset, setUpVideoOffset] = useState("");
   const [currentUpMid, setCurrentUpMid] = useState(0);
   const [currentUpName, setCurrentUpName] = useState("");
+  const [showHistoryList, setShowHistoryList] = useState(false);
+  const [historyList, setHistoryList] = useState<any>();
+  const [historyCursor, setHistoryCursor] = useState<object>();
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -399,6 +404,7 @@ export default function IndexPage() {
             owner_mid: videoInfo.owner_mid,
             pic: videoInfo.pic,
             videos: videoInfo.videos,
+            cid: cid,
           }),
         );
       }
@@ -498,11 +504,34 @@ export default function IndexPage() {
       setShowFeedList(false);
       setShowRecommendList(false);
       setShowCollectList(false);
+      setShowHistoryList(false);
     } catch (error) {
       console.error("获取UP主视频列表失败:", error);
     }
   };
-
+  
+  /**
+   * 处理历史记录按钮点击事件
+   * @description 获取并显示用户的观看历史记录
+   */
+  const handleHistoryClick = () => {
+    try {
+      GetBLHistoryList(0,30).then(data => {
+        setHistoryList(data?.list || [])
+        setHistoryCursor(data.cursor || {})
+      });
+      setShowHistoryList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+      setShowUpVideoList(false);
+    } catch (error) {
+      console.error("获取历史记录失败:", error);
+    }
+  };
+  
   /**
    * 处理UP主视频列表刷新事件
    * @description 重置偏移量并重新获取UP主视频列表
@@ -716,12 +745,15 @@ export default function IndexPage() {
         onRecommendClick={handleRecommendClick}
         onSearchClick={handleSearchClick}
         onShareClick={handleShareClick}
+        onHistoryClick={handleHistoryClick}
       />
       <Player
         isPlaying={isPlaying}
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
+        aid={videoInfo?.aid}
+        cid={videoInfo?.cid}
       />
       {showSearchList && (
         <SearchList
@@ -779,6 +811,16 @@ export default function IndexPage() {
           onRefresh={handleUpVideoRefresh}
           onSlideClick={() => setShowUpVideoList(false)}
           onVideoSelect={handleSearchVideoSelect}
+        />
+      )}
+      {showHistoryList && (
+        <HistoryList
+          onSlideClick={() => setShowHistoryList(false)}
+          onVideoSelect={handleSearchVideoSelect}
+          historyList={historyList}
+          historyCursor={historyCursor}
+          setHistoryList={setHistoryList}
+          setHistoryCursor={setHistoryCursor}
         />
       )}
       {showLoginPanel && (

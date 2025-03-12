@@ -1,11 +1,14 @@
 import { AudioPlayer, AudioPlayerRef } from "react-audio-play";
 import { useEffect, useRef } from "react";
+import { ReportPlayProgress } from "../../wailsjs/go/main/BL";
 
 interface PlayerProps {
   src?: string;
   onEnded?: () => void;
   onPlayStateChange?: (isPlaying: boolean) => void;
   isPlaying?: boolean;
+  aid?: number;
+  cid?: number;
 }
 
 export default function Player({
@@ -13,6 +16,8 @@ export default function Player({
   onEnded,
   onPlayStateChange,
   isPlaying,
+  aid,
+  cid,
 }: PlayerProps) {
   let autoPlay = true;
   const playerRef = useRef<AudioPlayerRef>(null);
@@ -22,6 +27,13 @@ export default function Player({
       onPlayStateChange?.(true);
     }
   }, [src]);
+
+  useEffect(() => {
+    if (isPlaying && aid && cid) {
+      // 开始播放时上报一次观看进度
+      ReportPlayProgress(aid, cid, 0);
+    }
+  }, [isPlaying, aid, cid]);
 
   if (isPlaying) {
     playerRef.current?.play();

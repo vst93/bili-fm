@@ -16,6 +16,39 @@ export namespace main {
 	        this.offset = source["offset"];
 	    }
 	}
+	export class HistoryList {
+	    list: any[];
+	    // Go type: struct { Max int "json:\"max\""; ViewAt int "json:\"view_at\""; Business string "json:\"business\"" }
+	    cursor: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.list = source["list"];
+	        this.cursor = this.convertValues(source["cursor"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Page {
 	    cid: number;
 	    page: number;
@@ -142,6 +175,7 @@ export namespace main {
 	    owner_name: string;
 	    owner_face: string;
 	    pages: Page[];
+	    cid: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new VideoInfo(source);
@@ -159,6 +193,7 @@ export namespace main {
 	        this.owner_name = source["owner_name"];
 	        this.owner_face = source["owner_face"];
 	        this.pages = this.convertValues(source["pages"], Page);
+	        this.cid = source["cid"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
