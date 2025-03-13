@@ -30,6 +30,10 @@ export function GetLoginStatus():Promise<boolean>;
 
 export function GetSESSDATA():Promise<string>;
 
+export function GetSeriesList(arg1:number):Promise<Array<any>>;
+
+export function GetSeriesVideos(arg1:number,arg2:number,arg3:number):Promise<Array<main.SeriesVideosResponse_Archive>>;
+
 export function GetUpVideoList(arg1:number,arg2:string):Promise<main.FeedList>;
 
 export function GetUrlByCid(arg1:number,arg2:number):Promise<main.PlayURLInfo>;

@@ -9,6 +9,7 @@ import {
   ThumbsUp,
   HandleB,
   History,
+  Layers,
 } from "@icon-park/react";
 import { useState, useEffect } from "react";
 
@@ -39,6 +40,7 @@ interface VideoInfoProps {
   onRecommendClick?: () => void;
   onCollectClick?: () => void;
   onHistoryClick?: () => void;
+  onSeriesClick?: () => void;
 }
 
 export default function VideoInfo({
@@ -57,6 +59,7 @@ export default function VideoInfo({
   onRecommendClick,
   onCollectClick,
   onHistoryClick,
+  onSeriesClick,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
@@ -171,6 +174,15 @@ export default function VideoInfo({
       </div>
       <div className="can-seelect" id="video-title">
         {title || "无标题"}
+        <Button
+          style={{
+            backgroundColor: "#e4e4e400",
+            padding: "0",
+          }}
+          title="在浏览器打开"
+          onClick={onShareClick}>
+          <Share fill="#333" size="15" theme="outline" />
+        </Button>
       </div>
       <div className="can-seelect" id="video-desc">
         {desc || "无描述"}
@@ -245,10 +257,10 @@ export default function VideoInfo({
           style={{
             backgroundColor: "#e4e4e485",
           }}
-          title="浏览器打开"
-          onClick={onShareClick}
+          title="合集"
+          onClick={onSeriesClick}
         >
-          <Share fill="#333" size="24" theme="outline" />
+          <Layers theme="outline" size="24" fill="#333" />
         </Button>
         <div className="info-tools-bl-user-group">
           <Button

@@ -148,6 +148,49 @@ export namespace main {
 	        this.date = source["date"];
 	    }
 	}
+	export class SeriesVideosResponse_Archive {
+	    aid: number;
+	    bvid: string;
+	    title: string;
+	    pubdate: number;
+	    duration: number;
+	    pic: string;
+	    // Go type: struct { View int "json:\"view\"" }
+	    stat: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SeriesVideosResponse_Archive(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.aid = source["aid"];
+	        this.bvid = source["bvid"];
+	        this.title = source["title"];
+	        this.pubdate = source["pubdate"];
+	        this.duration = source["duration"];
+	        this.pic = source["pic"];
+	        this.stat = this.convertValues(source["stat"], Object);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class UserInfo {
 	    uname: string;
 	    face: string;

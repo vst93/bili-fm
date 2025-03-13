@@ -3,6 +3,7 @@ import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { main as MainModels } from "../../wailsjs/go/models";
+import { toast } from "../utils/toast";
 import {
   SearchVideo,
   GetCList,
@@ -18,6 +19,7 @@ import {
   GetBLFavFolderListDetail,
   GetUpVideoList,
   GetBLHistoryList,
+  GetSeriesVideos,
 } from "../../wailsjs/go/main/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -33,6 +35,7 @@ import { graftingImage, urlToBVID } from "@/utils/string";
 import CollectList from "@/components/collectList";
 import UpVideoList from "@/components/upVideoList";
 import HistoryList from "@/components/historyList";
+import SeriesList from "@/components/seriesList";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -74,6 +77,13 @@ export default function IndexPage() {
   const [showHistoryList, setShowHistoryList] = useState(false);
   const [historyList, setHistoryList] = useState<any>();
   const [historyCursor, setHistoryCursor] = useState<{max: number, view_at: number, business: string}>({max: 0, view_at: 0, business: ""});
+  const [seriesList, setSeriesList] = useState<any[]>([]);
+  const [currentSeriesId, setCurrentSeriesId] = useState<number>(0);
+  const [seriesVideos, setSeriesVideos] = useState<any[]>([]);
+  const [showSeriesList, setShowSeriesList] = useState(false);
+  const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
+  const [seriesVideosPage, setSeriesVideosPage] = useState(1);
+
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -495,9 +505,8 @@ export default function IndexPage() {
     try {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
-      const data = await GetUpVideoList(mid, "");
-
-      setUpVideoList(data);
+      const videoListData = await GetUpVideoList(mid, "");
+      setUpVideoList(videoListData);
       setShowUpVideoList(true);
       setShowSearchList(false);
       setShowPageList(false);
@@ -566,6 +575,49 @@ export default function IndexPage() {
     } catch (error) {
       console.error("加载更多UP主视频失败:", error);
     }
+  };
+
+  /**
+   * 选择合集
+   */
+  const handleSeriesSelect = async (seriesId: number, title: string, total: number) => {
+    try {
+      setCurrentSeriesId(seriesId);
+      setCurrentSeriesTitle(title + "(" + total + ")");
+      const currentSeries = seriesList.find(series => series.id === seriesId);
+      if (currentSeries) {
+        setCurrentSeriesTitle(currentSeries.title);
+      }
+      setSeriesVideosPage(1);
+      const seriesVideosData = await GetSeriesVideos(currentUpMid, seriesId, seriesVideosPage);
+      setSeriesVideos(seriesVideosData || []);
+      setShowSeriesList(true);
+      setShowUpVideoList(false);
+    } catch (error) {
+      console.error("获取合集视频列表失败:", error);
+    }
+  };
+
+  const handleSeriesListClose = () => {
+    setShowSeriesList(false);
+  };
+
+  const handleSeriesClick = () => {
+    if (!currentSeriesId) { 
+      toast({
+        type: "error",
+        content: "请先点击UP主头像或昵称，选择一个合集",
+      });
+      return;
+    }
+    setShowSeriesList(true);
+    setShowSearchList(false);
+    setShowPageList(false);
+    setShowFeedList(false);
+    setShowRecommendList(false);
+    setShowCollectList(false);
+    setShowHistoryList(false);
+    setShowUpVideoList(false);
   };
 
   /**
@@ -746,6 +798,7 @@ export default function IndexPage() {
         onSearchClick={handleSearchClick}
         onShareClick={handleShareClick}
         onHistoryClick={handleHistoryClick}
+        onSeriesClick={handleSeriesClick}
       />
       <Player
         isPlaying={isPlaying}
@@ -811,6 +864,12 @@ export default function IndexPage() {
           onRefresh={handleUpVideoRefresh}
           onSlideClick={() => setShowUpVideoList(false)}
           onVideoSelect={handleSearchVideoSelect}
+          seriesList={seriesList}
+          onSeriesSelect={handleSeriesSelect}
+          currentSeriesId={currentSeriesId}
+          setSeriesList={setSeriesList}
+          currentUpMid={currentUpMid}
+          setSeriesVideosPage={setSeriesVideosPage}
         />
       )}
       {showHistoryList && (
@@ -821,6 +880,19 @@ export default function IndexPage() {
           historyCursor={historyCursor}
           setHistoryList={setHistoryList}
           setHistoryCursor={setHistoryCursor}
+        />
+      )}
+      {showSeriesList && (
+        <SeriesList
+          seriesVideos={seriesVideos}
+          onVideoSelect={handleSearchVideoSelect}
+          onSlideClick={handleSeriesListClose}
+          seriesTitle={currentSeriesTitle}
+          seriesVideosPage={seriesVideosPage}
+          setSeriesVideosPage={setSeriesVideosPage}
+          currentUpMid={currentUpMid}
+          currentSeriesId={currentSeriesId}
+          setSeriesVideos={setSeriesVideos}
         />
       )}
       {showLoginPanel && (

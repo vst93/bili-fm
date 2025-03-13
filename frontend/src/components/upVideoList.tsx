@@ -13,9 +13,34 @@ import {
   CardBody,
   CardFooter,
   Image,
+  Tabs,
+  Tab,
 } from "@heroui/react";
+import { useState } from "react";
 
 import { graftingImage } from "@/utils/string";
+
+import {
+  GetSeriesList,
+} from "../../wailsjs/go/main/BL";
+
+// interface SeriesItem {
+//   id: number;
+//   title: string;
+//   description: string;
+//   cover: string;
+//   mid: number;
+//   total: number;
+// }
+
+// interface SeriesVideoItem {
+//   aid: number;
+//   bvid: string;
+//   title: string;
+//   cover: string;
+//   author: string;
+//   pubdate: number;
+// }
 
 interface UpVideoListProps {
   upVideoList?: main.FeedList;
@@ -24,6 +49,13 @@ interface UpVideoListProps {
   onRefresh?: () => void;
   onLoadMore?: (offset: string) => void;
   upName?: string;
+  mid?: number;
+  seriesList?: Array<any>;
+  onSeriesSelect?: (id: number,title: string,total: number) => void;
+  currentSeriesId?: number;
+  setSeriesList?: (list: Array<any>) => void;
+  currentUpMid?: number;
+  setSeriesVideosPage?: (page: number) => void;
 }
 
 const UpVideoList: FC<UpVideoListProps> = ({
@@ -33,8 +65,33 @@ const UpVideoList: FC<UpVideoListProps> = ({
   onRefresh,
   onLoadMore,
   upName = "",
+  seriesList = [],
+  onSeriesSelect,
+  currentSeriesId,
+  setSeriesList,
+  currentUpMid = 0,
+  setSeriesVideosPage,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+  const [activeTab, setActiveTab] = useState<string>("videos");
+
+  const handleAciveTabChange = async (key: string) => {
+    setActiveTab(key);
+    setSeriesVideosPage?.(1);
+    if (key === "series" && currentUpMid) {
+      try {
+        console.log("获取合集列表中...",currentUpMid);
+        const list = await GetSeriesList(currentUpMid);
+        if (!list) {
+          setSeriesList?.([]);
+        } else { 
+          setSeriesList?.(list);
+        }
+      } catch (error) {
+        console.error("获取合集列表失败：", error);
+      }
+    }
+  }
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -48,8 +105,21 @@ const UpVideoList: FC<UpVideoListProps> = ({
       e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
       e.currentTarget.clientHeight;
 
-    if (bottom && upVideoList?.offset) {
+    if (activeTab === "videos" && bottom && upVideoList?.offset) {
       onLoadMore?.(upVideoList.offset);
+    } else if (activeTab === "series" && bottom) {
+      try {
+        GetSeriesList(currentUpMid).then(list => { 
+          if (!list) {
+            console.error("获取合集列表失败：用户未登录或登录已过期");
+            return;
+          }
+          console.log("合集列表：", list);
+          setSeriesList?.(list);
+        });
+      } catch (error) {
+        console.error("获取合集列表失败：", error);
+      }
     }
   };
 
@@ -74,64 +144,99 @@ const UpVideoList: FC<UpVideoListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2 py-2">
-              「{upName}」的视频
-              <Button
-                isIconOnly
-                size="sm"
-                variant="light"
-                onClick={handleRefresh}
-              >
-                <Refresh fill="#333" size="20" theme="outline" />
-              </Button>
+            <DrawerHeader className="flex items-center justify-between py-2">
+              <div className="flex items-center gap-2 flex-grow">
+                  「{upName}」的空间
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="light"
+                    onClick={handleRefresh}
+                  >
+                    <Refresh fill="#333" size="20" theme="outline" />
+                  </Button>
+                </div>
+                <Tabs
+                  selectedKey={activeTab}
+                  onSelectionChange={(key) => handleAciveTabChange(key.toString())}
+                  variant="light"
+                  classNames={{
+                    tabList: "gap-2 mr-4",
+                    cursor: "bg-default-100",
+                    tab: "h-8 px-4",
+                    tabContent: "group-data-[selected=true]:text-primary",
+                  }}
+                >
+                <Tab key="videos" title="视频" />
+                <Tab key="series" title="合集" />
+              </Tabs>
             </DrawerHeader>
             <DrawerBody
               className="up-video-drawer-body"
               onScroll={handleScroll}
             >
-              <div
-                className="gap-2 grid grid-cols-2 sm:grid-cols-3"
-                style={{ width: "100%" }}
-              >
-                {upVideoList?.items?.map((item: any, index) => {
-                  const info = item.modules.module_dynamic.major.archive;
-                  const publishTime = item.modules.module_author.pub_time;
+              {activeTab === "videos" ? (
+                <div
+                  className="gap-2 grid grid-cols-2 sm:grid-cols-3"
+                  style={{ width: "100%" }}
+                >
+                  {upVideoList?.items?.map((item: any, index) => {
+                    const info = item.modules.module_dynamic.major.archive;
+                    const publishTime = item.modules.module_author.pub_time;
 
-                  return (
+                    return (
+                      <Card
+                        key={index}
+                        isPressable
+                        shadow="sm"
+                        onPress={() => onVideoSelect?.(info.bvid)}
+                      >
+                        <CardBody className="overflow-visible p-0 img-container">
+                          <Image
+                            alt={info.title || "视频封面"}
+                            className="c-cover"
+                            crossOrigin="anonymous"
+                            fallbackSrc="/cover.png"
+                            loading="lazy"
+                            radius="sm"
+                            shadow="sm"
+                            src={graftingImage(info.cover)}
+                            width="100%"
+                          />
+                        </CardBody>
+                        <CardFooter className="text-small flex-col items-start px-2 py-1">
+                          <b
+                            className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
+                            title={info.title}
+                          >
+                            {info.title}
+                          </b>
+                          <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                            {publishTime}
+                          </p>
+                        </CardFooter>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {seriesList.map((series) => (
                     <Card
-                      key={index}
+                      key={series.id}
                       isPressable
                       shadow="sm"
-                      onPress={() => onVideoSelect?.(info.bvid)}
+                      className={currentSeriesId === series.season_id ? "border-2 border-primary" : ""}
+                      onPress={() => onSeriesSelect?.(series.season_id,series.name,series.total)}
                     >
-                      <CardBody className="overflow-visible p-0 img-container">
-                        <Image
-                          alt={info.title || "视频封面"}
-                          className="c-cover"
-                          crossOrigin="anonymous"
-                          fallbackSrc="/cover.png"
-                          loading="lazy"
-                          radius="sm"
-                          shadow="sm"
-                          src={graftingImage(info.cover)}
-                          width="100%"
-                        />
+                      <CardBody className="p-2">
+                        <b className="line-clamp-2 text-sm">{series?.name || ""}</b>
+                        <p className="text-xs text-default-500 mt-1">{series.total} 个视频</p>
                       </CardBody>
-                      <CardFooter className="text-small flex-col items-start px-2 py-1">
-                        <b
-                          className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                          title={info.title}
-                        >
-                          {info.title}
-                        </b>
-                        <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          {publishTime}
-                        </p>
-                      </CardFooter>
                     </Card>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </DrawerBody>
           </>
         )}

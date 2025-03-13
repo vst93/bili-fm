@@ -1302,3 +1302,149 @@ func (bl *BL) GetBLHistoryList(max int, viewAt int, business string, ps int) (*H
 }
 
 // ----------- end - getBLHistoryList -----------
+
+// ----------- begin - getSeriesList -----------
+type SeriesListResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		ItemsLists struct {
+			SeasonsList []struct {
+				Meta struct {
+					Cover    string `json:"cover"`
+					Mid      int    `json:"mid"`
+					Name     string `json:"name"`
+					Ptime    int    `json:"ptime"`
+					SeasonID int    `json:"season_id"`
+					Total    int    `json:"total"`
+				} `json:"meta"`
+			} `json:"seasons_list"`
+		} `json:"items_lists"`
+	} `json:"data"`
+}
+
+func (bl *BL) GetSeriesList(mid int) ([]interface{}, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return nil, nil
+	}
+
+	baseURL := "https://api.bilibili.com/x/polymer/web-space/seasons_series_list"
+	params := url.Values{}
+	params.Add("mid", fmt.Sprintf("%d", mid))
+	params.Add("page_num", "1")
+	params.Add("page_size", "20")
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Referer", "https://www.bilibili.com")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var seriesListResponse SeriesListResponse
+	err = json.Unmarshal(body, &seriesListResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if seriesListResponse.Code != 0 {
+		return nil, errors.New("failed to fetch series list")
+	}
+
+	var result []interface{}
+	for _, item := range seriesListResponse.Data.ItemsLists.SeasonsList {
+		result = append(result, item.Meta)
+	}
+
+	return result, nil
+}
+
+// ----------- end - getSeriesList -----------
+
+// ----------- begin - getSeriesVideos -----------
+type SeriesVideosResponse_Archive struct {
+	Aid      int    `json:"aid"`
+	Bvid     string `json:"bvid"`
+	Title    string `json:"title"`
+	Pubdate  int    `json:"pubdate"`
+	Duration int    `json:"duration"`
+	Pic      string `json:"pic"`
+	Stat     struct {
+		View int `json:"view"`
+	} `json:"stat"`
+}
+
+type SeriesVideosResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		Archives []SeriesVideosResponse_Archive `json:"archives"`
+	} `json:"data"`
+}
+
+func (bl *BL) GetSeriesVideos(mid int, seriesId int, pageNum int) ([]SeriesVideosResponse_Archive, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return nil, nil
+	}
+
+	if pageNum < 1 {
+		pageNum = 1
+	}
+	baseURL := "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+	params := url.Values{}
+	params.Add("mid", fmt.Sprintf("%d", mid))
+	params.Add("season_id", fmt.Sprintf("%d", seriesId))
+	params.Add("page_num", fmt.Sprintf("%d", pageNum))
+	params.Add("page_size", "30")
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var seriesVideosResponse SeriesVideosResponse
+	err = json.Unmarshal(body, &seriesVideosResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if seriesVideosResponse.Code != 0 {
+		return nil, errors.New("failed to fetch series videos")
+	}
+
+	result := make([]SeriesVideosResponse_Archive, len(seriesVideosResponse.Data.Archives))
+	copy(result, seriesVideosResponse.Data.Archives)
+
+	return result, nil
+}
+
+// ----------- end - getSeriesVideos -----------

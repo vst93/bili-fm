@@ -58,6 +58,14 @@ export function GetSESSDATA() {
   return window['go']['main']['BL']['GetSESSDATA']();
 }
 
+export function GetSeriesList(arg1) {
+  return window['go']['main']['BL']['GetSeriesList'](arg1);
+}
+
+export function GetSeriesVideos(arg1, arg2, arg3) {
+  return window['go']['main']['BL']['GetSeriesVideos'](arg1, arg2, arg3);
+}
+
 export function GetUpVideoList(arg1, arg2) {
   return window['go']['main']['BL']['GetUpVideoList'](arg1, arg2);
 }

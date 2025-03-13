@@ -33,3 +33,14 @@ export const graftingImage = (img: string) => {
 
   // return ProxyImage(img);
 };
+
+export const formatDate = (timestamp: number) => {
+  const date = new Date(timestamp * 1000);
+  return `${date.getFullYear()}年${String(date.getMonth() + 1).padStart(2, "0")}月${String(date.getDate()).padStart(2, "0")}日`;
+};
+
+
+export const formatDatetime = (timestamp: number) => {
+  const date = new Date(timestamp * 1000);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
