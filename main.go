@@ -23,8 +23,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 var APP_DIR = ""
-var APP_VERSION = "1.1.3"
-var APP_VERSION_NO = 6
+var APP_VERSION = "1.2.0"
+var APP_VERSION_NO = 7
 var APP_NAME = "bili-FM"
 var IMAGE_PROXY_PROT = 4654
 

@@ -73,7 +73,7 @@ export default function IndexPage() {
   const [currentUpName, setCurrentUpName] = useState("");
   const [showHistoryList, setShowHistoryList] = useState(false);
   const [historyList, setHistoryList] = useState<any>();
-  const [historyCursor, setHistoryCursor] = useState<object>();
+  const [historyCursor, setHistoryCursor] = useState<{max: number, view_at: number, business: string}>({max: 0, view_at: 0, business: ""});
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -516,7 +516,7 @@ export default function IndexPage() {
    */
   const handleHistoryClick = () => {
     try {
-      GetBLHistoryList(0,30).then(data => {
+      GetBLHistoryList(0,0,'',30).then(data => {
         setHistoryList(data?.list || [])
         setHistoryCursor(data.cursor || {})
       });

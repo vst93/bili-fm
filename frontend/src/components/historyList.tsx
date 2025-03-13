@@ -21,8 +21,8 @@ interface HistoryListProps {
     onVideoSelect?: (bvid: string) => void;
     historyList: any[];
     setHistoryList: (list: any[]) => void;
-    historyCursor: object;
-    setHistoryCursor: (cursor: object) => void;
+    historyCursor: { max: number, view_at: number, business: string };
+    setHistoryCursor: (cursor: { max: number, view_at: number, business: string }) => void;
 }
 
 const HistoryList: FC<HistoryListProps> = ({
@@ -34,8 +34,6 @@ const HistoryList: FC<HistoryListProps> = ({
     setHistoryCursor,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
-    //   const [historyList, setHistoryList] = useState<any[]>([]);
-    //   const [historyCursor, setHistoryCursor] = useState(0);
 
     const handleOpenChange = (open: boolean) => {
         if (!open) {
@@ -56,7 +54,7 @@ const HistoryList: FC<HistoryListProps> = ({
         if (drawerBody) {
             drawerBody.scrollTop = 0;
         }
-        setHistoryCursor({});
+        setHistoryCursor({max: 0, view_at: 0, business: ''});
         try {
             const data = await GetBLHistoryList(0,0,'', 30);
             setHistoryList(data?.list || []);
@@ -69,7 +67,7 @@ const HistoryList: FC<HistoryListProps> = ({
     const handleLoadMore = async () => {
         console.log("load more", historyCursor);
         try {
-            const data = await GetBLHistoryList(historyCursor?.max,, 30);
+            const data = await GetBLHistoryList(historyCursor?.max, historyCursor?.view_at, historyCursor?.business, 30);
             if (data?.list) {
                 setHistoryList([...historyList, ...data.list]);
             }
@@ -83,7 +81,7 @@ const HistoryList: FC<HistoryListProps> = ({
 
     const formatTimestamp = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     };
 
     return (
@@ -120,7 +118,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                             key={index}
                                             isPressable
                                             shadow="sm"
-                                            onPress={() => onVideoSelect?.(item.bvid)}
+                                            onPress={() => onVideoSelect?.(item?.history?.bvid)}
                                         >
                                             <CardBody className="overflow-visible p-0 img-container">
                                                 <Image
@@ -143,7 +141,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                     {item.title}
                                                 </b>
                                                 <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                    {item.author} | {formatTimestamp(item.view_at)}
+                                                    {item.author_name} | {formatTimestamp(item.view_at)}
                                                 </p>
                                             </CardFooter>
                                         </Card>
