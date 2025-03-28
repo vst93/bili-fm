@@ -30,5 +30,6 @@
 - https://github.com/heroui-inc/heroui
 - https://github.com/bytedance/iconpark
 - https://github.com/SocialSisterYi/bilibili-API-collect
+- https://github.com/riyaddecoder/react-audio-play
 - https://github.com/tiny-craft/tiny-rdm
 
