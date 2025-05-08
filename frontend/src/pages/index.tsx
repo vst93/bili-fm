@@ -36,6 +36,7 @@ import CollectList from "@/components/collectList";
 import UpVideoList from "@/components/upVideoList";
 import HistoryList from "@/components/historyList";
 import SeriesList from "@/components/seriesList";
+import PlayerVideo from "@/components/playerVideo";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -56,6 +57,7 @@ export default function IndexPage() {
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [pageFirstFrame, setPageFirstFrame] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isPlayVideo, setIsPlayVideo] = useState(false);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [userFace, setUserFace] = useState("");
@@ -623,6 +625,11 @@ export default function IndexPage() {
     setShowUpVideoList(false);
   };
 
+  // 点击播放视频
+  const handlePlayVideoClick = () => { 
+    setIsPlayVideo(true);
+  }
+
   /**
    * 处理推荐按钮点击事件
    * @description 获取并显示推荐视频列表，如果已有数据则直接显示
@@ -802,6 +809,7 @@ export default function IndexPage() {
         onShareClick={handleShareClick}
         onHistoryClick={handleHistoryClick}
         onSeriesClick={handleSeriesClick}
+        onPlayVideoClick={handlePlayVideoClick}
       />
       <Player
         isPlaying={isPlaying}
@@ -810,6 +818,11 @@ export default function IndexPage() {
         onPlayStateChange={setIsPlaying}
         aid={videoInfo?.aid}
         cid={videoInfo?.cid}
+      />
+      <PlayerVideo
+        src={playUrl}
+        isPlay={isPlayVideo}
+        setIsplay={setIsPlayVideo}
       />
       {showSearchList && (
         <SearchList
