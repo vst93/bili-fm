@@ -30,10 +30,19 @@ const SearchForm: FC<SearchFormProps> = ({
     }
 
     // 处理全选快捷键 (Ctrl+A 或 Command+A)
-    // if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-    //   e.preventDefault(); // 阻止默认行为
-    //   e.currentTarget.select(); // 全选输入框文本
-    // }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault(); // 阻止默认行为
+      e.currentTarget.select(); // 全选输入框文本
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      e.preventDefault(); // 阻止默认行为
+      e.currentTarget.select(); // 全选输入框文本
+      navigator.clipboard.writeText((e.target as HTMLInputElement).value);
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      e.preventDefault(); // 阻止默认行为
+      navigator.clipboard.readText().then(text => {
+        onInputChange?.(text);
+      });
+    }
 
   };
 

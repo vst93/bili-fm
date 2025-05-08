@@ -119,7 +119,10 @@ export default function IndexPage() {
 
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
-        setIsPlaying((prev) => !prev);
+        //如果当前对象为 div id = video-cover ，阻止
+        if (event.target instanceof HTMLDivElement && event.target.id === "video-cover") {} else {
+          setIsPlaying((prev) => !prev);
+        }
       } else if (
         event.code === "ArrowLeft" &&
         !event.repeat &&
