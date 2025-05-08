@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bilifm/service"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -35,7 +36,7 @@ func (m *Menu) ShowVersion() {
 	runtime.MessageDialog(AppContext, runtime.MessageDialogOptions{
 
 		Title:   "版本",
-		Message: APP_VERSION,
+		Message: service.APP_VERSION,
 		Type:    "info",
 		Buttons: []string{"好的"},
 	})
@@ -99,7 +100,7 @@ func (m *Menu) CheckForUpdates(isManualCheck bool, gitFrom string) {
 
 	// 移除版本号前的 'v' 如果存在
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
-	currentVersion := strings.TrimPrefix(APP_VERSION, "v")
+	currentVersion := strings.TrimPrefix(service.APP_VERSION, "v")
 
 	if latestVersion > currentVersion {
 		if gitFrom != "github" {

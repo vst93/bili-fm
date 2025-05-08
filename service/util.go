@@ -6,15 +6,15 @@ import "strconv"
 func NumberToString(n interface{}) (string, bool) {
 	r := ""
 	ok := true
-	switch n.(type) {
+	switch n := n.(type) {
 	case string:
-		r = n.(string)
+		r = n
 	case int:
-		r = strconv.Itoa(n.(int))
+		r = strconv.Itoa(n)
 	case int64:
-		r = strconv.FormatInt(n.(int64), 10)
+		r = strconv.FormatInt(n, 10)
 	case float64:
-		r = strconv.FormatFloat(n.(float64), 'f', -1, 64)
+		r = strconv.FormatFloat(n, 'f', -1, 64)
 	default:
 		ok = false
 	}

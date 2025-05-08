@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import type { main } from "../../wailsjs/go/models";
+import type { service as blSer } from "../../wailsjs/go/models";
 import { Refresh } from "@icon-park/react";
 
 import { useDisclosure } from "@heroui/react";
@@ -18,7 +18,7 @@ import {
 import { graftingImage } from "@/utils/string";
 
 interface FeedListProps {
-  feedList?: main.FeedList;
+  feedList?: blSer.FeedList;
   onSlideClick?: () => void;
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;

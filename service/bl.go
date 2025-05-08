@@ -1,7 +1,6 @@
-package main
+package service
 
 import (
-	"changeme/service"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -711,7 +710,7 @@ func (bl *BL) GetBLFavFolderList() ([]interface{}, error) {
 		return nil, nil
 	}
 
-	mid, _ := service.NumberToString(GetItem("mid"))
+	mid, _ := NumberToString(GetItem("mid"))
 	baseURL := "https://api.bilibili.com/x/v3/fav/folder/created/list-all"
 	params := url.Values{}
 	params.Add("up_mid", mid) // Replace with actual logic to get mid

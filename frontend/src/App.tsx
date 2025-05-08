@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { GetImageProxyPort } from "../wailsjs/go/main/BL";
+import { GetImageProxyPort } from "../wailsjs/go/service/BL";
 
 import ToastContainer from "./components/toast/ToastContainer";
 import TitleBar from "./components/titleBar";

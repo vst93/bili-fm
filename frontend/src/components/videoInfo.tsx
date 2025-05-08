@@ -18,7 +18,7 @@ import {
   HasLiked,
   CoinVideo,
   HasCoin,
-} from "../../wailsjs/go/main/BL";
+} from "../../wailsjs/go/service/BL.js";
 import { toast } from "../utils/toast";
 
 import { graftingImage } from "@/utils/string";

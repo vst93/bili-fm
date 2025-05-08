@@ -1,6 +1,6 @@
 import { AudioPlayer, AudioPlayerRef } from "react-audio-play";
 import { useEffect, useRef } from "react";
-import { ReportPlayProgress } from "../../wailsjs/go/main/BL";
+import { ReportPlayProgress } from "../../wailsjs/go/service/BL";
 
 interface PlayerProps {
   src?: string;

@@ -1,9 +1,6 @@
-module changeme
+module bilifm
 
-go 1.21
-toolchain go1.24.1
-
-// replace github.com/wailsapp/wails/v2 v2.6.0 => /Users/vst/Code/Go/pkg/mod
+go 1.23.0
 
 require github.com/wailsapp/wails/v2 v2.9.2
 

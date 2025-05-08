@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
-import { main as MainModels } from "../../wailsjs/go/models";
+import { service as MainModels } from "../../wailsjs/go/models";
 import { toast } from "../utils/toast";
 import {
   SearchVideo,
@@ -20,7 +20,7 @@ import {
   GetUpVideoList,
   GetBLHistoryList,
   GetSeriesVideos,
-} from "../../wailsjs/go/main/BL";
+} from "../../wailsjs/go/service/BL";
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";

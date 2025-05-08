@@ -13,7 +13,7 @@ import {
 } from "@heroui/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
-import { GetSeriesVideos } from "../../wailsjs/go/main/BL";
+import { GetSeriesVideos } from "../../wailsjs/go/service/BL";
 
 interface SeriesVideoItem {
     aid: number;

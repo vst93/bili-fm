@@ -1,7 +1,7 @@
-package main
+package service
 
 import (
-	"changeme/dkv"
+	"bilifm/service/dkv"
 	"fmt"
 	"os"
 )

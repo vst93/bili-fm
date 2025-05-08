@@ -13,7 +13,7 @@ import {
     CardFooter,
     Image,
 } from "@heroui/react";
-import { GetBLHistoryList } from "../../wailsjs/go/main/BL";
+import { GetBLHistoryList } from "../../wailsjs/go/service/BL";
 import { graftingImage } from "@/utils/string";
 
 interface HistoryListProps {

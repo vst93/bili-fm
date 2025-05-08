@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bilifm/service"
 	"context"
 	"embed"
 	"fmt"
@@ -22,11 +23,6 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
-var APP_DIR = ""
-var APP_VERSION = "1.2.0"
-var APP_VERSION_NO = 7
-var APP_NAME = "bili-FM"
-var IMAGE_PROXY_PROT = 4654
 
 type GithubRelease struct {
 	TagName string `json:"tag_name"`
@@ -73,7 +69,7 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	InitDb()
+	service.InitDb()
 
 	// 注册图片代理处理函数
 	http.HandleFunc("/image-proxy", imageProxyHandler)
@@ -81,17 +77,17 @@ func main() {
 	go func() {
 		proxyListenTryNum := 0
 		for proxyListenTryNum < 10 {
-			thePort := strconv.Itoa(IMAGE_PROXY_PROT)
+			thePort := strconv.Itoa(service.IMAGE_PROXY_PROT)
 			//检查端口是否使用
 			_, err := net.Dial("tcp", "localhost:"+thePort)
 			if err == nil {
-				IMAGE_PROXY_PROT++
+				service.IMAGE_PROXY_PROT++
 				proxyListenTryNum++
 				continue
 			}
 			if err := http.ListenAndServe(":"+thePort, nil); err != nil {
 				println("Error:", err.Error())
-				IMAGE_PROXY_PROT++
+				service.IMAGE_PROXY_PROT++
 				proxyListenTryNum++
 				continue
 			} else {
@@ -103,8 +99,8 @@ func main() {
 
 	// Create an instance of the app structure
 	app := NewApp()
-	bl := NewBL()
 	appMenu := NewMenu()
+	bl := service.NewBL()
 
 	isMacOS := runtime.GOOS == "darwin"
 	AppMenu := menu.NewMenu()
@@ -126,7 +122,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  APP_NAME,
+		Title:  service.APP_NAME,
 		Width:  800,
 		Height: 600,
 		AssetServer: &assetserver.Options{
@@ -137,7 +133,7 @@ func main() {
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
-				Title: fmt.Sprintf("%s %s", APP_NAME, APP_VERSION),
+				Title: fmt.Sprintf("%s %s", service.APP_NAME, service.APP_VERSION),
 			},
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
@@ -151,7 +147,7 @@ func main() {
 			IsZoomControlEnabled:              false,
 		},
 		Linux: &linux.Options{
-			ProgramName:         APP_NAME,
+			ProgramName:         service.APP_NAME,
 			WebviewGpuPolicy:    linux.WebviewGpuPolicyOnDemand,
 			WindowIsTranslucent: true,
 		},
