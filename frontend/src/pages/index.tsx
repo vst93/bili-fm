@@ -58,6 +58,7 @@ export default function IndexPage() {
   const [pageFirstFrame, setPageFirstFrame] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPlayVideo, setIsPlayVideo] = useState(false);
+  const [isPlayVideoStop, setIsPlayVideoStop] = useState(true);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [userFace, setUserFace] = useState("");
@@ -118,7 +119,17 @@ export default function IndexPage() {
       ) {
         return;
       }
-
+      if (isPlayVideo) { 
+        if (event.code === "Escape" && !event.repeat) { 
+          event.preventDefault();
+          setIsPlayVideo(!isPlayVideo);
+        } else if (event.code === "Space" && !event.repeat) {
+          event.preventDefault();
+          setIsPlayVideoStop(!isPlayVideoStop);
+        }
+        // 播放视频时屏蔽快捷键
+        return;
+      }
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
         //如果当前对象为 div id = video-cover ，阻止
@@ -168,7 +179,7 @@ export default function IndexPage() {
       window.removeEventListener("keyup", handleKeyPress);
       window.removeEventListener("keydown", listener);
     };
-  }, [videoInfo, currentIndex]);
+  }, [videoInfo, currentIndex, isPlayVideo, isPlayVideoStop]);
 
   /**
    * 处理登录按钮点击事件
@@ -625,9 +636,13 @@ export default function IndexPage() {
     setShowUpVideoList(false);
   };
 
-  // 点击播放视频
+  /**
+   * 点击播放视频
+   */ 
   const handlePlayVideoClick = () => { 
-    setIsPlayVideo(true);
+    setIsPlaying(false);  // 停止音频播放
+    setIsPlayVideo(true);  // 打开视频播放浮窗
+    setIsPlayVideoStop(false); // 自动开启播放
   }
 
   /**
@@ -822,6 +837,7 @@ export default function IndexPage() {
       <PlayerVideo
         src={playUrl}
         isPlay={isPlayVideo}
+        isPlayVideoStop={isPlayVideoStop}
         setIsplay={setIsPlayVideo}
       />
       {showSearchList && (

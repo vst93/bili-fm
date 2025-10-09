@@ -1,15 +1,19 @@
 import ReactPlayer from "react-player";
+import {
+  Close,
+} from "@icon-park/react";
 
 interface PlayerVideoProps {
   src?: string;
   isPlay?: boolean;
+  isPlayVideoStop?: boolean;
   setIsplay : (isPlay: boolean) => void;
 }
-
 
 export default function PlayerVideo({
   src, 
   isPlay,
+  isPlayVideoStop,
   setIsplay,
 }: PlayerVideoProps) {
 
@@ -21,7 +25,6 @@ export default function PlayerVideo({
     return false;
   }
   
-
   if (isPlay === undefined) { 
     isPlay = false;
   }
@@ -46,7 +49,7 @@ export default function PlayerVideo({
         controls={true}
         width="100%"
         height="100%"
-        // playing={true}
+        playing={isPlay && !isPlayVideoStop}
         // muted={true}
       />
       <>
@@ -64,8 +67,9 @@ export default function PlayerVideo({
             borderRadius: "5px",
             zIndex: 999,
           }}
+          className="custom_hover_button"
         >
-          关闭
+          <Close theme="filled" size="32" fill="#f7f7f7ff"/>
         </div>
       </>
     </div>

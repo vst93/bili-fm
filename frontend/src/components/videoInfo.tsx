@@ -178,23 +178,25 @@ export default function VideoInfo({
       <div className="can-seelect" id="video-title">
         {title || "无标题"}
         <Button
+          title="在浏览器打开"
+          isDisabled={!bvid}
           style={{
             backgroundColor: "#e4e4e400",
             padding: "0",
             minWidth: "36px"
           }}
-          title="在浏览器打开"
-          onClick={onShareClick}>
+          onPress={onShareClick}>
           <Share fill="#333" size="15" theme="outline" />
         </Button>
         <Button
+          title="播放视频"
+          isDisabled={!bvid}
           style={{
             backgroundColor: "#e4e4e400",
             padding: "0",
             minWidth: "36px"
           }}
-          title="播放视频"
-          onClick={onPlayVideoClick}>
+          onPress={onPlayVideoClick}>
           <Video fill="#333" size="15" theme="outline" />
         </Button>
       </div>
@@ -216,7 +218,8 @@ export default function VideoInfo({
           }}
           title={isLiked ? "取消点赞" : "点赞"}
           variant="light"
-          onClick={handleLike}
+          isDisabled={!bvid}
+          onPress={handleLike}
         >
           <ThumbsUp
             fill={isLiked ? "#00aeec" : "#333"}
@@ -233,9 +236,10 @@ export default function VideoInfo({
             width: "32px",
             padding: "0",
           }}
-          title={coinCount >= 2 ? "已投2币" : "投2币"}
+          title={coinCount >= 2 ? "已投币" : "投币(2个)"}
           variant="light"
-          onClick={handleCoin}
+          isDisabled={!bvid}
+          onPress={handleCoin}
         >
           <HandleB
             fill={coinCount >= 2 ? "#00aeec" : "#333"}
@@ -250,7 +254,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="搜索"
-          onClick={onSearchClick}
+          onPress={onSearchClick}
         >
           <Search fill="#333" size="24" theme="outline" />
         </Button>
@@ -261,7 +265,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="选集"
-          onClick={onPageListClick}
+          onPress={onPageListClick}
         >
           <DoubleUp fill="#333" size="24" theme="outline" />
         </Button>
@@ -272,7 +276,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="合集"
-          onClick={onSeriesClick}
+          onPress={onSeriesClick}
         >
           <Layers theme="outline" size="24" fill="#333" />
         </Button>
@@ -281,7 +285,7 @@ export default function VideoInfo({
             className="info-tools-button bl-feed"
             size="sm"
             title="B站账号关注UP视频动态列表"
-            onClick={onFeedClick}
+            onPress={onFeedClick}
           >
             <ShareSys fill="#333" size="24" theme="outline" />
           </Button>
@@ -289,7 +293,7 @@ export default function VideoInfo({
             className="info-tools-button bl-rcmd"
             size="sm"
             title="B站账号推荐视频列表"
-            onClick={onRecommendClick}
+            onPress={onRecommendClick}
           >
             <ChartRing fill="#333" size="24" theme="outline" />
           </Button>
@@ -297,7 +301,7 @@ export default function VideoInfo({
             className="info-tools-button bl-collect"
             size="sm"
             title="B站账号收藏列表"
-            onClick={onCollectClick}
+            onPress={onCollectClick}
           >
             <WeixinFavorites fill="#333" size="24" theme="outline" />
           </Button>
@@ -305,7 +309,7 @@ export default function VideoInfo({
             className="info-tools-button bl-collect"
             size="sm"
             title="B站账号历史记录"
-            onClick={onHistoryClick}
+            onPress={onHistoryClick}
           >
             <History theme="outline" size="24" fill="#333" />
           </Button>
