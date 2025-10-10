@@ -15,7 +15,7 @@ import {
   Image,
 } from "@heroui/react";
 
-import { graftingImage } from "@/utils/string";
+import { graftingImage, subStr } from "@/utils/string";
 
 interface FeedListProps {
   feedList?: blSer.FeedList;
@@ -88,6 +88,7 @@ const FeedList: FC<FeedListProps> = ({
                   const info = item.modules.module_dynamic.major.archive;
                   const publishTime = item.modules.module_author.pub_time;
                   const userName = item.modules.module_author.name;
+                  const isCharge = item?.modules?.module_dynamic?.major?.archive?.badge?.text === '充电专属';
 
                   return (
                     <Card
@@ -114,10 +115,10 @@ const FeedList: FC<FeedListProps> = ({
                           className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
                           title={info.title}
                         >
-                          {info.title}
+                          {isCharge ? <span className="bg-red-400 px-1 py-0.5 rounded-lg text-white mr-1">充电专属</span> : '' }{info.title}
                         </b>
                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          {userName} | {publishTime}
+                          {subStr(userName, 7)} | {publishTime} | {item?.modules?.module_dynamic?.major?.archive?.duration_text || '未知时长'} | {item?.modules?.module_dynamic?.major?.archive?.stat?.play || '未知'}
                         </p>
                       </CardFooter>
                     </Card>

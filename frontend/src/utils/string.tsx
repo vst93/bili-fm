@@ -44,3 +44,21 @@ export const formatDatetime = (timestamp: number) => {
   const date = new Date(timestamp * 1000);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
+
+export const formatNumber = (num: number) => {
+  if (num >= 10000) {
+    return (num / 10000).toFixed(1) + 'W';
+  } else if (num >= 1000) { 
+    return (num / 1000).toFixed(1) + 'K';
+  } else {
+    return num;
+  }
+}
+
+export const subStr = (str: string, len: number) => {
+  if (str.length > len) {
+    return str.slice(0, len) + '..';
+  } else {
+    return str;
+  }
+}

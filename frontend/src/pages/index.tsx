@@ -825,6 +825,8 @@ export default function IndexPage() {
         onHistoryClick={handleHistoryClick}
         onSeriesClick={handleSeriesClick}
         onPlayVideoClick={handlePlayVideoClick}
+        currentSeriesTitle={currentSeriesTitle}
+        searchResultsCount={searchResults?.length || 0}
       />
       <Player
         isPlaying={isPlaying}

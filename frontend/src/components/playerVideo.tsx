@@ -59,17 +59,17 @@ export default function PlayerVideo({
             position: "absolute",
             top: "10px",
             right: "10px",
-            fontSize: "20px",
+            fontSize: "10px",
             cursor: "pointer",
             color: "white",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            padding: "5px 10px",
-            borderRadius: "5px",
+            backgroundColor: "rgba(0,0,0,0.1)",
+            padding: "6px 6px",
+            borderRadius: "50%",
             zIndex: 999,
           }}
           className="custom_hover_button"
         >
-          <Close theme="filled" size="32" fill="#f7f7f7ff"/>
+          <Close theme="filled" size="18" fill="#f7f7f7ff"/>
         </div>
       </>
     </div>

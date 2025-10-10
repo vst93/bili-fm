@@ -2,7 +2,7 @@ import { Button, Image } from "@heroui/react";
 import {
   Search,
   DoubleUp,
-  Share,
+  Browser,
   ShareSys,
   ChartRing,
   WeixinFavorites,
@@ -10,7 +10,7 @@ import {
   HandleB,
   History,
   Layers,
-  Video,
+  VideoTwo,
 } from "@icon-park/react";
 import { useState, useEffect } from "react";
 
@@ -43,6 +43,9 @@ interface VideoInfoProps {
   onHistoryClick?: () => void;
   onSeriesClick?: () => void;
   onPlayVideoClick?: () => void;
+  currentSeriesTitle?: string;
+  searchResultsCount?: number;
+  
 }
 
 export default function VideoInfo({
@@ -63,6 +66,8 @@ export default function VideoInfo({
   onHistoryClick,
   onSeriesClick,
   onPlayVideoClick,
+  currentSeriesTitle,
+  searchResultsCount = 0,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
@@ -172,7 +177,7 @@ export default function VideoInfo({
           id="video-owner-name"
           onClick={() => onOwnerClick?.(ownerMid, ownerName)}
         >
-          {ownerName || "神秘的up主"}
+          {ownerName || "神秘的UP主"}
         </button>
       </div>
       <div className="can-seelect" id="video-title">
@@ -186,7 +191,7 @@ export default function VideoInfo({
             minWidth: "36px"
           }}
           onPress={onShareClick}>
-          <Share fill="#333" size="15" theme="outline" />
+          <Browser fill="#333" size="16" theme="outline" />
         </Button>
         <Button
           title="播放视频"
@@ -194,10 +199,11 @@ export default function VideoInfo({
           style={{
             backgroundColor: "#e4e4e400",
             padding: "0",
-            minWidth: "36px"
+            minWidth: "36px",
+            marginLeft: "-8px",
           }}
           onPress={onPlayVideoClick}>
-          <Video fill="#333" size="15" theme="outline" />
+          <VideoTwo fill="#333" size="16" theme="outline" />
         </Button>
       </div>
       <div className="can-seelect" id="video-desc">
@@ -254,6 +260,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="搜索"
+          isDisabled={!searchResultsCount}
           onPress={onSearchClick}
         >
           <Search fill="#333" size="24" theme="outline" />
@@ -265,6 +272,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="选集"
+          isDisabled={!bvid}
           onPress={onPageListClick}
         >
           <DoubleUp fill="#333" size="24" theme="outline" />
@@ -276,6 +284,7 @@ export default function VideoInfo({
             backgroundColor: "#e4e4e485",
           }}
           title="合集"
+          isDisabled={!currentSeriesTitle}
           onPress={onSeriesClick}
         >
           <Layers theme="outline" size="24" fill="#333" />
