@@ -185,23 +185,14 @@ export default function VideoInfo({
         <Button
           title="在浏览器打开"
           isDisabled={!bvid}
-          style={{
-            backgroundColor: "#e4e4e400",
-            padding: "0",
-            minWidth: "36px"
-          }}
+          className="bg-white-0 min-w-1 w-5 h-5 hover:bg-blue-300 rounded-full p-3 ml-3 align-top"
           onPress={onShareClick}>
-          <Browser fill="#333" size="16" theme="outline" />
+          <Browser fill="#333" size="16" theme="outline"/>
         </Button>
         <Button
           title="播放视频"
           isDisabled={!bvid}
-          style={{
-            backgroundColor: "#e4e4e400",
-            padding: "0",
-            minWidth: "36px",
-            marginLeft: "-8px",
-          }}
+          className="bg-white-0 min-w-1 w-5  h-5 hover:bg-blue-300 rounded-full p-3 ml-1 align-top"
           onPress={onPlayVideoClick}>
           <VideoTwo fill="#333" size="16" theme="outline" />
         </Button>
