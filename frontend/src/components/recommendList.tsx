@@ -14,7 +14,7 @@ import {
   Image,
 } from "@heroui/react";
 
-import { graftingImage } from "@/utils/string";
+import { convertToDuration, graftingImage, formatNumber, subStr } from "@/utils/string";
 
 interface RecommendListProps {
   onSlideClick?: () => void;
@@ -55,9 +55,19 @@ const RecommendList: FC<RecommendListProps> = ({
     onRefresh?.();
   };
 
-  const formatTimestamp = (timestamp: number) => {
+  const formatTimestamp2 = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+
+  const formatTimestamp = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    if (date.getFullYear() < (new Date().getFullYear())) {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    } else { 
+      return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+    // return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
   return (
@@ -118,7 +128,7 @@ const RecommendList: FC<RecommendListProps> = ({
                           {item.title}
                         </b>
                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          {item.owner?.name || item.author} | {formatTimestamp(item.pubdate)}
+                          {subStr(item.owner?.name || item.author,7)} | {formatTimestamp(item.pubdate)} | {convertToDuration(item.duration)} | {formatNumber(item?.stat?.view)}
                         </p>
                       </CardFooter>
                     </Card>

@@ -83,6 +83,7 @@ const SearchForm: FC<SearchFormProps> = ({
           classNames={{
             img: "opacity-100",
           }}
+          title="点击登录其他账号"
         />
       ) : (
         <Avatar
@@ -91,6 +92,7 @@ const SearchForm: FC<SearchFormProps> = ({
           onClick={onLoginClick}
           size="md"
           isBordered
+          title="点击登录账号"
         />
       )}
     </div>

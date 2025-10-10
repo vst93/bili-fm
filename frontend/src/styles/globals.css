@@ -435,3 +435,7 @@ img{
 .v-border-none:hover{
     border: none !important;
 }
+
+.custom_hover_button:hover {
+    background-color: #2dbbee !important;
+}
