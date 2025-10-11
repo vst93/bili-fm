@@ -55,10 +55,10 @@ const RecommendList: FC<RecommendListProps> = ({
     onRefresh?.();
   };
 
-  const formatTimestamp2 = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  // const formatTimestamp2 = (timestamp: number) => {
+  //   const date = new Date(timestamp * 1000);
+  //   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  // };
 
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp * 1000);

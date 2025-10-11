@@ -31,7 +31,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
     wails build -platform $PLATFORM -clean -s 
     FIRST_RUN=false
   else
-    wails build -platform $PLATFORM -s 
+    wails build -platform $PLATFORM -s -skipbindings
   fi
 
   # 检查构建是否成功
