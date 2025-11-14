@@ -83,7 +83,7 @@ const TitleBar: React.FC = () => {
                           onClick={handleShowAbout}
                           role="menuitem"
                         >
-                          关于
+                          关于应用
                         </button>
                       </li>
                       <li role="none">
@@ -92,7 +92,7 @@ const TitleBar: React.FC = () => {
                           onClick={handleShowVersion}
                           role="menuitem"
                         >
-                          版本
+                          当前版本
                         </button>
                       </li>
                       <li role="none">
@@ -113,21 +113,30 @@ const TitleBar: React.FC = () => {
                           检查更新
                         </button>
                       </li>
+                      <li role="none">
+                        <button
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
+                            onClick={handleClose}
+                          role="menuitem"
+                        >
+                          退出应用
+                        </button>
+                      </li>
                     </ul>
                   </div>
                 )}
               </div>
             </div>
             <div className="flex gap-2 px-2">
-              <button
+              {/* <button
                 className="hover:bg-gray-200 p-1.5 rounded transition-colors"
                 onClick={handleMinimize}
               >
                 <Minus fill="#333" size="14" theme="outline" />
-              </button>
+              </button> */}
               <button
                 className="hover:bg-red-200 hover:text-white p-1.5 rounded transition-colors"
-                onClick={handleClose}
+                  onClick={handleMinimize}
               >
                 <Close fill="#333" size="14" theme="outline" />
               </button>
