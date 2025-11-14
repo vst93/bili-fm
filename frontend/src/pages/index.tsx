@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { CloseSmall } from "@icon-park/react";
+import { CloseSmall, ZoomInternal } from "@icon-park/react";
+
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
@@ -37,6 +38,7 @@ import UpVideoList from "@/components/upVideoList";
 import HistoryList from "@/components/historyList";
 import SeriesList from "@/components/seriesList";
 import PlayerVideo from "@/components/playerVideo";
+import MiniVideoInfo from "@/components/miniVideoInfo";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -86,7 +88,7 @@ export default function IndexPage() {
   const [showSeriesList, setShowSeriesList] = useState(false);
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
-
+  const [isMiniMode, setIsMiniMode] = useState(false);
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -99,7 +101,7 @@ export default function IndexPage() {
    * @description 处理空格键（播放/暂停）和左右方向键（上一个/下一个视频）的按键事件
    */
   useEffect(() => {
-
+    // switchWindowMode()
     //监听快捷键
     const listener = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "w") {
@@ -792,42 +794,71 @@ export default function IndexPage() {
     }
   };
 
+  /**
+   * 切换窗口模式
+   */
+  const switchWindowMode = async () => {
+    let theIsMiniMode = !isMiniMode
+    setIsMiniMode(theIsMiniMode)
+    if (theIsMiniMode) {
+      // @ts-ignore
+      window.runtime.WindowSetSize(400, 155)
+      // @ts-ignore 设置 .rap-container  高 
+      document.querySelector('.rap-container').style.height = '36px'
+    } else {
+      // @ts-ignore
+      window.runtime.WindowSetSize(800, 600)
+      // @ts-ignore
+      document.querySelector('.rap-container').style.height = '56px'
+    }
+  };
+
   return (
     <DefaultLayout>
-      <SearchForm
-        userFace={userFace}
-        value={searchInputValue}
-        onInputChange={setSearchInputValue}
-        onLoginClick={handleLogin}
-        onSearch={handleSearch}
-        onUrlJump={handleUrlJump}
-      />
-      <VideoCover
-        cover={graftingImage(pageFirstFrame)}
-        isPlaying={isPlaying}
-        onPlayStateChange={handleCoverClick}
-      />
-      <VideoInfo
-        bvid={videoInfo?.bvid}
-        desc={videoInfo?.desc}
-        ownerFace={videoInfo?.owner_face}
-        ownerMid={videoInfo?.owner_mid}
-        ownerName={videoInfo?.owner_name}
-        part={currentPart}
-        title={videoInfo?.title}
-        onCollectClick={handleCollectClick}
-        onFeedClick={handleFeedClick}
-        onOwnerClick={handleOwnerClick}
-        onPageListClick={handlePageListClick}
-        onRecommendClick={handleRecommendClick}
-        onSearchClick={handleSearchClick}
-        onShareClick={handleShareClick}
-        onHistoryClick={handleHistoryClick}
-        onSeriesClick={handleSeriesClick}
-        onPlayVideoClick={handlePlayVideoClick}
-        currentSeriesTitle={currentSeriesTitle}
-        searchResultsCount={searchResults?.length || 0}
-      />
+      {isMiniMode ? '' : (
+        <>
+          <SearchForm
+            userFace={userFace}
+            value={searchInputValue}
+            onInputChange={setSearchInputValue}
+            onLoginClick={handleLogin}
+            onSearch={handleSearch}
+            onUrlJump={handleUrlJump}
+          />
+          <VideoCover
+            cover={graftingImage(pageFirstFrame)}
+            isPlaying={isPlaying}
+            onPlayStateChange={handleCoverClick}
+          />
+          <VideoInfo
+            bvid={videoInfo?.bvid}
+            desc={videoInfo?.desc}
+            ownerFace={videoInfo?.owner_face}
+            ownerMid={videoInfo?.owner_mid}
+            ownerName={videoInfo?.owner_name}
+            part={currentPart}
+            title={videoInfo?.title}
+            onCollectClick={handleCollectClick}
+            onFeedClick={handleFeedClick}
+            onOwnerClick={handleOwnerClick}
+            onPageListClick={handlePageListClick}
+            onRecommendClick={handleRecommendClick}
+            onSearchClick={handleSearchClick}
+            onShareClick={handleShareClick}
+            onHistoryClick={handleHistoryClick}
+            onSeriesClick={handleSeriesClick}
+            onPlayVideoClick={handlePlayVideoClick}
+            currentSeriesTitle={currentSeriesTitle}
+            searchResultsCount={searchResults?.length || 0}
+          />
+        </>
+      )}
+      {!isMiniMode ? '' : (
+        <MiniVideoInfo
+          part={currentPart}
+          cover={graftingImage(pageFirstFrame)}
+        />
+      )}
       <Player
         isPlaying={isPlaying}
         src={playUrl}
@@ -836,119 +867,132 @@ export default function IndexPage() {
         aid={videoInfo?.aid}
         cid={videoInfo?.cid}
       />
-      <PlayerVideo
-        src={playUrl}
-        isPlay={isPlayVideo}
-        isPlayVideoStop={isPlayVideoStop}
-        setIsplay={setIsPlayVideo}
-      />
-      {showSearchList && (
-        <SearchList
-          searchResults={searchResults}
-          onSlideClick={() => setShowSearchList(false)}
-          onSortChange={handleSortChange}
-          onVideoSelect={handleSearchVideoSelect}
-        />
-      )}
-      {showPageList && videoInfo && (
-        <PageList
-          currentBvid={currentBvid}
-          currentPart={currentPart}
-          pageNum={pageNum}
-          videoInfo={videoInfo}
-          onSlideClick={() => setShowPageList(false)}
-          onVideoSelect={handleVideoSelect}
-        />
-      )}
-      {showFeedList && (
-        <FeedList
-          feedList={feedList}
-          onLoadMore={handleLoadMore}
-          onRefresh={handleFeedRefresh}
-          onSlideClick={() => setShowFeedList(false)}
-          onVideoSelect={handleSearchVideoSelect}
-        />
-      )}
-      {showRecommendList && (
-        <RecommendList
-          recommendList={recommendList}
-          onLoadMore={handleRecommendLoadMore}
-          onRefresh={handleRecommendRefresh}
-          onSlideClick={() => setShowRecommendList(false)}
-          onVideoSelect={handleSearchVideoSelect}
-        />
-      )}
-      {showCollectList && (
-        <CollectList
-          collectGroups={collectGroups}
-          collectList={collectList}
-          currentGroupId={currentGroupId}
-          onGroupSelect={handleCollectGroupSelect}
-          onLoadMore={handleCollectLoadMore}
-          onRefresh={handleCollectRefresh}
-          onSlideClick={() => setShowCollectList(false)}
-          onVideoSelect={handleSearchVideoSelect}
-        />
-      )}
-      {showUpVideoList && (
-        <UpVideoList
-          upName={currentUpName}
-          upVideoList={upVideoList}
-          onLoadMore={handleUpVideoLoadMore}
-          onRefresh={handleUpVideoRefresh}
-          onSlideClick={() => setShowUpVideoList(false)}
-          onVideoSelect={handleSearchVideoSelect}
-          seriesList={seriesList}
-          onSeriesSelect={handleSeriesSelect}
-          currentSeriesId={currentSeriesId}
-          setSeriesList={setSeriesList}
-          currentUpMid={currentUpMid}
-          setSeriesVideosPage={setSeriesVideosPage}
-        />
-      )}
-      {showHistoryList && (
-        <HistoryList
-          onSlideClick={() => setShowHistoryList(false)}
-          onVideoSelect={handleSearchVideoSelect}
-          historyList={historyList}
-          historyCursor={historyCursor}
-          setHistoryList={setHistoryList}
-          setHistoryCursor={setHistoryCursor}
-        />
-      )}
-      {showSeriesList && (
-        <SeriesList
-          seriesVideos={seriesVideos}
-          onVideoSelect={handleSearchVideoSelect}
-          onSlideClick={handleSeriesListClose}
-          seriesTitle={currentSeriesTitle}
-          seriesVideosPage={seriesVideosPage}
-          setSeriesVideosPage={setSeriesVideosPage}
-          currentUpMid={currentUpMid}
-          currentSeriesId={currentSeriesId}
-          setSeriesVideos={setSeriesVideos}
-        />
-      )}
-      {showLoginPanel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="relative w-80 rounded-lg bg-white p-6">
-            <button
-              className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
-              onClick={handleCloseLogin}
-            >
-              <CloseSmall fill="#333" size="24" theme="outline" />
-            </button>
-            <h3 className="mb-4 text-center text-lg font-semibold">
-              使用BiLiBiLi APP 扫码登录
-            </h3>
-            <img
-              alt="登录二维码"
-              className="mx-auto h-48 w-48"
-              src={qrCodeUrl}
+      {isMiniMode ? '' : (
+        <>
+          <PlayerVideo
+            src={playUrl}
+            isPlay={isPlayVideo}
+            isPlayVideoStop={isPlayVideoStop}
+            setIsplay={setIsPlayVideo}
+          />
+          {showSearchList && (
+            <SearchList
+              searchResults={searchResults}
+              onSlideClick={() => setShowSearchList(false)}
+              onSortChange={handleSortChange}
+              onVideoSelect={handleSearchVideoSelect}
             />
-          </div>
-        </div>
+          )}
+          {showPageList && videoInfo && (
+            <PageList
+              currentBvid={currentBvid}
+              currentPart={currentPart}
+              pageNum={pageNum}
+              videoInfo={videoInfo}
+              onSlideClick={() => setShowPageList(false)}
+              onVideoSelect={handleVideoSelect}
+            />
+          )}
+          {showFeedList && (
+            <FeedList
+              feedList={feedList}
+              onLoadMore={handleLoadMore}
+              onRefresh={handleFeedRefresh}
+              onSlideClick={() => setShowFeedList(false)}
+              onVideoSelect={handleSearchVideoSelect}
+            />
+          )}
+          {showRecommendList && (
+            <RecommendList
+              recommendList={recommendList}
+              onLoadMore={handleRecommendLoadMore}
+              onRefresh={handleRecommendRefresh}
+              onSlideClick={() => setShowRecommendList(false)}
+              onVideoSelect={handleSearchVideoSelect}
+            />
+          )}
+          {showCollectList && (
+            <CollectList
+              collectGroups={collectGroups}
+              collectList={collectList}
+              currentGroupId={currentGroupId}
+              onGroupSelect={handleCollectGroupSelect}
+              onLoadMore={handleCollectLoadMore}
+              onRefresh={handleCollectRefresh}
+              onSlideClick={() => setShowCollectList(false)}
+              onVideoSelect={handleSearchVideoSelect}
+            />
+          )}
+          {showUpVideoList && (
+            <UpVideoList
+              upName={currentUpName}
+              upVideoList={upVideoList}
+              onLoadMore={handleUpVideoLoadMore}
+              onRefresh={handleUpVideoRefresh}
+              onSlideClick={() => setShowUpVideoList(false)}
+              onVideoSelect={handleSearchVideoSelect}
+              seriesList={seriesList}
+              onSeriesSelect={handleSeriesSelect}
+              currentSeriesId={currentSeriesId}
+              setSeriesList={setSeriesList}
+              currentUpMid={currentUpMid}
+              setSeriesVideosPage={setSeriesVideosPage}
+            />
+          )}
+          {showHistoryList && (
+            <HistoryList
+              onSlideClick={() => setShowHistoryList(false)}
+              onVideoSelect={handleSearchVideoSelect}
+              historyList={historyList}
+              historyCursor={historyCursor}
+              setHistoryList={setHistoryList}
+              setHistoryCursor={setHistoryCursor}
+            />
+          )}
+          {showSeriesList && (
+            <SeriesList
+              seriesVideos={seriesVideos}
+              onVideoSelect={handleSearchVideoSelect}
+              onSlideClick={handleSeriesListClose}
+              seriesTitle={currentSeriesTitle}
+              seriesVideosPage={seriesVideosPage}
+              setSeriesVideosPage={setSeriesVideosPage}
+              currentUpMid={currentUpMid}
+              currentSeriesId={currentSeriesId}
+              setSeriesVideos={setSeriesVideos}
+            />
+          )}
+          {showLoginPanel && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+              <div className="relative w-80 rounded-lg bg-white p-6">
+                <button
+                  className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
+                  onClick={handleCloseLogin}
+                >
+                  <CloseSmall fill="#333" size="24" theme="outline" />
+                </button>
+                <h3 className="mb-4 text-center text-lg font-semibold">
+                  使用BiLiBiLi APP 扫码登录
+                </h3>
+                <img
+                  alt="登录二维码"
+                  className="mx-auto h-48 w-48"
+                  src={qrCodeUrl}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
+
+      <button
+        id='switch-window-mode'
+        onClick={() => {
+          switchWindowMode();
+        }}
+      >
+        <ZoomInternal theme="outline" size="18" fill="#333" />
+      </button>
       <div className="fixed bottom-0 right-0 opacity-0">
         <img alt="" src="https://sstatic1.histats.com/0.gif?4923382&101" />
       </div>

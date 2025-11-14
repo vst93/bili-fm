@@ -103,13 +103,14 @@ func main() {
 	bl := service.NewBL()
 
 	isMacOS := runtime.GOOS == "darwin"
+	// isMacOS = false
 	AppMenu := menu.NewMenu()
 	if isMacOS {
 		aboutMenu := AppMenu.AddSubmenu("设置")
-		aboutMenu.AddText("关于", nil, func(_ *menu.CallbackData) {
+		aboutMenu.AddText("关于应用", nil, func(_ *menu.CallbackData) {
 			appMenu.ShowAbout()
 		})
-		aboutMenu.AddText("版本", nil, func(_ *menu.CallbackData) {
+		aboutMenu.AddText("当前版本", nil, func(_ *menu.CallbackData) {
 			appMenu.ShowVersion()
 		})
 		aboutMenu.AddText("快捷键", nil, func(_ *menu.CallbackData) {
@@ -117,6 +118,9 @@ func main() {
 		})
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
 			appMenu.CheckForUpdates(true, "")
+		})
+		aboutMenu.AddText("退出应用", nil, func(_ *menu.CallbackData) {
+			appMenu.CloseApp()
 		})
 	}
 
@@ -169,8 +173,9 @@ func main() {
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "bili-fm",
 		},
-		CSSDragProperty: "widows",
-		CSSDragValue:    "1",
+		CSSDragProperty:   "widows",
+		CSSDragValue:      "1",
+		HideWindowOnClose: true,
 		// Debug: options.Debug{
 		// 	OpenInspectorOnStartup: true,
 		// },

@@ -4,6 +4,8 @@ import {context} from '../models';
 
 export function CheckForUpdates(arg1:boolean,arg2:string):Promise<void>;
 
+export function CloseApp():Promise<void>;
+
 export function GetPlatform():Promise<string>;
 
 export function SetAppContext(arg1:context.Context):Promise<void>;

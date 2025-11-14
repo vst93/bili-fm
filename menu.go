@@ -131,3 +131,7 @@ func (m *Menu) CheckForUpdates(isManualCheck bool, gitFrom string) {
 func (m *Menu) GetPlatform() string {
 	return runtime.Environment(context.Background()).Platform
 }
+
+func (m *Menu) CloseApp() {
+	runtime.Quit(context.Background())
+}
