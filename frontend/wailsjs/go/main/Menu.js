@@ -6,6 +6,10 @@ export function CheckForUpdates(arg1, arg2) {
   return window['go']['main']['Menu']['CheckForUpdates'](arg1, arg2);
 }
 
+export function CloseApp() {
+  return window['go']['main']['Menu']['CloseApp']();
+}
+
 export function GetPlatform() {
   return window['go']['main']['Menu']['GetPlatform']();
 }

@@ -46,7 +46,11 @@ export default function Player({
   }
 
   return (
-    <div id="player">
+    <div
+      id="player"
+      style={{
+      }}
+    >
       <AudioPlayer
         ref={playerRef}
         autoPlay={autoPlay}

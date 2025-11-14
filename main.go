@@ -103,6 +103,7 @@ func main() {
 	bl := service.NewBL()
 
 	isMacOS := runtime.GOOS == "darwin"
+	// isMacOS = false
 	AppMenu := menu.NewMenu()
 	if isMacOS {
 		aboutMenu := AppMenu.AddSubmenu("设置")
