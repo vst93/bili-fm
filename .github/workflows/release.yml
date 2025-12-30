@@ -2,9 +2,9 @@ on:
   release:
     types: [created]
 
-permissions:
- contents: write
- packages: write
+env:
+  # Necessary for most environments as build failure can occur due to OOM issues
+  NODE_OPTIONS: "--max-old-space-size=4096"
 
 jobs:
   build:
@@ -18,8 +18,14 @@ jobs:
         ]
     runs-on: ${{ matrix.build.os }}
     steps:
-      - uses: dAppServer/wails-build-action@v3
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Build wails
+        uses: dAppServer/wails-build-action@v3
+        id: build
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          package: true
+          go-version: '1.24'
