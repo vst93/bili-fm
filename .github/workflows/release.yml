@@ -38,10 +38,11 @@ jobs:
           GOOS: ${{ matrix.build.goos }}
           GOARCH: ${{ matrix.build.goarch }}
         run: |
-          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX=".exe"; fi
-          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX=".app"; fi
           cd "$GITHUB_WORKSPACE/build/bin"
           rm -f ./*.zip
+          if [ $GOOS == "windows" ]; then mv "$BINARY_NAME" "$BINARY_NAME.exe"; fi
+          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX=".exe"; fi
+          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX=".app"; fi
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
           zip -r -y "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME" -x "*.DS_Store" "__MACOSX"
 
