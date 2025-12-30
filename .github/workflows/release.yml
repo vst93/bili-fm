@@ -1,12 +1,10 @@
+name: Wails build
+
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag version (e.g., v1.0.0)'
-        required: false
+    tags:
+    # Match any new tag
+      - '*'
 
 env:
   # Necessary for most environments as build failure can occur due to OOM issues
@@ -15,13 +13,20 @@ env:
 jobs:
   build:
     strategy:
+    # Failure in one platform build won't impact the others
       fail-fast: false
       matrix:
-        build: [
-          {name: biliFM, platform: linux/amd64, os: ubuntu-latest},
-          {name: biliFM, platform: windows/amd64, os: windows-latest},
-          {name: biliFM, platform: darwin/universal, os: macos-latest}
-        ]
+        build:
+          - name: 'bili-FM'
+            platform:  'linux/amd64'
+            os: 'ubuntu-latest'
+          - name: 'bili-FM'
+            platform:  'windows/amd64'
+            os: 'windows-latest'
+          - name: 'bili-FM'
+            platform:  'darwin/universal'
+            os: 'macos-latest'
+
     runs-on: ${{ matrix.build.os }}
     steps:
       - name: Checkout
@@ -35,4 +40,5 @@ jobs:
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          go-version: '1.24'
+          package: trues
+          go-version: '1.20'
