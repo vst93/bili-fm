@@ -1,0 +1,18 @@
+name: sync to gitee
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync GitHub Release to Gitee
+        uses: trustedinster/sync-release-gitee@v1.1
+        with:
+          gitee_owner: vst93
+          gitee_repo: bili-fm
+          gitee_token: ${{ secrets.GITEE_TOKEN }}
+          github_owner: vst93
+          github_repo: bili-fm
+          gitee_upload_retry_times: 3
+          debug: false
