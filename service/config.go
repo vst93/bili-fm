@@ -1,7 +1,7 @@
 package service
 
-const APP_VERSION = "1.4.0"
-const APP_VERSION_NO = 9
+const APP_VERSION = "1.4.1"
+const APP_VERSION_NO = 10
 const APP_NAME = "bili-FM"
 
 var APP_DIR = ""
