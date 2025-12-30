@@ -43,7 +43,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/build/bin"
           rm -f ./*.zip
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
-          zip "$BINARY_PREFIX_$GOOS_$GOARCH.zip" "$BINARY_NAME"
+          zip -r -y "$BINARY_PREFIX_$GOOS_$GOARCH.zip" "$BINARY_NAME" -x "*.DS_Store" "__MACOSX"
 
       - name: Upload release asset
         uses: svenstaro/upload-release-action@v2
