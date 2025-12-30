@@ -29,7 +29,8 @@ jobs:
             os: 'macos-latest'
       fail-fast: true
     steps:
-       - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
           submodules: recursive
       - name: Build wails
