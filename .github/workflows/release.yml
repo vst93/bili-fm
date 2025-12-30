@@ -8,8 +8,6 @@ permissions:
 
 env:
   BINARY_PREFIX: "biliFM"
-  BINARY_SUFFIX: ""
-  LD_FLAGS: "-w -s"
   # Necessary for most environments as build failure can occur due to OOM issues
   NODE_OPTIONS: "--max-old-space-size=4096"
 
@@ -31,19 +29,14 @@ jobs:
             os: 'macos-latest'
       fail-fast: true
     steps:
-      - uses: actions/checkout@v4
+       - uses: actions/checkout@v2
+        with:
+          submodules: recursive
       - name: Build wails
         uses: dAppServer/wails-build-action@v3
         id: build
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          package: false
-          go-version: '1.24.3'
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: build/bin/${{ env.BINARY_PREFIX }}*
-          overwrite: true
-          file_glob: true
+          package: true
+          build-obfuscate: true
