@@ -3,16 +3,19 @@ name: Wails build
 on:
   release:
     types: [created]
-    
+
+env:
+  BINARY_PREFIX: bili-FM
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         build: [
-          {name: bili-FM, platform: linux/amd64, os: ubuntu-latest},
-          {name: bili-FM, platform: windows/amd64, os: windows-latest},
-          {name: bili-FM, platform: darwin/universal, os: macos-latest}
+          {name: ${{ env.BINARY_PREFIX }}, platform: linux/amd64, os: ubuntu-latest},
+          {name: ${{ env.BINARY_PREFIX }}, platform: windows/amd64, os: windows-latest},
+          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/universal, os: macos-latest}
         ]
     runs-on: ${{ matrix.build.os }}
     steps:
@@ -23,3 +26,12 @@ jobs:
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
+          package: false
+      - name: Upload release asset
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/bin/${{ env.BINARY_PREFIX }}*.zip*
+          overwrite: true
+          file_glob: true
+        
