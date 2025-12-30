@@ -18,7 +18,7 @@ const TitleBar: React.FC = () => {
     };
     window.addEventListener('resize', handleResize);
 
-    // 清理函数：在组件卸载时移除事件监听器
+    // 清理函数：在组件卸载时移除事件监听器   
     return () => {
       window.removeEventListener('resize', handleResize);
     };
