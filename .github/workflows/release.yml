@@ -18,6 +18,8 @@ jobs:
     runs-on: ${{ matrix.build.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: install pnpm
+        run: npm install -g pnpm
       - uses: dAppServer/wails-build-action@main
         with:
           build-name: ${{ matrix.build.name }}
