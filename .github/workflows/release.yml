@@ -22,5 +22,4 @@ jobs:
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          build-obfuscate: true
           package: true
