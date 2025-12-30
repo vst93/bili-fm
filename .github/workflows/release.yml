@@ -16,7 +16,7 @@ jobs:
         build: [
           {name: ${{ env.BINARY_PREFIX }}, platform: linux/amd64, os: ubuntu-latest, goos: linux, goarch: amd64},
           {name: ${{ env.BINARY_PREFIX }}, platform: windows/amd64, os: windows-latest, goos: windows, goarch: amd64},
-          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64}
+          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64},
           {name: ${{ env.BINARY_PREFIX }}, platform: darwin/arm64, os: macos-latest, goos: darwin, goarch: arm64}
         ]
     runs-on: ${{ matrix.build.os }}
@@ -39,7 +39,7 @@ jobs:
           cd ./build/bin/
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
           zip "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME"
-          
+
       - name: Upload release asset
         uses: svenstaro/upload-release-action@v2
         with:
