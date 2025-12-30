@@ -38,12 +38,12 @@ jobs:
           GOOS: ${{ matrix.build.goos }}
           GOARCH: ${{ matrix.build.goarch }}
         run: |
-          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.exe"; fi
-          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.app"; fi
-          rm -rf ./build/bin/*.zip
-          cd ./build/bin/
+          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX=".exe"; fi
+          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX=".app"; fi
+          cd "$GITHUB_WORKSPACE/build/bin"
+          rm -f ./*.zip
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
-          zip "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME"
+          zip "$BINARY_PREFIX_$GOOS_$GOARCH.zip" "$BINARY_NAME"
 
       - name: Upload release asset
         uses: svenstaro/upload-release-action@v2
