@@ -14,10 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {name: ${{ env.BINARY_PREFIX }}, platform: linux/amd64, os: ubuntu-latest, goos: linux, goarch: amd64},
-          {name: ${{ env.BINARY_PREFIX }}, platform: windows/amd64, os: windows-latest, goos: windows, goarch: amd64},
-          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64},
-          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/arm64, os: macos-latest, goos: darwin, goarch: arm64}
+          {name: "${{ env.BINARY_PREFIX }}", platform: linux/amd64, os: ubuntu-latest, goos: linux, goarch: amd64},
+          {name: "${{ env.BINARY_PREFIX }}", platform: windows/amd64, os: windows-latest, goos: windows, goarch: amd64},
+          {name: "${{ env.BINARY_PREFIX }}", platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64},
+          {name: "${{ env.BINARY_PREFIX }}", platform: darwin/arm64, os: macos-latest, goos: darwin, goarch: arm64}
         ]
     runs-on: ${{ matrix.build.os }}
     steps:
