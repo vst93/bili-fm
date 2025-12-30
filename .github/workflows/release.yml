@@ -6,6 +6,7 @@ on:
 
 env:
   BINARY_PREFIX: bili-FM
+  BINARY_SUFFIX: ""
 
 jobs:
   build:
@@ -13,9 +14,10 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          {name: ${{ env.BINARY_PREFIX }}, platform: linux/amd64, os: ubuntu-latest},
-          {name: ${{ env.BINARY_PREFIX }}, platform: windows/amd64, os: windows-latest},
-          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/universal, os: macos-latest}
+          {name: ${{ env.BINARY_PREFIX }}, platform: linux/amd64, os: ubuntu-latest, goos: linux, goarch: amd64},
+          {name: ${{ env.BINARY_PREFIX }}, platform: windows/amd64, os: windows-latest, goos: windows, goarch: amd64},
+          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64}
+          {name: ${{ env.BINARY_PREFIX }}, platform: darwin/arm64, os: macos-latest, goos: darwin, goarch: arm64}
         ]
     runs-on: ${{ matrix.build.os }}
     steps:
@@ -27,6 +29,17 @@ jobs:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
           package: false
+      - name: zip binary
+        env:
+          GOOS: ${{ matrix.build.goos }}
+          GOARCH: ${{ matrix.build.goarch }}
+        run: |
+          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.exe"; fi
+          rm -rf ./build/bin/*.zip
+          cd ./build/bin/
+          export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
+          zip "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME"
+          
       - name: Upload release asset
         uses: svenstaro/upload-release-action@v2
         with:
