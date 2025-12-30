@@ -5,7 +5,7 @@ on:
     types: [created]
 
 env:
-  BINARY_PREFIX: bili-FM
+  BINARY_PREFIX: "bili-FM"
   BINARY_SUFFIX: ""
 
 jobs:
