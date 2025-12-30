@@ -373,9 +373,20 @@ func (bl *BL) GetUrlByCid(aid int, cid int) (ret PlayURLInfo) {
 	}
 	url := fmt.Sprintf("https://api.bilibili.com/x/player/playurl?avid=%d&cid=%d&qn=0&type=json&platform=html5", aid, cid)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	// 添加 header
+	req, err := http.NewRequest("GET", url, nil)
+	// resp, err := client.Get(url)
 	if err != nil {
+		// fmt.Println(err.Error())
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Host", "api.bilibili.com")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// fmt.Println(err.Error())
 		return
 	}
 	defer resp.Body.Close()

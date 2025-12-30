@@ -97,6 +97,9 @@ func main() {
 		}
 	}()
 
+	// 发送统计信息到
+	go service.SendAppStats()
+
 	// Create an instance of the app structure
 	app := NewApp()
 	appMenu := NewMenu()

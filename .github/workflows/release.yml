@@ -1,0 +1,60 @@
+on:
+  release:
+    types: [created]
+
+permissions:
+ contents: write
+ packages: write
+
+env:
+  BINARY_PREFIX: "biliFM"
+  BINARY_SUFFIX: ""
+  LD_FLAGS: "-w -s"
+
+jobs:
+  build:
+    name: Build binary CI
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        exclude:
+         - goos: windows
+           goarch: arm64
+
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go environment
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.24.3
+      - name: Cache downloaded module
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
+      - name: Build binary file
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.exe"; fi
+          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.app"; fi
+          export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
+          export CGO_ENABLED=0
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest
+          wails build -platform "$GOOS/$GOARCH" -clean -s
+          cd "$GITHUB_WORKSPACE/build/bin"
+          zip "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME"
+          sha256sum "$BINARY_PREFIX-$GOOS-$GOARCH.zip" | awk '{printf $1}' > "$BINARY_PREFIX-$GOOS-$GOARCH.zip.sha256"
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: output/${{ env.BINARY_PREFIX }}*.zip*
+          overwrite: true
+          file_glob: true
