@@ -40,7 +40,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/build/bin"
           rm -f ./*.zip
-          if [ $GOOS == "windows" ]; then mv "$BINARY_NAME" "$BINARY_NAME.exe"; fi
+          if [ $GOOS == "windows" ]; then mv "$BINARY_PREFIX" "$BINARY_PREFIX.exe"; fi
           if [ $GOOS == "windows" ]; then export BINARY_SUFFIX=".exe"; fi
           if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX=".app"; fi
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
