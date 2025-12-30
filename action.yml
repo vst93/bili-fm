@@ -1,0 +1,86 @@
+name: "Build Action (orchestrated)"
+description: "General build action repo; root is minimal and delegates to directory orchestrator based on discovery/ENV"
+branding:
+  icon: 'box'
+  color: 'purple'
+inputs:
+  build:
+    description: "Whether to run the build"
+    required: false
+    default: "true"
+  sign:
+    description: "Sign the build (delegated to stack’s signing flow)"
+    required: false
+    default: "false"
+  package:
+    description: "Upload artifacts and publish release on tags"
+    required: false
+    default: "true"
+  build-name:
+    description: "The name of the binary/app bundle"
+    required: true
+  build-platform:
+    description: "Platform to build for (e.g., linux/amd64, windows/amd64, darwin/universal)"
+    required: false
+    default: "darwin/universal"
+  app-working-directory:
+    description: "Root of the app being built"
+    required: false
+    default: "."
+  # Orchestrator controls (stack-agnostic)
+  AUTO_STACK:
+    description: "Allow root action to auto-select a stack based on discovery"
+    required: false
+    default: "true"
+  AUTO_SETUP:
+    description: "Allow orchestrators to auto-enable setup tools based on env toggles"
+    required: false
+    default: "true"
+  STACK:
+    description: "Explicit stack override (e.g., wails2)"
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: Discovery
+      id: discovery
+      uses: ./actions/discovery
+      with:
+        working-directory: ${{ inputs.app-working-directory }}
+
+    - name: Delegate to directory orchestrator
+      id: dir_orch
+      uses: ./actions
+      with:
+        build: ${{ inputs.build }}
+        sign: ${{ inputs.sign }}
+        package: ${{ inputs.package }}
+        build-name: ${{ inputs.build-name }}
+        build-platform: ${{ inputs.build-platform }}
+        app-working-directory: ${{ inputs.app-working-directory }}
+        AUTO_STACK: ${{ inputs.AUTO_STACK }}
+        AUTO_SETUP: ${{ inputs.AUTO_SETUP }}
+        STACK: ${{ inputs.STACK }}
+        # Pass suggestion from discovery so orchestrator can skip re-scanning if it wants
+        PRIMARY_STACK_SUGGESTION: ${{ steps.discovery.outputs.PRIMARY_STACK_SUGGESTION }}
+
+    - name: Debug selected stack
+      shell: bash
+      run: echo "[DEBUG_LOG] (root) Orchestrator selected stack=${{ steps.dir_orch.outputs.SELECTED_STACK }}"
+
+    - name: Package & release
+      uses: ./actions/package
+      with:
+        package: ${{ inputs.package }}
+        build-name: ${{ inputs.build-name }}
+        os: ${{ steps.discovery.outputs.OS }}
+        arch: ${{ steps.discovery.outputs.ARCH }}
+        tag: ${{ steps.discovery.outputs.TAG }}
+        is-tag: ${{ steps.discovery.outputs.IS_TAG }}
+        short-sha: ${{ steps.discovery.outputs.SHORT_SHA }}
+        ref: ${{ steps.discovery.outputs.REF }}
+outputs:
+  SELECTED_STACK:
+    description: "Stack selected by the orchestrator (via directory orchestrator)"
+    value: ${{ steps.dir_orch.outputs.SELECTED_STACK }}
