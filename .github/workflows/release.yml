@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'main'
-
+      
 env:
   # Necessary for most environments as build failure can occur due to OOM issues
   NODE_OPTIONS: "--max-old-space-size=4096"
