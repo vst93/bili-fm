@@ -6,38 +6,23 @@ permissions:
  contents: write
  packages: write
 
-env:
-  BINARY_PREFIX: "biliFM"
-  # Necessary for most environments as build failure can occur due to OOM issues
-  NODE_OPTIONS: "--max-old-space-size=4096"
-
 jobs:
   build:
-    name: Build binary CI
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        build:
-          - name: "biliFM"
-            platform:  'linux/amd64'
-            os: 'ubuntu-latest'
-          - name: 'biliFM'
-            platform:  'windows/amd64'
-            os: 'windows-latest'
-          - name: 'biliFM'
-            platform:  'darwin/universal'
-            os: 'macos-latest'
-      fail-fast: true
+        build: [
+          {name: biliFM, platform: linux/amd64, os: ubuntu-latest},
+          {name: biliFM, platform: windows/amd64, os: windows-latest},
+          {name: biliFM, platform: darwin/universal, os: macos-latest}
+        ]
+    runs-on: ${{ matrix.build.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           submodules: recursive
-      - name: Build wails
-        uses: dAppServer/wails-build-action@v3
-        id: build
+      - uses: dAppServer/wails-build-action@v3
         with:
           build-name: ${{ matrix.build.name }}
           build-platform: ${{ matrix.build.platform }}
-          package: true
           build-obfuscate: true
