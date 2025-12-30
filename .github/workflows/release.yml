@@ -4,6 +4,10 @@ on:
   release:
     types: [created]
 
+permissions:
+ contents: write
+ packages: write
+
 env:
   BINARY_PREFIX: "bili-FM"
   BINARY_SUFFIX: ""
