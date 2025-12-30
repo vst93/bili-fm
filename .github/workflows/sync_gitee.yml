@@ -1,5 +1,8 @@
 name: sync to gitee
 
+on:
+  workflow_dispatch:
+
 jobs:
   build:
     strategy:
