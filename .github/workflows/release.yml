@@ -1,6 +1,12 @@
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version (e.g., v1.0.0)'
+        required: false
 
 env:
   # Necessary for most environments as build failure can occur due to OOM issues
@@ -20,8 +26,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
       - name: Build wails
         uses: dAppServer/wails-build-action@v3
         id: build
