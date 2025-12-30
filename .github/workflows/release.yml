@@ -35,6 +35,7 @@ jobs:
           GOARCH: ${{ matrix.build.goarch }}
         run: |
           if [ $GOOS == "windows" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.exe"; fi
+          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.app"; fi
           rm -rf ./build/bin/*.zip
           cd ./build/bin/
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
