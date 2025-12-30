@@ -10,6 +10,8 @@ env:
   BINARY_PREFIX: "biliFM"
   BINARY_SUFFIX: ""
   LD_FLAGS: "-w -s"
+  # Necessary for most environments as build failure can occur due to OOM issues
+  NODE_OPTIONS: "--max-old-space-size=4096"
 
 jobs:
   build:
@@ -17,44 +19,31 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
-        exclude:
-         - goos: windows
-           goarch: arm64
-
+        build:
+          - name: "biliFM"
+            platform:  'linux/amd64'
+            os: 'ubuntu-latest'
+          - name: 'biliFM'
+            platform:  'windows/amd64'
+            os: 'windows-latest'
+          - name: 'biliFM'
+            platform:  'darwin/universal'
+            os: 'macos-latest'
       fail-fast: true
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Go environment
-        uses: actions/setup-go@v6
+      - name: Build wails
+        uses: dAppServer/wails-build-action@v2.2
+        id: build
         with:
-          go-version: 1.24.3
-      - name: Cache downloaded module
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/go.sum') }}
-      - name: Build binary file
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.exe"; fi
-          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX="$BINARY_SUFFIX.app"; fi
-          export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
-          export CGO_ENABLED=0
-          go install github.com/wailsapp/wails/v2/cmd/wails@latest
-          wails build -platform "$GOOS/$GOARCH" -clean -s
-          cd "$GITHUB_WORKSPACE/build/bin"
-          zip "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME"
-          sha256sum "$BINARY_PREFIX-$GOOS-$GOARCH.zip" | awk '{printf $1}' > "$BINARY_PREFIX-$GOOS-$GOARCH.zip.sha256"
+          build-name: ${{ matrix.build.name }}
+          build-platform: ${{ matrix.build.platform }}
+          package: false
+          go-version: '1.24.3'
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: output/${{ env.BINARY_PREFIX }}*.zip*
+          file: build/bin/${{ env.BINARY_PREFIX }}*
           overwrite: true
           file_glob: true
