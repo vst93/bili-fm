@@ -29,46 +29,43 @@ const SearchForm: FC<SearchFormProps> = ({
       }
     }
 
-    // 处理全选快捷键 (Ctrl+A 或 Command+A)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-      e.preventDefault(); // 阻止默认行为
-      e.currentTarget.select(); // 全选输入框文本
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-      e.preventDefault(); // 阻止默认行为
-      e.currentTarget.select(); // 全选输入框文本
-      navigator.clipboard.writeText((e.target as HTMLInputElement).value);
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-      e.preventDefault(); // 阻止默认行为
-      navigator.clipboard.readText().then(text => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+      e.preventDefault();
+      e.currentTarget.select();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+      e.preventDefault();
+      e.currentTarget.select();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+      e.preventDefault();
+      navigator.clipboard.readText().then((text) => {
         onInputChange?.(text);
       });
     }
-
   };
 
   return (
-    <div className="flex items-center justify-center gap-2 p-2">
-      <div className="w-[350px]">
+    <div className="flex items-center justify-center gap-3 p-3">
+      <div className="w-[360px]">
         <Input
           value={value}
           onValueChange={onInputChange}
           onKeyDown={handleKeyDown}
           placeholder="B站｜关键词搜索"
           size="md"
-          radius="md"
+          radius="lg"
           spellCheck={false}
           classNames={{
             base: "max-w-full",
-            mainWrapper: "h-12",
-            input: "text-small",
-            inputWrapper: "h-12 pr-0",
+            mainWrapper: "h-11",
+            input: "text-sm text-gray-700",
+            inputWrapper: "h-11 pr-0 bg-gray-50 border border-gray-200 focus-within:border-blue-400 focus-within:shadow-sm transition-all",
           }}
           endContent={
             <button
-              className="bg-transparent border-none cursor-pointer h-12 w-12 flex items-center justify-center hover:bg-default-100/50 active:bg-default-200/70 transition-colors border-l border-default-200"
+              className="h-11 px-4 bg-gradient-to-r from-blue-500 to-blue-600 border-none cursor-pointer flex items-center justify-center hover:from-blue-600 hover:to-blue-700 transition-all rounded-r-lg"
               onClick={() => onSearch?.(value)}
             >
-              <Search theme="outline" size="20" fill="#333" />
+              <Search theme="outline" size="18" fill="white" />
             </button>
           }
         />
@@ -76,7 +73,7 @@ const SearchForm: FC<SearchFormProps> = ({
       {userFace ? (
         <Avatar
           src={userFace}
-          className="cursor-pointer"
+          className="cursor-pointer ring-2 ring-blue-400/30 hover:ring-blue-500 transition-all"
           onClick={onLoginClick}
           size="md"
           isBordered
@@ -88,7 +85,7 @@ const SearchForm: FC<SearchFormProps> = ({
       ) : (
         <Avatar
           showFallback
-          className="cursor-pointer"
+          className="cursor-pointer ring-2 ring-gray-300 hover:ring-blue-400 transition-all"
           onClick={onLoginClick}
           size="md"
           isBordered

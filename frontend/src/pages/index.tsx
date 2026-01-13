@@ -1083,22 +1083,31 @@ export default function IndexPage() {
             />
           )}
           {showLoginPanel && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-              <div className="relative w-80 rounded-lg bg-white p-6">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+              <div className="relative w-80 rounded-xl bg-white shadow-2xl overflow-hidden">
                 <button
-                  className="absolute right-4 top-4  hover:bg-blue-100 active:bg-blue-300 rounded-full p-1"
+                  className="absolute right-3 top-3 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-blue-100 transition-colors"
                   onClick={handleCloseLogin}
                 >
-                  <CloseSmall fill="#333" size="24" theme="outline" />
+                  <CloseSmall fill="#666" size="18" theme="outline" />
                 </button>
-                <h3 className="mb-4 text-center text-lg font-semibold">
-                  使用BiLiBiLi APP 扫码登录
-                </h3>
-                <img
-                  alt="登录二维码"
-                  className="mx-auto h-48 w-48"
-                  src={qrCodeUrl}
-                />
+                <div className="p-6 text-center">
+                  <h3 className="mb-1 text-lg font-semibold text-gray-800">
+                    使用 B站 App 扫码登录
+                  </h3>
+                  <p className="mb-4 text-sm text-gray-500">
+                    打开手机扫一扫
+                  </p>
+                  <div className="relative inline-block">
+                    <div className="p-3 bg-white rounded-xl shadow-lg">
+                      <img
+                        alt="登录二维码"
+                        className="w-40 h-40"
+                        src={qrCodeUrl}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

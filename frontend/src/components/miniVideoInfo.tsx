@@ -17,17 +17,21 @@ export default function MiniVideoInfo({
 }: MiniVideoInfoProps) {
   const coverImage = cover || "/logo.png";
   return (
-    <div id="min-video-info">
+    <div id="min-video-info" className="flex items-center gap-3">
       <div
         id="min-video-info-cover"
+        className="relative"
         style={{
           backgroundImage: `url(${coverImage})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
         }}
-      />
-      <div id="min-video-info-content">
-        {part || "无选集标题"}
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-black/5 to-transparent" />
+      </div>
+      <div id="min-video-info-content" className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+        <span className="text-sm text-gray-700 truncate">{part || "无选集标题"}</span>
       </div>
     </div>
   );
