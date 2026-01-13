@@ -70,7 +70,6 @@ export default function VideoInfo({
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
-  const [showTitleButtons, setShowTitleButtons] = useState(false);
 
   const checkLikeStatus = async () => {
     try {
