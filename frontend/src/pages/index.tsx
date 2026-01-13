@@ -96,6 +96,126 @@ export default function IndexPage() {
   }, []);
 
   /**
+   * 蓝牙/系统媒体控制事件处理
+   * @description 监听系统媒体控制事件（蓝牙耳机、键盘多媒体键等），同步更新播放状态
+   */
+  useEffect(() => {
+    // 尝试使用 Media Session API（现代浏览器支持）
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("play", () => {
+        setIsPlaying(true);
+      });
+
+      navigator.mediaSession.setActionHandler("pause", () => {
+        setIsPlaying(false);
+      });
+
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        // 上一集
+        if (videoInfo?.pages) {
+          const prevIndex =
+            (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
+          const prevPage = videoInfo.pages[prevIndex];
+
+          handleVideoSelect(
+            prevPage.cid,
+            videoInfo.aid,
+            prevPage.part,
+            prevIndex,
+            prevPage.first_frame,
+          );
+        }
+      });
+
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        // 下一集
+        if (videoInfo?.pages) {
+          const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
+          const nextPage = videoInfo.pages[nextIndex];
+
+          handleVideoSelect(
+            nextPage.cid,
+            videoInfo.aid,
+            nextPage.part,
+            nextIndex,
+            nextPage.first_frame,
+          );
+        }
+      });
+    }
+
+    // 监听键盘多媒体键（作为备用方案）
+    const handleMediaKeyPress = (event: KeyboardEvent) => {
+      // 跳过输入框中的按键
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (event.code === "MediaPlayPause" || event.code === "MediaStop") {
+        event.preventDefault();
+        setIsPlaying((prev) => !prev);
+      } else if (event.code === "MediaTrackPrevious") {
+        event.preventDefault();
+        // 上一集
+        if (videoInfo?.pages) {
+          const prevIndex =
+            (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
+          const prevPage = videoInfo.pages[prevIndex];
+
+          handleVideoSelect(
+            prevPage.cid,
+            videoInfo.aid,
+            prevPage.part,
+            prevIndex,
+            prevPage.first_frame,
+          );
+        }
+      } else if (event.code === "MediaTrackNext") {
+        event.preventDefault();
+        // 下一集
+        if (videoInfo?.pages) {
+          const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
+          const nextPage = videoInfo.pages[nextIndex];
+
+          handleVideoSelect(
+            nextPage.cid,
+            videoInfo.aid,
+            nextPage.part,
+            nextIndex,
+            nextPage.first_frame,
+          );
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleMediaKeyPress);
+
+    return () => {
+      window.removeEventListener("keydown", handleMediaKeyPress);
+      // 清理 Media Session handlers
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+      }
+    };
+  }, [videoInfo, currentIndex]);
+
+  /**
+   * 同步 Media Session 播放状态
+   * @description 当播放状态变化时，同步更新系统媒体控制中心的显示状态
+   */
+  useEffect(() => {
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    }
+  }, [isPlaying]);
+
+  /**
    * 键盘事件处理函数
    * @param event 键盘事件对象
    * @description 处理空格键（播放/暂停）和左右方向键（上一个/下一个视频）的按键事件
