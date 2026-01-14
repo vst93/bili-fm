@@ -4,6 +4,8 @@ import {service} from '../models';
 
 export function CoinVideo(arg1:string,arg2:number):Promise<boolean>;
 
+export function Follow(arg1:number):Promise<boolean>;
+
 export function GetBLFavFolderList():Promise<Array<any>>;
 
 export function GetBLFavFolderListDetail(arg1:number,arg2:number):Promise<Array<any>>;
@@ -44,6 +46,8 @@ export function HasLiked(arg1:string):Promise<boolean>;
 
 export function HmacSha256(arg1:string,arg2:string):Promise<string>;
 
+export function IsFollowing(arg1:number):Promise<boolean>;
+
 export function LikeVideo(arg1:string,arg2:number):Promise<boolean>;
 
 export function ProxyImage(arg1:string):Promise<string>;
@@ -55,3 +59,5 @@ export function SearchVideo(arg1:string,arg2:string):Promise<Array<service.Searc
 export function SetLoginStatus(arg1:boolean):Promise<void>;
 
 export function SetSESSDATA(arg1:string):Promise<void>;
+
+export function Unfollow(arg1:number):Promise<boolean>;

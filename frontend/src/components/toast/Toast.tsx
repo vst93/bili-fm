@@ -24,13 +24,13 @@ const Toast = ({ type, content, duration = 2000, onClose }: ToastProps) => {
   const getIcon = () => {
     switch (type) {
       case "success":
-        return <CheckOne theme="outline" size="20" fill="#4ade80" />;
+        return <CheckOne fill="#4ade80" size="20" theme="outline" />;
       case "error":
-        return <CloseOne theme="outline" size="20" fill="#f43f5e" />;
+        return <CloseOne fill="#f43f5e" size="20" theme="outline" />;
       case "warning":
-        return <Attention theme="outline" size="20" fill="#f59e0b" />;
+        return <Attention fill="#f59e0b" size="20" theme="outline" />;
       case "info":
-        return <Info theme="outline" size="20" fill="#0ea5e9" />;
+        return <Info fill="#0ea5e9" size="20" theme="outline" />;
     }
   };
 

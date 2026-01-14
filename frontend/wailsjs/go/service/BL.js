@@ -6,6 +6,10 @@ export function CoinVideo(arg1, arg2) {
   return window['go']['service']['BL']['CoinVideo'](arg1, arg2);
 }
 
+export function Follow(arg1) {
+  return window['go']['service']['BL']['Follow'](arg1);
+}
+
 export function GetBLFavFolderList() {
   return window['go']['service']['BL']['GetBLFavFolderList']();
 }
@@ -86,6 +90,10 @@ export function HmacSha256(arg1, arg2) {
   return window['go']['service']['BL']['HmacSha256'](arg1, arg2);
 }
 
+export function IsFollowing(arg1) {
+  return window['go']['service']['BL']['IsFollowing'](arg1);
+}
+
 export function LikeVideo(arg1, arg2) {
   return window['go']['service']['BL']['LikeVideo'](arg1, arg2);
 }
@@ -108,4 +116,8 @@ export function SetLoginStatus(arg1) {
 
 export function SetSESSDATA(arg1) {
   return window['go']['service']['BL']['SetSESSDATA'](arg1);
+}
+
+export function Unfollow(arg1) {
+  return window['go']['service']['BL']['Unfollow'](arg1);
 }

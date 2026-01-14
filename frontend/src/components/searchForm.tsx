@@ -62,10 +62,10 @@ const SearchForm: FC<SearchFormProps> = ({
           }}
           endContent={
             <button
-              className="h-11 px-4 bg-gradient-to-r from-blue-500 to-blue-600 border-none cursor-pointer flex items-center justify-center hover:from-blue-600 hover:to-blue-700 transition-all rounded-r-lg"
+              className="h-9 px-3 cursor-pointer flex items-center justify-center text-gray-500 hover:text-blue-500 transition-colors rounded-md"
               onClick={() => onSearch?.(value)}
             >
-              <Search theme="outline" size="18" fill="white" />
+              <Search theme="outline" size={18} />
             </button>
           }
         />

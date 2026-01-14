@@ -1458,3 +1458,221 @@ func (bl *BL) GetSeriesVideos(mid int, seriesId int, pageNum int) ([]SeriesVideo
 }
 
 // ----------- end - getSeriesVideos -----------
+
+// ----------- begin - IsFollowing -----------
+func (bl *BL) IsFollowing(mid int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, nil
+	}
+
+	if mid == 0 {
+		return false, nil
+	}
+
+	// 获取当前用户的mid (可能是float64或string)
+	currentMidStr := GetItem("mid")
+	var currentMid int64
+	switch v := currentMidStr.(type) {
+	case float64:
+		currentMid = int64(v)
+	case string:
+		var err error
+		currentMid, err = strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return false, nil
+		}
+	case int:
+		currentMid = int64(v)
+	default:
+		return false, nil
+	}
+
+	if currentMid == int64(mid) {
+		return true, nil
+	}
+
+	// 使用relation接口直接查询
+	baseURL := "https://api.bilibili.com/x/relation"
+	params := url.Values{}
+	params.Add("fid", fmt.Sprintf("%d", mid))
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, nil
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, nil
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, nil
+	}
+
+	var response struct {
+		Code int `json:"code"`
+		Data struct {
+			Attribute int `json:"attribute"`
+		} `json:"data"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, nil
+	}
+
+	if response.Code != 0 {
+		return false, nil
+	}
+
+	// attribute: 2=已关注, 1=被关注, 0=无关系
+	// 只关注时attribute=2
+	return response.Data.Attribute == 2, nil
+}
+
+// ----------- end - IsFollowing -----------
+
+// ----------- begin - Follow -----------
+func (bl *BL) Follow(mid int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	if mid == 0 {
+		return false, errors.New("未指定UP主")
+	}
+
+	// 从cookie中获取bili_jct作为csrf
+	csrfStart := strings.Index(cookie, "bili_jct=")
+	if csrfStart == -1 {
+		return false, errors.New("无法获取csrf")
+	}
+	csrfStart += 9 // "bili_jct="的长度
+	csrfEnd := strings.Index(cookie[csrfStart:], ";")
+	if csrfEnd == -1 {
+		csrfEnd = len(cookie[csrfStart:])
+	}
+	csrfEnd = csrfEnd + csrfStart
+	csrf := cookie[csrfStart:csrfEnd]
+
+	baseURL := "https://api.bilibili.com/x/relation/modify"
+	params := url.Values{}
+	params.Add("fid", fmt.Sprintf("%d", mid))
+	params.Add("act", "1") // 1: 关注
+	params.Add("csrf", csrf)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return true, nil
+}
+
+// ----------- end - Follow -----------
+
+// ----------- begin - Unfollow -----------
+func (bl *BL) Unfollow(mid int) (bool, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, errors.New("未登录")
+	}
+
+	if mid == 0 {
+		return false, errors.New("未指定UP主")
+	}
+
+	// 从cookie中获取bili_jct作为csrf
+	csrfStart := strings.Index(cookie, "bili_jct=")
+	if csrfStart == -1 {
+		return false, errors.New("无法获取csrf")
+	}
+	csrfStart += 9 // "bili_jct="的长度
+	csrfEnd := strings.Index(cookie[csrfStart:], ";")
+	if csrfEnd == -1 {
+		csrfEnd = len(cookie[csrfStart:])
+	}
+	csrfEnd = csrfEnd + csrfStart
+	csrf := cookie[csrfStart:csrfEnd]
+
+	baseURL := "https://api.bilibili.com/x/relation/modify"
+	params := url.Values{}
+	params.Add("fid", fmt.Sprintf("%d", mid))
+	params.Add("act", "2") // 2: 取消关注
+	params.Add("csrf", csrf)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	var response struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+
+	if response.Code != 0 {
+		return false, errors.New(response.Message)
+	}
+
+	return true, nil
+}
+
+// ----------- end - Unfollow -----------

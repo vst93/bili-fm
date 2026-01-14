@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+
 import Toast from "./Toast";
 
 export interface ToastItem {
@@ -17,6 +18,7 @@ const ToastContainer = () => {
         ...event.detail,
         id: Date.now(),
       };
+
       setToasts((prev) => [...prev, newToast]);
     };
 
@@ -36,9 +38,9 @@ const ToastContainer = () => {
       {toasts.map((toast) => (
         <Toast
           key={toast.id}
-          type={toast.type}
           content={toast.content}
           duration={toast.duration}
+          type={toast.type}
           onClose={() => removeToast(toast.id)}
         />
       ))}
@@ -46,4 +48,4 @@ const ToastContainer = () => {
   );
 };
 
-export default ToastContainer; 
+export default ToastContainer;
