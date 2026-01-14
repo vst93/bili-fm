@@ -6,6 +6,8 @@ export function CoinVideo(arg1:string,arg2:number):Promise<boolean>;
 
 export function Follow(arg1:number):Promise<boolean>;
 
+export function GetAppVersion():Promise<service.AppVersion>;
+
 export function GetBLFavFolderList():Promise<Array<any>>;
 
 export function GetBLFavFolderListDetail(arg1:number,arg2:number):Promise<Array<any>>;

@@ -10,6 +10,10 @@ export function Follow(arg1) {
   return window['go']['service']['BL']['Follow'](arg1);
 }
 
+export function GetAppVersion() {
+  return window['go']['service']['BL']['GetAppVersion']();
+}
+
 export function GetBLFavFolderList() {
   return window['go']['service']['BL']['GetBLFavFolderList']();
 }

@@ -1,27 +1,16 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "Vite + NextUI",
-  description: "Make beautiful websites regardless of your design experience.",
+  name: "bili-FM",
+  description:
+    "通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。",
   navItems: [
     {
-      label: "Home",
+      label: "首页",
       href: "/",
     },
     {
-      label: "Docs",
-      href: "/docs",
-    },
-    {
-      label: "Pricing",
-      href: "/pricing",
-    },
-    {
-      label: "Blog",
-      href: "/blog",
-    },
-    {
-      label: "About",
+      label: "关于",
       href: "/about",
     },
   ],

@@ -1677,6 +1677,21 @@ func (bl *BL) Unfollow(mid int) (bool, error) {
 
 // ----------- end - Unfollow -----------
 
+// ----------- begin - GetAppVersion -----------
+type AppVersion struct {
+	Version string `json:"version"`
+	Build   int    `json:"build"`
+}
+
+func (bl *BL) GetAppVersion() *AppVersion {
+	return &AppVersion{
+		Version: APP_VERSION,
+		Build:   APP_VERSION_NO,
+	}
+}
+
+// ----------- end - GetAppVersion -----------
+
 // ----------- begin - GetBLPopularList -----------
 type PopularList struct {
 	Items   []interface{} `json:"items"`

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -25,8 +26,8 @@ func (m *Menu) SetAppContext(ctx context.Context) {
 
 func (m *Menu) ShowAbout() {
 	runtime.MessageDialog(AppContext, runtime.MessageDialogOptions{
-		Title:   "关于",
-		Message: "通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。\n\n项目开源地址：https://github.com/vst93/bili-fm",
+		Title:   "关于 bili-FM v" + service.APP_VERSION,
+		Message: "通过音频来听B站节目，你可以把它作为一个音乐播放器，也可以用来作为知识学习的工具。\n\n版本：" + service.APP_VERSION + " (Build " + strconv.Itoa(service.APP_VERSION_NO) + ")\n\n项目开源：https://github.com/vst93/bili-fm",
 		Type:    "info",
 		Buttons: []string{"好的"},
 	})

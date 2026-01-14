@@ -113,9 +113,6 @@ func main() {
 		aboutMenu.AddText("关于应用", nil, func(_ *menu.CallbackData) {
 			appMenu.ShowAbout()
 		})
-		aboutMenu.AddText("当前版本", nil, func(_ *menu.CallbackData) {
-			appMenu.ShowVersion()
-		})
 		aboutMenu.AddText("快捷键", nil, func(_ *menu.CallbackData) {
 			appMenu.ShowKeyboardShortcuts()
 		})

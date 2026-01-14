@@ -1,5 +1,19 @@
 export namespace service {
 	
+	export class AppVersion {
+	    version: string;
+	    build: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppVersion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.build = source["build"];
+	    }
+	}
 	export class FeedList {
 	    items: any[];
 	    has_more: boolean;
