@@ -96,7 +96,7 @@ const HistoryList: FC<HistoryListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex gap-2 py-2">
+                        <DrawerHeader className="flex items-center gap-2 py-2">
                             观看历史
                             <Button
                                 isIconOnly

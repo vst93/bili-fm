@@ -50,7 +50,7 @@ export function HasLiked(arg1:string):Promise<boolean>;
 
 export function HmacSha256(arg1:string,arg2:string):Promise<string>;
 
-export function IsFollowing(arg1:number):Promise<boolean>;
+export function IsFollowing(arg1:number):Promise<service.FollowStatus>;
 
 export function LikeVideo(arg1:string,arg2:number):Promise<boolean>;
 

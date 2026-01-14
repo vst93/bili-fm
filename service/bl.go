@@ -1460,81 +1460,100 @@ func (bl *BL) GetSeriesVideos(mid int, seriesId int, pageNum int) ([]SeriesVideo
 // ----------- end - getSeriesVideos -----------
 
 // ----------- begin - IsFollowing -----------
-func (bl *BL) IsFollowing(mid int) (bool, error) {
-	cookie := bl.GetSESSDATA()
-	if cookie == "" {
-		return false, nil
-	}
+type FollowStatus struct {
+	IsFollowing bool  `json:"is_following"`
+	Follower    int64 `json:"follower"`
+}
 
+func (bl *BL) IsFollowing(mid int) (*FollowStatus, error) {
 	if mid == 0 {
-		return false, nil
+		return &FollowStatus{IsFollowing: false, Follower: 0}, nil
 	}
 
-	// 获取当前用户的mid (可能是float64或string)
+	// 先获取粉丝数（不需要登录）- 使用 /x/relation/stat
+	var follower int64 = 0
+	statUrl := "https://api.bilibili.com/x/relation/stat"
+	params := url.Values{}
+	params.Add("vmid", fmt.Sprintf("%d", mid))
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", statUrl+"?"+params.Encode(), nil)
+	if err == nil {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		resp, err := client.Do(req)
+		if err == nil {
+			defer resp.Body.Close()
+			body, _ := ioutil.ReadAll(resp.Body)
+			var statResp struct {
+				Code int `json:"code"`
+				Data struct {
+					Follower int64 `json:"follower"`
+				} `json:"data"`
+			}
+			json.Unmarshal(body, &statResp)
+			if statResp.Code == 0 {
+				follower = statResp.Data.Follower
+			}
+		}
+	}
+
+	// 检查是否关注自己
 	currentMidStr := GetItem("mid")
 	var currentMid int64
 	switch v := currentMidStr.(type) {
 	case float64:
 		currentMid = int64(v)
 	case string:
-		var err error
-		currentMid, err = strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return false, nil
-		}
+		currentMid, _ = strconv.ParseInt(v, 10, 64)
 	case int:
 		currentMid = int64(v)
-	default:
-		return false, nil
 	}
-
 	if currentMid == int64(mid) {
-		return true, nil
+		return &FollowStatus{IsFollowing: true, Follower: follower}, nil
 	}
 
-	// 使用relation接口直接查询
-	baseURL := "https://api.bilibili.com/x/relation"
-	params := url.Values{}
-	params.Add("fid", fmt.Sprintf("%d", mid))
+	// 使用 /x/relation 获取关注状态
+	relationUrl := "https://api.bilibili.com/x/relation"
+	params2 := url.Values{}
+	params2.Add("fid", fmt.Sprintf("%d", mid))
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
+	req2, _ := http.NewRequest("GET", relationUrl+"?"+params2.Encode(), nil)
+	req2.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	// 添加 SESSDATA cookie
+	cookie := bl.GetSESSDATA()
+	if cookie != "" {
+		req2.Header.Set("Cookie", cookie)
+	}
+
+	resp2, err := client.Do(req2)
 	if err != nil {
-		return false, nil
+		return &FollowStatus{IsFollowing: false, Follower: follower}, nil
 	}
+	defer resp2.Body.Close()
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
-	req.Header.Set("Cookie", cookie)
+	body, _ := ioutil.ReadAll(resp2.Body)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, nil
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return false, nil
-	}
-
-	var response struct {
+	// 检查 API 返回
+	var rawResp struct {
 		Code int `json:"code"`
+	}
+	json.Unmarshal(body, &rawResp)
+	if rawResp.Code != 0 {
+		return &FollowStatus{IsFollowing: false, Follower: follower}, nil
+	}
+
+	// 解析关系数据
+	var respData struct {
 		Data struct {
 			Attribute int `json:"attribute"`
 		} `json:"data"`
 	}
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return false, nil
-	}
-
-	if response.Code != 0 {
-		return false, nil
-	}
+	json.Unmarshal(body, &respData)
 
 	// attribute: 2=已关注, 1=被关注, 0=无关系
-	// 只关注时attribute=2
-	return response.Data.Attribute == 2, nil
+	isFollowing := respData.Data.Attribute == 2 || respData.Data.Attribute == 6
+
+	return &FollowStatus{IsFollowing: isFollowing, Follower: follower}, nil
 }
 
 // ----------- end - IsFollowing -----------

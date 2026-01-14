@@ -116,7 +116,7 @@ const RecommendList: FC<RecommendListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center justify-between py-2">
+            <DrawerHeader className="flex items-center gap-2 py-2">
               <Tabs
                 selectedKey={activeTab}
                 onSelectionChange={(key) => handleTabChange(key.toString())}
@@ -131,16 +131,14 @@ const RecommendList: FC<RecommendListProps> = ({
                 <Tab key="hot" title="热门" />
                 <Tab key="recommend" title="推荐" />
               </Tabs>
-              <div className="flex items-center gap-1">
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="light"
-                  onClick={handleRefresh}
-                >
-                  <Refresh theme="outline" size="20" fill="#333" />
-                </Button>
-              </div>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="light"
+                onClick={handleRefresh}
+              >
+                <Refresh theme="outline" size="20" fill="#333" />
+              </Button>
             </DrawerHeader>
             <DrawerBody className="recommend-drawer-body" onScroll={handleScroll}>
               {(!currentList?.items || currentList.items.length === 0) ? (

@@ -81,26 +81,31 @@ const UpVideoList: FC<UpVideoListProps> = ({
   const [isFollowing, setIsFollowing] = useState(false);
   const [isCheckingFollow, setIsCheckingFollow] = useState(false);
   const [isFollowingLoading, setIsFollowingLoading] = useState(false);
+  const [follower, setFollower] = useState<number>(0);
 
-  // 检查关注状态
+  // 检查关注状态并获取粉丝数
   const checkFollowStatus = async () => {
     if (!currentUpMid || currentUpMid === 0) {
       setIsFollowing(false);
+      setFollower(0);
       return;
     }
     setIsCheckingFollow(true);
     try {
-      const following = await IsFollowing(currentUpMid);
-      setIsFollowing(following);
+      const status = await IsFollowing(currentUpMid);
+      console.log("IsFollowing 返回:", status);
+      setIsFollowing(status?.is_following ?? false);
+      setFollower(status?.follower ?? 0);
     } catch (error) {
       console.error("检查关注状态失败:", error);
       setIsFollowing(false);
+      setFollower(0);
     } finally {
       setIsCheckingFollow(false);
     }
   };
 
-  // 打开时检查关注状态
+  // 打开时检查关注状态和粉丝数
   useEffect(() => {
     if (isOpen && currentUpMid > 0) {
       checkFollowStatus();
@@ -162,7 +167,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
       drawerBody.scrollTop = 0;
     }
     onRefresh?.();
-    // 刷新时重新检查关注状态
+    // 刷新时重新检查关注状态和粉丝数
     checkFollowStatus();
   };
 
@@ -195,7 +200,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
         type: "error",
         content: "关注失败: " + (error?.message || error?.toString() || "未知错误"),
       });
-    } finally {
+     } finally {
       setIsFollowingLoading(false);
     }
   };
@@ -234,6 +239,14 @@ const UpVideoList: FC<UpVideoListProps> = ({
     }
   };
 
+  // 格式化数字（万为单位）
+  const formatNumber = (num: number): string => {
+    if (num >= 10000) {
+      return (num / 10000).toFixed(1) + "万";
+    }
+    return num.toString();
+  };
+
   return (
     <Drawer
       classNames={{
@@ -246,55 +259,56 @@ const UpVideoList: FC<UpVideoListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center justify-between py-2">
+            <DrawerHeader className="flex items-center gap-2 py-2">
               <div className="flex items-center gap-2 flex-grow">
-                <span className="text-lg font-medium">「{upName}」的空间</span>
-                <div className="flex items-center gap-1">
-                  {currentUpMid > 0 && (
-                    <Button
-                      size="sm"
-                      variant="light"
-                      isLoading={isFollowingLoading}
-                      isDisabled={isCheckingFollow || isFollowingLoading}
-                      onPress={isFollowing ? handleUnfollow : handleFollow}
-                      className="min-w-[70px] h-8 text-sm"
-                    >
-                      {isCheckingFollow ? (
-                        <Spinner size="sm" />
-                      ) : isFollowing ? (
-                        <span className="flex items-center gap-1">
-                          <Close fill="#666" size={14} />
-                          已关注
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-primary">
-                          <Add fill="#2563eb" size={14} />
-                          关注
-                        </span>
-                      )}
-                    </Button>
-                  )}
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="light"
-                    onClick={handleRefresh}
-                  >
-                    <Refresh fill="#333" size={20} theme="outline" />
-                  </Button>
-                </div>
-              </div>
-                <Tabs
-                  selectedKey={activeTab}
-                  onSelectionChange={(key) => handleAciveTabChange(key.toString())}
+              <span className="text-lg font-medium">「{upName}」的空间</span>
+              {follower > 0 && (
+                <span className="text-sm text-default-500">粉丝 {formatNumber(follower)}</span>
+              )}
+              {currentUpMid > 0 && (
+                <Button
+                  size="sm"
                   variant="light"
-                  classNames={{
-                    tabList: "gap-2 mr-4",
-                    cursor: "bg-default-100",
-                    tab: "h-8 px-4",
-                    tabContent: "group-data-[selected=true]:text-primary",
-                  }}
+                  isLoading={isFollowingLoading}
+                  isDisabled={isCheckingFollow || isFollowingLoading}
+                  onPress={isFollowing ? handleUnfollow : handleFollow}
+                  className="min-w-[70px] h-8 text-sm"
                 >
+                  {isCheckingFollow ? (
+                    <Spinner size="sm" />
+                  ) : isFollowing ? (
+                    <span className="flex items-center gap-1">
+                      <Close fill="#666" size={14} />
+                      已关注
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-primary">
+                      <Add fill="#2563eb" size={14} />
+                      关注
+                    </span>
+                  )}
+                </Button>
+              )}
+              <Button
+                isIconOnly
+                size="sm"
+                variant="light"
+                onClick={handleRefresh}
+              >
+                <Refresh fill="#333" size={20} theme="outline" />
+              </Button>
+            </div>
+            <Tabs
+                selectedKey={activeTab}
+                onSelectionChange={(key) => handleAciveTabChange(key.toString())}
+                variant="light"
+                classNames={{
+                  tabList: "gap-2 mr-4",
+                  cursor: "bg-default-100",
+                  tab: "h-8 px-4",
+                  tabContent: "group-data-[selected=true]:text-primary",
+                }}
+              >
                 <Tab key="videos" title="视频" />
                 <Tab key="series" title="合集" />
               </Tabs>

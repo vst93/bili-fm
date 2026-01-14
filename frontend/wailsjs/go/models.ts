@@ -30,6 +30,20 @@ export namespace service {
 	        this.offset = source["offset"];
 	    }
 	}
+	export class FollowStatus {
+	    is_following: boolean;
+	    follower: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FollowStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.is_following = source["is_following"];
+	        this.follower = source["follower"];
+	    }
+	}
 	export class HistoryList {
 	    list: any[];
 	    // Go type: struct { Max int "json:\"max\""; ViewAt int "json:\"view_at\""; Business string "json:\"business\"" }
