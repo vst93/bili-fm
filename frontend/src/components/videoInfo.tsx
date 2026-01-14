@@ -12,8 +12,6 @@ import {
   History,
   Layers,
   VideoTwo,
-  Add,
-  Close,
 } from "@icon-park/react";
 
 import {
@@ -21,9 +19,6 @@ import {
   HasLiked,
   CoinVideo,
   HasCoin,
-  IsFollowing,
-  Follow,
-  Unfollow,
 } from "../../wailsjs/go/service/BL.js";
 import { toast } from "../utils/toast";
 
@@ -75,8 +70,6 @@ export default function VideoInfo({
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [isCheckingFollow, setIsCheckingFollow] = useState(false);
 
   const checkLikeStatus = async () => {
     try {
@@ -96,24 +89,6 @@ export default function VideoInfo({
     }
   };
 
-  const checkFollowStatus = async () => {
-    if (!ownerMid || ownerMid === 0) {
-      setIsFollowing(false);
-      setIsCheckingFollow(false);
-      return;
-    }
-    setIsCheckingFollow(true);
-    try {
-      const following = await IsFollowing(ownerMid);
-      setIsFollowing(following);
-    } catch (error) {
-      console.error("检查关注状态失败:", error);
-      setIsFollowing(false);
-    } finally {
-      setIsCheckingFollow(false);
-    }
-  };
-
   useEffect(() => {
     if (bvid) {
       checkLikeStatus();
@@ -123,10 +98,6 @@ export default function VideoInfo({
       setCoinCount(0);
     }
   }, [bvid]);
-
-  useEffect(() => {
-    checkFollowStatus();
-  }, [ownerMid]);
 
   const handleLike = async () => {
     try {
@@ -173,58 +144,6 @@ export default function VideoInfo({
     }
   };
 
-  const handleFollow = async () => {
-    if (!ownerMid || ownerMid === 0) {
-      toast({
-        type: "error",
-        content: "无法关注该UP主",
-      });
-      return;
-    }
-    try {
-      const result = await Follow(ownerMid);
-      if (result) {
-        setIsFollowing(true);
-        toast({
-          type: "success",
-          content: `已关注 ${ownerName}`,
-        });
-      }
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || "未知错误";
-      toast({
-        type: "error",
-        content: "关注失败: " + errorMsg,
-      });
-    }
-  };
-
-  const handleUnfollow = async () => {
-    if (!ownerMid || ownerMid === 0) {
-      toast({
-        type: "error",
-        content: "无法取消关注该UP主",
-      });
-      return;
-    }
-    try {
-      const result = await Unfollow(ownerMid);
-      if (result) {
-        setIsFollowing(false);
-        toast({
-          type: "success",
-          content: `取消关注 ${ownerName}`,
-        });
-      }
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || "未知错误";
-      toast({
-        type: "error",
-        content: "取消关注失败: " + errorMsg,
-      });
-    }
-  };
-
   return (
     <div id="video-info">
       {/* Owner section */}
@@ -255,29 +174,6 @@ export default function VideoInfo({
             {ownerName || "神秘的UP主"}
           </span>
         </button>
-        {ownerMid > 0 && (
-          <Button
-            size="sm"
-            variant="light"
-            isLoading={isCheckingFollow}
-            isDisabled={isCheckingFollow}
-            onPress={isFollowing ? handleUnfollow : handleFollow}
-            className={isFollowing ? "min-w-[60px]" : "min-w-[60px]"}
-            id="video-owner-follow"
-          >
-            {isFollowing ? (
-              <span className="flex items-center gap-1 text-xs text-gray-500">
-                <Close fill="#666" size={12} theme="outline" />
-                已关注
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-xs text-primary">
-                <Add fill="#2563eb" size={12} theme="outline" />
-                关注
-              </span>
-            )}
-          </Button>
-        )}
       </div>
 
       {/* Title section */}

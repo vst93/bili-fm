@@ -1,7 +1,7 @@
 import type { FC } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
 
-import { Refresh } from "@icon-park/react";
+import { Refresh, Add, Close } from "@icon-park/react";
 import { useDisclosure } from "@heroui/react";
 import {
   Button,
@@ -15,13 +15,18 @@ import {
   Image,
   Tabs,
   Tab,
+  Spinner,
 } from "@heroui/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import { graftingImage } from "@/utils/string";
+import { toast } from "@/utils/toast";
 
 import {
   GetSeriesList,
+  IsFollowing,
+  Follow,
+  Unfollow,
 } from "../../wailsjs/go/service/BL";
 
 // interface SeriesItem {
@@ -49,7 +54,6 @@ interface UpVideoListProps {
   onRefresh?: () => void;
   onLoadMore?: (offset: string) => void;
   upName?: string;
-  mid?: number;
   seriesList?: Array<any>;
   onSeriesSelect?: (id: number,title: string,total: number) => void;
   currentSeriesId?: number;
@@ -74,6 +78,34 @@ const UpVideoList: FC<UpVideoListProps> = ({
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
   const [activeTab, setActiveTab] = useState<string>("videos");
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [isCheckingFollow, setIsCheckingFollow] = useState(false);
+  const [isFollowingLoading, setIsFollowingLoading] = useState(false);
+
+  // 检查关注状态
+  const checkFollowStatus = async () => {
+    if (!currentUpMid || currentUpMid === 0) {
+      setIsFollowing(false);
+      return;
+    }
+    setIsCheckingFollow(true);
+    try {
+      const following = await IsFollowing(currentUpMid);
+      setIsFollowing(following);
+    } catch (error) {
+      console.error("检查关注状态失败:", error);
+      setIsFollowing(false);
+    } finally {
+      setIsCheckingFollow(false);
+    }
+  };
+
+  // 打开时检查关注状态
+  useEffect(() => {
+    if (isOpen && currentUpMid > 0) {
+      checkFollowStatus();
+    }
+  }, [isOpen, currentUpMid]);
 
   const handleAciveTabChange = async (key: string) => {
     setActiveTab(key);
@@ -130,6 +162,76 @@ const UpVideoList: FC<UpVideoListProps> = ({
       drawerBody.scrollTop = 0;
     }
     onRefresh?.();
+    // 刷新时重新检查关注状态
+    checkFollowStatus();
+  };
+
+  // 关注
+  const handleFollow = async () => {
+    if (!currentUpMid || currentUpMid === 0) {
+      toast({
+        type: "error",
+        content: "无法关注该UP主",
+      });
+      return;
+    }
+    setIsFollowingLoading(true);
+    try {
+      const result = await Follow(currentUpMid);
+      if (result) {
+        setIsFollowing(true);
+        toast({
+          type: "success",
+          content: `已关注 ${upName}`,
+        });
+      } else {
+        toast({
+          type: "error",
+          content: "关注失败",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        type: "error",
+        content: "关注失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    } finally {
+      setIsFollowingLoading(false);
+    }
+  };
+
+  // 取消关注
+  const handleUnfollow = async () => {
+    if (!currentUpMid || currentUpMid === 0) {
+      toast({
+        type: "error",
+        content: "无法取消关注该UP主",
+      });
+      return;
+    }
+    setIsFollowingLoading(true);
+    try {
+      const result = await Unfollow(currentUpMid);
+      if (result) {
+        setIsFollowing(false);
+        toast({
+          type: "success",
+          content: `取消关注 ${upName}`,
+        });
+      } else {
+        toast({
+          type: "error",
+          content: "取消关注失败",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        type: "error",
+        content: "取消关注失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    } finally {
+      setIsFollowingLoading(false);
+    }
   };
 
   return (
@@ -146,16 +248,42 @@ const UpVideoList: FC<UpVideoListProps> = ({
           <>
             <DrawerHeader className="flex items-center justify-between py-2">
               <div className="flex items-center gap-2 flex-grow">
-                  「{upName}」的空间
+                <span className="text-lg font-medium">「{upName}」的空间</span>
+                <div className="flex items-center gap-1">
+                  {currentUpMid > 0 && (
+                    <Button
+                      size="sm"
+                      variant="light"
+                      isLoading={isFollowingLoading}
+                      isDisabled={isCheckingFollow || isFollowingLoading}
+                      onPress={isFollowing ? handleUnfollow : handleFollow}
+                      className="min-w-[70px] h-8 text-sm"
+                    >
+                      {isCheckingFollow ? (
+                        <Spinner size="sm" />
+                      ) : isFollowing ? (
+                        <span className="flex items-center gap-1">
+                          <Close fill="#666" size={14} />
+                          已关注
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-primary">
+                          <Add fill="#2563eb" size={14} />
+                          关注
+                        </span>
+                      )}
+                    </Button>
+                  )}
                   <Button
                     isIconOnly
                     size="sm"
                     variant="light"
                     onClick={handleRefresh}
                   >
-                    <Refresh fill="#333" size="20" theme="outline" />
+                    <Refresh fill="#333" size={20} theme="outline" />
                   </Button>
                 </div>
+              </div>
                 <Tabs
                   selectedKey={activeTab}
                   onSelectionChange={(key) => handleAciveTabChange(key.toString())}
