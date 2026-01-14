@@ -108,6 +108,24 @@ export namespace service {
 	        this.url = source["url"];
 	    }
 	}
+	export class PopularList {
+	    items: any[];
+	    has_more: boolean;
+	    no_more: boolean;
+	    page: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PopularList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = source["items"];
+	        this.has_more = source["has_more"];
+	        this.no_more = source["no_more"];
+	        this.page = source["page"];
+	    }
+	}
 	export class RCMDList {
 	    items: any[];
 	    has_more: boolean;

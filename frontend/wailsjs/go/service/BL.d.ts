@@ -14,6 +14,8 @@ export function GetBLFeedList(arg1:string):Promise<service.FeedList>;
 
 export function GetBLHistoryList(arg1:number,arg2:number,arg3:string,arg4:number):Promise<service.HistoryList>;
 
+export function GetBLPopularList(arg1:number):Promise<service.PopularList>;
+
 export function GetBLRCMDList(arg1:number):Promise<service.RCMDList>;
 
 export function GetBLUserInfo():Promise<service.UserInfo>;

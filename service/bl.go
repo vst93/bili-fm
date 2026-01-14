@@ -1676,3 +1676,71 @@ func (bl *BL) Unfollow(mid int) (bool, error) {
 }
 
 // ----------- end - Unfollow -----------
+
+// ----------- begin - GetBLPopularList -----------
+type PopularList struct {
+	Items   []interface{} `json:"items"`
+	HasMore bool          `json:"has_more"`
+	NoMore  bool          `json:"no_more"`
+	Page    int           `json:"page"`
+}
+
+func (bl *BL) GetBLPopularList(page int) (*PopularList, error) {
+	cookie := bl.GetSESSDATA()
+
+	apiUrl := "https://api.bilibili.com/x/web-interface/popular"
+	params := url.Values{}
+	params.Add("pn", fmt.Sprintf("%d", page))
+	params.Add("ps", "20")
+
+	req, err := http.NewRequest("GET", apiUrl+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResponse struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			List   []interface{} `json:"list"`
+			NoMore bool          `json:"no_more"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	if apiResponse.Code != 0 {
+		return nil, errors.New(apiResponse.Message)
+	}
+
+	popularList := &PopularList{
+		Items:   apiResponse.Data.List,
+		HasMore: !apiResponse.Data.NoMore,
+		NoMore:  apiResponse.Data.NoMore,
+		Page:    page,
+	}
+
+	return popularList, nil
+}
+
+// ----------- end - GetBLPopularList -----------

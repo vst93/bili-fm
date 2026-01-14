@@ -26,6 +26,10 @@ export function GetBLHistoryList(arg1, arg2, arg3, arg4) {
   return window['go']['service']['BL']['GetBLHistoryList'](arg1, arg2, arg3, arg4);
 }
 
+export function GetBLPopularList(arg1) {
+  return window['go']['service']['BL']['GetBLPopularList'](arg1);
+}
+
 export function GetBLRCMDList(arg1) {
   return window['go']['service']['BL']['GetBLRCMDList'](arg1);
 }

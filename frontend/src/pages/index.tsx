@@ -21,6 +21,7 @@ import {
   GetUpVideoList,
   GetBLHistoryList,
   GetSeriesVideos,
+  GetBLPopularList,
 } from "../../wailsjs/go/service/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -69,6 +70,8 @@ export default function IndexPage() {
   const [showRecommendList, setShowRecommendList] = useState(false);
   const [recommendList, setRecommendList] = useState<any>();
   const [recommendPage, setRecommendPage] = useState(1);
+  const [hotList, setHotList] = useState<any>();
+  const [hotPage, setHotPage] = useState(1);
   const [showCollectList, setShowCollectList] = useState(false);
   const [collectList, setCollectList] = useState<any>();
   const [collectGroups, setCollectGroups] = useState<any[]>([]);
@@ -797,37 +800,59 @@ export default function IndexPage() {
 
   /**
    * 处理推荐列表刷新事件
-   * @description 重置页码并重新获取推荐列表
+   * @description 重置页码并重新获取推荐/热门列表
    */
-  const handleRecommendRefresh = async () => {
+  const handleRecommendRefresh = async (type: string = "recommend") => {
     try {
-      setRecommendPage(1);
-      const data = await GetBLRCMDList(1);
-
-      setRecommendList(data);
+      if (type === "recommend") {
+        setRecommendPage(1);
+        const data = await GetBLRCMDList(1);
+        setRecommendList(data);
+      } else {
+        setHotPage(1);
+        const data = await GetBLPopularList(1);
+        setHotList(data);
+      }
     } catch (error) {
-      console.error("刷新推荐列表失败:", error);
+      console.error("刷新列表失败:", error);
     }
   };
 
   /**
    * 处理推荐列表加载更多事件
-   * @description 加载下一页推荐内容
+   * @description 加载下一页推荐/热门内容
    */
-  const handleRecommendLoadMore = async () => {
+  const handleRecommendLoadMore = async (type: string = "recommend") => {
     try {
-      const nextPage = recommendPage + 1;
-      const data = await GetBLRCMDList(nextPage);
+      if (type === "recommend") {
+        const nextPage = recommendPage + 1;
+        const data = await GetBLRCMDList(nextPage);
 
-      if (data?.items && recommendList?.items) {
-        setRecommendList({
-          ...data,
-          items: [...recommendList.items, ...data.items],
-        });
-        setRecommendPage(nextPage);
+        if (data?.items && recommendList?.items) {
+          setRecommendList({
+            ...data,
+            items: [...recommendList.items, ...data.items],
+          });
+          setRecommendPage(nextPage);
+        }
+      } else {
+        const nextPage = hotPage + 1;
+        const data = await GetBLPopularList(nextPage);
+
+        if (data?.items && hotList?.items) {
+          setHotList({
+            ...data,
+            items: [...hotList.items, ...data.items],
+          });
+          setHotPage(nextPage);
+        } else {
+          // 首次加载或无数据时直接设置
+          setHotList(data);
+        }
+        setHotPage(nextPage);
       }
     } catch (error) {
-      console.error("加载更多推荐失败:", error);
+      console.error("加载更多失败:", error);
     }
   };
 
@@ -1025,6 +1050,7 @@ export default function IndexPage() {
           {showRecommendList && (
             <RecommendList
               recommendList={recommendList}
+              hotList={hotList}
               onLoadMore={handleRecommendLoadMore}
               onRefresh={handleRecommendRefresh}
               onSlideClick={() => setShowRecommendList(false)}

@@ -299,7 +299,7 @@ export default function VideoInfo({
           <Button
             className="info-tools-button bl-feed"
             size="sm"
-            title="B站账号关注UP视频动态列表"
+            title="动态"
             onPress={onFeedClick}
           >
             <ShareSys fill="#666" size={24} theme="outline" />
@@ -307,7 +307,7 @@ export default function VideoInfo({
           <Button
             className="info-tools-button bl-rcmd"
             size="sm"
-            title="B站账号推荐视频列表"
+            title="热门与推荐"
             onPress={onRecommendClick}
           >
             <ChartRing fill="#666" size={24} theme="outline" />
@@ -315,7 +315,7 @@ export default function VideoInfo({
           <Button
             className="info-tools-button bl-collect"
             size="sm"
-            title="B站账号收藏列表"
+            title="收藏"
             onPress={onCollectClick}
           >
             <WeixinFavorites fill="#666" size={24} theme="outline" />
@@ -323,7 +323,7 @@ export default function VideoInfo({
           <Button
             className="info-tools-button bl-collect"
             size="sm"
-            title="B站账号历史记录"
+            title="历史记录"
             onPress={onHistoryClick}
           >
             <History theme="outline" size={24} fill="#666" />
