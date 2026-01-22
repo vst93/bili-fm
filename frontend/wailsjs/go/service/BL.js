@@ -50,6 +50,10 @@ export function GetCList(arg1) {
   return window['go']['service']['BL']['GetCList'](arg1);
 }
 
+export function GetDanmakuList(arg1) {
+  return window['go']['service']['BL']['GetDanmakuList'](arg1);
+}
+
 export function GetImageProxyPort() {
   return window['go']['service']['BL']['GetImageProxyPort']();
 }

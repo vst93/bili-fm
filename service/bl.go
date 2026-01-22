@@ -1,10 +1,14 @@
 package service
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -1778,3 +1782,140 @@ func (bl *BL) GetBLPopularList(page int) (*PopularList, error) {
 }
 
 // ----------- end - GetBLPopularList -----------
+
+// ----------- begin - Danmaku -----------
+type DanmakuItem struct {
+	Content    string  `json:"content"`
+	Time       float64 `json:"time"`
+	Type       int     `json:"type"`
+	FontSize   int     `json:"fontSize"`
+	Color      int     `json:"color"`
+	SendTime   int64   `json:"sendTime"`
+	PoolType   int     `json:"poolType"`
+	SenderHash string  `json:"senderHash"`
+	Dmid       int64   `json:"dmid"`
+}
+
+type DanmakuList struct {
+	Items []DanmakuItem `json:"items"`
+}
+
+type DanmakuXMLItem struct {
+	Content string `xml:",chardata"`
+	P       string `xml:"p,attr"`
+}
+
+type DanmakuXML struct {
+	Items []DanmakuXMLItem `xml:"d"`
+}
+
+func (bl *BL) GetDanmakuList(cid int) (*DanmakuList, error) {
+	if cid == 0 {
+		return &DanmakuList{Items: []DanmakuItem{}}, nil
+	}
+
+	url := fmt.Sprintf("https://comment.bilibili.com/%d.xml", cid)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查是否是 gzip 压缩
+	var xmlData []byte
+	contentEncoding := resp.Header.Get("Content-Encoding")
+	if contentEncoding == "gzip" || (len(body) > 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		reader, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("gzip 解压失败: %v", err)
+		}
+		defer reader.Close()
+		xmlData, err = ioutil.ReadAll(reader)
+		if err != nil {
+			return nil, fmt.Errorf("读取 gzip 数据失败: %v", err)
+		}
+	} else if contentEncoding == "deflate" || (len(body) > 0 && body[0] == 0x78) {
+		// deflate 压缩
+		reader := flate.NewReader(bytes.NewReader(body))
+		xmlData, err = ioutil.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			return nil, fmt.Errorf("deflate 解压失败: %v", err)
+		}
+	} else {
+		// 可能是原始 XML
+		xmlData = body
+	}
+
+	// 检查是否是有效 XML
+	if len(xmlData) == 0 {
+		return &DanmakuList{Items: []DanmakuItem{}}, nil
+	}
+
+	var result DanmakuXML
+	err = xml.Unmarshal(xmlData, &result)
+	if err != nil {
+		return nil, fmt.Errorf("XML 解析失败: %v, 数据长度: %d", err, len(xmlData))
+	}
+
+	items := make([]DanmakuItem, 0, len(result.Items))
+	for _, item := range result.Items {
+		danmaku := parseDanmakuItem(item.Content, item.P)
+		items = append(items, danmaku)
+	}
+
+	return &DanmakuList{Items: items}, nil
+}
+
+func parseDanmakuItem(content string, p string) DanmakuItem {
+	danmaku := DanmakuItem{Content: content}
+
+	parts := strings.Split(p, ",")
+	if len(parts) >= 8 {
+		if t, err := strconv.ParseFloat(parts[0], 64); err == nil {
+			danmaku.Time = t
+		}
+		if t, err := strconv.Atoi(parts[1]); err == nil {
+			danmaku.Type = t
+		}
+		if t, err := strconv.Atoi(parts[2]); err == nil {
+			danmaku.FontSize = t
+		}
+		if t, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
+			danmaku.Color = int(t)
+		}
+		if t, err := strconv.ParseInt(parts[4], 10, 64); err == nil {
+			danmaku.SendTime = t
+		}
+		if t, err := strconv.Atoi(parts[5]); err == nil {
+			danmaku.PoolType = t
+		}
+		if len(parts) >= 7 {
+			danmaku.SenderHash = parts[6]
+		}
+		if len(parts) >= 8 {
+			if t, err := strconv.ParseInt(parts[7], 10, 64); err == nil {
+				danmaku.Dmid = t
+			}
+		}
+	}
+
+	return danmaku
+}
+
+// ----------- end - Danmaku -----------

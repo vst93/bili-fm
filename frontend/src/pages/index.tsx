@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { CloseSmall, ZoomInternal } from "@icon-park/react";
-
+import { Button } from "@heroui/react";
+import { Connection } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
@@ -22,6 +23,7 @@ import {
   GetBLHistoryList,
   GetSeriesVideos,
   GetBLPopularList,
+  GetDanmakuList,
 } from "../../wailsjs/go/service/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -40,6 +42,7 @@ import HistoryList from "@/components/historyList";
 import SeriesList from "@/components/seriesList";
 import PlayerVideo from "@/components/playerVideo";
 import MiniVideoInfo from "@/components/miniVideoInfo";
+import DanmakuList from "@/components/danmakuList";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -92,6 +95,11 @@ export default function IndexPage() {
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [showDanmakuList, setShowDanmakuList] = useState(false);
+  const [danmakuList, setDanmakuList] = useState<MainModels.DanmakuList>();
+  const [isLoadingDanmaku, setIsLoadingDanmaku] = useState(false);
+  const [danmakuCid, setDanmakuCid] = useState<number>(0);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
 
   useEffect(() => {
     // 初始化时获取用户信息
@@ -584,6 +592,75 @@ export default function IndexPage() {
   };
 
   /**
+   * 处理弹幕按钮点击事件
+   */
+  const handleDanmakuClick = async () => {
+    if (!videoInfo?.cid) {
+      toast({
+        type: "warning",
+        content: "请先选择一个视频",
+      });
+      return;
+    }
+
+    setShowDanmakuList(true);
+    await loadDanmakuList(false);
+  };
+
+  /**
+   * 加载弹幕列表
+   * @description 根据当前视频的 cid 获取弹幕列表，只在 cid 变化时加载
+   */
+  const loadDanmakuList = async (forceRefresh = false) => {
+    if (!videoInfo?.cid) return;
+
+    if (!forceRefresh && danmakuCid === videoInfo.cid && danmakuList?.items?.length) {
+      console.log("弹幕已加载，跳过:", videoInfo.cid);
+      return;
+    }
+
+    console.log("正在获取弹幕列表，cid:", videoInfo.cid, "force:", forceRefresh);
+    setIsLoadingDanmaku(true);
+    try {
+      const data = await GetDanmakuList(videoInfo.cid);
+      console.log("弹幕数据:", data);
+      setDanmakuList(data);
+      setDanmakuCid(videoInfo.cid);
+    } catch (error: any) {
+      console.error("获取弹幕列表失败:", error);
+      toast({
+        type: "error",
+        content: "获取弹幕列表失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    } finally {
+      setIsLoadingDanmaku(false);
+    }
+  };
+
+  /**
+   * 处理弹幕刷新事件
+   * @description 强制重新加载弹幕数据
+   */
+  const handleDanmakuRefresh = async () => {
+    await loadDanmakuList(true);
+  };
+
+  /**
+   * 处理视频时间更新
+   * @description 从播放器接收当前播放时间
+   */
+  const handleTimeUpdate = (time: number) => {
+    setCurrentVideoTime(time);
+  };
+
+  /**
+   * 处理关闭弹幕列表事件
+   */
+  const handleDanmakuClose = () => {
+    setShowDanmakuList(false);
+  };
+
+  /**
    * 处理搜索按钮点击事件
    * @description 显示搜索结果列表，隐藏其他列表
    */
@@ -970,11 +1047,24 @@ export default function IndexPage() {
             onSearch={handleSearch}
             onUrlJump={handleUrlJump}
           />
-          <VideoCover
-            cover={graftingImage(pageFirstFrame)}
-            isPlaying={isPlaying}
-            onPlayStateChange={handleCoverClick}
-          />
+          <div className="relative w-fit">
+            <VideoCover
+              cover={graftingImage(pageFirstFrame)}
+              isPlaying={isPlaying}
+              onPlayStateChange={handleCoverClick}
+            />
+            {videoInfo?.cid && (
+              <Button
+                isIconOnly
+                size="sm"
+                variant="flat"
+                className="absolute top-0 right-0 rounded-none rounded-bl-md"
+                onPress={handleDanmakuClick}
+              >
+                <Connection size={16} fill="#666" />
+              </Button>
+            )}
+          </div>
           <VideoInfo
             bvid={videoInfo?.bvid}
             desc={videoInfo?.desc}
@@ -1009,6 +1099,7 @@ export default function IndexPage() {
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
+        onTimeUpdate={handleTimeUpdate}
         aid={videoInfo?.aid}
         cid={videoInfo?.cid}
       />
@@ -1106,6 +1197,15 @@ export default function IndexPage() {
               currentUpMid={currentUpMid}
               currentSeriesId={currentSeriesId}
               setSeriesVideos={setSeriesVideos}
+            />
+          )}
+          {showDanmakuList && (
+            <DanmakuList
+              danmakuList={danmakuList}
+              onSlideClick={handleDanmakuClose}
+              onRefresh={handleDanmakuRefresh}
+              isLoading={isLoadingDanmaku}
+              currentTime={currentVideoTime}
             />
           )}
           {showLoginPanel && (

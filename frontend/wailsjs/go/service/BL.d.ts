@@ -26,6 +26,8 @@ export function GetBiliTicket(arg1:string):Promise<string>;
 
 export function GetCList(arg1:string):Promise<service.VideoInfo>;
 
+export function GetDanmakuList(arg1:number):Promise<service.DanmakuList>;
+
 export function GetImageProxyPort():Promise<number>;
 
 export function GetLoginQRCode():Promise<string>;
