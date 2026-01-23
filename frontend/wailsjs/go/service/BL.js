@@ -70,6 +70,10 @@ export function GetLoginStatus() {
   return window['go']['service']['BL']['GetLoginStatus']();
 }
 
+export function GetReplyList(arg1, arg2) {
+  return window['go']['service']['BL']['GetReplyList'](arg1, arg2);
+}
+
 export function GetSESSDATA() {
   return window['go']['service']['BL']['GetSESSDATA']();
 }

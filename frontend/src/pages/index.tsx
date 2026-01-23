@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { CloseSmall, ZoomInternal } from "@icon-park/react";
+import { CloseSmall, ZoomInternal, Comment } from "@icon-park/react";
 import { Button } from "@heroui/react";
-import { Connection } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
@@ -24,6 +23,7 @@ import {
   GetSeriesVideos,
   GetBLPopularList,
   GetDanmakuList,
+  GetReplyList,
 } from "../../wailsjs/go/service/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -99,6 +99,10 @@ export default function IndexPage() {
   const [danmakuList, setDanmakuList] = useState<MainModels.DanmakuList>();
   const [isLoadingDanmaku, setIsLoadingDanmaku] = useState(false);
   const [danmakuCid, setDanmakuCid] = useState<number>(0);
+  const [replyList, setReplyList] = useState<MainModels.ReplyList>();
+  const [isLoadingReply, setIsLoadingReply] = useState(false);
+  const [replyOid, setReplyOid] = useState<number>(0);
+  const [replyPage, setReplyPage] = useState(1);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
 
   useEffect(() => {
@@ -235,6 +239,15 @@ export default function IndexPage() {
     // switchWindowMode()
     //监听快捷键
     const listener = (event: KeyboardEvent) => {
+      // 在keydown阶段就阻止空格键对按钮的触发
+      if (event.code === "Space" && 
+          (event.target instanceof HTMLButtonElement ||
+           event.target instanceof HTMLInputElement ||
+           event.target instanceof HTMLTextAreaElement)) {
+        event.preventDefault();
+        return;
+      }
+      
       if ((event.metaKey || event.ctrlKey) && event.key === "w") {
         // @ts-ignore
         window.runtime.WindowMinimise();
@@ -244,14 +257,32 @@ export default function IndexPage() {
       }
     };
 
+    // 专门拦截按钮空格键的函数，在捕获阶段执行
+    const handleSpaceKeyIntercept = (event: KeyboardEvent) => {
+      if (event.code === "Space") {
+        // 只对按钮元素阻止空格键的默认行为，不输入框不拦截
+        if (event.target instanceof HTMLButtonElement) {
+          event.preventDefault();
+          event.stopPropagation();
+          return false;
+        }
+      }
+    };
+
     //监听键盘事件
     const handleKeyPress = (event: KeyboardEvent) => {
+      // 排除输入元素，让它们正常处理空格键
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement
       ) {
         return;
       }
+      
+      // 按钮元素也允许空格键触发播放控制（焦点管理已在点击时处理）
+      // if (event.target instanceof HTMLButtonElement) {
+      //   return;
+      // }
       if (isPlayVideo) { 
         if (event.code === "Escape" && !event.repeat) { 
           event.preventDefault();
@@ -305,14 +336,41 @@ export default function IndexPage() {
       }
     };
 
+    // 在捕获阶段拦截空格键，优先于按钮的默认行为
+    window.addEventListener("keydown", handleSpaceKeyIntercept, true);
     window.addEventListener("keyup", handleKeyPress);
     window.addEventListener("keydown", listener);
 
     return () => {
+      window.removeEventListener("keydown", handleSpaceKeyIntercept, true);
       window.removeEventListener("keyup", handleKeyPress);
       window.removeEventListener("keydown", listener);
     };
   }, [videoInfo, currentIndex, isPlayVideo, isPlayVideoStop]);
+
+  // 处理按钮焦点问题 - 点击按钮后立即移除焦点
+  useEffect(() => {
+    const handleButtonClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target instanceof HTMLButtonElement) {
+        // 延迟移除焦点，确保按钮的点击事件处理完成
+        setTimeout(() => {
+          target.blur();
+          // 或者将焦点移到body
+          document.body.focus();
+        }, 0);
+      }
+    };
+
+    // 使用捕获阶段监听所有点击事件
+    document.addEventListener('click', handleButtonClick, true);
+    
+    return () => {
+      document.removeEventListener('click', handleButtonClick, true);
+    };
+  }, []);
+
+
 
   /**
    * 处理登录按钮点击事件
@@ -605,6 +663,7 @@ export default function IndexPage() {
 
     setShowDanmakuList(true);
     await loadDanmakuList(false);
+    await loadReplyList(1, false);
   };
 
   /**
@@ -643,6 +702,68 @@ export default function IndexPage() {
    */
   const handleDanmakuRefresh = async () => {
     await loadDanmakuList(true);
+  };
+
+  /**
+   * 加载评论列表
+   * @description 根据当前视频的 oid (aid) 获取评论列表
+   */
+  const loadReplyList = async (page: number, forceRefresh = false) => {
+    if (!videoInfo?.aid) return;
+
+    if (page === 1) {
+      if (!forceRefresh && replyOid === videoInfo.aid && replyList?.items?.length) {
+        console.log("评论已加载，跳过:", videoInfo.aid);
+        return;
+      }
+    }
+
+    console.log("正在获取评论列表，aid:", videoInfo.aid, "page:", page, "force:", forceRefresh);
+    setIsLoadingReply(true);
+    try {
+      const data = await GetReplyList(videoInfo.aid, page);
+      console.log("评论数据:", data);
+
+      if (page === 1 || forceRefresh) {
+        setReplyList(data);
+      } else {
+        // Append new items to existing list - create new object to avoid TypeScript issues
+        const newItems = [...(replyList?.items || []), ...(data.items || [])];
+        const newData = new MainModels.ReplyList();
+        newData.items = newItems;
+        newData.has_more = data.has_more;
+        newData.next = data.next;
+        // Preserve total_count from original data or first load
+        newData.total_count = replyList?.total_count || data.total_count || 0;
+        setReplyList(newData);
+      }
+      setReplyOid(videoInfo.aid);
+      setReplyPage(page);
+    } catch (error: any) {
+      console.error("获取评论列表失败:", error);
+      toast({
+        type: "error",
+        content: "获取评论列表失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    } finally {
+      setIsLoadingReply(false);
+    }
+  };
+
+  /**
+   * 处理评论刷新事件
+   * @description 强制重新加载评论数据
+   */
+  const handleReplyRefresh = async () => {
+    await loadReplyList(1, true);
+  };
+
+  /**
+   * 处理评论加载更多事件
+   */
+  const handleReplyLoadMore = async () => {
+    const nextPage = replyPage + 1;
+    await loadReplyList(nextPage);
   };
 
   /**
@@ -1061,8 +1182,9 @@ export default function IndexPage() {
                 className="rounded-md"
                 id="danmaku-btn"
                 onPress={handleDanmakuClick}
+                title="弹幕/评论列表"
               >
-                <Connection size={16} fill="#666" />
+                <Comment size={16} fill="#666" />
               </Button>
             )}
           </div>
@@ -1203,9 +1325,12 @@ export default function IndexPage() {
           {showDanmakuList && (
             <DanmakuList
               danmakuList={danmakuList}
+              replyList={replyList}
               onSlideClick={handleDanmakuClose}
-              onRefresh={handleDanmakuRefresh}
-              isLoading={isLoadingDanmaku}
+              onDanmakuRefresh={handleDanmakuRefresh}
+              onReplyRefresh={handleReplyRefresh}
+              onReplyLoadMore={handleReplyLoadMore}
+              isLoading={isLoadingDanmaku || isLoadingReply}
               currentTime={currentVideoTime}
             />
           )}

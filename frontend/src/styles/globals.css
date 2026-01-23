@@ -9,6 +9,7 @@ html {
     user-select: none;
     height: 100vh;
     border-style: none;
+    zoom: 1;
 }
 
 body {
@@ -18,14 +19,24 @@ body {
     overflow: hidden;
     font-family: v-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     height: 100vh;
+    width: 100vw;
+    zoom: 1;
+    -ms-touch-action: manipulation;
+    touch-action: manipulation;
 }
 
 #root {
     border-radius: 12px;
     background-color: #fefefe;
-    height: 100vh;
+    height: 600px;
+    width: 800px;
+    max-width: 800px;
+    min-width: 800px;
     overflow: hidden;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    position: fixed;
+    top: 0;
+    left: 0;
 }
 
 .app-title-bar {

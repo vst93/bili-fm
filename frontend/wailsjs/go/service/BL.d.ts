@@ -36,6 +36,8 @@ export function GetLoginQRCodeStatus():Promise<boolean>;
 
 export function GetLoginStatus():Promise<boolean>;
 
+export function GetReplyList(arg1:number,arg2:number):Promise<service.ReplyList>;
+
 export function GetSESSDATA():Promise<string>;
 
 export function GetSeriesList(arg1:number):Promise<Array<any>>;

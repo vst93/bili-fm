@@ -1919,3 +1919,118 @@ func parseDanmakuItem(content string, p string) DanmakuItem {
 }
 
 // ----------- end - Danmaku -----------
+
+// ----------- begin - Reply/Comment -----------
+type ReplyContent struct {
+	Message string `json:"message"`
+}
+
+type ReplyItem struct {
+	Rpid     int64        `json:"rpid"`
+	Oid      int64        `json:"oid"`
+	Type     int          `json:"type"`
+	Mid      int64        `json:"mid"`
+	Content  ReplyContent `json:"content"`
+	SendTime int64        `json:"ctime"`
+	Like     int          `json:"like"`
+	Action   int          `json:"action"`
+	Member   interface{}  `json:"member"`
+	Replies  []ReplyItem  `json:"replies"`
+	Root     int64        `json:"root"`
+	Parent   int64        `json:"parent"`
+}
+
+type ReplyList struct {
+	Items      []ReplyItem `json:"items"`
+	HasMore    bool        `json:"has_more"`
+	Next       int         `json:"next"`
+	TotalCount int         `json:"total_count"`
+}
+
+func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
+	if oid == 0 {
+		return &ReplyList{Items: []ReplyItem{}, HasMore: false, Next: 0, TotalCount: 0}, nil
+	}
+
+	// 使用热度排序
+	replyUrl := "https://api.bilibili.com/x/v2/reply"
+	params := url.Values{}
+	params.Add("pn", fmt.Sprintf("%d", page))
+	params.Add("type", "1") // 1 = 视频
+	params.Add("oid", fmt.Sprintf("%d", oid))
+	params.Add("sort", "2") // 2 = 热度排序
+
+	req, err := http.NewRequest("GET", replyUrl+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Referer", "https://www.bilibili.com/")
+	// 添加 SESSDATA cookie
+	cookie := bl.GetSESSDATA()
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// 打印响应内容用于调试
+	fmt.Printf("Reply API Response: code=%d, body_len=%d\n", resp.StatusCode, len(body))
+
+	var apiResponse struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Replies []ReplyItem `json:"replies"`
+			Page    struct {
+				Num   int `json:"num"`
+				Size  int `json:"size"`
+				Count int `json:"count"`
+			} `json:"page"`
+		} `json:"data"`
+	}
+
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
+		return nil, fmt.Errorf("JSON 解析失败: %v, body: %s", err, string(body))
+	}
+
+	fmt.Printf("Reply API: code=%d, message=%s, replies_count=%d\n", apiResponse.Code, apiResponse.Message, len(apiResponse.Data.Replies))
+
+	if apiResponse.Code != 0 {
+		return nil, fmt.Errorf("API 错误: %s", apiResponse.Message)
+	}
+
+	hasMore := len(apiResponse.Data.Replies) > 0 && apiResponse.Data.Page.Num*apiResponse.Data.Page.Size < apiResponse.Data.Page.Count
+
+	// 处理楼中楼 - 只取前两条作为预览
+	items := make([]ReplyItem, 0, len(apiResponse.Data.Replies))
+	for _, reply := range apiResponse.Data.Replies {
+		// 限制楼中楼数量，避免数据过大
+		if len(reply.Replies) > 3 {
+			reply.Replies = reply.Replies[:3]
+		}
+		items = append(items, reply)
+	}
+
+	return &ReplyList{
+		Items:      items,
+		HasMore:    hasMore,
+		Next:       apiResponse.Data.Page.Num + 1,
+		TotalCount: apiResponse.Data.Page.Count,
+	}, nil
+}
+
+// ----------- end - Reply/Comment -----------

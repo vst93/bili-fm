@@ -149,6 +149,7 @@ func main() {
 			WindowIsTranslucent:               false,
 			DisableFramelessWindowDecorations: false,
 			IsZoomControlEnabled:              false,
+			ZoomFactor:                        1.0,
 		},
 		Linux: &linux.Options{
 			ProgramName:         service.APP_NAME,

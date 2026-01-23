@@ -228,6 +228,106 @@ export namespace service {
 	        this.page = source["page"];
 	    }
 	}
+	export class ReplyContent {
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplyContent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.message = source["message"];
+	    }
+	}
+	export class ReplyItem {
+	    rpid: number;
+	    oid: number;
+	    type: number;
+	    mid: number;
+	    content: ReplyContent;
+	    ctime: number;
+	    like: number;
+	    action: number;
+	    member: any;
+	    replies: ReplyItem[];
+	    root: number;
+	    parent: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplyItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rpid = source["rpid"];
+	        this.oid = source["oid"];
+	        this.type = source["type"];
+	        this.mid = source["mid"];
+	        this.content = this.convertValues(source["content"], ReplyContent);
+	        this.ctime = source["ctime"];
+	        this.like = source["like"];
+	        this.action = source["action"];
+	        this.member = source["member"];
+	        this.replies = this.convertValues(source["replies"], ReplyItem);
+	        this.root = source["root"];
+	        this.parent = source["parent"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReplyList {
+	    items: ReplyItem[];
+	    has_more: boolean;
+	    next: number;
+	    total_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplyList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], ReplyItem);
+	        this.has_more = source["has_more"];
+	        this.next = source["next"];
+	        this.total_count = source["total_count"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SearchResult {
 	    picture_url: string;
 	    url: string;
