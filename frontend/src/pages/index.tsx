@@ -1047,7 +1047,7 @@ export default function IndexPage() {
             onSearch={handleSearch}
             onUrlJump={handleUrlJump}
           />
-          <div className="relative w-fit">
+          <div className="relative w-fit" id="video-cover-container">
             <VideoCover
               cover={graftingImage(pageFirstFrame)}
               isPlaying={isPlaying}
@@ -1058,7 +1058,8 @@ export default function IndexPage() {
                 isIconOnly
                 size="sm"
                 variant="flat"
-                className="absolute top-0 right-0 rounded-none rounded-bl-md"
+                className="rounded-md"
+                id="danmaku-btn"
                 onPress={handleDanmakuClick}
               >
                 <Connection size={16} fill="#666" />

@@ -182,13 +182,19 @@ img{
     direction: ltr;
     -webkit-font-smoothing: antialiased;
 }
+#video-cover-container {
+    width: 45vh;
+    height: 45vh;
+    margin: 15vh 0 0 10vw;
+    float: left;
+}
 
 #video-cover {
     width: 45vh;
     height: 45vh;
     background-color: #f5f5f5;
     border: solid 1px #e5e5e5;
-    margin: 15vh 0 0 10vw;
+    /* margin: 15vh 0 0 10vw; */
     border-radius: 25vh;
     background-image: url(/logo.png);
     background-repeat: no-repeat;
@@ -202,6 +208,10 @@ img{
 
 #video-cover:hover {
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+}
+
+#video-cover:hover + #danmaku-btn {
+    opacity: 1;
 }
 
 #video-cover.is-playing {
@@ -529,4 +539,15 @@ img{
     background: #eeeeee;
      */
 
+}
+
+#danmaku-btn {
+    position: absolute;
+    bottom:-50px;
+    left: calc(50% - 16px);
+    opacity: 0.15;
+}
+
+#danmaku-btn:hover {
+    opacity: 1;
 }
