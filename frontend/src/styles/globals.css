@@ -81,7 +81,7 @@ img{
     left: 0;
     width: 100%;
     object-fit: cover;
-    object-position: center; 
+    object-position: center;
 }
 
 .duration-badge {
@@ -377,7 +377,7 @@ img{
 }
 
 .login-panel{
-    display: none;  
+    display: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -393,7 +393,7 @@ img{
     height: 35px;
     border-radius: 100%;
     color: #ffffff;
-    cursor: pointer;    
+    cursor: pointer;
     background-image: url(/assets/Close.svg);
     background-repeat: no-repeat;
     background-position: center;
@@ -529,6 +529,7 @@ img{
     overflow: hidden;
 }
 
+
 #switch-window-mode{
     position: absolute;
     top: -27px;
@@ -540,7 +541,18 @@ img{
     opacity: 0.1;
 }
 
-#switch-window-mode:hover {
+#switch-window-mode-mini{
+    position: absolute;
+    top: -40px;
+    right: -15px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    z-index: 9999999;
+    opacity: 0.1;
+}
+
+#switch-window-mode:hover,#switch-window-mode-mini:hover {
     opacity: 1;
 }
 

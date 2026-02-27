@@ -240,18 +240,18 @@ export default function IndexPage() {
     //监听快捷键
     const listener = (event: KeyboardEvent) => {
       // 在keydown阶段就阻止空格键对按钮的触发
-      if (event.code === "Space" && 
+      if (event.code === "Space" &&
           (event.target instanceof HTMLButtonElement ||
            event.target instanceof HTMLInputElement ||
            event.target instanceof HTMLTextAreaElement)) {
         event.preventDefault();
         return;
       }
-      
+
       if ((event.metaKey || event.ctrlKey) && event.key === "w") {
         // @ts-ignore
         window.runtime.WindowMinimise();
-      } else if ((event.metaKey || event.ctrlKey) && event.key === "q") { 
+      } else if ((event.metaKey || event.ctrlKey) && event.key === "q") {
         // @ts-ignore
         window.runtime.Quit();
       }
@@ -278,13 +278,13 @@ export default function IndexPage() {
       ) {
         return;
       }
-      
+
       // 按钮元素也允许空格键触发播放控制（焦点管理已在点击时处理）
       // if (event.target instanceof HTMLButtonElement) {
       //   return;
       // }
-      if (isPlayVideo) { 
-        if (event.code === "Escape" && !event.repeat) { 
+      if (isPlayVideo) {
+        if (event.code === "Escape" && !event.repeat) {
           event.preventDefault();
           setIsPlayVideo(!isPlayVideo);
         } else if (event.code === "Space" && !event.repeat) {
@@ -364,7 +364,7 @@ export default function IndexPage() {
 
     // 使用捕获阶段监听所有点击事件
     document.addEventListener('click', handleButtonClick, true);
-    
+
     return () => {
       document.removeEventListener('click', handleButtonClick, true);
     };
@@ -857,7 +857,7 @@ export default function IndexPage() {
       console.error("获取UP主视频列表失败:", error);
     }
   };
-  
+
   /**
    * 处理历史记录按钮点击事件
    * @description 获取并显示用户的观看历史记录
@@ -879,7 +879,7 @@ export default function IndexPage() {
       console.error("获取历史记录失败:", error);
     }
   };
-  
+
   /**
    * 处理UP主视频列表刷新事件
    * @description 重置偏移量并重新获取UP主视频列表
@@ -942,7 +942,7 @@ export default function IndexPage() {
   };
 
   const handleSeriesClick = () => {
-    if (!currentSeriesId) { 
+    if (!currentSeriesId) {
       toast({
         type: "error",
         content: "请先点击UP主头像或昵称，选择一个合集",
@@ -961,8 +961,8 @@ export default function IndexPage() {
 
   /**
    * 点击播放视频
-   */ 
-  const handlePlayVideoClick = () => { 
+   */
+  const handlePlayVideoClick = () => {
     setIsPlaying(false);  // 停止音频播放
     setIsPlayVideo(true);  // 打开视频播放浮窗
     setIsPlayVideoStop(false); // 自动开启播放
@@ -1146,7 +1146,7 @@ export default function IndexPage() {
     if (theIsMiniMode) {
       // @ts-ignore
       window.runtime.WindowSetSize(400, 155)
-      // @ts-ignore 设置 .rap-container  高 
+      // @ts-ignore 设置 .rap-container  高
       document.querySelector('.rap-container').style.height = '36px'
     } else {
       // @ts-ignore
@@ -1215,6 +1215,7 @@ export default function IndexPage() {
         <MiniVideoInfo
           part={currentPart}
           cover={graftingImage(pageFirstFrame)}
+          onSwitchMode={switchWindowMode}
         />
       )}
       <Player
@@ -1366,14 +1367,18 @@ export default function IndexPage() {
         </>
       )}
 
-      <button
-        id='switch-window-mode'
-        onClick={() => {
-          switchWindowMode();
-        }}
-      >
-        <ZoomInternal theme="outline" size="18" fill="#333" />
-      </button>
+      {/* 切换窗口模式按钮 - 迷你模式下内嵌到 MiniVideoInfo 中 */}
+      {!isMiniMode && (
+        <button
+          id="switch-window-mode"
+          title="切换到迷你模式"
+          onClick={() => {
+            switchWindowMode();
+          }}
+        >
+          <ZoomInternal theme="outline" size={18} fill="#333" />
+        </button>
+      )}
       <div className="fixed bottom-0 right-0 opacity-0">
         <img alt="" src="https://sstatic1.histats.com/0.gif?4923382&101" />
       </div>
