@@ -2,7 +2,7 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "bili-FM",
   "outputfilename": "bili-FM",
-  "frontend:install": "pnpm install",
+  "frontend:install": "pnpm run install:ci",
   "frontend:build": "pnpm run build",
   "frontend:dev:watcher": "pnpm run dev",
   "frontend:dev:serverUrl": "auto",
