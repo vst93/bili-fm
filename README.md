@@ -2,7 +2,7 @@
 
 Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，支持 Windows、macOS 和 Linux。它可以作为轻量音乐播放器，也适合用于课程、访谈、播客类视频和长视频内容的后台收听。
 
-![Bili FM 截图](https://gitee.com/vst93/bili-fm/raw/main/screenshot01.png)
+![Bili FM 截图](https://raw.githubusercontent.com/vst93/bili-fm/refs/heads/main/screenshot01.png)
 
 ## 功能特性
 
