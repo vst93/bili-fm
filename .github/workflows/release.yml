@@ -5,8 +5,8 @@ on:
     types: [created]
 
 permissions:
- contents: write
- packages: write
+  contents: write
+  packages: write
 
 env:
   BINARY_PREFIX: "bili-FM"
@@ -40,9 +40,9 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/build/bin"
           rm -f ./*.zip
-          if [ $GOOS == "windows" ]; then mv "$BINARY_PREFIX" "$BINARY_PREFIX.exe"; fi
-          if [ $GOOS == "windows" ]; then export BINARY_SUFFIX=".exe"; fi
-          if [ $GOOS == "darwin" ]; then export BINARY_SUFFIX=".app"; fi
+          if [ "$GOOS" = "windows" ] && [ -f "$BINARY_PREFIX" ]; then mv "$BINARY_PREFIX" "$BINARY_PREFIX.exe"; fi
+          if [ "$GOOS" = "windows" ]; then export BINARY_SUFFIX=".exe"; fi
+          if [ "$GOOS" = "darwin" ]; then export BINARY_SUFFIX=".app"; fi
           export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
           zip -r -y "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME" -x "*.DS_Store" "__MACOSX"
 
@@ -53,3 +53,66 @@ jobs:
           file: build/bin/${{ env.BINARY_PREFIX }}*.zip*
           overwrite: true
           file_glob: true
+
+  windows-store-package:
+    runs-on: windows-latest
+    env:
+      MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || 'biliFM' }}
+      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=vst' }}
+      MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'vst' }}
+      MSIX_DESCRIPTION: ${{ vars.MSIX_DESCRIPTION || 'bili-FM' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Validate Store metadata
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_IDENTITY_NAME)) {
+            throw "MSIX_IDENTITY_NAME is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_PUBLISHER)) {
+            throw "MSIX_PUBLISHER is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MSIX_PUBLISHER_DISPLAY_NAME)) {
+            throw "MSIX_PUBLISHER_DISPLAY_NAME is required"
+          }
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          wails build -platform windows/amd64 -clean
+          if (-not (Test-Path "build/bin/$env:BINARY_PREFIX.exe")) {
+            throw "Windows executable not found in build/bin"
+          }
+
+      - name: Package Microsoft Store submission
+        shell: pwsh
+        run: |
+          ./build/windows/package-store.ps1 `
+            -IdentityName "$env:MSIX_IDENTITY_NAME" `
+            -Publisher "$env:MSIX_PUBLISHER" `
+            -PublisherDisplayName "$env:MSIX_PUBLISHER_DISPLAY_NAME" `
+            -DisplayName "$env:BINARY_PREFIX" `
+            -Description "$env:MSIX_DESCRIPTION"
+
+      - name: Upload Store package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-store-package
+          path: build/bin/*.msix
