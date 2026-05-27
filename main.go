@@ -3,6 +3,7 @@ package main
 import (
 	"bilifm/service"
 	"context"
+	"crypto/tls"
 	"embed"
 	"fmt"
 	"io"
@@ -36,6 +37,25 @@ type GithubRelease struct {
 	} `json:"assets"`
 }
 
+// 自定义 HTTP Transport：连接池 + 超时 + keep-alive
+var proxyTransport = &http.Transport{
+	TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+	MaxIdleConns:        50,
+	MaxIdleConnsPerHost: 20,
+	MaxConnsPerHost:     30,
+	IdleConnTimeout:     90 * time.Second,
+	TLSHandshakeTimeout: 10 * time.Second,
+	DialContext: (&net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+}
+
+var proxyClient = &http.Client{
+	Transport: proxyTransport,
+	Timeout:   15 * time.Second,
+}
+
 // 图片代理处理函数
 func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 从查询参数中获取图片 URL
@@ -55,9 +75,9 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := proxyClient.Do(req)
 	if err != nil {
-		http.Error(w, "Failed to fetch image: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch image: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -99,16 +119,20 @@ func main() {
 				proxyListenTryNum++
 				continue
 			}
-			if err := http.ListenAndServe(":"+thePort, nil); err != nil {
+			// 用 Listen + Serve 替代 ListenAndServe，以便在端口绑定后立即发信号
+			ln, err := net.Listen("tcp", ":"+thePort)
+			if err != nil {
 				println("Error:", err.Error())
 				service.IMAGE_PROXY_PROT++
 				proxyListenTryNum++
 				continue
-			} else {
-				println("Image proxy server started on port " + thePort)
-				close(proxyReady)
-				break
 			}
+			println("Image proxy server started on port " + thePort)
+			close(proxyReady) // 端口已绑定，通知主线程
+			if err := http.Serve(ln, nil); err != nil {
+				println("Image proxy serve error:", err.Error())
+			}
+			return
 		}
 		if proxyListenTryNum >= 10 {
 			println("Image proxy: failed to start after 10 attempts")
