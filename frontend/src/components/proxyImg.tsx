@@ -14,10 +14,12 @@ interface ProxyImgProps {
   crossOrigin?: string;
 }
 
+const isWindows = navigator.userAgent.includes("Windows");
+
 /**
- * 图片组件：优先用 Wails binding 直接获取图片（绕过 HTTP 代理），
- * 失败时回退到 HTTP 代理 URL。
- * 解决 Windows 下 HTTP 代理连接不稳定的问题。
+ * 图片组件：
+ * - Windows: 通过 Wails binding 直接获取图片（绕过不稳定的 HTTP 代理）
+ * - Mac/Linux: 直接使用 HTTP 代理 URL（原逻辑，性能更优）
  */
 export default function ProxyImg({
   src,
@@ -25,7 +27,6 @@ export default function ProxyImg({
   ...imgProps
 }: ProxyImgProps) {
   const [imgSrc, setImgSrc] = useState<string>("");
-  const [triedFetch, setTriedFetch] = useState(false);
 
   useEffect(() => {
     if (!src) {
@@ -33,10 +34,14 @@ export default function ProxyImg({
       return;
     }
 
-    let cancelled = false;
+    // Mac/Linux: 直接用 HTTP 代理 URL，不走 Wails binding
+    if (!isWindows) {
+      setImgSrc(src);
+      return;
+    }
 
-    // 直接通过 Wails binding 获取图片（不走 HTTP 代理）
-    // 从代理 URL 中提取原始图片 URL
+    // Windows: 通过 Wails binding 获取图片，绕过 HTTP 代理
+    let cancelled = false;
     let originalUrl = src;
     try {
       const u = new URL(src);
@@ -48,17 +53,10 @@ export default function ProxyImg({
 
     FetchImage(originalUrl)
       .then((dataUrl: string) => {
-        if (!cancelled) {
-          setImgSrc(dataUrl);
-          setTriedFetch(true);
-        }
+        if (!cancelled) setImgSrc(dataUrl);
       })
       .catch(() => {
-        // Wails binding 失败，回退到 HTTP 代理 URL
-        if (!cancelled) {
-          setImgSrc(src);
-          setTriedFetch(true);
-        }
+        if (!cancelled) setImgSrc(src); // 回退到 HTTP 代理
       });
 
     return () => {
