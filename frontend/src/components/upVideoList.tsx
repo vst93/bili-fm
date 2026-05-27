@@ -12,7 +12,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
   Tabs,
   Tab,
   Spinner,

@@ -11,7 +11,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
 } from "@heroui/react";
 
 import { graftingImage } from "@/utils/string";

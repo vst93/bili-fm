@@ -3,15 +3,20 @@ import { Image } from "@heroui/react";
 import { FetchImage } from "../../wailsjs/go/service/BL";
 
 interface ProxyImgProps {
-  src: string;
+  src?: string;
   fallbackSrc?: string;
   alt?: string;
   className?: string;
-  width?: string;
+  classNames?: Record<string, string>;
+  width?: string | number;
+  height?: string | number;
   radius?: "none" | "sm" | "md" | "lg" | "full";
   shadow?: "none" | "sm" | "md" | "lg";
   loading?: "lazy" | "eager";
   crossOrigin?: "anonymous" | "use-credentials" | "";
+  id?: string;
+  onClick?: () => void;
+  [key: string]: any;
 }
 
 const isWindows = navigator.userAgent.includes("Windows");

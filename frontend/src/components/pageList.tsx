@@ -10,7 +10,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
 } from "@heroui/react";
 
 import {

@@ -1,4 +1,5 @@
-import ReactPlayer from "react-player";
+import _ReactPlayer from "react-player";
+const ReactPlayer = _ReactPlayer as any;
 import {
   Close,
 } from "@icon-park/react";

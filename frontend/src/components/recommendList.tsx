@@ -11,7 +11,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
   Tabs,
   Tab,
 } from "@heroui/react";

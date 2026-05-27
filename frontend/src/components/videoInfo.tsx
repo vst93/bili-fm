@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Button, Image } from "@heroui/react";
+import { Button } from "@heroui/react";
 import {
   Search,
   DoubleUp,
