@@ -26,7 +26,7 @@ export const graftingImage = (img: string) => {
   //     img = 'https://i' + randomNum + '.wp.com/' + img.replace('http://', '').replace('https://', '');
   //   }
   if (img) {
-    return `http://127.0.0.1:${proxyImagePort}/image-proxy?url=${img}`;
+    return `http://127.0.0.1:${proxyImagePort}/image-proxy?url=${encodeURIComponent(img)}`;
   }
 
   return img;

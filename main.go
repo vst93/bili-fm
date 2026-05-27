@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"runtime"
 
@@ -20,6 +21,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
+
+// proxyReady 用于同步：代理服务器启动完成后关闭此 channel
+var proxyReady = make(chan struct{})
 
 //go:embed all:frontend/dist
 var assets embed.FS
@@ -41,29 +45,39 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 发送 HTTP 请求获取图片
-	resp, err := http.Get(imageURL)
+	// 创建带自定义 headers 的请求，避免被 B站 CDN 拒绝
+	req, err := http.NewRequest("GET", imageURL, nil)
 	if err != nil {
-		http.Error(w, "Failed to fetch image", http.StatusInternalServerError)
+		http.Error(w, "Invalid image URL", http.StatusBadRequest)
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.bilibili.com/")
+	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "Failed to fetch image: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {
-		http.Error(w, "Failed to fetch image", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Upstream returned %d", resp.StatusCode), http.StatusBadGateway)
 		return
 	}
 
 	// 设置响应头
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 
 	// 将图片数据写入响应
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
-		http.Error(w, "Failed to write image data", http.StatusInternalServerError)
-		return
+		// 客户端断开连接等，只打印日志，不回写 error（headers 已发送）
+		println("image-proxy: write error:", err.Error())
 	}
 }
 
@@ -92,10 +106,22 @@ func main() {
 				continue
 			} else {
 				println("Image proxy server started on port " + thePort)
+				close(proxyReady)
 				break
 			}
 		}
+		if proxyListenTryNum >= 10 {
+			println("Image proxy: failed to start after 10 attempts")
+			close(proxyReady)
+		}
 	}()
+
+	// 等待代理服务器启动完成（最多 5 秒）
+	select {
+	case <-proxyReady:
+	case <-time.After(5 * time.Second):
+		println("Image proxy: startup timeout, continuing anyway")
+	}
 
 	// 发送统计信息到
 	go service.SendAppStats()
