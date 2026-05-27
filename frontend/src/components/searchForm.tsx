@@ -1,6 +1,54 @@
-import { FC } from "react";
+import { FC, useEffect, useState } from "react";
 import { Avatar, Input } from "@heroui/react";
 import { Search } from "@icon-park/react";
+import { FetchImage } from "../../wailsjs/go/service/BL";
+
+const isWindows = navigator.userAgent.includes("Windows");
+
+/** Avatar that uses FetchImage on Windows to bypass broken HTTP proxy */
+const ProxyAvatar: FC<{
+  src: string;
+  className?: string;
+  classNames?: Record<string, string>;
+  onClick?: () => void;
+  size?: "sm" | "md" | "lg";
+  isBordered?: boolean;
+  title?: string;
+}> = ({ src, ...props }) => {
+  const [imgSrc, setImgSrc] = useState<string>(src);
+
+  useEffect(() => {
+    if (!isWindows) {
+      setImgSrc(src);
+      return;
+    }
+
+    let cancelled = false;
+    let originalUrl = src;
+    try {
+      const u = new URL(src);
+      const urlParam = u.searchParams.get("url");
+      if (urlParam) originalUrl = urlParam;
+    } catch {
+      // not a URL, use as-is
+    }
+
+    FetchImage(originalUrl)
+      .then((dataUrl: string) => {
+        if (!cancelled) setImgSrc(dataUrl);
+      })
+      .catch((err: any) => {
+        console.error("[ProxyAvatar] FetchImage failed:", err);
+        if (!cancelled) setImgSrc(src);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  return <Avatar src={imgSrc} {...props} />;
+};
 
 interface SearchFormProps {
   value?: string;
@@ -71,7 +119,7 @@ const SearchForm: FC<SearchFormProps> = ({
         />
       </div>
       {userFace ? (
-        <Avatar
+        <ProxyAvatar
           src={userFace}
           className="cursor-pointer ring-2 ring-blue-400/30 hover:ring-blue-500 transition-all"
           onClick={onLoginClick}

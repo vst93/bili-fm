@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image } from "@heroui/react";
 import { FetchImage } from "../../wailsjs/go/service/BL";
 
@@ -34,15 +34,21 @@ export default function ProxyImg({
   ...imgProps
 }: ProxyImgProps) {
   const [imgSrc, setImgSrc] = useState<string>("");
+  const lastSrcRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!src) {
       setImgSrc(fallbackSrc);
+      lastSrcRef.current = undefined;
       return;
     }
 
+    // Skip re-fetch if src hasn't actually changed
+    if (src === lastSrcRef.current) return;
+
     // Mac/Linux: 直接用 HTTP 代理 URL，不走 Wails binding
     if (!isWindows) {
+      lastSrcRef.current = src;
       setImgSrc(src);
       return;
     }
@@ -58,6 +64,7 @@ export default function ProxyImg({
       // src 不是 URL，直接用
     }
 
+    lastSrcRef.current = src;
     console.log("[ProxyImg] FetchImage:", originalUrl.substring(0, 80));
     FetchImage(originalUrl)
       .then((dataUrl: string) => {
