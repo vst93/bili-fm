@@ -11,10 +11,12 @@ interface ProxyImgProps {
   radius?: "none" | "sm" | "md" | "lg" | "full";
   shadow?: "none" | "sm" | "md" | "lg";
   loading?: "lazy" | "eager";
-  crossOrigin?: string;
+  crossOrigin?: "anonymous" | "use-credentials" | "";
 }
 
 const isWindows = navigator.userAgent.includes("Windows");
+
+console.log("[ProxyImg] platform:", isWindows ? "Windows" : "Other", "ua:", navigator.userAgent.substring(0, 80));
 
 /**
  * 图片组件：
@@ -51,12 +53,17 @@ export default function ProxyImg({
       // src 不是 URL，直接用
     }
 
+    console.log("[ProxyImg] FetchImage:", originalUrl.substring(0, 80));
     FetchImage(originalUrl)
       .then((dataUrl: string) => {
-        if (!cancelled) setImgSrc(dataUrl);
+        if (!cancelled) {
+          console.log("[ProxyImg] OK, size:", dataUrl.length);
+          setImgSrc(dataUrl);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setImgSrc(src); // 回退到 HTTP 代理
+      .catch((err: any) => {
+        console.error("[ProxyImg] FetchImage failed:", err, "→ fallback to proxy");
+        if (!cancelled) setImgSrc(src);
       });
 
     return () => {
