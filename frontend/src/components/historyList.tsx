@@ -15,6 +15,7 @@ import {
 } from "@heroui/react";
 import { GetBLHistoryList } from "../../wailsjs/go/service/BL";
 import { graftingImage } from "@/utils/string";
+import ProxyImg from "./proxyImg";
 
 interface HistoryListProps {
     onSlideClick?: () => void;
@@ -121,7 +122,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                             onPress={() => onVideoSelect?.(item?.history?.bvid)}
                                         >
                                             <CardBody className="overflow-visible p-0 img-container">
-                                                <Image
+                                                <ProxyImg
                                                     alt={item.title}
                                                     className="c-cover"
                                                     crossOrigin="anonymous"

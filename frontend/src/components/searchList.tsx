@@ -15,6 +15,7 @@ import {
 } from "@heroui/react";
 
 import { graftingImage } from "@/utils/string";
+import ProxyImg from "./proxyImg";
 
 interface SearchListProps {
   onSlideClick?: () => void;
@@ -87,7 +88,7 @@ const SearchList: FC<SearchListProps> = ({
                     onPress={() => onVideoSelect?.(video.url)}
                   >
                     <CardBody className="overflow-visible p-0 img-container">
-                      <Image
+                      <ProxyImg
                         alt={video.title}
                         className="c-cover"
                         crossOrigin="anonymous"

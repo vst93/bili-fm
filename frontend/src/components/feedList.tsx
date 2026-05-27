@@ -16,6 +16,7 @@ import {
 } from "@heroui/react";
 
 import { graftingImage, subStr } from "@/utils/string";
+import ProxyImg from "./proxyImg";
 
 interface FeedListProps {
   feedList?: blSer.FeedList;
@@ -98,7 +99,7 @@ const FeedList: FC<FeedListProps> = ({
                       onPress={() => onVideoSelect?.(info.bvid)}
                     >
                       <CardBody className="overflow-visible p-0 img-container">
-                        <Image
+                        <ProxyImg
                           alt={info.title || "视频封面"}
                           className="c-cover"
                           crossOrigin="anonymous"

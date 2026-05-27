@@ -5,6 +5,8 @@ import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import { Connection, Refresh, Comment, Text } from "@icon-park/react";
 import { graftingImage } from "@/utils/string";
 
+import ProxyImg from "./proxyImg";
+
 interface DanmakuListProps {
   danmakuList?: blSer.DanmakuList;
   replyList?: blSer.ReplyList;

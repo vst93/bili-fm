@@ -29,6 +29,8 @@ import {
   Unfollow,
 } from "../../wailsjs/go/service/BL";
 
+import ProxyImg from "./proxyImg";
+
 // interface SeriesItem {
 //   id: number;
 //   title: string;
@@ -334,7 +336,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                         onPress={() => onVideoSelect?.(info.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <ProxyImg
                             alt={info.title || "视频封面"}
                             className="c-cover"
                             crossOrigin="anonymous"

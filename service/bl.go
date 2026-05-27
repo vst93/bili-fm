@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -1164,6 +1165,41 @@ func (bl *BL) ProxyImage(url string) string {
 
 func (bl *BL) GetImageProxyPort() int {
 	return IMAGE_PROXY_PROT
+}
+
+// FetchImage 通过 Wails binding 获取图片并返回 base64 data URL，绕过 HTTP 代理
+func (bl *BL) FetchImage(url string) (string, error) {
+	if url == "" {
+		return "", errors.New("empty url")
+	}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.bilibili.com/")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("upstream returned %d", resp.StatusCode)
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 // ----------- end - proxyImage -----------

@@ -18,6 +18,7 @@ import {
 import { useRef } from "react";
 
 import { graftingImage } from "@/utils/string";
+import ProxyImg from "./proxyImg";
 
 interface CollectListProps {
   onSlideClick?: () => void;
@@ -172,7 +173,7 @@ const CollectList: FC<CollectListProps> = ({
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <ProxyImg
                             alt={item.title}
                             className="c-cover"
                             crossOrigin="anonymous"

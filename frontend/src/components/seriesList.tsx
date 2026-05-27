@@ -15,6 +15,8 @@ import {
 import { graftingImage, formatDatetime } from "@/utils/string";
 import { GetSeriesVideos } from "../../wailsjs/go/service/BL";
 
+import ProxyImg from "./proxyImg";
+
 interface SeriesVideoItem {
     aid: number;
     bvid: string;
@@ -106,7 +108,7 @@ const SeriesList: FC<SeriesListProps> = ({
                                         onPress={() => onVideoSelect?.(video.bvid)}
                                     >
                                         <CardBody className="overflow-visible p-0 img-container">
-                                            <Image
+                                            <ProxyImg
                                                 alt={video.title}
                                                 className="c-cover"
                                                 crossOrigin="anonymous"

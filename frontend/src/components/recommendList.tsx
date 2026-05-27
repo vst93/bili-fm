@@ -18,6 +18,7 @@ import {
 import React, { useState, useEffect } from "react";
 
 import { convertToDuration, graftingImage, formatNumber, subStr } from "@/utils/string";
+import ProxyImg from "./proxyImg";
 
 const TAB_STORAGE_KEY = "bili-fm-recommend-tab";
 
@@ -160,7 +161,7 @@ const RecommendList: FC<RecommendListProps> = ({
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <ProxyImg
                             alt={item.title}
                             className="c-cover"
                             crossOrigin="anonymous"

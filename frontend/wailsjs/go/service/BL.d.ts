@@ -30,6 +30,8 @@ export function GetDanmakuList(arg1:number):Promise<service.DanmakuList>;
 
 export function GetImageProxyPort():Promise<number>;
 
+export function FetchImage(arg1:string):Promise<string>;
+
 export function GetLoginQRCode():Promise<string>;
 
 export function GetLoginQRCodeStatus():Promise<boolean>;

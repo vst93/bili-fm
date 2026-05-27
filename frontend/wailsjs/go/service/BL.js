@@ -58,6 +58,10 @@ export function GetImageProxyPort() {
   return window['go']['service']['BL']['GetImageProxyPort']();
 }
 
+export function FetchImage(arg1) {
+  return window['go']['service']['BL']['FetchImage'](arg1);
+}
+
 export function GetLoginQRCode() {
   return window['go']['service']['BL']['GetLoginQRCode']();
 }

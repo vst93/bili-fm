@@ -24,6 +24,8 @@ import { toast } from "../utils/toast";
 
 import { graftingImage } from "@/utils/string";
 
+import ProxyImg from "./proxyImg";
+
 interface VideoInfoProps {
   title?: string;
   desc?: string;
@@ -148,7 +150,7 @@ export default function VideoInfo({
     <div id="video-info">
       {/* Owner section */}
       <div className="flex items-center gap-3 mb-4" id="video-owner">
-        <Image
+        <ProxyImg
           alt={ownerName}
           className="cursor-pointer transition-transform hover:scale-105"
           classNames={{

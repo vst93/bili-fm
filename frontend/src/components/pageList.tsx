@@ -20,6 +20,8 @@ import {
 
 import { convertToDuration, graftingImage } from "@/utils/string";
 
+import ProxyImg from "./proxyImg";
+
 interface PageListProps {
   pageNum?: number;
   onSlideClick?: () => void;
@@ -167,7 +169,7 @@ const PageList: FC<PageListProps> = ({
                     }
                   >
                     <CardBody className="overflow-visible p-0 img-container">
-                      <Image
+                      <ProxyImg
                         alt={page.part || videoInfo.title}
                         className="c-cover"
                         crossOrigin="anonymous"
