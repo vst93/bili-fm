@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Close, Minus } from "@icon-park/react";
 
-import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts } from "../../wailsjs/go/main/Menu";
+import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts, CloseApp } from "../../wailsjs/go/main/Menu";
 
 const TitleBar: React.FC = () => {
   const [isMac, setIsMac] = useState(false);
@@ -25,8 +25,7 @@ const TitleBar: React.FC = () => {
   }, []);
 
   const handleClose = () => {
-    // @ts-ignore
-    window.runtime.Quit();
+    CloseApp();
   };
 
   const handleMinimize = () => {
