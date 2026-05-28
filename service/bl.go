@@ -1156,11 +1156,15 @@ func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
 // ----------- end - getUpVideoList -----------
 
 // ----------- begin - proxyImage -----------
-func (bl *BL) ProxyImage(url string) string {
-	if url == "" {
+func (bl *BL) ProxyImage(urlStr string) string {
+	if urlStr == "" {
 		return ""
 	}
-	return "http://127.0.0.1:" + strconv.Itoa(IMAGE_PROXY_PROT) + "/image-proxy?url=" + url
+	// 处理协议相对 URL
+	if len(urlStr) > 2 && urlStr[:2] == "//" {
+		urlStr = "https:" + urlStr
+	}
+	return "http://127.0.0.1:" + strconv.Itoa(IMAGE_PROXY_PROT) + "/image-proxy?url=" + url.QueryEscape(urlStr)
 }
 
 func (bl *BL) GetImageProxyPort() int {

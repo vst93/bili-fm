@@ -20,18 +20,16 @@ export const convertToDuration = (seconds: number) => {
 };
 
 export const graftingImage = (img: string) => {
-  // if (img) {
-  //     // 随机 0 到 3 中的一个数字
-  //     let randomNum = Math.floor(Math.random() * 4);
-  //     img = 'https://i' + randomNum + '.wp.com/' + img.replace('http://', '').replace('https://', '');
-  //   }
-  if (img) {
-    return `http://127.0.0.1:${proxyImagePort}/image-proxy?url=${encodeURIComponent(img)}`;
+  if (!img) return img;
+
+  // 处理协议相对 URL（//开头）
+  let fullUrl = img;
+  if (img.startsWith("//")) {
+    fullUrl = "https:" + img;
   }
 
-  return img;
-
-  // return ProxyImage(img);
+  // 使用本地代理
+  return `http://127.0.0.1:${proxyImagePort}/image-proxy?url=${encodeURIComponent(fullUrl)}`;
 };
 
 export const formatDate = (timestamp: number) => {

@@ -106,11 +106,16 @@ func prewarmDNS() {
 
 // 图片代理处理函数
 func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
-	// 从查询参数中获取图片 URL
+	// 从查询参数中获取图片 URL（前端使用 encodeURIComponent 编码）
 	imageURL := r.URL.Query().Get("url")
 	if imageURL == "" {
 		http.Error(w, "Missing 'url' query parameter", http.StatusBadRequest)
 		return
+	}
+
+	// 确保 URL 有协议前缀
+	if len(imageURL) > 2 && imageURL[:2] == "//" {
+		imageURL = "https:" + imageURL
 	}
 
 	// 创建带自定义 headers 的请求，避免被 B站 CDN 拒绝
@@ -137,18 +142,19 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			break
 		}
+		println("image-proxy: attempt", attempt+1, "failed:", err.Error())
 	}
 	if err != nil {
-		w.Header().Set("Content-Type", "image/png")
-		w.WriteHeader(http.StatusBadGateway)
+		println("image-proxy: all attempts failed for", imageURL, ":", err.Error())
+		http.Error(w, "Failed to fetch image after retries", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {
-		w.Header().Set("Content-Type", "image/png")
-		w.WriteHeader(http.StatusBadGateway)
+		println("image-proxy: upstream returned", resp.StatusCode, "for", imageURL)
+		http.Error(w, fmt.Sprintf("Upstream returned %d", resp.StatusCode), http.StatusBadGateway)
 		return
 	}
 
