@@ -25,7 +25,8 @@ const TitleBar: React.FC = () => {
   }, []);
 
   const handleClose = () => {
-    CloseApp();
+    // @ts-ignore
+    window.runtime.Hide();
   };
 
   const handleMinimize = () => {

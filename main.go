@@ -319,12 +319,9 @@ func main() {
 			if IsExiting() {
 				return false
 			}
-			// Windows 下关闭窗口时隐藏到托盘，不真正退出
-			if runtime.GOOS == "windows" {
-				wailsruntime.Hide(ctx)
-				return true // 阻止默认的关闭行为
-			}
-			return false // macOS/Linux 允许关闭
+			// Alt+F4 或其他系统关闭操作 - 直接退出
+			// 点叉按钮调用的是 window.runtime.Hide()，不会触发这里
+			return false
 		},
 		OnShutdown: func(ctx context.Context) {
 			// 应用退出时清理托盘
