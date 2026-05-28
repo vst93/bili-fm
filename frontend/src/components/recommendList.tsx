@@ -163,7 +163,6 @@ const RecommendList: FC<RecommendListProps> = ({
                           <ProxyImg
                             alt={item.title}
                             className="c-cover"
-                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

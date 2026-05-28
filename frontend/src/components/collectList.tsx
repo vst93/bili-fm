@@ -175,7 +175,6 @@ const CollectList: FC<CollectListProps> = ({
                           <ProxyImg
                             alt={item.title}
                             className="c-cover"
-                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

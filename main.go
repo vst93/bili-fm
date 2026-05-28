@@ -63,25 +63,21 @@ var proxyTransport = &http.Transport{
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(cached, port))
 		}
 		dnsCacheMu.RUnlock()
-		// 首次解析，强制 IPv4 避免 Windows IPv6 DNS 超时
-		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+		// 首次解析，使用 LookupIP 精确筛选 IPv4，避免 Windows IPv6 DNS 超时
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err != nil {
+			// fallback: 尝试全部地址
+			ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
+		}
 		if err != nil {
 			return nil, err
 		}
-		for _, a := range addrs {
-			if net.ParseIP(a).To4() != nil {
-				dnsCacheMu.Lock()
-				dnsCache[host] = a
-				dnsCacheMu.Unlock()
-				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(a, port))
-			}
-		}
-		// fallback: 用第一个地址
-		if len(addrs) > 0 {
+		if len(ips) > 0 {
+			ip := ips[0].String()
 			dnsCacheMu.Lock()
-			dnsCache[host] = addrs[0]
+			dnsCache[host] = ip
 			dnsCacheMu.Unlock()
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(addrs[0], port))
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(ip, port))
 		}
 		return nil, fmt.Errorf("no addresses for %s", host)
 	},
@@ -111,16 +107,28 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 
-	resp, err := proxyClient.Do(req)
+	// 带重试的上游请求（最多 3 次）
+	var resp *http.Response
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err = proxyClient.Do(req)
+		if err == nil {
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
+		}
+	}
 	if err != nil {
-		http.Error(w, "Failed to fetch image: "+err.Error(), http.StatusBadGateway)
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	// 检查响应状态码
 	if resp.StatusCode != http.StatusOK {
-		http.Error(w, fmt.Sprintf("Upstream returned %d", resp.StatusCode), http.StatusBadGateway)
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusBadGateway)
 		return
 	}
 

@@ -101,7 +101,6 @@ const FeedList: FC<FeedListProps> = ({
                         <ProxyImg
                           alt={info.title || "视频封面"}
                           className="c-cover"
-                          crossOrigin="anonymous"
                           fallbackSrc="/cover.png"
                           loading="lazy"
                           radius="sm"

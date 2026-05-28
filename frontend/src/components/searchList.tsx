@@ -90,7 +90,6 @@ const SearchList: FC<SearchListProps> = ({
                       <ProxyImg
                         alt={video.title}
                         className="c-cover"
-                        crossOrigin="anonymous"
                         fallbackSrc="/cover.png"
                         loading="lazy"
                         radius="sm"

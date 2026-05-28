@@ -171,7 +171,6 @@ const PageList: FC<PageListProps> = ({
                       <ProxyImg
                         alt={page.part || videoInfo.title}
                         className="c-cover"
-                        crossOrigin="anonymous"
                         fallbackSrc="/cover.png"
                         loading="lazy"
                         radius="sm"

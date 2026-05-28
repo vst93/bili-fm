@@ -124,7 +124,6 @@ const HistoryList: FC<HistoryListProps> = ({
                                                 <ProxyImg
                                                     alt={item.title}
                                                     className="c-cover"
-                                                    crossOrigin="anonymous"
                                                     fallbackSrc="/cover.png"
                                                     loading="lazy"
                                                     radius="sm"
