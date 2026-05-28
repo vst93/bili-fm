@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"runtime"
@@ -39,6 +40,7 @@ type GithubRelease struct {
 
 // dnsCache DNS 缓存，避免 Windows 下重复解析同一域名（Windows IPv6 DNS 超时 fallback 很慢）
 var dnsCache = make(map[string]string)
+var dnsCacheMu sync.RWMutex
 
 // 自定义 HTTP Transport：连接池 + 超时 + keep-alive + DNS 缓存
 var proxyTransport = &http.Transport{
@@ -54,10 +56,13 @@ var proxyTransport = &http.Transport{
 		if err != nil {
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
 		}
-		// 查缓存
+		// 查缓存（读锁）
+		dnsCacheMu.RLock()
 		if cached, ok := dnsCache[host]; ok {
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(cached, port))
+			dnsCacheMu.RUnlock()
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(cached, port))
 		}
+		dnsCacheMu.RUnlock()
 		// 首次解析，强制 IPv4 避免 Windows IPv6 DNS 超时
 		addrs, err := net.DefaultResolver.LookupHost(ctx, host)
 		if err != nil {
@@ -65,14 +70,18 @@ var proxyTransport = &http.Transport{
 		}
 		for _, a := range addrs {
 			if net.ParseIP(a).To4() != nil {
+				dnsCacheMu.Lock()
 				dnsCache[host] = a
-				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(a, port))
+				dnsCacheMu.Unlock()
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(a, port))
 			}
 		}
 		// fallback: 用第一个地址
 		if len(addrs) > 0 {
+			dnsCacheMu.Lock()
 			dnsCache[host] = addrs[0]
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(addrs[0], port))
+			dnsCacheMu.Unlock()
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(addrs[0], port))
 		}
 		return nil, fmt.Errorf("no addresses for %s", host)
 	},
