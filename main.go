@@ -9,11 +9,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
-
-	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -167,6 +166,22 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// 单实例检测
+	isFirst, mutexHandle := CheckSingleInstance("bili-fm-singleton")
+	if !isFirst {
+		// 已有实例运行，尝试恢复其窗口
+		hwnd := FindExistingWindow("BiliFMTrayClass", service.APP_NAME)
+		if hwnd != 0 {
+			RestoreExistingWindow(hwnd)
+		}
+		fmt.Println("Another instance is already running, exiting...")
+		return
+	}
+	defer func() {
+		if mutexHandle != 0 {
+			procCloseHandle.Call(mutexHandle)
+		}
+	}()
 
 	service.InitDb()
 
@@ -242,6 +257,18 @@ func main() {
 		})
 	}
 
+	// 初始化 Windows 系统托盘
+	if runtime.GOOS == "windows" {
+		InitTray(service.APP_NAME, func() {
+			// 显示窗口
+			runtime.WindowShow(app.ctx)
+		}, func() {
+			// 退出应用
+			RemoveTray()
+			wails.Quit()
+		})
+	}
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  service.APP_NAME,
@@ -281,6 +308,20 @@ func main() {
 			// 启动时检查更新
 			appMenu.CheckForUpdates(false, "")
 		},
+		OnBeforeClose: func(ctx context.Context) bool {
+			// Windows 下关闭窗口时隐藏到托盘，不真正退出
+			if runtime.GOOS == "windows" {
+				runtime.WindowHide(ctx)
+				return true // 阻止默认的关闭行为
+			}
+			return false // macOS/Linux 允许关闭
+		},
+		OnShutdown: func(ctx context.Context) {
+			// 应用退出时清理托盘
+			if runtime.GOOS == "windows" {
+				RemoveTray()
+			}
+		},
 		Bind: []interface{}{
 			app,
 			bl,
@@ -295,7 +336,7 @@ func main() {
 		},
 		CSSDragProperty:   "widows",
 		CSSDragValue:      "1",
-		HideWindowOnClose: true,
+		HideWindowOnClose: false, // 由 OnBeforeClose 控制
 		// Debug: options.Debug{
 		// 	OpenInspectorOnStartup: true,
 		// },
