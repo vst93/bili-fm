@@ -28,6 +28,7 @@ var (
 	procCreateMutex  = kernel32.NewProc("CreateMutexW")
 	procCloseHandle  = kernel32.NewProc("CloseHandle")
 	procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
+	procExtractIcon  = shell32.NewProc("ExtractIconW")
 )
 
 const (
@@ -146,19 +147,29 @@ func restoreExistingWindow(hwnd uintptr) {
 	procSetForeground.Call(hwnd)
 }
 
-// getExeIcon 从当前 exe 文件加载图标
-func getExeIcon() uintptr {
-	// 获取当前 exe 的模块句柄
-	hInstance, _, _ := procGetModuleHandle.Call(0)
-	if hInstance == 0 {
-		return 0
+// getExePath 获取当前 exe 的路径
+func getExePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
 	}
-	// 使用 MAKEINTRESOURCE(IDI_APPLICATION) 加载标准图标
-	iconHandle, _, _ := user32.NewProc("LoadIconW").Call(hInstance, 32512)
-	if iconHandle == 0 {
-		// 备用方案：加载标准应用图标
-		iconHandle, _, _ = user32.NewProc("LoadIconW").Call(0, uintptr(IDI_APPLICATION))
+	return exe
+}
+
+// loadIcon 加载图标
+func loadIcon() uintptr {
+	exePath := getExePath()
+	if exePath != "" {
+		// 从 exe 文件提取图标（第一个图标，索引 0）
+		exePathPtr, _ := syscall.UTF16PtrFromString(exePath)
+		iconHandle, _, _ := procExtractIcon.Call(0, uintptr(unsafe.Pointer(exePathPtr)), 0)
+		if iconHandle > 1 { // ExtractIcon 返回大于 1 的值才是有效句柄
+			return iconHandle
+		}
 	}
+
+	// 备用方案：加载标准应用图标
+	iconHandle, _, _ := user32.NewProc("LoadIconW").Call(0, uintptr(IDI_APPLICATION))
 	return iconHandle
 }
 
@@ -193,8 +204,8 @@ func initTrayWindows(showFn func(), exitFn func()) {
 		)
 		trayWindow = hwnd
 
-		// 加载图标 - 尝试从 exe 加载
-		trayIcon = getExeIcon()
+		// 加载图标
+		trayIcon = loadIcon()
 
 		// 创建托盘图标
 		tip, _ := syscall.UTF16PtrFromString(service.APP_NAME)
@@ -279,6 +290,16 @@ func doExit() {
 		time.Sleep(100 * time.Millisecond)
 		os.Exit(0)
 	}()
+}
+
+// IsExiting 检查是否正在退出
+func IsExiting() bool {
+	return exiting
+}
+
+// SetExiting 设置退出标志
+func SetExiting() {
+	exiting = true
 }
 
 // showTrayMenu 显示托盘右键菜单

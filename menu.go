@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -134,5 +136,13 @@ func (m *Menu) GetPlatform() string {
 }
 
 func (m *Menu) CloseApp() {
-	runtime.Quit(context.Background())
+	// 设置退出标志
+	SetExiting()
+	// 移除托盘图标
+	removeTrayWindows()
+	// 强制退出进程
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		os.Exit(0)
+	}()
 }

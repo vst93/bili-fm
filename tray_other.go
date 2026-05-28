@@ -2,8 +2,6 @@
 
 package main
 
-import "fmt"
-
 // checkSingleInstanceWindows 非 Windows 平台的 stub
 func checkSingleInstanceWindows() (bool, uintptr) {
 	return true, 0
@@ -21,14 +19,15 @@ func findExistingWindow() uintptr {
 func restoreExistingWindow(hwnd uintptr) {}
 
 // initTrayWindows 非 Windows 平台的 stub
-func initTrayWindows(showFn func(), exitFn func()) {
-	fmt.Println("System tray not implemented for this platform")
-}
+func initTrayWindows(showFn func(), exitFn func()) {}
 
 // removeTrayWindows 非 Windows 平台的 stub
 func removeTrayWindows() {}
 
-// setWindowVisible 设置窗口可见（平台无关）
-func setWindowVisible(ctx interface{}, visible bool) {
-	// 这个函数在 platform_main.go 中实现
+// IsExiting 非 Windows 平台的 stub
+func IsExiting() bool {
+	return false
 }
+
+// SetExiting 非 Windows 平台的 stub
+func SetExiting() {}

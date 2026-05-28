@@ -315,6 +315,10 @@ func main() {
 			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
+			// 如果正在退出（菜单退出或托盘退出），允许关闭
+			if IsExiting() {
+				return false
+			}
 			// Windows 下关闭窗口时隐藏到托盘，不真正退出
 			if runtime.GOOS == "windows" {
 				wailsruntime.Hide(ctx)
