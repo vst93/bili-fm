@@ -11,13 +11,13 @@ import {
   Card,
   CardBody,
   CardFooter,
+  Image,
   Tabs,
   Tab,
 } from "@heroui/react";
 import { useRef } from "react";
 
 import { graftingImage } from "@/utils/string";
-import ProxyImg from "./proxyImg";
 
 interface CollectListProps {
   onSlideClick?: () => void;
@@ -172,9 +172,10 @@ const CollectList: FC<CollectListProps> = ({
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <ProxyImg
+                          <Image
                             alt={item.title}
                             className="c-cover"
+                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

@@ -9,12 +9,11 @@ import {
     Card,
     CardBody,
     CardFooter,
+    Image,
 } from "@heroui/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
 import { GetSeriesVideos } from "../../wailsjs/go/service/BL";
-
-import ProxyImg from "./proxyImg";
 
 interface SeriesVideoItem {
     aid: number;
@@ -107,9 +106,10 @@ const SeriesList: FC<SeriesListProps> = ({
                                         onPress={() => onVideoSelect?.(video.bvid)}
                                     >
                                         <CardBody className="overflow-visible p-0 img-container">
-                                            <ProxyImg
+                                            <Image
                                                 alt={video.title}
                                                 className="c-cover"
+                                                crossOrigin="anonymous"
                                                 fallbackSrc="/cover.png"
                                                 loading="lazy"
                                                 radius="sm"

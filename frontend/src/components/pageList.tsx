@@ -10,6 +10,7 @@ import {
   Card,
   CardBody,
   CardFooter,
+  Image,
 } from "@heroui/react";
 
 import {
@@ -18,8 +19,6 @@ import {
 
 
 import { convertToDuration, graftingImage } from "@/utils/string";
-
-import ProxyImg from "./proxyImg";
 
 interface PageListProps {
   pageNum?: number;
@@ -168,9 +167,10 @@ const PageList: FC<PageListProps> = ({
                     }
                   >
                     <CardBody className="overflow-visible p-0 img-container">
-                      <ProxyImg
+                      <Image
                         alt={page.part || videoInfo.title}
                         className="c-cover"
+                        crossOrigin="anonymous"
                         fallbackSrc="/cover.png"
                         loading="lazy"
                         radius="sm"

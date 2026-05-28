@@ -11,10 +11,10 @@ import {
   Card,
   CardBody,
   CardFooter,
+  Image,
 } from "@heroui/react";
 
 import { graftingImage } from "@/utils/string";
-import ProxyImg from "./proxyImg";
 
 interface SearchListProps {
   onSlideClick?: () => void;
@@ -87,9 +87,10 @@ const SearchList: FC<SearchListProps> = ({
                     onPress={() => onVideoSelect?.(video.url)}
                   >
                     <CardBody className="overflow-visible p-0 img-container">
-                      <ProxyImg
+                      <Image
                         alt={video.title}
                         className="c-cover"
+                        crossOrigin="anonymous"
                         fallbackSrc="/cover.png"
                         loading="lazy"
                         radius="sm"
