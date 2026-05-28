@@ -172,22 +172,18 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// 单实例检测
-	isFirst, mutexHandle := CheckSingleInstance("bili-fm-singleton")
+	// 单实例检测（Windows 特定）
+	isFirst, mutexHandle := checkSingleInstanceWindows()
 	if !isFirst {
 		// 已有实例运行，尝试恢复其窗口
-		hwnd := FindExistingWindow("BiliFMTrayClass", service.APP_NAME)
+		hwnd := findExistingWindow()
 		if hwnd != 0 {
-			RestoreExistingWindow(hwnd)
+			restoreExistingWindow(hwnd)
 		}
 		fmt.Println("Another instance is already running, exiting...")
 		return
 	}
-	defer func() {
-		if mutexHandle != 0 {
-			procCloseHandle.Call(mutexHandle)
-		}
-	}()
+	defer closeMutex(mutexHandle)
 
 	service.InitDb()
 
@@ -263,18 +259,6 @@ func main() {
 		})
 	}
 
-	// 初始化 Windows 系统托盘
-	if runtime.GOOS == "windows" {
-		InitTray(service.APP_NAME, func() {
-			// 显示窗口
-			runtime.WindowShow(app.ctx)
-		}, func() {
-			// 退出应用
-			RemoveTray()
-			wails.Quit()
-		})
-	}
-
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  service.APP_NAME,
@@ -301,7 +285,6 @@ func main() {
 			DisableFramelessWindowDecorations: false,
 			IsZoomControlEnabled:              false,
 			ZoomFactor:                        1.0,
-			DisablePinchZoom:                  true,
 		},
 		Linux: &linux.Options{
 			ProgramName:         service.APP_NAME,
@@ -313,6 +296,18 @@ func main() {
 			appMenu.SetAppContext(ctx)
 			// 启动时检查更新
 			appMenu.CheckForUpdates(false, "")
+
+			// Windows: 初始化系统托盘
+			if runtime.GOOS == "windows" {
+				initTrayWindows(func() {
+					// 显示窗口 - 使用 Wails runtime
+					runtime.WindowShow(ctx)
+				}, func() {
+					// 退出应用
+					removeTrayWindows()
+					runtime.Quit(ctx)
+				})
+			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
 			// Windows 下关闭窗口时隐藏到托盘，不真正退出
@@ -325,7 +320,7 @@ func main() {
 		OnShutdown: func(ctx context.Context) {
 			// 应用退出时清理托盘
 			if runtime.GOOS == "windows" {
-				RemoveTray()
+				removeTrayWindows()
 			}
 		},
 		Bind: []interface{}{

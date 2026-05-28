@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bilifm/service"
 	"fmt"
 	"os"
 	"sync"
@@ -36,25 +37,18 @@ const (
 	WM_RBUTTONUP       = 0x0205
 	WS_EX_APPWINDOW    = 0x00040000
 	WS_OVERLAPPED      = 0x00000000
-	CW_USEDEFAULT      = 0x80000000
 	SW_RESTORE         = 9
 	SW_HIDE            = 0
 	NIF_ICON           = 0x00000002
 	NIF_MESSAGE        = 0x00000001
 	NIF_TIP            = 0x00000004
-	NIF_INFO           = 0x00000010
 	NIM_ADD            = 0x00000000
-	NIM_MODIFY         = 0x00000001
 	NIM_DELETE         = 0x00000002
 	IDI_APPLICATION    = 32512
 	MF_STRING          = 0x00000000
 	MF_SEPARATOR       = 0x00000800
 	TPM_RIGHTBUTTON    = 0x0002
 	TPM_BOTTOMALIGN    = 0x0020
-	GWL_STYLE          = -16
-	GWL_EXSTYLE        = -20
-	IMAGE_ICON         = 1
-	LR_LOADFROMFILE    = 0x00000010
 	ERROR_ALREADY_EXISTS = 183
 )
 
@@ -112,12 +106,10 @@ var (
 	trayOnce      sync.Once
 )
 
-// CheckSingleInstance 检查是否已有实例运行
-func CheckSingleInstance(uniqueId string) (bool, uintptr) {
-	mutexName, _ := syscall.UTF16PtrFromString("Global\\" + uniqueId)
+// checkSingleInstanceWindows 检查是否已有实例运行
+func checkSingleInstanceWindows() (bool, uintptr) {
+	mutexName, _ := syscall.UTF16PtrFromString("Global\\bili-fm-singleton")
 	handle, _, _ := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
-
-	// 检查 GetLastError
 	errno := syscall.GetLastError()
 	if errno == ERROR_ALREADY_EXISTS {
 		return false, handle
@@ -125,8 +117,32 @@ func CheckSingleInstance(uniqueId string) (bool, uintptr) {
 	return true, handle
 }
 
-// InitTray 初始化系统托盘
-func InitTray(appName string, showFn func(), exitFn func()) {
+// closeMutex 关闭 mutex handle
+func closeMutex(handle uintptr) {
+	if handle != 0 {
+		procCloseHandle.Call(handle)
+	}
+}
+
+// findExistingWindow 查找已存在的窗口
+func findExistingWindow() uintptr {
+	classPtr, _ := syscall.UTF16PtrFromString("BiliFMTrayClass")
+	namePtr, _ := syscall.UTF16PtrFromString(service.APP_NAME)
+	hwnd, _, _ := user32.NewProc("FindWindowW").Call(
+		uintptr(unsafe.Pointer(classPtr)),
+		uintptr(unsafe.Pointer(namePtr)),
+	)
+	return hwnd
+}
+
+// restoreExistingWindow 恢复已存在的窗口
+func restoreExistingWindow(hwnd uintptr) {
+	procShowWindow.Call(hwnd, SW_RESTORE)
+	procSetForeground.Call(hwnd)
+}
+
+// initTrayWindows 初始化 Windows 系统托盘
+func initTrayWindows(showFn func(), exitFn func()) {
 	trayOnce.Do(func() {
 		onShowWindow = showFn
 		onExit = exitFn
@@ -142,7 +158,7 @@ func InitTray(appName string, showFn func(), exitFn func()) {
 		procRegisterClass.Call(uintptr(unsafe.Pointer(&wndClass)))
 
 		// 创建隐藏窗口用于接收消息
-		windowName, _ := syscall.UTF16PtrFromString(appName)
+		windowName, _ := syscall.UTF16PtrFromString(service.APP_NAME)
 		hwnd, _, _ := procCreateWindow.Call(
 			WS_EX_APPWINDOW,
 			uintptr(unsafe.Pointer(className)),
@@ -158,7 +174,7 @@ func InitTray(appName string, showFn func(), exitFn func()) {
 		trayIcon = iconHandle
 
 		// 创建托盘图标
-		tip, _ := syscall.UTF16PtrFromString(appName)
+		tip, _ := syscall.UTF16PtrFromString(service.APP_NAME)
 		nid := NOTIFYICONDATA{
 			CbSize:           uint32(unsafe.Sizeof(NOTIFYICONDATA{})),
 			HWnd:             trayWindow,
@@ -191,21 +207,19 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	case WM_TRAYICON:
 		switch lParam {
 		case WM_LBUTTONDBLCLK:
-			// 双击托盘图标恢复窗口
 			if onShowWindow != nil {
 				onShowWindow()
 			}
 		case WM_RBUTTONUP:
-			// 右键弹出菜单
 			showTrayMenu()
 		}
 	case WM_COMMAND:
 		switch wParam {
-		case 1: // 显示窗口
+		case 1:
 			if onShowWindow != nil {
 				onShowWindow()
 			}
-		case 2: // 退出
+		case 2:
 			if onExit != nil {
 				onExit()
 			}
@@ -241,8 +255,8 @@ func showTrayMenu() {
 	user32.NewProc("DestroyMenu").Call(menuHandle)
 }
 
-// RemoveTray 移除托盘图标
-func RemoveTray() {
+// removeTrayWindows 移除托盘图标
+func removeTrayWindows() {
 	if trayWindow != 0 {
 		nid := NOTIFYICONDATA{
 			CbSize: uint32(unsafe.Sizeof(NOTIFYICONDATA{})),
@@ -251,23 +265,6 @@ func RemoveTray() {
 		}
 		procShellNotify.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 	}
-}
-
-// FindExistingWindow 查找已存在的窗口
-func FindExistingWindow(className, windowName string) uintptr {
-	classPtr, _ := syscall.UTF16PtrFromString(className)
-	namePtr, _ := syscall.UTF16PtrFromString(windowName)
-	hwnd, _, _ := user32.NewProc("FindWindowW").Call(
-		uintptr(unsafe.Pointer(classPtr)),
-		uintptr(unsafe.Pointer(namePtr)),
-	)
-	return hwnd
-}
-
-// RestoreExistingWindow 恢复已存在的窗口
-func RestoreExistingWindow(hwnd uintptr) {
-	procShowWindow.Call(hwnd, SW_RESTORE)
-	procSetForeground.Call(hwnd)
 }
 
 func init() {
