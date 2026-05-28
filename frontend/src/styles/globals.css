@@ -10,6 +10,10 @@ html {
     height: 100vh;
     border-style: none;
     zoom: 1;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
 }
 
 body {

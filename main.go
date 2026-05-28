@@ -88,6 +88,23 @@ var proxyClient = &http.Client{
 	Timeout:   15 * time.Second,
 }
 
+// prewarmDNS 预解析 B站 CDN 域名，避免首次图片请求卡在 DNS
+func prewarmDNS() {
+	hosts := []string{"i0.hdslb.com", "i1.hdslb.com", "i2.hdslb.com"}
+	for _, h := range hosts {
+		ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip4", h)
+		if err != nil {
+			ips, _ = net.DefaultResolver.LookupIP(context.Background(), "ip", h)
+		}
+		if len(ips) > 0 {
+			dnsCacheMu.Lock()
+			dnsCache[h] = ips[0].String()
+			dnsCacheMu.Unlock()
+			println("DNS prewarm:", h, "->", ips[0].String())
+		}
+	}
+}
+
 // 图片代理处理函数
 func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 从查询参数中获取图片 URL
@@ -107,15 +124,19 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
 
-	// 带重试的上游请求（最多 3 次）
+	// 带重试的上游请求（最多 3 次），每次重试创建新 request 避免连接状态残留
 	var resp *http.Response
 	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			req, _ = http.NewRequest("GET", imageURL, nil)
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+			req.Header.Set("Referer", "https://www.bilibili.com/")
+			req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+			time.Sleep(time.Duration(200*(attempt)) * time.Millisecond)
+		}
 		resp, err = proxyClient.Do(req)
 		if err == nil {
 			break
-		}
-		if attempt < 2 {
-			time.Sleep(time.Duration(100*(attempt+1)) * time.Millisecond)
 		}
 	}
 	if err != nil {
@@ -191,6 +212,9 @@ func main() {
 		println("Image proxy: startup timeout, continuing anyway")
 	}
 
+	// 预热 B站 CDN DNS，避免首次图片请求慢
+	prewarmDNS()
+
 	// 发送统计信息到
 	go service.SendAppStats()
 
@@ -244,6 +268,7 @@ func main() {
 			DisableFramelessWindowDecorations: false,
 			IsZoomControlEnabled:              false,
 			ZoomFactor:                        1.0,
+			DisablePinchZoom:                  true,
 		},
 		Linux: &linux.Options{
 			ProgramName:         service.APP_NAME,

@@ -4,6 +4,8 @@ import {service} from '../models';
 
 export function CoinVideo(arg1:string,arg2:number):Promise<boolean>;
 
+export function FetchImage(arg1:string):Promise<string>;
+
 export function Follow(arg1:number):Promise<boolean>;
 
 export function GetAppVersion():Promise<service.AppVersion>;
@@ -29,8 +31,6 @@ export function GetCList(arg1:string):Promise<service.VideoInfo>;
 export function GetDanmakuList(arg1:number):Promise<service.DanmakuList>;
 
 export function GetImageProxyPort():Promise<number>;
-
-export function FetchImage(arg1:string):Promise<string>;
 
 export function GetLoginQRCode():Promise<string>;
 
