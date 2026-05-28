@@ -111,7 +111,10 @@ func checkSingleInstanceWindows() (bool, uintptr) {
 	mutexName, _ := syscall.UTF16PtrFromString("Global\\bili-fm-singleton")
 	handle, _, _ := procCreateMutex.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
 	errno := syscall.GetLastError()
-	if errno == ERROR_ALREADY_EXISTS {
+	if errno != nil && errno.Error() == "The operation completed successfully." {
+		return true, handle
+	}
+	if errno != nil {
 		return false, handle
 	}
 	return true, handle
@@ -183,7 +186,14 @@ func initTrayWindows(showFn func(), exitFn func()) {
 			UCallbackMessage: WM_TRAYICON,
 			HIcon:            trayIcon,
 		}
-		copy(nid.SzTip[:], tip)
+		// 复制 tip 到 SzTip 数组
+		for i := 0; i < 127; i++ {
+			if *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(tip)) + uintptr(i*2))) == 0 {
+				nid.SzTip[i] = 0
+				break
+			}
+			nid.SzTip[i] = *(*uint16)(unsafe.Pointer(uintptr(unsafe.Pointer(tip)) + uintptr(i*2)))
+		}
 		procShellNotify.Call(NIM_ADD, uintptr(unsafe.Pointer(&nid)))
 
 		// 消息循环（在后台运行）

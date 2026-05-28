@@ -301,7 +301,7 @@ func main() {
 			if runtime.GOOS == "windows" {
 				initTrayWindows(func() {
 					// 显示窗口 - 使用 Wails runtime
-					runtime.WindowShow(ctx)
+					runtime.Show(ctx)
 				}, func() {
 					// 退出应用
 					removeTrayWindows()
@@ -312,7 +312,7 @@ func main() {
 		OnBeforeClose: func(ctx context.Context) bool {
 			// Windows 下关闭窗口时隐藏到托盘，不真正退出
 			if runtime.GOOS == "windows" {
-				runtime.WindowHide(ctx)
+				runtime.Hide(ctx)
 				return true // 阻止默认的关闭行为
 			}
 			return false // macOS/Linux 允许关闭
