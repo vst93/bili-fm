@@ -46,22 +46,25 @@ var dnsCacheMu sync.RWMutex
 // 自定义 HTTP Transport：连接池 + 超时 + keep-alive + DNS 缓存
 var proxyTransport = &http.Transport{
 	TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
-	MaxIdleConns:          50,
-	MaxIdleConnsPerHost:   20,
-	MaxConnsPerHost:       30,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:  10 * time.Second,
-	ExpectContinueTimeout: 1 * time.Second,
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   30,
+	MaxConnsPerHost:       50,
+	IdleConnTimeout:       120 * time.Second,
+	TLSHandshakeTimeout:  15 * time.Second,
+	ExpectContinueTimeout: 2 * time.Second,
+	ResponseHeaderTimeout: 30 * time.Second,
+	DisableKeepAlives:     false,
+	ForceAttemptHTTP2:     false, // 禁用 HTTP/2，避免某些 CDN 问题
 	DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+			return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, network, addr)
 		}
 		// 查缓存（读锁）
 		dnsCacheMu.RLock()
 		if cached, ok := dnsCache[host]; ok {
 			dnsCacheMu.RUnlock()
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(cached, port))
+			return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(cached, port))
 		}
 		dnsCacheMu.RUnlock()
 		// 首次解析，使用 LookupIP 精确筛选 IPv4，避免 Windows IPv6 DNS 超时
@@ -78,7 +81,7 @@ var proxyTransport = &http.Transport{
 			dnsCacheMu.Lock()
 			dnsCache[host] = ip
 			dnsCacheMu.Unlock()
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(ip, port))
+			return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(ip, port))
 		}
 		return nil, fmt.Errorf("no addresses for %s", host)
 	},
@@ -86,12 +89,19 @@ var proxyTransport = &http.Transport{
 
 var proxyClient = &http.Client{
 	Transport: proxyTransport,
-	Timeout:   15 * time.Second,
+	Timeout:   30 * time.Second,
 }
 
 // prewarmDNS 预解析 B站 CDN 域名，避免首次图片请求卡在 DNS
 func prewarmDNS() {
-	hosts := []string{"i0.hdslb.com", "i1.hdslb.com", "i2.hdslb.com"}
+	hosts := []string{
+		"i0.hdslb.com",
+		"i1.hdslb.com",
+		"i2.hdslb.com",
+		"i3.hdslb.com",
+		"static.hdslb.com",
+		"api.bilibili.com",
+	}
 	for _, h := range hosts {
 		ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip4", h)
 		if err != nil {
@@ -123,12 +133,14 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 创建带自定义 headers 的请求，避免被 B站 CDN 拒绝
 	req, err := http.NewRequest("GET", imageURL, nil)
 	if err != nil {
+		println("image-proxy: invalid URL:", imageURL, "error:", err.Error())
 		http.Error(w, "Invalid image URL", http.StatusBadRequest)
 		return
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 
 	// 带重试的上游请求（最多 3 次），每次重试创建新 request 避免连接状态残留
 	var resp *http.Response
@@ -138,13 +150,14 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 			req.Header.Set("Referer", "https://www.bilibili.com/")
 			req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+			req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 			time.Sleep(time.Duration(200*(attempt)) * time.Millisecond)
 		}
 		resp, err = proxyClient.Do(req)
 		if err == nil {
 			break
 		}
-		println("image-proxy: attempt", attempt+1, "failed:", err.Error())
+		println("image-proxy: attempt", attempt+1, "failed for", imageURL, ":", err.Error())
 	}
 	if err != nil {
 		println("image-proxy: all attempts failed for", imageURL, ":", err.Error())
@@ -164,12 +177,13 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	// 将图片数据写入响应
-	_, err = io.Copy(w, resp.Body)
+	n, err := io.Copy(w, resp.Body)
 	if err != nil {
 		// 客户端断开连接等，只打印日志，不回写 error（headers 已发送）
-		println("image-proxy: write error:", err.Error())
+		println("image-proxy: write error after", n, "bytes for", imageURL, ":", err.Error())
 	}
 }
 
