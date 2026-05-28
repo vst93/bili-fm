@@ -2,10 +2,12 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,6 +29,34 @@ var Ticket = ""
 var QrCocdeKey = ""
 
 type BL struct {
+}
+
+// 共享 HTTP 客户端：带 IPv4 强制 + 连接池，用于 FetchImage
+var fetchImageClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns:          50,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ForceAttemptHTTP2:     false,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", addr)
+			}
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+			if err != nil {
+				ips, _ = net.DefaultResolver.LookupIP(ctx, "ip", host)
+			}
+			if len(ips) > 0 {
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(ips[0].String(), port))
+			}
+			return nil, fmt.Errorf("no addresses for %s", host)
+		},
+	},
 }
 
 func NewBL() *BL {
@@ -388,8 +419,7 @@ func (bl *BL) GetUrlByCid(aid int, cid int) (ret PlayURLInfo) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
 	req.Header.Set("Host", "api.bilibili.com")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fetchImageClient.Do(req)
 	if err != nil {
 		// fmt.Println(err.Error())
 		return
@@ -1183,8 +1213,7 @@ func (bl *BL) FetchImage(url string) (string, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fetchImageClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -2014,8 +2043,7 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 		req.Header.Set("Cookie", cookie)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fetchImageClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
