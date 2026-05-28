@@ -21,6 +21,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // proxyReady 用于同步：代理服务器启动完成后关闭此 channel
@@ -301,18 +302,18 @@ func main() {
 			if runtime.GOOS == "windows" {
 				initTrayWindows(func() {
 					// 显示窗口 - 使用 Wails runtime
-					runtime.Show(ctx)
+					wailsruntime.Show(ctx)
 				}, func() {
 					// 退出应用
 					removeTrayWindows()
-					runtime.Quit(ctx)
+					wailsruntime.Quit(ctx)
 				})
 			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
 			// Windows 下关闭窗口时隐藏到托盘，不真正退出
 			if runtime.GOOS == "windows" {
-				runtime.Hide(ctx)
+				wailsruntime.Hide(ctx)
 				return true // 阻止默认的关闭行为
 			}
 			return false // macOS/Linux 允许关闭
