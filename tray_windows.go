@@ -4,10 +4,10 @@ package main
 
 import (
 	"bilifm/service"
-	"fmt"
 	"os"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -27,6 +27,7 @@ var (
 	procSetForeground = user32.NewProc("SetForegroundWindow")
 	procCreateMutex  = kernel32.NewProc("CreateMutexW")
 	procCloseHandle  = kernel32.NewProc("CloseHandle")
+	procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
 )
 
 const (
@@ -104,6 +105,7 @@ var (
 	onShowWindow  func()
 	onExit        func()
 	trayOnce      sync.Once
+	exiting       bool
 )
 
 // checkSingleInstanceWindows 检查是否已有实例运行
@@ -144,18 +146,37 @@ func restoreExistingWindow(hwnd uintptr) {
 	procSetForeground.Call(hwnd)
 }
 
+// getExeIcon 从当前 exe 文件加载图标
+func getExeIcon() uintptr {
+	// 获取当前 exe 的模块句柄
+	hInstance, _, _ := procGetModuleHandle.Call(0)
+	if hInstance == 0 {
+		return 0
+	}
+	// 使用 MAKEINTRESOURCE(IDI_APPLICATION) 加载标准图标
+	iconHandle, _, _ := user32.NewProc("LoadIconW").Call(hInstance, 32512)
+	if iconHandle == 0 {
+		// 备用方案：加载标准应用图标
+		iconHandle, _, _ = user32.NewProc("LoadIconW").Call(0, uintptr(IDI_APPLICATION))
+	}
+	return iconHandle
+}
+
 // initTrayWindows 初始化 Windows 系统托盘
 func initTrayWindows(showFn func(), exitFn func()) {
 	trayOnce.Do(func() {
 		onShowWindow = showFn
 		onExit = exitFn
 
+		// 获取模块句柄
+		hInstance, _, _ := procGetModuleHandle.Call(0)
+
 		// 注册窗口类
 		className, _ := syscall.UTF16PtrFromString("BiliFMTrayClass")
 		wndClass := WNDCLASSEX{
 			CbSize:      uint32(unsafe.Sizeof(WNDCLASSEX{})),
 			LpfnWndProc: syscall.NewCallback(wndProc),
-			HInstance:    0,
+			HInstance:    hInstance,
 			LpszClassName: className,
 		}
 		procRegisterClass.Call(uintptr(unsafe.Pointer(&wndClass)))
@@ -172,9 +193,8 @@ func initTrayWindows(showFn func(), exitFn func()) {
 		)
 		trayWindow = hwnd
 
-		// 加载图标（使用默认应用图标）
-		iconHandle, _, _ := user32.NewProc("LoadIconW").Call(0, uintptr(IDI_APPLICATION))
-		trayIcon = iconHandle
+		// 加载图标 - 尝试从 exe 加载
+		trayIcon = getExeIcon()
 
 		// 创建托盘图标
 		tip, _ := syscall.UTF16PtrFromString(service.APP_NAME)
@@ -225,20 +245,40 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 	case WM_COMMAND:
 		switch wParam {
-		case 1:
+		case 1: // 显示窗口
 			if onShowWindow != nil {
 				onShowWindow()
 			}
-		case 2:
-			if onExit != nil {
-				onExit()
-			}
+		case 2: // 退出
+			doExit()
 		}
 	default:
 		ret, _, _ := procDefWindowProc.Call(hwnd, uintptr(msg), wParam, lParam)
 		return ret
 	}
 	return 0
+}
+
+// doExit 执行退出操作
+func doExit() {
+	if exiting {
+		return
+	}
+	exiting = true
+
+	// 移除托盘图标
+	removeTrayWindows()
+
+	// 调用回调
+	if onExit != nil {
+		onExit()
+	}
+
+	// 强制退出进程
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		os.Exit(0)
+	}()
 }
 
 // showTrayMenu 显示托盘右键菜单
@@ -275,9 +315,4 @@ func removeTrayWindows() {
 		}
 		procShellNotify.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
 	}
-}
-
-func init() {
-	fmt.Println("Windows tray module loaded")
-	os.Setenv("BILI_FM_WINDOWS", "1")
 }

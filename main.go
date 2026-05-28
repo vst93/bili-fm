@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"sync"
@@ -304,9 +305,12 @@ func main() {
 					// 显示窗口 - 使用 Wails runtime
 					wailsruntime.Show(ctx)
 				}, func() {
-					// 退出应用
+					// 退出应用 - 强制退出进程
 					removeTrayWindows()
-					wailsruntime.Quit(ctx)
+					go func() {
+						time.Sleep(100 * time.Millisecond)
+						os.Exit(0)
+					}()
 				})
 			}
 		},
