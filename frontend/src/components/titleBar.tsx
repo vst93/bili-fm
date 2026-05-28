@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Close, Minus } from "@icon-park/react";
 
-import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts } from "../../wailsjs/go/main/Menu";
+import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts, CloseApp } from "../../wailsjs/go/main/Menu";
 
 const TitleBar: React.FC = () => {
   const [isMac, setIsMac] = useState(false);
@@ -27,6 +27,10 @@ const TitleBar: React.FC = () => {
   const handleClose = () => {
     // @ts-ignore
     window.runtime.Hide();
+  };
+
+  const handleExit = () => {
+    CloseApp();
   };
 
   const handleMinimize = () => {
@@ -141,7 +145,7 @@ const TitleBar: React.FC = () => {
                       <li role="none">
                         <button
                           className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
-                            onClick={handleClose}
+                            onClick={handleExit}
                           role="menuitem"
                         >
                           退出应用
