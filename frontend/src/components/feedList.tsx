@@ -1,6 +1,10 @@
 import type { FC } from "react";
+import { useMemo } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
 import { Refresh } from "@icon-park/react";
+
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -12,7 +16,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
 } from "@heroui/react";
 
 import { graftingImage, subStr } from "@/utils/string";
@@ -33,6 +36,13 @@ const FeedList: FC<FeedListProps> = ({
   onLoadMore,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+  // 数据到达时立即预加载封面图，用户打开时已缓存
+  const coverUrls = useMemo(
+    () => feedList?.items?.map((item: any) => graftingImage(item.modules?.module_dynamic?.major?.archive?.cover)) ?? [],
+    [feedList],
+  );
+  usePreloadImages(coverUrls);
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -98,10 +108,9 @@ const FeedList: FC<FeedListProps> = ({
                       onPress={() => onVideoSelect?.(info.bvid)}
                     >
                       <CardBody className="overflow-visible p-0 img-container">
-                        <Image
+                        <RetryImg
                           alt={info.title || "视频封面"}
                           className="c-cover"
-                          crossOrigin="anonymous"
                           fallbackSrc="/cover.png"
                           loading="lazy"
                           radius="sm"

@@ -4,6 +4,7 @@ package main
 
 import (
 	"bilifm/service"
+	"context"
 	"os"
 	"sync"
 	"syscall"
@@ -107,6 +108,7 @@ var (
 	onExit        func()
 	trayOnce      sync.Once
 	exiting       bool
+	wailsCtx      context.Context // Wails runtime context，用于第二实例启动时显示窗口
 )
 
 // checkSingleInstanceWindows 检查是否已有实例运行
@@ -335,5 +337,17 @@ func removeTrayWindows() {
 			UID:    1,
 		}
 		procShellNotify.Call(NIM_DELETE, uintptr(unsafe.Pointer(&nid)))
+	}
+}
+
+// setWailsContext 存储 Wails runtime context
+func setWailsContext(ctx context.Context) {
+	wailsCtx = ctx
+}
+
+// showExistingWindow 第二实例启动时，显示已运行实例的主窗口
+func showExistingWindow() {
+	if wailsCtx != nil && onShowWindow != nil {
+		onShowWindow()
 	}
 }

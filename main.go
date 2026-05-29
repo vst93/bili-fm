@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -25,9 +24,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
-
-// proxyReady 用于同步：代理服务器启动完成后关闭此 channel
-var proxyReady = make(chan struct{})
 
 //go:embed all:frontend/dist
 var assets embed.FS
@@ -189,62 +185,13 @@ func imageProxyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// 单实例检测（Windows 特定）
-	isFirst, mutexHandle := checkSingleInstanceWindows()
-	if !isFirst {
-		// 已有实例运行，尝试恢复其窗口
-		hwnd := findExistingWindow()
-		if hwnd != 0 {
-			restoreExistingWindow(hwnd)
-		}
-		fmt.Println("Another instance is already running, exiting...")
-		return
+	// Windows: 允许 WebView2 加载 HTTP 混合内容（图片代理）
+	if runtime.GOOS == "windows" {
+		os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+			"--allow-running-insecure-content --disable-features=MixedContentAutoupgrade")
 	}
-	defer closeMutex(mutexHandle)
 
 	service.InitDb()
-
-	// 注册图片代理处理函数
-	http.HandleFunc("/image-proxy", imageProxyHandler)
-	// 启动 HTTP 服务器
-	go func() {
-		proxyListenTryNum := 0
-		for proxyListenTryNum < 10 {
-			thePort := strconv.Itoa(service.IMAGE_PROXY_PROT)
-			//检查端口是否使用
-			_, err := net.Dial("tcp", "localhost:"+thePort)
-			if err == nil {
-				service.IMAGE_PROXY_PROT++
-				proxyListenTryNum++
-				continue
-			}
-			// 用 Listen + Serve 替代 ListenAndServe，以便在端口绑定后立即发信号
-			ln, err := net.Listen("tcp", ":"+thePort)
-			if err != nil {
-				println("Error:", err.Error())
-				service.IMAGE_PROXY_PROT++
-				proxyListenTryNum++
-				continue
-			}
-			println("Image proxy server started on port " + thePort)
-			close(proxyReady) // 端口已绑定，通知主线程
-			if err := http.Serve(ln, nil); err != nil {
-				println("Image proxy serve error:", err.Error())
-			}
-			return
-		}
-		if proxyListenTryNum >= 10 {
-			println("Image proxy: failed to start after 10 attempts")
-			close(proxyReady)
-		}
-	}()
-
-	// 等待代理服务器启动完成（最多 5 秒）
-	select {
-	case <-proxyReady:
-	case <-time.After(5 * time.Second):
-		println("Image proxy: startup timeout, continuing anyway")
-	}
 
 	// 预热 B站 CDN DNS，避免首次图片请求慢
 	prewarmDNS()
@@ -278,12 +225,30 @@ func main() {
 
 	// macOS: 点击叉按钮仅隐藏窗口（HideWindowOnClose=true）；CMD+Q、菜单退出、Alt+F4 真退出
 	// Windows/Linux: 点击叉按钮直接退出
+
+	// Windows: 读取辅助功能文本缩放比例，反向补偿 ZoomFactor，避免控件溢出窗口
+	textScale := getTextScaleFactor()
+	zoomFactor := 1.0
+	if textScale > 100 {
+		zoomFactor = 100.0 / float64(textScale)
+		println(fmt.Sprintf("Windows text scale: %d%%, adjusted zoom factor: %.3f", textScale, zoomFactor))
+	}
+
 	err := wails.Run(&options.App{
 		Title:  service.APP_NAME,
 		Width:  800,
 		Height: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
+			Middleware: func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/image-proxy" {
+						imageProxyHandler(w, r)
+						return
+					}
+					next.ServeHTTP(w, r)
+				})
+			},
 		},
 
 		BackgroundColour: options.NewRGBA(0, 0, 0, 0),
@@ -302,7 +267,7 @@ func main() {
 			WindowIsTranslucent:               false,
 			DisableFramelessWindowDecorations: false,
 			IsZoomControlEnabled:              false,
-			ZoomFactor:                        1.0,
+			ZoomFactor:                        zoomFactor,
 		},
 		Linux: &linux.Options{
 			ProgramName:         service.APP_NAME,
@@ -315,8 +280,9 @@ func main() {
 			// 启动时检查更新
 			appMenu.CheckForUpdates(false, "")
 
-			// Windows: 初始化系统托盘
+			// Windows: 初始化系统托盘 + 存储 context
 			if runtime.GOOS == "windows" {
+				setWailsContext(ctx)
 				initTrayWindows(func() {
 					// 显示窗口 - 使用 Wails runtime
 					wailsruntime.Show(ctx)
@@ -357,6 +323,10 @@ func main() {
 		Frameless:     !isMacOS,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "bili-fm",
+			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
+				// 第二实例启动时，显示已运行实例的主窗口
+				showExistingWindow()
+			},
 		},
 		CSSDragProperty:   "widows",
 		CSSDragValue:      "1",

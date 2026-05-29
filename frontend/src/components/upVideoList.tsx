@@ -1,7 +1,11 @@
 import type { FC } from "react";
+import { useMemo } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
 
 import { Refresh, Add, Close } from "@icon-park/react";
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
+
 import { useDisclosure } from "@heroui/react";
 import {
   Button,
@@ -12,7 +16,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
   Tabs,
   Tab,
   Spinner,
@@ -77,6 +80,13 @@ const UpVideoList: FC<UpVideoListProps> = ({
   setSeriesVideosPage,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+  // 预加载UP主视频封面图
+  const coverUrls = useMemo(
+    () => upVideoList?.items?.map((item: any) => graftingImage(item.modules?.module_dynamic?.major?.archive?.cover)) ?? [],
+    [upVideoList],
+  );
+  usePreloadImages(coverUrls);
   const [activeTab, setActiveTab] = useState<string>("videos");
   const [isFollowing, setIsFollowing] = useState(false);
   const [isCheckingFollow, setIsCheckingFollow] = useState(false);
@@ -334,10 +344,9 @@ const UpVideoList: FC<UpVideoListProps> = ({
                         onPress={() => onVideoSelect?.(info.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <RetryImg
                             alt={info.title || "视频封面"}
                             className="c-cover"
-                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

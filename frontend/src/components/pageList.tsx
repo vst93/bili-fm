@@ -1,5 +1,9 @@
 import type { FC } from "react";
+import { useMemo } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
+
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -10,7 +14,6 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
 } from "@heroui/react";
 
 import {
@@ -43,6 +46,13 @@ const PageList: FC<PageListProps> = ({
   currentPart,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+  // 预加载选集封面图
+  const coverUrls = useMemo(
+    () => videoInfo?.pages?.map((page) => graftingImage(page.first_frame || videoInfo.pic)) ?? [],
+    [videoInfo],
+  );
+  usePreloadImages(coverUrls);
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -167,10 +177,9 @@ const PageList: FC<PageListProps> = ({
                     }
                   >
                     <CardBody className="overflow-visible p-0 img-container">
-                      <Image
+                      <RetryImg
                         alt={page.part || videoInfo.title}
                         className="c-cover"
-                        crossOrigin="anonymous"
                         fallbackSrc="/cover.png"
                         loading="lazy"
                         radius="sm"

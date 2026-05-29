@@ -3,4 +3,4 @@ node_modules
 frontend/dist
 frontend/wailsjs/runtime/*
 .vscode
-.DS_Storebili-FM-test.exe
+*.DS_Store

@@ -2,6 +2,8 @@
 
 package main
 
+import "context"
+
 // checkSingleInstanceWindows 非 Windows 平台的 stub
 func checkSingleInstanceWindows() (bool, uintptr) {
 	return true, 0
@@ -31,3 +33,9 @@ func IsExiting() bool {
 
 // SetExiting 非 Windows 平台的 stub
 func SetExiting() {}
+
+// setWailsContext 非 Windows 平台的 stub
+func setWailsContext(ctx context.Context) {}
+
+// showExistingWindow 非 Windows 平台的 stub
+func showExistingWindow() {}
