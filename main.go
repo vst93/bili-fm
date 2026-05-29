@@ -17,6 +17,7 @@ import (
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
@@ -270,12 +271,13 @@ func main() {
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
 			appMenu.CheckForUpdates(true, "")
 		})
-		aboutMenu.AddText("退出应用", nil, func(_ *menu.CallbackData) {
+		aboutMenu.AddText("退出应用", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
 			appMenu.CloseApp()
 		})
 	}
 
-	// Create application with options
+	// macOS: 点击叉按钮仅隐藏窗口（HideWindowOnClose=true）；CMD+Q、菜单退出、Alt+F4 真退出
+	// Windows/Linux: 点击叉按钮直接退出
 	err := wails.Run(&options.App{
 		Title:  service.APP_NAME,
 		Width:  800,
@@ -329,12 +331,13 @@ func main() {
 			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
-			// 如果正在退出（菜单退出或托盘退出），允许关闭
+			// 正在退出中（菜单/托盘触发的 os.Exit），允许关闭
 			if IsExiting() {
 				return false
 			}
-			// Alt+F4 或其他系统关闭操作 - 直接退出
-			// 点叉按钮调用的是 window.runtime.Hide()，不会触发这里
+			// macOS: HideWindowOnClose=true，点击叉按钮仅隐藏窗口，不会触发此回调
+			// 只有 CMD+Q 这样的系统级退出才会触发此回调，直接退出
+			// Windows/Linux: HideWindowOnClose=false，点击叉按钮或 Alt+F4 触发此回调，直接退出
 			return false
 		},
 		OnShutdown: func(ctx context.Context) {
@@ -357,7 +360,7 @@ func main() {
 		},
 		CSSDragProperty:   "widows",
 		CSSDragValue:      "1",
-		HideWindowOnClose: false, // 由 OnBeforeClose 控制
+		HideWindowOnClose: isMacOS, // macOS: 叉按钮隐藏窗口；Windows/Linux: 叉按钮关闭窗口
 		// Debug: options.Debug{
 		// 	OpenInspectorOnStartup: true,
 		// },
