@@ -1,6 +1,8 @@
 import type { FC } from "react";
 
 import { Refresh, Left, Right } from "@icon-park/react";
+import RetryImg from "./retryImg";
+
 import { useDisclosure } from "@heroui/react";
 import {
   Button,
@@ -11,11 +13,12 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
   Tabs,
   Tab,
 } from "@heroui/react";
-import { useRef } from "react";
+import { useRef, useMemo } from "react";
+
+import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { graftingImage } from "@/utils/string";
 
@@ -41,6 +44,13 @@ const CollectList: FC<CollectListProps> = ({
   currentGroupId,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+  // 预加载收藏封面图
+  const coverUrls = useMemo(
+    () => (Array.isArray(collectList) ? collectList.map((item: any) => graftingImage(item.cover)) : []),
+    [collectList],
+  );
+  usePreloadImages(coverUrls);
   const tabsRef = useRef<HTMLDivElement>(null);
 
   const handleOpenChange = (open: boolean) => {
@@ -172,10 +182,9 @@ const CollectList: FC<CollectListProps> = ({
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <RetryImg
                             alt={item.title}
                             className="c-cover"
-                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

@@ -4,6 +4,8 @@ import {service} from '../models';
 
 export function CoinVideo(arg1:string,arg2:number):Promise<boolean>;
 
+export function FetchImage(arg1:string):Promise<string>;
+
 export function Follow(arg1:number):Promise<boolean>;
 
 export function GetAppVersion():Promise<service.AppVersion>;

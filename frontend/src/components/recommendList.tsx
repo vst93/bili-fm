@@ -11,12 +11,13 @@ import {
   Card,
   CardBody,
   CardFooter,
-  Image,
   Tabs,
   Tab,
 } from "@heroui/react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
 import { convertToDuration, graftingImage, formatNumber, subStr } from "@/utils/string";
 
 const TAB_STORAGE_KEY = "bili-fm-recommend-tab";
@@ -48,6 +49,11 @@ const RecommendList: FC<RecommendListProps> = ({
     }
     return "hot";
   });
+
+  // 预加载推荐和热门列表封面图
+  const recommendUrls = useMemo(() => recommendList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [recommendList]);
+  const hotUrls = useMemo(() => hotList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [hotList]);
+  usePreloadImages([...recommendUrls, ...hotUrls]);
 
   // 保存选中的 tab 到 localStorage
   const handleTabChange = (key: string) => {
@@ -160,10 +166,9 @@ const RecommendList: FC<RecommendListProps> = ({
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
-                          <Image
+                          <RetryImg
                             alt={item.title}
                             className="c-cover"
-                            crossOrigin="anonymous"
                             fallbackSrc="/cover.png"
                             loading="lazy"
                             radius="sm"

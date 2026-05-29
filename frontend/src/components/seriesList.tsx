@@ -1,4 +1,8 @@
 import type { FC } from "react";
+import { useMemo } from "react";
+
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -9,7 +13,6 @@ import {
     Card,
     CardBody,
     CardFooter,
-    Image,
 } from "@heroui/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
@@ -54,6 +57,13 @@ const SeriesList: FC<SeriesListProps> = ({
     setSeriesVideos,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+    // 预加载合集视频封面图
+    const coverUrls = useMemo(
+        () => seriesVideos?.map((v) => graftingImage(v.pic)) ?? [],
+        [seriesVideos],
+    );
+    usePreloadImages(coverUrls);
 
     const handleOpenChange = (open: boolean) => {
         if (!open) {
@@ -106,10 +116,9 @@ const SeriesList: FC<SeriesListProps> = ({
                                         onPress={() => onVideoSelect?.(video.bvid)}
                                     >
                                         <CardBody className="overflow-visible p-0 img-container">
-                                            <Image
+                                            <RetryImg
                                                 alt={video.title}
                                                 className="c-cover"
-                                                crossOrigin="anonymous"
                                                 fallbackSrc="/cover.png"
                                                 loading="lazy"
                                                 radius="sm"

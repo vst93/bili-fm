@@ -6,6 +6,10 @@ export function CoinVideo(arg1, arg2) {
   return window['go']['service']['BL']['CoinVideo'](arg1, arg2);
 }
 
+export function FetchImage(arg1) {
+  return window['go']['service']['BL']['FetchImage'](arg1);
+}
+
 export function Follow(arg1) {
   return window['go']['service']['BL']['Follow'](arg1);
 }

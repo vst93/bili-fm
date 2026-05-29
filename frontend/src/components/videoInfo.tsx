@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Button, Image } from "@heroui/react";
+import RetryImg from "./retryImg";
+import { Button } from "@heroui/react";
 import {
   Search,
   DoubleUp,
@@ -148,7 +149,7 @@ export default function VideoInfo({
     <div id="video-info">
       {/* Owner section */}
       <div className="flex items-center gap-3 mb-4" id="video-owner">
-        <Image
+        <RetryImg
           alt={ownerName}
           className="cursor-pointer transition-transform hover:scale-105"
           classNames={{

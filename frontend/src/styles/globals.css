@@ -10,6 +10,10 @@ html {
     height: 100vh;
     border-style: none;
     zoom: 1;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
 }
 
 body {
@@ -573,4 +577,9 @@ img{
 
 #danmaku-btn:hover {
     opacity: 1;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
 }

@@ -2,16 +2,20 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,6 +29,34 @@ var Ticket = ""
 var QrCocdeKey = ""
 
 type BL struct {
+}
+
+// 共享 HTTP 客户端：带 IPv4 强制 + 连接池，用于 FetchImage
+var fetchImageClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns:          50,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ForceAttemptHTTP2:     false,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", addr)
+			}
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+			if err != nil {
+				ips, _ = net.DefaultResolver.LookupIP(ctx, "ip", host)
+			}
+			if len(ips) > 0 {
+				return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp4", net.JoinHostPort(ips[0].String(), port))
+			}
+			return nil, fmt.Errorf("no addresses for %s", host)
+		},
+	},
 }
 
 func NewBL() *BL {
@@ -387,8 +419,7 @@ func (bl *BL) GetUrlByCid(aid int, cid int) (ret PlayURLInfo) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
 	req.Header.Set("Host", "api.bilibili.com")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fetchImageClient.Do(req)
 	if err != nil {
 		// fmt.Println(err.Error())
 		return
@@ -1155,15 +1186,53 @@ func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
 // ----------- end - getUpVideoList -----------
 
 // ----------- begin - proxyImage -----------
-func (bl *BL) ProxyImage(url string) string {
-	if url == "" {
+func (bl *BL) ProxyImage(urlStr string) string {
+	if urlStr == "" {
 		return ""
 	}
-	return "http://127.0.0.1:" + strconv.Itoa(IMAGE_PROXY_PROT) + "/image-proxy?url=" + url
+	// 处理协议相对 URL
+	if len(urlStr) > 2 && urlStr[:2] == "//" {
+		urlStr = "https:" + urlStr
+	}
+	return "http://127.0.0.1:" + strconv.Itoa(IMAGE_PROXY_PROT) + "/image-proxy?url=" + url.QueryEscape(urlStr)
 }
 
 func (bl *BL) GetImageProxyPort() int {
 	return IMAGE_PROXY_PROT
+}
+
+// FetchImage 通过 Wails binding 获取图片并返回 base64 data URL，绕过 HTTP 代理
+func (bl *BL) FetchImage(url string) (string, error) {
+	if url == "" {
+		return "", errors.New("empty url")
+	}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("Referer", "https://www.bilibili.com/")
+
+	resp, err := fetchImageClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("upstream returned %d", resp.StatusCode)
+	}
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 // ----------- end - proxyImage -----------
@@ -1974,8 +2043,7 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 		req.Header.Set("Cookie", cookie)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fetchImageClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

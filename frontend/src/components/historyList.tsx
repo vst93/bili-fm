@@ -1,5 +1,9 @@
 import type { FC } from "react";
+import { useMemo } from "react";
 import { Refresh } from "@icon-park/react";
+
+import RetryImg from "./retryImg";
+import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -11,7 +15,6 @@ import {
     Card,
     CardBody,
     CardFooter,
-    Image,
 } from "@heroui/react";
 import { GetBLHistoryList } from "../../wailsjs/go/service/BL";
 import { graftingImage } from "@/utils/string";
@@ -34,6 +37,13 @@ const HistoryList: FC<HistoryListProps> = ({
     setHistoryCursor,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+
+    // 预加载历史记录封面图
+    const coverUrls = useMemo(
+        () => historyList?.map((item: any) => graftingImage(item.cover)) ?? [],
+        [historyList],
+    );
+    usePreloadImages(coverUrls);
 
     const handleOpenChange = (open: boolean) => {
         if (!open) {
@@ -121,10 +131,9 @@ const HistoryList: FC<HistoryListProps> = ({
                                             onPress={() => onVideoSelect?.(item?.history?.bvid)}
                                         >
                                             <CardBody className="overflow-visible p-0 img-container">
-                                                <Image
+                                                <RetryImg
                                                     alt={item.title}
                                                     className="c-cover"
-                                                    crossOrigin="anonymous"
                                                     fallbackSrc="/cover.png"
                                                     loading="lazy"
                                                     radius="sm"
