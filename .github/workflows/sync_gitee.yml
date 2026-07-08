@@ -32,31 +32,18 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          echo "Triggering Gitee mirror sync..."
-
-          # Gitee mirror sync API - try form-encoded POST
-          HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "access_token=${GITEE_TOKEN}" \
-            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync")
-          echo "HTTP status: $HTTP_CODE"
-          echo "Response: $(cat /tmp/resp_body)"
-
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "✓ Gitee mirror sync triggered successfully"
-          else
-            echo "⚠ Gitee mirror sync API returned $HTTP_CODE, trying alternative..."
-            # Alternative: use private_token header
-            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" \
-              -X POST \
-              -H "private_token: ${GITEE_TOKEN}" \
-              "https://gitee.com/api/v5/repos/vst93/bili-fm/sync")
-            echo "HTTP status (header auth): $HTTP_CODE"
-            echo "Response: $(cat /tmp/resp_body)"
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              echo "✓ Gitee mirror sync triggered successfully"
-            else
-              echo "⚠ Gitee mirror sync failed, code sync may need manual trigger"
-            fi
-          fi
+          python -c "
+          import requests, sys
+          url = 'https://gitee.com/api/v5/repos/vst93/bili-fm/sync'
+          try:
+              resp = requests.post(url, params={'access_token': __import__('os').environ['GITEE_TOKEN']}, timeout=30)
+              print(f'HTTP status: {resp.status_code}')
+              print(f'Response: {resp.text}')
+              if 200 <= resp.status_code < 300:
+                  print('✓ Gitee mirror sync triggered successfully')
+              else:
+                  print(f'⚠ Gitee mirror sync failed with {resp.status_code}')
+          except Exception as e:
+              print(f'⚠ Error: {e}')
+              sys.exit(1)
+          "
