@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { CloseSmall, ZoomInternal } from "@icon-park/react";
+import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
@@ -38,6 +38,7 @@ import SearchList from "@/components/searchList";
 import FeedList from "@/components/feedList";
 import RecommendList from "@/components/recommendList";
 import DefaultLayout from "@/layouts/default";
+import TitleBar from "@/components/titleBar";
 import { graftingImage, urlToBVID } from "@/utils/string";
 import CollectList from "@/components/collectList";
 import UpVideoList from "@/components/upVideoList";
@@ -1459,6 +1460,7 @@ export default function IndexPage() {
 
   return (
     <DefaultLayout>
+      <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode} />
       {isMiniMode ? (
         ""
       ) : (
@@ -1690,17 +1692,6 @@ export default function IndexPage() {
       )}
 
       {/* 切换窗口模式按钮 - 迷你模式下内嵌到 MiniVideoInfo 中 */}
-      {!isMiniMode && (
-        <button
-          id="switch-window-mode"
-          title="切换到迷你模式"
-          onClick={() => {
-            switchWindowMode();
-          }}
-        >
-          <ZoomInternal fill="#333" size={18} theme="outline" />
-        </button>
-      )}
       <div className="fixed bottom-0 right-0 opacity-0">
         <img alt="" src="https://sstatic1.histats.com/0.gif?4923382&101" />
       </div>
