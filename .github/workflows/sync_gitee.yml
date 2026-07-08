@@ -34,9 +34,7 @@ jobs:
         run: |
           echo "Triggering Gitee mirror sync..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync" \
-            -H "Content-Type: application/json" \
-            -d "{\"access_token\": \"${GITEE_TOKEN}\"}")
+            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync?access_token=${GITEE_TOKEN}")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | sed '$d')
           echo "HTTP status: $HTTP_CODE"
