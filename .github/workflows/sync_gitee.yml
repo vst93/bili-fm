@@ -35,8 +35,8 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           echo "Pushing code to Gitee..."
-          git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/vst93/bili-fm.git" 2>/dev/null || \
-            git remote set-url gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/vst93/bili-fm.git"
-          git push gitee main --force 2>&1
+          git remote add gitee "https://gitee.com/vst93/bili-fm.git"
+          git -c "http.https://gitee.com/.extraheader=Authorization: bearer ${GITEE_TOKEN}" \
+            push gitee main --force 2>&1
           git remote remove gitee 2>/dev/null || true
           echo "✓ Code pushed to Gitee"
