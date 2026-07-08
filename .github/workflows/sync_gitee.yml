@@ -36,7 +36,8 @@ jobs:
         run: |
           echo "Pushing code to Gitee..."
           git remote add gitee "https://gitee.com/vst93/bili-fm.git"
-          git -c "http.https://gitee.com/.extraheader=Authorization: bearer ${GITEE_TOKEN}" \
+          AUTH=$(echo -n "oauth2:${GITEE_TOKEN}" | base64)
+          git -c "http.https://gitee.com/.extraheader=Authorization: Basic ${AUTH}" \
             push gitee main --force 2>&1
           git remote remove gitee 2>/dev/null || true
           echo "✓ Code pushed to Gitee"
