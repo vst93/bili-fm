@@ -7,6 +7,7 @@ import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
+  Button,
   Drawer,
   DrawerContent,
   DrawerBody,
@@ -18,6 +19,8 @@ import {
 
 import {
   FocusOne,
+  AddOne,
+  Check,
 } from "@icon-park/react";
 
 
@@ -34,6 +37,9 @@ interface PageListProps {
     index: number,
     first_frame: string,
   ) => void;
+  onAddToPlaylist?: (page: blSer.Page) => void;
+  onAddAllToPlaylist?: () => void;
+  playlistCids?: Set<number>;
   currentBvid?: string;
   currentPart?: string;
 }
@@ -43,6 +49,9 @@ const PageList: FC<PageListProps> = ({
   onSlideClick,
   videoInfo,
   onVideoSelect,
+  onAddToPlaylist,
+  onAddAllToPlaylist,
+  playlistCids,
   currentPart,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
@@ -151,6 +160,15 @@ const PageList: FC<PageListProps> = ({
                   }
                 }}
               />
+              <Button
+                size="sm"
+                title="将全部选集添加到播放列表"
+                variant="flat"
+                onClick={() => onAddAllToPlaylist?.()}
+              >
+                <AddOne fill="#666" size="16" theme="outline" />
+                <span className="ml-1 text-xs">全部添加</span>
+              </Button>
 
             </DrawerHeader>
             <DrawerBody className="drawer-body">
@@ -176,7 +194,7 @@ const PageList: FC<PageListProps> = ({
                       )
                     }
                   >
-                    <CardBody className="overflow-visible p-0 img-container">
+                    <CardBody className="overflow-visible p-0 img-container relative">
                       <RetryImg
                         alt={page.part || videoInfo.title}
                         className="c-cover"
@@ -187,6 +205,24 @@ const PageList: FC<PageListProps> = ({
                         src={graftingImage(page.first_frame || videoInfo.pic)}
                         width="100%"
                       />
+                      <Button
+                        isIconOnly
+                        className="absolute top-1 right-1 z-10 min-w-6 w-6 h-6 rounded-full bg-black/30 backdrop-blur-sm border-0"
+                        size="sm"
+                        title={
+                          playlistCids?.has(page.cid)
+                            ? "已在播放列表中"
+                            : "添加到播放列表"
+                        }
+                        variant="flat"
+                        onPress={() => onAddToPlaylist?.(page)}
+                      >
+                        {playlistCids?.has(page.cid) ? (
+                          <Check fill="#4ade80" size="14" theme="outline" />
+                        ) : (
+                          <AddOne fill="#fff" size="14" theme="outline" />
+                        )}
+                      </Button>
                     </CardBody>
                     <CardFooter className="text-small flex-col items-start px-2 py-1">
                       <b

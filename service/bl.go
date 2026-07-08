@@ -2102,3 +2102,35 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 }
 
 // ----------- end - Reply/Comment -----------
+
+// ----------- begin - Playlist persistence -----------
+
+// GetPlaylist returns the stored playlist JSON string (empty if none)
+func (bl *BL) GetPlaylist() string {
+	val := GetItem("playlist")
+	if val == nil {
+		return ""
+	}
+	return val.(string)
+}
+
+// SetPlaylist stores the playlist JSON string
+func (bl *BL) SetPlaylist(playlistJson string) {
+	SetItem("playlist", playlistJson)
+}
+
+// GetPlaylistPlayMode returns the stored play mode ("sequence" or "shuffle")
+func (bl *BL) GetPlaylistPlayMode() string {
+	val := GetItem("playlist_play_mode")
+	if val == nil {
+		return "sequence"
+	}
+	return val.(string)
+}
+
+// SetPlaylistPlayMode stores the play mode
+func (bl *BL) SetPlaylistPlayMode(mode string) {
+	SetItem("playlist_play_mode", mode)
+}
+
+// ----------- end - Playlist persistence -----------

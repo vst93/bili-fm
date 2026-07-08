@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Card } from "@heroui/react";
 import { CheckOne, CloseOne, Attention, Info } from "@icon-park/react";
 
 interface ToastProps {
@@ -21,44 +20,33 @@ const Toast = ({ type, content, duration = 2000, onClose }: ToastProps) => {
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
-  const getIcon = () => {
+  const getAccent = () => {
     switch (type) {
       case "success":
-        return <CheckOne fill="#4ade80" size="20" theme="outline" />;
+        return { icon: <CheckOne fill="#22c55e" size="20" theme="outline" />, tint: "rgba(34, 197, 94, 0.08)" };
       case "error":
-        return <CloseOne fill="#f43f5e" size="20" theme="outline" />;
+        return { icon: <CloseOne fill="#f43f5e" size="20" theme="outline" />, tint: "rgba(244, 63, 94, 0.08)" };
       case "warning":
-        return <Attention fill="#f59e0b" size="20" theme="outline" />;
+        return { icon: <Attention fill="#f59e0b" size="20" theme="outline" />, tint: "rgba(245, 158, 11, 0.08)" };
       case "info":
-        return <Info fill="#0ea5e9" size="20" theme="outline" />;
+        return { icon: <Info fill="#0ea5e9" size="20" theme="outline" />, tint: "rgba(14, 165, 233, 0.08)" };
     }
   };
 
-  const getBgColor = () => {
-    switch (type) {
-      case "success":
-        return "bg-success-50";
-      case "error":
-        return "bg-danger-50";
-      case "warning":
-        return "bg-warning-50";
-      case "info":
-        return "bg-primary-50";
-    }
-  };
+  const accent = getAccent();
 
   return (
-    <Card
-      className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
+    <div
+      className={`fixed top-4 right-4 z-50 toast-glass transition-all duration-300 ${
         isVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
-      } ${getBgColor()}`}
-      shadow="sm"
+      }`}
+      style={{ background: `linear-gradient(135deg, rgba(255, 255, 255, 0.5), ${accent?.tint || "rgba(255,255,255,0.4)"})` }}
     >
       <div className="flex items-center gap-2 px-4 py-2">
-        {getIcon()}
-        <span className="text-sm">{content}</span>
+        {accent?.icon}
+        <span className="text-sm font-medium text-slate-800">{content}</span>
       </div>
-    </Card>
+    </div>
   );
 };
 
