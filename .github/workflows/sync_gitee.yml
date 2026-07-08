@@ -33,14 +33,28 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           echo "Triggering Gitee mirror sync..."
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync?access_token=${GITEE_TOKEN}")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-          echo "HTTP status: $HTTP_CODE"
-          echo "Response: $BODY"
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "✓ Gitee mirror sync triggered successfully"
-          else
-            echo "⚠ Gitee mirror sync failed (may already be syncing or rate limited)"
-          fi
+
+          # Try multiple Gitee API endpoints
+          for ENDPOINT in \
+            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync?access_token=${GITEE_TOKEN}" \
+            "https://gitee.com/api/v5/repos/vst93/bili-fm/mirror/sync?access_token=${GITEE_TOKEN}"; do
+            echo "Trying POST $ENDPOINT"
+            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" -X POST "$ENDPOINT")
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response: $(cat /tmp/resp_body)"
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "✓ Gitee mirror sync triggered successfully"
+              exit 0
+            fi
+
+            echo "Trying PUT $ENDPOINT"
+            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" -X PUT "$ENDPOINT")
+            echo "HTTP status: $HTTP_CODE"
+            echo "Response: $(cat /tmp/resp_body)"
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "✓ Gitee mirror sync triggered successfully"
+              exit 0
+            fi
+          done
+
+          echo "⚠ All Gitee mirror sync attempts failed"
