@@ -65,12 +65,12 @@ const SearchForm: FC<SearchFormProps> = ({
           onValueChange={onInputChange}
           onKeyDown={handleKeyDown}
           placeholder="B站 / 关键词 / 视频链接"
-          size="md"
+          size="sm"
           radius="lg"
           spellCheck={false}
           classNames={{
             base: "max-w-full",
-            mainWrapper: "h-10",
+            mainWrapper: "h-9",
             input: "text-sm text-slate-700 placeholder:text-slate-400",
             inputWrapper:
               "pr-1 bg-white/80 border border-slate-200/90 shadow-sm data-[hover=true]:bg-white focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-md transition-all",
