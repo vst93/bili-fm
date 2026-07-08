@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
-import { CloseSmall, ZoomInternal, Comment } from "@icon-park/react";
-import { Button } from "@heroui/react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { CloseSmall, ZoomInternal } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
@@ -24,6 +23,10 @@ import {
   GetBLPopularList,
   GetDanmakuList,
   GetReplyList,
+  GetPlaylist,
+  SetPlaylist,
+  GetPlaylistPlayMode,
+  SetPlaylistPlayMode,
 } from "../../wailsjs/go/service/BL";
 
 import SearchForm from "@/components/searchForm";
@@ -43,6 +46,10 @@ import SeriesList from "@/components/seriesList";
 import PlayerVideo from "@/components/playerVideo";
 import MiniVideoInfo from "@/components/miniVideoInfo";
 import DanmakuList from "@/components/danmakuList";
+import Playlist, {
+  type PlaylistItem,
+  type PlaylistPlayMode,
+} from "@/components/playlist";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -87,7 +94,11 @@ export default function IndexPage() {
   const [currentUpName, setCurrentUpName] = useState("");
   const [showHistoryList, setShowHistoryList] = useState(false);
   const [historyList, setHistoryList] = useState<any>();
-  const [historyCursor, setHistoryCursor] = useState<{max: number, view_at: number, business: string}>({max: 0, view_at: 0, business: ""});
+  const [historyCursor, setHistoryCursor] = useState<{
+    max: number;
+    view_at: number;
+    business: string;
+  }>({ max: 0, view_at: 0, business: "" });
   const [seriesList, setSeriesList] = useState<any[]>([]);
   const [currentSeriesId, setCurrentSeriesId] = useState<number>(0);
   const [seriesVideos, setSeriesVideos] = useState<any[]>([]);
@@ -104,11 +115,59 @@ export default function IndexPage() {
   const [replyOid, setReplyOid] = useState<number>(0);
   const [replyPage, setReplyPage] = useState(1);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
+  const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number>(-1);
+  const [playlistPlayMode, setPlaylistPlayMode] =
+    useState<PlaylistPlayMode>("sequence");
+  const [isPlaylistMode, setIsPlaylistMode] = useState<boolean>(false);
+  const [showPlaylist, setShowPlaylist] = useState<boolean>(false);
+
+  const playlistCids = useMemo(
+    () => new Set(playlist.map((p) => p.cid)),
+    [playlist],
+  );
+
+  const playlistLoadedRef = useRef(false);
+
+  useEffect(() => {
+    document.body.classList.toggle("mini-mode", isMiniMode);
+
+    return () => {
+      document.body.classList.remove("mini-mode");
+    };
+  }, [isMiniMode]);
 
   useEffect(() => {
     // 初始化时获取用户信息
     refreshUserInfo();
+    // 从本地加载播放列表和播放模式
+    GetPlaylist().then((json) => {
+      if (json) {
+        try {
+          setPlaylist(JSON.parse(json));
+        } catch (e) {
+          console.error("加载播放列表失败:", e);
+        }
+      }
+      playlistLoadedRef.current = true;
+    });
+    GetPlaylistPlayMode().then((mode) => {
+      if (mode === "shuffle" || mode === "sequence") {
+        setPlaylistPlayMode(mode);
+      }
+    });
   }, []);
+
+  // 播放列表变更时自动持久化（初始加载完成后才生效）
+  useEffect(() => {
+    if (!playlistLoadedRef.current) return;
+    SetPlaylist(JSON.stringify(playlist));
+  }, [playlist]);
+
+  // 播放模式变更时自动持久化
+  useEffect(() => {
+    SetPlaylistPlayMode(playlistPlayMode);
+  }, [playlistPlayMode]);
 
   /**
    * 蓝牙/系统媒体控制事件处理
@@ -126,36 +185,11 @@ export default function IndexPage() {
       });
 
       navigator.mediaSession.setActionHandler("previoustrack", () => {
-        // 上一集
-        if (videoInfo?.pages) {
-          const prevIndex =
-            (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
-          const prevPage = videoInfo.pages[prevIndex];
-
-          handleVideoSelect(
-            prevPage.cid,
-            videoInfo.aid,
-            prevPage.part,
-            prevIndex,
-            prevPage.first_frame,
-          );
-        }
+        handlePrevTrack();
       });
 
       navigator.mediaSession.setActionHandler("nexttrack", () => {
-        // 下一集
-        if (videoInfo?.pages) {
-          const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-          const nextPage = videoInfo.pages[nextIndex];
-
-          handleVideoSelect(
-            nextPage.cid,
-            videoInfo.aid,
-            nextPage.part,
-            nextIndex,
-            nextPage.first_frame,
-          );
-        }
+        handleNextTrack();
       });
     }
 
@@ -174,35 +208,10 @@ export default function IndexPage() {
         setIsPlaying((prev) => !prev);
       } else if (event.code === "MediaTrackPrevious") {
         event.preventDefault();
-        // 上一集
-        if (videoInfo?.pages) {
-          const prevIndex =
-            (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
-          const prevPage = videoInfo.pages[prevIndex];
-
-          handleVideoSelect(
-            prevPage.cid,
-            videoInfo.aid,
-            prevPage.part,
-            prevIndex,
-            prevPage.first_frame,
-          );
-        }
+        handlePrevTrack();
       } else if (event.code === "MediaTrackNext") {
         event.preventDefault();
-        // 下一集
-        if (videoInfo?.pages) {
-          const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-          const nextPage = videoInfo.pages[nextIndex];
-
-          handleVideoSelect(
-            nextPage.cid,
-            videoInfo.aid,
-            nextPage.part,
-            nextIndex,
-            nextPage.first_frame,
-          );
-        }
+        handleNextTrack();
       }
     };
 
@@ -218,7 +227,14 @@ export default function IndexPage() {
         navigator.mediaSession.setActionHandler("nexttrack", null);
       }
     };
-  }, [videoInfo, currentIndex]);
+  }, [
+    videoInfo,
+    currentIndex,
+    isPlaylistMode,
+    playlist,
+    currentPlaylistIndex,
+    playlistPlayMode,
+  ]);
 
   /**
    * 同步 Media Session 播放状态
@@ -240,11 +256,14 @@ export default function IndexPage() {
     //监听快捷键
     const listener = (event: KeyboardEvent) => {
       // 在keydown阶段就阻止空格键对按钮的触发
-      if (event.code === "Space" &&
-          (event.target instanceof HTMLButtonElement ||
-           event.target instanceof HTMLInputElement ||
-           event.target instanceof HTMLTextAreaElement)) {
+      if (
+        event.code === "Space" &&
+        (event.target instanceof HTMLButtonElement ||
+          event.target instanceof HTMLInputElement ||
+          event.target instanceof HTMLTextAreaElement)
+      ) {
         event.preventDefault();
+
         return;
       }
 
@@ -264,6 +283,7 @@ export default function IndexPage() {
         if (event.target instanceof HTMLButtonElement) {
           event.preventDefault();
           event.stopPropagation();
+
           return false;
         }
       }
@@ -291,48 +311,26 @@ export default function IndexPage() {
           event.preventDefault();
           setIsPlayVideoStop(!isPlayVideoStop);
         }
+
         // 播放视频时屏蔽快捷键
         return;
       }
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
         //如果当前对象为 div id = video-cover ，阻止
-        if (event.target instanceof HTMLDivElement && event.target.id === "video-cover") {} else {
+        if (
+          event.target instanceof HTMLDivElement &&
+          event.target.id === "video-cover"
+        ) {
+        } else {
           setIsPlaying((prev) => !prev);
         }
-      } else if (
-        event.code === "ArrowLeft" &&
-        !event.repeat &&
-        videoInfo?.pages
-      ) {
+      } else if (event.code === "ArrowLeft" && !event.repeat) {
         event.preventDefault();
-        const prevIndex =
-          (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
-        const prevPage = videoInfo.pages[prevIndex];
-
-        handleVideoSelect(
-          prevPage.cid,
-          videoInfo.aid,
-          prevPage.part,
-          prevIndex,
-          prevPage.first_frame,
-        );
-      } else if (
-        event.code === "ArrowRight" &&
-        !event.repeat &&
-        videoInfo?.pages
-      ) {
+        handlePrevTrack();
+      } else if (event.code === "ArrowRight" && !event.repeat) {
         event.preventDefault();
-        const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-        const nextPage = videoInfo.pages[nextIndex];
-
-        handleVideoSelect(
-          nextPage.cid,
-          videoInfo.aid,
-          nextPage.part,
-          nextIndex,
-          nextPage.first_frame,
-        );
+        handleNextTrack();
       }
     };
 
@@ -346,12 +344,22 @@ export default function IndexPage() {
       window.removeEventListener("keyup", handleKeyPress);
       window.removeEventListener("keydown", listener);
     };
-  }, [videoInfo, currentIndex, isPlayVideo, isPlayVideoStop]);
+  }, [
+    videoInfo,
+    currentIndex,
+    isPlayVideo,
+    isPlayVideoStop,
+    isPlaylistMode,
+    playlist,
+    currentPlaylistIndex,
+    playlistPlayMode,
+  ]);
 
   // 处理按钮焦点问题 - 点击按钮后立即移除焦点
   useEffect(() => {
     const handleButtonClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
+
       if (target instanceof HTMLButtonElement) {
         // 延迟移除焦点，确保按钮的点击事件处理完成
         setTimeout(() => {
@@ -363,14 +371,12 @@ export default function IndexPage() {
     };
 
     // 使用捕获阶段监听所有点击事件
-    document.addEventListener('click', handleButtonClick, true);
+    document.addEventListener("click", handleButtonClick, true);
 
     return () => {
-      document.removeEventListener('click', handleButtonClick, true);
+      document.removeEventListener("click", handleButtonClick, true);
     };
   }, []);
-
-
 
   /**
    * 处理登录按钮点击事件
@@ -596,10 +602,15 @@ export default function IndexPage() {
     index?: number,
     first_frame?: string,
   ) => {
+    setIsPlaylistMode(false);
     setPageFirstFrame(first_frame || videoInfo?.pic || "");
 
     try {
       const info = await GetUrlByCid(aid, cid);
+      if (!info?.url) {
+        toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
+        return;
+      }
 
       setPlayUrl(info.url);
       setCurrentPart(part);
@@ -625,16 +636,39 @@ export default function IndexPage() {
           }),
         );
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("获取播放地址失败:", error);
+      toast({
+        type: "error",
+        content: "播放失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
     }
   };
 
   /**
    * 处理视频播放结束事件
-   * @description 当前视频播放完成后自动播放下一个视频，最后一个视频播放完成后循环到第一个
+   * @description 播放列表模式下自动播放下一个播放列表项；选集模式下自动播放下一集
    */
   const handleVideoEnded = async () => {
+    if (isPlaylistMode && playlist.length > 0) {
+      let nextIndex: number;
+
+      if (playlistPlayMode === "shuffle") {
+        if (playlist.length === 1) {
+          nextIndex = 0;
+        } else {
+          do {
+            nextIndex = Math.floor(Math.random() * playlist.length);
+          } while (nextIndex === currentPlaylistIndex);
+        }
+      } else {
+        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+      }
+      await handlePlaylistVideoSelect(nextIndex);
+
+      return;
+    }
+
     if (!videoInfo?.pages || !videoInfo.pages.length) return;
 
     const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
@@ -650,6 +684,228 @@ export default function IndexPage() {
   };
 
   /**
+   * 上一曲/下一曲导航，根据播放模式自动选择播放列表或选集
+   */
+  const handlePrevTrack = () => {
+    if (isPlaylistMode && playlist.length > 0) {
+      const prevIndex =
+        (currentPlaylistIndex - 1 + playlist.length) % playlist.length;
+
+      handlePlaylistVideoSelect(prevIndex);
+    } else if (videoInfo?.pages) {
+      const prevIndex =
+        (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
+      const prevPage = videoInfo.pages[prevIndex];
+
+      handleVideoSelect(
+        prevPage.cid,
+        videoInfo.aid,
+        prevPage.part,
+        prevIndex,
+        prevPage.first_frame,
+      );
+    }
+  };
+
+  const handleNextTrack = () => {
+    if (isPlaylistMode && playlist.length > 0) {
+      let nextIndex: number;
+
+      if (playlistPlayMode === "shuffle" && playlist.length > 1) {
+        do {
+          nextIndex = Math.floor(Math.random() * playlist.length);
+        } while (nextIndex === currentPlaylistIndex);
+      } else {
+        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+      }
+      handlePlaylistVideoSelect(nextIndex);
+    } else if (videoInfo?.pages) {
+      const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
+      const nextPage = videoInfo.pages[nextIndex];
+
+      handleVideoSelect(
+        nextPage.cid,
+        videoInfo.aid,
+        nextPage.part,
+        nextIndex,
+        nextPage.first_frame,
+      );
+    }
+  };
+
+  /**
+   * 添加搜索结果到播放列表
+   */
+  const handleAddToPlaylist = (page: MainModels.Page) => {
+    if (!videoInfo) return;
+
+    if (playlist.some((p) => p.cid === page.cid)) {
+      toast({ type: "info", content: "该选集已在播放列表中" });
+      return;
+    }
+
+    const item: PlaylistItem = {
+      id: `${videoInfo.bvid}-${page.cid}`,
+      bvid: videoInfo.bvid,
+      aid: videoInfo.aid,
+      cid: page.cid,
+      part: page.part,
+      first_frame: page.first_frame,
+      title: videoInfo.title,
+      pic: videoInfo.pic,
+    };
+    setPlaylist((prev) => [...prev, item]);
+    toast({ type: "success", content: "已添加到播放列表" });
+  };
+
+  /**
+   * 一键添加当前视频的全部选集到播放列表（自动去重）
+   */
+  const handleAddAllToPlaylist = () => {
+    if (!videoInfo?.pages || videoInfo.pages.length === 0) return;
+
+    const existingCids = new Set(playlist.map((p) => p.cid));
+    const toAdd: PlaylistItem[] = videoInfo.pages
+      .filter((page) => !existingCids.has(page.cid))
+      .map((page) => ({
+        id: `${videoInfo.bvid}-${page.cid}`,
+        bvid: videoInfo.bvid,
+        aid: videoInfo.aid,
+        cid: page.cid,
+        part: page.part,
+        first_frame: page.first_frame,
+        title: videoInfo.title,
+        pic: videoInfo.pic,
+      }));
+
+    if (toAdd.length === 0) {
+      toast({ type: "info", content: "所有选集已在播放列表中" });
+      return;
+    }
+
+    setPlaylist((prev) => [...prev, ...toAdd]);
+    toast({ type: "success", content: `已添加 ${toAdd.length} 集到播放列表` });
+  };
+
+  /**
+   * 播放播放列表中的指定项
+   * @description 切换到播放列表模式，加载视频并自动播放第一集
+   */
+  const handlePlaylistVideoSelect = async (index: number) => {
+    const item = playlist[index];
+
+    if (!item) return;
+    setIsPlaylistMode(true);
+    setCurrentPlaylistIndex(index);
+    setShowSearchList(false);
+    setShowPageList(false);
+    setShowFeedList(false);
+    setShowRecommendList(false);
+    setShowCollectList(false);
+    setShowUpVideoList(false);
+    setShowHistoryList(false);
+    setShowSeriesList(false);
+    try {
+      let pages = videoInfo?.pages;
+      let pic = videoInfo?.pic || "";
+      // Only reload video info when switching to a different video
+      if (item.bvid !== currentBvid) {
+        const info = await GetCList(item.bvid);
+        setCurrentBvid(item.bvid);
+        setPageNum(info.pages?.length || 0);
+        setVideoInfo(MainModels.VideoInfo.createFrom(info));
+        pages = info.pages;
+        pic = info.pic || "";
+      }
+      const playInfo = await GetUrlByCid(item.aid, item.cid);
+      if (!playInfo?.url) {
+        toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
+        return;
+      }
+      setPlayUrl(playInfo.url);
+      setCurrentPart(item.part);
+      // 确保弹幕按钮可用：将 cid 同步为当前播放项
+      setVideoInfo((prev) =>
+        prev
+          ? MainModels.VideoInfo.createFrom({ ...prev, cid: item.cid })
+          : prev,
+      );
+      const episodeIndex = pages?.findIndex((p) => p.cid === item.cid) ?? -1;
+      setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
+      setPageFirstFrame(item.first_frame || pic || "");
+    } catch (error: any) {
+      console.error("获取视频信息失败:", error);
+      toast({
+        type: "error",
+        content: "播放失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    }
+  };
+
+  /**
+   * 删除播放列表项
+   */
+  const handlePlaylistDelete = (id: string) => {
+    const deletedIndex = playlist.findIndex((item) => item.id === id);
+    if (deletedIndex === -1) return;
+
+    setPlaylist((prev) => prev.filter((item) => item.id !== id));
+
+    if (deletedIndex === currentPlaylistIndex) {
+      setIsPlaylistMode(false);
+      setCurrentPlaylistIndex(-1);
+    } else if (deletedIndex < currentPlaylistIndex) {
+      setCurrentPlaylistIndex(currentPlaylistIndex - 1);
+    }
+  };
+
+  /**
+   * 拖拽排序播放列表
+   */
+  const handlePlaylistReorder = (from: number, to: number) => {
+    setPlaylist((prev) => {
+      const newPlaylist = [...prev];
+      const [moved] = newPlaylist.splice(from, 1);
+      newPlaylist.splice(to, 0, moved);
+      return newPlaylist;
+    });
+
+    setCurrentPlaylistIndex((prevIdx) => {
+      if (prevIdx === from) return to;
+      if (from < prevIdx && to >= prevIdx) return prevIdx - 1;
+      if (from > prevIdx && to <= prevIdx) return prevIdx + 1;
+      return prevIdx;
+    });
+  };
+
+  const handlePlaylistClear = () => {
+    setPlaylist([]);
+    setCurrentPlaylistIndex(-1);
+    setIsPlaylistMode(false);
+  };
+
+  const handlePlaylistPlayModeToggle = () => {
+    setPlaylistPlayMode((prev) =>
+      prev === "sequence" ? "shuffle" : "sequence",
+    );
+  };
+
+  /**
+   * 处理播放列表按钮点击事件
+   */
+  const handlePlaylistClick = () => {
+    setShowPlaylist(true);
+    setShowSearchList(false);
+    setShowPageList(false);
+    setShowFeedList(false);
+    setShowRecommendList(false);
+    setShowCollectList(false);
+    setShowUpVideoList(false);
+    setShowHistoryList(false);
+    setShowSeriesList(false);
+  };
+
+  /**
    * 处理弹幕按钮点击事件
    */
   const handleDanmakuClick = async () => {
@@ -658,6 +914,7 @@ export default function IndexPage() {
         type: "warning",
         content: "请先选择一个视频",
       });
+
       return;
     }
 
@@ -673,15 +930,26 @@ export default function IndexPage() {
   const loadDanmakuList = async (forceRefresh = false) => {
     if (!videoInfo?.cid) return;
 
-    if (!forceRefresh && danmakuCid === videoInfo.cid && danmakuList?.items?.length) {
+    if (
+      !forceRefresh &&
+      danmakuCid === videoInfo.cid &&
+      danmakuList?.items?.length
+    ) {
       console.log("弹幕已加载，跳过:", videoInfo.cid);
+
       return;
     }
 
-    console.log("正在获取弹幕列表，cid:", videoInfo.cid, "force:", forceRefresh);
+    console.log(
+      "正在获取弹幕列表，cid:",
+      videoInfo.cid,
+      "force:",
+      forceRefresh,
+    );
     setIsLoadingDanmaku(true);
     try {
       const data = await GetDanmakuList(videoInfo.cid);
+
       console.log("弹幕数据:", data);
       setDanmakuList(data);
       setDanmakuCid(videoInfo.cid);
@@ -689,7 +957,9 @@ export default function IndexPage() {
       console.error("获取弹幕列表失败:", error);
       toast({
         type: "error",
-        content: "获取弹幕列表失败: " + (error?.message || error?.toString() || "未知错误"),
+        content:
+          "获取弹幕列表失败: " +
+          (error?.message || error?.toString() || "未知错误"),
       });
     } finally {
       setIsLoadingDanmaku(false);
@@ -712,16 +982,29 @@ export default function IndexPage() {
     if (!videoInfo?.aid) return;
 
     if (page === 1) {
-      if (!forceRefresh && replyOid === videoInfo.aid && replyList?.items?.length) {
+      if (
+        !forceRefresh &&
+        replyOid === videoInfo.aid &&
+        replyList?.items?.length
+      ) {
         console.log("评论已加载，跳过:", videoInfo.aid);
+
         return;
       }
     }
 
-    console.log("正在获取评论列表，aid:", videoInfo.aid, "page:", page, "force:", forceRefresh);
+    console.log(
+      "正在获取评论列表，aid:",
+      videoInfo.aid,
+      "page:",
+      page,
+      "force:",
+      forceRefresh,
+    );
     setIsLoadingReply(true);
     try {
       const data = await GetReplyList(videoInfo.aid, page);
+
       console.log("评论数据:", data);
 
       if (page === 1 || forceRefresh) {
@@ -730,6 +1013,7 @@ export default function IndexPage() {
         // Append new items to existing list - create new object to avoid TypeScript issues
         const newItems = [...(replyList?.items || []), ...(data.items || [])];
         const newData = new MainModels.ReplyList();
+
         newData.items = newItems;
         newData.has_more = data.has_more;
         newData.next = data.next;
@@ -743,7 +1027,9 @@ export default function IndexPage() {
       console.error("获取评论列表失败:", error);
       toast({
         type: "error",
-        content: "获取评论列表失败: " + (error?.message || error?.toString() || "未知错误"),
+        content:
+          "获取评论列表失败: " +
+          (error?.message || error?.toString() || "未知错误"),
       });
     } finally {
       setIsLoadingReply(false);
@@ -763,6 +1049,7 @@ export default function IndexPage() {
    */
   const handleReplyLoadMore = async () => {
     const nextPage = replyPage + 1;
+
     await loadReplyList(nextPage);
   };
 
@@ -845,6 +1132,7 @@ export default function IndexPage() {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
       const videoListData = await GetUpVideoList(mid, "");
+
       setUpVideoList(videoListData);
       setShowUpVideoList(true);
       setShowSearchList(false);
@@ -864,9 +1152,9 @@ export default function IndexPage() {
    */
   const handleHistoryClick = () => {
     try {
-      GetBLHistoryList(0,0,'',30).then(data => {
-        setHistoryList(data?.list || [])
-        setHistoryCursor(data.cursor || {})
+      GetBLHistoryList(0, 0, "", 30).then((data) => {
+        setHistoryList(data?.list || []);
+        setHistoryCursor(data.cursor || {});
       });
       setShowHistoryList(true);
       setShowSearchList(false);
@@ -919,16 +1207,26 @@ export default function IndexPage() {
   /**
    * 选择合集
    */
-  const handleSeriesSelect = async (seriesId: number, title: string, total: number) => {
+  const handleSeriesSelect = async (
+    seriesId: number,
+    title: string,
+    total: number,
+  ) => {
     try {
       setCurrentSeriesId(seriesId);
       setCurrentSeriesTitle(title + "(" + total + ")");
-      const currentSeries = seriesList.find(series => series.id === seriesId);
+      const currentSeries = seriesList.find((series) => series.id === seriesId);
+
       if (currentSeries) {
         setCurrentSeriesTitle(currentSeries.title);
       }
       setSeriesVideosPage(1);
-      const seriesVideosData = await GetSeriesVideos(currentUpMid, seriesId, seriesVideosPage);
+      const seriesVideosData = await GetSeriesVideos(
+        currentUpMid,
+        seriesId,
+        seriesVideosPage,
+      );
+
       setSeriesVideos(seriesVideosData || []);
       setShowSeriesList(true);
       setShowUpVideoList(false);
@@ -947,6 +1245,7 @@ export default function IndexPage() {
         type: "error",
         content: "请先点击UP主头像或昵称，选择一个合集",
       });
+
       return;
     }
     setShowSeriesList(true);
@@ -963,10 +1262,10 @@ export default function IndexPage() {
    * 点击播放视频
    */
   const handlePlayVideoClick = () => {
-    setIsPlaying(false);  // 停止音频播放
-    setIsPlayVideo(true);  // 打开视频播放浮窗
+    setIsPlaying(false); // 停止音频播放
+    setIsPlayVideo(true); // 打开视频播放浮窗
     setIsPlayVideoStop(false); // 自动开启播放
-  }
+  };
 
   /**
    * 处理推荐按钮点击事件
@@ -1005,10 +1304,12 @@ export default function IndexPage() {
       if (type === "recommend") {
         setRecommendPage(1);
         const data = await GetBLRCMDList(1);
+
         setRecommendList(data);
       } else {
         setHotPage(1);
         const data = await GetBLPopularList(1);
+
         setHotList(data);
       }
     } catch (error) {
@@ -1141,99 +1442,104 @@ export default function IndexPage() {
    * 切换窗口模式
    */
   const switchWindowMode = async () => {
-    let theIsMiniMode = !isMiniMode
-    setIsMiniMode(theIsMiniMode)
+    let theIsMiniMode = !isMiniMode;
+
+    document.body.classList.toggle("mini-mode", theIsMiniMode);
+    setIsMiniMode(theIsMiniMode);
     if (theIsMiniMode) {
       // @ts-ignore
-      window.runtime.WindowSetSize(400, 155)
-      // @ts-ignore 设置 .rap-container  高
-      document.querySelector('.rap-container').style.height = '36px'
+      window.runtime.WindowSetSize(400, 155);
+      document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "38px");
     } else {
       // @ts-ignore
-      window.runtime.WindowSetSize(800, 600)
-      // @ts-ignore
-      document.querySelector('.rap-container').style.height = '56px'
+      window.runtime.WindowSetSize(800, 600);
+      document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "56px");
     }
   };
 
   return (
     <DefaultLayout>
-      {isMiniMode ? '' : (
-        <>
+      {isMiniMode ? (
+        ""
+      ) : (
+        <section className="home-stage" aria-label="播放器主页">
           <SearchForm
             userFace={userFace}
             value={searchInputValue}
+            onCollectClick={handleCollectClick}
+            onFeedClick={handleFeedClick}
+            onHistoryClick={handleHistoryClick}
             onInputChange={setSearchInputValue}
             onLoginClick={handleLogin}
+            onRecommendClick={handleRecommendClick}
             onSearch={handleSearch}
             onUrlJump={handleUrlJump}
           />
-          <div className="relative w-fit" id="video-cover-container">
-            <VideoCover
-              cover={graftingImage(pageFirstFrame)}
-              isPlaying={isPlaying}
-              onPlayStateChange={handleCoverClick}
+          <div className="home-now-playing">
+            <div className="relative" id="video-cover-container">
+              <VideoCover
+                cover={graftingImage(pageFirstFrame)}
+                isPlaying={isPlaying}
+                onPlayStateChange={handleCoverClick}
+              />
+            </div>
+            <VideoInfo
+              bvid={videoInfo?.bvid}
+              cid={videoInfo?.cid}
+              currentSeriesTitle={currentSeriesTitle}
+              desc={videoInfo?.desc}
+              ownerFace={videoInfo?.owner_face}
+              ownerMid={videoInfo?.owner_mid}
+              ownerName={videoInfo?.owner_name}
+              part={currentPart}
+              playlistCount={playlist.length}
+              searchResultsCount={searchResults?.length || 0}
+              title={videoInfo?.title}
+              onCollectClick={handleCollectClick}
+              onDanmakuClick={handleDanmakuClick}
+              onFeedClick={handleFeedClick}
+              onHistoryClick={handleHistoryClick}
+              onOwnerClick={handleOwnerClick}
+              onPageListClick={handlePageListClick}
+              onPlayVideoClick={handlePlayVideoClick}
+              onPlaylistClick={handlePlaylistClick}
+              isPlaylistMode={isPlaylistMode}
+              onRecommendClick={handleRecommendClick}
+              onSearchClick={handleSearchClick}
+              onSeriesClick={handleSeriesClick}
+              onShareClick={handleShareClick}
             />
-            {videoInfo?.cid && (
-              <Button
-                isIconOnly
-                size="sm"
-                variant="flat"
-                className="rounded-md"
-                id="danmaku-btn"
-                onPress={handleDanmakuClick}
-                title="弹幕/评论列表"
-              >
-                <Comment size={16} fill="#666" />
-              </Button>
-            )}
           </div>
-          <VideoInfo
-            bvid={videoInfo?.bvid}
-            desc={videoInfo?.desc}
-            ownerFace={videoInfo?.owner_face}
-            ownerMid={videoInfo?.owner_mid}
-            ownerName={videoInfo?.owner_name}
-            part={currentPart}
-            title={videoInfo?.title}
-            onCollectClick={handleCollectClick}
-            onFeedClick={handleFeedClick}
-            onOwnerClick={handleOwnerClick}
-            onPageListClick={handlePageListClick}
-            onRecommendClick={handleRecommendClick}
-            onSearchClick={handleSearchClick}
-            onShareClick={handleShareClick}
-            onHistoryClick={handleHistoryClick}
-            onSeriesClick={handleSeriesClick}
-            onPlayVideoClick={handlePlayVideoClick}
-            currentSeriesTitle={currentSeriesTitle}
-            searchResultsCount={searchResults?.length || 0}
-          />
-        </>
+        </section>
       )}
-      {!isMiniMode ? '' : (
+      {!isMiniMode ? (
+        ""
+      ) : (
         <MiniVideoInfo
-          part={currentPart}
           cover={graftingImage(pageFirstFrame)}
+          part={currentPart}
+          title={videoInfo?.title}
           onSwitchMode={switchWindowMode}
         />
       )}
       <Player
+        aid={videoInfo?.aid}
+        cid={videoInfo?.cid}
         isPlaying={isPlaying}
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
         onTimeUpdate={handleTimeUpdate}
-        aid={videoInfo?.aid}
-        cid={videoInfo?.cid}
       />
-      {isMiniMode ? '' : (
+      {isMiniMode ? (
+        ""
+      ) : (
         <>
           <PlayerVideo
-            src={playUrl}
             isPlay={isPlayVideo}
             isPlayVideoStop={isPlayVideoStop}
             setIsplay={setIsPlayVideo}
+            src={playUrl}
           />
           {showSearchList && (
             <SearchList
@@ -1249,6 +1555,9 @@ export default function IndexPage() {
               currentPart={currentPart}
               pageNum={pageNum}
               videoInfo={videoInfo}
+              onAddToPlaylist={handleAddToPlaylist}
+              onAddAllToPlaylist={handleAddAllToPlaylist}
+              playlistCids={playlistCids}
               onSlideClick={() => setShowPageList(false)}
               onVideoSelect={handleVideoSelect}
             />
@@ -1264,8 +1573,8 @@ export default function IndexPage() {
           )}
           {showRecommendList && (
             <RecommendList
-              recommendList={recommendList}
               hotList={hotList}
+              recommendList={recommendList}
               onLoadMore={handleRecommendLoadMore}
               onRefresh={handleRecommendRefresh}
               onSlideClick={() => setShowRecommendList(false)}
@@ -1286,71 +1595,84 @@ export default function IndexPage() {
           )}
           {showUpVideoList && (
             <UpVideoList
+              currentSeriesId={currentSeriesId}
+              currentUpMid={currentUpMid}
+              seriesList={seriesList}
+              setSeriesList={setSeriesList}
+              setSeriesVideosPage={setSeriesVideosPage}
               upName={currentUpName}
               upVideoList={upVideoList}
               onLoadMore={handleUpVideoLoadMore}
               onRefresh={handleUpVideoRefresh}
+              onSeriesSelect={handleSeriesSelect}
               onSlideClick={() => setShowUpVideoList(false)}
               onVideoSelect={handleSearchVideoSelect}
-              seriesList={seriesList}
-              onSeriesSelect={handleSeriesSelect}
-              currentSeriesId={currentSeriesId}
-              setSeriesList={setSeriesList}
-              currentUpMid={currentUpMid}
-              setSeriesVideosPage={setSeriesVideosPage}
             />
           )}
           {showHistoryList && (
             <HistoryList
+              historyCursor={historyCursor}
+              historyList={historyList}
+              setHistoryCursor={setHistoryCursor}
+              setHistoryList={setHistoryList}
               onSlideClick={() => setShowHistoryList(false)}
               onVideoSelect={handleSearchVideoSelect}
-              historyList={historyList}
-              historyCursor={historyCursor}
-              setHistoryList={setHistoryList}
-              setHistoryCursor={setHistoryCursor}
             />
           )}
           {showSeriesList && (
             <SeriesList
-              seriesVideos={seriesVideos}
-              onVideoSelect={handleSearchVideoSelect}
-              onSlideClick={handleSeriesListClose}
-              seriesTitle={currentSeriesTitle}
-              seriesVideosPage={seriesVideosPage}
-              setSeriesVideosPage={setSeriesVideosPage}
-              currentUpMid={currentUpMid}
               currentSeriesId={currentSeriesId}
+              currentUpMid={currentUpMid}
+              seriesTitle={currentSeriesTitle}
+              seriesVideos={seriesVideos}
+              seriesVideosPage={seriesVideosPage}
               setSeriesVideos={setSeriesVideos}
+              setSeriesVideosPage={setSeriesVideosPage}
+              onSlideClick={handleSeriesListClose}
+              onVideoSelect={handleSearchVideoSelect}
             />
           )}
           {showDanmakuList && (
             <DanmakuList
-              danmakuList={danmakuList}
-              replyList={replyList}
-              onSlideClick={handleDanmakuClose}
-              onDanmakuRefresh={handleDanmakuRefresh}
-              onReplyRefresh={handleReplyRefresh}
-              onReplyLoadMore={handleReplyLoadMore}
-              isLoading={isLoadingDanmaku || isLoadingReply}
               currentTime={currentVideoTime}
+              danmakuList={danmakuList}
+              isLoading={isLoadingDanmaku || isLoadingReply}
+              replyList={replyList}
+              onDanmakuRefresh={handleDanmakuRefresh}
+              onReplyLoadMore={handleReplyLoadMore}
+              onReplyRefresh={handleReplyRefresh}
+              onSlideClick={handleDanmakuClose}
+            />
+          )}
+          {showPlaylist && (
+            <Playlist
+              currentPlaylistIndex={currentPlaylistIndex}
+              isPlaylistMode={isPlaylistMode}
+              playMode={playlistPlayMode}
+              playlist={playlist}
+              onClear={handlePlaylistClear}
+              onDelete={handlePlaylistDelete}
+              onPlayModeToggle={handlePlaylistPlayModeToggle}
+              onReorder={handlePlaylistReorder}
+              onSlideClick={() => setShowPlaylist(false)}
+              onVideoSelect={handlePlaylistVideoSelect}
             />
           )}
           {showLoginPanel && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-              <div className="relative w-80 rounded-xl bg-white shadow-2xl overflow-hidden">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-md">
+              <div className="login-glass relative w-80 rounded-2xl overflow-hidden">
                 <button
-                  className="absolute right-3 top-3 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-blue-100 transition-colors"
+                  className="absolute right-3 top-3 w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+                  style={{ background: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.3)" }}
                   onClick={handleCloseLogin}
                 >
-                  <CloseSmall fill="#666" size="18" theme="outline" />
+                  <CloseSmall fill="#475569" size="18" theme="outline" />
                 </button>
                 <div className="p-6 text-center">
-                  <h3 className="mb-1 text-lg font-semibold text-gray-800">
+                  <h3 className="mb-1 text-lg font-bold text-slate-800">
                     使用 B站 App 扫码登录
                   </h3>
-                  <p className="mb-4 text-sm text-gray-500">
-                    打开手机扫一扫
-                  </p>
+                  <p className="mb-4 text-sm text-slate-500">打开手机扫一扫</p>
                   <div className="relative inline-block">
                     <div className="p-3 bg-white rounded-xl shadow-lg">
                       <img
@@ -1376,7 +1698,7 @@ export default function IndexPage() {
             switchWindowMode();
           }}
         >
-          <ZoomInternal theme="outline" size={18} fill="#333" />
+          <ZoomInternal fill="#333" size={18} theme="outline" />
         </button>
       )}
       <div className="fixed bottom-0 right-0 opacity-0">

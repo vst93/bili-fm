@@ -1,10 +1,7 @@
 import type { FC } from "react";
-import { useMemo } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
 
-import RetryImg from "./retryImg";
-import { usePreloadImages } from "../hooks/usePreloadImages";
-
+import { useMemo } from "react";
 import { useDisclosure } from "@heroui/react";
 import {
   Button,
@@ -16,6 +13,10 @@ import {
   CardBody,
   CardFooter,
 } from "@heroui/react";
+
+import { usePreloadImages } from "../hooks/usePreloadImages";
+
+import RetryImg from "./retryImg";
 
 import { graftingImage } from "@/utils/string";
 
@@ -39,6 +40,7 @@ const SearchList: FC<SearchListProps> = ({
     () => searchResults?.map((v) => graftingImage(v.picture_url)) ?? [],
     [searchResults],
   );
+
   usePreloadImages(coverUrls);
 
   const handleOpenChange = (open: boolean) => {

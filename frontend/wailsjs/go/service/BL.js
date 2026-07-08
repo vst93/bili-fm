@@ -74,6 +74,14 @@ export function GetLoginStatus() {
   return window['go']['service']['BL']['GetLoginStatus']();
 }
 
+export function GetPlaylist() {
+  return window['go']['service']['BL']['GetPlaylist']();
+}
+
+export function GetPlaylistPlayMode() {
+  return window['go']['service']['BL']['GetPlaylistPlayMode']();
+}
+
 export function GetReplyList(arg1, arg2) {
   return window['go']['service']['BL']['GetReplyList'](arg1, arg2);
 }
@@ -132,6 +140,14 @@ export function SearchVideo(arg1, arg2) {
 
 export function SetLoginStatus(arg1) {
   return window['go']['service']['BL']['SetLoginStatus'](arg1);
+}
+
+export function SetPlaylist(arg1) {
+  return window['go']['service']['BL']['SetPlaylist'](arg1);
+}
+
+export function SetPlaylistPlayMode(arg1) {
+  return window['go']['service']['BL']['SetPlaylistPlayMode'](arg1);
 }
 
 export function SetSESSDATA(arg1) {

@@ -41,24 +41,32 @@ export default function VideoCover({
   };
 
   return (
-    <div
-      id="video-cover"
-      role="button"
-      style={{
-        backgroundImage: `url(${coverImage})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        transform: `rotate(${rotation}deg)`,
-        transition: isPlaying ? "none" : "transform 0.3s ease-out",
-        cursor: "pointer",
-      }}
-      tabIndex={0}
-      onClick={handleClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          handleClick();
-        }
-      }}
-    />
+    <div className="cover-shell">
+      <div
+        id="video-cover"
+        className={isPlaying ? "is-playing" : ""}
+        role="button"
+        style={{
+          transform: `rotate(${rotation}deg)`,
+          transition: isPlaying ? "none" : "transform 0.3s ease-out",
+          cursor: "pointer",
+        }}
+        tabIndex={0}
+        onClick={handleClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            handleClick();
+          }
+        }}
+      >
+        <div
+          className="cover-art"
+          style={{
+            backgroundImage: `url(${coverImage})`,
+          }}
+        />
+        <span className="cover-center" />
+      </div>
+    </div>
   );
 }

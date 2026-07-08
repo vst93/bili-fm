@@ -1,6 +1,12 @@
 import { FC } from "react";
 import { Avatar, Input } from "@heroui/react";
-import { Search } from "@icon-park/react";
+import {
+  ChartRing,
+  History,
+  Search,
+  ShareSys,
+  WeixinFavorites,
+} from "@icon-park/react";
 
 interface SearchFormProps {
   value?: string;
@@ -8,6 +14,10 @@ interface SearchFormProps {
   onSearch?: (keyword: string) => void;
   onUrlJump?: (url: string) => void;
   onLoginClick?: () => void;
+  onFeedClick?: () => void;
+  onRecommendClick?: () => void;
+  onCollectClick?: () => void;
+  onHistoryClick?: () => void;
   userFace?: string;
 }
 
@@ -17,6 +27,10 @@ const SearchForm: FC<SearchFormProps> = ({
   onSearch,
   onUrlJump,
   onLoginClick,
+  onFeedClick,
+  onRecommendClick,
+  onCollectClick,
+  onHistoryClick,
   userFace,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -44,25 +58,27 @@ const SearchForm: FC<SearchFormProps> = ({
   };
 
   return (
-    <div className="flex items-center justify-center gap-3 p-3">
-      <div className="w-[360px]">
+    <div className="home-searchbar">
+      <div className="home-search-input">
         <Input
           value={value}
           onValueChange={onInputChange}
           onKeyDown={handleKeyDown}
-          placeholder="B站｜关键词搜索"
+          placeholder="B站 / 关键词 / 视频链接"
           size="md"
           radius="lg"
           spellCheck={false}
           classNames={{
             base: "max-w-full",
-            mainWrapper: "h-11",
-            input: "text-sm text-gray-700",
-            inputWrapper: "h-11 pr-0 bg-gray-50 border border-gray-200 focus-within:border-blue-400 focus-within:shadow-sm transition-all",
+            mainWrapper: "h-10",
+            input: "text-sm text-slate-700 placeholder:text-slate-400",
+            inputWrapper:
+              "pr-1 bg-white/80 border border-slate-200/90 shadow-sm data-[hover=true]:bg-white focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-md transition-all",
           }}
           endContent={
             <button
-              className="h-9 px-3 cursor-pointer flex items-center justify-center text-gray-500 hover:text-blue-500 transition-colors rounded-md"
+              className="search-submit-btn"
+              title="搜索"
               onClick={() => onSearch?.(value)}
             >
               <Search theme="outline" size={18} />
@@ -70,10 +86,24 @@ const SearchForm: FC<SearchFormProps> = ({
           }
         />
       </div>
+      <div className="home-global-actions" aria-label="B站内容入口">
+        <button className="top-tool-btn" title="动态" onClick={onFeedClick}>
+          <ShareSys fill="#64748b" size={18} theme="outline" />
+        </button>
+        <button className="top-tool-btn" title="热门与推荐" onClick={onRecommendClick}>
+          <ChartRing fill="#64748b" size={18} theme="outline" />
+        </button>
+        <button className="top-tool-btn" title="收藏" onClick={onCollectClick}>
+          <WeixinFavorites fill="#64748b" size={18} theme="outline" />
+        </button>
+        <button className="top-tool-btn" title="历史记录" onClick={onHistoryClick}>
+          <History fill="#64748b" size={18} theme="outline" />
+        </button>
+      </div>
       {userFace ? (
         <Avatar
           src={userFace}
-          className="cursor-pointer ring-2 ring-blue-400/30 hover:ring-blue-500 transition-all"
+          className="home-user-avatar"
           onClick={onLoginClick}
           size="md"
           isBordered
@@ -85,7 +115,7 @@ const SearchForm: FC<SearchFormProps> = ({
       ) : (
         <Avatar
           showFallback
-          className="cursor-pointer ring-2 ring-gray-300 hover:ring-blue-400 transition-all"
+          className="home-user-avatar"
           onClick={onLoginClick}
           size="md"
           isBordered

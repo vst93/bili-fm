@@ -1,18 +1,14 @@
 import { useState, useEffect } from "react";
-import RetryImg from "./retryImg";
-import { Button } from "@heroui/react";
 import {
   Search,
   DoubleUp,
   Browser,
-  ShareSys,
-  ChartRing,
-  WeixinFavorites,
   ThumbsUp,
   HandleB,
-  History,
   Layers,
   VideoTwo,
+  MusicList,
+  Comment,
 } from "@icon-park/react";
 
 import {
@@ -22,6 +18,8 @@ import {
   HasCoin,
 } from "../../wailsjs/go/service/BL.js";
 import { toast } from "../utils/toast";
+
+import RetryImg from "./retryImg";
 
 import { graftingImage } from "@/utils/string";
 
@@ -44,8 +42,13 @@ interface VideoInfoProps {
   onHistoryClick?: () => void;
   onSeriesClick?: () => void;
   onPlayVideoClick?: () => void;
+  onPlaylistClick?: () => void;
+  onDanmakuClick?: () => void;
+  isPlaylistMode?: boolean;
   currentSeriesTitle?: string;
   searchResultsCount?: number;
+  playlistCount?: number;
+  cid?: number;
 }
 
 export default function VideoInfo({
@@ -60,14 +63,15 @@ export default function VideoInfo({
   onPageListClick,
   onShareClick,
   onOwnerClick,
-  onFeedClick,
-  onRecommendClick,
-  onCollectClick,
-  onHistoryClick,
   onSeriesClick,
   onPlayVideoClick,
+  onPlaylistClick,
+  onDanmakuClick,
+  isPlaylistMode = false,
   currentSeriesTitle,
   searchResultsCount = 0,
+  playlistCount = 0,
+  cid,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
@@ -105,230 +109,168 @@ export default function VideoInfo({
       const result = await LikeVideo(bvid, isLiked ? 2 : 1);
       if (result) {
         setIsLiked(!isLiked);
-        toast({
-          type: "success",
-          content: isLiked ? "取消点赞成功" : "点赞成功",
-        });
+        toast({ type: "success", content: isLiked ? "取消点赞成功" : "点赞成功" });
       }
     } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || "未知错误";
       toast({
         type: "error",
-        content: "点赞失败: " + errorMsg,
+        content: "点赞失败: " + (error?.message || error?.toString() || "未知错误"),
       });
     }
   };
 
   const handleCoin = async () => {
     if (coinCount >= 2) {
-      toast({
-        type: "info",
-        content: "已经投过币了",
-      });
+      toast({ type: "info", content: "已经投过币了" });
       return;
     }
     try {
       const result = await CoinVideo(bvid, 2);
       if (result) {
         setCoinCount(2);
-        toast({
-          type: "success",
-          content: "投币成功",
-        });
+        toast({ type: "success", content: "投币成功" });
       }
     } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || "未知错误";
       toast({
         type: "error",
-        content: "投币失败: " + errorMsg,
+        content: "投币失败: " + (error?.message || error?.toString() || "未知错误"),
       });
     }
   };
 
+  const gray = "#64748b";
+  const blue = "#0ea5e9";
+
   return (
     <div id="video-info">
-      {/* Owner section */}
-      <div className="flex items-center gap-3 mb-4" id="video-owner">
-        <RetryImg
-          alt={ownerName}
-          className="cursor-pointer transition-transform hover:scale-105"
-          classNames={{
-            wrapper: "min-w-[48px]",
-            img: "object-cover",
-          }}
-          height={48}
-          id="video-owner-face"
-          loading="lazy"
-          radius="full"
-          src={graftingImage(
-            ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
-          )}
-          width={48}
-          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
-        />
-        <button
-          className="cursor-pointer bg-transparent border-none p-0 text-left"
-          id="video-owner-name"
-          onClick={() => onOwnerClick?.(ownerMid, ownerName)}
-        >
-          <span className="text-lg font-medium text-gray-800 hover:text-blue-500 transition-colors">
-            {ownerName || "神秘的UP主"}
-          </span>
-        </button>
-      </div>
+      <div className="video-meta-area">
+        <div className="video-info-head">
+          <div className="video-owner-wrap">
+            <RetryImg
+              alt={ownerName}
+              className="cursor-pointer transition-transform hover:scale-105 flex-shrink-0"
+              height={40}
+              id="video-owner-face"
+              loading="lazy"
+              radius="full"
+              src={graftingImage(
+                ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+              )}
+              width={40}
+              onClick={() => onOwnerClick?.(ownerMid, ownerName)}
+            />
+            <div className="min-w-0">
+              <span className="video-kicker">UP 主</span>
+              <button
+                id="video-owner-name"
+                className="truncate bg-transparent border-none cursor-pointer p-0"
+                onClick={() => onOwnerClick?.(ownerMid, ownerName)}
+              >
+                {ownerName || "神秘的UP主"}
+              </button>
+            </div>
+          </div>
 
-      {/* Title section */}
-      <div
-        className="can-seelect mb-3 relative group"
-        id="video-title"
-      >
-        <h2 className="text-xl font-semibold text-gray-900 leading-snug line-clamp-2 pr-16">
-          {title || "无标题"}
-        </h2>
-        <div className="absolute left-0 top-full flex gap-2 mt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150">
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-300 hover:bg-blue-200 cursor-pointer transition-colors"
-            onClick={onShareClick}
-          >
-            <Browser fill="#333" size="14" theme="outline" />
-            <span className="text-sm text-gray-800 font-medium">浏览器</span>
-          </div>
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-300 hover:bg-purple-200 cursor-pointer transition-colors"
-            onClick={onPlayVideoClick}
-          >
-            <VideoTwo fill="#333" size="14" theme="outline" />
-            <span className="text-sm text-gray-800 font-medium">播放</span>
-          </div>
         </div>
-      </div>
 
-      {/* Description */}
-      <div className="can-seelect mb-3" id="video-desc">
-        <p className="text-sm text-gray-500 leading-relaxed line-clamp-3 min-h-[4.5em]">
-          {desc || "无描述"}
-        </p>
-      </div>
+        <div className="can-seelect" id="video-title">
+          <h2>{title || "无标题"}</h2>
+        </div>
 
-      {/* Current part indicator */}
-      <div className="can-seelect mb-4" id="video-part" title={part || "无选集标题"}>
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 text-sm font-medium max-w-full">
-          <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
-          <span className="truncate">{part || "无选集标题"}</span>
-        </span>
-      </div>
+        <div className="can-seelect" id="video-desc">
+          <p>{desc || "无描述"}</p>
+        </div>
 
-      {/* Action buttons */}
-      <div className="info-tools">
-        <Button
-          className="info-tools-button"
-          size="sm"
-          style={{
-            backgroundColor: "transparent",
-            minWidth: "32px",
-            width: "32px",
-            padding: "0",
-          }}
-          title={isLiked ? "取消点赞" : "点赞"}
-          variant="light"
-          isDisabled={!bvid}
-          onPress={handleLike}
-        >
-          <ThumbsUp
-            fill={isLiked ? "#ec4899" : "#666"}
-            size={24}
-            theme="outline"
+        <div className="video-part-pill" title={part || "无选集标题"}>
+          <span
+            className={`video-part-dot ${
+              isPlaylistMode ? "video-part-dot-playlist" : ""
+            }`}
           />
-        </Button>
-        <Button
-          className="info-tools-button"
-          size="sm"
-          style={{
-            backgroundColor: "transparent",
-            minWidth: "32px",
-            width: "32px",
-            padding: "0",
-          }}
-          title={coinCount >= 2 ? "已投币" : "投币(2个)"}
-          variant="light"
-          isDisabled={!bvid}
-          onPress={handleCoin}
-        >
-          <HandleB
-            fill={coinCount >= 2 ? "#eab308" : "#666"}
-            size={24}
-            theme="outline"
-          />
-        </Button>
-        <Button
-          className="info-tools-button"
-          size="sm"
-          style={{
-            backgroundColor: "#f3f4f6",
-          }}
-          title="搜索"
-          isDisabled={!searchResultsCount}
-          onPress={onSearchClick}
-        >
-          <Search fill="#666" size={24} theme="outline" />
-        </Button>
-        <Button
-          className="info-tools-button"
-          size="sm"
-          style={{
-            backgroundColor: "#f3f4f6",
-          }}
-          title="选集"
-          isDisabled={!bvid}
-          onPress={onPageListClick}
-        >
-          <DoubleUp fill="#666" size={24} theme="outline" />
-        </Button>
-        <Button
-          className="info-tools-button"
-          size="sm"
-          style={{
-            backgroundColor: "#f3f4f6",
-          }}
-          title="合集"
-          isDisabled={!currentSeriesTitle}
-          onPress={onSeriesClick}
-        >
-          <Layers theme="outline" size={24} fill="#666" />
-        </Button>
-        <div className="info-tools-bl-user-group">
-          <Button
-            className="info-tools-button bl-feed"
-            size="sm"
-            title="动态"
-            onPress={onFeedClick}
+          <span className="video-part-source">
+            {isPlaylistMode ? "播放列表" : "当前选集"}
+          </span>
+          <span className="video-part-title">{part || "无选集标题"}</span>
+        </div>
+
+        <div className="video-content-actions" aria-label="内容操作">
+          <button
+            className="nav-icon-btn"
+            disabled={!bvid}
+            title={isLiked ? "取消点赞" : "点赞"}
+            onClick={handleLike}
           >
-            <ShareSys fill="#666" size={24} theme="outline" />
-          </Button>
-          <Button
-            className="info-tools-button bl-rcmd"
-            size="sm"
-            title="热门与推荐"
-            onPress={onRecommendClick}
+            <ThumbsUp fill={isLiked ? "#e11d48" : gray} size={20} theme="outline" />
+          </button>
+          <button
+            className="nav-icon-btn"
+            disabled={!bvid}
+            title={coinCount >= 2 ? "已投币" : "投币(2个)"}
+            onClick={handleCoin}
           >
-            <ChartRing fill="#666" size={24} theme="outline" />
-          </Button>
-          <Button
-            className="info-tools-button bl-collect"
-            size="sm"
-            title="收藏"
-            onPress={onCollectClick}
+            <HandleB fill={coinCount >= 2 ? "#ca8a04" : gray} size={20} theme="outline" />
+          </button>
+          <button className="nav-icon-btn" title="浏览器打开" onClick={onShareClick}>
+            <Browser fill={gray} size={18} theme="outline" />
+          </button>
+          <button className="nav-icon-btn" title="视频播放" onClick={onPlayVideoClick}>
+            <VideoTwo fill={gray} size={18} theme="outline" />
+          </button>
+          <button
+            className="nav-icon-btn"
+            disabled={!cid}
+            title="弹幕/评论"
+            onClick={onDanmakuClick}
           >
-            <WeixinFavorites fill="#666" size={24} theme="outline" />
-          </Button>
-          <Button
-            className="info-tools-button bl-collect"
-            size="sm"
-            title="历史记录"
-            onPress={onHistoryClick}
+            <Comment fill={gray} size={18} theme="outline" />
+          </button>
+        </div>
+
+        <div className="video-context-dock" aria-label="播放上下文">
+          <button
+            className="nav-icon-btn"
+            disabled={!searchResultsCount}
+            title="搜索结果"
+            onClick={onSearchClick}
           >
-            <History theme="outline" size={24} fill="#666" />
-          </Button>
+            <Search fill={gray} size={20} theme="outline" />
+          </button>
+          <button
+            className="nav-icon-btn"
+            disabled={!bvid}
+            title="选集"
+            onClick={onPageListClick}
+          >
+            <DoubleUp
+              fill={!isPlaylistMode && bvid ? blue : gray}
+              size={20}
+              theme="outline"
+            />
+          </button>
+          <button
+            className="nav-icon-btn"
+            disabled={!currentSeriesTitle}
+            title="合集"
+            onClick={onSeriesClick}
+          >
+            <Layers fill={gray} size={20} theme="outline" />
+          </button>
+          <button
+            className="nav-icon-btn"
+            title="播放列表"
+            onClick={onPlaylistClick}
+          >
+            <MusicList
+              fill={isPlaylistMode ? blue : gray}
+              size={20}
+              theme="outline"
+            />
+            {playlistCount > 0 && (
+              <span className="nav-badge">
+                {playlistCount > 99 ? "99+" : playlistCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
     </div>

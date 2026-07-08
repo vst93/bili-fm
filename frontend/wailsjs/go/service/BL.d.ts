@@ -38,6 +38,10 @@ export function GetLoginQRCodeStatus():Promise<boolean>;
 
 export function GetLoginStatus():Promise<boolean>;
 
+export function GetPlaylist():Promise<string>;
+
+export function GetPlaylistPlayMode():Promise<string>;
+
 export function GetReplyList(arg1:number,arg2:number):Promise<service.ReplyList>;
 
 export function GetSESSDATA():Promise<string>;
@@ -67,6 +71,10 @@ export function ReportPlayProgress(arg1:number,arg2:number,arg3:number):Promise<
 export function SearchVideo(arg1:string,arg2:string):Promise<Array<service.SearchResult>>;
 
 export function SetLoginStatus(arg1:boolean):Promise<void>;
+
+export function SetPlaylist(arg1:string):Promise<void>;
+
+export function SetPlaylistPlayMode(arg1:string):Promise<void>;
 
 export function SetSESSDATA(arg1:string):Promise<void>;
 
