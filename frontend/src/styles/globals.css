@@ -1818,3 +1818,75 @@ body.mini-mode #player .rap-pp-button svg {
 .login-glass button:active {
     transform: scale(0.92);
 }
+
+/* ====== Video player overlay ====== */
+
+#player_video {
+    position: fixed;
+    inset: 0;
+    z-index: 998;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 12, 20, 0);
+    backdrop-filter: blur(0px);
+    transition: background 0.3s ease, backdrop-filter 0.3s ease;
+}
+
+#player_video.player-video-open {
+    background: rgba(8, 12, 20, 0.72);
+    backdrop-filter: blur(12px) saturate(1.3);
+}
+
+.player-video-panel {
+    position: relative;
+    width: min(90vw, 1000px);
+    max-height: 82vh;
+    aspect-ratio: 16 / 9;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 32px 80px rgba(0, 0, 0, 0.5);
+    transform: scale(0.92) translateY(8px);
+    opacity: 0;
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+}
+
+#player_video.player-video-open .player-video-panel {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+}
+
+/* ReactPlayer fills the panel */
+.player-video-panel > div:first-child {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* Close button */
+.player-video-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 999;
+    width: 38px;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+    transition: background 0.16s ease, transform 0.1s ease;
+}
+
+.player-video-close:hover {
+    background: rgba(15, 23, 42, 0.7);
+    transform: scale(1.06);
+}
+
+.player-video-close:active {
+    transform: scale(0.92);
+}
