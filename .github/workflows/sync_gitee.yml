@@ -34,27 +34,29 @@ jobs:
         run: |
           echo "Triggering Gitee mirror sync..."
 
-          # Try multiple Gitee API endpoints
-          for ENDPOINT in \
-            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync?access_token=${GITEE_TOKEN}" \
-            "https://gitee.com/api/v5/repos/vst93/bili-fm/mirror/sync?access_token=${GITEE_TOKEN}"; do
-            echo "Trying POST $ENDPOINT"
-            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" -X POST "$ENDPOINT")
-            echo "HTTP status: $HTTP_CODE"
+          # Gitee mirror sync API - try form-encoded POST
+          HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "access_token=${GITEE_TOKEN}" \
+            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync")
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $(cat /tmp/resp_body)"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Gitee mirror sync triggered successfully"
+          else
+            echo "⚠ Gitee mirror sync API returned $HTTP_CODE, trying alternative..."
+            # Alternative: use private_token header
+            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" \
+              -X POST \
+              -H "private_token: ${GITEE_TOKEN}" \
+              "https://gitee.com/api/v5/repos/vst93/bili-fm/sync")
+            echo "HTTP status (header auth): $HTTP_CODE"
             echo "Response: $(cat /tmp/resp_body)"
             if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
               echo "✓ Gitee mirror sync triggered successfully"
-              exit 0
+            else
+              echo "⚠ Gitee mirror sync failed, code sync may need manual trigger"
             fi
-
-            echo "Trying PUT $ENDPOINT"
-            HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" -X PUT "$ENDPOINT")
-            echo "HTTP status: $HTTP_CODE"
-            echo "Response: $(cat /tmp/resp_body)"
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              echo "✓ Gitee mirror sync triggered successfully"
-              exit 0
-            fi
-          done
-
-          echo "⚠ All Gitee mirror sync attempts failed"
+          fi
