@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -35,6 +37,6 @@ jobs:
           echo "Pushing code to Gitee..."
           git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/vst93/bili-fm.git" 2>/dev/null || \
             git remote set-url gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/vst93/bili-fm.git"
-          git push gitee main --force 2>&1 || echo "⚠ Push to Gitee failed"
+          git push gitee main --force 2>&1
           git remote remove gitee 2>/dev/null || true
           echo "✓ Code pushed to Gitee"
