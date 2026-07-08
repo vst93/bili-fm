@@ -26,25 +26,6 @@ def gh_headers():
     return {"Accept": "application/vnd.github+json"}
 
 
-def get_github_releases():
-    """Fetch all releases from GitHub with pagination."""
-    all_releases = []
-    page = 1
-    while True:
-        resp = requests.get(
-            f"{GITHUB_API}/{GH_OWNER}/{GH_REPO}/releases",
-            headers=gh_headers(),
-            params={"per_page": 100, "page": page},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if not data:
-            break
-        all_releases.extend(data)
-        page += 1
-    return all_releases
-
-
 def get_gitee_releases():
     """Fetch all releases from Gitee, return dict keyed by tag_name."""
     resp = requests.get(
@@ -154,49 +135,47 @@ def sync_release(github_release, gitee_release_info):
 
 
 def main():
-    print("Fetching GitHub releases...")
-    github_releases = get_github_releases()
-    print(f"  Found {len(github_releases)} releases")
+    print("Fetching GitHub latest release...")
+    resp = requests.get(
+        f"{GITHUB_API}/{GH_OWNER}/{GH_REPO}/releases/latest",
+        headers=gh_headers(),
+    )
+    resp.raise_for_status()
+    gh_release = resp.json()
+    tag = gh_release["tag_name"]
+    print(f"  Latest release: {tag}")
 
     print("Fetching Gitee releases...")
     gitee_releases = get_gitee_releases()
     print(f"  Found {len(gitee_releases)} releases")
 
-    # Sort by created_at (old to new)
-    github_releases.sort(key=lambda x: x.get("created_at", ""))
+    # Create release on Gitee if not exists
+    if tag in gitee_releases:
+        gitee_release_info = gitee_releases[tag]
+    else:
+        print(f"  [{tag}] Creating Gitee release...")
+        body = gh_release.get("body", "")
+        if not body:
+            commitish = gh_release.get("target_commitish", "")
+            if commitish:
+                try:
+                    cr = requests.get(
+                        f"{GITHUB_API}/{GH_OWNER}/{GH_REPO}/commits/{commitish}",
+                        headers=gh_headers(),
+                    )
+                    cr.raise_for_status()
+                    body = cr.json().get("commit", {}).get("message", "-")
+                except Exception:
+                    body = "-"
+        gitee_release_info = create_gitee_release(
+            tag,
+            gh_release.get("name", tag),
+            body,
+            gh_release.get("target_commitish", "master"),
+        )
 
-    for gh_release in github_releases:
-        tag = gh_release["tag_name"]
-
-        # Create release on Gitee if not exists
-        if tag in gitee_releases:
-            gitee_release_info = gitee_releases[tag]
-        else:
-            print(f"  [{tag}] Creating Gitee release...")
-            # Get commit message for body if missing
-            body = gh_release.get("body", "")
-            if not body:
-                commitish = gh_release.get("target_commitish", "")
-                if commitish:
-                    try:
-                        cr = requests.get(
-                            f"{GITHUB_API}/{GH_OWNER}/{GH_REPO}/commits/{commitish}",
-                            headers=gh_headers(),
-                        )
-                        cr.raise_for_status()
-                        body = cr.json().get("commit", {}).get("message", "-")
-                    except Exception:
-                        body = "-"
-            gitee_release_info = create_gitee_release(
-                tag,
-                gh_release.get("name", tag),
-                body,
-                gh_release.get("target_commitish", "master"),
-            )
-            gitee_releases[tag] = gitee_release_info
-
-        # Sync assets
-        sync_release(gh_release, gitee_release_info)
+    # Sync assets
+    sync_release(gh_release, gitee_release_info)
 
     print("Done!")
 
