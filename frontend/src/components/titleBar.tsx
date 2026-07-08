@@ -101,7 +101,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                 display: windowWidth <= 600 ? 'none' : '',
               }}
             >
-              <img alt="logo" className="w-8 h-8" src="/logo.png" />
+              <img alt="logo" className="w-8 h-8" src="/logo-transparent.png" />
               <span className="text-sm">bili-FM</span>
             </div>
             <div className="flex-1 flex justify-end items-center pr-2">
@@ -116,7 +116,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   display: windowWidth <= 600 ? 'none' : '',
                 }}
               >
-                <img alt="logo" className="w-8 h-8" src="/logo.png" />
+                <img alt="logo" className="w-8 h-8" src="/logo-transparent.png" />
                 <span className="text-sm">bili-FM</span>
                 <button
                   ref={settingsBtnRef}
