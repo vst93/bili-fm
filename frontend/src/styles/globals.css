@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ====== Liquid glass scrollbar ====== */
+/* Thin, modern scrollbar matching the glass aesthetic — replaces thick Windows default */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.3);
+    border-radius: 999px;
+    border: 0;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.5);
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 html {
     cursor: default;
     -webkit-user-select: none;

@@ -138,6 +138,30 @@ export default function IndexPage() {
     };
   }, [isMiniMode]);
 
+  // 音频/视频互斥：打开视频浮窗时停止音频
+  useEffect(() => {
+    if (isPlayVideo) {
+      setIsPlaying(false);
+    }
+  }, [isPlayVideo]);
+
+  // 切换播放源时关闭视频浮窗，避免新音频和旧视频同时播放
+  useEffect(() => {
+    if (isPlayVideo && playUrl) {
+      setIsPlayVideo(false);
+      setIsPlayVideoStop(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playUrl]);
+
+  // 音频开始播放时确保视频浮窗已关闭
+  useEffect(() => {
+    if (isPlaying && isPlayVideo) {
+      setIsPlayVideo(false);
+      setIsPlayVideoStop(true);
+    }
+  }, [isPlaying, isPlayVideo]);
+
   useEffect(() => {
     // 初始化时获取用户信息
     refreshUserInfo();
@@ -1263,6 +1287,10 @@ export default function IndexPage() {
    * 点击播放视频
    */
   const handlePlayVideoClick = () => {
+    if (!playUrl) {
+      toast({ type: "warning", content: "请先选择一个视频" });
+      return;
+    }
     setIsPlaying(false); // 停止音频播放
     setIsPlayVideo(true); // 打开视频播放浮窗
     setIsPlayVideoStop(false); // 自动开启播放
