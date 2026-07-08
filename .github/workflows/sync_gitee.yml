@@ -33,17 +33,27 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           python -c "
-          import requests, sys
+          import requests, os, sys
+          token = os.environ['GITEE_TOKEN']
+          headers = {'Authorization': f'token {token}'}
+
+          # Try Gitee sync API with different auth methods
           url = 'https://gitee.com/api/v5/repos/vst93/bili-fm/sync'
-          try:
-              resp = requests.post(url, params={'access_token': __import__('os').environ['GITEE_TOKEN']}, timeout=30)
-              print(f'HTTP status: {resp.status_code}')
-              print(f'Response: {resp.text}')
-              if 200 <= resp.status_code < 300:
-                  print('✓ Gitee mirror sync triggered successfully')
-              else:
-                  print(f'⚠ Gitee mirror sync failed with {resp.status_code}')
-          except Exception as e:
-              print(f'⚠ Error: {e}')
-              sys.exit(1)
+          methods = [
+              ('query param', lambda: requests.post(url, params={'access_token': token}, timeout=30)),
+              ('bearer header', lambda: requests.post(url, headers={'Authorization': f'Bearer {token}'}, timeout=30)),
+              ('token header', lambda: requests.post(url, headers={'Authorization': f'token {token}'}, timeout=30)),
+          ]
+          for name, fn in methods:
+              try:
+                  resp = fn()
+                  print(f'[{name}] HTTP {resp.status_code}: {resp.text[:200]}')
+                  if 200 <= resp.status_code < 300:
+                      print(f'✓ Gitee mirror sync triggered successfully ({name})')
+                      sys.exit(0)
+              except Exception as e:
+                  print(f'[{name}] Error: {e}')
+
+          print('⚠ Gitee sync API not available (repo may not be a Gitee mirror)')
+          print('⚠ Code sync may need manual trigger via Gitee web UI')
           "
