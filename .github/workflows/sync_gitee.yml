@@ -34,9 +34,17 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          echo "Pushing code to Gitee..."
-          git remote add gitee "https://gitee.com/vst93/bili-fm.git"
-          git -c "http.https://gitee.com/.extraheader=Authorization: bearer ${GITEE_TOKEN}" \
-            push gitee main --force 2>&1
-          git remote remove gitee 2>/dev/null || true
-          echo "✓ Code pushed to Gitee"
+          echo "Triggering Gitee force sync..."
+          HTTP_CODE=$(curl -s -o /tmp/resp_body -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "access_token=${GITEE_TOKEN}" \
+            "https://gitee.com/vst93/bili-fm/force_sync_project")
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $(cat /tmp/resp_body)"
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Gitee force sync triggered successfully"
+          else
+            echo "⚠ Gitee force sync failed"
+            exit 1
+          fi
