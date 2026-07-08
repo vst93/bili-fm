@@ -27,3 +27,22 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           MAX_WORKERS: '4'
         run: python .github/scripts/sync_gitee.py
+
+      - name: Trigger Gitee repo mirror sync
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          echo "Triggering Gitee mirror sync..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://gitee.com/api/v5/repos/vst93/bili-fm/sync" \
+            -H "Content-Type: application/json" \
+            -d "{\"access_token\": \"${GITEE_TOKEN}\"}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✓ Gitee mirror sync triggered successfully"
+          else
+            echo "⚠ Gitee mirror sync failed (may already be syncing or rate limited)"
+          fi
