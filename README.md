@@ -12,10 +12,12 @@ Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，
 
 ### 功能特性
 
+- 采用液态玻璃风格 UI，半透明毛玻璃效果适配亮暗环境
 - 支持关键词搜索 B 站视频，并可按时间、热度等条件排序
 - 登录后可查看订阅、收藏、推荐等个人内容
 - 支持播放、暂停、上一集、下一集、播放列表等常用播放控制
 - 支持弹幕列表展示，方便在听音频时快速浏览视频互动内容
+- 视频播放浮窗全屏铺满，带模糊遮罩与过渡动画
 - 点击 UP 主名称或头像，可打开 UP 主作品列表
 - 支持点赞、投币等常用互动操作
 - 支持 Windows、macOS 和 Linux 多平台使用
@@ -129,10 +131,12 @@ Bili FM is a cross-platform desktop application that lets you listen to Bilibili
 
 ### Features
 
+- Liquid glass UI design with translucent frosted glass effect that adapts to light/dark environments
 - Search Bilibili videos by keyword, with sorting by time, popularity, etc.
 - After login, access subscriptions, favorites, recommendations, and more
 - Playback controls: play, pause, previous, next, playlist management
 - Danmaku (bullet comments) list display for browsing interactions while listening
+- Full-screen video player overlay with blur backdrop and smooth transitions
 - Click a creator's name or avatar to open their video list
 - Like, coin, and other common interactions supported
 - Cross-platform: Windows, macOS, and Linux
