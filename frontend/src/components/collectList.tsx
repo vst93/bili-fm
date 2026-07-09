@@ -102,7 +102,7 @@ const CollectList: FC<CollectListProps> = ({
   return (
     <Drawer
       classNames={{
-        base: "h-[80vh]",
+        base: "h-[92vh] max-h-[calc(100vh-54px)]",
       }}
       isOpen={isOpen}
       placement="bottom"
@@ -111,9 +111,9 @@ const CollectList: FC<CollectListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex flex-col gap-2 py-2">
-              <div className="flex items-center gap-2">
-                收藏列表
+            <DrawerHeader className="collect-drawer-header py-2">
+              <div className="collect-drawer-title-row">
+                <span>收藏列表</span>
                 <Button
                   isIconOnly
                   size="sm"
@@ -123,7 +123,7 @@ const CollectList: FC<CollectListProps> = ({
                   <Refresh theme="outline" size="20" fill="#333" />
                 </Button>
               </div>
-              <div className="flex items-center gap-0">
+              <div className="collect-tabs-row">
                 <Button
                   isIconOnly
                   size="sm"

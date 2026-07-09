@@ -321,7 +321,7 @@ const DanmakuList: FC<DanmakuListProps> = ({
   ), [sortedReplies, formatDate, getMemberInfo, isLoading]);
 
   return (
-    <Drawer classNames={{ base: "h-[80vh]" }} isOpen={isOpen} placement="bottom" onOpenChange={handleOpenChange}>
+    <Drawer classNames={{ base: "h-[92vh] max-h-[calc(100vh-54px)]" }} isOpen={isOpen} placement="bottom" onOpenChange={handleOpenChange}>
       <DrawerContent>
         {() => (
           <>
@@ -366,13 +366,14 @@ const DanmakuList: FC<DanmakuListProps> = ({
                 {viewMode === "danmaku" && (
                   <Button
                     isIconOnly
+                    className={isAutoScroll ? "danmaku-follow-btn is-active" : "danmaku-follow-btn"}
                     size="sm"
-                    variant={isAutoScroll ? "solid" : "light"}
-                    color={isAutoScroll ? "primary" : "default"}
+                    variant="flat"
+                    color="default"
                     onPress={() => setIsAutoScroll(!isAutoScroll)}
                     title={isAutoScroll ? "暂停跟随" : "开始跟随"}
                   >
-                    <Connection size={18} fill={isAutoScroll ? "#fff" : "#68bca4"} />
+                    <Connection size={18} fill="currentColor" />
                   </Button>
                 )}
                 <Button
@@ -386,11 +387,10 @@ const DanmakuList: FC<DanmakuListProps> = ({
                 </Button>
               </div>
             </DrawerHeader>
-            <DrawerBody className="p-0 m-0 overflow-hidden">
+            <DrawerBody className="danmaku-drawer-body p-0 m-0 overflow-hidden">
               <div
                 ref={listRef}
-                className="gap-0 overflow-y-auto h-full w-full pr-2"
-                style={{ maxHeight: "calc(80vh - 100px)" }}
+                className="danmaku-scroll-area gap-0 overflow-y-auto h-full min-h-0 w-full pr-2"
                 onScroll={handleScroll}
               >
                 {viewMode === "danmaku" ? renderDanmaku() : renderReplies()}

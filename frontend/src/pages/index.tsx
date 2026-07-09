@@ -1689,22 +1689,22 @@ export default function IndexPage() {
             />
           )}
           {showLoginPanel && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-md">
-              <div className="login-glass relative w-80 rounded-2xl overflow-hidden">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm">
+              <div className="login-glass relative w-80 rounded-2xl overflow-visible">
                 <button
-                  className="absolute right-3 top-3 w-8 h-8 flex items-center justify-center rounded-full transition-colors"
-                  style={{ background: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.3)" }}
+                  aria-label="关闭登录"
+                  className="login-close-btn absolute -right-4 top-4 z-20 w-8 h-8 flex items-center justify-center rounded-full transition-colors"
                   onClick={handleCloseLogin}
                 >
                   <CloseSmall fill="#475569" size="18" theme="outline" />
                 </button>
-                <div className="p-6 text-center">
+                <div className="relative z-10 p-6 pt-8 text-center">
                   <h3 className="mb-1 text-lg font-bold text-slate-800">
                     使用 B站 App 扫码登录
                   </h3>
                   <p className="mb-4 text-sm text-slate-500">打开手机扫一扫</p>
                   <div className="relative inline-block">
-                    <div className="p-3 bg-white rounded-xl shadow-lg">
+                    <div className="login-qr-card p-3 rounded-xl shadow-lg">
                       <img
                         alt="登录二维码"
                         className="w-40 h-40"

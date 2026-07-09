@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 interface VideoCoverProps {
   cover?: string;
   isPlaying?: boolean;
@@ -12,29 +10,7 @@ export default function VideoCover({
   isPlaying = false,
   onPlayStateChange,
 }: VideoCoverProps) {
-  const [rotation, setRotation] = useState(0);
   const coverImage = cover || "/logo.png";
-
-  useEffect(() => {
-    let animationFrame: number;
-
-    const animate = () => {
-      if (isPlaying) {
-        setRotation((prev) => (prev + 0.2) % 360);
-        animationFrame = requestAnimationFrame(animate);
-      }
-    };
-
-    if (isPlaying) {
-      animationFrame = requestAnimationFrame(animate);
-    }
-
-    return () => {
-      if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
-      }
-    };
-  }, [isPlaying]);
 
   const handleClick = () => {
     onPlayStateChange?.(!isPlaying);
@@ -44,13 +20,8 @@ export default function VideoCover({
     <div className="cover-shell">
       <div
         id="video-cover"
-        className={isPlaying ? "is-playing" : ""}
+        className={isPlaying ? "record-disc is-playing" : "record-disc"}
         role="button"
-        style={{
-          transform: `rotate(${rotation}deg)`,
-          transition: isPlaying ? "none" : "transform 0.3s ease-out",
-          cursor: "pointer",
-        }}
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => {

@@ -260,7 +260,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
   return (
     <Drawer
       classNames={{
-        base: "h-[80vh]",
+        base: "h-[92vh] max-h-[calc(100vh-54px)]",
       }}
       isOpen={isOpen}
       placement="bottom"
@@ -269,9 +269,9 @@ const UpVideoList: FC<UpVideoListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center gap-2 py-2">
-              <div className="flex items-center gap-2 flex-grow">
-              <span className="text-lg font-medium">「{upName}」的空间</span>
+            <DrawerHeader className="drawer-header-responsive up-drawer-header py-2">
+              <div className="up-drawer-title-row">
+              <span className="up-drawer-title text-lg font-medium">「{upName}」的空间</span>
               {follower > 0 && (
                 <span className="text-sm text-default-500">粉丝 {formatNumber(follower)}</span>
               )}

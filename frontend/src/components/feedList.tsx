@@ -69,7 +69,7 @@ const FeedList: FC<FeedListProps> = ({
   return (
     <Drawer
       classNames={{
-        base: "h-[80vh]",
+        base: "h-[92vh] max-h-[calc(100vh-54px)]",
       }}
       isOpen={isOpen}
       placement="bottom"

@@ -99,7 +99,7 @@ const Playlist: FC<PlaylistProps> = ({
 
   return (
     <Drawer
-      classNames={{ base: "h-[80vh]" }}
+      classNames={{ base: "h-[92vh] max-h-[calc(100vh-54px)]" }}
       isOpen={isOpen}
       placement="bottom"
       onOpenChange={handleOpenChange}

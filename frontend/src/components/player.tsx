@@ -102,6 +102,22 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   }, [src]);
 
   useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      const openVolume = document.querySelector<HTMLElement>("#player .rap-volume-open");
+
+      if (!openVolume || target?.closest("#player .rap-volume")) return;
+      openVolume.click();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, []);
+
+  useEffect(() => {
     if (isPlaying && aid && cid) {
       ReportPlayProgress(aid, cid, 0);
     }
