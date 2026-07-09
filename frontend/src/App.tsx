@@ -6,6 +6,19 @@ import IndexPage from "@/pages/index";
 
 function App() {
   useEffect(() => {
+    // Time-of-day lighting: set data-time-of-day on <html> for subtle sky tint
+    const updateTimeOfDay = () => {
+      const hour = new Date().getHours();
+      let tod: string;
+      if (hour >= 5 && hour < 8) tod = "dawn";
+      else if (hour >= 8 && hour < 17) tod = "day";
+      else if (hour >= 17 && hour < 20) tod = "dusk";
+      else tod = "night";
+      document.documentElement.setAttribute("data-time-of-day", tod);
+    };
+    updateTimeOfDay();
+    const timer = setInterval(updateTimeOfDay, 60000);
+
     const cardSelector = '[data-slot="wrapper"] [role="button"][class*="bg-content"]';
     const activeCards = new Set<HTMLElement>();
     let animationFrame = 0;
@@ -100,37 +113,12 @@ function App() {
       document.removeEventListener("pointermove", handlePointerMove, true);
       document.removeEventListener("pointerleave", handlePointerLeave, true);
       clearCardGlow();
+      clearInterval(timer);
     };
   }, []);
 
   return (
     <>
-      <svg aria-hidden="true" className="liquid-glass-defs" focusable="false">
-        <filter
-          id="liquid-glass-filter"
-          x="-20%"
-          y="-20%"
-          width="140%"
-          height="140%"
-          colorInterpolationFilters="sRGB"
-        >
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.026 0.072"
-            numOctaves="2"
-            seed="7"
-            result="liquidNoise"
-          />
-          <feGaussianBlur in="liquidNoise" stdDeviation="0.35" result="softNoise" />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2="softNoise"
-            scale="38"
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-      </svg>
       <IndexPage />
       <ToastContainer />
     </>
