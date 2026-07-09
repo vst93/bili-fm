@@ -8,6 +8,29 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Liquid Glass SVG filters: genuine optical refraction via feDisplacementMap.
+         Referenced from CSS as filter: url(#liquid-refract) / url(#liquid-refract-soft).
+         Low-frequency fractal noise + gentle displacement scale = curved-glass distortion,
+         distinct from plain Gaussian blur. -->
+    <svg class="liquid-glass-defs" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Strong refraction for large hero surfaces (searchbar, player bar, drawers).
+             Very low baseFrequency = large-scale, smooth bending that reads as curved
+             glass, not noise. High stdDeviation smooths the displacement field into
+             a gentle lens curve. Scale tuned so color boundaries visibly warp. -->
+        <filter id="liquid-refract" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.004 0.006" numOctaves="2" seed="7" result="noise"/>
+          <feGaussianBlur in="noise" stdDeviation="3.5" result="softNoise"/>
+          <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="8" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+        <!-- Soft refraction for compact pills / docks / toolbars -->
+        <filter id="liquid-refract-soft" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.008 0.011" numOctaves="2" seed="11" result="noise"/>
+          <feGaussianBlur in="noise" stdDeviation="2.5" result="softNoise"/>
+          <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="4.5" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+      </defs>
+    </svg>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

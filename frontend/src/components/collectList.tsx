@@ -124,47 +124,40 @@ const CollectList: FC<CollectListProps> = ({
                 </Button>
               </div>
               <div className="collect-tabs-row">
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="light"
+                <button
+                  className="collect-scroll-btn"
+                  title="向左滚动"
                   onClick={() => scrollTabs("left")}
                 >
-                  <Left fill="#333" size="20" theme="outline" />
-                </Button>
-                <div
-                  ref={tabsRef}
-                  className="flex-1 overflow-x-auto scrollbar-hide"
-                >
-                  <div className="min-w-max">
-                    <Tabs
-                      classNames={{
-                        tabList: "gap-4 w-full relative rounded-none p-0",
-                        cursor: "bg-default-100",
-                        tab: "h-10 px-4",
-                        tabContent: "group-data-[selected=true]:text-primary",
-                      }}
-                      selectedKey={currentGroupId?.toString()}
-                      variant="light"
-                      onSelectionChange={(key) => onGroupSelect?.(Number(key))}
-                    >
-                      {collectGroups?.map((group) => (
-                        <Tab
-                          key={group.id}
-                          title={`${group.title} (${group.media_count})`}
-                        />
-                      ))}
-                    </Tabs>
-                  </div>
+                  <Left size="16" theme="outline" />
+                </button>
+                <div ref={tabsRef} className="collect-tabs-scroll">
+                  <Tabs
+                    classNames={{
+                      tabList: "gap-2 w-full relative rounded-none p-0 bg-transparent",
+                      cursor: "collect-tab-cursor",
+                      tab: "collect-tab",
+                      tabContent: "group-data-[selected=true]:text-primary",
+                    }}
+                    selectedKey={currentGroupId?.toString()}
+                    variant="light"
+                    onSelectionChange={(key) => onGroupSelect?.(Number(key))}
+                  >
+                    {collectGroups?.map((group) => (
+                      <Tab
+                        key={group.id}
+                        title={`${group.title} (${group.media_count})`}
+                      />
+                    ))}
+                  </Tabs>
                 </div>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="light"
+                <button
+                  className="collect-scroll-btn"
+                  title="向右滚动"
                   onClick={() => scrollTabs("right")}
                 >
-                  <Right fill="#333" size="20" theme="outline" />
-                </Button>
+                  <Right size="16" theme="outline" />
+                </button>
               </div>
             </DrawerHeader>
             <DrawerBody className="collect-drawer-body" onScroll={handleScroll}>

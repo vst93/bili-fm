@@ -82,10 +82,10 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     <button
       id="switch-window-mode"
       title="切换到迷你模式"
-      className="hover:bg-gray-200 p-1.5 rounded transition-colors"
+      style={{ ['--wails-draggable' as string]: 'no-drag' }}
       onClick={handleSwitchMode}
     >
-      <ZoomInternal fill="#333" size="14" theme="outline" />
+      <ZoomInternal size="14" theme="outline" />
     </button>
   );
 
@@ -104,7 +104,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
               <img alt="logo" className="w-8 h-8" src="/logo-transparent.png" />
               <span className="text-sm">bili-FM</span>
             </div>
-            <div className="flex-1 flex justify-end items-center pr-2">
+            <div className="flex-1 flex justify-end items-center pr-2" style={{ opacity: 1 }}>
               {switchBtn}
             </div>
           </>
@@ -129,20 +129,22 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   设置
                 </button>
               </div>
-              <div className="flex items-center gap-2 px-2">
+              <div className="flex items-center gap-2 px-2" style={{ opacity: 1 }}>
                 {switchBtn}
                 <div className="flex gap-1" id='wds-handle-group'>
                   <button
-                    className="hover:bg-gray-200 p-1.5 rounded transition-colors"
+                    style={{ ['--wails-draggable' as string]: 'no-drag' }}
+                    className="app-title-bar-btn"
                     onClick={handleMinimize}
                   >
-                    <Minus fill="#333" size="14" theme="outline" />
+                    <Minus size="14" theme="outline" />
                   </button>
                   <button
-                    className="hover:bg-red-200 hover:text-white p-1.5 rounded transition-colors"
+                    style={{ ['--wails-draggable' as string]: 'no-drag' }}
+                    className="app-title-bar-btn app-title-bar-close"
                     onClick={handleClose}
                   >
-                    <Close fill="#333" size="14" theme="outline" />
+                    <Close size="14" theme="outline" />
                   </button>
                 </div>
               </div>

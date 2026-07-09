@@ -88,16 +88,16 @@ const SearchForm: FC<SearchFormProps> = ({
       </div>
       <div className="home-global-actions" aria-label="B站内容入口">
         <button className="top-tool-btn" title="动态" onClick={onFeedClick}>
-          <ShareSys fill="#64748b" size={18} theme="outline" />
+          <ShareSys size={18} theme="outline" />
         </button>
         <button className="top-tool-btn" title="热门与推荐" onClick={onRecommendClick}>
-          <ChartRing fill="#64748b" size={18} theme="outline" />
+          <ChartRing size={18} theme="outline" />
         </button>
         <button className="top-tool-btn" title="收藏" onClick={onCollectClick}>
-          <WeixinFavorites fill="#64748b" size={18} theme="outline" />
+          <WeixinFavorites size={18} theme="outline" />
         </button>
         <button className="top-tool-btn" title="历史记录" onClick={onHistoryClick}>
-          <History fill="#64748b" size={18} theme="outline" />
+          <History size={18} theme="outline" />
         </button>
       </div>
       {userFace ? (

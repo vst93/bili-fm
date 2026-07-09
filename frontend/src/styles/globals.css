@@ -319,6 +319,7 @@ a,
     border: none;
     background: transparent;
     border-radius: 8px;
+    position: relative;
     cursor: pointer;
     transition: background-color 0.15s;
     flex-shrink: 0;
@@ -358,8 +359,6 @@ a,
         inset 0 1px 1px rgba(255, 255, 255, 0.5),
         inset 0 -1px 1px rgba(15, 23, 42, 0.08),
         0 2px 6px rgba(225, 29, 72, 0.2);
-    backdrop-filter: blur(6px) saturate(1.4);
-    -webkit-backdrop-filter: blur(6px) saturate(1.4);
 }
 
 .slideBtnClass {
@@ -546,26 +545,8 @@ a,
     overflow: hidden;
 }
 
-#switch-window-mode {
-    cursor: pointer;
-    opacity: 0.72;
-}
-
-#switch-window-mode-mini {
-    position: fixed;
-    top: 9px;
-    right: 10px;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-    z-index: 9999999;
-    opacity: 0.72;
-}
-
-#switch-window-mode:hover,
-#switch-window-mode-mini:hover {
-    opacity: 1;
-}
+/* Switch-mode button base styles are defined later in the liquid glass section.
+   The mini-mode variant is styled under body.mini-mode #switch-window-mode-mini. */
 
 #wds-handle-group{
     /* border: 1px solid #e5e5e5;
@@ -608,27 +589,223 @@ a,
     --studio-shadow: 0 22px 60px rgba(35, 50, 78, 0.16);
 
     /* Liquid Glass material tokens */
-    --glass-bg: rgba(255, 255, 255, 0.28);
-    --glass-bg-hover: rgba(255, 255, 255, 0.42);
-    --glass-bg-active: rgba(255, 255, 255, 0.2);
-    --glass-border: rgba(255, 255, 255, 0.5);
-    --glass-border-bright: rgba(255, 255, 255, 0.68);
+    --glass-bg: rgba(255, 255, 255, 0.24);
+    --glass-bg-hover: rgba(255, 255, 255, 0.38);
+    --glass-bg-active: rgba(255, 255, 255, 0.16);
+    --glass-border: rgba(255, 255, 255, 0.55);
+    --glass-border-bright: rgba(255, 255, 255, 0.72);
     --glass-highlight: rgba(255, 255, 255, 0.9);
-    --glass-blur: blur(22px) saturate(1.8);
-    --glass-blur-thin: blur(16px) saturate(1.6);
+    --glass-blur: blur(20px) saturate(1.45);
+    --glass-blur-thin: blur(14px) saturate(1.35);
     --glass-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
     --glass-shadow-lifted: 0 14px 40px rgba(15, 23, 42, 0.1);
     /* Specular edge-light: bright top, dark bottom -- simulates light catching glass rim */
     --glass-specular:
         inset 0 1px 1px 0.5px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.06);
-    /* Gradient overlay for glass depth: light from top-left */
-    --glass-sheen: linear-gradient(165deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.06) 28%, transparent 52%, rgba(14, 165, 233, 0.03) 80%, transparent 100%);
+    /* Static depth gradients for ::before layers (which carry the SVG refraction
+       filter). Dynamic pointer-follow highlight lives only on button elements'
+       own background-image to avoid re-filtering on every mousemove.
+       --lx/--ly are set per-element by the glass-light tracker in App.tsx, and
+       var(--lx) must appear directly in the consuming property (not via a
+       :root custom property) to resolve per-element. */
+    --glass-sheen-static:
+        radial-gradient(140% 80% at 22% -5%, rgba(255, 255, 255, 0.24), transparent 48%),
+        linear-gradient(170deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 35%, transparent 60%);
+
+    /* ====== True Liquid Glass (refraction) tokens ====== */
+    /* Refraction backdrop: blur + mild saturation. No brightness dimming -- that
+       leaves a gray patch behind each glass surface. */
+    --liquid-blur: blur(20px) saturate(1.45);
+    --liquid-blur-thin: blur(14px) saturate(1.35);
+    --liquid-bg: rgba(255, 255, 255, 0.22);
+    --liquid-bg-hover: rgba(255, 255, 255, 0.3);
+    --liquid-bg-active: rgba(255, 255, 255, 0.16);
+    /* Edge light-gathering: a soft neutral-white rim, brightest only at the top edge
+       where light catches. Bright but only 1px thin (masked to the border) so it reads
+       as crisp edge light without washing out the translucent fill. */
+    --liquid-rim:
+        conic-gradient(from 215deg at 30% -5%,
+            rgba(255, 255, 255, 1) 0deg,
+            rgba(255, 255, 255, 0.3) 65deg,
+            rgba(255, 255, 255, 0.05) 140deg,
+            rgba(255, 255, 255, 0.08) 225deg,
+            rgba(255, 255, 255, 0.55) 305deg,
+            rgba(255, 255, 255, 1) 360deg);
+    /* Chromatic dispersion at the rim -- subtle warm/cool fringe. */
+    --liquid-chromatic:
+        0 0.5px 0 rgba(255, 250, 240, 0.5),
+        0 -0.5px 0 rgba(200, 220, 240, 0.2);
+    --liquid-shadow:
+        0 8px 24px rgba(15, 23, 42, 0.07),
+        0 1px 4px rgba(15, 23, 42, 0.03);
+    --liquid-shadow-lifted:
+        0 16px 38px rgba(15, 23, 42, 0.11),
+        0 2px 8px rgba(15, 23, 42, 0.04);
+    /* Pressed: shadow contracts and deepens -- surface sinks toward the backdrop */
+    --liquid-shadow-press:
+        0 2px 8px rgba(15, 23, 42, 0.12),
+        inset 0 2px 6px rgba(15, 23, 42, 0.08);
 }
 
 body {
     color: var(--studio-ink);
 }
+
+/* ====== True Liquid Glass material ====== */
+/* The glass material lives in ::before so the SVG refraction filter can bend the
+   sampled backdrop without distorting the foreground content. Content sits above via z-index.
+   ::after carries the bright conic rim-light + chromatic edge (the "light gathering" signal
+   that separates liquid glass from plain Gaussian blur). */
+.liquid-glass {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid var(--glass-border);
+    border-radius: 13px;
+    background: transparent;
+    box-shadow: var(--liquid-shadow);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur);
+    -webkit-backdrop-filter: var(--liquid-blur);
+    /* Genuine refraction: bends the blurred backdrop like a curved lens */
+    filter: url(#liquid-refract);
+    z-index: -1;
+    transition: background-color 0.2s ease;
+}
+
+.liquid-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    /* Conic rim-light masked to the border, so light "gathers" around the whole edge */
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow: var(--liquid-chromatic);
+    z-index: 1;
+}
+
+.liquid-glass > * {
+    position: relative;
+    z-index: 2;
+}
+
+.liquid-glass:hover {
+    border-color: var(--glass-border-bright);
+    box-shadow: var(--liquid-shadow-lifted);
+}
+
+.liquid-glass:hover::before {
+    background-color: var(--liquid-bg-hover);
+}
+
+/* Compact variant for pills / docks / toolbars -- softer refraction, tighter radius */
+.liquid-glass-soft {
+    border-radius: 11px;
+}
+
+.liquid-glass-soft::before {
+    backdrop-filter: var(--liquid-blur-thin);
+    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    filter: url(#liquid-refract-soft);
+}
+
+/* ====== Liquid glass icon button ====== */
+/* Compact glass button for toolbar actions (e.g. the part-list "locate" button).
+   Same refraction + rim-light material as the hero surfaces, sized for icons. */
+.liquid-glass-icon-btn {
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--glass-border);
+    border-radius: 9px;
+    background: transparent;
+    box-shadow: var(--liquid-shadow);
+    color: #475569;
+    cursor: pointer;
+    opacity: 0.92;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+}
+
+.liquid-glass-icon-btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur-thin);
+    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    z-index: -1;
+    transition: background-color 0.2s ease;
+}
+
+.liquid-glass-icon-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
+    z-index: 1;
+}
+
+.liquid-glass-icon-btn > * {
+    position: relative;
+    z-index: 2;
+}
+
+.liquid-glass-icon-btn:hover {
+    border-color: var(--glass-border-bright);
+    box-shadow: var(--liquid-shadow-lifted);
+    color: #0284c7;
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.liquid-glass-icon-btn:hover::before {
+    background-color: var(--liquid-bg-hover);
+}
+
+/* Press: surface sinks toward the backdrop -- light contracts, shadow deepens inward */
+.liquid-glass-icon-btn:active {
+    transform: scale(0.94);
+    box-shadow: var(--liquid-shadow-press);
+}
+
+.liquid-glass-icon-btn:active::before {
+    background-color: var(--liquid-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
+}
+
 
 .liquid-glass-defs {
     position: absolute;
@@ -640,18 +817,30 @@ body {
 #root {
     position: relative;
     z-index: 0;
+    /* Multi-hue gradient with built-in warm↔cool variation. The stops alternate
+       between warm-tinted and cool-tinted whites so the displacement filter has
+       visible color boundaries to bend. */
     --liquid-backdrop:
-        linear-gradient(175deg, #a8d4ea 0%, #b8def0 18%, #c4e3f2 36%, #c8e1ef 54%, #b8d8e8 72%, #a4cee0 100%);
-    /* Clean sky gradient for refraction -- no blobs, avoids "water stain" look */
-    --liquid-refraction-scene:
-        linear-gradient(175deg, rgba(168, 212, 234, 0.8) 0%, rgba(184, 222, 240, 0.82) 28%, rgba(196, 225, 239, 0.84) 56%, rgba(184, 216, 232, 0.82) 82%, rgba(164, 206, 224, 0.8) 100%);
+        linear-gradient(165deg,
+            #e8f0fa 0%,
+            #e2eaf5 10%,
+            #f0eef6 22%,
+            #e4e8f2 35%,
+            #dce6f0 48%,
+            #e8eef4 60%,
+            #d6e4ee 72%,
+            #e0eaf2 85%,
+            #d8e6f0 100%);
     background: var(--liquid-backdrop);
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
     --glass-chromatic: drop-shadow(0.8px 0 rgba(14, 165, 233, 0.12)) drop-shadow(-0.8px 0 rgba(244, 114, 182, 0.08));
 }
 
-/* Cloud layer -- soft white wisps drifting slowly across the sky */
+/* Directional light blooms: a warm light source top-left and a cool counter-light
+   bottom-right. These are large enough to be visible through the glass refraction,
+   creating the "light bending through curved glass" signal. Three blooms keep it
+   simple -- more would read as texture, not light. */
 #root::before {
     content: "";
     position: fixed;
@@ -659,18 +848,27 @@ body {
     z-index: -1;
     pointer-events: none;
     background:
-        radial-gradient(ellipse 48% 16% at 22% 10%, rgba(255, 255, 255, 0.7), transparent 70%),
-        radial-gradient(ellipse 40% 14% at 75% 18%, rgba(255, 255, 255, 0.55), transparent 68%),
-        radial-gradient(ellipse 52% 18% at 45% 38%, rgba(255, 255, 255, 0.4), transparent 72%),
-        radial-gradient(ellipse 36% 13% at 88% 55%, rgba(255, 255, 255, 0.42), transparent 68%),
-        radial-gradient(ellipse 44% 15% at 15% 62%, rgba(255, 255, 255, 0.36), transparent 70%);
-    animation: cloud-drift 180s ease-in-out infinite alternate;
-    opacity: 0.85;
+        radial-gradient(ellipse 70% 55% at 15% 5%, rgba(255, 238, 218, 0.45), transparent 62%),
+        radial-gradient(ellipse 60% 50% at 85% 95%, rgba(168, 207, 240, 0.38), transparent 60%),
+        radial-gradient(ellipse 45% 35% at 92% 15%, rgba(230, 240, 255, 0.25), transparent 55%);
+    animation: cloud-drift 120s ease-in-out infinite alternate;
 }
 
 @keyframes cloud-drift {
     0% { transform: translate(0%, 0%); }
-    100% { transform: translate(-3%, 0.5%); }
+    100% { transform: translate(-2%, 0.3%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #root::before {
+        animation: none;
+    }
+    #video-cover.record-disc {
+        animation: none !important;
+    }
+    .bl-feed-list-refresh:hover {
+        animation: none !important;
+    }
 }
 
 /* ====== Time-of-day lighting overlay ====== */
@@ -684,8 +882,19 @@ body {
     transition: opacity 1.5s ease, background 1.5s ease;
 }
 
+html[data-time-of-day="dawn"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #fde8d8 0%,
+            #f5e0e8 15%,
+            #ece6f0 30%,
+            #dde8f4 50%,
+            #d4e4f0 70%,
+            #d8e8f2 100%);
+}
+
 html[data-time-of-day="dawn"] #root::after {
-    background: linear-gradient(175deg, rgba(255, 200, 150, 0.12) 0%, transparent 50%);
+    background: linear-gradient(165deg, rgba(255, 210, 170, 0.14) 0%, rgba(255, 200, 150, 0.05) 40%, transparent 70%);
     opacity: 1;
 }
 
@@ -694,19 +903,30 @@ html[data-time-of-day="day"] #root::after {
     opacity: 0;
 }
 
+html[data-time-of-day="dusk"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #f5d8c8 0%,
+            #e8c8d8 15%,
+            #d8c8e8 30%,
+            #c8d0e8 50%,
+            #c0cee0 70%,
+            #c8d4e4 100%);
+}
+
 html[data-time-of-day="dusk"] #root::after {
-    background: linear-gradient(175deg, rgba(255, 170, 120, 0.15) 0%, rgba(200, 180, 255, 0.06) 60%, transparent 100%);
+    background: linear-gradient(165deg, rgba(255, 180, 140, 0.12) 0%, rgba(200, 180, 255, 0.05) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="night"] #root::after {
-    background: linear-gradient(175deg, rgba(30, 50, 90, 0.18) 0%, rgba(40, 50, 80, 0.1) 50%, transparent 100%);
+    background: linear-gradient(165deg, rgba(30, 45, 75, 0.16) 0%, rgba(35, 45, 70, 0.08) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="night"] #root {
     --liquid-backdrop:
-        linear-gradient(175deg, #4a6a8a 0%, #5a7a9a 24%, #688aa4 52%, #5e82a0 78%, #4e708e 100%);
+        linear-gradient(165deg, #3a526e 0%, #4a6182 20%, #567090 40%, #4e6888 60%, #42587a 80%, #3a5070 100%);
 }
 
 html[data-time-of-day="night"] #root::before {
@@ -743,17 +963,58 @@ body.mini-mode #root::before {
 .app-title-bar button {
     background: transparent;
     widows: 0;
-    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease;
+    position: relative;
+    isolation: isolate;
+    --wails-draggable: no-drag;
+    transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease;
+}
+
+/* Minimize / close button sizing -- matches #switch-window-mode */
+.app-title-bar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: var(--studio-muted);
+    cursor: pointer;
+    opacity: 0.72;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+}
+
+.app-title-bar-btn:hover {
+    opacity: 1;
+    color: #0284c7;
+}
+
+/* Close button gets a warm-red hover to distinguish it */
+.app-title-bar button.app-title-bar-close:hover {
+    color: #e11d48 !important;
+    background-color: rgba(225, 29, 72, 0.1) !important;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.3) 0%, transparent 72%) !important;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 2px 8px rgba(225, 29, 72, 0.12) !important;
+}
+
+.app-title-bar-btn:active {
+    transform: scale(0.94);
 }
 
 .app-title-bar button:hover {
-    background: var(--glass-bg-hover) !important;
+    background-color: var(--glass-bg-hover) !important;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.02) 58%, transparent 72%) !important;
     box-shadow: inset 0 1px 1px var(--glass-highlight);
 }
 
 .app-title-bar button:active {
     transform: scale(0.94);
-    background: var(--glass-bg-active) !important;
+    background-color: var(--glass-bg-active) !important;
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%) !important;
 }
 
 .app-main {
@@ -781,50 +1042,64 @@ body.mini-mode #root::before {
     min-height: 46px;
     position: relative;
     z-index: 2;
+    isolation: isolate;
     flex: 0 0 46px;
     padding: 4px 8px;
     border: 1px solid var(--glass-border);
     border-radius: 13px;
-    background: var(--glass-bg);
-    box-shadow:
-        var(--glass-specular),
-        var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    background: transparent;
+    box-shadow: var(--liquid-shadow);
+    backdrop-filter: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
+/* Glass material + genuine refraction (bends the backdrop, not just blurs it) */
 .home-searchbar::before {
     content: "";
     position: absolute;
     inset: 0;
-    pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
-    opacity: 1;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur);
+    -webkit-backdrop-filter: var(--liquid-blur);
+    filter: url(#liquid-refract);
+    z-index: -1;
+    transition: background-color 0.2s ease;
 }
 
+/* Conic rim light + chromatic edge: light "gathers" around the whole border */
 .home-searchbar::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.06);
+    z-index: 1;
 }
 
 .home-searchbar > * {
     position: relative;
-    z-index: 1;
+    z-index: 2;
 }
 
 .home-searchbar:hover {
     border-color: var(--glass-border-bright);
-    background: var(--glass-bg-hover);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05),
-        var(--glass-shadow-lifted);
+    box-shadow: var(--liquid-shadow-lifted);
+}
+
+.home-searchbar:hover::before {
+    background-color: var(--liquid-bg-hover);
 }
 
 .home-search-input {
@@ -838,26 +1113,42 @@ body.mini-mode #root::before {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 0;
+    border: 1px solid rgba(255, 255, 255, 0.4);
     border-radius: 9px;
     color: #334155;
-    background: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.55);
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.14) 30%, transparent 72%);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.04);
     cursor: pointer;
-    transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease;
+    position: relative;
+    isolation: isolate;
+    flex: 0 0 auto;
+    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease;
+}
+
+.search-submit-btn > * {
+    position: relative;
+    z-index: 1;
 }
 
 .search-submit-btn:hover {
     color: #0284c7;
-    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-bright);
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(15, 23, 42, 0.06);
+        0 4px 12px rgba(14, 165, 233, 0.08);
+    transform: translateY(-1px);
 }
 
 .search-submit-btn:active {
-    transform: scale(0.96);
-    background: var(--glass-bg-active);
+    transform: scale(0.95);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 .home-user-avatar {
@@ -881,14 +1172,24 @@ body.mini-mode #root::before {
     align-items: center;
     gap: 2px;
     padding: 2px;
+    position: relative;
+    isolation: isolate;
     border-radius: 12px;
-    background: var(--glass-bg);
+    background: transparent;
     border: 1px solid var(--glass-border);
-    box-shadow:
-        var(--glass-specular),
-        var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--liquid-shadow);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-global-actions::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    z-index: -1;
+    transition: background-color 0.2s ease;
 }
 
 .home-global-actions::after {
@@ -897,7 +1198,22 @@ body.mini-mode #root::before {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
+    z-index: 1;
+}
+
+.home-global-actions > * {
+    position: relative;
+    z-index: 2;
 }
 
 .top-tool-btn {
@@ -908,25 +1224,43 @@ body.mini-mode #root::before {
     justify-content: center;
     border: 0;
     border-radius: 8px;
-    background: transparent;
-    opacity: 0.85;
+    color: #64748b;
+    background-color: transparent;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 30%, transparent 72%);
+    opacity: 0.82;
     cursor: pointer;
-    transition: background 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    position: relative;
+    isolation: isolate;
+    flex: 0 0 auto;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+}
+
+.top-tool-btn > * {
+    position: relative;
+    z-index: 1;
+    transition: filter 0.16s ease;
 }
 
 .top-tool-btn:hover {
     opacity: 1;
-    background: var(--glass-bg-hover);
+    color: #0284c7;
+    background-color: rgba(255, 255, 255, 0.5);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(15, 23, 42, 0.06);
+        0 2px 8px rgba(15, 23, 42, 0.05);
     transform: translateY(-1px);
 }
 
+.top-tool-btn:hover > * {
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5));
+}
+
 .top-tool-btn:active {
-    transform: scale(0.94);
-    background: var(--glass-bg-active);
+    transform: scale(0.92);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 .home-search-input [data-slot="input-wrapper"] {
@@ -938,8 +1272,6 @@ body.mini-mode #root::before {
         inset 0 1px 1px rgba(255, 255, 255, 0.6),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04) !important;
     background: rgba(255, 255, 255, 0.12) !important;
-    backdrop-filter: blur(6px) saturate(1.3);
-    -webkit-backdrop-filter: blur(6px) saturate(1.3);
     transition: background 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
 }
 
@@ -960,12 +1292,13 @@ body.mini-mode #root::before {
 #settings-menu {
     widows: 0;
     border: 1px solid var(--glass-border) !important;
-    background: var(--glass-bg) !important;
+    background-color: var(--glass-bg) !important;
+    background-image: var(--glass-sheen-static) !important;
     box-shadow:
         var(--glass-specular),
         0 18px 44px rgba(15, 23, 42, 0.1) !important;
-    backdrop-filter: blur(22px) saturate(1.8);
-    -webkit-backdrop-filter: blur(22px) saturate(1.8);
+    backdrop-filter: var(--liquid-blur);
+    -webkit-backdrop-filter: var(--liquid-blur);
 }
 
 #settings-menu button {
@@ -1178,8 +1511,20 @@ body.mini-mode #root::before {
     height: 44px !important;
     border-radius: 50%;
     object-fit: cover;
-    border: 0;
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.11);
+    border: 2px solid var(--glass-border-bright);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 2px rgba(15, 23, 42, 0.14),
+        0 6px 16px rgba(15, 23, 42, 0.12);
+    transition: box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+#video-owner-face:hover {
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 2px rgba(15, 23, 42, 0.14),
+        0 10px 22px rgba(14, 165, 233, 0.22);
+    transform: translateY(-1px);
 }
 
 .video-kicker {
@@ -1256,15 +1601,27 @@ body.mini-mode #root::before {
     padding: 6px 12px;
     border: 1px solid var(--glass-border);
     border-radius: 999px;
-    background: var(--glass-bg);
-    box-shadow: var(--glass-specular);
-    backdrop-filter: var(--glass-blur-thin);
-    -webkit-backdrop-filter: var(--glass-blur-thin);
+    background: transparent;
+    box-shadow: var(--liquid-shadow);
+    backdrop-filter: none;
     color: #0369a1;
     font-size: 14px;
     font-weight: 700;
     overflow: hidden;
     position: relative;
+    isolation: isolate;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.video-part-pill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    z-index: -1;
+    transition: background 0.2s ease;
 }
 
 .video-part-pill::after {
@@ -1273,7 +1630,21 @@ body.mini-mode #root::before {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight);
+    z-index: 1;
+}
+
+.video-part-pill > * {
+    position: relative;
+    z-index: 2;
 }
 
 .video-part-dot {
@@ -1333,23 +1704,25 @@ body.mini-mode #root::before {
     justify-content: flex-start;
     gap: 3px;
     position: relative;
+    isolation: isolate;
     border-radius: 16px;
-    background: var(--glass-bg);
+    background: transparent;
     border: 1px solid var(--glass-border);
-    box-shadow:
-        var(--glass-specular),
-        var(--glass-shadow);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--liquid-shadow);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .video-context-dock::before {
     content: "";
     position: absolute;
     inset: 0;
-    pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur-thin);
+    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    z-index: -1;
+    transition: background-color 0.2s ease;
 }
 
 .video-context-dock::after {
@@ -1358,28 +1731,46 @@ body.mini-mode #root::before {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    box-shadow: inset 0 1px 0 var(--glass-highlight);
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
+    z-index: 1;
 }
 
 .video-context-dock > * {
     position: relative;
-    z-index: 1;
+    z-index: 2;
 }
 
 .nav-icon-btn {
     width: 32px;
     height: 32px;
     border: 0;
-    background: transparent;
+    background-color: transparent;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.02) 58%, transparent 72%);
     border-radius: 7px;
     color: #475569;
     cursor: pointer;
     opacity: 0.92;
-    transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease, opacity 0.16s ease;
+    position: relative;
+    isolation: isolate;
+    transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease, opacity 0.16s ease;
+}
+
+.nav-icon-btn > * {
+    position: relative;
+    z-index: 1;
 }
 
 .nav-icon-btn:hover {
-    background: var(--glass-bg-hover);
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
@@ -1390,7 +1781,9 @@ body.mini-mode #root::before {
 
 .nav-icon-btn:active {
     transform: scale(0.94);
-    background: var(--glass-bg-active);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 .video-content-actions .nav-icon-btn {
@@ -1401,7 +1794,7 @@ body.mini-mode #root::before {
 }
 
 .video-content-actions .nav-icon-btn:hover {
-    background: var(--glass-bg-hover);
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
@@ -1418,7 +1811,7 @@ body.mini-mode #root::before {
 }
 
 .video-context-dock .nav-icon-btn:hover {
-    background: var(--glass-bg-hover);
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.05),
@@ -1437,9 +1830,11 @@ body.mini-mode #root::before {
     transform: none;
 }
 
-.nav-badge {
+.nav-icon-btn .nav-badge {
+    position: absolute;
     top: -4px;
     right: -4px;
+    z-index: 3;
     background: rgba(225, 29, 72, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.55);
     font-size: 9px;
@@ -1447,8 +1842,6 @@ body.mini-mode #root::before {
         inset 0 1px 1px rgba(255, 255, 255, 0.5),
         inset 0 -1px 1px rgba(15, 23, 42, 0.08),
         0 2px 6px rgba(225, 29, 72, 0.2);
-    backdrop-filter: blur(6px) saturate(1.4);
-    -webkit-backdrop-filter: blur(6px) saturate(1.4);
 }
 
 #player {
@@ -1476,29 +1869,48 @@ body.mini-mode #root::before {
     height: 56px !important;
     padding: 0 16px !important;
     position: relative;
+    isolation: isolate;
     border: 0 !important;
     border-radius: 0 !important;
     border-top: 1px solid var(--glass-border) !important;
-    background: var(--glass-bg) !important;
-    box-shadow:
-        inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 -10px 30px rgba(15, 23, 42, 0.04) !important;
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    background: transparent !important;
+    box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.04) !important;
+    backdrop-filter: none;
 }
 
 #player .rap-container::before {
     content: "";
     position: absolute;
     inset: 0;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur);
+    -webkit-backdrop-filter: var(--liquid-blur);
+    filter: url(#liquid-refract);
+    z-index: -1;
+}
+
+#player .rap-container::after {
+    content: "";
+    position: absolute;
+    inset: 0;
     pointer-events: none;
-    background: var(--glass-sheen);
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.04);
+    z-index: 1;
 }
 
 #player .rap-container > * {
     position: relative;
-    z-index: 1;
+    z-index: 2;
 }
 
 #player .rap-pp-button,
@@ -1511,29 +1923,36 @@ body.mini-mode #root::before {
     justify-content: center;
     border: 1px solid var(--glass-border);
     border-radius: 12px;
-    background: var(--glass-bg);
+    background-color: var(--glass-bg);
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.02) 58%, transparent 72%);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 5px 14px rgba(15, 23, 42, 0.06);
     color: #334155;
-    transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
+    position: relative;
+    isolation: isolate;
+    transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.1s ease;
 }
 
 #player .rap-pp-button:hover,
 #player .rap-volume-btn:hover,
 #player .rap-volume-open {
     border-color: var(--glass-border-bright);
-    background: var(--glass-bg-hover);
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.05),
         0 7px 18px rgba(15, 23, 42, 0.1);
+    transform: translateY(-1px);
 }
 
 #player .rap-pp-button:active,
 #player .rap-volume-btn:active {
     transform: scale(0.95);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 #player .rap-pp-icon,
@@ -1711,23 +2130,47 @@ body.mini-mode #root::before {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    padding: 0;
     border: 0;
     border-radius: 6px;
-    background: transparent;
-    transition: background 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease;
+    color: var(--studio-muted);
+    background-color: transparent;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%);
+    opacity: 0.72;
+    cursor: pointer;
+    position: relative;
+    isolation: isolate;
+    --wails-draggable: no-drag;
+    /* Override the title-bar's child opacity fade -- this button should always
+       be visible, not dimmed to 0.14 with the rest of the title bar content */
+    z-index: 10;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+}
+
+#switch-window-mode > * {
+    position: relative;
+    z-index: 1;
 }
 
 #switch-window-mode:hover {
-    opacity: 0.9;
-    background: var(--glass-bg-hover);
+    opacity: 1;
+    color: #0284c7;
+    background-color: var(--glass-bg-hover);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 4px 12px rgba(15, 23, 42, 0.06);
+    transform: translateY(-1px);
 }
 
 #switch-window-mode:active {
     transform: scale(0.94);
-    background: var(--glass-bg-active);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 @media (max-width: 680px) {
@@ -1781,6 +2224,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 [data-slot="wrapper"] > section {
     position: relative;
+    isolation: isolate;
     height: min(92vh, calc(100vh - 54px)) !important;
     max-height: min(92vh, calc(100vh - 54px)) !important;
     min-height: 560px;
@@ -1788,13 +2232,51 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     flex-direction: column !important;
     border-top: 1px solid var(--glass-border) !important;
     border-radius: 18px 18px 0 0 !important;
-    background: var(--glass-bg) !important;
+    background: transparent !important;
+    box-shadow: 0 -16px 50px rgba(15, 23, 42, 0.08) !important;
+    backdrop-filter: none !important;
+}
+
+/* Drawer glass material + genuine refraction (bends the backdrop, not just blurs it) */
+[data-slot="wrapper"] > section::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur);
+    -webkit-backdrop-filter: var(--liquid-blur);
+    filter: url(#liquid-refract);
+    z-index: -1;
+}
+
+/* Conic rim light + chromatic edge around the drawer */
+[data-slot="wrapper"] > section::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
     box-shadow:
+        var(--liquid-chromatic),
         inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05),
-        0 -16px 50px rgba(15, 23, 42, 0.08) !important;
-    backdrop-filter: blur(22px) saturate(1.8) !important;
-    -webkit-backdrop-filter: blur(22px) saturate(1.8) !important;
+        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
+    z-index: 1;
+}
+
+/* Keep the header and body above the glass ::before layer. The close button is
+   excluded so HeroUI's absolute positioning is preserved. */
+[data-slot="wrapper"] > section > header,
+[data-slot="wrapper"] > section > div[class] {
+    position: relative;
+    z-index: 2;
 }
 
 /* Drawer header - <header> inside the section */
@@ -1856,15 +2338,114 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 .collect-tabs-row {
     width: 100%;
-    gap: 4px;
+    gap: 6px;
 }
 
-.collect-tabs-row > button {
-    flex: 0 0 32px;
+/* Scroll arrow buttons -- compact glass pills */
+.collect-scroll-btn {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: #64748b;
+    background-color: rgba(255, 255, 255, 0.3);
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%);
+    box-shadow: inset 0 1px 1px var(--glass-highlight);
+    cursor: pointer;
+    position: relative;
+    isolation: isolate;
+    transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, transform 0.12s ease;
 }
 
-.collect-tabs-row [data-slot="tabList"] {
-    gap: 8px !important;
+.collect-scroll-btn:hover {
+    color: #0284c7;
+    background-color: var(--glass-bg-hover);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 2px 8px rgba(15, 23, 42, 0.05);
+    transform: translateY(-1px);
+}
+
+.collect-scroll-btn:active {
+    transform: scale(0.92);
+    background-color: var(--glass-bg-active);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+}
+
+/* Horizontal scroll container for tabs */
+.collect-tabs-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.collect-tabs-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* Each tab is a standalone glass pill, not a connected bar */
+[data-slot="wrapper"] .collect-tabs-row [data-slot="tabList"] {
+    gap: 6px !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+}
+
+[data-slot="wrapper"] .collect-tab {
+    height: 32px !important;
+    padding: 0 14px !important;
+    border-radius: 8px !important;
+    background-color: rgba(255, 255, 255, 0.3) !important;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    box-shadow: inset 0 1px 1px var(--glass-highlight) !important;
+    color: #475569 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease !important;
+}
+
+[data-slot="wrapper"] .collect-tab:hover {
+    background-color: rgba(255, 255, 255, 0.5) !important;
+    border-color: var(--glass-border-bright) !important;
+    color: #334155 !important;
+}
+
+/* Selected tab: brighter fill + accent border */
+[data-slot="wrapper"] .collect-tab[data-selected="true"] {
+    background-color: rgba(14, 165, 233, 0.14) !important;
+    border-color: rgba(14, 165, 233, 0.4) !important;
+    color: #0369a1 !important;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 0 0 1px rgba(14, 165, 233, 0.12) !important;
+}
+
+/* Cursor highlight (HeroUI's animated indicator) -- hide it, we use border+bg instead */
+[data-slot="wrapper"] header .collect-tab-cursor {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Kill the connecting background bar on the Tabs base element --
+   each tab is a standalone pill, not a connected strip */
+[data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"] {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+}
+
+[data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"]:hover {
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 @media (max-width: 760px) {
@@ -1900,36 +2481,20 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
         0 4px 12px rgba(15, 23, 42, 0.04) !important;
     overflow: hidden;
     isolation: isolate;
-    transition: border-color 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease !important;
 }
 
+/* Single pseudo-element for pointer-follow glow. Kept lightweight: one radial
+   gradient, opacity only -- no filter, no color-mix, no box-shadow animation. */
 [data-slot="wrapper"] [role="button"][class*="bg-content"]::before {
     content: "";
     position: absolute;
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background:
-        radial-gradient(220px circle at var(--hover-x) var(--hover-y), rgba(255, 255, 255, 0.74), rgba(125, 211, 252, 0.3) 32%, transparent 64%),
-        radial-gradient(380px circle at var(--hover-x) var(--hover-y), rgba(14, 165, 233, 0.2), transparent 68%);
-    opacity: calc(var(--hover-strength) * 0.92);
-    transition: opacity 0.14s ease;
-}
-
-[data-slot="wrapper"] [role="button"][class*="bg-content"]::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, calc(var(--hover-strength) * 0.22)) 42%, rgba(14, 165, 233, calc(var(--hover-strength) * 0.1)) 64%, rgba(255, 255, 255, 0));
-    box-shadow:
-        inset 0 0 0 calc(var(--hover-strength) * 1px) rgba(255, 255, 255, 0.44),
-        inset 0 -22px 32px rgba(14, 165, 233, calc(var(--hover-strength) * 0.09));
-    opacity: var(--hover-strength);
-    transition: opacity 0.14s ease, box-shadow 0.16s ease;
+    background: radial-gradient(200px circle at var(--hover-x) var(--hover-y), rgba(255, 255, 255, 0.6), rgba(125, 211, 252, 0.2) 40%, transparent 70%);
+    opacity: calc(var(--hover-strength) * 0.85);
+    transition: opacity 0.12s ease;
 }
 
 [data-slot="wrapper"] [role="button"][class*="bg-content"] > * {
@@ -1937,56 +2502,32 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     z-index: 1;
 }
 
+/* Hovered card: stronger border + shadow + micro-lift, no filter (avoids repaint) */
 [data-slot="wrapper"] [role="button"][class*="bg-content"][style*="--hover-strength"] {
-    border-color: color-mix(in srgb, rgba(255, 255, 255, 0.38), rgba(14, 165, 233, 0.66) calc(var(--hover-strength) * 100%)) !important;
+    border-color: rgba(14, 165, 233, calc(0.2 + var(--hover-strength) * 0.4)) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, calc(0.66 + var(--hover-strength) * 0.2)),
-        inset 0 -1px 0 rgba(14, 165, 233, calc(0.1 + var(--hover-strength) * 0.14)),
-        0 0 0 calc(var(--hover-strength) * 2px) rgba(14, 165, 233, calc(var(--hover-strength) * 0.22)),
-        0 calc(4px + var(--hover-strength) * 10px) calc(12px + var(--hover-strength) * 20px) rgba(15, 23, 42, calc(0.04 + var(--hover-strength) * 0.1)) !important;
-    filter: saturate(calc(1 + var(--hover-strength) * 0.08)) contrast(calc(1 + var(--hover-strength) * 0.035));
-}
-
-[data-slot="wrapper"] [role="button"][class*="bg-content"][style*="--hover-strength"] img {
-    filter: saturate(calc(1 + var(--hover-strength) * 0.08)) brightness(calc(1 + var(--hover-strength) * 0.04));
+        inset 0 1px 0 rgba(255, 255, 255, 0.6),
+        0 0 0 calc(var(--hover-strength) * 2px) rgba(14, 165, 233, calc(var(--hover-strength) * 0.18)),
+        0 calc(4px + var(--hover-strength) * 6px) calc(12px + var(--hover-strength) * 8px) rgba(15, 23, 42, calc(0.04 + var(--hover-strength) * 0.06)) !important;
+    transform: translateY(calc(var(--hover-strength) * -2px));
 }
 
 [data-slot="wrapper"] [role="button"][class*="bg-content"][style*="--hover-strength"] [data-slot="footer"] {
-    background: rgba(255, 255, 255, calc(0.22 + var(--hover-strength) * 0.18)) !important;
-    border-top-color: rgba(14, 165, 233, calc(var(--hover-strength) * 0.2)) !important;
+    background: rgba(255, 255, 255, calc(0.22 + var(--hover-strength) * 0.14)) !important;
 }
 
+/* Directly hovered card */
 [data-slot="wrapper"] [role="button"][class*="bg-content"].is-pointer-hovered {
-    border-color: rgba(3, 105, 161, 0.82) !important;
+    border-color: rgba(3, 105, 161, 0.6) !important;
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.92),
-        inset 0 -1px 0 rgba(14, 165, 233, 0.28),
-        0 0 0 2px rgba(255, 255, 255, 0.7),
-        0 0 0 4px rgba(14, 165, 233, 0.34),
-        0 14px 34px rgba(15, 23, 42, 0.16) !important;
-    filter: saturate(1.12) contrast(1.05);
+        inset 0 1px 0 rgba(255, 255, 255, 0.8),
+        0 0 0 2px rgba(14, 165, 233, 0.2),
+        0 10px 28px rgba(15, 23, 42, 0.12) !important;
+    transform: translateY(-3px);
 }
 
 [data-slot="wrapper"] [role="button"][class*="bg-content"].is-pointer-hovered::before {
-    opacity: 1;
-}
-
-[data-slot="wrapper"] [role="button"][class*="bg-content"].is-pointer-hovered::after {
-    background:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.36) 42%, rgba(14, 165, 233, 0.18) 66%, rgba(255, 255, 255, 0.08)),
-        linear-gradient(0deg, rgba(14, 165, 233, 0.16), transparent 46%);
-    box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.62),
-        inset 0 -28px 38px rgba(14, 165, 233, 0.14);
-}
-
-[data-slot="wrapper"] [role="button"][class*="bg-content"].is-pointer-hovered [data-slot="footer"] {
-    background: rgba(255, 255, 255, 0.48) !important;
-    border-top-color: rgba(3, 105, 161, 0.28) !important;
-}
-
-[data-slot="wrapper"] [role="button"][class*="bg-content"].is-pointer-hovered [data-slot="footer"] b {
-    color: #0f172a !important;
+    opacity: 0.9;
 }
 
 /* Card footer */
@@ -2039,8 +2580,10 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 /* Input inside drawer header (page list search) */
 [data-slot="wrapper"] header input.part-search-input {
+    height: 32px !important;
+    line-height: 30px !important;
     border: 0 !important;
-    border-radius: 15px !important;
+    border-radius: 9px !important;
     background: rgba(255, 255, 255, 0.3) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
 }
@@ -2153,6 +2696,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 /* Close button */
 [data-slot="wrapper"] > section > button[aria-label="Close"] {
+    position: absolute !important;
     z-index: 20 !important;
     border: 1px solid var(--glass-border) !important;
     background: var(--glass-bg) !important;
@@ -2187,7 +2731,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 /* Card press state */
 [data-slot="wrapper"] [role="button"][class*="bg-content"][data-pressed="true"],
 [data-slot="wrapper"] [role="button"][class*="bg-content"]:active {
-    transform: none !important;
+    transform: translateY(0) scale(0.985) !important;
     background:
         radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.7), transparent 34%),
         radial-gradient(circle at 86% 88%, rgba(14, 165, 233, 0.13), transparent 38%),
@@ -2195,7 +2739,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.84),
         0 0 0 2px rgba(14, 165, 233, 0.16),
-        0 10px 26px rgba(15, 23, 42, 0.12) !important;
+        0 4px 12px rgba(15, 23, 42, 0.1) !important;
 }
 
 /* Grouped controls should not shrink as one piece when pressed. */
@@ -2514,21 +3058,36 @@ body.mini-mode #switch-window-mode-mini {
     border: 1px solid var(--glass-border);
     border-radius: 9px;
     color: #526174;
-    background: var(--glass-bg);
+    background-color: var(--glass-bg);
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 8px 18px rgba(15, 23, 42, 0.08);
     opacity: 0.88;
-    backdrop-filter: blur(10px) saturate(1.4);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease;
+    cursor: pointer;
+    isolation: isolate;
+    --wails-draggable: no-drag;
+    z-index: 9999999;
+    transition: color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 body.mini-mode #switch-window-mode-mini:hover {
     opacity: 1;
+    color: #0284c7;
     transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.76);
+    background-color: var(--glass-bg-hover);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
+        0 10px 22px rgba(15, 23, 42, 0.1);
+}
+
+body.mini-mode #switch-window-mode-mini:active {
+    transform: scale(0.92);
+    background-color: var(--glass-bg-active);
+    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, transparent 65%);
+    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
 body.mini-mode #player {
@@ -2601,7 +3160,7 @@ body.mini-mode #player .rap-volume-btn svg {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
+    background-image: var(--glass-sheen-static);
 }
 
 /* ====== Login panel liquid glass ====== */
@@ -2622,7 +3181,7 @@ body.mini-mode #player .rap-volume-btn svg {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background: var(--glass-sheen);
+    background-image: var(--glass-sheen-static);
 }
 
 .login-glass > * {

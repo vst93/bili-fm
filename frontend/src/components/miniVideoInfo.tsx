@@ -43,7 +43,7 @@ export default function MiniVideoInfo({
           title="切换到窗口模式"
           onClick={onSwitchMode}
         >
-          <ZoomInternal theme="outline" size={18} fill="currentColor" />
+          <ZoomInternal theme="outline" size={16} />
         </button>
       )}
     </div>

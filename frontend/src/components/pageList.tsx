@@ -138,21 +138,21 @@ const PageList: FC<PageListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-3 py-2">
-              选集({pageNum}) 
-              <FocusOne
-                theme="outline"
-                size="20"
-                fill="#333"
-                className="hover:bg-blue-300 w-5 h-5 rounded-full mt-1 cursor-pointer"
-                onClick={handlePositionPart}
+            <DrawerHeader className="flex items-center gap-3 py-2 pr-12">
+              <span className="up-drawer-title">选集({pageNum})</span>
+              <button
+                type="button"
+                className="liquid-glass-icon-btn"
                 title="定位到当前播放的位置"
-              />
+                onClick={handlePositionPart}
+              >
+                <FocusOne theme="outline" size="18" />
+              </button>
               <input
                 type="text"
                 placeholder="搜索"
-                className="w-40 part-search-input focus:outline-none text-base font-light"
-                style={{ border: "solid 1px #ccc", borderRadius: "15px", padding: "0 10px", margin: "0 0 0 6px" }}
+                className="w-40 part-search-input focus:outline-none text-sm font-light"
+                style={{ padding: "0 10px" }}
                 onKeyUp={(e) => {
                   if (e.key === "Enter") {
                     // 跳转到搜到的位置
