@@ -2335,9 +2335,13 @@ body.mini-mode #root::before {
 }
 
 /* Drag lock: CSS !important rule that React's inline style.width cannot override.
-   Width is set via CSS custom property --drag-w (horizontal) / --drag-h (vertical). */
-#player .rap-progress.is-dragging {
+   Width is set via CSS custom property --drag-w (horizontal) / --drag-h (vertical).
+   Only override the dimension that's actually being dragged — the other stays
+   at its original value so we don't collapse the bar. */
+#player .rap-controls > .rap-slider > .rap-progress.is-dragging {
     width: var(--drag-w, 0) !important;
+}
+#player .rap-volume-controls .rap-progress.is-dragging {
     height: var(--drag-h, 0) !important;
 }
 
