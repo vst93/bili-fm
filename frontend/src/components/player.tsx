@@ -109,6 +109,10 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     //
     // On pointerdown on a slider, capture the pointer on that element,
     // then listen for pointermove/pointerup directly on it.
+    //
+    // We also stop the native mousedown from reaching the library's
+    // onMouseDown handler (which would start a competing drag), and
+    // throttle seek updates via requestAnimationFrame for smoothness.
 
     const getAudioEl = (): HTMLAudioElement | null => {
       return document.querySelector("#player audio");
@@ -137,6 +141,17 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       }
     };
 
+    // Block the library's mousedown handler from starting a competing drag.
+    // We use capture phase + stopImmediatePropagation so the event never
+    // reaches React's delegated listener.
+    const blockMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("#player .rap-slider") || target?.closest("#player .rap-pin")) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       const slider = target?.closest("#player .rap-slider") as HTMLElement | null;
@@ -153,17 +168,49 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       const ratio = computeRatio(event, slider);
       applyRatio(ratio, slider, audioEl);
 
+      // Throttle seek via rAF — setting currentTime is expensive and
+      // pointermove can fire faster than the browser can seek.
+      let rafId = 0;
+      let pendingRatio: number | null = null;
+
+      const flushSeek = () => {
+        rafId = 0;
+        if (pendingRatio !== null) {
+          applyRatio(pendingRatio, slider, audioEl);
+          pendingRatio = null;
+        }
+      };
+
       // Register move/up on the slider itself (since it captured the pointer)
       const onMove = (e: PointerEvent) => {
         e.preventDefault();
         const r = computeRatio(e, slider);
-        applyRatio(r, slider, audioEl);
+        const isVolume = slider.closest("#player .rap-volume-controls") !== null;
+        if (isVolume) {
+          // Volume changes are cheap, apply immediately
+          applyRatio(r, slider, audioEl);
+        } else {
+          // Seek is expensive, throttle to one per frame
+          pendingRatio = r;
+          if (rafId === 0) {
+            rafId = requestAnimationFrame(flushSeek);
+          }
+        }
       };
 
       const onUp = (e: PointerEvent) => {
         slider.releasePointerCapture(e.pointerId);
         slider.removeEventListener("pointermove", onMove);
         slider.removeEventListener("pointerup", onUp);
+        // Flush any pending seek
+        if (rafId !== 0) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+        if (pendingRatio !== null) {
+          applyRatio(pendingRatio, slider, audioEl);
+          pendingRatio = null;
+        }
       };
 
       slider.addEventListener("pointermove", onMove);
@@ -171,9 +218,11 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("mousedown", blockMouseDown, true);
 
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("mousedown", blockMouseDown, true);
     };
   }, []);
 
