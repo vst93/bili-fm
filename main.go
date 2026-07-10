@@ -284,8 +284,11 @@ func main() {
 			if runtime.GOOS == "windows" {
 				setWailsContext(ctx)
 				initTrayWindows(func() {
-					// 显示窗口 - 使用 Wails runtime
+					// 显示窗口 - Wails runtime + Win32 双保险
+					// wailsruntime.Show 在某些时序下可能不生效（窗口句柄未就绪），
+					// 同时用 Win32 FindWindow + ShowWindow 直接操作窗口
 					wailsruntime.Show(ctx)
+					bringWindowToFront()
 				}, func() {
 					// 退出应用 - 强制退出进程
 					removeTrayWindows()

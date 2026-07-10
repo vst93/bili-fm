@@ -938,22 +938,22 @@ html[data-time-of-day="evening"] #root::before {
     opacity: 0.3;
 }
 
-/* Night (23:00-04:59): light blue-gray so gray (#475569) icons stay visible.
-   Previous dark navy made icons disappear; this is a soft night sky, not a black hole. */
+/* Night (23:00-04:59): brighter blue-lavender, distinctly lighter than evening.
+   The brighter hue keeps gray (#475569) icons readable while feeling "nighttime". */
 html[data-time-of-day="night"] #root::after {
-    background: linear-gradient(165deg, rgba(30, 45, 75, 0.08) 0%, rgba(35, 45, 70, 0.04) 50%, transparent 80%);
+    background: linear-gradient(165deg, rgba(50, 60, 90, 0.06) 0%, rgba(45, 55, 75, 0.03) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="night"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
-            #9aacc6 0%,
-            #a8b8d0 20%,
-            #b4c2da 40%,
-            #aac0d2 60%,
-            #9cb4c8 80%,
-            #92a8be 100%);
+            #aeb8d0 0%,
+            #bcc4d8 20%,
+            #c8d0e0 40%,
+            #c0c8da 60%,
+            #b4becd 80%,
+            #a8b2c4 100%);
 }
 
 html[data-time-of-day="night"] #root::before {
@@ -970,11 +970,33 @@ body.mini-mode #root::before {
     border-bottom: 0 !important;
     color: var(--studio-ink);
     backdrop-filter: none;
+    position: relative;
+}
+
+/* Hover: subtle glass strip across the title bar */
+.app-title-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+    backdrop-filter: blur(8px) saturate(1.2);
+    -webkit-backdrop-filter: blur(8px) saturate(1.2);
+    opacity: 0;
+    transition: opacity 0.24s ease;
+    z-index: 0;
+}
+
+.app-title-bar:hover::after,
+.app-title-bar:focus-within::after {
+    opacity: 1;
 }
 
 .app-title-bar > * {
     opacity: 0.14;
     transition: opacity 0.24s ease;
+    position: relative;
+    z-index: 1;
 }
 
 /* Logo and brand name stay visible at all times (not dimmed with the rest) */
@@ -1150,19 +1172,17 @@ body.mini-mode #root::before {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-radius: 9px;
-    color: #334155;
-    background-color: rgba(255, 255, 255, 0.55);
-    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.14) 30%, transparent 72%);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04);
+    border: 0;
+    border-radius: 8px;
+    color: #64748b;
+    background-color: transparent;
+    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 30%, transparent 72%);
+    opacity: 0.82;
     cursor: pointer;
     position: relative;
     isolation: isolate;
     flex: 0 0 auto;
-    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
 
 .search-submit-btn > * {
@@ -1171,18 +1191,18 @@ body.mini-mode #root::before {
 }
 
 .search-submit-btn:hover {
+    opacity: 1;
     color: #0284c7;
-    border-color: var(--glass-border-bright);
-    background-color: var(--glass-bg-hover);
+    background-color: rgba(255, 255, 255, 0.5);
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(14, 165, 233, 0.08);
+        0 2px 8px rgba(15, 23, 42, 0.05);
     transform: translateY(-1px);
 }
 
 .search-submit-btn:active {
-    transform: scale(0.95);
+    transform: scale(0.92);
     background-color: var(--glass-bg-active);
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
@@ -1543,6 +1563,7 @@ body.mini-mode #root::before {
     justify-content: flex-start;
     gap: 14px;
     margin-bottom: 14px;
+    padding-top: 2px;
 }
 
 .video-owner-wrap {
@@ -1561,6 +1582,8 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 2px rgba(15, 23, 42, 0.14),
+        0 0 0 4px rgba(255, 255, 255, 0.35),
+        0 0 0 5px rgba(255, 255, 255, 0.15),
         0 6px 16px rgba(15, 23, 42, 0.12);
     transition: box-shadow 0.2s ease, transform 0.18s ease;
 }
@@ -1569,8 +1592,10 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 2px rgba(15, 23, 42, 0.14),
+        0 0 0 4px rgba(255, 255, 255, 0.5),
+        0 0 0 5px rgba(255, 255, 255, 0.2),
         0 10px 22px rgba(14, 165, 233, 0.22);
-    transform: translateY(-1px);
+    transform: scale(1.06);
 }
 
 .video-kicker {
@@ -3109,9 +3134,15 @@ body.mini-mode .mini-status-dot {
     width: 7px;
     height: 7px;
     flex: 0 0 auto;
+    margin-left: 2px;
     border-radius: 999px;
     background: var(--studio-blue);
     box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+}
+
+body.mini-mode .mini-status-dot-playlist {
+    background: var(--studio-rose);
+    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.12);
 }
 
 body.mini-mode #switch-window-mode-mini {

@@ -39,3 +39,6 @@ func setWailsContext(ctx context.Context) {}
 
 // showExistingWindow 非 Windows 平台的 stub
 func showExistingWindow() {}
+
+// bringWindowToFront 非 Windows 平台的 stub
+func bringWindowToFront() {}

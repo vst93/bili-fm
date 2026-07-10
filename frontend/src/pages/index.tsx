@@ -3,6 +3,7 @@ import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
 import { service as MainModels } from "../../wailsjs/go/models";
+import { GetPlatform } from "../../wailsjs/go/main/Menu";
 import { toast } from "../utils/toast";
 import {
   SearchVideo,
@@ -107,6 +108,9 @@ export default function IndexPage() {
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  // Linux 下 webkit2gtk 在 frameless + DisableResize 模式下无法运行时调整窗口大小，
+  // 迷你模式会导致内容缩到左上角但窗口不变，因此 Linux 上禁用迷你模式
+  const [isLinux, setIsLinux] = useState(false);
   const [showDanmakuList, setShowDanmakuList] = useState(false);
   const [danmakuList, setDanmakuList] = useState<MainModels.DanmakuList>();
   const [isLoadingDanmaku, setIsLoadingDanmaku] = useState(false);
@@ -163,6 +167,10 @@ export default function IndexPage() {
   }, [isPlaying, isPlayVideo]);
 
   useEffect(() => {
+    // 检测平台，Linux 下禁用迷你模式
+    GetPlatform().then((platform: string) => {
+      setIsLinux(platform === "linux");
+    });
     // 初始化时获取用户信息
     refreshUserInfo();
     // 从本地加载播放列表和播放模式
@@ -1471,6 +1479,8 @@ export default function IndexPage() {
    * 切换窗口模式
    */
   const switchWindowMode = async () => {
+    // Linux 下不支持迷你模式，直接返回
+    if (isLinux) return;
     let theIsMiniMode = !isMiniMode;
 
     document.body.classList.toggle("mini-mode", theIsMiniMode);
@@ -1488,7 +1498,7 @@ export default function IndexPage() {
 
   return (
     <DefaultLayout>
-      <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode} />
+      <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode && !isLinux} />
       {isMiniMode ? (
         ""
       ) : (
@@ -1547,6 +1557,7 @@ export default function IndexPage() {
       ) : (
         <MiniVideoInfo
           cover={graftingImage(pageFirstFrame)}
+          isPlaylistMode={isPlaylistMode}
           part={currentPart}
           title={videoInfo?.title}
           onSwitchMode={switchWindowMode}

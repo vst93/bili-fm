@@ -11,6 +11,7 @@ interface MiniVideoInfoProps {
   bvid?: string;
   aid?: number;
   cover?: string;
+  isPlaylistMode?: boolean;
   onSwitchMode?: () => void;
 }
 
@@ -18,6 +19,7 @@ export default function MiniVideoInfo({
   title = "暂无播放内容",
   part = "",
   cover = "",
+  isPlaylistMode = false,
   onSwitchMode,
 }: MiniVideoInfoProps) {
   const coverImage = cover || "/logo.png";
@@ -33,7 +35,7 @@ export default function MiniVideoInfo({
       <div id="min-video-info-content">
         <div className="mini-title">{title || "暂无播放内容"}</div>
         <div className="mini-part">
-          <span className="mini-status-dot" />
+          <span className={`mini-status-dot ${isPlaylistMode ? "mini-status-dot-playlist" : ""}`} />
           <span>{part || "无选集标题"}</span>
         </div>
       </div>

@@ -351,3 +351,22 @@ func showExistingWindow() {
 		onShowWindow()
 	}
 }
+
+// bringWindowToFront 使用 Win32 API 查找并显示主窗口。
+// Wails runtime Show(ctx) 在某些时序下不生效（如窗口刚隐藏、webview 线程忙），
+// 这里用 FindWindowW 按窗口标题查找 WebView 窗口，直接 ShowWindow + SetForeground。
+func bringWindowToFront() {
+	// Wails 无边框窗口的标题就是 APP_NAME
+	namePtr, _ := syscall.UTF16PtrFromString(service.APP_NAME)
+	hwnd, _, _ := user32.NewProc("FindWindowW").Call(
+		0,
+		uintptr(unsafe.Pointer(namePtr)),
+	)
+	if hwnd == 0 {
+		return
+	}
+	// SW_RESTORE = 9: 如果窗口被最小化则恢复
+	procShowWindow.Call(hwnd, SW_RESTORE)
+	// 尝试置顶
+	procSetForeground.Call(hwnd)
+}
