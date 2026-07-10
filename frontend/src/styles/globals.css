@@ -830,8 +830,11 @@ body {
             #e0eaf2 85%,
             #d8e6f0 100%);
     background: var(--liquid-backdrop);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
+    /* Edge highlight via box-shadow instead of border, so border-radius
+       applies uniformly with no inner/outer radius mismatch. */
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.5),
+        0 24px 80px rgba(15, 23, 42, 0.1);
     --glass-chromatic: drop-shadow(0.8px 0 rgba(14, 165, 233, 0.12)) drop-shadow(-0.8px 0 rgba(244, 114, 182, 0.08));
 }
 
@@ -1543,7 +1546,7 @@ body.mini-mode #root::before {
     margin: 0;
     float: none;
     display: block;
-    padding: 0;
+    padding: 6px;
     overflow: hidden;
 }
 
@@ -1582,8 +1585,9 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 2px rgba(15, 23, 42, 0.14),
-        0 0 0 4px rgba(255, 255, 255, 0.35),
-        0 0 0 5px rgba(255, 255, 255, 0.15),
+        0 0 0 3px rgba(255, 255, 255, 0.55),
+        0 0 0 4px rgba(255, 255, 255, 0.25),
+        0 0 0 5px rgba(14, 165, 233, 0.15),
         0 6px 16px rgba(15, 23, 42, 0.12);
     transition: box-shadow 0.2s ease, transform 0.18s ease;
 }
@@ -1592,8 +1596,9 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 2px rgba(15, 23, 42, 0.14),
-        0 0 0 4px rgba(255, 255, 255, 0.5),
-        0 0 0 5px rgba(255, 255, 255, 0.2),
+        0 0 0 3px rgba(255, 255, 255, 0.7),
+        0 0 0 4px rgba(255, 255, 255, 0.3),
+        0 0 0 5px rgba(14, 165, 233, 0.25),
         0 10px 22px rgba(14, 165, 233, 0.22);
     transform: scale(1.06);
 }
@@ -3151,7 +3156,7 @@ body.mini-mode .mini-status-dot {
     width: 7px;
     height: 7px;
     flex: 0 0 auto;
-    margin-left: 2px;
+    margin-left: 5px;
     border-radius: 999px;
     background: var(--studio-blue);
     box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
