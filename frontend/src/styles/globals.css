@@ -60,7 +60,7 @@ body {
 }
 
 #root {
-    --app-window-radius: 12px;
+    --app-window-radius: 8px;
     border-radius: var(--app-window-radius);
     background-color: #fefefe;
     background-clip: padding-box;
@@ -92,7 +92,7 @@ body {
     font-size: 14px;
     font-weight: 500;
     color: #1a1a1a;
-    border-radius: 12px 12px 0 0;
+    border-radius: var(--app-window-radius) var(--app-window-radius) 0 0;
 }
 
 .app-title-bar:hover{
@@ -507,12 +507,13 @@ a,
     animation: spin 2s linear infinite;
 }
 
-.can-seelect{
-    user-select: text;
-    -webkit-user-select: text;
-    -moz-user-select: text;
-    -ms-user-select: text;
-    -o-user-select: text;
+/* Title and description: no text selection — behave like a native macOS app */
+#video-title,
+#video-desc {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .search-line-border-color{
@@ -552,14 +553,6 @@ a,
 
 /* Switch-mode button base styles are defined later in the liquid glass section.
    The mini-mode variant is styled under body.mini-mode #switch-window-mode-mini. */
-
-#wds-handle-group{
-    /* border: 1px solid #e5e5e5;
-    border-radius: 12px;
-    background: #eeeeee;
-     */
-
-}
 
 #danmaku-btn {
     position: absolute;
@@ -925,18 +918,47 @@ html[data-time-of-day="dusk"] #root::after {
     opacity: 1;
 }
 
+/* Late evening (20:00-22:59): deeper blue but still bright enough for gray icons */
+html[data-time-of-day="evening"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #6a7e9a 0%,
+            #788aa6 20%,
+            #8494b0 40%,
+            #7c8eaa 60%,
+            #6e809c 80%,
+            #647890 100%);
+}
+
+html[data-time-of-day="evening"] #root::after {
+    background: linear-gradient(165deg, rgba(40, 55, 85, 0.12) 0%, rgba(45, 55, 80, 0.06) 50%, transparent 80%);
+    opacity: 1;
+}
+
+html[data-time-of-day="evening"] #root::before {
+    opacity: 0.4;
+}
+
+/* Night (23:00-04:59): lifted brightness so gray (#475569) icons stay visible.
+   Previous dark navy (#3a526e) was too close to --studio-muted, making icons disappear. */
 html[data-time-of-day="night"] #root::after {
-    background: linear-gradient(165deg, rgba(30, 45, 75, 0.16) 0%, rgba(35, 45, 70, 0.08) 50%, transparent 80%);
+    background: linear-gradient(165deg, rgba(30, 45, 75, 0.12) 0%, rgba(35, 45, 70, 0.06) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="night"] #root {
     --liquid-backdrop:
-        linear-gradient(165deg, #3a526e 0%, #4a6182 20%, #567090 40%, #4e6888 60%, #42587a 80%, #3a5070 100%);
+        linear-gradient(165deg,
+            #7a8eaa 0%,
+            #8898b4 20%,
+            #94a4c0 40%,
+            #8c9eb8 60%,
+            #7e90ac 80%,
+            #74889e 100%);
 }
 
 html[data-time-of-day="night"] #root::before {
-    opacity: 0.5;
+    opacity: 0.35;
 }
 
 body.mini-mode #root::before {
@@ -1289,10 +1311,20 @@ body.mini-mode #root::before {
     background: rgba(255, 255, 255, 0.22) !important;
 }
 
+/* Window control group: switch-mode + minimize + close bundled in one glass capsule.
+   Top corners are flat to align with the window border edge, bottom corners rounded
+   for a "glass panel hanging from the top" look. */
 #wds-handle-group {
     background: var(--glass-bg-active);
-    border-radius: 9px;
+    border: 1px solid var(--glass-border);
+    border-top: 0;
+    border-radius: 0 0 var(--app-window-radius) var(--app-window-radius);
     padding: 2px 4px !important;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 2px 8px rgba(15, 23, 42, 0.04);
+    backdrop-filter: var(--glass-blur-thin);
+    -webkit-backdrop-filter: var(--glass-blur-thin);
 }
 
 #settings-menu {
@@ -1997,6 +2029,10 @@ body.mini-mode #root::before {
     font-weight: 700;
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 #player .rap-volume {
@@ -2144,14 +2180,12 @@ body.mini-mode #root::before {
     border-radius: 6px;
     color: var(--studio-muted);
     background-color: transparent;
-    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%);
+    background-image: none;
     opacity: 0.72;
     cursor: pointer;
     position: relative;
     isolation: isolate;
     --wails-draggable: no-drag;
-    /* Override the title-bar's child opacity fade -- this button should always
-       be visible, not dimmed to 0.14 with the rest of the title bar content */
     z-index: 10;
     transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
@@ -2172,10 +2206,10 @@ body.mini-mode #root::before {
     transform: translateY(-1px);
 }
 
-#switch-window-mode:active {
+#switch-window-mode:active,
+#switch-window-mode-mini:active {
     transform: scale(0.94);
     background-color: var(--glass-bg-active);
-    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, transparent 65%);
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 

@@ -4,3 +4,4 @@ frontend/dist
 frontend/wailsjs/runtime/*
 .vscode
 *.DS_Store
+bili-FM.exe

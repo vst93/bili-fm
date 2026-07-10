@@ -173,11 +173,11 @@ export default function VideoInfo({
 
         </div>
 
-        <div className="can-seelect" id="video-title">
+        <div id="video-title">
           <h2>{title || "无标题"}</h2>
         </div>
 
-        <div className="can-seelect" id="video-desc">
+        <div id="video-desc">
           <p>{desc || "无描述"}</p>
         </div>
 

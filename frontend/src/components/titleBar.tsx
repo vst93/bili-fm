@@ -129,9 +129,9 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   设置
                 </button>
               </div>
-              <div className="flex items-center gap-2 px-2" style={{ opacity: 1 }}>
-                {switchBtn}
-                <div className="flex gap-1" id='wds-handle-group'>
+              <div className="flex items-center gap-0" style={{ opacity: 1 }}>
+                <div className="flex items-center gap-1 px-1 py-0.5" id="wds-handle-group">
+                  {switchBtn}
                   <button
                     style={{ ['--wails-draggable' as string]: 'no-drag' }}
                     className="app-title-bar-btn"

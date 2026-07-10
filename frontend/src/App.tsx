@@ -13,6 +13,7 @@ function App() {
       if (hour >= 5 && hour < 8) tod = "dawn";
       else if (hour >= 8 && hour < 17) tod = "day";
       else if (hour >= 17 && hour < 20) tod = "dusk";
+      else if (hour >= 20 && hour < 23) tod = "evening";
       else tod = "night";
       document.documentElement.setAttribute("data-time-of-day", tod);
     };
