@@ -111,7 +111,12 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     //   no actual seek. This is instant and smooth.
     // - On pointerup: perform a single seek to the final position.
     // - Volume slider: volume changes are cheap, apply immediately.
-    // - Click (no drag): seek immediately (click-to-seek).
+    //
+    // The library's onTimeUpdate sets style.width via React state, which fights
+    // our manual DOM update. We solve this by hijacking the progress bar width
+    // permanently: we set a !important width, and then keep it in sync with
+    // audio.currentTime via our own timeupdate listener. The library's React
+    // re-render can't override !important, so we have full control.
 
     const getAudioEl = (): HTMLAudioElement | null => {
       return document.querySelector("#player audio");
@@ -139,36 +144,43 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       }
     };
 
-    // Visually update progress bar without seeking.
-    // Use !important so the library's onTimeUpdate (which re-renders with
-    // stale React state) can't override our visual position during drag.
-    const updateProgressVisual = (slider: HTMLElement, ratio: number) => {
+    // Set progress bar width with !important (blocks library's React re-render)
+    const setProgress = (slider: HTMLElement, ratio: number) => {
       const isVertical = slider.dataset.direction === "vertical";
       const progress = slider.querySelector<HTMLElement>(".rap-progress");
       if (progress) {
         const pct = `${ratio * 100}%`;
-        if (isVertical) {
-          progress.style.setProperty("height", pct, "important");
-        } else {
-          progress.style.setProperty("width", pct, "important");
-        }
+        progress.style.setProperty(isVertical ? "height" : "width", pct, "important");
       }
     };
 
-    // Remove the !important override so the library can resume normal updates.
-    // We set a plain inline value (matching the current ratio) so there's no
-    // visual gap before the library's next onTimeUpdate fires.
-    const releaseProgressVisual = (slider: HTMLElement, ratio: number) => {
-      const progress = slider.querySelector<HTMLElement>(".rap-progress");
-      if (!progress) return;
-      const isVertical = slider.dataset.direction === "vertical";
-      const pct = `${ratio * 100}%`;
-      // Replace !important with plain inline — same visual, lower priority
-      progress.style.setProperty("width", "", "");
-      progress.style.setProperty("height", "", "");
-      progress.style.width = isVertical ? "" : pct;
-      progress.style.height = isVertical ? pct : "";
+    // -- Permanent timeupdate sync: keep progress bar in sync with audio position --
+    // This runs alongside the library's own onTimeUpdate but wins via !important.
+    let isDragging = false;
+
+    const onTimeUpdateSync = () => {
+      if (isDragging) return; // Don't fight the drag
+      const audioEl = getAudioEl();
+      if (!audioEl || !audioEl.duration || audioEl.duration === Infinity) return;
+
+      // Update seek progress bar
+      const seekSlider = document.querySelector<HTMLElement>("#player .rap-controls > .rap-slider");
+      if (seekSlider) {
+        const ratio = audioEl.currentTime / audioEl.duration;
+        setProgress(seekSlider, ratio);
+      }
+
+      // Update volume progress bar
+      const volSlider = document.querySelector<HTMLElement>("#player .rap-volume-controls .rap-slider");
+      if (volSlider) {
+        setProgress(volSlider, audioEl.volume);
+      }
     };
+
+    const audioElForSync = getAudioEl();
+    if (audioElForSync) {
+      audioElForSync.addEventListener("timeupdate", onTimeUpdateSync);
+    }
 
     // Block the library's mousedown handler from starting a competing drag.
     const blockMouseDown = (event: MouseEvent) => {
@@ -194,15 +206,14 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       const isVolume = slider.closest("#player .rap-volume-controls") !== null;
 
       if (isVolume) {
-        // Volume: apply immediately, it's cheap
         applyVolume(ratio, audioEl);
-        updateProgressVisual(slider, ratio);
+        setProgress(slider, ratio);
 
         const onMove = (e: PointerEvent) => {
           e.preventDefault();
           const r = computeRatio(e, slider);
           applyVolume(r, audioEl);
-          updateProgressVisual(slider, r);
+          setProgress(slider, r);
         };
         const onUp = (e: PointerEvent) => {
           slider.releasePointerCapture(e.pointerId);
@@ -213,33 +224,25 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
         slider.addEventListener("pointerup", onUp);
       } else {
         // Seek: visual-only during drag, actual seek on release
-        updateProgressVisual(slider, ratio);
+        isDragging = true;
+        setProgress(slider, ratio);
 
         const onMove = (e: PointerEvent) => {
           e.preventDefault();
           const r = computeRatio(e, slider);
-          updateProgressVisual(slider, r);
+          setProgress(slider, r);
         };
         const onUp = (e: PointerEvent) => {
           slider.releasePointerCapture(e.pointerId);
           slider.removeEventListener("pointermove", onMove);
           slider.removeEventListener("pointerup", onUp);
           const finalRatio = computeRatio(e, slider);
-          // Seek first, then listen for the resulting timeupdate to
-          // release the visual lock — this prevents the 0→position flash
-          // that happens when the library's stale React state momentarily
-          // controls the progress bar width before onTimeUpdate fires.
-          const onSeekedUpdate = () => {
-            releaseProgressVisual(slider, finalRatio);
-            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
-          };
-          audioEl.addEventListener("timeupdate", onSeekedUpdate);
+          // Set progress to final position immediately (before seek completes)
+          setProgress(slider, finalRatio);
+          // Release drag lock so timeupdate sync can resume
+          isDragging = false;
+          // Perform the actual seek
           seekAudio(finalRatio, audioEl);
-          // Fallback: if timeupdate doesn't fire within 500ms, release anyway
-          setTimeout(() => {
-            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
-            releaseProgressVisual(slider, finalRatio);
-          }, 500);
         };
         slider.addEventListener("pointermove", onMove);
         slider.addEventListener("pointerup", onUp);
@@ -252,6 +255,10 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("mousedown", blockMouseDown, true);
+      const el = getAudioEl();
+      if (el) {
+        el.removeEventListener("timeupdate", onTimeUpdateSync);
+      }
     };
   }, []);
 
