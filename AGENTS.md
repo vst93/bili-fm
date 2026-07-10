@@ -1,130 +1,155 @@
 # AGENTS.md - Bili FM Codebase Guide
 
-This file provides guidelines for agentic coding agents operating in this repository.
+This file gives coding agents the repository-specific context needed to work on Bili FM without rediscovering the basics.
 
 ## Project Overview
 
-Bili FM is a cross-platform desktop application built with [Wails](https://wails.io/) (Go backend + React/TypeScript frontend). It allows users to listen to Bilibili videos as audio.
+Bili FM is a cross-platform desktop application for listening to Bilibili videos as audio. It is built with Wails v2: a Go backend packaged with a React/TypeScript frontend.
 
-## Build/Lint/Test Commands
+Primary stack:
+- Backend: Go module `bilifm`, Wails v2.12.0
+- Frontend: React 19, TypeScript, Vite 6, Tailwind CSS, HeroUI
+- Package manager: `pnpm` for frontend commands
+- Generated bindings: `frontend/wailsjs/`
 
-### Frontend Development (in `/frontend`)
+## Build, Lint, and Development Commands
+
+### Frontend Development (`frontend/`)
 
 ```bash
-# Install dependencies
-npm install
+# Install dependencies using the repo's Wails-compatible install script
+pnpm run install:ci
 
-# Start development server
-npm run dev
+# Start Vite development server
+pnpm run dev
 
-# Type-check + build for production
-npm run build
+# Type-check and build production assets
+pnpm run build
 
-# Lint with auto-fix
-npm run lint
+# Lint and auto-fix frontend source files
+pnpm run lint
 
-# Preview production build
-npm run preview
+# Preview production frontend build
+pnpm run preview
 ```
 
-### Full Application Build (from root)
+The frontend build script is `tsc && vite build`, so TypeScript errors fail the build before Vite bundles.
+
+### Full Application (`/`)
 
 ```bash
-# Build desktop app (requires wails CLI)
-wails build
-
-# Build for all platforms (see build.sh)
-./build.sh
-
-# Go commands
-go mod tidy
-go build
-```
-
-### Wails-specific Commands
-
-```bash
-# Development with hot reload
+# Start Wails development mode with frontend watcher
 wails dev
 
-# Generate bindings
+# Build the desktop application
+wails build
+
+# Generate Wails bindings after changing exported Go methods/types
 wails generate module
+
+# Build release archives for configured platforms
+./build.sh
+
+# Go checks
+go build ./...
+go mod tidy
 ```
 
-## Code Style Guidelines
+`wails.json` drives frontend integration:
+- `frontend:install`: `pnpm run install:ci`
+- `frontend:build`: `pnpm run build`
+- `frontend:dev:watcher`: `pnpm run dev`
 
-### Frontend (TypeScript/React)
+## Repository Layout
 
-**TypeScript Configuration**
-- Strict mode enabled (`"strict": true`)
-- Path alias: `@/*` maps to `./src/*`
-- Target: ES2020, Module: ESNext
-- `noUnusedLocals: true`, `noUnusedParameters: true`
+- `main.go`, `app.go`, `menu.go`, `tray_*.go`, `dpi_*.go`: Wails app setup, platform behavior, menus/tray, embedded assets, image proxying, and startup wiring.
+- `service/`: Bilibili API, app config, persistence, and backend utility code.
+- `service/dkv/`: small disk-backed key-value storage helper.
+- `frontend/src/`: React app source.
+- `frontend/src/components/`: reusable UI and player/list components.
+- `frontend/src/pages/`: route-level pages.
+- `frontend/src/hooks/`, `frontend/src/utils/`, `frontend/src/types/`, `frontend/src/config/`: shared frontend support code.
+- `frontend/wailsjs/`: generated Wails runtime and Go bindings. Do not hand-edit generated files.
+- `build/`, `build/bin/`: Wails build output.
 
-**Import Ordering** (enforced by ESLint)
-Order groups (from top to bottom):
-1. `type` imports
-2. Built-in modules
-3. Object/builtin types
-4. External packages (npm)
-5. Internal aliases (`~/**`)
-6. Parent directories (`../`)
-7. Sibling files (`./`)
-8. Index imports (`./index`)
+## Frontend Guidelines
+
+### TypeScript and React
+
+- Strict TypeScript is enabled.
+- Target is `ES2020`; module format is `ESNext`; module resolution is `bundler`.
+- Path alias `@/*` maps to `frontend/src/*` via `tsconfig.json` and `vite-tsconfig-paths`.
+- `noUnusedLocals`, `noUnusedParameters`, and `noFallthroughCasesInSwitch` are enabled.
+- Use function components and typed props.
+- Destructure props in the function signature when it stays readable.
+- Use optional chaining and nullish coalescing for nullable data.
+- Clean up subscriptions, timers, event listeners, and Wails runtime callbacks in `useEffect` cleanup functions.
+- Memoize only when it protects expensive work, stable callback identity, or noisy child renders.
+
+### Imports and Formatting
+
+ESLint enforces import ordering and Prettier warnings. Keep groups separated by blank lines:
+
+1. `type`
+2. builtin
+3. object
+4. external
+5. internal
+6. parent
+7. sibling
+8. index
+
+The current ESLint config has a `~/**` path group but the active project alias is `@/*`; prefer `@/` for internal frontend imports.
 
 Example:
+
 ```typescript
 import type { FC } from "react";
-import { useState } from "react";
+import { useMemo } from "react";
+
 import { Button } from "@heroui/button";
-import { useQuery } from "@tanstack/react-query";
-import { formatDate } from "@/utils/date";
-import "./styles.css";
-import IndexPage from "@/pages/index";
+
+import { formatTitle } from "@/utils/string";
+
+import { VideoCover } from "./videoCover";
 ```
 
-**React Component Patterns**
-- Use functional components with TypeScript interfaces
-- Destructure props directly in function signature
-- Use optional chaining and nullish coalescing: `onClick?.()`, `value ?? default`
-- Use `useEffect` cleanup functions for subscriptions/timers
-- Prefer `useCallback` and `useMemo` for expensive operations
+### Styling and UI
 
-**Naming Conventions**
-- Components: PascalCase (`Player`, `VideoInfo`)
-- Hooks: camelCase with `use` prefix (`useTheme`, `useAuth`)
-- Utils/constants: camelCase (`formatDate`, `DEFAULT_PAGE_SIZE`)
-- Types/interfaces: PascalCase with descriptive names (`VideoItem`, `SearchResult`)
-- CSS classes: lowercase with dashes (Tailwind)
+- Use Tailwind CSS utilities and HeroUI components unless the local component already establishes a different pattern.
+- Tailwind dark mode is class-based (`darkMode: "class"`).
+- HeroUI is registered through `@heroui/theme` in `frontend/tailwind.config.js`.
+- IconPark is available through `@icon-park/react`; prefer the project's existing icon approach for consistency.
+- Keep visual changes consistent with the existing liquid-glass app direction from the README and current components.
+- For substantial UI redesign work, use the `frontend-design` skill before implementation.
 
-**Error Handling**
-- Handle async operations with try/catch
-- Show user feedback via Toast components
-- Log errors with context for debugging
+### Frontend Error Handling
 
-**Styling**
-- Tailwind CSS for utility classes
-- Tailwind Variants for component variants
-- HeroUI components for consistent design
-- Dark mode support via `dark` class on root
+- Wrap async calls in `try/catch` at the interaction boundary.
+- Surface user-facing failures through existing toast utilities/components.
+- Log errors with enough context to diagnose the failing action.
+- Avoid swallowing rejected Wails calls; return or display meaningful failure state.
 
-### Go Backend (in `/service` and root)
+## Go Backend Guidelines
 
-**Go Version**
-- Go 1.24.0+
+### Version and Packages
 
-**Package Structure**
-- Root package: `main`
-- Service package: `bilifm/service`
-- Import paths use module `bilifm`
+- Go version in `go.mod`: `1.25.0`.
+- Module path: `bilifm`.
+- Root package: `main`.
+- Backend service package: `bilifm/service`.
+- Keep platform-specific code behind Go build tags or platform-suffixed files, following the existing `*_windows.go` and `*_other.go` pattern.
 
-**Naming Conventions**
-- Package names: lowercase single word (`service`, `util`)
-- Exported types/functions: PascalCase (`App`, `GetLoginStatus`)
-- Unexported: lowercase (`startup`, `app`)
-- Struct fields: PascalCase with JSON tags
+### Style
+
+- Standard library imports first, then external/internal packages separated by a blank line.
+- Return errors as values; do not suppress errors with `_` unless the failure is intentionally irrelevant and obvious.
+- Use `fmt.Errorf` with context for wrapped or constructed errors.
+- Keep exported Wails-bound types and methods stable because they affect generated frontend bindings.
+- Use JSON tags on structs that cross API or frontend boundaries.
 
 Example:
+
 ```go
 type User struct {
     ID       int64  `json:"id"`
@@ -136,55 +161,63 @@ func (bl *BL) GetUser(id int64) (*User, error) {
 }
 ```
 
-**Error Handling**
-- Return errors as values, don't suppress with `_`
-- Use `errors.New()` or `fmt.Errorf()` for error creation
-- Check errors immediately after calls
-- Handle errors at appropriate level (return or log)
+### Wails Bindings
 
-**Import Organization**
-- Standard library first, then external packages
-- Blank line between groups
-- Alphabetical within groups
+- Exported methods on bound Go structs are callable from the frontend.
+- After changing exported methods, parameter types, return types, or JSON-facing structs, run:
 
-```go
-import (
-    "context"
-    "fmt"
-    "net/http"
-
-    "github.com/wailsapp/wails/v2"
-    "github.com/wailsapp/wails/v2/pkg/menu"
-)
+```bash
+wails generate module
 ```
 
-**JSON Handling**
-- Use struct tags for JSON field mapping
-- Decode with `json.NewDecoder(r.Body).Decode(&struct)`
-- Encode with `json.MarshalIndent()` for debugging
+- Frontend code calls generated bindings from `frontend/wailsjs/go/...`.
+- Do not manually edit files under `frontend/wailsjs`; regenerate them.
 
-**Wails Binding**
-- Exported methods are automatically bound to frontend
-- Bind struct methods in `wails.Run()` `Bind` option
-- Frontend calls via `wailsjs/go/package/MethodName`
+## Cross-Boundary Changes
 
-### General Guidelines
+When a change touches both Go and TypeScript:
 
-**File Organization**
-- Frontend: `src/components/` for reusable, `src/pages/` for routes
-- Go: `service/` for business logic, root for main/app
-- Keep files focused (<300 lines preferred)
+- Update Go structs/method signatures first.
+- Regenerate Wails bindings.
+- Update TypeScript callers to use generated types/functions.
+- Run `pnpm run build` in `frontend/` and `go build ./...` from the root when feasible.
 
-**Commit Messages**
-- Chinese or English, imperative mood
-- Format: `type(scope): description`
-- Types: `feat`, `fix`, `refactor`, `docs`, `chore`
+## Testing and Verification
 
-**Testing**
-- No test framework currently configured
-- Manual testing via `wails dev` or frontend dev server
-- Test critical paths before committing
+There is no dedicated test framework configured in this repository. Use focused verification:
 
-**Visual/UI Changes**
-- Delegate to frontend-ui-ux-engineer for styling/layout changes
-- Pure logic changes (API calls, state) can be handled directly
+- Frontend-only logic or UI: `cd frontend && pnpm run build`; use `pnpm run dev` for manual checks.
+- Backend-only logic: `go build ./...`.
+- Wails integration: `wails dev` for manual desktop verification.
+- Release packaging: `./build.sh` when validating multi-platform artifacts.
+
+If a command cannot be run because of missing local tooling, dependency installation, network access, or platform limits, mention that in the final handoff.
+
+## Naming Conventions
+
+Frontend:
+- Components: PascalCase, matching existing filenames where the repo already uses lowercase component filenames.
+- Hooks: camelCase with `use` prefix.
+- Utilities/constants: camelCase for functions, UPPER_SNAKE_CASE for true constants.
+- Types/interfaces: PascalCase with descriptive names.
+
+Go:
+- Package names: short lowercase names.
+- Exported identifiers: PascalCase.
+- Unexported identifiers: camelCase.
+- Struct fields crossing JSON or Wails boundaries: exported with JSON tags.
+
+## Commit Guidance
+
+- Commit messages may be Chinese or English.
+- Prefer imperative mood.
+- Suggested format: `type(scope): description`.
+- Common types: `feat`, `fix`, `refactor`, `docs`, `chore`.
+
+## Working Notes for Agents
+
+- Prefer small, scoped edits that match surrounding code style.
+- Do not overwrite generated files manually.
+- Do not treat `frontend/README.md` as project documentation; it is still the upstream Vite/NextUI template text.
+- Avoid broad refactors while fixing a narrow bug.
+- Preserve user changes in a dirty worktree; do not reset or revert unrelated files.
