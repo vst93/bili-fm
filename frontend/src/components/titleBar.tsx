@@ -71,7 +71,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     showDialog({
       title: "关于 bili-FM",
       type: "info",
-      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${APP_VERSION} (Build ${APP_VERSION_NO})\n开源项目：github.com/vst93/bili-fm`,
+      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${APP_VERSION} (Build ${APP_VERSION_NO})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
       buttons: [{ label: "好的", value: "ok", primary: true }],
     });
   };
@@ -90,7 +90,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
       showDialog({
         title: "发现新版本",
         type: "question",
-        message: `新版本 v${result.latestVersion} 已发布\n是否前往下载？`,
+        message: `新版本 v${result.latestVersion} 已发布\n前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 下载`,
         buttons: [
           { label: "前往下载", value: "yes", primary: true },
           { label: "稍后再说", value: "no" },

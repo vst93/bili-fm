@@ -103,16 +103,15 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
 
   useEffect(() => {
     // Fix: react-audio-play's slider drag doesn't work on Windows WebView2.
-    // The library uses mousedown → window.mousemove, but WebView2's native
-    // drag-select interferes. We replace it entirely using Pointer Events
-    // with setPointerCapture, which guarantees pointermove delivery.
+    // We replace it entirely using Pointer Events with setPointerCapture.
     //
-    // On pointerdown on a slider, capture the pointer on that element,
-    // then listen for pointermove/pointerup directly on it.
-    //
-    // We also stop the native mousedown from reaching the library's
-    // onMouseDown handler (which would start a competing drag), and
-    // throttle seek updates via requestAnimationFrame for smoothness.
+    // Performance: seeking (setting audio.currentTime) is expensive and causes
+    // audio decoder to re-sync, making the UI feel laggy during drag. Instead:
+    // - During drag: visually update the progress bar width directly via DOM,
+    //   no actual seek. This is instant and smooth.
+    // - On pointerup: perform a single seek to the final position.
+    // - Volume slider: volume changes are cheap, apply immediately.
+    // - Click (no drag): seek immediately (click-to-seek).
 
     const getAudioEl = (): HTMLAudioElement | null => {
       return document.querySelector("#player audio");
@@ -130,20 +129,30 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       return Math.max(0, Math.min(1, ratio));
     };
 
-    const applyRatio = (ratio: number, slider: HTMLElement, audioEl: HTMLAudioElement) => {
-      const isVolume = slider.closest("#player .rap-volume-controls") !== null;
-      if (isVolume) {
-        audioEl.volume = ratio;
-      } else {
-        if (audioEl.duration && audioEl.duration !== Infinity) {
-          audioEl.currentTime = ratio * audioEl.duration;
+    const applyVolume = (ratio: number, audioEl: HTMLAudioElement) => {
+      audioEl.volume = ratio;
+    };
+
+    const seekAudio = (ratio: number, audioEl: HTMLAudioElement) => {
+      if (audioEl.duration && audioEl.duration !== Infinity) {
+        audioEl.currentTime = ratio * audioEl.duration;
+      }
+    };
+
+    // Visually update progress bar without seeking
+    const updateProgressVisual = (slider: HTMLElement, ratio: number) => {
+      const isVertical = slider.dataset.direction === "vertical";
+      const progress = slider.querySelector<HTMLElement>(".rap-progress");
+      if (progress) {
+        if (isVertical) {
+          progress.style.height = `${ratio * 100}%`;
+        } else {
+          progress.style.width = `${ratio * 100}%`;
         }
       }
     };
 
     // Block the library's mousedown handler from starting a competing drag.
-    // We use capture phase + stopImmediatePropagation so the event never
-    // reaches React's delegated listener.
     const blockMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("#player .rap-slider") || target?.closest("#player .rap-pin")) {
@@ -160,61 +169,50 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       const audioEl = getAudioEl();
       if (!audioEl) return;
 
-      // Capture pointer on the slider element so all moves come to it
       slider.setPointerCapture(event.pointerId);
       event.preventDefault();
 
-      // Apply immediately (click-to-seek)
       const ratio = computeRatio(event, slider);
-      applyRatio(ratio, slider, audioEl);
+      const isVolume = slider.closest("#player .rap-volume-controls") !== null;
 
-      // Throttle seek via rAF — setting currentTime is expensive and
-      // pointermove can fire faster than the browser can seek.
-      let rafId = 0;
-      let pendingRatio: number | null = null;
+      if (isVolume) {
+        // Volume: apply immediately, it's cheap
+        applyVolume(ratio, audioEl);
+        updateProgressVisual(slider, ratio);
 
-      const flushSeek = () => {
-        rafId = 0;
-        if (pendingRatio !== null) {
-          applyRatio(pendingRatio, slider, audioEl);
-          pendingRatio = null;
-        }
-      };
+        const onMove = (e: PointerEvent) => {
+          e.preventDefault();
+          const r = computeRatio(e, slider);
+          applyVolume(r, audioEl);
+          updateProgressVisual(slider, r);
+        };
+        const onUp = (e: PointerEvent) => {
+          slider.releasePointerCapture(e.pointerId);
+          slider.removeEventListener("pointermove", onMove);
+          slider.removeEventListener("pointerup", onUp);
+        };
+        slider.addEventListener("pointermove", onMove);
+        slider.addEventListener("pointerup", onUp);
+      } else {
+        // Seek: visual-only during drag, actual seek on release
+        updateProgressVisual(slider, ratio);
 
-      // Register move/up on the slider itself (since it captured the pointer)
-      const onMove = (e: PointerEvent) => {
-        e.preventDefault();
-        const r = computeRatio(e, slider);
-        const isVolume = slider.closest("#player .rap-volume-controls") !== null;
-        if (isVolume) {
-          // Volume changes are cheap, apply immediately
-          applyRatio(r, slider, audioEl);
-        } else {
-          // Seek is expensive, throttle to one per frame
-          pendingRatio = r;
-          if (rafId === 0) {
-            rafId = requestAnimationFrame(flushSeek);
-          }
-        }
-      };
-
-      const onUp = (e: PointerEvent) => {
-        slider.releasePointerCapture(e.pointerId);
-        slider.removeEventListener("pointermove", onMove);
-        slider.removeEventListener("pointerup", onUp);
-        // Flush any pending seek
-        if (rafId !== 0) {
-          cancelAnimationFrame(rafId);
-          rafId = 0;
-        }
-        if (pendingRatio !== null) {
-          applyRatio(pendingRatio, slider, audioEl);
-          pendingRatio = null;
-        }
-      };
-
-      slider.addEventListener("pointermove", onMove);
-      slider.addEventListener("pointerup", onUp);
+        const onMove = (e: PointerEvent) => {
+          e.preventDefault();
+          const r = computeRatio(e, slider);
+          updateProgressVisual(slider, r);
+        };
+        const onUp = (e: PointerEvent) => {
+          slider.releasePointerCapture(e.pointerId);
+          slider.removeEventListener("pointermove", onMove);
+          slider.removeEventListener("pointerup", onUp);
+          // Single seek on release — uses final position
+          const finalRatio = computeRatio(e, slider);
+          seekAudio(finalRatio, audioEl);
+        };
+        slider.addEventListener("pointermove", onMove);
+        slider.addEventListener("pointerup", onUp);
+      }
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
