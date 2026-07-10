@@ -2334,6 +2334,13 @@ body.mini-mode #root::before {
     --wails-draggable: no-drag;
 }
 
+/* Drag lock: CSS !important rule that React's inline style.width cannot override.
+   Width is set via CSS custom property --drag-w (horizontal) / --drag-h (vertical). */
+#player .rap-progress.is-dragging {
+    width: var(--drag-w, 0) !important;
+    height: var(--drag-h, 0) !important;
+}
+
 #player .rap-volume-controls .rap-progress {
     background: linear-gradient(180deg, rgba(125, 211, 252, 0.65), rgba(14, 165, 233, 0.7) 45%, rgba(45, 212, 191, 0.72)) !important;
     box-shadow:

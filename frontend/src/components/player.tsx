@@ -102,21 +102,19 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   }, [src]);
 
   useEffect(() => {
-    // Fix: react-audio-play's slider drag doesn't work on Windows WebView2.
-    // We replace it entirely using Pointer Events with setPointerCapture.
+    // Fix: react-audio-play's slider drag fights with React's onTimeUpdate.
+    // When audio is playing, the library's onTimeUpdate fires every ~250ms,
+    // causing a React re-render that sets element.style.width = "XX%". This
+    // REPLACES our inline style (including clearing !important), so the
+    // progress bar snaps back to the actual playback position during drag.
     //
-    // Performance: seeking (setting audio.currentTime) is expensive and causes
-    // audio decoder to re-sync, making the UI feel laggy during drag. Instead:
-    // - During drag: visually update the progress bar width directly via DOM,
-    //   no actual seek. This is instant and smooth.
-    // - On pointerup: perform a single seek to the final position.
-    // - Volume slider: volume changes are cheap, apply immediately.
+    // Solution: use a CSS class (.is-dragging) with !important in the CSS
+    // rule itself. React can set style.width all it wants — the CSS !important
+    // rule wins. We pass the desired width via a CSS custom property.
     //
-    // The library's onTimeUpdate sets style.width via React state, which fights
-    // our manual DOM update. We solve this by hijacking the progress bar width
-    // permanently: we set a !important width, and then keep it in sync with
-    // audio.currentTime via our own timeupdate listener. The library's React
-    // re-render can't override !important, so we have full control.
+    // During drag: add .is-dragging, set --drag-w / --drag-h
+    // On release: seek, wait for timeupdate to update React state, then
+    // remove .is-dragging. This prevents any visual flash.
 
     const getAudioEl = (): HTMLAudioElement | null => {
       return document.querySelector("#player audio");
@@ -144,43 +142,36 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       }
     };
 
-    // Set progress bar width with !important (blocks library's React re-render)
-    const setProgress = (slider: HTMLElement, ratio: number) => {
-      const isVertical = slider.dataset.direction === "vertical";
+    // Start dragging: add .is-dragging class and set CSS custom property.
+    // The CSS rule .rap-progress.is-dragging has !important, so React's
+    // inline style.width can never override it.
+    const startDrag = (slider: HTMLElement, ratio: number) => {
       const progress = slider.querySelector<HTMLElement>(".rap-progress");
-      if (progress) {
-        const pct = `${ratio * 100}%`;
-        progress.style.setProperty(isVertical ? "height" : "width", pct, "important");
-      }
+      if (!progress) return;
+      const isVertical = slider.dataset.direction === "vertical";
+      const pct = `${ratio * 100}%`;
+      progress.style.setProperty(isVertical ? "--drag-h" : "--drag-w", pct);
+      progress.classList.add("is-dragging");
     };
 
-    // -- Permanent timeupdate sync: keep progress bar in sync with audio position --
-    // This runs alongside the library's own onTimeUpdate but wins via !important.
-    let isDragging = false;
-
-    const onTimeUpdateSync = () => {
-      if (isDragging) return; // Don't fight the drag
-      const audioEl = getAudioEl();
-      if (!audioEl || !audioEl.duration || audioEl.duration === Infinity) return;
-
-      // Update seek progress bar
-      const seekSlider = document.querySelector<HTMLElement>("#player .rap-controls > .rap-slider");
-      if (seekSlider) {
-        const ratio = audioEl.currentTime / audioEl.duration;
-        setProgress(seekSlider, ratio);
-      }
-
-      // Update volume progress bar
-      const volSlider = document.querySelector<HTMLElement>("#player .rap-volume-controls .rap-slider");
-      if (volSlider) {
-        setProgress(volSlider, audioEl.volume);
-      }
+    // Update drag position (just changes the CSS variable)
+    const updateDrag = (slider: HTMLElement, ratio: number) => {
+      const progress = slider.querySelector<HTMLElement>(".rap-progress");
+      if (!progress) return;
+      const isVertical = slider.dataset.direction === "vertical";
+      const pct = `${ratio * 100}%`;
+      progress.style.setProperty(isVertical ? "--drag-h" : "--drag-w", pct);
     };
 
-    const audioElForSync = getAudioEl();
-    if (audioElForSync) {
-      audioElForSync.addEventListener("timeupdate", onTimeUpdateSync);
-    }
+    // End dragging: remove .is-dragging class so library's React state
+    // resumes control. Called after timeupdate confirms React state is current.
+    const endDrag = (slider: HTMLElement) => {
+      const progress = slider.querySelector<HTMLElement>(".rap-progress");
+      if (!progress) return;
+      progress.classList.remove("is-dragging");
+      progress.style.removeProperty("--drag-w");
+      progress.style.removeProperty("--drag-h");
+    };
 
     // Block the library's mousedown handler from starting a competing drag.
     const blockMouseDown = (event: MouseEvent) => {
@@ -206,46 +197,76 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       const isVolume = slider.closest("#player .rap-volume-controls") !== null;
 
       if (isVolume) {
+        // Volume: apply immediately, it's cheap
         applyVolume(ratio, audioEl);
-        setProgress(slider, ratio);
+        startDrag(slider, ratio);
 
         const onMove = (e: PointerEvent) => {
           e.preventDefault();
           const r = computeRatio(e, slider);
           applyVolume(r, audioEl);
-          setProgress(slider, r);
+          updateDrag(slider, r);
         };
         const onUp = (e: PointerEvent) => {
           slider.releasePointerCapture(e.pointerId);
           slider.removeEventListener("pointermove", onMove);
           slider.removeEventListener("pointerup", onUp);
+          endDrag(slider);
         };
         slider.addEventListener("pointermove", onMove);
         slider.addEventListener("pointerup", onUp);
       } else {
         // Seek: visual-only during drag, actual seek on release
-        isDragging = true;
-        setProgress(slider, ratio);
+        startDrag(slider, ratio);
 
         const onMove = (e: PointerEvent) => {
           e.preventDefault();
           const r = computeRatio(e, slider);
-          setProgress(slider, r);
+          updateDrag(slider, r);
         };
+
         const onUp = (e: PointerEvent) => {
           slider.releasePointerCapture(e.pointerId);
           slider.removeEventListener("pointermove", onMove);
           slider.removeEventListener("pointerup", onUp);
           const finalRatio = computeRatio(e, slider);
-          // Set progress to final position immediately (before seek completes)
-          setProgress(slider, finalRatio);
-          // Release drag lock so timeupdate sync can resume
-          isDragging = false;
-          // Perform the actual seek
+          // Update visual to final position
+          updateDrag(slider, finalRatio);
+          // Seek to final position
           seekAudio(finalRatio, audioEl);
+          // Wait for timeupdate to confirm the seek completed, then
+          // release the CSS lock. The library's React state will now
+          // have the correct position, so removing .is-dragging is seamless.
+          const onSeekedUpdate = () => {
+            endDrag(slider);
+            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
+          };
+          audioEl.addEventListener("timeupdate", onSeekedUpdate);
+          // Fallback: release after 800ms if timeupdate doesn't fire
+          // (e.g., audio paused, or seek failed)
+          setTimeout(() => {
+            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
+            endDrag(slider);
+          }, 800);
         };
+
         slider.addEventListener("pointermove", onMove);
         slider.addEventListener("pointerup", onUp);
+
+        // Safety: if pointer is lost (mouse leaves window, etc.),
+        // treat it as a release. pointercancel fires in these cases.
+        const onCancel = (e: PointerEvent) => {
+          slider.releasePointerCapture(e.pointerId);
+          slider.removeEventListener("pointermove", onMove);
+          slider.removeEventListener("pointerup", onUp);
+          slider.removeEventListener("pointercancel", onCancel);
+          const finalRatio = computeRatio(e, slider);
+          updateDrag(slider, finalRatio);
+          seekAudio(finalRatio, audioEl);
+          // For cancel, release immediately (user likely can't see the window)
+          endDrag(slider);
+        };
+        slider.addEventListener("pointercancel", onCancel);
       }
     };
 
@@ -255,10 +276,6 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("mousedown", blockMouseDown, true);
-      const el = getAudioEl();
-      if (el) {
-        el.removeEventListener("timeupdate", onTimeUpdateSync);
-      }
     };
   }, []);
 
