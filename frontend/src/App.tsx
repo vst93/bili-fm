@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import ToastContainer from "./components/toast/ToastContainer";
+import { DialogProvider } from "./components/dialog/DialogProvider";
 
 import IndexPage from "@/pages/index";
 
@@ -165,10 +166,10 @@ function App() {
   }, []);
 
   return (
-    <>
+    <DialogProvider>
       <IndexPage />
       <ToastContainer />
-    </>
+    </DialogProvider>
   );
 }
 

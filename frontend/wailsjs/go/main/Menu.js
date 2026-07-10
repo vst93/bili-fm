@@ -17,15 +17,3 @@ export function GetPlatform() {
 export function SetAppContext(arg1) {
   return window['go']['main']['Menu']['SetAppContext'](arg1);
 }
-
-export function ShowAbout() {
-  return window['go']['main']['Menu']['ShowAbout']();
-}
-
-export function ShowKeyboardShortcuts() {
-  return window['go']['main']['Menu']['ShowKeyboardShortcuts']();
-}
-
-export function ShowVersion() {
-  return window['go']['main']['Menu']['ShowVersion']();
-}

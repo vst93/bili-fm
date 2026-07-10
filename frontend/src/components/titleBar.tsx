@@ -1,12 +1,17 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Close, Minus, ZoomInternal } from "@icon-park/react";
 
-import { GetPlatform, ShowAbout, ShowVersion, CheckForUpdates, ShowKeyboardShortcuts, CloseApp } from "../../wailsjs/go/main/Menu";
+import { GetPlatform, CheckForUpdates, CloseApp } from "../../wailsjs/go/main/Menu";
+import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
+import { useDialog } from "./dialog/DialogProvider";
 
 interface TitleBarProps {
   onSwitchMode?: () => void;
   showSwitchMode?: boolean;
 }
+
+const APP_VERSION = "1.9.5";
+const APP_VERSION_NO = 195;
 
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
   const [isMac, setIsMac] = useState(false);
@@ -14,6 +19,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const showDialog = useDialog();
 
   useEffect(() => {
     // @ts-ignore
@@ -26,8 +32,23 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     };
     window.addEventListener('resize', handleResize);
 
+    // Mac native menu events (via Wails EventsEmit)
+    const onMenuAbout = () => handleShowAbout();
+    const onMenuShortcuts = () => handleShowKeyboardShortcuts();
+    // @ts-ignore
+    if (window.runtime?.EventsOn) {
+      // @ts-ignore
+      window.runtime.EventsOn("menu:show-about", onMenuAbout);
+      // @ts-ignore
+      window.runtime.EventsOn("menu:show-shortcuts", onMenuShortcuts);
+    }
+    window.addEventListener('menu:show-about', onMenuAbout as EventListener);
+    window.addEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('menu:show-about', onMenuAbout as EventListener);
+      window.removeEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
     };
   }, []);
 
@@ -45,24 +66,59 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     window.runtime.WindowMinimise();
   };
 
-  const handleShowAbout = async () => {
-    await ShowAbout();
+  const handleShowAbout = () => {
     setShowMenu(false);
-  };
-
-  const handleShowVersion = async () => {
-    await ShowVersion();
-    setShowMenu(false);
+    showDialog({
+      title: "关于 bili-FM",
+      type: "info",
+      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${APP_VERSION} (Build ${APP_VERSION_NO})\n开源项目：github.com/vst93/bili-fm`,
+      buttons: [{ label: "好的", value: "ok", primary: true }],
+    });
   };
 
   const handleCheckUpdate = async () => {
-    await CheckForUpdates(true, "");
     setShowMenu(false);
+    const result = await CheckForUpdates(true, "");
+    if (result.error) {
+      showDialog({
+        title: "检查更新失败",
+        type: "error",
+        message: result.error,
+        buttons: [{ label: "确定", value: "ok", primary: true }],
+      });
+    } else if (result.hasUpdate) {
+      showDialog({
+        title: "发现新版本",
+        type: "question",
+        message: `新版本 v${result.latestVersion} 已发布\n是否前往下载？`,
+        buttons: [
+          { label: "前往下载", value: "yes", primary: true },
+          { label: "稍后再说", value: "no" },
+        ],
+        onClose: (value: string) => {
+          if (value === "yes") {
+            BrowserOpenURL(result.downloadUrl);
+          }
+        },
+      });
+    } else if (result.isLatest) {
+      showDialog({
+        title: "检查更新",
+        type: "success",
+        message: "当前已是最新版本",
+        buttons: [{ label: "好的", value: "ok", primary: true }],
+      });
+    }
   };
 
-  const handleShowKeyboardShortcuts = async () => {
-    await ShowKeyboardShortcuts();
+  const handleShowKeyboardShortcuts = () => {
     setShowMenu(false);
+    showDialog({
+      title: "快捷键",
+      type: "info",
+      message: "播放 / 暂停：空格键\n上一首：←\n下一首：→\n最小化：Ctrl/Cmd + W\n退出：Ctrl/Cmd + Q",
+      buttons: [{ label: "知道了", value: "ok", primary: true }],
+    });
   };
 
   const handleSwitchMode = () => {
@@ -175,15 +231,6 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   role="menuitem"
                 >
                   关于应用
-                </button>
-              </li>
-              <li role="none">
-                <button
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
-                  onClick={handleShowVersion}
-                  role="menuitem"
-                >
-                  当前版本
                 </button>
               </li>
               <li role="none">

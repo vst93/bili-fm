@@ -210,10 +210,10 @@ func main() {
 	if isMacOS {
 		aboutMenu := AppMenu.AddSubmenu("设置")
 		aboutMenu.AddText("关于应用", nil, func(_ *menu.CallbackData) {
-			appMenu.ShowAbout()
+			wailsruntime.EventsEmit(AppContext, "menu:show-about")
 		})
 		aboutMenu.AddText("快捷键", nil, func(_ *menu.CallbackData) {
-			appMenu.ShowKeyboardShortcuts()
+			wailsruntime.EventsEmit(AppContext, "menu:show-shortcuts")
 		})
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
 			appMenu.CheckForUpdates(true, "")
