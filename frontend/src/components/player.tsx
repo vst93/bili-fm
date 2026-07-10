@@ -217,6 +217,17 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
         slider.addEventListener("pointerup", onUp);
       } else {
         // Seek: visual-only during drag, actual seek on release
+
+        // ---- Cleanup tracking for this drag session ----
+        // We must clean up ALL listeners and timers when the drag ends,
+        // so a rapid re-drag doesn't have stale callbacks that call
+        // endDrag() at the wrong time and cause the "jump" bug.
+        let cleanupFns: (() => void)[] = [];
+        const cleanup = () => {
+          cleanupFns.forEach(fn => fn());
+          cleanupFns = [];
+        };
+
         startDrag(slider, ratio);
 
         const onMove = (e: PointerEvent) => {
@@ -225,47 +236,66 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
           updateDrag(slider, r);
         };
 
-        const onUp = (e: PointerEvent) => {
-          slider.releasePointerCapture(e.pointerId);
-          slider.removeEventListener("pointermove", onMove);
-          slider.removeEventListener("pointerup", onUp);
+        const finishDrag = (e: PointerEvent) => {
           const finalRatio = computeRatio(e, slider);
           // Update visual to final position
           updateDrag(slider, finalRatio);
           // Seek to final position
           seekAudio(finalRatio, audioEl);
+
           // Wait for timeupdate to confirm the seek completed, then
           // release the CSS lock. The library's React state will now
           // have the correct position, so removing .is-dragging is seamless.
-          const onSeekedUpdate = () => {
+          let done = false;
+          const release = () => {
+            if (done) return;
+            done = true;
             endDrag(slider);
-            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
+            cleanup();
+          };
+
+          const onSeekedUpdate = () => {
+            // Verify the audio position actually matches our target
+            // before releasing the visual lock. This prevents releasing
+            // too early if a stale timeupdate fires.
+            const expectedTime = finalRatio * audioEl.duration;
+            const actualTime = audioEl.currentTime;
+            if (Math.abs(actualTime - expectedTime) < 2) {
+              release();
+            }
+            // If not close enough, keep waiting (fallback timer will handle it)
           };
           audioEl.addEventListener("timeupdate", onSeekedUpdate);
+          cleanupFns.push(() => audioEl.removeEventListener("timeupdate", onSeekedUpdate));
+
           // Fallback: release after 800ms if timeupdate doesn't fire
-          // (e.g., audio paused, or seek failed)
-          setTimeout(() => {
-            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
-            endDrag(slider);
-          }, 800);
+          const timer = setTimeout(release, 800);
+          cleanupFns.push(() => clearTimeout(timer));
         };
 
-        slider.addEventListener("pointermove", onMove);
-        slider.addEventListener("pointerup", onUp);
+        const onUp = (e: PointerEvent) => {
+          slider.releasePointerCapture(e.pointerId);
+          slider.removeEventListener("pointermove", onMove);
+          slider.removeEventListener("pointerup", onUp);
+          slider.removeEventListener("pointercancel", onCancel);
+          finishDrag(e);
+        };
 
-        // Safety: if pointer is lost (mouse leaves window, etc.),
-        // treat it as a release. pointercancel fires in these cases.
         const onCancel = (e: PointerEvent) => {
           slider.releasePointerCapture(e.pointerId);
           slider.removeEventListener("pointermove", onMove);
           slider.removeEventListener("pointerup", onUp);
           slider.removeEventListener("pointercancel", onCancel);
+          // For cancel, seek and release immediately
           const finalRatio = computeRatio(e, slider);
           updateDrag(slider, finalRatio);
           seekAudio(finalRatio, audioEl);
-          // For cancel, release immediately (user likely can't see the window)
           endDrag(slider);
+          cleanup();
         };
+
+        slider.addEventListener("pointermove", onMove);
+        slider.addEventListener("pointerup", onUp);
         slider.addEventListener("pointercancel", onCancel);
       }
     };
