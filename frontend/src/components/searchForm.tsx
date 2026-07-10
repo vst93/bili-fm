@@ -42,19 +42,6 @@ const SearchForm: FC<SearchFormProps> = ({
         onSearch?.(inputValue);
       }
     }
-
-    if ((e.ctrlKey || e.metaKey) && e.key === "a") {
-      e.preventDefault();
-      e.currentTarget.select();
-    } else if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-      e.preventDefault();
-      e.currentTarget.select();
-    } else if ((e.ctrlKey || e.metaKey) && e.key === "v") {
-      e.preventDefault();
-      navigator.clipboard.readText().then((text) => {
-        onInputChange?.(text);
-      });
-    }
   };
 
   return (

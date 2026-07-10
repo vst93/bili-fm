@@ -976,15 +976,19 @@ body.mini-mode #root::before {
     position: relative;
 }
 
-/* Hover: glass strip across the title bar */
+/* Hover: glass wash that fades downward from the top edge */
 .app-title-bar::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.22) 0%,
+        rgba(255, 255, 255, 0.12) 40%,
+        rgba(255, 255, 255, 0.03) 80%,
+        transparent 100%);
+    backdrop-filter: blur(10px) saturate(1.3);
+    -webkit-backdrop-filter: blur(10px) saturate(1.3);
     opacity: 0;
     transition: opacity 0.24s ease;
     z-index: 0;
@@ -2145,6 +2149,11 @@ body.mini-mode #root::before {
     min-height: 0 !important;
     border: 0 !important;
     border-radius: 999px !important;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+    --wails-draggable: no-drag;
 }
 
 #player .rap-pin {
@@ -2200,6 +2209,11 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
         0 5px 16px rgba(14, 165, 233, 0.14) !important;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+    --wails-draggable: no-drag;
 }
 
 #player .rap-volume-controls .rap-progress {

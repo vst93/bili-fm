@@ -102,21 +102,78 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   }, [src]);
 
   useEffect(() => {
-    // Fix: react-audio-play's slider onMouseDown doesn't call preventDefault(),
-    // so Windows WebView2 starts a native drag/select that suppresses mousemove.
-    // We intercept mousedown on slider elements and call preventDefault() so the
-    // library's window.mousemove listener receives events during drag.
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("#player .rap-slider") || target?.closest("#player .rap-pin")) {
-        event.preventDefault();
+    // Fix: react-audio-play's slider drag doesn't work on Windows WebView2.
+    // The library uses mousedown → window.mousemove, but WebView2's native
+    // drag-select interferes. We replace it entirely using Pointer Events
+    // with setPointerCapture, which guarantees pointermove delivery.
+    //
+    // On pointerdown on a slider, capture the pointer on that element,
+    // then listen for pointermove/pointerup directly on it.
+
+    const getAudioEl = (): HTMLAudioElement | null => {
+      return document.querySelector("#player audio");
+    };
+
+    const computeRatio = (event: PointerEvent, slider: HTMLElement): number => {
+      const rect = slider.getBoundingClientRect();
+      const isVertical = slider.dataset.direction === "vertical";
+      let ratio: number;
+      if (isVertical) {
+        ratio = 1 - (event.clientY - rect.top) / rect.height;
+      } else {
+        ratio = (event.clientX - rect.left) / rect.width;
+      }
+      return Math.max(0, Math.min(1, ratio));
+    };
+
+    const applyRatio = (ratio: number, slider: HTMLElement, audioEl: HTMLAudioElement) => {
+      const isVolume = slider.closest("#player .rap-volume-controls") !== null;
+      if (isVolume) {
+        audioEl.volume = ratio;
+      } else {
+        if (audioEl.duration && audioEl.duration !== Infinity) {
+          audioEl.currentTime = ratio * audioEl.duration;
+        }
       }
     };
 
-    document.addEventListener("mousedown", handleMouseDown, true);
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      const slider = target?.closest("#player .rap-slider") as HTMLElement | null;
+      if (!slider) return;
+
+      const audioEl = getAudioEl();
+      if (!audioEl) return;
+
+      // Capture pointer on the slider element so all moves come to it
+      slider.setPointerCapture(event.pointerId);
+      event.preventDefault();
+
+      // Apply immediately (click-to-seek)
+      const ratio = computeRatio(event, slider);
+      applyRatio(ratio, slider, audioEl);
+
+      // Register move/up on the slider itself (since it captured the pointer)
+      const onMove = (e: PointerEvent) => {
+        e.preventDefault();
+        const r = computeRatio(e, slider);
+        applyRatio(r, slider, audioEl);
+      };
+
+      const onUp = (e: PointerEvent) => {
+        slider.releasePointerCapture(e.pointerId);
+        slider.removeEventListener("pointermove", onMove);
+        slider.removeEventListener("pointerup", onUp);
+      };
+
+      slider.addEventListener("pointermove", onMove);
+      slider.addEventListener("pointerup", onUp);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
 
     return () => {
-      document.removeEventListener("mousedown", handleMouseDown, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, []);
 
