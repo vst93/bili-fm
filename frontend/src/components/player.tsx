@@ -139,17 +139,35 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       }
     };
 
-    // Visually update progress bar without seeking
+    // Visually update progress bar without seeking.
+    // Use !important so the library's onTimeUpdate (which re-renders with
+    // stale React state) can't override our visual position during drag.
     const updateProgressVisual = (slider: HTMLElement, ratio: number) => {
       const isVertical = slider.dataset.direction === "vertical";
       const progress = slider.querySelector<HTMLElement>(".rap-progress");
       if (progress) {
+        const pct = `${ratio * 100}%`;
         if (isVertical) {
-          progress.style.height = `${ratio * 100}%`;
+          progress.style.setProperty("height", pct, "important");
         } else {
-          progress.style.width = `${ratio * 100}%`;
+          progress.style.setProperty("width", pct, "important");
         }
       }
+    };
+
+    // Remove the !important override so the library can resume normal updates.
+    // We set a plain inline value (matching the current ratio) so there's no
+    // visual gap before the library's next onTimeUpdate fires.
+    const releaseProgressVisual = (slider: HTMLElement, ratio: number) => {
+      const progress = slider.querySelector<HTMLElement>(".rap-progress");
+      if (!progress) return;
+      const isVertical = slider.dataset.direction === "vertical";
+      const pct = `${ratio * 100}%`;
+      // Replace !important with plain inline — same visual, lower priority
+      progress.style.setProperty("width", "", "");
+      progress.style.setProperty("height", "", "");
+      progress.style.width = isVertical ? "" : pct;
+      progress.style.height = isVertical ? pct : "";
     };
 
     // Block the library's mousedown handler from starting a competing drag.
@@ -206,9 +224,22 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
           slider.releasePointerCapture(e.pointerId);
           slider.removeEventListener("pointermove", onMove);
           slider.removeEventListener("pointerup", onUp);
-          // Single seek on release — uses final position
           const finalRatio = computeRatio(e, slider);
+          // Seek first, then listen for the resulting timeupdate to
+          // release the visual lock — this prevents the 0→position flash
+          // that happens when the library's stale React state momentarily
+          // controls the progress bar width before onTimeUpdate fires.
+          const onSeekedUpdate = () => {
+            releaseProgressVisual(slider, finalRatio);
+            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
+          };
+          audioEl.addEventListener("timeupdate", onSeekedUpdate);
           seekAudio(finalRatio, audioEl);
+          // Fallback: if timeupdate doesn't fire within 500ms, release anyway
+          setTimeout(() => {
+            audioEl.removeEventListener("timeupdate", onSeekedUpdate);
+            releaseProgressVisual(slider, finalRatio);
+          }, 500);
         };
         slider.addEventListener("pointermove", onMove);
         slider.addEventListener("pointerup", onUp);

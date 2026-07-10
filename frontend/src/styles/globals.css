@@ -1440,22 +1440,22 @@ body.mini-mode #root::before {
     border-radius: 50%;
     background:
         conic-gradient(from 180deg,
-            rgba(255, 255, 255, 0.6) 0%,
+            rgba(255, 255, 255, 0.55) 0%,
             rgba(200, 215, 235, 0.2) 20%,
-            rgba(255, 255, 255, 0.45) 35%,
+            rgba(255, 255, 255, 0.4) 35%,
             rgba(180, 200, 225, 0.12) 55%,
-            rgba(255, 255, 255, 0.5) 70%,
+            rgba(255, 255, 255, 0.45) 70%,
             rgba(210, 225, 240, 0.18) 85%,
-            rgba(255, 255, 255, 0.6) 100%);
+            rgba(255, 255, 255, 0.55) 100%);
     box-shadow:
-        inset 0 2px 3px rgba(255, 255, 255, 0.7),
-        inset 0 -3px 6px rgba(15, 23, 42, 0.1),
-        inset 0 0 0 1.5px rgba(255, 255, 255, 0.35),
-        0 0 0 1px rgba(255, 255, 255, 0.2),
+        inset 0 2px 3px rgba(255, 255, 255, 0.6),
+        inset 0 -3px 6px rgba(15, 23, 42, 0.08),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.15),
         0 20px 48px rgba(15, 23, 42, 0.18);
 }
 
-/* Inner glass rim on the rotating cover — subtle, no backdrop-filter */
+/* Inner glass rim — subtle, no backdrop-filter */
 .cover-shell::after {
     content: "";
     position: absolute;
@@ -1463,8 +1463,8 @@ body.mini-mode #root::before {
     border-radius: 50%;
     pointer-events: none;
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.5),
-        inset 0 -1px 2px rgba(15, 23, 42, 0.08);
+        inset 0 1px 1px rgba(255, 255, 255, 0.4),
+        inset 0 -1px 2px rgba(15, 23, 42, 0.06);
 }
 
 #video-cover {
@@ -1475,12 +1475,11 @@ body.mini-mode #root::before {
     position: relative;
     display: grid;
     place-items: center;
-    border: 2px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 50%;
     background: #0f172a;
     box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-        inset 0 2px 4px rgba(255, 255, 255, 0.12),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.15),
         0 12px 32px rgba(15, 23, 42, 0.14);
     overflow: hidden;
     transform: translateZ(0);
@@ -1491,8 +1490,7 @@ body.mini-mode #root::before {
 
 #video-cover:hover {
     box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-        inset 0 2px 4px rgba(255, 255, 255, 0.15),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.2),
         0 16px 40px rgba(14, 165, 233, 0.16);
 }
 
@@ -1504,8 +1502,7 @@ body.mini-mode #root::before {
 #video-cover.is-playing {
     animation-play-state: running;
     box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-        inset 0 2px 4px rgba(255, 255, 255, 0.15),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.2),
         0 16px 44px rgba(14, 165, 233, 0.2);
 }
 
@@ -1520,10 +1517,12 @@ body.mini-mode #root::before {
     backface-visibility: hidden;
 }
 
-/* Glass overlay on the rotating cover — multi-layer gradient for depth:
-   1. Diagonal sheen (top-left bright -> transparent -> bottom-right glow)
-   2. Radial vignette (clear center, slightly dark edges for "glass lens" feel)
-   3. Subtle inner ring highlight at the rim */
+/* Glass overlay on the rotating cover — multi-layer for real glass depth:
+   1. Strong diagonal sheen (top-left bright, fading to transparent)
+   2. Radial vignette (clear center, subtle dark edges = lens curvature feel)
+   3. Bottom-right soft glow (light source consistency)
+   4. Inner rim highlight (glass edge refraction)
+   Performance: all static gradients + box-shadow, no backdrop-filter */
 .cover-art::after {
     content: "";
     position: absolute;
@@ -1531,19 +1530,22 @@ body.mini-mode #root::before {
     border-radius: 50%;
     background:
         linear-gradient(135deg,
-            rgba(255, 255, 255, 0.28) 0%,
-            rgba(255, 255, 255, 0.06) 25%,
-            transparent 45%,
-            transparent 55%,
-            rgba(14, 165, 233, 0.08) 75%,
-            rgba(255, 255, 255, 0.15) 100%),
+            rgba(255, 255, 255, 0.35) 0%,
+            rgba(255, 255, 255, 0.1) 20%,
+            transparent 40%,
+            transparent 50%,
+            rgba(14, 165, 233, 0.05) 70%,
+            rgba(255, 255, 255, 0.18) 100%),
+        radial-gradient(ellipse at 35% 25%,
+            rgba(255, 255, 255, 0.2) 0%,
+            transparent 40%),
         radial-gradient(circle at 50% 50%,
             transparent 0%,
-            transparent 55%,
-            rgba(15, 23, 42, 0.06) 85%,
-            rgba(15, 23, 42, 0.16) 100%);
+            transparent 50%,
+            rgba(15, 23, 42, 0.05) 80%,
+            rgba(15, 23, 42, 0.12) 100%);
     pointer-events: none;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
 #danmaku-btn {
