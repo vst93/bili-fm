@@ -96,7 +96,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
           <>
             <div className="flex-1" />
             <div
-              className="flex justify-center items-center gap-0"
+              className="title-bar-brand flex justify-center items-center gap-0"
               style={{
                 display: windowWidth <= 600 ? 'none' : '',
               }}
@@ -111,7 +111,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         ) : (
           <>
               <div
-                className="flex-1 flex items-center gap-0 px-0"
+                className="title-bar-brand flex-1 flex items-center gap-0 px-0"
                 style={{
                   display: windowWidth <= 600 ? 'none' : '',
                 }}

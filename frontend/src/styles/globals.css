@@ -917,47 +917,47 @@ html[data-time-of-day="dusk"] #root::after {
     opacity: 1;
 }
 
-/* Late evening (20:00-22:59): deeper blue but still bright enough for gray icons */
+/* Late evening (20:00-22:59): muted blue-gray, bright enough for gray icons */
 html[data-time-of-day="evening"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
-            #6a7e9a 0%,
-            #788aa6 20%,
-            #8494b0 40%,
-            #7c8eaa 60%,
-            #6e809c 80%,
-            #647890 100%);
+            #8a9cb8 0%,
+            #96a6c4 20%,
+            #a2b2ce 40%,
+            #9aacbe 60%,
+            #8c9eb0 80%,
+            #8294a6 100%);
 }
 
 html[data-time-of-day="evening"] #root::after {
-    background: linear-gradient(165deg, rgba(40, 55, 85, 0.12) 0%, rgba(45, 55, 80, 0.06) 50%, transparent 80%);
+    background: linear-gradient(165deg, rgba(40, 55, 85, 0.08) 0%, rgba(45, 55, 80, 0.04) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="evening"] #root::before {
-    opacity: 0.4;
+    opacity: 0.3;
 }
 
-/* Night (23:00-04:59): lifted brightness so gray (#475569) icons stay visible.
-   Previous dark navy (#3a526e) was too close to --studio-muted, making icons disappear. */
+/* Night (23:00-04:59): light blue-gray so gray (#475569) icons stay visible.
+   Previous dark navy made icons disappear; this is a soft night sky, not a black hole. */
 html[data-time-of-day="night"] #root::after {
-    background: linear-gradient(165deg, rgba(30, 45, 75, 0.12) 0%, rgba(35, 45, 70, 0.06) 50%, transparent 80%);
+    background: linear-gradient(165deg, rgba(30, 45, 75, 0.08) 0%, rgba(35, 45, 70, 0.04) 50%, transparent 80%);
     opacity: 1;
 }
 
 html[data-time-of-day="night"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
-            #7a8eaa 0%,
-            #8898b4 20%,
-            #94a4c0 40%,
-            #8c9eb8 60%,
-            #7e90ac 80%,
-            #74889e 100%);
+            #9aacc6 0%,
+            #a8b8d0 20%,
+            #b4c2da 40%,
+            #aac0d2 60%,
+            #9cb4c8 80%,
+            #92a8be 100%);
 }
 
 html[data-time-of-day="night"] #root::before {
-    opacity: 0.35;
+    opacity: 0.25;
 }
 
 body.mini-mode #root::before {
@@ -977,9 +977,19 @@ body.mini-mode #root::before {
     transition: opacity 0.24s ease;
 }
 
+/* Logo and brand name stay visible at all times (not dimmed with the rest) */
+.app-title-bar .title-bar-brand {
+    opacity: 0.7;
+}
+
 .app-title-bar:hover > *,
 .app-title-bar:focus-within > * {
     opacity: 0.82;
+}
+
+.app-title-bar:hover .title-bar-brand,
+.app-title-bar:focus-within .title-bar-brand {
+    opacity: 1;
 }
 
 .app-title-bar img {
@@ -1310,18 +1320,17 @@ body.mini-mode #root::before {
     background: rgba(255, 255, 255, 0.22) !important;
 }
 
-/* Window control group: switch-mode + minimize + close bundled in one glass capsule.
-   Top corners are flat to align with the window border edge, bottom corners rounded
-   for a "glass panel hanging from the top" look. */
+/* Window control group: switch-mode + minimize + close in a recessed glass tray.
+   Inset shadows create a "pressed into the surface" look — no top highlight line. */
 #wds-handle-group {
-    background: var(--glass-bg-active);
-    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border-top: 0;
     border-radius: 0 0 var(--app-window-radius) var(--app-window-radius);
     padding: 2px 4px !important;
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        0 2px 8px rgba(15, 23, 42, 0.04);
+        inset 0 2px 4px rgba(15, 23, 42, 0.08),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.12);
     backdrop-filter: var(--glass-blur-thin);
     -webkit-backdrop-filter: var(--glass-blur-thin);
 }
@@ -2026,12 +2035,10 @@ body.mini-mode #root::before {
     color: #334155;
     font-size: 12px;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: 18px;
     font-variant-numeric: tabular-nums;
     text-align: center;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    box-sizing: border-box;
 }
 
 #player .rap-volume {
@@ -3002,6 +3009,27 @@ body.mini-mode .app-title-bar {
 body.mini-mode .app-title-bar > * {
     opacity: 0;
     pointer-events: none;
+}
+
+/* Keep the window control buttons interactive in mini mode */
+body.mini-mode .app-title-bar #wds-handle-group,
+body.mini-mode .app-title-bar #wds-handle-group * {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+body.mini-mode .app-title-bar #wds-handle-group {
+    padding: 1px 3px !important;
+}
+
+body.mini-mode .app-title-bar #wds-handle-group .app-title-bar-btn {
+    width: 20px;
+    height: 20px;
+}
+
+body.mini-mode .app-title-bar #wds-handle-group .app-title-bar-btn svg {
+    width: 12px;
+    height: 12px;
 }
 
 body.mini-mode .app-main {
