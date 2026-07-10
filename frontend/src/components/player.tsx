@@ -102,6 +102,25 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   }, [src]);
 
   useEffect(() => {
+    // Fix: react-audio-play's slider onMouseDown doesn't call preventDefault(),
+    // so Windows WebView2 starts a native drag/select that suppresses mousemove.
+    // We intercept mousedown on slider elements and call preventDefault() so the
+    // library's window.mousemove listener receives events during drag.
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("#player .rap-slider") || target?.closest("#player .rap-pin")) {
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
+    };
+  }, []);
+
+  useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       const openVolume = document.querySelector<HTMLElement>("#player .rap-volume-open");

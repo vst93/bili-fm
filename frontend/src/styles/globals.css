@@ -976,15 +976,15 @@ body.mini-mode #root::before {
     position: relative;
 }
 
-/* Hover: subtle glass strip across the title bar */
+/* Hover: glass strip across the title bar */
 .app-title-bar::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
-    backdrop-filter: blur(8px) saturate(1.2);
-    -webkit-backdrop-filter: blur(8px) saturate(1.2);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
     opacity: 0;
     transition: opacity 0.24s ease;
     z-index: 0;
@@ -1344,7 +1344,7 @@ body.mini-mode #root::before {
 }
 
 /* Window control group: switch-mode + minimize + close in a recessed glass tray.
-   Inset shadows create a "pressed into the surface" look — no top highlight line. */
+   Inset shadows create a "pressed into the surface" look - no top highlight line. */
 #wds-handle-group {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1356,6 +1356,7 @@ body.mini-mode #root::before {
         inset 0 -1px 0 rgba(255, 255, 255, 0.12);
     backdrop-filter: var(--glass-blur-thin);
     -webkit-backdrop-filter: var(--glass-blur-thin);
+    --wails-draggable: no-drag;
 }
 
 #settings-menu {
@@ -1574,33 +1575,56 @@ body.mini-mode #root::before {
     align-items: center;
     gap: 11px;
     min-width: 0;
+    position: relative;
+}
+
+/* Glass overlay on the avatar — sits above the image for a frosted glass look */
+.video-owner-wrap::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 2;
+    background:
+        linear-gradient(135deg,
+            rgba(255, 255, 255, 0.25) 0%,
+            rgba(255, 255, 255, 0.05) 40%,
+            rgba(14, 165, 233, 0.08) 100%);
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.6),
+        inset 0 -1px 2px rgba(15, 23, 42, 0.1);
+    transition: opacity 0.2s ease;
 }
 
 #video-owner-face {
     width: 44px !important;
     height: 44px !important;
+    margin: 2px;
     border-radius: 50%;
     object-fit: cover;
-    border: 2px solid var(--glass-border-bright);
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 2px rgba(15, 23, 42, 0.14),
-        0 0 0 3px rgba(255, 255, 255, 0.55),
-        0 0 0 4px rgba(255, 255, 255, 0.25),
-        0 0 0 5px rgba(14, 165, 233, 0.15),
-        0 6px 16px rgba(15, 23, 42, 0.12);
+        0 0 0 1px rgba(14, 165, 233, 0.18),
+        0 4px 12px rgba(15, 23, 42, 0.1);
     transition: box-shadow 0.2s ease, transform 0.18s ease;
+    position: relative;
+    z-index: 1;
 }
 
 #video-owner-face:hover {
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 2px rgba(15, 23, 42, 0.14),
-        0 0 0 3px rgba(255, 255, 255, 0.7),
-        0 0 0 4px rgba(255, 255, 255, 0.3),
-        0 0 0 5px rgba(14, 165, 233, 0.25),
-        0 10px 22px rgba(14, 165, 233, 0.22);
+        0 0 0 1px rgba(14, 165, 233, 0.3),
+        0 8px 18px rgba(14, 165, 233, 0.18);
     transform: scale(1.06);
+    z-index: 10;
+}
+
+.video-owner-wrap:hover::before {
+    opacity: 0.7;
 }
 
 .video-kicker {
