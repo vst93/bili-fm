@@ -36,7 +36,6 @@ export default function VideoCover({
             backgroundImage: `url(${coverImage})`,
           }}
         />
-        <span className="cover-center" />
       </div>
     </div>
   );
