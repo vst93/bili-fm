@@ -7,15 +7,23 @@ import IndexPage from "@/pages/index";
 
 function App() {
   useEffect(() => {
-    // Time-of-day lighting: set data-time-of-day on <html> for subtle sky tint
+    // Time-of-day lighting: richer schedule with 11 segments.
+    // 0-6h is calmer (2 states), daytime changes more frequently (3 states).
+    // All backgrounds are kept light enough (L > 65%) for gray #64748b icons.
     const updateTimeOfDay = () => {
-      const hour = new Date().getHours();
+      const h = new Date().getHours();
       let tod: string;
-      if (hour >= 5 && hour < 8) tod = "dawn";
-      else if (hour >= 8 && hour < 17) tod = "day";
-      else if (hour >= 17 && hour < 20) tod = "dusk";
-      else if (hour >= 20 && hour < 23) tod = "evening";
-      else tod = "night";
+      if (h < 3) tod = "midnight";       // 0-3: deep night, calm
+      else if (h < 6) tod = "predawn";   // 3-6: pre-dawn, still calm
+      else if (h < 7) tod = "dawn";      // 6-7: sunrise transition
+      else if (h < 9) tod = "morning";   // 7-9: warm morning light
+      else if (h < 12) tod = "midday";   // 9-12: bright midday
+      else if (h < 14) tod = "noon";     // 12-14: peak brightness
+      else if (h < 17) tod = "afternoon";// 14-17: warm afternoon
+      else if (h < 18) tod = "golden";   // 17-18: golden hour
+      else if (h < 20) tod = "dusk";     // 18-20: sunset
+      else if (h < 22) tod = "evening";  // 20-22: blue evening
+      else tod = "latenight";            // 22-24: late night
       document.documentElement.setAttribute("data-time-of-day", tod);
     };
     updateTimeOfDay();

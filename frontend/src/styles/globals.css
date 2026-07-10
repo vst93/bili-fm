@@ -873,7 +873,6 @@ body {
 }
 
 /* ====== Time-of-day lighting overlay ====== */
-/* Subtle warm/cool tint layered over the sky, driven by data-time-of-day on <html> */
 #root::after {
     content: "";
     position: absolute;
@@ -883,6 +882,51 @@ body {
     transition: opacity 1.5s ease, background 1.5s ease;
 }
 
+/* ====== Time-of-day background system (11 segments) ======
+   Design: all backgrounds kept at L>65% for #64748b icon readability.
+   Night (0-6h): 2 calm states, cool blue-lavender, minimal variation.
+   Day (6-20h): 7 states, warm→bright→warm arc, richer hue changes.
+   Evening (20-24h): 2 states, deepening blue-gray.
+   Transition: opacity 1.5s cross-fade via #root::after. */
+
+/* 0-3h: Deep night — calm, cool blue-lavender, soft and even */
+html[data-time-of-day="midnight"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #b8c4d8 0%,
+            #c0ccde 25%,
+            #c8d2e2 50%,
+            #c4cee0 75%,
+            #bcc6d8 100%);
+}
+html[data-time-of-day="midnight"] #root::after {
+    background: linear-gradient(165deg, rgba(50, 60, 90, 0.05) 0%, rgba(45, 55, 75, 0.02) 50%, transparent 80%);
+    opacity: 1;
+}
+html[data-time-of-day="midnight"] #root::before {
+    opacity: 0.22;
+}
+
+/* 3-6h: Pre-dawn — slightly warmer hint, still calm */
+html[data-time-of-day="predawn"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #bcc6dc 0%,
+            #c4cedd 20%,
+            #ccd4e0 40%,
+            #d2d8e2 60%,
+            #ccd2de 80%,
+            #c4cedc 100%);
+}
+html[data-time-of-day="predawn"] #root::after {
+    background: linear-gradient(165deg, rgba(200, 180, 200, 0.06) 0%, rgba(180, 180, 210, 0.03) 50%, transparent 80%);
+    opacity: 1;
+}
+html[data-time-of-day="predawn"] #root::before {
+    opacity: 0.2;
+}
+
+/* 6-7h: Dawn — sunrise warmth breaking through cool */
 html[data-time-of-day="dawn"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
@@ -893,17 +937,99 @@ html[data-time-of-day="dawn"] #root {
             #d4e4f0 70%,
             #d8e8f2 100%);
 }
-
 html[data-time-of-day="dawn"] #root::after {
     background: linear-gradient(165deg, rgba(255, 210, 170, 0.14) 0%, rgba(255, 200, 150, 0.05) 40%, transparent 70%);
     opacity: 1;
 }
 
-html[data-time-of-day="day"] #root::after {
+/* 7-9h: Morning — warm golden morning light */
+html[data-time-of-day="morning"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #fef0e0 0%,
+            #fde8e4 12%,
+            #f0eaf0 25%,
+            #e4eaf4 42%,
+            #dceaf2 58%,
+            #e0eef4 75%,
+            #d8e6f0 100%);
+}
+html[data-time-of-day="morning"] #root::after {
+    background: linear-gradient(165deg, rgba(255, 220, 180, 0.1) 0%, rgba(240, 200, 200, 0.04) 50%, transparent 75%);
+    opacity: 1;
+}
+
+/* 9-12h: Midday — bright, clean, slightly cool */
+html[data-time-of-day="midday"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #e8f0fa 0%,
+            #e2eaf5 10%,
+            #f0eef6 22%,
+            #e4e8f2 35%,
+            #dce6f0 48%,
+            #e8eef4 60%,
+            #d6e4ee 72%,
+            #e0eaf2 85%,
+            #d8e6f0 100%);
+}
+html[data-time-of-day="midday"] #root::after {
     background: transparent;
     opacity: 0;
 }
 
+/* 12-14h: Noon — peak brightness, warm-neutral */
+html[data-time-of-day="noon"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #f0f4fa 0%,
+            #eaf0f6 15%,
+            #f2eef4 30%,
+            #e6eaf2 45%,
+            #e0e8f0 60%,
+            #eaeef4 75%,
+            #e2eaf2 100%);
+}
+html[data-time-of-day="noon"] #root::after {
+    background: linear-gradient(165deg, rgba(255, 240, 220, 0.06) 0%, transparent 60%);
+    opacity: 1;
+}
+
+/* 14-17h: Afternoon — warm, golden tint deepening */
+html[data-time-of-day="afternoon"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #fef4e8 0%,
+            #f8ece0 12%,
+            #f0e8ec 25%,
+            #e8eaf0 42%,
+            #e0e6f0 58%,
+            #e4eaf0 75%,
+            #dce8f0 100%);
+}
+html[data-time-of-day="afternoon"] #root::after {
+    background: linear-gradient(165deg, rgba(255, 230, 200, 0.1) 0%, rgba(240, 210, 190, 0.04) 50%, transparent 75%);
+    opacity: 1;
+}
+
+/* 17-18h: Golden hour — rich warm glow */
+html[data-time-of-day="golden"] #root {
+    --liquid-backdrop:
+        linear-gradient(165deg,
+            #feddc8 0%,
+            #fad0c8 12%,
+            #f0d0d8 25%,
+            #e4d0e0 40%,
+            #d8d0e8 55%,
+            #d0d0e4 70%,
+            #d4d4e4 100%);
+}
+html[data-time-of-day="golden"] #root::after {
+    background: linear-gradient(165deg, rgba(255, 200, 150, 0.14) 0%, rgba(255, 180, 140, 0.06) 40%, transparent 70%);
+    opacity: 1;
+}
+
+/* 18-20h: Dusk — sunset fading to cool */
 html[data-time-of-day="dusk"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
@@ -914,13 +1040,12 @@ html[data-time-of-day="dusk"] #root {
             #c0cee0 70%,
             #c8d4e4 100%);
 }
-
 html[data-time-of-day="dusk"] #root::after {
     background: linear-gradient(165deg, rgba(255, 180, 140, 0.12) 0%, rgba(200, 180, 255, 0.05) 50%, transparent 80%);
     opacity: 1;
 }
 
-/* Late evening (20:00-22:59): muted blue-gray, bright enough for gray icons */
+/* 20-22h: Evening — muted blue-gray, still bright enough for icons */
 html[data-time-of-day="evening"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
@@ -931,24 +1056,16 @@ html[data-time-of-day="evening"] #root {
             #8c9eb0 80%,
             #8294a6 100%);
 }
-
 html[data-time-of-day="evening"] #root::after {
     background: linear-gradient(165deg, rgba(40, 55, 85, 0.08) 0%, rgba(45, 55, 80, 0.04) 50%, transparent 80%);
     opacity: 1;
 }
-
 html[data-time-of-day="evening"] #root::before {
     opacity: 0.3;
 }
 
-/* Night (23:00-04:59): brighter blue-lavender, distinctly lighter than evening.
-   The brighter hue keeps gray (#475569) icons readable while feeling "nighttime". */
-html[data-time-of-day="night"] #root::after {
-    background: linear-gradient(165deg, rgba(50, 60, 90, 0.06) 0%, rgba(45, 55, 75, 0.03) 50%, transparent 80%);
-    opacity: 1;
-}
-
-html[data-time-of-day="night"] #root {
+/* 22-24h: Late night — slightly lighter blue-lavender than evening */
+html[data-time-of-day="latenight"] #root {
     --liquid-backdrop:
         linear-gradient(165deg,
             #aeb8d0 0%,
@@ -958,8 +1075,11 @@ html[data-time-of-day="night"] #root {
             #b4becd 80%,
             #a8b2c4 100%);
 }
-
-html[data-time-of-day="night"] #root::before {
+html[data-time-of-day="latenight"] #root::after {
+    background: linear-gradient(165deg, rgba(50, 60, 90, 0.06) 0%, rgba(45, 55, 75, 0.03) 50%, transparent 80%);
+    opacity: 1;
+}
+html[data-time-of-day="latenight"] #root::before {
     opacity: 0.25;
 }
 
