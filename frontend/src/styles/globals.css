@@ -85,6 +85,11 @@ body.platform-linux #root {
     --app-window-radius: 0px;
 }
 
+/* Windows: DWM 窗口圆角固定为 8px，CSS 与之对齐 */
+body.platform-windows #root {
+    --app-window-radius: 8px;
+}
+
 .app-title-bar {
     --wails-draggable: drag;
     widows: 1;
