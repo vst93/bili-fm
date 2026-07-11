@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=bili-FM
+Comment=A Bilibili audio player - listen to B站 content as music or podcasts
+Exec=bili-fm
+Icon=bili-FM
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=bilibili;audio;music;podcast;

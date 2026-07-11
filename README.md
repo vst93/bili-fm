@@ -100,6 +100,29 @@ xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
 
 执行完成后，再次打开应用即可。
 
+#### Linux
+
+##### Ubuntu / Debian（.deb 包）
+
+从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.deb` 文件：
+
+```bash
+sudo dpkg -i bili-fm_*.deb
+sudo apt-get install -f  # 自动安装缺失依赖
+```
+
+> 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
+
+##### Arch Linux
+
+```bash
+git clone https://github.com/vst93/bili-fm.git
+cd bili-fm/aur
+makepkg -si
+```
+
+也可以从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 直接下载 `bili-FM-linux-amd64.zip` 解压使用。
+
 ### 开发说明
 
 - 项目使用 Wails 开发，是一个跨平台桌面应用
@@ -194,6 +217,29 @@ If Homebrew doesn't find the latest version, update the index first:
 brew update
 brew upgrade bili-fm
 ```
+
+### Linux
+
+#### Ubuntu / Debian (.deb package)
+
+Download the `.deb` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases):
+
+```bash
+sudo dpkg -i bili-fm_*.deb
+sudo apt-get install -f  # auto-install missing dependencies
+```
+
+> Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible with the prebuilt binary.
+
+#### Arch Linux
+
+```bash
+git clone https://github.com/vst93/bili-fm.git
+cd bili-fm/aur
+makepkg -si
+```
+
+Alternatively, download `bili-FM-linux-amd64.zip` from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and extract manually.
 
 ### macOS Troubleshooting
 

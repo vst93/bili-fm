@@ -5,3 +5,6 @@ frontend/wailsjs/runtime/*
 .vscode
 *.DS_Store
 bili-FM.exe
+build/
+bili-FM
+bili-fm_*.deb

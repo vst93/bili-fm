@@ -55,6 +55,58 @@ jobs:
           overwrite: true
           file_glob: true
 
+  linux-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binary from release
+        uses: robinraju/release-downloader@v1.8
+        with:
+          repository: vst93/bili-fm
+          tag: ${{ github.event.release.tag_name }}
+          fileName: bili-FM-linux-amd64.zip
+          out-file-path: /tmp/deb-src
+
+      - name: Build .deb package
+        run: |
+          mkdir -p /tmp/deb/DEBIAN /tmp/deb/usr/bin /tmp/deb/usr/share/applications /tmp/deb/usr/share/pixmaps
+          cd /tmp/deb-src && unzip -o bili-FM-linux-amd64.zip
+          cp bili-FM /tmp/deb/usr/bin/bili-fm
+          chmod 755 /tmp/deb/usr/bin/bili-fm
+          cat > /tmp/deb/usr/share/applications/bili-fm.desktop << 'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=bili-FM
+          Comment=A Bilibili audio player
+          Exec=bili-fm
+          Icon=bili-FM
+          Terminal=false
+          Categories=AudioVideo;Audio;Player;
+          EOF
+          cp $GITHUB_WORKSPACE/build/appicon.png /tmp/deb/usr/share/pixmaps/bili-FM.png
+          TAG="${{ github.event.release.tag_name }}"
+          cat > /tmp/deb/DEBIAN/control << EOF
+          Package: bili-fm
+          Version: ${TAG}
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Depends: libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37, libgtk-3-0, libsoup-3.0-0 | libsoup2-4-1, libc6, libstdc++6
+          Maintainer: vst <vst93@users.noreply.github.com>
+          Description: A Bilibili audio player
+           Listen to Bilibili content in audio-only mode.
+          EOF
+          dpkg-deb --build --root-owner-group /tmp/deb bili-fm_${TAG}_amd64.deb
+
+      - name: Upload .deb to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: /tmp/deb/bili-fm*.deb
+          overwrite: true
+          file_glob: true
+
   windows-store-package:
     runs-on: windows-latest
     env:

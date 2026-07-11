@@ -1,0 +1,65 @@
+# Maintainer: vst <vst93@users.noreply.github.com>
+# PKGBUILD for bili-fm-git - build from source (latest main branch)
+# Install: makepkg -si
+
+pkgname=bili-fm-git
+_pkgname=bili-fm
+pkgver=1.9.5
+pkgrel=1
+pkgdesc="A Bilibili audio player - listen to B站 content as music or podcasts"
+arch=('x86_64')
+url="https://github.com/vst93/bili-fm"
+license=('MIT')
+depends=(
+    'webkit2gtk-4.1'
+    'gtk3'
+    'libsoup3'
+    'glib2'
+    'glibc'
+)
+makedepends=(
+    'go>=1.21'
+    'nodejs'
+    'pnpm'
+    'webkit2gtk-4.1'
+    'gtk3'
+    'git'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=(
+    "git+https://github.com/vst93/bili-fm.git"
+    "bili-fm.desktop"
+)
+sha256sums=('SKIP' 'SKIP')
+
+pkgver() {
+    cd "$_pkgname"
+    git describe --tags --long 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' || echo "$pkgver"
+}
+
+build() {
+    cd "$srcdir/$_pkgname"
+
+    # Build frontend
+    cd frontend
+    pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+    pnpm run build
+    cd ..
+
+    # Build Go binary with webkit2gtk-4.1 support
+    go build -tags "webkit2_41 production" -trimpath -ldflags="-s -w" -o bili-FM .
+}
+
+package() {
+    cd "$srcdir/$_pkgname"
+
+    # Install binary
+    install -Dm755 bili-FM "${pkgdir}/usr/bin/bili-fm"
+
+    # Install desktop entry
+    install -Dm644 "$srcdir/bili-fm.desktop" "${pkgdir}/usr/share/applications/bili-fm.desktop"
+
+    # Install icon
+    install -Dm644 build/appicon.png "${pkgdir}/usr/share/pixmaps/bili-FM.png"
+}

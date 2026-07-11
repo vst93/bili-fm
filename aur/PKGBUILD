@@ -1,0 +1,41 @@
+# Maintainer: vst <vst93@users.noreply.github.com>
+# PKGBUILD for bili-fm - download prebuilt binary from GitHub Releases
+# Install: makepkg -si
+
+pkgname=bili-fm
+pkgver=1.9.5
+pkgrel=1
+pkgdesc="A Bilibili audio player - listen to B站 content as music or podcasts"
+arch=('x86_64')
+url="https://github.com/vst93/bili-fm"
+license=('MIT')
+depends=(
+    'webkit2gtk-4.1'
+    'gtk3'
+    'libsoup3'
+    'glib2'
+    'glibc'
+)
+source=(
+    "bili-FM-linux-amd64.zip::${url}/releases/download/${pkgver}/bili-FM-linux-amd64.zip"
+    "bili-fm.desktop"
+    "bili-fm.png::${url}/raw/main/build/appicon.png"
+)
+sha256sums=(
+    '05e05ca943bb6ecd26d2275102d30c39f09b0075767c9c971bec584dcb826055'
+    'SKIP'
+    '2bbd4ac0cf62fc6b4049c56d056c3a11d91da7a09aed191c17ab5d1a44b2cb67'
+)
+
+package() {
+    cd "${srcdir}"
+
+    # Install binary
+    install -Dm755 bili-FM "${pkgdir}/usr/bin/bili-fm"
+
+    # Install desktop entry
+    install -Dm644 bili-fm.desktop "${pkgdir}/usr/share/applications/bili-fm.desktop"
+
+    # Install icon
+    install -Dm644 bili-fm.png "${pkgdir}/usr/share/pixmaps/bili-FM.png"
+}
