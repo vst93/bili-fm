@@ -298,6 +298,17 @@ func main() {
 					}()
 				})
 			}
+
+			// Linux: 初始化 GTK StatusIcon 系统托盘
+			if runtime.GOOS == "linux" {
+				initTrayLinux(ctx, func() {
+					removeTrayLinux()
+					go func() {
+						time.Sleep(100 * time.Millisecond)
+						os.Exit(0)
+					}()
+				})
+			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
 			// 正在退出中（菜单/托盘触发的 os.Exit），允许关闭
@@ -313,6 +324,9 @@ func main() {
 			// 应用退出时清理托盘
 			if runtime.GOOS == "windows" {
 				removeTrayWindows()
+			}
+			if runtime.GOOS == "linux" {
+				removeTrayLinux()
 			}
 		},
 		Bind: []interface{}{
@@ -331,9 +345,11 @@ func main() {
 				showExistingWindow()
 			},
 		},
-		CSSDragProperty:   "widows",
-		CSSDragValue:      "1",
-		HideWindowOnClose: isMacOS, // macOS: 叉按钮隐藏窗口；Windows/Linux: 叉按钮关闭窗口
+		CSSDragProperty: "widows",
+		CSSDragValue:    "1",
+		// macOS: 叉按钮隐藏窗口；Windows/Linux: 叉按钮关闭窗口
+		// Linux 有系统托盘，也设为隐藏，通过托盘恢复
+		HideWindowOnClose: isMacOS || runtime.GOOS == "linux",
 		// Debug: options.Debug{
 		// 	OpenInspectorOnStartup: true,
 		// },

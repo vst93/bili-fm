@@ -170,6 +170,8 @@ export default function IndexPage() {
     // 检测平台，Linux 下禁用迷你模式
     GetPlatform().then((platform: string) => {
       setIsLinux(platform === "linux");
+      // Linux: 窗口管理器不支持外层圆角，去掉 #root 及所有使用 --app-window-radius 的圆角
+      document.body.classList.toggle("platform-linux", platform === "linux");
     });
     // 初始化时获取用户信息
     refreshUserInfo();

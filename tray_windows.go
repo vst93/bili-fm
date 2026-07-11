@@ -340,6 +340,9 @@ func removeTrayWindows() {
 	}
 }
 
+// removeTrayLinux stub for non-Linux platforms
+func removeTrayLinux() {}
+
 // setWailsContext 存储 Wails runtime context
 func setWailsContext(ctx context.Context) {
 	wailsCtx = ctx
@@ -370,3 +373,6 @@ func bringWindowToFront() {
 	// 尝试置顶
 	procSetForeground.Call(hwnd)
 }
+
+// initTrayLinux stub for non-Linux platforms
+func initTrayLinux(ctx context.Context, exitFn func()) {}

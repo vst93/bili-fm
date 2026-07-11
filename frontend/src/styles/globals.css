@@ -77,6 +77,14 @@ body {
     left: 0;
 }
 
+/* Linux: 窗口管理器无法渲染外层圆角，将窗口圆角变量置零，
+   一处覆盖即可去掉 #root、title-bar、底部 handle-group 以及
+   所有引用 --app-window-radius 的元素的圆角。
+   #root 变量级联到所有子元素，无需逐个覆盖。 */
+body.platform-linux #root {
+    --app-window-radius: 0px;
+}
+
 .app-title-bar {
     --wails-draggable: drag;
     widows: 1;

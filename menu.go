@@ -90,8 +90,9 @@ func (m *Menu) GetPlatform() string {
 func (m *Menu) CloseApp() {
 	// 设置退出标志
 	SetExiting()
-	// 移除托盘图标
+	// 移除托盘图标 (Windows + Linux)
 	removeTrayWindows()
+	removeTrayLinux()
 	// 强制退出进程
 	go func() {
 		time.Sleep(100 * time.Millisecond)

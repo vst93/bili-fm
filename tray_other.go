@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package main
 
@@ -25,6 +25,12 @@ func initTrayWindows(showFn func(), exitFn func()) {}
 
 // removeTrayWindows 非 Windows 平台的 stub
 func removeTrayWindows() {}
+
+// removeTrayLinux 非 Linux 平台的 stub
+func removeTrayLinux() {}
+
+// initTrayLinux 非 Linux 平台的 stub
+func initTrayLinux(ctx context.Context, exitFn func()) {}
 
 // IsExiting 非 Windows 平台的 stub
 func IsExiting() bool {
