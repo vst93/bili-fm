@@ -97,15 +97,14 @@ jobs:
           Description: A Bilibili audio player
            Listen to Bilibili content in audio-only mode.
           EOF
-          dpkg-deb --build --root-owner-group /tmp/deb bili-fm_${TAG}_amd64.deb
+          dpkg-deb --build --root-owner-group /tmp/deb bili-FM-linux-amd64.deb
 
       - name: Upload .deb to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /tmp/deb/bili-fm*.deb
+          file: /tmp/deb/bili-FM-linux-amd64.deb
           overwrite: true
-          file_glob: true
 
   windows-store-package:
     runs-on: windows-latest

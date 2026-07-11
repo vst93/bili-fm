@@ -60,7 +60,7 @@ CONTROL
 chmod 644 "$DEB_ROOT/DEBIAN/control"
 
 # Build .deb
-DEB_FILE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
+DEB_FILE="bili-FM-linux-${ARCH}.deb"
 dpkg-deb --build --root-owner-group "$DEB_ROOT" "$DEB_FILE"
 
 echo ""

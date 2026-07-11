@@ -107,7 +107,7 @@ xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
 从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.deb` 文件：
 
 ```bash
-sudo dpkg -i bili-fm_*.deb
+sudo dpkg -i bili-FM-linux-amd64.deb
 sudo apt-get install -f  # 自动安装缺失依赖
 ```
 
@@ -225,7 +225,7 @@ brew upgrade bili-fm
 Download the `.deb` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases):
 
 ```bash
-sudo dpkg -i bili-fm_*.deb
+sudo dpkg -i bili-FM-linux-amd64.deb
 sudo apt-get install -f  # auto-install missing dependencies
 ```
 

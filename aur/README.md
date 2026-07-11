@@ -24,8 +24,8 @@ makepkg -si
 Download the `.deb` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases/latest):
 
 ```bash
-wget https://github.com/vst93/bili-fm/releases/download/1.9.5/bili-fm_1.9.5_amd64.deb
-sudo dpkg -i bili-fm_1.9.5_amd64.deb
+wget https://github.com/vst93/bili-fm/releases/download/1.9.5/bili-FM-linux-amd64.deb
+sudo dpkg -i bili-FM-linux-amd64.deb
 sudo apt-get install -f  # fix missing dependencies
 ```
 
