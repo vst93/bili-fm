@@ -98,7 +98,7 @@ jobs:
           Description: A Bilibili audio player
            Listen to Bilibili content in audio-only mode.
           EOF
-          dpkg-deb --build --root-owner-group /tmp/deb bili-FM-linux-amd64.deb
+          dpkg-deb --build --root-owner-group /tmp/deb /tmp/deb/bili-FM-linux-amd64.deb
 
       - name: Upload .deb to release
         uses: svenstaro/upload-release-action@v2
