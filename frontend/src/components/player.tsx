@@ -309,6 +309,21 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     };
   }, []);
 
+  // play/pause via useEffect (not render body) for reliable execution
+  useEffect(() => {
+    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+    if (isPlaying) {
+      playerRef.current?.play();
+    } else {
+      playerRef.current?.pause();
+      // Belt-and-suspenders: directly pause the <audio> element
+      // The library's pause() may not take effect in all cases
+      if (audioEl && !audioEl.paused) {
+        audioEl.pause();
+      }
+    }
+  }, [isPlaying]);
+
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -330,12 +345,6 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       ReportPlayProgress(aid, cid, 0);
     }
   }, [isPlaying, aid, cid]);
-
-  if (isPlaying) {
-    playerRef.current?.play();
-  } else {
-    playerRef.current?.pause();
-  }
 
   if (!src) {
     autoPlay = false;

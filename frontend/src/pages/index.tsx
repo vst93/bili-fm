@@ -143,9 +143,15 @@ export default function IndexPage() {
   }, [isMiniMode]);
 
   // 音频/视频互斥：打开视频浮窗时停止音频
+  // 直接操作 DOM <audio> 元素作为双保险，确保音频真的停了
   useEffect(() => {
     if (isPlayVideo) {
       setIsPlaying(false);
+      // Force pause the audio element immediately
+      const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+      if (audioEl && !audioEl.paused) {
+        audioEl.pause();
+      }
     }
   }, [isPlayVideo]);
 
@@ -1301,7 +1307,12 @@ export default function IndexPage() {
       toast({ type: "warning", content: "请先选择一个视频" });
       return;
     }
-    setIsPlaying(false); // 停止音频播放
+    // 先强制暂停音频（双保险：state + DOM）
+    setIsPlaying(false);
+    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+    if (audioEl && !audioEl.paused) {
+      audioEl.pause();
+    }
     setIsPlayVideo(true); // 打开视频播放浮窗
     setIsPlayVideoStop(false); // 自动开启播放
   };
