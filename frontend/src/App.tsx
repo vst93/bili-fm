@@ -111,7 +111,8 @@ function App() {
       // Small radius: only the hovered card + its immediate neighbors glow.
       // A large radius lights up dozens of cards simultaneously, each triggering
       // expensive calc()/color-mix()/filter repaints = scroll jank.
-      const radius = 180;
+      // Optimized: 120px radius (down from 180) + contain:layout in CSS limits repaint scope.
+      const radius = 120;
       const currentCard = pTarget?.closest<HTMLElement>(cardSelector) ?? null;
       const nextCards = new Set<HTMLElement>();
 

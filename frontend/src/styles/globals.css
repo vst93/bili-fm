@@ -1615,6 +1615,10 @@ body.mini-mode #root::before {
 #video-cover.record-disc {
     animation: record-spin 22s linear infinite;
     animation-play-state: paused;
+    /* Performance: promote to compositor layer for GPU-accelerated rotation,
+       contain repaints to this element only */
+    will-change: transform;
+    contain: layout style paint;
 }
 
 #video-cover.is-playing {
@@ -1622,6 +1626,12 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.15),
         0 12px 36px rgba(14, 165, 233, 0.16);
+}
+
+/* Performance: when not playing, drop will-change to free compositor memory.
+   The static transform preserves any rotation angle from the last frame. */
+#video-cover.record-disc:not(.is-playing) {
+    will-change: auto;
 }
 
 .cover-art {
@@ -2754,6 +2764,8 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
         0 4px 12px rgba(15, 23, 42, 0.04) !important;
     overflow: hidden;
     isolation: isolate;
+    /* Performance: contain repaints to each card */
+    contain: layout style;
     transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease !important;
 }
 
