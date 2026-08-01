@@ -64,8 +64,8 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          sed -i "0,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/package.json
-          sed -i "0/^version = \".*\"/s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          sed -i "1,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/package.json
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
 
       - name: Generate release notes
         id: notes
