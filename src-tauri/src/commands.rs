@@ -249,6 +249,46 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+// 窗口控制 (迷你模式 / 隐藏 / 最小化)
+//
+// 前端调用示例:
+// ```ts
+// import { invoke } from "@tauri-apps/api/core";
+// await invoke("set_window_size", { width: 400, height: 155 }); // 迷你模式
+// await invoke("hide_window");       // 关闭按钮 → 隐藏到托盘
+// await invoke("minimize_window");   // 最小化到任务栏
+// ```
+//
+// 注意: Linux 下 webkit2gtk 无边框窗口无法在运行时调整大小 (迷你模式在
+// 前端已按平台禁用); 此处仍保留命令, 由前端决定是否调用。
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn set_window_size(window: tauri::Window, width: u32, height: u32) -> Result<(), String> {
+    window
+        .set_size(tauri::LogicalSize::new(width as f64, height as f64))
+        .map_err(|e| format!("set_window_size 失败: {e}"))
+}
+
+#[tauri::command]
+pub fn hide_window(window: tauri::Window) -> Result<(), String> {
+    window.hide().map_err(|e| format!("hide_window 失败: {e}"))
+}
+
+#[tauri::command]
+pub fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    window
+        .minimize()
+        .map_err(|e| format!("minimize_window 失败: {e}"))
+}
+
+#[tauri::command]
+pub fn show_window(window: tauri::Window) -> Result<(), String> {
+    let _ = window.unminimize();
+    window.show().map_err(|e| format!("show_window 失败: {e}"))
+}
+
 #[tauri::command]
 pub fn get_app_version(app: AppHandle) -> bilibili::AppVersion {
     let version = app.package_info().version.to_string();
