@@ -100,9 +100,9 @@ jobs:
             git commit -m "release: $VERSION"
           fi
           # bili-FM tags have NO v prefix (matching original convention)
-          git tag "$VERSION"
+          git tag -f "$VERSION"
           git push origin tauri-rewrite
-          git push origin "$VERSION"
+          git push origin -f "$VERSION"
 
       - name: Create GitHub Release
         env:
@@ -121,7 +121,6 @@ jobs:
             --title "bili-FM $VERSION" \
             --notes "$NOTES" \
             --target tauri-rewrite \
-            --verify-tag \
             $EXTRA_ARGS
 
   # ── Build for each platform ──────────────────────────────────────────────
