@@ -1,0 +1,261 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 2.0.0). Leave empty to bump patch from current.'
+        required: false
+        default: ''
+      notes:
+        description: 'Release notes. Leave empty to auto-generate from commits.'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark as pre-release (true/false)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Determine version, update files, create tag, create release ──────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
+      prerelease: ${{ steps.prerelease.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          CURRENT=$(grep -oP '"version":\s*"\K[^"]+' src-tauri/tauri.conf.json)
+          INPUT="${{ inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            VERSION="$INPUT"
+          else
+            MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+            MINOR=$(echo "$CURRENT" | cut -d. -f2)
+            PATCH=$(echo "$CURRENT" | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT -> New: $VERSION"
+
+      - name: Determine prerelease
+        id: prerelease
+        run: |
+          PRERELEASE="${{ inputs.prerelease }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          # Auto-detect prerelease from version string (contains -alpha, -beta, -preview, -rc)
+          if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then
+            PRERELEASE="true"
+          fi
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Update version in files
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i "0,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/package.json
+          sed -i "0/^version = \".*\"/s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+
+      - name: Generate release notes
+        id: notes
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          if [ -n "$INPUT_NOTES" ]; then
+            NOTES="$INPUT_NOTES"
+          else
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMITS=$(git log "$LAST_TAG..HEAD" --pretty=format:"- %s" --no-merges)
+            else
+              COMMITS=$(git log --pretty=format:"- %s" --no-merges -20)
+            fi
+            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the file for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon.dmg` | macOS (M1/M2/M3/M4) |\n| `bili-FM-macos-intel.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64.deb` | Linux (x86_64) |\n| `bili-FM-linux-x86_64.AppImage` | Linux (x86_64) |\n| `bili-FM-linux-arm64.deb` | Linux (ARM64) |\n| `bili-FM-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS")
+          fi
+          NOTES="${NOTES//'%'/'%25'}"
+          NOTES="${NOTES//$'\n'/'%0A'}"
+          NOTES="${NOTES//$'\r'/'%0D'}"
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No version changes to commit (already at $VERSION)"
+          else
+            git commit -m "release: $VERSION"
+          fi
+          # bili-FM tags have NO v prefix (matching original convention)
+          git tag "$VERSION"
+          git push origin tauri-rewrite
+          git push origin "$VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PRERELEASE="${{ steps.prerelease.outputs.prerelease }}"
+          # Decode the percent-encoded notes back to real newlines
+          NOTES=$(printf '%b' "${NOTES//%/\\x}")
+          EXTRA_ARGS=""
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA_ARGS="--prerelease"
+          fi
+          gh release create "$VERSION" \
+            --title "bili-FM $VERSION" \
+            --notes "$NOTES" \
+            --target tauri-rewrite \
+            --verify-tag \
+            $EXTRA_ARGS
+
+  # ── Build for each platform ──────────────────────────────────────────────
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            label: macos-apple-silicon
+          - os: macos-14
+            target: x86_64-apple-darwin
+            label: macos-intel
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            label: linux-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x86_64
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            label: windows-arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev xdg-utils
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --config.confirmModulesPurge=false
+
+      # Build only - no tagName so tauri-action does NOT auto-upload.
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --target ${{ matrix.target }}
+
+      # DMG bundling on macOS can fail intermittently.
+      - name: Retry without DMG (macOS only)
+        if: failure() && runner.os == 'macOS'
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --target ${{ matrix.target }} --bundles app
+
+      # ── Rename artifacts with clear platform names ────────────────────────
+      - name: Collect and rename artifacts (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          LABEL="${{ matrix.label }}"
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle"
+          mkdir -p renamed
+
+          # .dmg (macOS)
+          found_dmg=$(find "$BUNDLE_DIR" -name "*.dmg" -type f | head -1)
+          if [ -n "$found_dmg" ]; then
+            cp "$found_dmg" "renamed/bili-FM-${LABEL}.dmg"
+          fi
+
+          # .deb (Linux)
+          found_deb=$(find "$BUNDLE_DIR" -name "*.deb" -type f | head -1)
+          if [ -n "$found_deb" ]; then
+            cp "$found_deb" "renamed/bili-FM-${LABEL}.deb"
+          fi
+
+          # .rpm (Linux)
+          found_rpm=$(find "$BUNDLE_DIR" -name "*.rpm" -type f | head -1)
+          if [ -n "$found_rpm" ]; then
+            cp "$found_rpm" "renamed/bili-FM-${LABEL}.rpm"
+          fi
+
+          # .AppImage (Linux)
+          found_appimage=$(find "$BUNDLE_DIR" -name "*.AppImage" -type f | head -1)
+          if [ -n "$found_appimage" ]; then
+            cp "$found_appimage" "renamed/bili-FM-${LABEL}.AppImage"
+          fi
+
+          echo "=== Renamed files ==="
+          ls -la renamed/
+
+      - name: Collect and rename artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $LABEL = "${{ matrix.label }}"
+          $BUNDLE_DIR = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          New-Item -ItemType Directory -Force -Path renamed
+
+          # .exe (NSIS installer)
+          $exe = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*.exe" | Select-Object -First 1
+          }
+          if ($exe) {
+            Copy-Item $exe.FullName "renamed/bili-FM-$LABEL-setup.exe"
+          }
+
+          echo "=== Renamed files ==="
+          Get-ChildItem renamed/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          files: renamed/*
+          fail_on_unmatched_files: false
