@@ -8,3 +8,10 @@ bili-FM.exe
 build/
 bili-FM
 bili-fm_*.deb
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Pi task files
+.pi-task-*.md
