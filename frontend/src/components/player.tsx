@@ -1,6 +1,6 @@
 import { AudioPlayer, AudioPlayerRef } from "react-audio-play";
 import { useEffect, useRef, useCallback, useState, useImperativeHandle, forwardRef } from "react";
-import { ReportPlayProgress } from "../../wailsjs/go/service/BL";
+import { invoke } from "@tauri-apps/api/core";
 
 interface PlayerProps {
   src?: string;
@@ -342,7 +342,7 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
 
   useEffect(() => {
     if (isPlaying && aid && cid) {
-      ReportPlayProgress(aid, cid, 0);
+      invoke("report_play_progress", { aid, cid, progress: 0 });
     }
   }, [isPlaying, aid, cid]);
 

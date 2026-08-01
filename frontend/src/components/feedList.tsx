@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useMemo } from "react";
-import type { service as blSer } from "../../wailsjs/go/models";
+import type { FeedList } from "@/types/bilibili";
 import { Refresh } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
@@ -21,7 +21,7 @@ import {
 import { graftingImage, subStr } from "@/utils/string";
 
 interface FeedListProps {
-  feedList?: blSer.FeedList;
+  feedList?: FeedList;
   onSlideClick?: () => void;
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;

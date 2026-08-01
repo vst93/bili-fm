@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { useMemo } from "react";
-import type { service as blSer } from "../../wailsjs/go/models";
+import { invoke } from "@tauri-apps/api/core";
+import type { FeedList, FollowStatus } from "@/types/bilibili";
 
 import { Refresh, Add, Close } from "@icon-park/react";
 import RetryImg from "./retryImg";
@@ -25,13 +26,6 @@ import { useState, useEffect } from "react";
 import { graftingImage } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
-import {
-  GetSeriesList,
-  IsFollowing,
-  Follow,
-  Unfollow,
-} from "../../wailsjs/go/service/BL";
-
 // interface SeriesItem {
 //   id: number;
 //   title: string;
@@ -51,7 +45,7 @@ import {
 // }
 
 interface UpVideoListProps {
-  upVideoList?: blSer.FeedList;
+  upVideoList?: FeedList;
   onSlideClick?: () => void;
   onVideoSelect?: (bvid: string) => void;
   onRefresh?: () => void;
@@ -102,8 +96,10 @@ const UpVideoList: FC<UpVideoListProps> = ({
     }
     setIsCheckingFollow(true);
     try {
-      const status = await IsFollowing(currentUpMid);
-      console.log("IsFollowing 返回:", status);
+      const status = await invoke<FollowStatus>("is_following", {
+        mid: currentUpMid,
+      });
+      console.log("is_following 返回:", status);
       setIsFollowing(status?.is_following ?? false);
       setFollower(status?.follower ?? 0);
     } catch (error) {
@@ -128,7 +124,9 @@ const UpVideoList: FC<UpVideoListProps> = ({
     if (key === "series" && currentUpMid) {
       try {
         console.log("获取合集列表中...",currentUpMid);
-        const list = await GetSeriesList(currentUpMid);
+        const list = await invoke<any[]>("get_series_list", {
+          mid: currentUpMid,
+        });
         if (!list) {
           setSeriesList?.([]);
         } else { 
@@ -156,7 +154,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
       onLoadMore?.(upVideoList.offset);
     } else if (activeTab === "series" && bottom) {
       try {
-        GetSeriesList(currentUpMid).then(list => { 
+        invoke<any[]>("get_series_list", { mid: currentUpMid }).then(list => { 
           if (!list) {
             console.error("获取合集列表失败：用户未登录或登录已过期");
             return;
@@ -192,7 +190,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
     }
     setIsFollowingLoading(true);
     try {
-      const result = await Follow(currentUpMid);
+      const result = await invoke<boolean>("follow", { mid: currentUpMid });
       if (result) {
         setIsFollowing(true);
         toast({
@@ -226,7 +224,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
     }
     setIsFollowingLoading(true);
     try {
-      const result = await Unfollow(currentUpMid);
+      const result = await invoke<boolean>("unfollow", { mid: currentUpMid });
       if (result) {
         setIsFollowing(false);
         toast({

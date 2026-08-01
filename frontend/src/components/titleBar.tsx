@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Close, Minus, ZoomInternal } from "@icon-park/react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-shell";
 
-import { GetPlatform, CheckForUpdates, CloseApp } from "../../wailsjs/go/main/Menu";
-import { BrowserOpenURL } from "../../wailsjs/runtime/runtime";
+import type { UpdateResult } from "@/types/bilibili";
 import { useDialog } from "./dialog/DialogProvider";
 
 interface TitleBarProps {
@@ -10,8 +12,8 @@ interface TitleBarProps {
   showSwitchMode?: boolean;
 }
 
-const APP_VERSION = "1.9.5";
-const APP_VERSION_NO = 195;
+const APP_VERSION = "2.0.0";
+const APP_VERSION_NO = 200;
 
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
   const [isMac, setIsMac] = useState(false);
@@ -22,8 +24,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const showDialog = useDialog();
 
   useEffect(() => {
-    // @ts-ignore
-    GetPlatform().then((platform: string) => {
+    invoke<string>("get_platform").then((platform: string) => {
       setIsMac(platform === "darwin");
     });
     const handleResize = () => {
@@ -32,16 +33,11 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     };
     window.addEventListener('resize', handleResize);
 
-    // Mac native menu events (via Wails EventsEmit)
+    // Mac native menu events (Tauri EventsEmit)
     const onMenuAbout = () => handleShowAbout();
     const onMenuShortcuts = () => handleShowKeyboardShortcuts();
-    // @ts-ignore
-    if (window.runtime?.EventsOn) {
-      // @ts-ignore
-      window.runtime.EventsOn("menu:show-about", onMenuAbout);
-      // @ts-ignore
-      window.runtime.EventsOn("menu:show-shortcuts", onMenuShortcuts);
-    }
+    const unlistenAbout = listen("menu:show-about", onMenuAbout);
+    const unlistenShortcuts = listen("menu:show-shortcuts", onMenuShortcuts);
     window.addEventListener('menu:show-about', onMenuAbout as EventListener);
     window.addEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
 
@@ -49,21 +45,21 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('menu:show-about', onMenuAbout as EventListener);
       window.removeEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
+      unlistenAbout.then((fn) => fn());
+      unlistenShortcuts.then((fn) => fn());
     };
   }, []);
 
   const handleClose = () => {
-    // @ts-ignore
-    window.runtime.Hide();
+    invoke("hide_window");
   };
 
   const handleExit = () => {
-    CloseApp();
+    invoke("quit_app");
   };
 
   const handleMinimize = () => {
-    // @ts-ignore
-    window.runtime.WindowMinimise();
+    invoke("minimize_window");
   };
 
   const handleShowAbout = () => {
@@ -78,7 +74,10 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   const handleCheckUpdate = async () => {
     setShowMenu(false);
-    const result = await CheckForUpdates(true, "");
+    const result = await invoke<UpdateResult>("check_for_updates", {
+      isManual: true,
+      gitFrom: "",
+    });
     if (result.error) {
       showDialog({
         title: "检查更新失败",
@@ -97,7 +96,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         ],
         onClose: (value: string) => {
           if (value === "yes") {
-            BrowserOpenURL(result.downloadUrl);
+            open(result.downloadUrl);
           }
         },
       });

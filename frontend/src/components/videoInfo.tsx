@@ -10,13 +10,8 @@ import {
   MusicList,
   Comment,
 } from "@icon-park/react";
+import { invoke } from "@tauri-apps/api/core";
 
-import {
-  LikeVideo,
-  HasLiked,
-  CoinVideo,
-  HasCoin,
-} from "../../wailsjs/go/service/BL.js";
 import { toast } from "../utils/toast";
 
 import RetryImg from "./retryImg";
@@ -78,7 +73,7 @@ export default function VideoInfo({
 
   const checkLikeStatus = async () => {
     try {
-      const hasLiked = await HasLiked(bvid);
+      const hasLiked = await invoke<boolean>("has_liked", { bid: bvid });
       setIsLiked(hasLiked);
     } catch (error) {
       console.error("检查点赞状态失败:", error);
@@ -87,7 +82,7 @@ export default function VideoInfo({
 
   const checkCoinStatus = async () => {
     try {
-      const coins = await HasCoin(bvid);
+      const coins = await invoke<number>("has_coin", { bid: bvid });
       setCoinCount(coins);
     } catch (error) {
       console.error("检查投币状态失败:", error);
@@ -106,7 +101,10 @@ export default function VideoInfo({
 
   const handleLike = async () => {
     try {
-      const result = await LikeVideo(bvid, isLiked ? 2 : 1);
+      const result = await invoke<boolean>("like_video", {
+        bid: bvid,
+        like: isLiked ? 2 : 1,
+      });
       if (result) {
         setIsLiked(!isLiked);
         toast({ type: "success", content: isLiked ? "取消点赞成功" : "点赞成功" });
@@ -125,7 +123,10 @@ export default function VideoInfo({
       return;
     }
     try {
-      const result = await CoinVideo(bvid, 2);
+      const result = await invoke<boolean>("coin_video", {
+        bid: bvid,
+        multiply: 2,
+      });
       if (result) {
         setCoinCount(2);
         toast({ type: "success", content: "投币成功" });

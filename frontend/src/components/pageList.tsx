@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useMemo } from "react";
-import type { service as blSer } from "../../wailsjs/go/models";
+import type { Page, VideoInfo } from "@/types/bilibili";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -29,7 +29,7 @@ import { convertToDuration, graftingImage } from "@/utils/string";
 interface PageListProps {
   pageNum?: number;
   onSlideClick?: () => void;
-  videoInfo?: blSer.VideoInfo;
+  videoInfo?: VideoInfo;
   onVideoSelect?: (
     cid: number,
     aid: number,
@@ -37,7 +37,7 @@ interface PageListProps {
     index: number,
     first_frame: string,
   ) => void;
-  onAddToPlaylist?: (page: blSer.Page) => void;
+  onAddToPlaylist?: (page: Page) => void;
   onAddAllToPlaylist?: () => void;
   playlistCids?: Set<number>;
   currentBvid?: string;

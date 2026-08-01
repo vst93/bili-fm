@@ -16,7 +16,8 @@ import {
     CardBody,
     CardFooter,
 } from "@heroui/react";
-import { GetBLHistoryList } from "../../wailsjs/go/service/BL";
+import { invoke } from "@tauri-apps/api/core";
+import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import { graftingImage } from "@/utils/string";
 
 interface HistoryListProps {
@@ -66,7 +67,7 @@ const HistoryList: FC<HistoryListProps> = ({
         }
         setHistoryCursor({max: 0, view_at: 0, business: ''});
         try {
-            const data = await GetBLHistoryList(0,0,'', 30);
+            const data = await invoke<BLHistoryList>("get_history_list", { max: 0, viewAt: 0, business: '', ps: 30 });
             setHistoryList(data?.list || []);
             setHistoryCursor(data?.cursor || {});
         } catch (error) {
@@ -77,7 +78,7 @@ const HistoryList: FC<HistoryListProps> = ({
     const handleLoadMore = async () => {
         console.log("load more", historyCursor);
         try {
-            const data = await GetBLHistoryList(historyCursor?.max, historyCursor?.view_at, historyCursor?.business, 30);
+            const data = await invoke<BLHistoryList>("get_history_list", { max: historyCursor?.max, viewAt: historyCursor?.view_at, business: historyCursor?.business, ps: 30 });
             if (data?.list) {
                 setHistoryList([...historyList, ...data.list]);
             }

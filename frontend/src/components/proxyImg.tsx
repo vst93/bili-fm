@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Image } from "@heroui/react";
-import { FetchImage } from "../../wailsjs/go/service/BL";
+import { invoke } from "@tauri-apps/api/core";
 
 interface ProxyImgProps {
   src?: string;
@@ -23,7 +23,7 @@ interface ProxyImgProps {
 const imgCache = new Map<string, string>();
 
 /**
- * 图片组件：优先用 Wails binding (FetchImage) 直接获取图片转 base64，
+ * 图片组件：优先用 Tauri command (fetch_image) 直接获取图片转 base64，
  * 绕过 HTTP 代理和 WebView 安全限制。
  * 失败时回退到 HTTP 代理 URL。
  */
@@ -65,8 +65,8 @@ export default function ProxyImg({
       // src 不是标准 URL，直接用
     }
 
-    // 通过 Wails binding 获取图片（Go 后端直接 HTTP 请求，绕过 WebView）
-    FetchImage(originalUrl)
+    // 通过 Tauri command 获取图片（Rust 后端直接 HTTP 请求，绕过 WebView）
+    invoke<string>("fetch_image", { url: originalUrl })
       .then((dataUrl: string) => {
         if (!cancelled && dataUrl) {
           imgCache.set(src, dataUrl);
@@ -74,7 +74,7 @@ export default function ProxyImg({
         }
       })
       .catch(() => {
-        // Wails binding 失败，回退到原始 URL（可能是代理 URL）
+        // Tauri command 失败，回退到原始 URL（可能是代理 URL）
         if (!cancelled) {
           setImgSrc(src);
         }

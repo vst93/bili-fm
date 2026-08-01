@@ -1,5 +1,6 @@
 import { useState, createContext, useContext, useCallback, ReactNode } from "react";
 import { CheckOne, CloseOne, Attention, Info, Refresh } from "@icon-park/react";
+import { open } from "@tauri-apps/plugin-shell";
 
 type DialogType = "info" | "success" | "warning" | "error" | "question";
 
@@ -50,13 +51,7 @@ const renderMessage = (message: ReactNode) => {
   if (typeof message !== "string") return message;
 
   const openUrl = (url: string) => {
-    // Try Wails runtime first, fall back to window.open
-    const wailsRuntime = (window as any).runtime;
-    if (wailsRuntime?.BrowserOpenURL) {
-      wailsRuntime.BrowserOpenURL(url);
-    } else {
-      window.open(url, "_blank");
-    }
+    open(url);
   };
 
   const parts: ReactNode[] = [];

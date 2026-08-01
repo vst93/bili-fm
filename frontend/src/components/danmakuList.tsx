@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import type { service as blSer } from "../../wailsjs/go/models";
+import type { DanmakuList, ReplyList } from "@/types/bilibili";
 import { useDisclosure, Button, Drawer, DrawerContent, DrawerBody, DrawerHeader, Tabs, Tab } from "@heroui/react";
 import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import { Connection, Refresh, Comment, Text } from "@icon-park/react";
@@ -8,8 +8,8 @@ import { graftingImage } from "@/utils/string";
 
 
 interface DanmakuListProps {
-  danmakuList?: blSer.DanmakuList;
-  replyList?: blSer.ReplyList;
+  danmakuList?: DanmakuList;
+  replyList?: ReplyList;
   onSlideClick?: () => void;
   onDanmakuRefresh?: () => void;
   onReplyRefresh?: () => void;

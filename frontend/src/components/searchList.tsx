@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import type { service as blSer } from "../../wailsjs/go/models";
+import type { SearchResult } from "@/types/bilibili";
 
 import { useMemo } from "react";
 import { useDisclosure } from "@heroui/react";
@@ -22,7 +22,7 @@ import { graftingImage } from "@/utils/string";
 
 interface SearchListProps {
   onSlideClick?: () => void;
-  searchResults?: blSer.SearchResult[];
+  searchResults?: SearchResult[];
   onVideoSelect?: (bvid: string) => void;
   onSortChange?: (order: string) => void;
 }

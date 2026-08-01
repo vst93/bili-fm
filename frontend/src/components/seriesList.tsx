@@ -16,7 +16,8 @@ import {
 } from "@heroui/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
-import { GetSeriesVideos } from "../../wailsjs/go/service/BL";
+import { invoke } from "@tauri-apps/api/core";
+import type { SeriesArchive } from "@/types/bilibili";
 
 interface SeriesVideoItem {
     aid: number;
@@ -79,7 +80,7 @@ const SeriesList: FC<SeriesListProps> = ({
         if (bottom) {
             const thePage = seriesVideosPage + 1;
             // console.log("load more", seriesVideosPage);
-            const seriesVideosData = await GetSeriesVideos(currentUpMid, currentSeriesId, thePage);
+            const seriesVideosData = await invoke<SeriesArchive[]>("get_series_videos", { mid: currentUpMid, seriesId: currentSeriesId, pageNum: thePage });
             if (seriesVideosData.length > 0) {
                 setSeriesVideos([...seriesVideos, ...seriesVideosData]);
                 setSeriesVideosPage(thePage);

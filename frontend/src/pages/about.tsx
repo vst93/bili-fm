@@ -1,19 +1,16 @@
 import { useState, useEffect } from "react";
 import { Card, CardBody, CardHeader, Chip, Link, Divider } from "@heroui/react";
 import { Github, Info } from "@icon-park/react";
-import { GetAppVersion } from "../../wailsjs/go/service/BL";
-import DefaultLayout from "@/layouts/default";
+import { invoke } from "@tauri-apps/api/core";
 
-interface AppVersion {
-  version: string;
-  build: number;
-}
+import type { AppVersion } from "@/types/bilibili";
+import DefaultLayout from "@/layouts/default";
 
 export default function AboutPage() {
   const [appVersion, setAppVersion] = useState<AppVersion | null>(null);
 
   useEffect(() => {
-    GetAppVersion().then(setAppVersion).catch(console.error);
+    invoke<AppVersion>("get_app_version").then(setAppVersion).catch(console.error);
   }, []);
 
   const features = [
@@ -100,8 +97,8 @@ export default function AboutPage() {
           </p>
           <p className="mt-1">
             感谢{" "}
-            <Link isExternal href="https://wails.io" size="sm" color="primary">
-              Wails
+            <Link isExternal href="https://tauri.app" size="sm" color="primary">
+              Tauri
             </Link>
             {" / "}
             <Link isExternal href="https://heroui.com" size="sm" color="primary">

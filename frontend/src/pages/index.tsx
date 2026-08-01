@@ -1,34 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { CloseSmall } from "@icon-park/react";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-shell";
 
-import { BrowserOpenURL } from "../../wailsjs/runtime";
-import { service as MainModels } from "../../wailsjs/go/models";
-import { GetPlatform } from "../../wailsjs/go/main/Menu";
 import { toast } from "../utils/toast";
-import {
-  SearchVideo,
-  GetCList,
-  GetUrlByCid,
-  GetLoginQRCode,
-  GetLoginStatus,
-  GetLoginQRCodeStatus,
-  SetLoginStatus,
-  GetBLUserInfo,
-  GetBLFeedList,
-  GetBLRCMDList,
-  GetBLFavFolderList,
-  GetBLFavFolderListDetail,
-  GetUpVideoList,
-  GetBLHistoryList,
-  GetSeriesVideos,
-  GetBLPopularList,
-  GetDanmakuList,
-  GetReplyList,
-  GetPlaylist,
-  SetPlaylist,
-  GetPlaylistPlayMode,
-  SetPlaylistPlayMode,
-} from "../../wailsjs/go/service/BL";
+import type * as BL from "@/types/bilibili";
 
 import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
@@ -58,15 +34,13 @@ export default function IndexPage() {
   const [showSearchList, setShowSearchList] = useState(false);
   const [showFeedList, setShowFeedList] = useState(false);
   const [pageNum, setPageNum] = useState(0);
-  const [searchResults, setSearchResults] = useState<MainModels.SearchResult[]>(
+  const [searchResults, setSearchResults] = useState<BL.SearchResult[]>(
     [],
   );
   const [currentBvid, setCurrentBvid] = useState("");
   const [currentKeyword, setCurrentKeyword] = useState("");
   const [searchInputValue, setSearchInputValue] = useState("");
-  const [videoInfo, setVideoInfo] = useState<
-    MainModels.VideoInfo | undefined
-  >();
+  const [videoInfo, setVideoInfo] = useState<BL.VideoInfo | undefined>();
   const [playUrl, setPlayUrl] = useState<string>("");
   const [currentPart, setCurrentPart] = useState<string>("");
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -77,7 +51,7 @@ export default function IndexPage() {
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [userFace, setUserFace] = useState("");
-  const [feedList, setFeedList] = useState<MainModels.FeedList>();
+  const [feedList, setFeedList] = useState<BL.FeedList>();
   const [feedOffset, setFeedOffset] = useState("");
   const [showRecommendList, setShowRecommendList] = useState(false);
   const [recommendList, setRecommendList] = useState<any>();
@@ -90,7 +64,7 @@ export default function IndexPage() {
   const [currentGroupId, setCurrentGroupId] = useState<number>();
   const [collectPage, setCollectPage] = useState(1);
   const [showUpVideoList, setShowUpVideoList] = useState(false);
-  const [upVideoList, setUpVideoList] = useState<MainModels.FeedList>();
+  const [upVideoList, setUpVideoList] = useState<BL.FeedList>();
   const [upVideoOffset, setUpVideoOffset] = useState("");
   const [currentUpMid, setCurrentUpMid] = useState(0);
   const [currentUpName, setCurrentUpName] = useState("");
@@ -112,10 +86,10 @@ export default function IndexPage() {
   // 迷你模式会导致内容缩到左上角但窗口不变，因此 Linux 上禁用迷你模式
   const [isLinux, setIsLinux] = useState(false);
   const [showDanmakuList, setShowDanmakuList] = useState(false);
-  const [danmakuList, setDanmakuList] = useState<MainModels.DanmakuList>();
+  const [danmakuList, setDanmakuList] = useState<BL.DanmakuList>();
   const [isLoadingDanmaku, setIsLoadingDanmaku] = useState(false);
   const [danmakuCid, setDanmakuCid] = useState<number>(0);
-  const [replyList, setReplyList] = useState<MainModels.ReplyList>();
+  const [replyList, setReplyList] = useState<BL.ReplyList>();
   const [isLoadingReply, setIsLoadingReply] = useState(false);
   const [replyOid, setReplyOid] = useState<number>(0);
   const [replyPage, setReplyPage] = useState(1);
@@ -174,7 +148,7 @@ export default function IndexPage() {
 
   useEffect(() => {
     // 检测平台，Linux 下禁用迷你模式
-    GetPlatform().then((platform: string) => {
+    invoke<string>("get_platform").then((platform: string) => {
       setIsLinux(platform === "linux");
       // Linux: 窗口管理器不支持外层圆角，去掉 #root 及所有使用 --app-window-radius 的圆角
       document.body.classList.toggle("platform-linux", platform === "linux");
@@ -183,7 +157,7 @@ export default function IndexPage() {
     // 初始化时获取用户信息
     refreshUserInfo();
     // 从本地加载播放列表和播放模式
-    GetPlaylist().then((json) => {
+    invoke<string>("get_playlist").then((json) => {
       if (json) {
         try {
           setPlaylist(JSON.parse(json));
@@ -193,7 +167,7 @@ export default function IndexPage() {
       }
       playlistLoadedRef.current = true;
     });
-    GetPlaylistPlayMode().then((mode) => {
+    invoke<string>("get_playlist_play_mode").then((mode) => {
       if (mode === "shuffle" || mode === "sequence") {
         setPlaylistPlayMode(mode);
       }
@@ -203,12 +177,12 @@ export default function IndexPage() {
   // 播放列表变更时自动持久化（初始加载完成后才生效）
   useEffect(() => {
     if (!playlistLoadedRef.current) return;
-    SetPlaylist(JSON.stringify(playlist));
+    invoke("set_playlist", { playlistJson: JSON.stringify(playlist) });
   }, [playlist]);
 
   // 播放模式变更时自动持久化
   useEffect(() => {
-    SetPlaylistPlayMode(playlistPlayMode);
+    invoke("set_playlist_play_mode", { mode: playlistPlayMode });
   }, [playlistPlayMode]);
 
   /**
@@ -310,11 +284,9 @@ export default function IndexPage() {
       }
 
       if ((event.metaKey || event.ctrlKey) && event.key === "w") {
-        // @ts-ignore
-        window.runtime.WindowMinimise();
+        invoke("minimize_window");
       } else if ((event.metaKey || event.ctrlKey) && event.key === "q") {
-        // @ts-ignore
-        window.runtime.Quit();
+        invoke("quit_app");
       }
     };
 
@@ -426,9 +398,9 @@ export default function IndexPage() {
    */
   const handleLogin = async () => {
     try {
-      await SetLoginStatus(true);
+      await invoke("set_login_status", { status: true });
       setShowLoginPanel(true);
-      const qrcodeUrl = await GetLoginQRCode();
+      const qrcodeUrl = await invoke<string>("get_login_qrcode");
 
       setQrCodeUrl(
         `https://api.pwmqr.com/qrcode/create/?url=${encodeURIComponent(qrcodeUrl)}`,
@@ -445,7 +417,7 @@ export default function IndexPage() {
    */
   const loopLoginStatus = async () => {
     try {
-      const status = await GetLoginStatus();
+      const status = await invoke<boolean>("get_login_status");
 
       if (!status) {
         console.log("已关闭登录页面");
@@ -453,7 +425,7 @@ export default function IndexPage() {
         return;
       }
 
-      const qrCodeStatus = await GetLoginQRCodeStatus();
+      const qrCodeStatus = await invoke<boolean>("get_login_qrcode_status");
 
       if (qrCodeStatus) {
         console.log("扫码成功");
@@ -473,7 +445,7 @@ export default function IndexPage() {
    */
   const refreshUserInfo = async () => {
     try {
-      const userInfo = await GetBLUserInfo();
+      const userInfo = await invoke<BL.UserInfo | null>("get_user_info");
 
       if (userInfo?.face) {
         const processedFace = graftingImage(userInfo.face);
@@ -490,7 +462,7 @@ export default function IndexPage() {
    * @description 关闭登录面板并重置登录状态
    */
   const handleCloseLogin = async () => {
-    await SetLoginStatus(false);
+    await invoke("set_login_status", { status: false });
     setShowLoginPanel(false);
   };
 
@@ -500,7 +472,9 @@ export default function IndexPage() {
    */
   const handleFeedClick = async () => {
     try {
-      const data = await GetBLFeedList(feedOffset);
+      const data = await invoke<BL.FeedList>("get_feed_list", {
+        offset: feedOffset,
+      });
 
       setFeedList(data);
       setShowFeedList(true);
@@ -518,7 +492,7 @@ export default function IndexPage() {
   const handleFeedRefresh = async () => {
     try {
       setFeedOffset("");
-      const data = await GetBLFeedList("");
+      const data = await invoke<BL.FeedList>("get_feed_list", { offset: "" });
 
       setFeedList(data);
     } catch (error) {
@@ -533,7 +507,7 @@ export default function IndexPage() {
    */
   const handleLoadMore = async (offset: string) => {
     try {
-      const data = await GetBLFeedList(offset);
+      const data = await invoke<BL.FeedList>("get_feed_list", { offset });
 
       if (data?.items && feedList?.items) {
         setFeedList({
@@ -562,7 +536,10 @@ export default function IndexPage() {
 
     try {
       setCurrentKeyword(keyword);
-      const results = await SearchVideo(keyword, "");
+      const results = await invoke<BL.SearchResult[]>("search_video", {
+        keyword,
+        order: "",
+      });
 
       setSearchResults(results);
       setShowSearchList(true);
@@ -582,7 +559,10 @@ export default function IndexPage() {
     if (!currentKeyword) return;
 
     try {
-      const results = await SearchVideo(currentKeyword, order);
+      const results = await invoke<BL.SearchResult[]>("search_video", {
+        keyword: currentKeyword,
+        order,
+      });
 
       setSearchResults(results);
     } catch (error) {
@@ -612,7 +592,7 @@ export default function IndexPage() {
     }
 
     try {
-      const info = await GetCList(bvid);
+      const info = await invoke<BL.VideoInfo>("get_clist", { bvid });
 
       setCurrentBvid(bvid);
       setShowPageList(true);
@@ -622,7 +602,7 @@ export default function IndexPage() {
       setShowCollectList(false);
       setPageNum(info.pages?.length || 0);
       // 使用新的视频信息
-      setVideoInfo(MainModels.VideoInfo.createFrom(info));
+      setVideoInfo(info);
     } catch (error) {
       console.error("获取视频信息失败:", error);
     }
@@ -648,7 +628,7 @@ export default function IndexPage() {
     setPageFirstFrame(first_frame || videoInfo?.pic || "");
 
     try {
-      const info = await GetUrlByCid(aid, cid);
+      const info = await invoke<BL.PlayURLInfo>("get_url_by_cid", { aid, cid });
       if (!info?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
@@ -661,22 +641,20 @@ export default function IndexPage() {
       }
       // 更新显示的视频信息
       if (videoInfo) {
-        setVideoInfo(
-          MainModels.VideoInfo.createFrom({
-            ...videoInfo,
-            title: videoInfo.pages?.[index || 0]?.part || videoInfo.title,
-            desc: videoInfo.desc,
-            owner_name: videoInfo.owner_name,
-            owner_face: videoInfo.owner_face,
-            pages: videoInfo.pages,
-            aid: videoInfo.aid,
-            bvid: videoInfo.bvid,
-            owner_mid: videoInfo.owner_mid,
-            pic: videoInfo.pic,
-            videos: videoInfo.videos,
-            cid: cid,
-          }),
-        );
+        setVideoInfo({
+          ...videoInfo,
+          title: videoInfo.pages?.[index || 0]?.part || videoInfo.title,
+          desc: videoInfo.desc,
+          owner_name: videoInfo.owner_name,
+          owner_face: videoInfo.owner_face,
+          pages: videoInfo.pages,
+          aid: videoInfo.aid,
+          bvid: videoInfo.bvid,
+          owner_mid: videoInfo.owner_mid,
+          pic: videoInfo.pic,
+          videos: videoInfo.videos,
+          cid: cid,
+        });
       }
     } catch (error: any) {
       console.error("获取播放地址失败:", error);
@@ -778,7 +756,7 @@ export default function IndexPage() {
   /**
    * 添加搜索结果到播放列表
    */
-  const handleAddToPlaylist = (page: MainModels.Page) => {
+  const handleAddToPlaylist = (page: BL.Page) => {
     if (!videoInfo) return;
 
     if (playlist.some((p) => p.cid === page.cid)) {
@@ -852,14 +830,17 @@ export default function IndexPage() {
       let pic = videoInfo?.pic || "";
       // Only reload video info when switching to a different video
       if (item.bvid !== currentBvid) {
-        const info = await GetCList(item.bvid);
+        const info = await invoke<BL.VideoInfo>("get_clist", { bvid: item.bvid });
         setCurrentBvid(item.bvid);
         setPageNum(info.pages?.length || 0);
-        setVideoInfo(MainModels.VideoInfo.createFrom(info));
+        setVideoInfo(info);
         pages = info.pages;
         pic = info.pic || "";
       }
-      const playInfo = await GetUrlByCid(item.aid, item.cid);
+      const playInfo = await invoke<BL.PlayURLInfo>("get_url_by_cid", {
+        aid: item.aid,
+        cid: item.cid,
+      });
       if (!playInfo?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
@@ -868,9 +849,7 @@ export default function IndexPage() {
       setCurrentPart(item.part);
       // 确保弹幕按钮可用：将 cid 同步为当前播放项
       setVideoInfo((prev) =>
-        prev
-          ? MainModels.VideoInfo.createFrom({ ...prev, cid: item.cid })
-          : prev,
+        prev ? { ...prev, cid: item.cid } : prev,
       );
       const episodeIndex = pages?.findIndex((p) => p.cid === item.cid) ?? -1;
       setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
@@ -990,7 +969,9 @@ export default function IndexPage() {
     );
     setIsLoadingDanmaku(true);
     try {
-      const data = await GetDanmakuList(videoInfo.cid);
+      const data = await invoke<BL.DanmakuList>("get_danmaku_list", {
+        cid: videoInfo.cid,
+      });
 
       console.log("弹幕数据:", data);
       setDanmakuList(data);
@@ -1045,7 +1026,10 @@ export default function IndexPage() {
     );
     setIsLoadingReply(true);
     try {
-      const data = await GetReplyList(videoInfo.aid, page);
+      const data = await invoke<BL.ReplyList>("get_reply_list", {
+        oid: videoInfo.aid,
+        page,
+      });
 
       console.log("评论数据:", data);
 
@@ -1054,14 +1038,13 @@ export default function IndexPage() {
       } else {
         // Append new items to existing list - create new object to avoid TypeScript issues
         const newItems = [...(replyList?.items || []), ...(data.items || [])];
-        const newData = new MainModels.ReplyList();
-
-        newData.items = newItems;
-        newData.has_more = data.has_more;
-        newData.next = data.next;
-        // Preserve total_count from original data or first load
-        newData.total_count = replyList?.total_count || data.total_count || 0;
-        setReplyList(newData);
+        setReplyList({
+          items: newItems,
+          has_more: data.has_more,
+          next: data.next,
+          // Preserve total_count from original data or first load
+          total_count: replyList?.total_count || data.total_count || 0,
+        });
       }
       setReplyOid(videoInfo.aid);
       setReplyPage(page);
@@ -1159,7 +1142,7 @@ export default function IndexPage() {
    */
   const handleShareClick = () => {
     if (videoInfo?.bvid) {
-      BrowserOpenURL(`https://www.bilibili.com/video/${videoInfo.bvid}`);
+      open(`https://www.bilibili.com/video/${videoInfo.bvid}`);
     }
   };
 
@@ -1173,7 +1156,10 @@ export default function IndexPage() {
     try {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
-      const videoListData = await GetUpVideoList(mid, "");
+      const videoListData = await invoke<BL.FeedList>("get_up_video_list", {
+        hostMid: mid,
+        offset: "",
+      });
 
       setUpVideoList(videoListData);
       setShowUpVideoList(true);
@@ -1194,7 +1180,12 @@ export default function IndexPage() {
    */
   const handleHistoryClick = () => {
     try {
-      GetBLHistoryList(0, 0, "", 30).then((data) => {
+      invoke<BL.HistoryList>("get_history_list", {
+        max: 0,
+        viewAt: 0,
+        business: "",
+        ps: 30,
+      }).then((data) => {
         setHistoryList(data?.list || []);
         setHistoryCursor(data.cursor || {});
       });
@@ -1217,7 +1208,10 @@ export default function IndexPage() {
   const handleUpVideoRefresh = async () => {
     try {
       setUpVideoOffset("");
-      const data = await GetUpVideoList(currentUpMid, "");
+      const data = await invoke<BL.FeedList>("get_up_video_list", {
+        hostMid: currentUpMid,
+        offset: "",
+      });
 
       setUpVideoList(data);
     } catch (error) {
@@ -1232,7 +1226,10 @@ export default function IndexPage() {
    */
   const handleUpVideoLoadMore = async () => {
     try {
-      const data = await GetUpVideoList(currentUpMid, upVideoOffset);
+      const data = await invoke<BL.FeedList>("get_up_video_list", {
+        hostMid: currentUpMid,
+        offset: upVideoOffset,
+      });
 
       if (data?.items && upVideoList?.items) {
         setUpVideoList({
@@ -1263,10 +1260,9 @@ export default function IndexPage() {
         setCurrentSeriesTitle(currentSeries.title);
       }
       setSeriesVideosPage(1);
-      const seriesVideosData = await GetSeriesVideos(
-        currentUpMid,
-        seriesId,
-        seriesVideosPage,
+      const seriesVideosData = await invoke<BL.SeriesArchive[]>(
+        "get_series_videos",
+        { mid: currentUpMid, seriesId, pageNum: seriesVideosPage },
       );
 
       setSeriesVideos(seriesVideosData || []);
@@ -1334,7 +1330,9 @@ export default function IndexPage() {
     }
 
     try {
-      const data = await GetBLRCMDList(recommendPage);
+      const data = await invoke<BL.RCMDList>("get_rcmd_list", {
+        page: recommendPage,
+      });
 
       setRecommendList(data);
       setShowRecommendList(true);
@@ -1354,12 +1352,12 @@ export default function IndexPage() {
     try {
       if (type === "recommend") {
         setRecommendPage(1);
-        const data = await GetBLRCMDList(1);
+        const data = await invoke<BL.RCMDList>("get_rcmd_list", { page: 1 });
 
         setRecommendList(data);
       } else {
         setHotPage(1);
-        const data = await GetBLPopularList(1);
+        const data = await invoke<BL.PopularList>("get_popular_list", { page: 1 });
 
         setHotList(data);
       }
@@ -1376,7 +1374,9 @@ export default function IndexPage() {
     try {
       if (type === "recommend") {
         const nextPage = recommendPage + 1;
-        const data = await GetBLRCMDList(nextPage);
+        const data = await invoke<BL.RCMDList>("get_rcmd_list", {
+          page: nextPage,
+        });
 
         if (data?.items && recommendList?.items) {
           setRecommendList({
@@ -1387,7 +1387,9 @@ export default function IndexPage() {
         }
       } else {
         const nextPage = hotPage + 1;
-        const data = await GetBLPopularList(nextPage);
+        const data = await invoke<BL.PopularList>("get_popular_list", {
+          page: nextPage,
+        });
 
         if (data?.items && hotList?.items) {
           setHotList({
@@ -1414,12 +1416,15 @@ export default function IndexPage() {
     try {
       // 如果还没有获取过收藏夹组，先获取
       if (collectGroups.length === 0) {
-        const groups = await GetBLFavFolderList();
+        const groups = await invoke<any[]>("get_fav_folder_list");
 
         setCollectGroups(groups);
         if (groups.length > 0) {
           setCurrentGroupId(groups[0].id);
-          const data = await GetBLFavFolderListDetail(groups[0].id, 1);
+          const data = await invoke<any[]>("get_fav_folder_detail", {
+            fid: groups[0].id,
+            page: 1,
+          });
 
           setCollectList(data);
         }
@@ -1443,7 +1448,10 @@ export default function IndexPage() {
     try {
       if (currentGroupId) {
         setCollectPage(1);
-        const data = await GetBLFavFolderListDetail(currentGroupId, 1);
+        const data = await invoke<any[]>("get_fav_folder_detail", {
+          fid: currentGroupId,
+          page: 1,
+        });
 
         setCollectList(data);
       }
@@ -1460,7 +1468,10 @@ export default function IndexPage() {
     try {
       if (currentGroupId) {
         const nextPage = collectPage + 1;
-        const data = await GetBLFavFolderListDetail(currentGroupId, nextPage);
+        const data = await invoke<any[]>("get_fav_folder_detail", {
+          fid: currentGroupId,
+          page: nextPage,
+        });
 
         if (Array.isArray(data) && Array.isArray(collectList)) {
           setCollectList([...collectList, ...data]);
@@ -1481,7 +1492,10 @@ export default function IndexPage() {
     try {
       setCurrentGroupId(groupId);
       setCollectPage(1);
-      const data = await GetBLFavFolderListDetail(groupId, 1);
+      const data = await invoke<any[]>("get_fav_folder_detail", {
+        fid: groupId,
+        page: 1,
+      });
 
       setCollectList(data);
     } catch (error) {
@@ -1500,12 +1514,10 @@ export default function IndexPage() {
     document.body.classList.toggle("mini-mode", theIsMiniMode);
     setIsMiniMode(theIsMiniMode);
     if (theIsMiniMode) {
-      // @ts-ignore
-      window.runtime.WindowSetSize(400, 155);
+      invoke("set_window_size", { width: 400, height: 155 });
       document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "38px");
     } else {
-      // @ts-ignore
-      window.runtime.WindowSetSize(800, 600);
+      invoke("set_window_size", { width: 800, height: 600 });
       document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "56px");
     }
   };
