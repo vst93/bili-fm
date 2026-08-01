@@ -184,10 +184,11 @@ jobs:
         run: cd frontend && pnpm install --config.confirmModulesPurge=false
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
+      # Windows: use nsis only (skip msi - it rejects pre-release version strings like "2.0.0-preview")
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} ${{ runner.os == 'Windows' && '--bundles nsis' || '' }}
 
       # DMG bundling on macOS can fail intermittently.
       - name: Retry without DMG (macOS only)
