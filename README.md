@@ -8,8 +8,6 @@
 
 Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，支持 Windows、macOS 和 Linux。它可以作为轻量音乐播放器，也适合用于课程、访谈、播客类视频和长视频内容的后台收听。
 
-![Bili FM 截图](screenshot01.png)
-
 ### 功能特性
 
 - 采用液态玻璃风格 UI，半透明毛玻璃效果适配亮暗环境
@@ -21,6 +19,7 @@ Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，
 - 点击 UP 主名称或头像，可打开 UP 主作品列表
 - 支持点赞、投币等常用互动操作
 - 支持 Windows、macOS 和 Linux 多平台使用
+- 应用内自动更新（Gitee 优先，GitHub 兜底）
 
 ### 适用场景
 
@@ -37,96 +36,122 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 | --- | --- |
 | 空格 | 暂停 / 开始播放 |
 | ← | 上一集 |
-| → | 下一集 |
+| -> | 下一集 |
 
-### 安装与更新
+### 安装
 
 #### Windows
 
-##### 微软应用商店（推荐）
+从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.exe` 安装文件，双击运行即可。
 
-现已上架 Microsoft Store，可直接在商店中搜索 **Bili FM** 安装，支持自动更新。
+> 首次安装时 Windows SmartScreen 可能提示"未知发布者"，点击"仍要运行"即可。
 
-[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3JM3GG)
+#### macOS
 
-##### GitHub Release
+从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.dmg` 文件，打开后将 bili-FM 拖入 Applications 文件夹。
 
-如果更偏好手动安装包，可前往 GitHub Release 页面下载 `.exe` 安装文件：
-
-[GitHub Releases](https://github.com/vst93/bili-fm/releases)
-
-#### macOS 使用 Homebrew 安装
-
-安装：
-
-```bash
-brew install vst93/tap/bili-fm
-```
-
-更新：
-
-```bash
-brew upgrade bili-fm
-```
-
-如果本地 Homebrew 未获取到最新版本，可先更新 Homebrew 索引后再升级：
-
-```bash
-brew update
-brew upgrade bili-fm
-```
-
-### macOS 常见问题
-
-#### 提示"应用已损坏，无法打开"
-
-如果你从 GitHub Release 或 Homebrew 安装后，macOS 提示：
-
-> "bili-FM"已损坏，无法打开。你应该将它移到废纸篓。
-
-这是因为应用暂未经过 Apple Developer ID 签名和 notarization，macOS Gatekeeper 会拦截从网络下载的应用。
-
-可以在终端执行以下命令移除 quarantine 标记：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/bili-FM.app
-```
-
-如果应用仍在下载目录，请将路径改为实际位置，例如：
-
-```bash
-xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
-```
-
-执行完成后，再次打开应用即可。
+> Apple Silicon (M1/M2/M3/M4) 下载 `macos-apple-silicon` 版本，Intel 芯片下载 `macos-intel` 版本。
 
 #### Linux
 
-##### Ubuntu / Debian（.deb 包）
+##### Arch Linux
 
-从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.deb` 文件：
+推荐使用 AUR 安装：
 
 ```bash
-sudo dpkg -i bili-FM-linux-amd64.deb
+yay -S bili-fm-bin
+```
+
+或从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载对应包手动安装：
+
+```bash
+# pacman (推荐)
+sudo pacman -U bili-FM-linux-x86_64.rpm
+
+# 或者解压 AppImage 直接运行
+chmod +x bili-FM-linux-x86_64.AppImage
+./bili-FM-linux-x86_64.AppImage
+```
+
+> **webkit2gtk 依赖**：Tauri v2 应用依赖 `webkit2gtk-4.1`。Arch Linux 默认仓库已包含此依赖，安装包时会自动拉取。
+
+##### Ubuntu / Debian
+
+```bash
+sudo dpkg -i bili-FM-linux-x86_64.deb
 sudo apt-get install -f  # 自动安装缺失依赖
 ```
 
 > 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
 
-##### Arch Linux
+### macOS 特殊权限说明
+
+由于应用未经 Apple Developer ID 签名和公证（notarization），首次打开时 macOS Gatekeeper 会拦截，提示：
+
+> "bili-FM"已损坏，无法打开。你应该将它移到废纸篓。
+
+在终端执行以下命令移除 quarantine 标记：
 
 ```bash
-git clone https://github.com/vst93/bili-fm.git
-cd bili-fm/aur
-makepkg -si
+xattr -dr com.apple.quarantine /Applications/bili-FM.app
 ```
 
-也可以从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 直接下载 `bili-FM-linux-amd64.zip` 解压使用。
+如果应用仍在下载目录，请将路径改为实际位置：
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
+```
+
+执行后再次打开应用即可。
+
+> 后续版本计划进行 Apple Developer ID 签名，届时无需此操作。
+
+### Linux 补充说明
+
+#### AppImage 无法运行
+
+如果 AppImage 双击无反应，可能是缺少 FUSE 支持：
+
+```bash
+# Arch Linux
+sudo pacman -S fuse2
+
+# Ubuntu / Debian
+sudo apt install libfuse2
+```
+
+#### 系统托盘不显示
+
+部分桌面环境（如 GNOME）默认不启用托盘图标，需安装扩展：
+
+- **GNOME**：安装 [AppIndicator 扩展](https://extensions.gnome.org/extension/615/appindicator-support-for-gnome-shell/)
+- **KDE Plasma**：原生支持，无需额外配置
+
+#### Wayland 下窗口装饰异常
+
+如果使用 Wayland 且窗口标题栏显示异常，尝试设置环境变量：
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+```
+
+### 应用更新
+
+Bili FM 内置自动更新功能：
+
+1. 点击标题栏设置按钮 → "检查更新"
+2. 弹窗即时显示加载动画，后台并行请求 Gitee 和 GitHub 检查新版本
+3. 发现新版本后点击"立即更新"，应用内下载并自动安装重启
+4. 国内用户优先从 Gitee 获取更新，网络不通时自动回退到 GitHub
+
+> 也可手动前往 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载最新版本覆盖安装。
 
 ### 开发说明
 
-- 项目使用 Wails 开发，是一个跨平台桌面应用
-- 前端使用 React + HeroUI 构建
+- 项目使用 **Tauri v2**（Rust + React）开发
+- 前端使用 React + HeroUI + TailwindCSS
+- 后端使用 Rust，内嵌 HTTP 图片代理解决 B 站 CDN 防盗链
+- 登录态兼容旧版 Wails 的 dkv 存储格式，升级无需重新登录
 - 项目开源，欢迎提出 Issue、建议或 Pull Request
 
 项目地址：[https://github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)
@@ -137,20 +162,17 @@ makepkg -si
 
 ### 感谢以下项目
 
-- [Wails](https://github.com/wailsapp/wails)
+- [Tauri](https://github.com/tauri-apps/tauri)
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [react-audio-play](https://github.com/riyaddecoder/react-audio-play)
-- [tiny-rdm](https://github.com/tiny-craft/tiny-rdm)
 
 ---
 
 ## English
 
 Bili FM is a cross-platform desktop application that lets you listen to Bilibili video content as audio. It supports Windows, macOS, and Linux. It works as a lightweight music player and is also great for courses, interviews, podcasts, and long-form video content for background listening.
-
-![Bili FM Screenshot](screenshot01.png)
 
 ### Features
 
@@ -163,6 +185,7 @@ Bili FM is a cross-platform desktop application that lets you listen to Bilibili
 - Click a creator's name or avatar to open their video list
 - Like, coin, and other common interactions supported
 - Cross-platform: Windows, macOS, and Linux
+- In-app auto-update (Gitee-first, GitHub fallback)
 
 ### Use Cases
 
@@ -179,77 +202,59 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 | --- | --- |
 | Space | Pause / Play |
 | ← | Previous |
-| → | Next |
+| -> | Next |
 
-### Installation & Updates
+### Installation
 
 #### Windows
 
-##### Microsoft Store (Recommended)
+Download the `.exe` installer from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and run it.
 
-Bili FM is available on the Microsoft Store. Search for **Bili FM** in the store to install with automatic updates.
+> On first install, Windows SmartScreen may show "Unknown publisher" — click "Run anyway".
 
-[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3JM3GG)
+#### macOS
 
-##### GitHub Release
+Download the `.dmg` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases), open it and drag bili-FM to the Applications folder.
 
-Prefer a manual installer? Download the `.exe` from the GitHub Release page:
+> Apple Silicon (M1/M2/M3/M4): download `macos-apple-silicon`. Intel: download `macos-intel`.
 
-[GitHub Releases](https://github.com/vst93/bili-fm/releases)
+#### Linux
 
-#### macOS via Homebrew
+##### Arch Linux
 
-Install:
+Install from AUR:
 
 ```bash
-brew install vst93/tap/bili-fm
+yay -S bili-fm-bin
 ```
 
-Update:
+Or download from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and install manually:
 
 ```bash
-brew upgrade bili-fm
+# pacman
+sudo pacman -U bili-FM-linux-x86_64.rpm
+
+# Or run the AppImage directly
+chmod +x bili-FM-linux-x86_64.AppImage
+./bili-FM-linux-x86_64.AppImage
 ```
 
-If Homebrew doesn't find the latest version, update the index first:
+> **webkit2gtk dependency**: Tauri v2 apps require `webkit2gtk-4.1`. Arch Linux repos include this by default; it will be pulled in automatically.
+
+##### Ubuntu / Debian
 
 ```bash
-brew update
-brew upgrade bili-fm
-```
-
-### Linux
-
-#### Ubuntu / Debian (.deb package)
-
-Download the `.deb` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases):
-
-```bash
-sudo dpkg -i bili-FM-linux-amd64.deb
+sudo dpkg -i bili-FM-linux-x86_64.deb
 sudo apt-get install -f  # auto-install missing dependencies
 ```
 
-> Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible with the prebuilt binary.
+> Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible.
 
-#### Arch Linux
+### macOS Permissions
 
-```bash
-git clone https://github.com/vst93/bili-fm.git
-cd bili-fm/aur
-makepkg -si
-```
-
-Alternatively, download `bili-FM-linux-amd64.zip` from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and extract manually.
-
-### macOS Troubleshooting
-
-#### "App is damaged and can't be opened"
-
-After installing from GitHub Release or Homebrew, if macOS shows:
+Since the app is not signed with an Apple Developer ID or notarized, macOS Gatekeeper will block it on first launch:
 
 > "bili-FM" is damaged and can't be opened. You should move it to the Trash.
-
-This happens because the app is not signed with an Apple Developer ID or notarized. macOS Gatekeeper blocks apps downloaded from the internet.
 
 Remove the quarantine attribute in Terminal:
 
@@ -257,7 +262,7 @@ Remove the quarantine attribute in Terminal:
 xattr -dr com.apple.quarantine /Applications/bili-FM.app
 ```
 
-If the app is still in your Downloads folder, adjust the path accordingly:
+If the app is still in your Downloads folder, adjust the path:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
@@ -265,11 +270,55 @@ xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
 
 After that, open the app again.
 
+> Future versions plan to include Apple Developer ID signing.
+
+### Linux Notes
+
+#### AppImage won't run
+
+If the AppImage doesn't launch on double-click, you may be missing FUSE support:
+
+```bash
+# Arch Linux
+sudo pacman -S fuse2
+
+# Ubuntu / Debian
+sudo apt install libfuse2
+```
+
+#### System tray not showing
+
+Some desktop environments (e.g., GNOME) don't enable tray icons by default:
+
+- **GNOME**: Install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support-for-gnome-shell/)
+- **KDE Plasma**: Supported natively, no extra config needed
+
+#### Window decoration issues on Wayland
+
+If window title bars render incorrectly under Wayland, try:
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+```
+
+### Updates
+
+Bili FM includes built-in auto-update:
+
+1. Click the settings button in the title bar → "Check for Updates"
+2. A loading dialog appears instantly, checking Gitee and GitHub in parallel
+3. When an update is found, click "Update Now" to download and install in-app
+4. China users get updates from Gitee first, falling back to GitHub automatically
+
+> You can also manually download from [GitHub Releases](https://github.com/vst93/bili-fm/releases).
+
 ### Development
 
-- Built with Wails — a cross-platform desktop framework
-- Frontend: React + HeroUI
-- Open source — issues, suggestions, and pull requests are welcome
+- Built with **Tauri v2** (Rust + React)
+- Frontend: React + HeroUI + TailwindCSS
+- Backend: Rust with embedded HTTP image proxy for Bilibili CDN
+- Login state is compatible with the legacy Wails dkv storage format
+- Open source — issues, suggestions, and pull requests welcome
 
 Repository: [https://github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)
 
@@ -279,9 +328,8 @@ This project is for development and learning purposes only. The original goal is
 
 ### Acknowledgements
 
-- [Wails](https://github.com/wailsapp/wails)
+- [Tauri](https://github.com/tauri-apps/tauri)
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [react-audio-play](https://github.com/riyaddecoder/react-audio-play)
-- [tiny-rdm](https://github.com/tiny-craft/tiny-rdm)
