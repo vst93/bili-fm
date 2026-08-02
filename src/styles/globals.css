@@ -3502,10 +3502,13 @@ body.mini-mode #player .rap-volume-btn svg {
     opacity: 1;
 }
 
-/* ReactPlayer fills the panel */
-.player-video-panel > div:first-child {
-    width: 100% !important;
-    height: 100% !important;
+/* Native <video> fills the panel */
+.player-video-element {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+    background: #000;
 }
 
 /* Close button */

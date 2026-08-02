@@ -5,4 +5,18 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  build: {
+    target: 'es2021',
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          tauri: ['@tauri-apps/api', '@tauri-apps/plugin-shell', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
+          heroui: ['@heroui/react'],
+          icons: ['@icon-park/react'],
+        },
+      },
+    },
+  },
 })

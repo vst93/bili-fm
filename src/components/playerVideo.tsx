@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import _ReactPlayer from "react-player";
-const ReactPlayer = _ReactPlayer as any;
 import { Close } from "@icon-park/react";
 
 interface PlayerVideoProps {
@@ -16,22 +14,14 @@ export default function PlayerVideo({
   isPlayVideoStop,
   setIsplay,
 }: PlayerVideoProps) {
-  const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [visible, setVisible] = useState(false);
-
-  // 组件卸载时确保视频播放器停止（防止视频残留声音）
-  useEffect(() => {
-    return () => {
-      playerRef.current?.getInternalPlayer?.()?.pause?.();
-    };
-  }, []);
 
   // 控制 mount/unmount + 过渡动画
   useEffect(() => {
     if (isPlay) {
       setVisible(true);
-      // 下一帧触发 transition
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           containerRef.current?.classList.add("player-video-open");
@@ -44,13 +34,35 @@ export default function PlayerVideo({
     }
   }, [isPlay]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 控制 video 播放/暂停
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlay && !isPlayVideoStop) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [isPlay, isPlayVideoStop]);
+
+  // 组件卸载时确保视频停止
+  useEffect(() => {
+    return () => {
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.src = "";
+      }
+    };
+  }, []);
+
   if (!src || !visible) return null;
 
   if (isPlay === undefined) isPlay = false;
 
-  // 关闭视频浮窗：不要在此恢复音频播放（isPlaying 保持 false），
-  // 由用户手动点击播放键继续收听，避免 macOS 上音频与视频抢播。
   const closePlayerVideo = () => {
+    // 关闭视频浮窗：不要在此恢复音频播放（isPlaying 保持 false），
+    // 由用户手动点击播放键继续收听，避免 macOS 上音频与视频抢播。
     setIsplay(false);
   };
 
@@ -64,13 +76,12 @@ export default function PlayerVideo({
         className="player-video-panel"
         onClick={(e) => e.stopPropagation()}
       >
-        <ReactPlayer
-          ref={playerRef}
-          url={src}
-          controls={true}
-          width="100%"
-          height="100%"
-          playing={isPlay && !isPlayVideoStop}
+        <video
+          ref={videoRef}
+          src={src}
+          controls
+          autoPlay={isPlay && !isPlayVideoStop}
+          className="player-video-element"
         />
         <button
           className="player-video-close"

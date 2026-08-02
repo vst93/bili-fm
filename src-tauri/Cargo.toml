@@ -9,6 +9,16 @@ edition = "2021"
 name = "bili_fm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[profile.release.package."*"]
+opt-level = "s"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -23,7 +33,7 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
 md5 = "0.7"
 base64 = "0.22"
 flate2 = "1"
