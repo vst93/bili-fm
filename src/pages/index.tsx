@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { CloseSmall } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
+import QRCode from "qrcode";
 
 import { toast } from "../utils/toast";
 import type * as BL from "@/types/bilibili";
@@ -401,10 +402,12 @@ export default function IndexPage() {
       await invoke("set_login_status", { status: true });
       setShowLoginPanel(true);
       const qrcodeUrl = await invoke<string>("get_login_qrcode");
-
-      setQrCodeUrl(
-        `https://api.pwmqr.com/qrcode/create/?url=${encodeURIComponent(qrcodeUrl)}`,
-      );
+      // 本地生成二维码 (data: URL)，避免依赖外部 API 被 CSP 拦截
+      const dataUrl = await QRCode.toDataURL(qrcodeUrl, {
+        width: 200,
+        margin: 1,
+      });
+      setQrCodeUrl(dataUrl);
       loopLoginStatus();
     } catch (error) {
       console.error("登录失败:", error);

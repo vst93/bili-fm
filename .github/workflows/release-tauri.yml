@@ -185,8 +185,12 @@ jobs:
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
       # Windows: use nsis only (skip msi - it rejects pre-release version strings like "2.0.0-preview")
+      # Signing: TAURI_SIGNING_PRIVATE_KEY env enables .sig generation for the updater plugin.
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --target ${{ matrix.target }} ${{ runner.os == 'Windows' && '--bundles nsis' || '' }}
 
@@ -212,6 +216,18 @@ jobs:
             cp "$found_dmg" "renamed/bili-FM-${LABEL}.dmg"
           fi
 
+          # .app.tar.gz (macOS - for updater)
+          found_targz=$(find "$BUNDLE_DIR" -name "*.app.tar.gz" -type f | head -1)
+          if [ -n "$found_targz" ]; then
+            cp "$found_targz" "renamed/bili-FM-${LABEL}.app.tar.gz"
+          fi
+
+          # .app.tar.gz.sig (macOS - updater signature)
+          found_sig=$(find "$BUNDLE_DIR" -name "*.app.tar.gz.sig" -type f | head -1)
+          if [ -n "$found_sig" ]; then
+            cp "$found_sig" "renamed/bili-FM-${LABEL}.app.tar.gz.sig"
+          fi
+
           # .deb (Linux)
           found_deb=$(find "$BUNDLE_DIR" -name "*.deb" -type f | head -1)
           if [ -n "$found_deb" ]; then
@@ -228,6 +244,12 @@ jobs:
           found_appimage=$(find "$BUNDLE_DIR" -name "*.AppImage" -type f | head -1)
           if [ -n "$found_appimage" ]; then
             cp "$found_appimage" "renamed/bili-FM-${LABEL}.AppImage"
+          fi
+
+          # .AppImage.sig (Linux - updater signature)
+          found_appimage_sig=$(find "$BUNDLE_DIR" -name "*.AppImage.sig" -type f | head -1)
+          if [ -n "$found_appimage_sig" ]; then
+            cp "$found_appimage_sig" "renamed/bili-FM-${LABEL}.AppImage.sig"
           fi
 
           echo "=== Renamed files ==="
@@ -250,6 +272,15 @@ jobs:
             Copy-Item $exe.FullName "renamed/bili-FM-$LABEL-setup.exe"
           }
 
+          # .exe.sig (updater signature)
+          $sig = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*-setup.exe.sig" | Select-Object -First 1
+          if (-not $sig) {
+            $sig = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*.exe.sig" | Select-Object -First 1
+          }
+          if ($sig) {
+            Copy-Item $sig.FullName "renamed/bili-FM-$LABEL-setup.exe.sig"
+          }
+
           echo "=== Renamed files ==="
           Get-ChildItem renamed/
 
@@ -259,3 +290,81 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.version }}
           files: renamed/*
           fail_on_unmatched_files: false
+
+  # ── Generate latest.json updater manifest ────────────────────────────────
+  manifest:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+
+      - name: Download .sig files from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p sigs
+          gh release download "$VERSION" --repo vst93/bili-fm --pattern "*.sig" --dir sigs/ || true
+          ls -la sigs/
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          BASE="https://github.com/vst93/bili-fm/releases/download/${VERSION}"
+
+          # Read signatures
+          macos_arm_sig=$(cat "sigs/bili-FM-macos-apple-silicon.app.tar.gz.sig" 2>/dev/null | tr -d '\n' || echo "")
+          macos_x86_sig=$(cat "sigs/bili-FM-macos-intel.app.tar.gz.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_x86_sig=$(cat "sigs/bili-FM-linux-x86_64.AppImage.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_arm_sig=$(cat "sigs/bili-FM-linux-arm64.AppImage.sig" 2>/dev/null | tr -d '\n' || echo "")
+          win_x86_sig=$(cat "sigs/bili-FM-windows-x86_64-setup.exe.sig" 2>/dev/null | tr -d '\n' || echo "")
+          win_arm_sig=$(cat "sigs/bili-FM-windows-arm64-setup.exe.sig" 2>/dev/null | tr -d '\n' || echo "")
+
+          export VERSION BASE
+          export macos_arm_sig macos_x86_sig linux_x86_sig linux_arm_sig win_x86_sig win_arm_sig
+
+          python3 << 'PYEOF'
+          import json, datetime, os
+
+          version = os.environ['VERSION']
+          base = os.environ['BASE']
+
+          sigs = {
+              "darwin-aarch64": os.environ.get('macos_arm_sig', ''),
+              "darwin-x86_64": os.environ.get('macos_x86_sig', ''),
+              "linux-x86_64": os.environ.get('linux_x86_sig', ''),
+              "linux-aarch64": os.environ.get('linux_arm_sig', ''),
+              "windows-x86_64": os.environ.get('win_x86_sig', ''),
+              "windows-aarch64": os.environ.get('win_arm_sig', ''),
+          }
+
+          platforms = {
+              "darwin-aarch64": {"signature": sigs["darwin-aarch64"], "url": f"{base}/bili-FM-macos-apple-silicon.app.tar.gz"},
+              "darwin-x86_64": {"signature": sigs["darwin-x86_64"], "url": f"{base}/bili-FM-macos-intel.app.tar.gz"},
+              "linux-x86_64": {"signature": sigs["linux-x86_64"], "url": f"{base}/bili-FM-linux-x86_64.AppImage"},
+              "linux-aarch64": {"signature": sigs["linux-aarch64"], "url": f"{base}/bili-FM-linux-arm64.AppImage"},
+              "windows-x86_64": {"signature": sigs["windows-x86_64"], "url": f"{base}/bili-FM-windows-x86_64-setup.exe"},
+              "windows-aarch64": {"signature": sigs["windows-aarch64"], "url": f"{base}/bili-FM-windows-arm64-setup.exe"},
+          }
+
+          manifest = {
+              "version": version,
+              "notes": "bili-FM " + version,
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "platforms": platforms
+          }
+
+          with open('latest.json', 'w') as f:
+              json.dump(manifest, f, indent=2)
+
+          print(json.dumps(manifest, indent=2))
+          PYEOF
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          files: latest.json
+          fail_on_unmatched_files: true

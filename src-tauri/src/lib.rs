@@ -41,6 +41,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 第二实例启动: 显示并聚焦已运行实例的主窗口
             // (对应旧版 main.go SingleInstanceLock.OnSecondInstanceLaunch)

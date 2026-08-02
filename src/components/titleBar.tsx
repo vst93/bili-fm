@@ -3,6 +3,8 @@ import { Close, Minus, ZoomInternal } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 import type { UpdateResult } from "@/types/bilibili";
 import { useDialog } from "./dialog/DialogProvider";
@@ -15,6 +17,23 @@ interface TitleBarProps {
 const APP_VERSION = "2.0.0";
 const APP_VERSION_NO = 200;
 
+/** 下载进度状态 (更新进度浮层) */
+interface UpdateProgressState {
+  version: string;
+  downloaded: number;
+  total: number;
+}
+
+const formatBytes = (bytes: number) => {
+  if (bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.min(
+    units.length - 1,
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+  );
+  return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
+};
+
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
   const [isMac, setIsMac] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -22,6 +41,8 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const showDialog = useDialog();
+  const [updateProgress, setUpdateProgress] =
+    useState<UpdateProgressState | null>(null);
 
   useEffect(() => {
     invoke<string>("get_platform").then((platform: string) => {
@@ -72,42 +93,130 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     });
   };
 
-  const handleCheckUpdate = async () => {
-    setShowMenu(false);
-    const result = await invoke<UpdateResult>("check_for_updates", {
-      isManual: true,
-      gitFrom: "",
-    });
-    if (result.error) {
+  /**
+   * 通过 tauri-plugin-updater 检查并下载安装更新
+   */
+  const handleDownloadUpdate = async (update: Update) => {
+    setUpdateProgress({ version: update.version, downloaded: 0, total: 0 });
+    try {
+      let downloaded = 0;
+      let total = 0;
+      await update.download((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+        }
+        setUpdateProgress({ version: update.version, downloaded, total });
+      });
+      await update.install();
+      setUpdateProgress(null);
+      showDialog({
+        title: "更新完成",
+        type: "success",
+        message: "新版本已安装，应用即将重启",
+        buttons: [{ label: "好的", value: "ok", primary: true }],
+      });
+      await relaunch();
+    } catch (error: any) {
+      console.error("更新失败:", error);
+      setUpdateProgress(null);
+      showDialog({
+        title: "更新失败",
+        type: "error",
+        message:
+          (error?.message || error?.toString() || "未知错误") +
+          "\n可前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 手动下载",
+        buttons: [{ label: "确定", value: "ok", primary: true }],
+      });
+    }
+  };
+
+  /**
+   * 回退方案：updater 插件不可用 (如开发环境未签名) 时，
+   * 用旧版 check_for_updates 命令仅展示版本信息。
+   */
+  const handleFallbackCheckUpdate = async () => {
+    try {
+      const result = await invoke<UpdateResult>("check_for_updates", {
+        isManual: true,
+        gitFrom: "",
+      });
+      if (result.error) {
+        showDialog({
+          title: "检查更新失败",
+          type: "error",
+          message: result.error,
+          buttons: [{ label: "确定", value: "ok", primary: true }],
+        });
+      } else if (result.hasUpdate) {
+        showDialog({
+          title: "发现新版本",
+          type: "question",
+          message: `新版本 v${result.latestVersion} 已发布\n前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 下载`,
+          buttons: [
+            { label: "前往下载", value: "yes", primary: true },
+            { label: "稍后再说", value: "no" },
+          ],
+          onClose: (value: string) => {
+            if (value === "yes") {
+              open(result.downloadUrl);
+            }
+          },
+        });
+      } else if (result.isLatest) {
+        showDialog({
+          title: "检查更新",
+          type: "success",
+          message: "当前已是最新版本",
+          buttons: [{ label: "好的", value: "ok", primary: true }],
+        });
+      }
+    } catch (error: any) {
       showDialog({
         title: "检查更新失败",
         type: "error",
-        message: result.error,
+        message: error?.message || error?.toString() || "未知错误",
         buttons: [{ label: "确定", value: "ok", primary: true }],
       });
-    } else if (result.hasUpdate) {
-      showDialog({
-        title: "发现新版本",
-        type: "question",
-        message: `新版本 v${result.latestVersion} 已发布\n前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 下载`,
-        buttons: [
-          { label: "前往下载", value: "yes", primary: true },
-          { label: "稍后再说", value: "no" },
-        ],
-        onClose: (value: string) => {
-          if (value === "yes") {
-            open(result.downloadUrl);
-          }
-        },
-      });
-    } else if (result.isLatest) {
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setShowMenu(false);
+    let update: Update | null = null;
+    try {
+      update = await check();
+    } catch (error) {
+      console.error("updater 插件不可用，回退到手动检查:", error);
+      await handleFallbackCheckUpdate();
+      return;
+    }
+
+    if (!update?.available) {
       showDialog({
         title: "检查更新",
         type: "success",
         message: "当前已是最新版本",
         buttons: [{ label: "好的", value: "ok", primary: true }],
       });
+      return;
     }
+
+    showDialog({
+      title: "发现新版本",
+      type: "question",
+      message: `新版本 v${update.version} 已发布\n是否立即下载并安装更新？`,
+      buttons: [
+        { label: "立即更新", value: "yes", primary: true },
+        { label: "稍后再说", value: "no" },
+      ],
+      onClose: (value: string) => {
+        if (value === "yes") {
+          handleDownloadUpdate(update);
+        }
+      },
+    });
   };
 
   const handleShowKeyboardShortcuts = () => {
@@ -259,6 +368,40 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
             </ul>
           </div>
         </>
+      )}
+      {/* 更新下载进度浮层 */}
+      {updateProgress && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/25 backdrop-blur-sm">
+          <div className="w-80 rounded-xl bg-white/95 shadow-xl p-5">
+            <h3 className="text-base font-bold text-slate-800 mb-1">
+              正在下载更新
+            </h3>
+            <p className="text-sm text-slate-500 mb-3">
+              v{updateProgress.version}
+            </p>
+            <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-200"
+                style={{
+                  width:
+                    updateProgress.total > 0
+                      ? `${Math.min(
+                          100,
+                          (updateProgress.downloaded / updateProgress.total) *
+                            100,
+                        )}%`
+                      : "4%",
+                }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-slate-400 text-right">
+              {formatBytes(updateProgress.downloaded)}
+              {updateProgress.total > 0
+                ? ` / ${formatBytes(updateProgress.total)}`
+                : ""}
+            </p>
+          </div>
+        </div>
       )}
     </>
   );

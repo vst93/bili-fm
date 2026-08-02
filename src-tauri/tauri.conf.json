@@ -30,6 +30,25 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"]
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "windows": {
+      "wix": {
+        "language": ["zh-CN", "en-US"]
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/vst93/bili-fm/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRFOThFNzFEQTZBNkNGMTgKUldRWXo2YW1IZWVZVG1tWXA1UVJkOVp4aE4yc2FQdFkzUmF4dlJmeGdCUmJvRzlsVnNsZERKNjYK",
+      "dialog": true
+    }
   }
 }
