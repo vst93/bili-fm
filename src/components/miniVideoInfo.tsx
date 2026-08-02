@@ -25,7 +25,7 @@ export default function MiniVideoInfo({
   const coverImage = cover || "/logo.png";
 
   return (
-    <div id="min-video-info">
+    <div id="min-video-info" data-tauri-drag-region="deep">
       <div
         id="min-video-info-cover"
         style={{ backgroundImage: `url(${coverImage})` }}

@@ -62,7 +62,15 @@ export default function ProxyImg({
       const urlParam = u.searchParams.get("url");
       if (urlParam) originalUrl = urlParam;
     } catch {
-      // src 不是标准 URL，直接用
+      // 相对 URL（如 /image-proxy?url=xxx）无法用 new URL() 解析，手动提取 url 参数
+      const match = src.match(/[?&]url=([^&]+)/);
+      if (match) {
+        try {
+          originalUrl = decodeURIComponent(match[1]);
+        } catch {
+          originalUrl = match[1];
+        }
+      }
     }
 
     // 通过 Tauri command 获取图片（Rust 后端直接 HTTP 请求，绕过 WebView）

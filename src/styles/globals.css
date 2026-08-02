@@ -91,7 +91,6 @@ body.platform-windows #root {
 }
 
 .app-title-bar {
-    --wails-draggable: drag;
     widows: 1;
     cursor: default;
     user-select: none;
@@ -117,7 +116,6 @@ img{
     -moz-user-drag: none;
     -o-user-drag: none;
     user-drag: none;
-    --wails-draggable: no-drag
 }
 
 .img-container {
@@ -1168,7 +1166,6 @@ body.mini-mode #root::before {
     widows: 0;
     position: relative;
     isolation: isolate;
-    --wails-draggable: no-drag;
     transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease;
 }
 
@@ -1497,7 +1494,6 @@ body.mini-mode #root::before {
         inset 0 -1px 0 rgba(255, 255, 255, 0.12);
     backdrop-filter: var(--glass-blur-thin);
     -webkit-backdrop-filter: var(--glass-blur-thin);
-    --wails-draggable: no-drag;
 }
 
 #settings-menu {
@@ -2097,7 +2093,6 @@ body.mini-mode #root::before {
     height: 56px;
     z-index: 30;
     background: transparent;
-    --wails-draggable: no-drag;
 }
 
 #player::before {
@@ -2282,7 +2277,6 @@ body.mini-mode #root::before {
     -webkit-user-drag: none;
     user-drag: none;
     touch-action: none;
-    --wails-draggable: no-drag;
 }
 
 #player .rap-volume-controls .rap-progress {
@@ -2294,7 +2288,6 @@ body.mini-mode #root::before {
     user-select: none;
     -webkit-user-drag: none;
     user-drag: none;
-    --wails-draggable: no-drag;
 }
 
 #player .rap-pin {
@@ -2308,7 +2301,6 @@ body.mini-mode #root::before {
         0 2px 8px rgba(14, 165, 233, 0.2) !important;
     -webkit-user-drag: none;
     user-drag: none;
-    --wails-draggable: no-drag;
 }
 
 #player .rap-controls > .rap-slider .rap-pin {
@@ -2341,7 +2333,6 @@ body.mini-mode #root::before {
     -webkit-user-drag: none;
     user-drag: none;
     touch-action: none;
-    --wails-draggable: no-drag;
 }
 
 #player .rap-controls > .rap-slider > .rap-progress {
@@ -2354,7 +2345,6 @@ body.mini-mode #root::before {
     user-select: none;
     -webkit-user-drag: none;
     user-drag: none;
-    --wails-draggable: no-drag;
 }
 
 /* Drag lock: CSS !important rule that React's inline style.width cannot override.
@@ -2428,7 +2418,6 @@ body.mini-mode #root::before {
     cursor: pointer;
     position: relative;
     isolation: isolate;
-    --wails-draggable: no-drag;
     z-index: 10;
     transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
@@ -3276,7 +3265,6 @@ body.mini-mode .app-main {
 }
 
 body.mini-mode #min-video-info {
-    --wails-draggable: drag;
     position: fixed;
     top: 24px;
     left: 0;
@@ -3380,7 +3368,6 @@ body.mini-mode #switch-window-mode-mini {
     opacity: 0.88;
     cursor: pointer;
     isolation: isolate;
-    --wails-draggable: no-drag;
     z-index: 9999999;
     transition: color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }

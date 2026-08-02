@@ -137,7 +137,6 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     <button
       id="switch-window-mode"
       title="切换到迷你模式"
-      style={{ ['--wails-draggable' as string]: 'no-drag' }}
       onClick={handleSwitchMode}
     >
       <ZoomInternal size="14" theme="outline" />
@@ -146,7 +145,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   return (
     <>
-      <div className="app-title-bar h-12 flex items-center relative">
+      <div className="app-title-bar h-12 flex items-center relative" data-tauri-drag-region="deep">
         {isMac ? (
           <>
             <div className="flex-1" />
@@ -188,14 +187,12 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                 <div className="flex items-center gap-1 px-1 py-0.5" id="wds-handle-group">
                   {switchBtn}
                   <button
-                    style={{ ['--wails-draggable' as string]: 'no-drag' }}
                     className="app-title-bar-btn"
                     onClick={handleMinimize}
                   >
                     <Minus size="14" theme="outline" />
                   </button>
                   <button
-                    style={{ ['--wails-draggable' as string]: 'no-drag' }}
                     className="app-title-bar-btn app-title-bar-close"
                     onClick={handleClose}
                   >

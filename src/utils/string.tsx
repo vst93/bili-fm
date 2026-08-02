@@ -16,7 +16,7 @@ export const convertToDuration = (seconds: number) => {
 
 export const graftingImage = (img: string) => {
   if (img) {
-    return `/image-proxy?url=${encodeURIComponent(img)}`;
+    return `http://127.0.0.1:4654/image-proxy?url=${encodeURIComponent(img)}`;
   }
   return img;
 };
