@@ -10,6 +10,9 @@ interface PlayerProps {
   isPlaying?: boolean;
   aid?: number;
   cid?: number;
+  /** 为 true 时立即强制暂停音频（无视内部状态）——用于视频浮窗打开时
+      确保音频在所有平台（尤其 macOS WebKit）真正停止 */
+  forcePause?: boolean;
 }
 
 interface PlayerRef {
@@ -24,6 +27,7 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   isPlaying,
   aid,
   cid,
+  forcePause = false,
 }: PlayerProps, ref) {
   let autoPlay = true;
   const playerRef = useRef<AudioPlayerRef>(null);
@@ -309,10 +313,11 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
     };
   }, []);
 
-  // play/pause via useEffect (not render body) for reliable execution
+  // play/pause via useEffect (not render body) for reliable execution.
+  // forcePause 优先：视频浮窗打开期间即使 isPlaying 为 true 也强制暂停。
   useEffect(() => {
     const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-    if (isPlaying) {
+    if (isPlaying && !forcePause) {
       playerRef.current?.play();
     } else {
       playerRef.current?.pause();
@@ -322,7 +327,19 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
         audioEl.pause();
       }
     }
-  }, [isPlaying]);
+  }, [isPlaying, forcePause]);
+
+  // 视频播放期间强制暂停音频：macOS WebKit 下 react-audio-play 可能在
+  // React 状态传播完成前自行恢复播放，这里在 forcePause 置位以及
+  // src/isPlaying 变化（可能触发库内部重渲染）时重复执行双重暂停。
+  useEffect(() => {
+    if (!forcePause) return;
+    playerRef.current?.pause();
+    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+    if (audioEl && !audioEl.paused) {
+      audioEl.pause();
+    }
+  }, [forcePause, src, isPlaying]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {

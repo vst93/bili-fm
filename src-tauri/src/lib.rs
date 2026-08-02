@@ -96,6 +96,9 @@ pub fn run() {
             commands::set_playlist,
             commands::get_playlist_play_mode,
             commands::set_playlist_play_mode,
+            // 通用 KV 存储 (dkv)
+            commands::set_kv,
+            commands::get_kv,
             // 应用信息 / 更新 / 退出
             commands::check_for_updates,
             commands::get_platform,

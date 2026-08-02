@@ -8,6 +8,9 @@ interface DialogButton {
   label: string;
   value: string;
   primary?: boolean;
+  /** 若提供，点击按钮时不关闭对话框，而是调用此回调（用于在同一个对话框内
+      原地切换内容，例如 检查更新 → 下载进度 → 更新完成） */
+  onClick?: (id: number) => void;
 }
 
 interface DialogConfig {
@@ -26,11 +29,14 @@ interface DialogState extends DialogConfig {
 interface DialogContextValue {
   showDialog: (config: DialogConfig) => number;
   closeDialog: (id: number, value?: string) => void;
+  /** 原地更新已有对话框的内容（不关闭/重开，避免视觉跳动） */
+  updateDialog: (id: number, config: Partial<DialogConfig>) => void;
 }
 
 const DialogContext = createContext<DialogContextValue>({
   showDialog: () => 0,
   closeDialog: () => {},
+  updateDialog: () => {},
 });
 export const useDialog = () => useContext(DialogContext);
 
@@ -121,8 +127,14 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     }, 200);
   }, [dialogs]);
 
+  // 原地更新对话框内容：保留同一个 dialog 元素，只替换标题/消息/按钮等，
+  // 避免 close+reopen 造成的视觉跳动。
+  const updateDialog = useCallback((id: number, config: Partial<DialogConfig>) => {
+    setDialogs(prev => prev.map(d => d.id === id ? { ...d, ...config } : d));
+  }, []);
+
   return (
-    <DialogContext.Provider value={{ showDialog, closeDialog }}>
+    <DialogContext.Provider value={{ showDialog, closeDialog, updateDialog }}>
       {children}
       {dialogs.map(d => (
         <div
@@ -159,7 +171,14 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
                 <button
                   key={btn.value}
                   className={`liquid-dialog-btn ${btn.primary ? "liquid-dialog-btn-primary" : ""}`}
-                  onClick={() => closeDialog(d.id, btn.value)}
+                  onClick={() => {
+                    if (btn.onClick) {
+                      // 原地转换型按钮：不关闭对话框，由调用方决定后续内容
+                      btn.onClick(d.id);
+                    } else {
+                      closeDialog(d.id, btn.value);
+                    }
+                  }}
                 >
                   {btn.label}
                 </button>

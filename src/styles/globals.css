@@ -861,9 +861,8 @@ body {
     .bl-feed-list-refresh:hover {
         animation: none !important;
     }
-    .dialog-spinner {
-        animation: none;
-    }
+    /* 注意：.dialog-spinner 是必要的 UI 反馈（检查更新中的加载指示），
+       不属于装饰性动画，因此不在此禁用 */
 }
 
 /* ====== Time-of-day lighting overlay ====== */
@@ -3664,5 +3663,84 @@ body.mini-mode #player .rap-volume-btn svg {
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.4),
         0 6px 18px rgba(14, 165, 233, 0.3);
+}
+
+/* ====== Square cover mode - no rotation, minimal GPU usage ====== */
+/* 封面模式：静态方块封面，无旋转动画，避免无限旋转动画持续占用 GPU 合成 */
+
+/* 隐藏碟片模式的圆形玻璃外环（方形封面不需要） */
+.cover-shell-square::before {
+    display: none;
+}
+
+#video-cover.cover-square {
+    width: 90%;
+    height: 90%;
+    margin: 0;
+    position: relative;
+    display: grid;
+    place-items: center;
+    border-radius: 12px; /* 轻微圆角，非正圆 */
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+        0 8px 24px rgba(15, 23, 42, 0.1);
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    transition: box-shadow 0.3s ease;
+}
+
+#video-cover.cover-square:hover {
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.15),
+        0 12px 32px rgba(14, 165, 233, 0.12);
+}
+
+.cover-art-square {
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* 方形封面上的玻璃高光跟随方块形状（否则会继承碟片模式的圆形高光） */
+.cover-art-square::after {
+    border-radius: 12px;
+}
+
+/* 切换按钮 - 小巧不显眼，位于封面右下角，悬停时出现 */
+.cover-mode-toggle {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 10;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.cover-shell:hover .cover-mode-toggle {
+    opacity: 0.85;
+}
+
+.cover-mode-toggle:hover {
+    background: rgba(15, 23, 42, 0.55);
+    color: rgba(255, 255, 255, 0.95);
 }
 

@@ -1595,6 +1595,7 @@ export default function IndexPage() {
       <Player
         aid={videoInfo?.aid}
         cid={videoInfo?.cid}
+        forcePause={isPlayVideo}
         isPlaying={isPlaying}
         src={playUrl}
         onEnded={handleVideoEnded}

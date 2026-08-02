@@ -206,6 +206,25 @@ pub fn get_image_proxy_port() -> u16 {
 }
 
 // ---------------------------------------------------------------------------
+// 通用 KV 存储 (dkv)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn set_kv(key: String, value: String) -> Result<(), String> {
+    crate::dkv::set_item(&key, &serde_json::Value::String(value))
+        .map_err(|e| format!("set_kv 失败: {e}"))
+}
+
+#[tauri::command]
+pub fn get_kv(key: String) -> Option<String> {
+    match crate::dkv::get_item(&key) {
+        Some(serde_json::Value::String(s)) => Some(s),
+        Some(v) => Some(v.to_string()),
+        None => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 播放列表持久化
 // ---------------------------------------------------------------------------
 

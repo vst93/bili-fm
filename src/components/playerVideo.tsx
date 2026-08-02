@@ -16,8 +16,16 @@ export default function PlayerVideo({
   isPlayVideoStop,
   setIsplay,
 }: PlayerVideoProps) {
+  const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+
+  // 组件卸载时确保视频播放器停止（防止视频残留声音）
+  useEffect(() => {
+    return () => {
+      playerRef.current?.getInternalPlayer?.()?.pause?.();
+    };
+  }, []);
 
   // 控制 mount/unmount + 过渡动画
   useEffect(() => {
@@ -40,6 +48,8 @@ export default function PlayerVideo({
 
   if (isPlay === undefined) isPlay = false;
 
+  // 关闭视频浮窗：不要在此恢复音频播放（isPlaying 保持 false），
+  // 由用户手动点击播放键继续收听，避免 macOS 上音频与视频抢播。
   const closePlayerVideo = () => {
     setIsplay(false);
   };
@@ -55,6 +65,7 @@ export default function PlayerVideo({
         onClick={(e) => e.stopPropagation()}
       >
         <ReactPlayer
+          ref={playerRef}
           url={src}
           controls={true}
           width="100%"

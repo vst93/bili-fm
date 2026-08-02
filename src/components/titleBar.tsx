@@ -40,7 +40,9 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
-  const { showDialog, closeDialog } = useDialog();
+  const { showDialog, closeDialog, updateDialog } = useDialog();
+  // 用户点击「取消」后置位，检查完成后不再弹出任何结果对话框
+  const updateCancelledRef = useRef(false);
   const [updateProgress, setUpdateProgress] =
     useState<UpdateProgressState | null>(null);
 
@@ -95,9 +97,12 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   /**
    * 通过 tauri-plugin-updater 检查并下载安装更新
+   * @param dialogId 若提供，则在同一个对话框内展示下载进度与完成/失败结果（不关闭重开）
    */
-  const handleDownloadUpdate = async (update: Update) => {
-    setUpdateProgress({ version: update.version, downloaded: 0, total: 0 });
+  const handleDownloadUpdate = async (update: Update, dialogId?: number) => {
+    if (dialogId === undefined) {
+      setUpdateProgress({ version: update.version, downloaded: 0, total: 0 });
+    }
     try {
       let downloaded = 0;
       let total = 0;
@@ -107,28 +112,62 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         } else if (event.event === "Progress") {
           downloaded += event.data.chunkLength;
         }
-        setUpdateProgress({ version: update.version, downloaded, total });
+        if (dialogId !== undefined) {
+          // 同一对话框内原地更新下载进度
+          const pct =
+            total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+          updateDialog(dialogId, {
+            title: "正在下载更新",
+            type: "loading",
+            message:
+              total > 0
+                ? `正在下载 v${update.version}... ${pct}%\n${formatBytes(downloaded)} / ${formatBytes(total)}`
+                : `正在下载 v${update.version}... ${formatBytes(downloaded)}`,
+            buttons: [],
+          });
+        } else {
+          setUpdateProgress({ version: update.version, downloaded, total });
+        }
       });
       await update.install();
-      setUpdateProgress(null);
-      showDialog({
-        title: "更新完成",
-        type: "success",
-        message: "新版本已安装，应用即将重启",
-        buttons: [{ label: "好的", value: "ok", primary: true }],
-      });
+      if (dialogId !== undefined) {
+        updateDialog(dialogId, {
+          title: "更新完成",
+          type: "success",
+          message: "新版本已安装，应用即将重启",
+          buttons: [{ label: "好的", value: "ok", primary: true }],
+        });
+      } else {
+        setUpdateProgress(null);
+        showDialog({
+          title: "更新完成",
+          type: "success",
+          message: "新版本已安装，应用即将重启",
+          buttons: [{ label: "好的", value: "ok", primary: true }],
+        });
+      }
       await relaunch();
     } catch (error: any) {
       console.error("更新失败:", error);
-      setUpdateProgress(null);
-      showDialog({
-        title: "更新失败",
-        type: "error",
-        message:
-          (error?.message || error?.toString() || "未知错误") +
-          "\n可前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 手动下载",
-        buttons: [{ label: "确定", value: "ok", primary: true }],
-      });
+      const message =
+        (error?.message || error?.toString() || "未知错误") +
+        "\n可前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 手动下载";
+      if (dialogId !== undefined) {
+        updateDialog(dialogId, {
+          title: "更新失败",
+          type: "error",
+          message,
+          buttons: [{ label: "确定", value: "ok", primary: true }],
+        });
+      } else {
+        setUpdateProgress(null);
+        showDialog({
+          title: "更新失败",
+          type: "error",
+          message,
+          buttons: [{ label: "确定", value: "ok", primary: true }],
+        });
+      }
     }
   };
 
@@ -139,13 +178,29 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
    */
   const handleCheckUpdate = async () => {
     setShowMenu(false);
+    updateCancelledRef.current = false;
 
-    // 立即显示加载对话框，不等网络返回
+    // 立即显示加载对话框，不等网络返回；提供「取消」按钮避免慢网络下无法退出
     const loadingId = showDialog({
       title: "检查更新",
       type: "loading",
       message: "正在检查更新...",
-      buttons: [], // 无按钮 = 不可手动关闭，等待结果替换
+      buttons: [
+        {
+          label: "取消",
+          value: "cancel",
+          // 立即置位取消标记（不等 200ms 关闭动画），避免与检查完成的竞态
+          onClick: (id) => {
+            updateCancelledRef.current = true;
+            closeDialog(id, "cancel");
+          },
+        },
+      ],
+      onClose: (value: string) => {
+        if (value === "cancel") {
+          updateCancelledRef.current = true;
+        }
+      },
     });
 
     try {
@@ -154,15 +209,17 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         check(),
       ]);
 
-      // 用结果对话框替换加载对话框
-      closeDialog(loadingId);
+      // 用户已取消：不弹出任何结果对话框
+      if (updateCancelledRef.current) {
+        return;
+      }
 
       const rust = rustResult.status === "fulfilled" ? rustResult.value : null;
       const plugin = pluginUpdate.status === "fulfilled" ? pluginUpdate.value : null;
 
       // 两条链路都失败
       if (rust?.error && !plugin?.available) {
-        showDialog({
+        updateDialog(loadingId, {
           title: "检查更新失败",
           type: "error",
           message: rust.error,
@@ -172,7 +229,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
       }
 
       if (!plugin?.available && !rust?.hasUpdate) {
-        showDialog({
+        updateDialog(loadingId, {
           title: "检查更新",
           type: "success",
           message: "当前已是最新版本",
@@ -184,24 +241,25 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
       const version = plugin?.version || rust?.latestVersion || "";
 
       if (plugin?.available) {
-        // updater 插件可用：应用内下载并安装
-        showDialog({
+        // updater 插件可用：应用内下载并安装。
+        // 「立即更新」保持对话框打开，下载进度与完成状态在同一对话框内原地更新。
+        updateDialog(loadingId, {
           title: "发现新版本",
           type: "question",
           message: `新版本 v${version} 已发布\n是否立即下载并安装更新？`,
           buttons: [
-            { label: "立即更新", value: "yes", primary: true },
+            {
+              label: "立即更新",
+              value: "yes",
+              primary: true,
+              onClick: (id) => handleDownloadUpdate(plugin, id),
+            },
             { label: "稍后再说", value: "no" },
           ],
-          onClose: (value: string) => {
-            if (value === "yes") {
-              handleDownloadUpdate(plugin);
-            }
-          },
         });
       } else if (rust?.hasUpdate) {
         // 仅版本检查可用：跳转下载页（Gitee 优先，失败回退 GitHub）
-        showDialog({
+        updateDialog(loadingId, {
           title: "发现新版本",
           type: "question",
           message: `新版本 v${version} 已发布\n前往下载页面获取最新版本`,
@@ -217,8 +275,8 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         });
       }
     } catch (error: any) {
-      closeDialog(loadingId);
-      showDialog({
+      if (updateCancelledRef.current) return;
+      updateDialog(loadingId, {
         title: "检查更新失败",
         type: "error",
         message: error?.message || error?.toString() || "未知错误",
