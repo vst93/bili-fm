@@ -91,7 +91,7 @@ resolve_tag() {
   # If user specified a version, use it directly
   if [[ -n "$OPT_VERSION" ]]; then
     info "指定版本: ${OPT_VERSION}"
-    echo "$OPT_VERSION"
+    printf '%s\n' "$OPT_VERSION"
     return
   fi
 
@@ -101,16 +101,21 @@ resolve_tag() {
     # List all releases (includes pre-releases), take the first one
     api_url="https://api.github.com/repos/${REPO}/releases?per_page=1"
     tag=$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-    info "最新版本 (含预览版): ${tag}"
   else
     # Latest stable release only
     api_url="https://api.github.com/repos/${REPO}/releases/latest"
     tag=$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-    info "最新稳定版: ${tag}"
   fi
 
   [[ -n "$tag" ]] || error "无法获取版本号。请检查网络或使用 --version 指定版本。"
-  echo "$tag"
+
+  if [[ "$OPT_PRE_RELEASE" == "true" ]]; then
+    info "最新版本 (含预览版): ${tag}"
+  else
+    info "最新稳定版: ${tag}"
+  fi
+
+  printf '%s\n' "$tag"
 }
 
 # ── macOS install ────────────────────────────────────────────────────────────
