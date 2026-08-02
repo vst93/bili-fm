@@ -611,8 +611,7 @@ a,
     --glass-specular:
         inset 0 1px 1px 0.5px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.06);
-    /* Static depth gradients for ::before layers (which carry the SVG refraction
-       filter). Dynamic pointer-follow highlight lives only on button elements'
+    /* Static depth gradients for ::before layers. Dynamic pointer-follow highlight lives only on button elements'
        own background-image to avoid re-filtering on every mousemove.
        --lx/--ly are set per-element by the glass-light tracker in App.tsx, and
        var(--lx) must appear directly in the consuming property (not via a
@@ -661,10 +660,10 @@ body {
 }
 
 /* ====== True Liquid Glass material ====== */
-/* The glass material lives in ::before so the SVG refraction filter can bend the
-   sampled backdrop without distorting the foreground content. Content sits above via z-index.
-   ::after carries the bright conic rim-light + chromatic edge (the "light gathering" signal
-   that separates liquid glass from plain Gaussian blur). */
+/* The glass material lives in ::before so the blurred backdrop sits behind the
+   foreground content (content sits above via z-index). ::after carries the bright
+   conic rim-light + chromatic edge (the "light gathering" signal that separates
+   liquid glass from plain Gaussian blur). */
 .liquid-glass {
     position: relative;
     isolation: isolate;
@@ -682,10 +681,6 @@ body {
     border-radius: inherit;
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: var(--liquid-blur);
-    -webkit-backdrop-filter: var(--liquid-blur);
-    /* Genuine refraction: bends the blurred backdrop like a curved lens */
-    filter: url(#liquid-refract);
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -721,15 +716,9 @@ body {
     background-color: var(--liquid-bg-hover);
 }
 
-/* Compact variant for pills / docks / toolbars -- softer refraction, tighter radius */
+/* Compact variant for pills / docks / toolbars -- tighter radius */
 .liquid-glass-soft {
     border-radius: 11px;
-}
-
-.liquid-glass-soft::before {
-    backdrop-filter: var(--liquid-blur-thin);
-    -webkit-backdrop-filter: var(--liquid-blur-thin);
-    filter: url(#liquid-refract-soft);
 }
 
 /* ====== Liquid glass icon button ====== */
@@ -761,8 +750,6 @@ body {
     border-radius: inherit;
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: var(--liquid-blur-thin);
-    -webkit-backdrop-filter: var(--liquid-blur-thin);
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -814,13 +801,6 @@ body {
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
 }
 
-
-.liquid-glass-defs {
-    position: absolute;
-    width: 0;
-    height: 0;
-    pointer-events: none;
-}
 
 #root {
     position: relative;
@@ -880,6 +860,9 @@ body {
     }
     .bl-feed-list-refresh:hover {
         animation: none !important;
+    }
+    .dialog-spinner {
+        animation: none;
     }
 }
 
@@ -1103,7 +1086,6 @@ body.mini-mode #root::before {
     background: transparent !important;
     border-bottom: 0 !important;
     color: var(--studio-ink);
-    backdrop-filter: none;
     position: relative;
 }
 
@@ -1124,6 +1106,8 @@ body.mini-mode #root::before {
         transparent 100%);
     backdrop-filter: blur(12px) saturate(1.4);
     -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    /* Performance: limit repaint area to this layer */
+    contain: layout style paint;
     opacity: 0;
     transition: opacity 0.24s ease;
     z-index: 0;
@@ -1249,11 +1233,10 @@ body.mini-mode #root::before {
     border-radius: 13px;
     background: transparent;
     box-shadow: var(--liquid-shadow);
-    backdrop-filter: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-/* Glass material + genuine refraction (bends the backdrop, not just blurs it) */
+/* Glass material: blurred backdrop behind a translucent white fill */
 .home-searchbar::before {
     content: "";
     position: absolute;
@@ -1263,7 +1246,8 @@ body.mini-mode #root::before {
     background-image: var(--glass-sheen-static);
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
-    filter: url(#liquid-refract);
+    /* Performance: limit repaint area to this layer */
+    contain: layout style paint;
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -1492,8 +1476,6 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 2px 4px rgba(15, 23, 42, 0.08),
         inset 0 -1px 0 rgba(255, 255, 255, 0.12);
-    backdrop-filter: var(--glass-blur-thin);
-    -webkit-backdrop-filter: var(--glass-blur-thin);
 }
 
 #settings-menu {
@@ -1506,6 +1488,8 @@ body.mini-mode #root::before {
         0 18px 44px rgba(15, 23, 42, 0.1) !important;
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
+    /* Performance: limit repaint area to the menu */
+    contain: layout style paint;
 }
 
 #settings-menu button {
@@ -1646,7 +1630,7 @@ body.mini-mode #root::before {
    2. Bottom-right subtle glow (secondary light)
    3. Radial vignette at edges (glass lens curvature)
    4. Off-center highlight spot (glossy reflection)
-   Performance: all static gradients, no backdrop-filter */
+   Performance: all static gradients, no backdrop blur */
 .cover-art::after {
     content: "";
     position: absolute;
@@ -1844,7 +1828,6 @@ body.mini-mode #root::before {
     border-radius: 999px;
     background: transparent;
     box-shadow: var(--liquid-shadow);
-    backdrop-filter: none;
     color: #0369a1;
     font-size: 14px;
     font-weight: 700;
@@ -1930,7 +1913,6 @@ body.mini-mode #root::before {
     background: transparent;
     border: 0;
     box-shadow: none;
-    backdrop-filter: none;
 }
 
 .video-context-dock {
@@ -1960,8 +1942,6 @@ body.mini-mode #root::before {
     border-radius: inherit;
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: var(--liquid-blur-thin);
-    -webkit-backdrop-filter: var(--liquid-blur-thin);
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -2116,7 +2096,6 @@ body.mini-mode #root::before {
     border-top: 1px solid var(--glass-border) !important;
     background: transparent !important;
     box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.04) !important;
-    backdrop-filter: none;
 }
 
 #player .rap-container::before {
@@ -2127,7 +2106,8 @@ body.mini-mode #root::before {
     background-image: var(--glass-sheen-static);
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
-    filter: url(#liquid-refract);
+    /* Performance: limit repaint area to the player bar */
+    contain: layout style paint;
     z-index: -1;
 }
 
@@ -2262,8 +2242,6 @@ body.mini-mode #root::before {
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.05),
         0 14px 34px rgba(15, 23, 42, 0.12) !important;
-    backdrop-filter: blur(16px) saturate(1.5);
-    -webkit-backdrop-filter: blur(16px) saturate(1.5);
 }
 
 #player .rap-volume-controls .rap-slider {
@@ -2325,8 +2303,6 @@ body.mini-mode #root::before {
         inset 0 -1px 1px rgba(15, 23, 42, 0.05),
         0 3px 10px rgba(15, 23, 42, 0.05) !important;
     overflow: visible !important;
-    backdrop-filter: blur(8px) saturate(1.4);
-    -webkit-backdrop-filter: blur(8px) saturate(1.4);
     /* Prevent native drag/select from suppressing mousemove during slider drag */
     -webkit-user-select: none;
     user-select: none;
@@ -2487,6 +2463,8 @@ body.mini-mode #root::before {
 div:has(> [data-slot="wrapper"]) > div:first-child {
     background: rgba(15, 23, 42, 0.28) !important;
     backdrop-filter: blur(10px) saturate(1.2);
+    /* Performance: limit repaint area to the overlay */
+    contain: layout style paint;
 }
 
 /* Drawer content panel - the <section> directly inside wrapper */
@@ -2506,10 +2484,9 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-radius: 18px 18px 0 0 !important;
     background: transparent !important;
     box-shadow: 0 -16px 50px rgba(15, 23, 42, 0.08) !important;
-    backdrop-filter: none !important;
 }
 
-/* Drawer glass material + genuine refraction (bends the backdrop, not just blurs it) */
+/* Drawer glass material: blurred backdrop behind a translucent white fill */
 [data-slot="wrapper"] > section::before {
     content: "";
     position: absolute;
@@ -2519,7 +2496,8 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background-image: var(--glass-sheen-static);
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
-    filter: url(#liquid-refract);
+    /* Performance: limit repaint area to the drawer panel */
+    contain: layout style paint;
     z-index: -1;
 }
 
@@ -2867,7 +2845,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.14) !important;
 }
 
-/* Playlist items - lightweight, no per-item backdrop-filter */
+/* Playlist items - lightweight, no per-item blur */
 [data-slot="wrapper"] .group {
     background: rgba(255, 255, 255, 0.42) !important;
     border: 1px solid rgba(255, 255, 255, 0.28) !important;
@@ -2978,8 +2956,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 6px 16px rgba(15, 23, 42, 0.08) !important;
-    backdrop-filter: blur(10px) saturate(1.4);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
     transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease !important;
 }
 
@@ -3450,6 +3426,8 @@ body.mini-mode #player .rap-volume-btn svg {
         var(--glass-shadow-lifted);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    /* Performance: limit repaint area to the toast */
+    contain: layout style paint;
     overflow: hidden;
     position: relative;
 }
@@ -3473,6 +3451,8 @@ body.mini-mode #player .rap-volume-btn svg {
         var(--glass-shadow-lifted);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
+    /* Performance: limit repaint area to the login panel */
+    contain: layout style paint;
 }
 
 .login-glass::before {
@@ -3497,7 +3477,6 @@ body.mini-mode #player .rap-volume-btn svg {
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 6px 16px rgba(15, 23, 42, 0.1);
-    backdrop-filter: blur(10px) saturate(1.4);
 }
 
 .login-close-btn:hover {
@@ -3526,13 +3505,11 @@ body.mini-mode #player .rap-volume-btn svg {
     align-items: stretch;
     justify-content: stretch;
     background: rgba(8, 12, 20, 0);
-    backdrop-filter: blur(0px);
-    transition: background 0.3s ease, backdrop-filter 0.3s ease;
+    transition: background 0.3s ease;
 }
 
 #player_video.player-video-open {
-    background: rgba(8, 12, 20, 0.78);
-    backdrop-filter: blur(8px) saturate(1.2);
+    background: rgba(8, 12, 20, 0.82);
 }
 
 .player-video-panel {
@@ -3570,7 +3547,6 @@ body.mini-mode #player .rap-volume-btn svg {
     border: 0;
     border-radius: 50%;
     background: rgba(15, 23, 42, 0.45);
-    backdrop-filter: blur(8px);
     cursor: pointer;
     transition: background 0.16s ease, transform 0.1s ease;
 }
@@ -3585,6 +3561,15 @@ body.mini-mode #player .rap-volume-btn svg {
 }
 
 /* ====== Liquid Glass Dialog ====== */
+@keyframes dialog-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.dialog-spinner {
+    animation: dialog-spin 1s linear infinite;
+}
+
 .liquid-dialog {
     min-width: 360px;
     max-width: 460px;
@@ -3598,6 +3583,8 @@ body.mini-mode #player .rap-volume-btn svg {
         0 4px 16px rgba(15, 23, 42, 0.06);
     backdrop-filter: blur(24px) saturate(1.6);
     -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    /* Performance: limit repaint area to the dialog */
+    contain: layout style paint;
     position: relative;
     overflow: hidden;
 }
@@ -3648,8 +3635,6 @@ body.mini-mode #player .rap-volume-btn svg {
     font-weight: 500;
     cursor: pointer;
     transition: all 0.18s ease;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
 }
 
 .liquid-dialog-btn:hover {

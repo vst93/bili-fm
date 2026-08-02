@@ -1,8 +1,8 @@
 import { useState, createContext, useContext, useCallback, ReactNode } from "react";
-import { CheckOne, CloseOne, Attention, Info, Refresh } from "@icon-park/react";
+import { CheckOne, CloseOne, Attention, Info, Refresh, Loading } from "@icon-park/react";
 import { open } from "@tauri-apps/plugin-shell";
 
-type DialogType = "info" | "success" | "warning" | "error" | "question";
+type DialogType = "info" | "success" | "warning" | "error" | "question" | "loading";
 
 interface DialogButton {
   label: string;
@@ -23,7 +23,15 @@ interface DialogState extends DialogConfig {
   visible: boolean;
 }
 
-const DialogContext = createContext<(config: DialogConfig) => void>(() => {});
+interface DialogContextValue {
+  showDialog: (config: DialogConfig) => number;
+  closeDialog: (id: number, value?: string) => void;
+}
+
+const DialogContext = createContext<DialogContextValue>({
+  showDialog: () => 0,
+  closeDialog: () => {},
+});
 export const useDialog = () => useContext(DialogContext);
 
 const iconForType = (type: DialogType) => {
@@ -32,6 +40,7 @@ const iconForType = (type: DialogType) => {
     case "error": return <CloseOne fill="#ef4444" size="28" theme="outline" />;
     case "warning": return <Attention fill="#f59e0b" size="28" theme="outline" />;
     case "question": return <Refresh fill="#0ea5e9" size="28" theme="outline" />;
+    case "loading": return <Loading fill="#0ea5e9" size="28" theme="outline" className="dialog-spinner" />;
     default: return <Info fill="#0ea5e9" size="28" theme="outline" />;
   }
 };
@@ -100,9 +109,10 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     requestAnimationFrame(() => {
       setDialogs(prev => prev.map(d => d.id === id ? { ...d, visible: true } : d));
     });
+    return id;
   }, []);
 
-  const closeDialog = useCallback((id: number, value: string) => {
+  const closeDialog = useCallback((id: number, value: string = "ok") => {
     setDialogs(prev => prev.map(d => d.id === id ? { ...d, visible: false } : d));
     setTimeout(() => {
       setDialogs(prev => prev.filter(d => d.id !== id));
@@ -112,7 +122,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [dialogs]);
 
   return (
-    <DialogContext.Provider value={showDialog}>
+    <DialogContext.Provider value={{ showDialog, closeDialog }}>
       {children}
       {dialogs.map(d => (
         <div

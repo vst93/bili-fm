@@ -40,7 +40,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
-  const showDialog = useDialog();
+  const { showDialog, closeDialog } = useDialog();
   const [updateProgress, setUpdateProgress] =
     useState<UpdateProgressState | null>(null);
 
@@ -133,46 +133,91 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   };
 
   /**
-   * 回退方案：updater 插件不可用 (如开发环境未签名) 时，
-   * 用旧版 check_for_updates 命令仅展示版本信息。
+   * 检查更新：立即弹出加载对话框，并行执行两条检查链路
+   * 1. tauri-plugin-updater check() — 端点 Gitee 优先、GitHub 回退，支持应用内下载安装
+   * 2. check_for_updates 旧命令 — Gitee API 优先、GitHub API 回退，仅返回版本信息
    */
-  const handleFallbackCheckUpdate = async () => {
+  const handleCheckUpdate = async () => {
+    setShowMenu(false);
+
+    // 立即显示加载对话框，不等网络返回
+    const loadingId = showDialog({
+      title: "检查更新",
+      type: "loading",
+      message: "正在检查更新...",
+      buttons: [], // 无按钮 = 不可手动关闭，等待结果替换
+    });
+
     try {
-      const result = await invoke<UpdateResult>("check_for_updates", {
-        isManual: true,
-        gitFrom: "",
-      });
-      if (result.error) {
+      const [rustResult, pluginUpdate] = await Promise.allSettled([
+        invoke<UpdateResult>("check_for_updates", { isManual: true, gitFrom: "" }),
+        check(),
+      ]);
+
+      // 用结果对话框替换加载对话框
+      closeDialog(loadingId);
+
+      const rust = rustResult.status === "fulfilled" ? rustResult.value : null;
+      const plugin = pluginUpdate.status === "fulfilled" ? pluginUpdate.value : null;
+
+      // 两条链路都失败
+      if (rust?.error && !plugin?.available) {
         showDialog({
           title: "检查更新失败",
           type: "error",
-          message: result.error,
+          message: rust.error,
           buttons: [{ label: "确定", value: "ok", primary: true }],
         });
-      } else if (result.hasUpdate) {
-        showDialog({
-          title: "发现新版本",
-          type: "question",
-          message: `新版本 v${result.latestVersion} 已发布\n前往 [GitHub Release 页面](https://github.com/vst93/bili-fm/releases/latest) 下载`,
-          buttons: [
-            { label: "前往下载", value: "yes", primary: true },
-            { label: "稍后再说", value: "no" },
-          ],
-          onClose: (value: string) => {
-            if (value === "yes") {
-              open(result.downloadUrl);
-            }
-          },
-        });
-      } else if (result.isLatest) {
+        return;
+      }
+
+      if (!plugin?.available && !rust?.hasUpdate) {
         showDialog({
           title: "检查更新",
           type: "success",
           message: "当前已是最新版本",
           buttons: [{ label: "好的", value: "ok", primary: true }],
         });
+        return;
+      }
+
+      const version = plugin?.version || rust?.latestVersion || "";
+
+      if (plugin?.available) {
+        // updater 插件可用：应用内下载并安装
+        showDialog({
+          title: "发现新版本",
+          type: "question",
+          message: `新版本 v${version} 已发布\n是否立即下载并安装更新？`,
+          buttons: [
+            { label: "立即更新", value: "yes", primary: true },
+            { label: "稍后再说", value: "no" },
+          ],
+          onClose: (value: string) => {
+            if (value === "yes") {
+              handleDownloadUpdate(plugin);
+            }
+          },
+        });
+      } else if (rust?.hasUpdate) {
+        // 仅版本检查可用：跳转下载页（Gitee 优先，失败回退 GitHub）
+        showDialog({
+          title: "发现新版本",
+          type: "question",
+          message: `新版本 v${version} 已发布\n前往下载页面获取最新版本`,
+          buttons: [
+            { label: "前往下载", value: "yes", primary: true },
+            { label: "稍后再说", value: "no" },
+          ],
+          onClose: (value: string) => {
+            if (value === "yes") {
+              open(rust.downloadUrl);
+            }
+          },
+        });
       }
     } catch (error: any) {
+      closeDialog(loadingId);
       showDialog({
         title: "检查更新失败",
         type: "error",
@@ -180,43 +225,6 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
         buttons: [{ label: "确定", value: "ok", primary: true }],
       });
     }
-  };
-
-  const handleCheckUpdate = async () => {
-    setShowMenu(false);
-    let update: Update | null = null;
-    try {
-      update = await check();
-    } catch (error) {
-      console.error("updater 插件不可用，回退到手动检查:", error);
-      await handleFallbackCheckUpdate();
-      return;
-    }
-
-    if (!update?.available) {
-      showDialog({
-        title: "检查更新",
-        type: "success",
-        message: "当前已是最新版本",
-        buttons: [{ label: "好的", value: "ok", primary: true }],
-      });
-      return;
-    }
-
-    showDialog({
-      title: "发现新版本",
-      type: "question",
-      message: `新版本 v${update.version} 已发布\n是否立即下载并安装更新？`,
-      buttons: [
-        { label: "立即更新", value: "yes", primary: true },
-        { label: "稍后再说", value: "no" },
-      ],
-      onClose: (value: string) => {
-        if (value === "yes") {
-          handleDownloadUpdate(update);
-        }
-      },
-    });
   };
 
   const handleShowKeyboardShortcuts = () => {
