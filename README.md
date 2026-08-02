@@ -46,7 +46,19 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-脚本会自动检测平台和架构，下载并安装最新版本。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式。
+脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式。
+
+**安装预览版：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --pre-release
+```
+
+**安装指定版本：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --version 2.0.8-preview
+```
 
 #### Windows
 
@@ -228,7 +240,19 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-The script auto-detects your platform and architecture, then downloads and installs the latest version. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut.
+The script auto-detects your platform and architecture, then downloads and installs the latest stable release. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut.
+
+**Install pre-release:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --pre-release
+```
+
+**Install a specific version:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --version 2.0.8-preview
+```
 
 #### Windows
 

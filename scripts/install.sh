@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 #
 # bili-FM install script
+#
 # Usage:
+#   # Latest stable (default)
 #   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
+#
+#   # Latest including pre-releases
+#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --pre-release
+#
+#   # Specific version
+#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --version 2.0.8-preview
 #
 set -euo pipefail
 
 REPO="vst93/bili-fm"
-GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 APP_NAME="bili-FM"
 INSTALL_DIR="${HOME}/.local/bin"
 APPDIR_DIR="${HOME}/.local/share/applications"
@@ -20,6 +27,45 @@ warn()  { printf "\033[1;33m!!\033[0m %s\n" "$*"; }
 error() { printf "\033[1;31m!!\033[0m %s\n" "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || error "需要 '$1' 但未找到，请先安装。"; }
+
+usage() {
+  cat <<'EOF'
+bili-FM 安装脚本
+
+用法:
+  install.sh [选项]
+
+选项:
+  -v, --version <tag>   安装指定版本 (如 2.0.8-preview)
+  -p, --pre-release     安装最新版本 (包括预览版)
+  -h, --help            显示帮助
+
+示例:
+  # 最新稳定版 (默认)
+  install.sh
+
+  # 最新版本，含预览版
+  install.sh --pre-release
+
+  # 指定版本
+  install.sh --version 2.0.8-preview
+EOF
+  exit 0
+}
+
+# ── parse args ───────────────────────────────────────────────────────────────
+
+OPT_VERSION=""
+OPT_PRE_RELEASE=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -v|--version)    OPT_VERSION="$2"; shift 2 ;;
+    -p|--pre-release) OPT_PRE_RELEASE=true; shift ;;
+    -h|--help)       usage ;;
+    *)               error "未知参数: $1 (使用 --help 查看帮助)" ;;
+  esac
+done
 
 # ── detect platform ──────────────────────────────────────────────────────────
 
@@ -39,17 +85,31 @@ detect_arch() {
   esac
 }
 
-# ── fetch latest release tag ─────────────────────────────────────────────────
+# ── resolve version ──────────────────────────────────────────────────────────
 
-get_latest_tag() {
-  local tag
-  if command -v gh >/dev/null 2>&1; then
-    tag=$(gh release view --repo "$REPO" --json tagName -q '.tagName' 2>/dev/null || true)
+resolve_tag() {
+  # If user specified a version, use it directly
+  if [[ -n "$OPT_VERSION" ]]; then
+    info "指定版本: ${OPT_VERSION}"
+    echo "$OPT_VERSION"
+    return
   fi
-  if [ -z "$tag" ]; then
-    tag=$(curl -fsSL "$GITHUB_API" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+
+  local api_url tag
+
+  if [[ "$OPT_PRE_RELEASE" == "true" ]]; then
+    # List all releases (includes pre-releases), take the first one
+    api_url="https://api.github.com/repos/${REPO}/releases?per_page=1"
+    tag=$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+    info "最新版本 (含预览版): ${tag}"
+  else
+    # Latest stable release only
+    api_url="https://api.github.com/repos/${REPO}/releases/latest"
+    tag=$(curl -fsSL "$api_url" | grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+    info "最新稳定版: ${tag}"
   fi
-  [ -n "$tag" ] || error "无法获取最新版本号。"
+
+  [[ -n "$tag" ]] || error "无法获取版本号。请检查网络或使用 --version 指定版本。"
   echo "$tag"
 }
 
@@ -67,18 +127,21 @@ install_macos() {
   local dmg_url="https://github.com/${REPO}/releases/download/${tag}/${asset_prefix}.dmg"
 
   info "检测到 macOS (${arch})"
-  info "最新版本: ${tag}"
 
-  # Prefer Homebrew if available
-  if command -v brew >/dev/null 2>&1; then
+  # Use Homebrew only for latest stable; for specific/pre-release versions, go manual
+  if [[ -z "$OPT_VERSION" && "$OPT_PRE_RELEASE" == "false" ]] && command -v brew >/dev/null 2>&1; then
     info "检测到 Homebrew，使用 brew 安装..."
     brew install vst93/tap/bili-fm
     info "安装完成！运行: bili-fm"
     return
   fi
 
-  # Fall back to manual .dmg install
+  # Manual .dmg install
   need curl
+  if [[ "$OPT_PRE_RELEASE" == "true" || -n "$OPT_VERSION" ]]; then
+    info "使用手动安装 (Homebrew 仅支持最新稳定版)..."
+  fi
+
   local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
@@ -108,7 +171,6 @@ install_linux() {
   local arch="$1" tag="$2"
 
   info "检测到 Linux (${arch})"
-  info "最新版本: ${tag}"
 
   # AppImage is universal — download to ~/.local/bin
   local appimage_name="bili-FM-linux-${arch}.AppImage"
@@ -164,7 +226,7 @@ main() {
 
   os="$(detect_os)"
   arch="$(detect_arch)"
-  tag="$(get_latest_tag)"
+  tag="$(resolve_tag)"
 
   info "bili-FM 安装脚本"
 
@@ -174,4 +236,4 @@ main() {
   esac
 }
 
-main "$@"
+main
