@@ -34,6 +34,9 @@
 
 html {
     cursor: default;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
     height: 100vh;
     border-style: none;
     zoom: 1;
@@ -46,27 +49,13 @@ html {
 /* Inputs must stay fully editable/selectable. macOS WKWebView strictly honors
    user-select: none (unlike Windows WebView2), which breaks text selection,
    copy/paste, and cursor placement in inputs. Explicitly re-enable selection
-   for editable fields. */
+   for editable fields only. */
 input,
 textarea,
 [contenteditable] {
     -webkit-user-select: text;
     -moz-user-select: text;
     user-select: text;
-}
-
-/* App-like chrome: keep selection disabled on non-editable UI (title bar,
-   buttons, disc, video info). Text selection is only for editable inputs. */
-.app-title-bar,
-button,
-.record-disc,
-.cover-square,
-.video-info,
-.player-controls,
-#video-title,
-#video-desc {
-    -webkit-user-select: none;
-    user-select: none;
 }
 
 /* Performance: skip rendering for off-screen list items */
