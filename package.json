@@ -1,12 +1,11 @@
 {
-  "name": "vite-template",
+  "name": "bili-fm",
   "private": true,
   "version": "2.0.0-preview",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "install:ci": "pnpm install --config.confirmModulesPurge=false",
     "lint": "eslint -c .eslintrc.json ./src/**/**/*.{ts,tsx} --fix",
     "preview": "vite preview",
     "tauri": "tauri"
