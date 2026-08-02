@@ -112,6 +112,8 @@ sudo apt-get install -f  # 自动安装缺失依赖
 
 > 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
 
+> **EGL 错误排查**：如果启动时遇到 `Could not create default EGL display: EGL_BAD_PARAMETER`，这是 WebKit2GTK 的 dmabuf 渲染器在某些 GPU 驱动上的已知问题。通过安装脚本安装的版本已自动注入 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 规避此问题；手动安装的用户可设置该环境变量后运行。
+
 ### macOS 特殊权限说明
 
 由于应用未经 Apple Developer ID 签名和公证（notarization），首次打开时 macOS Gatekeeper 会拦截，提示：
@@ -305,6 +307,8 @@ sudo apt-get install -f  # auto-install missing dependencies
 ```
 
 > Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible.
+
+> **EGL troubleshooting**: If you see `Could not create default EGL display: EGL_BAD_PARAMETER` on launch, this is a known WebKit2GTK dmabuf renderer issue on certain GPU drivers. The install script automatically injects `WEBKIT_DISABLE_DMABUF_RENDERER=1` to work around this; for manual installs, set that environment variable before running.
 
 ### macOS Permissions
 

@@ -177,7 +177,7 @@ install_linux() {
 
   info "检测到 Linux (${arch})"
 
-  # AppImage is universal — download to ~/.local/bin
+  # AppImage is universal - download to ~/.local/bin
   local appimage_name="bili-FM-linux-${arch}.AppImage"
   local appimage_url="https://github.com/${REPO}/releases/download/${tag}/${appimage_name}"
 
@@ -185,10 +185,21 @@ install_linux() {
 
   mkdir -p "$INSTALL_DIR"
 
-  local target="${INSTALL_DIR}/bili-fm"
+  # Download AppImage with its original name
+  local appimage="${INSTALL_DIR}/${appimage_name}"
   info "下载 ${appimage_url} ..."
-  curl -fSL -o "$target" "$appimage_url"
-  chmod +x "$target"
+  curl -fSL -o "$appimage" "$appimage_url"
+  chmod +x "$appimage"
+
+  # Create a wrapper script that sets WEBKIT_DISABLE_DMABUF_RENDERER=1
+  # This works around a known WebKit2GTK EGL initialization failure on
+  # certain GPU driver / Mesa combinations (EGL_BAD_PARAMETER).
+  local wrapper="${INSTALL_DIR}/bili-fm"
+  cat > "$wrapper" <<EOF
+#!/usr/bin/env bash
+exec env WEBKIT_DISABLE_DMABUF_RENDERER=1 "\${BASH_SOURCE[0]%/*}/${appimage_name}" "\$@"
+EOF
+  chmod +x "$wrapper"
 
   # Create .desktop entry
   mkdir -p "$APPDIR_DIR" "$ICON_DIR"
@@ -201,7 +212,7 @@ install_linux() {
 [Desktop Entry]
 Name=bili-FM
 Comment=Listen to Bilibili content in audio-only mode
-Exec=${target}
+Exec=${wrapper}
 Icon=bili-fm
 Type=Application
 Categories=AudioVideo;Audio;Player;
