@@ -87,10 +87,8 @@ body {
     border-radius: var(--app-window-radius);
     background-color: #fefefe;
     background-clip: border-box;
-    height: 600px;
-    width: 800px;
-    max-width: 800px;
-    min-width: 800px;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
     isolation: isolate;
     transform: translateZ(0);
