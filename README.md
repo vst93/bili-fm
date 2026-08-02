@@ -56,21 +56,16 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 
 ##### Arch Linux
 
-推荐使用 AUR 安装：
+从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载对应包手动安装：
 
 ```bash
-yay -S bili-fm-bin
-```
-
-或从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载对应包手动安装：
-
-```bash
-# pacman (推荐)
-sudo pacman -U bili-FM-linux-x86_64.rpm
-
-# 或者解压 AppImage 直接运行
+# AppImage（推荐，无需安装依赖）
 chmod +x bili-FM-linux-x86_64.AppImage
 ./bili-FM-linux-x86_64.AppImage
+
+# 或用 debtap 转换 .deb 包后安装
+debtap bili-FM-linux-x86_64.deb
+sudo pacman -U bili-fm-*.pkg.tar.zst
 ```
 
 > **webkit2gtk 依赖**：Tauri v2 应用依赖 `webkit2gtk-4.1`。Arch Linux 默认仓库已包含此依赖，安装包时会自动拉取。
@@ -222,21 +217,16 @@ Download the `.dmg` file from [GitHub Releases](https://github.com/vst93/bili-fm
 
 ##### Arch Linux
 
-Install from AUR:
+Download from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and install manually:
 
 ```bash
-yay -S bili-fm-bin
-```
-
-Or download from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and install manually:
-
-```bash
-# pacman
-sudo pacman -U bili-FM-linux-x86_64.rpm
-
-# Or run the AppImage directly
+# AppImage (recommended, no dependencies needed)
 chmod +x bili-FM-linux-x86_64.AppImage
 ./bili-FM-linux-x86_64.AppImage
+
+# Or convert the .deb package with debtap and install
+debtap bili-FM-linux-x86_64.deb
+sudo pacman -U bili-fm-*.pkg.tar.zst
 ```
 
 > **webkit2gtk dependency**: Tauri v2 apps require `webkit2gtk-4.1`. Arch Linux repos include this by default; it will be pulled in automatically.
