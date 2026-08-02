@@ -40,6 +40,14 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 
 ### 安装
 
+#### 一键安装（macOS / Linux）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
+```
+
+脚本会自动检测平台和架构，下载并安装最新版本。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式。
+
 #### Windows
 
 从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.exe` 安装文件，双击运行即可。
@@ -48,7 +56,20 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 
 #### macOS
 
-从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.dmg` 文件，打开后将 bili-FM 拖入 Applications 文件夹。
+**Homebrew 安装（推荐）：**
+
+```bash
+brew install vst93/tap/bili-fm
+```
+
+更新到最新版本：
+
+```bash
+brew update
+brew upgrade bili-fm
+```
+
+**手动安装：** 从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.dmg` 文件，打开后将 bili-FM 拖入 Applications 文件夹。
 
 > Apple Silicon (M1/M2/M3/M4) 下载 `macos-apple-silicon` 版本，Intel 芯片下载 `macos-intel` 版本。
 
@@ -201,15 +222,36 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 
 ### Installation
 
+#### Quick Install (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
+```
+
+The script auto-detects your platform and architecture, then downloads and installs the latest version. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut.
+
 #### Windows
 
 Download the `.exe` installer from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and run it.
 
-> On first install, Windows SmartScreen may show "Unknown publisher" — click "Run anyway".
+> On first install, Windows SmartScreen may show "Unknown publisher" - click "Run anyway".
 
 #### macOS
 
-Download the `.dmg` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases), open it and drag bili-FM to the Applications folder.
+**Homebrew install (recommended):**
+
+```bash
+brew install vst93/tap/bili-fm
+```
+
+Update to the latest version:
+
+```bash
+brew update
+brew upgrade bili-fm
+```
+
+**Manual install:** Download the `.dmg` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases), open it and drag bili-FM to the Applications folder.
 
 > Apple Silicon (M1/M2/M3/M4): download `macos-apple-silicon`. Intel: download `macos-intel`.
 
