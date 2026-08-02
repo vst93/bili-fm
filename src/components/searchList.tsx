@@ -96,6 +96,7 @@ const SearchList: FC<SearchListProps> = ({
                     key={index}
                     isPressable
                     shadow="sm"
+                    className="c-list-card"
                     onPress={() => onVideoSelect?.(video.url)}
                   >
                     <CardBody className="overflow-visible p-0 img-container">

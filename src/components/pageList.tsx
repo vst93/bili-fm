@@ -180,9 +180,9 @@ const PageList: FC<PageListProps> = ({
                   <Card
                     key={index}
                     isPressable
-                    className={
+                    className={`c-list-card ${
                       currentPart === page.part ? "border-2 border-primary cursor-pointer" : ""
-                    }
+                    }`}
                     shadow="sm"
                     onPress={() =>
                       handleVideoSelect(

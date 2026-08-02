@@ -129,6 +129,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                             key={index}
                                             isPressable
                                             shadow="sm"
+                                            className="c-list-card"
                                             onPress={() => onVideoSelect?.(item?.history?.bvid)}
                                         >
                                             <CardBody className="overflow-visible p-0 img-container">

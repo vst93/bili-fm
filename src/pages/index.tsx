@@ -1750,6 +1750,8 @@ export default function IndexPage() {
                         alt="登录二维码"
                         className="w-40 h-40"
                         src={qrCodeUrl}
+                        loading="eager"
+                        decoding="async"
                       />
                     </div>
                   </div>

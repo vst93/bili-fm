@@ -163,6 +163,7 @@ const RecommendList: FC<RecommendListProps> = ({
                         key={index}
                         isPressable
                         shadow="sm"
+                        className="c-list-card"
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">

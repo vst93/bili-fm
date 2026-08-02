@@ -105,6 +105,7 @@ const FeedList: FC<FeedListProps> = ({
                       key={index}
                       isPressable
                       shadow="sm"
+                      className="c-list-card"
                       onPress={() => onVideoSelect?.(info.bvid)}
                     >
                       <CardBody className="overflow-visible p-0 img-container">

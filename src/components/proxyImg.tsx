@@ -30,6 +30,7 @@ const imgCache = new Map<string, string>();
 export default function ProxyImg({
   src,
   fallbackSrc = "/cover.png",
+  loading = "lazy",
   ...imgProps
 }: ProxyImgProps) {
   const [imgSrc, setImgSrc] = useState<string>(
@@ -98,7 +99,8 @@ export default function ProxyImg({
       {...imgProps}
       src={imgSrc || fallbackSrc}
       fallbackSrc={fallbackSrc}
-      loading="lazy"
+      loading={loading}
+      decoding="async"
     />
   );
 }

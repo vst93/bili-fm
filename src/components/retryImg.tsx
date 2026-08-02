@@ -46,6 +46,8 @@ export default function RetryImg({
       className={className}
       onClick={onClick}
       style={{ width: width || "100%" }}
+      loading="lazy"
+      decoding="async"
       onLoad={() => {}}
       onError={handleError}
     />

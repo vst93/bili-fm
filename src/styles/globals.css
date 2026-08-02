@@ -69,6 +69,17 @@ button,
     user-select: none;
 }
 
+/* Performance: skip rendering for off-screen list items */
+.c-list-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 180px;
+}
+
+/* Playlist rows are much shorter than grid cards — use a smaller placeholder */
+.c-list-card.c-list-card-row {
+    contain-intrinsic-size: 56px;
+}
+
 body {
     margin: 0;
     padding: 0;

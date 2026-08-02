@@ -171,7 +171,7 @@ const Playlist: FC<PlaylistProps> = ({
                         draggable
                         role="button"
                         tabIndex={0}
-                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors group ${
+                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors group c-list-card c-list-card-row ${
                           isCurrent
                             ? "bg-blue-100 playlist-current"
                             : isDragOver

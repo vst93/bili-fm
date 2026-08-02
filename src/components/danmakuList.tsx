@@ -266,6 +266,8 @@ const DanmakuList: FC<DanmakuListProps> = ({
                 src={memberInfo.face}
                 alt={memberInfo.uname}
                 className="w-8 h-8 rounded-full bg-default-200"
+                loading="lazy"
+                decoding="async"
               />
               <div className="flex flex-col">
                 <span className="text-sm font-medium text-default-700 dark:text-default-300">
