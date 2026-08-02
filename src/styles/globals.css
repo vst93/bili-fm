@@ -34,9 +34,6 @@
 
 html {
     cursor: default;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    user-select: none;
     height: 100vh;
     border-style: none;
     zoom: 1;
@@ -44,6 +41,32 @@ html {
     -ms-text-size-adjust: 100%;
     text-size-adjust: 100%;
     touch-action: manipulation;
+}
+
+/* Inputs must stay fully editable/selectable. macOS WKWebView strictly honors
+   user-select: none (unlike Windows WebView2), which breaks text selection,
+   copy/paste, and cursor placement in inputs. Explicitly re-enable selection
+   for editable fields. */
+input,
+textarea,
+[contenteditable] {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    user-select: text;
+}
+
+/* App-like chrome: keep selection disabled on non-editable UI (title bar,
+   buttons, disc, video info). Text selection is only for editable inputs. */
+.app-title-bar,
+button,
+.record-disc,
+.cover-square,
+.video-info,
+.player-controls,
+#video-title,
+#video-desc {
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 body {
@@ -843,18 +866,9 @@ body {
         radial-gradient(ellipse 70% 55% at 15% 5%, rgba(255, 238, 218, 0.45), transparent 62%),
         radial-gradient(ellipse 60% 50% at 85% 95%, rgba(168, 207, 240, 0.38), transparent 60%),
         radial-gradient(ellipse 45% 35% at 92% 15%, rgba(230, 240, 255, 0.25), transparent 55%);
-    animation: cloud-drift 120s ease-in-out infinite alternate;
-}
-
-@keyframes cloud-drift {
-    0% { transform: translate(0%, 0%); }
-    100% { transform: translate(-2%, 0.3%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    #root::before {
-        animation: none;
-    }
     #video-cover.record-disc {
         animation: none !important;
     }
@@ -1544,24 +1558,17 @@ body.mini-mode #root::before {
     place-items: center;
 }
 
-/* Outer glass ring — static, non-rotating, very thin */
+/* Outer glass ring — static, non-rotating, very thin.
+   Performance: conic-gradient replaced with a plain border + shadow, since the
+   ring sits around the rotating disc and would otherwise be recomposited. */
 .cover-shell::before {
     content: "";
     position: absolute;
     inset: 3%;
     border-radius: 50%;
-    background:
-        conic-gradient(from 180deg,
-            rgba(255, 255, 255, 0.5) 0%,
-            rgba(200, 215, 235, 0.15) 25%,
-            rgba(255, 255, 255, 0.4) 50%,
-            rgba(210, 225, 240, 0.12) 75%,
-            rgba(255, 255, 255, 0.5) 100%);
-    box-shadow:
-        inset 0 1px 2px rgba(255, 255, 255, 0.5),
-        inset 0 -2px 4px rgba(15, 23, 42, 0.06),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-        0 16px 40px rgba(15, 23, 42, 0.15);
+    background: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
 #video-cover {
@@ -1581,7 +1588,6 @@ body.mini-mode #root::before {
     overflow: hidden;
     transform: translateZ(0);
     backface-visibility: hidden;
-    will-change: transform;
     transition: box-shadow 0.3s ease;
 }
 
@@ -1624,39 +1630,9 @@ body.mini-mode #root::before {
     backface-visibility: hidden;
 }
 
-/* Glass overlay on the rotating cover — real "glass sheet on top of image" feel:
-   1. Top-left bright sheen fading diagonally (primary light source)
-   2. Bottom-right subtle glow (secondary light)
-   3. Radial vignette at edges (glass lens curvature)
-   4. Off-center highlight spot (glossy reflection)
-   Performance: all static gradients, no backdrop blur */
-.cover-art::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background:
-        linear-gradient(135deg,
-            rgba(255, 255, 255, 0.4) 0%,
-            rgba(255, 255, 255, 0.12) 15%,
-            rgba(255, 255, 255, 0.03) 30%,
-            transparent 45%,
-            transparent 55%,
-            rgba(255, 255, 255, 0.04) 70%,
-            rgba(255, 255, 255, 0.15) 90%,
-            rgba(255, 255, 255, 0.25) 100%),
-        radial-gradient(ellipse 60% 50% at 30% 20%,
-            rgba(255, 255, 255, 0.3) 0%,
-            rgba(255, 255, 255, 0.08) 30%,
-            transparent 60%),
-        radial-gradient(circle at 50% 50%,
-            transparent 0%,
-            transparent 55%,
-            rgba(15, 23, 42, 0.04) 75%,
-            rgba(15, 23, 42, 0.1) 100%);
-    pointer-events: none;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
+/* Glass sheen overlay removed (GPU optimization): the ::after gradient layer
+   sat on top of the rotating cover and had to be recomposited every frame.
+   Visual difference during rotation is minimal. */
 
 #danmaku-btn {
     display: none;
@@ -3708,10 +3684,6 @@ body.mini-mode #player .rap-volume-btn svg {
     backface-visibility: hidden;
 }
 
-/* 方形封面上的玻璃高光跟随方块形状（否则会继承碟片模式的圆形高光） */
-.cover-art-square::after {
-    border-radius: 12px;
-}
 
 /* 切换按钮 - 小巧不显眼，位于封面右下角，悬停时出现 */
 .cover-mode-toggle {
