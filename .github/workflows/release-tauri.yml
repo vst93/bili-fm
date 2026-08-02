@@ -64,7 +64,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          sed -i "1,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"$VERSION\"/" frontend/package.json
+          sed -i "1,/\"version\": \".*\"/s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
           sed -i "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
 
       - name: Generate release notes
@@ -181,7 +181,7 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: cd frontend && pnpm install --config.confirmModulesPurge=false
+        run: pnpm install --config.confirmModulesPurge=false
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
       # Windows: use nsis only (skip msi - it rejects pre-release version strings like "2.0.0-preview")
