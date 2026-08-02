@@ -22,8 +22,8 @@ ICON_DIR="${HOME}/.local/share/icons/hicolor/512x512/apps"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-info()  { printf "\033[1;34m==>\033[0m %s\n" "$*"; }
-warn()  { printf "\033[1;33m!!\033[0m %s\n" "$*"; }
+info()  { printf "\033[1;34m==>\033[0m %s\n" "$*" >&2; }
+warn()  { printf "\033[1;33m!!\033[0m %s\n" "$*" >&2; }
 error() { printf "\033[1;31m!!\033[0m %s\n" "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || error "需要 '$1' 但未找到，请先安装。"; }
