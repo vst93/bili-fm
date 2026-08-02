@@ -181,7 +181,7 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: pnpm install --config.confirmModulesPurge=false
+        run: pnpm install --config.confirmModulesPurge=false --config.dangerouslyAllowAllBuilds=true
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
       # Windows: use nsis only (skip msi - it rejects pre-release version strings like "2.0.0-preview")
