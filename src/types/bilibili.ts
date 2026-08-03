@@ -113,8 +113,6 @@ export interface DanmakuItem {
   fontSize: number;
   color: number;
   sendTime: number;
-  poolType: number;
-  senderHash: string;
   dmid: number;
 }
 

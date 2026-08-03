@@ -14,11 +14,21 @@ export const convertToDuration = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 };
 
-export const graftingImage = (img: string) => {
-  if (img) {
-    return `http://127.0.0.1:4654/image-proxy?url=${encodeURIComponent(img)}`;
+export const graftingImage = (img: string, width = 480) => {
+  if (!img) return img;
+
+  let source = img.startsWith("//") ? `https:${img}` : img;
+  try {
+    const url = new URL(source);
+    if (url.hostname.endsWith("hdslb.com") && url.pathname.includes("/bfs/") && !url.pathname.includes("@")) {
+      url.pathname += `@${width}w.webp`;
+      source = url.toString();
+    }
+  } catch {
+    // Keep non-standard URLs unchanged and let the proxy handle them.
   }
-  return img;
+
+  return `http://127.0.0.1:4654/image-proxy?url=${encodeURIComponent(source)}`;
 };
 
 export const formatDate = (timestamp: number) => {

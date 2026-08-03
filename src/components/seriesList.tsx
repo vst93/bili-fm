@@ -16,6 +16,8 @@ import {
 } from "@heroui/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
+
+const MAX_RETAINED_ITEMS = 240;
 import { invoke } from "@tauri-apps/api/core";
 import type { SeriesArchive } from "@/types/bilibili";
 
@@ -74,6 +76,7 @@ const SeriesList: FC<SeriesListProps> = ({
     };
 
     const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
+        if (seriesVideos.length >= MAX_RETAINED_ITEMS) return;
         const bottom =
             e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
             e.currentTarget.clientHeight;
@@ -82,7 +85,7 @@ const SeriesList: FC<SeriesListProps> = ({
             // console.log("load more", seriesVideosPage);
             const seriesVideosData = await invoke<SeriesArchive[]>("get_series_videos", { mid: currentUpMid, seriesId: currentSeriesId, pageNum: thePage });
             if (seriesVideosData.length > 0) {
-                setSeriesVideos([...seriesVideos, ...seriesVideosData]);
+                setSeriesVideos([...seriesVideos, ...seriesVideosData].slice(0, MAX_RETAINED_ITEMS));
                 setSeriesVideosPage(thePage);
             }
         }

@@ -1,5 +1,5 @@
 import { AudioPlayer, AudioPlayerRef } from "react-audio-play";
-import { useEffect, useRef, useCallback, useState, useImperativeHandle, forwardRef } from "react";
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface PlayerProps {
@@ -15,11 +15,7 @@ interface PlayerProps {
   forcePause?: boolean;
 }
 
-interface PlayerRef {
-  getCurrentTime: () => number;
-}
-
-const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
+const Player = ({
   src,
   onEnded,
   onPlayStateChange,
@@ -28,76 +24,33 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
   aid,
   cid,
   forcePause = false,
-}: PlayerProps, ref) {
+}: PlayerProps) => {
   let autoPlay = true;
   const playerRef = useRef<AudioPlayerRef>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const timeUpdateInterval = useRef<number>();
-  const [currentTime, setCurrentTime] = useState(0);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const lastReportedSecondRef = useRef(-1);
 
-  // 暴露方法给父组件
-  useImperativeHandle(ref, () => ({
-    getCurrentTime: () => currentTime,
-  }), [currentTime]);
+  onTimeUpdateRef.current = onTimeUpdate;
 
   // 尝试获取内部 audio 元素
   useEffect(() => {
     const container = document.getElementById("player");
     if (container) {
       const audioEl = container.querySelector("audio");
-      if (audioEl) {
-        audioRef.current = audioEl;
-      }
+      if (!audioEl) return;
+
+      lastReportedSecondRef.current = -1;
+      const handleTimeUpdate = () => {
+        const second = Math.floor(audioEl.currentTime);
+        if (second === lastReportedSecondRef.current) return;
+        lastReportedSecondRef.current = second;
+        onTimeUpdateRef.current?.(second);
+      };
+
+      audioEl.addEventListener("timeupdate", handleTimeUpdate);
+      return () => audioEl.removeEventListener("timeupdate", handleTimeUpdate);
     }
   }, [src]);
-
-  const startTimeUpdate = useCallback(() => {
-    if (timeUpdateInterval.current) {
-      clearInterval(timeUpdateInterval.current);
-    }
-    timeUpdateInterval.current = window.setInterval(() => {
-      let time = 0;
-      
-      // 方法1: 尝试从 audio 元素获取
-      if (audioRef.current) {
-        time = Math.floor(audioRef.current.currentTime);
-      }
-      
-      // 方法2: 如果有播放，从 playerRef 尝试
-      if (time === 0 && playerRef.current) {
-        const player = playerRef.current as unknown as { currentTime?: number };
-        if (player.currentTime !== undefined) {
-          time = Math.floor(player.currentTime);
-        }
-      }
-      
-      // 方法3: 使用内部状态累加
-      if (time === 0 && isPlaying) {
-        time = currentTime + 0.5;
-      }
-      
-      if (time > 0 && time !== currentTime) {
-        setCurrentTime(time);
-        onTimeUpdate?.(time);
-      }
-    }, 500);
-  }, [isPlaying, onTimeUpdate, currentTime]);
-
-  const stopTimeUpdate = useCallback(() => {
-    if (timeUpdateInterval.current) {
-      clearInterval(timeUpdateInterval.current);
-      timeUpdateInterval.current = undefined;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isPlaying) {
-      startTimeUpdate();
-    } else {
-      stopTimeUpdate();
-    }
-    return () => stopTimeUpdate();
-  }, [isPlaying, startTimeUpdate, stopTimeUpdate]);
 
   useEffect(() => {
     if (src && autoPlay) {
@@ -385,6 +338,6 @@ const Player = forwardRef<PlayerRef, PlayerProps>(function Player({
       />
     </div>
   );
-});
+};
 
 export default Player;

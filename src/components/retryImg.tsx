@@ -1,5 +1,3 @@
-import { useCallback, useState } from "react";
-
 interface RetryImgProps {
   src?: string;
   fallbackSrc?: string;
@@ -26,30 +24,31 @@ export default function RetryImg({
   onClick,
   width,
 }: RetryImgProps) {
-  const [retryKey, setRetryKey] = useState(0);
-
-  const handleError = useCallback(() => {
-    if (retryKey < 3) {
-      setTimeout(() => setRetryKey((k) => k + 1), 300 * (retryKey + 1));
-    }
-  }, [retryKey]);
-
-  const retrySuffix = retryKey > 0 ? `${src?.includes("?") ? "&" : "?"}_r=${retryKey}` : "";
-  const finalSrc = retryKey >= 3 ? fallbackSrc : (src || fallbackSrc) + retrySuffix;
-
   return (
+    // Shared card images cannot gain a wrapper without breaking .c-cover positioning.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <img
-      key={`${src}-${retryKey}`}
       id={id}
       alt={alt}
-      src={finalSrc}
+      src={src || fallbackSrc}
       className={className}
       onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") onClick();
+            }
+          : undefined
+      }
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       style={{ width: width || "100%" }}
       loading="lazy"
       decoding="async"
-      onLoad={() => {}}
-      onError={handleError}
+      onError={(event) => {
+        const image = event.currentTarget;
+        if (!image.src.endsWith(fallbackSrc)) image.src = fallbackSrc;
+      }}
     />
   );
 }

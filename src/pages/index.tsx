@@ -30,6 +30,8 @@ import Playlist, {
   type PlaylistPlayMode,
 } from "@/components/playlist";
 
+const MAX_RETAINED_LIST_ITEMS = 240;
+
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [showSearchList, setShowSearchList] = useState(false);
@@ -117,6 +119,50 @@ export default function IndexPage() {
       document.body.classList.remove("mini-mode");
     };
   }, [isMiniMode]);
+
+  useEffect(() => {
+    if (!showFeedList) {
+      setFeedList(undefined);
+      setFeedOffset("");
+    }
+    if (!showRecommendList) {
+      setRecommendList(undefined);
+      setHotList(undefined);
+      setRecommendPage(1);
+      setHotPage(1);
+    }
+    if (!showCollectList) {
+      setCollectList(undefined);
+      setCollectPage(1);
+    }
+    if (!showUpVideoList) {
+      setUpVideoList(undefined);
+      setUpVideoOffset("");
+      setSeriesList([]);
+    }
+    if (!showHistoryList) {
+      setHistoryList(undefined);
+      setHistoryCursor({ max: 0, view_at: 0, business: "" });
+    }
+    if (!showSeriesList) {
+      setSeriesVideos([]);
+      setSeriesVideosPage(1);
+    }
+    if (!showDanmakuList) {
+      setDanmakuList(undefined);
+      setReplyList(undefined);
+      setCurrentVideoTime(0);
+      setReplyPage(1);
+    }
+  }, [
+    showCollectList,
+    showDanmakuList,
+    showFeedList,
+    showHistoryList,
+    showRecommendList,
+    showSeriesList,
+    showUpVideoList,
+  ]);
 
   // 音频/视频互斥：打开视频浮窗时停止音频
   // 直接操作 DOM <audio> 元素作为双保险，确保音频真的停了
@@ -453,7 +499,7 @@ export default function IndexPage() {
       const userInfo = await invoke<BL.UserInfo | null>("get_user_info");
 
       if (userInfo?.face) {
-        const processedFace = graftingImage(userInfo.face);
+        const processedFace = graftingImage(userInfo.face, 96);
 
         setUserFace(processedFace);
       }
@@ -511,13 +557,14 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多动态内容
    */
   const handleLoadMore = async (offset: string) => {
+    if ((feedList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
     try {
       const data = await invoke<BL.FeedList>("get_feed_list", { offset });
 
       if (data?.items && feedList?.items) {
         setFeedList({
           ...data,
-          items: [...feedList.items, ...data.items],
+          items: [...feedList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
         });
       }
       setFeedOffset(data?.offset || "");
@@ -1057,10 +1104,13 @@ export default function IndexPage() {
         setReplyList(data);
       } else {
         // Append new items to existing list - create new object to avoid TypeScript issues
-        const newItems = [...(replyList?.items || []), ...(data.items || [])];
+        const newItems = [...(replyList?.items || []), ...(data.items || [])].slice(
+          0,
+          MAX_RETAINED_LIST_ITEMS,
+        );
         setReplyList({
           items: newItems,
-          has_more: data.has_more,
+          has_more: data.has_more && newItems.length < MAX_RETAINED_LIST_ITEMS,
           next: data.next,
           // Preserve total_count from original data or first load
           total_count: replyList?.total_count || data.total_count || 0,
@@ -1111,6 +1161,10 @@ export default function IndexPage() {
    */
   const handleDanmakuClose = () => {
     setShowDanmakuList(false);
+    setDanmakuList(undefined);
+    setReplyList(undefined);
+    setCurrentVideoTime(0);
+    setReplyPage(1);
   };
 
   /**
@@ -1245,6 +1299,7 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多UP主视频
    */
   const handleUpVideoLoadMore = async () => {
+    if ((upVideoList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
     try {
       const data = await invoke<BL.FeedList>("get_up_video_list", {
         hostMid: currentUpMid,
@@ -1254,7 +1309,7 @@ export default function IndexPage() {
       if (data?.items && upVideoList?.items) {
         setUpVideoList({
           ...data,
-          items: [...upVideoList.items, ...data.items],
+          items: [...upVideoList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
         });
       }
       setUpVideoOffset(data?.offset || "");
@@ -1295,9 +1350,10 @@ export default function IndexPage() {
 
   const handleSeriesListClose = () => {
     setShowSeriesList(false);
+    setSeriesVideos([]);
   };
 
-  const handleSeriesClick = () => {
+  const handleSeriesClick = async () => {
     if (!currentSeriesId) {
       toast({
         type: "error",
@@ -1305,6 +1361,20 @@ export default function IndexPage() {
       });
 
       return;
+    }
+    if (seriesVideos.length === 0) {
+      try {
+        const data = await invoke<BL.SeriesArchive[]>("get_series_videos", {
+          mid: currentUpMid,
+          seriesId: currentSeriesId,
+          pageNum: 1,
+        });
+        setSeriesVideos(data || []);
+        setSeriesVideosPage(1);
+      } catch (error) {
+        console.error("获取合集视频列表失败:", error);
+        return;
+      }
     }
     setShowSeriesList(true);
     setShowSearchList(false);
@@ -1391,6 +1461,10 @@ export default function IndexPage() {
    * @description 加载下一页推荐/热门内容
    */
   const handleRecommendLoadMore = async (type: string = "recommend") => {
+    const currentCount = type === "recommend"
+      ? recommendList?.items?.length || 0
+      : hotList?.items?.length || 0;
+    if (currentCount >= MAX_RETAINED_LIST_ITEMS) return;
     try {
       if (type === "recommend") {
         const nextPage = recommendPage + 1;
@@ -1401,7 +1475,7 @@ export default function IndexPage() {
         if (data?.items && recommendList?.items) {
           setRecommendList({
             ...data,
-            items: [...recommendList.items, ...data.items],
+            items: [...recommendList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
           });
           setRecommendPage(nextPage);
         }
@@ -1414,7 +1488,7 @@ export default function IndexPage() {
         if (data?.items && hotList?.items) {
           setHotList({
             ...data,
-            items: [...hotList.items, ...data.items],
+            items: [...hotList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
           });
           setHotPage(nextPage);
         } else {
@@ -1448,6 +1522,12 @@ export default function IndexPage() {
 
           setCollectList(data);
         }
+      } else if ((!collectList || collectList.length === 0) && currentGroupId) {
+        const data = await invoke<any[]>("get_fav_folder_detail", {
+          fid: currentGroupId,
+          page: 1,
+        });
+        setCollectList(data);
       }
 
       setShowCollectList(true);
@@ -1485,6 +1565,7 @@ export default function IndexPage() {
    * @description 加载当前收藏夹的下一页内容
    */
   const handleCollectLoadMore = async () => {
+    if ((collectList?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
     try {
       if (currentGroupId) {
         const nextPage = collectPage + 1;
@@ -1494,7 +1575,7 @@ export default function IndexPage() {
         });
 
         if (Array.isArray(data) && Array.isArray(collectList)) {
-          setCollectList([...collectList, ...data]);
+          setCollectList([...collectList, ...data].slice(0, MAX_RETAINED_LIST_ITEMS));
           setCollectPage(nextPage);
         }
       }
@@ -1617,7 +1698,7 @@ export default function IndexPage() {
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
-        onTimeUpdate={handleTimeUpdate}
+        onTimeUpdate={showDanmakuList ? handleTimeUpdate : undefined}
       />
       {isMiniMode ? (
         ""

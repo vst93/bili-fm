@@ -8,8 +8,8 @@
 //! 附加 `--allow-running-insecure-content` 参数 (Round 2 的 lib.rs 处理)。
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use axum::extract::Query;
 use axum::http::{header, HeaderValue, StatusCode};
@@ -17,11 +17,24 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 
 pub const IMAGE_PROXY_PORT: u16 = 4654;
 
 /// 与旧版 main.go imageProxyHandler 相同的 Chrome 131 UA
 const UA_CHROME_131: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const MAX_CONCURRENT_FETCHES: usize = 12;
+const FAILURE_CACHE_TTL: Duration = Duration::from_secs(30);
+
+fn fetch_limit() -> &'static Semaphore {
+    static LIMIT: OnceLock<Semaphore> = OnceLock::new();
+    LIMIT.get_or_init(|| Semaphore::new(MAX_CONCURRENT_FETCHES))
+}
+
+fn failure_cache() -> &'static Mutex<HashMap<String, Instant>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -56,6 +69,20 @@ async fn handle_image_proxy(Query(params): Query<HashMap<String, String>>) -> Re
     if image_url.starts_with("//") {
         image_url = format!("https:{image_url}");
     }
+
+    {
+        let mut cache = failure_cache().lock().unwrap();
+        if let Some(failed_at) = cache.get(&image_url) {
+            if failed_at.elapsed() < FAILURE_CACHE_TTL {
+                return (StatusCode::BAD_GATEWAY, "Image temporarily unavailable").into_response();
+            }
+            cache.remove(&image_url);
+        }
+    }
+
+    let Ok(_permit) = fetch_limit().acquire().await else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "Image proxy unavailable").into_response();
+    };
 
     // 带重试的上游请求 (最多 3 次)，重试间隔与 Go 一致: 200ms * attempt
     for attempt in 0..3 {
@@ -93,15 +120,35 @@ async fn handle_image_proxy(Query(params): Query<HashMap<String, String>>) -> Re
                     attempt + 1,
                     image_url
                 );
-                #[cfg(not(debug_assertions))]
-                let _ = error;
+                if !error.retryable {
+                    break;
+                }
             }
         }
     }
+    let mut cache = failure_cache().lock().unwrap();
+    if cache.len() >= 512 {
+        cache.retain(|_, failed_at| failed_at.elapsed() < FAILURE_CACHE_TTL);
+        if cache.len() >= 512 {
+            cache.clear();
+        }
+    }
+    cache.insert(image_url, Instant::now());
     (StatusCode::BAD_GATEWAY, "Failed to fetch image after retries").into_response()
 }
 
-async fn fetch_image(url: &str) -> Result<(String, Vec<u8>), String> {
+struct FetchError {
+    message: String,
+    retryable: bool,
+}
+
+impl std::fmt::Display for FetchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+async fn fetch_image(url: &str) -> Result<(String, Vec<u8>), FetchError> {
     let resp = client()
         .get(url)
         .header(header::USER_AGENT, UA_CHROME_131)
@@ -113,9 +160,16 @@ async fn fetch_image(url: &str) -> Result<(String, Vec<u8>), String> {
         .header(header::ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| FetchError {
+            message: error.to_string(),
+            retryable: true,
+        })?;
     if resp.status() != StatusCode::OK {
-        return Err(format!("upstream returned {}", resp.status().as_u16()));
+        let status = resp.status();
+        return Err(FetchError {
+            message: format!("upstream returned {}", status.as_u16()),
+            retryable: status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error(),
+        });
     }
     let content_type = resp
         .headers()
@@ -123,6 +177,9 @@ async fn fetch_image(url: &str) -> Result<(String, Vec<u8>), String> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("image/jpeg")
         .to_string();
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = resp.bytes().await.map_err(|error| FetchError {
+        message: error.to_string(),
+        retryable: true,
+    })?;
     Ok((content_type, bytes.to_vec()))
 }

@@ -156,6 +156,7 @@ export default function VideoInfo({
               radius="full"
               src={graftingImage(
                 ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+                96,
               )}
               width={40}
               onClick={() => onOwnerClick?.(ownerMid, ownerName)}

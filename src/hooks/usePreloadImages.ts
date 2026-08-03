@@ -9,7 +9,7 @@ import { useEffect } from "react";
 export function usePreloadImages(urls: (string | undefined)[]) {
   useEffect(() => {
     const imgs: HTMLImageElement[] = [];
-    const PRELOAD_LIMIT = 10;
+    const PRELOAD_LIMIT = navigator.userAgent.includes("Windows") ? 6 : 4;
     for (const url of urls.slice(0, PRELOAD_LIMIT)) {
       if (!url) continue;
       const img = new Image();
@@ -22,7 +22,8 @@ export function usePreloadImages(urls: (string | undefined)[]) {
       imgs.forEach((img) => {
         img.onload = null;
         img.onerror = null;
+        img.removeAttribute("src");
       });
     };
-  }, [urls.join(",")]);
+  }, [urls]);
 }

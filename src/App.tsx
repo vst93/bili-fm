@@ -42,8 +42,9 @@ function App() {
     let px = 0;
     let py = 0;
     let pTarget: HTMLElement | null = null;
-    let cachedWrapper: HTMLElement | null = null;
-    let cachedCards: HTMLElement[] = [];
+    const pointerEffectsEnabled = window.matchMedia(
+      "(pointer: fine) and (prefers-reduced-motion: no-preference)",
+    );
 
     const resetCard = (card: HTMLElement) => {
       card.style.removeProperty("--hover-x");
@@ -60,8 +61,6 @@ function App() {
         el.style.removeProperty("--ly");
       });
       litSurfaces.clear();
-      cachedWrapper = null;
-      cachedCards = [];
       pTarget = null;
     };
 
@@ -96,27 +95,29 @@ function App() {
       nextLit.forEach((el) => litSurfaces.add(el));
 
       // --- Card glow: only when inside a drawer wrapper ---
-      const wrapper = pTarget?.closest<HTMLElement>("[data-slot=\"wrapper\"]");
-      if (!wrapper) return;
-
-      // Cache card list per wrapper to avoid re-querying every frame
-      if (cachedWrapper !== wrapper) {
-        cachedWrapper = wrapper;
-        cachedCards = Array.from(
-          wrapper.querySelectorAll<HTMLElement>(cardSelector),
-        );
+      const currentCard = pTarget?.closest<HTMLElement>(cardSelector) ?? null;
+      if (!currentCard) {
+        activeCards.forEach(resetCard);
+        activeCards.clear();
+        return;
       }
-      if (!cachedCards.length) return;
 
       // Small radius: only the hovered card + its immediate neighbors glow.
       // A large radius lights up dozens of cards simultaneously, each triggering
       // expensive calc()/color-mix()/filter repaints = scroll jank.
       // Optimized: 120px radius (down from 180) + contain:layout in CSS limits repaint scope.
       const radius = 120;
-      const currentCard = pTarget?.closest<HTMLElement>(cardSelector) ?? null;
       const nextCards = new Set<HTMLElement>();
+      const candidates = [
+        currentCard.previousElementSibling,
+        currentCard,
+        currentCard.nextElementSibling,
+      ].filter(
+        (card): card is HTMLElement =>
+          card instanceof HTMLElement && card.matches(cardSelector),
+      );
 
-      for (const card of cachedCards) {
+      for (const card of candidates) {
         const rect = card.getBoundingClientRect();
         if (
           rect.bottom < py - radius ||
@@ -148,6 +149,10 @@ function App() {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      if (!pointerEffectsEnabled.matches || document.body.classList.contains("platform-linux")) {
+        if (activeCards.size || litSurfaces.size) clearAll();
+        return;
+      }
       pTarget = event.target as HTMLElement | null;
       px = event.clientX;
       py = event.clientY;

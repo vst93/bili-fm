@@ -20,6 +20,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import { graftingImage } from "@/utils/string";
 
+const MAX_RETAINED_ITEMS = 240;
+
 interface HistoryListProps {
     onSlideClick?: () => void;
     onVideoSelect?: (bvid: string) => void;
@@ -76,11 +78,12 @@ const HistoryList: FC<HistoryListProps> = ({
     };
 
     const handleLoadMore = async () => {
+        if ((historyList?.length || 0) >= MAX_RETAINED_ITEMS) return;
         console.log("load more", historyCursor);
         try {
             const data = await invoke<BLHistoryList>("get_history_list", { max: historyCursor?.max, viewAt: historyCursor?.view_at, business: historyCursor?.business, ps: 30 });
             if (data?.list) {
-                setHistoryList([...historyList, ...data.list]);
+                setHistoryList([...historyList, ...data.list].slice(0, MAX_RETAINED_ITEMS));
             }
             if (data?.cursor) { 
                 setHistoryCursor(data?.cursor);

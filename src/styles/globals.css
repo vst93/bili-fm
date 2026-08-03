@@ -104,6 +104,23 @@ body {
    #root 变量级联到所有子元素，无需逐个覆盖。 */
 body.platform-linux #root {
     --app-window-radius: 0px;
+    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-bg-hover: rgba(255, 255, 255, 0.96);
+    --glass-blur: none;
+    --glass-blur-thin: none;
+    --liquid-bg: rgba(255, 255, 255, 0.9);
+    --liquid-bg-hover: rgba(255, 255, 255, 0.96);
+    --liquid-blur: none;
+    --liquid-blur-thin: none;
+}
+
+body.platform-linux .app-title-bar::after,
+body.platform-linux div:has(> [data-slot="wrapper"]) > div:first-child,
+body.platform-linux.mini-mode #player .rap-container,
+body.platform-linux .liquid-dialog,
+body.platform-linux .cover-mode-toggle {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* Windows: DWM 窗口圆角固定为 8px，CSS 与之对齐 */
@@ -3011,6 +3028,33 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 /* ====== Danmaku / Reply list readability ====== */
 
+.search-drawer-header {
+    min-width: 0;
+    padding-right: 48px !important;
+}
+
+.search-drawer-title {
+    flex: 0 0 auto;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 32px;
+}
+
+.search-drawer-header [data-slot="base"] {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.search-drawer-header [data-slot="base"]::-webkit-scrollbar {
+    display: none;
+}
+
+.search-drawer-header [data-slot="tab"] {
+    min-width: max-content;
+}
+
 .danmaku-follow-btn {
     border: 1px solid rgba(100, 116, 139, 0.22) !important;
     background: rgba(255, 255, 255, 0.36) !important;
@@ -3041,6 +3085,202 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     min-height: 0 !important;
     max-height: none !important;
     padding: 8px 10px 16px 10px;
+}
+
+.danmaku-time-row {
+    padding-block: 2px;
+}
+
+.danmaku-time-group {
+    position: relative;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 12px 13px;
+    overflow: hidden;
+    max-height: 80dvh;
+    border: 0;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.14);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    contain: layout paint style;
+    transition: border-color 150ms ease;
+}
+
+.danmaku-time-group:hover {
+    border-color: rgba(14, 165, 233, 0.24);
+}
+
+.danmaku-time-group.is-current {
+    border-color: rgba(2, 132, 199, 0.3);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.danmaku-time-group.is-current::before {
+    content: none;
+}
+
+.danmaku-time-head {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    border-right: 1px solid rgba(100, 116, 139, 0.14);
+}
+
+.danmaku-time-label {
+    width: fit-content;
+    padding: 3px 5px;
+    border-radius: 6px;
+    color: #334155;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 1;
+    transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.danmaku-time-group.is-current .danmaku-time-label {
+    background: #0284c7;
+    color: #ffffff;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        0 2px 7px rgba(2, 132, 199, 0.22);
+}
+
+.danmaku-time-group.is-current .danmaku-time-total {
+    color: #0369a1;
+    font-weight: 700;
+}
+
+.danmaku-time-total,
+.danmaku-more-count {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.danmaku-message-list {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    align-content: center;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px;
+    max-height: calc(80dvh - 20px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.danmaku-message-row {
+    display: inline-flex;
+    min-width: 32px;
+    max-width: 100%;
+    height: 27px;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px 3px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.52);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.48);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.72),
+        0 2px 6px rgba(15, 23, 42, 0.045);
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.danmaku-time-group:hover .danmaku-message-row {
+    border-color: rgba(255, 255, 255, 0.68);
+    background: rgba(255, 255, 255, 0.58);
+}
+
+.danmaku-time-group.is-current .danmaku-message-row {
+    border-color: rgba(14, 165, 233, 0.48);
+    background: rgba(240, 249, 255, 0.76);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.82),
+        0 2px 7px rgba(2, 132, 199, 0.1);
+}
+
+.danmaku-message-text {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.68);
+    white-space: nowrap;
+}
+
+.danmaku-repeat-count {
+    flex: 0 0 auto;
+    min-width: 24px;
+    height: 18px;
+    padding: 0 5px;
+    border: 1px solid rgba(14, 165, 233, 0.2);
+    border-radius: 7px;
+    background: rgba(224, 242, 254, 0.7);
+    color: #0369a1;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+}
+
+.danmaku-more-count {
+    flex: 0 0 auto;
+    padding-inline: 3px;
+}
+
+body.platform-linux .danmaku-time-group {
+    border-color: rgba(100, 116, 139, 0.18);
+    background: transparent;
+    box-shadow: none;
+}
+
+body.platform-linux .danmaku-time-group.is-current {
+    border-color: rgba(2, 132, 199, 0.34);
+    background: transparent;
+    box-shadow: none;
+}
+
+body.platform-linux .danmaku-message-row {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: none;
+}
+
+@media (max-width: 420px) {
+    .search-drawer-header {
+        gap: 6px !important;
+    }
+
+    .search-drawer-header [data-slot="tab"] {
+        padding-inline: 10px !important;
+    }
+
+    .danmaku-time-group {
+        grid-template-columns: 54px minmax(0, 1fr);
+        gap: 8px;
+        padding-inline: 10px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .danmaku-time-group,
+    .danmaku-time-label,
+    .danmaku-message-row {
+        transition: none;
+    }
 }
 
 /* Danmaku items - text colors */
@@ -3735,4 +3975,3 @@ body.mini-mode #player .rap-volume-btn svg {
     background: rgba(15, 23, 42, 0.55);
     color: rgba(255, 255, 255, 0.95);
 }
-

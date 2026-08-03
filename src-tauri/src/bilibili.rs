@@ -559,10 +559,6 @@ pub struct DanmakuItem {
     pub color: i64,
     #[serde(rename = "sendTime")]
     pub send_time: i64,
-    #[serde(rename = "poolType")]
-    pub pool_type: i64,
-    #[serde(rename = "senderHash")]
-    pub sender_hash: String,
     pub dmid: i64,
 }
 
@@ -1077,10 +1073,6 @@ fn parse_danmaku_item(content: &str, p: &str) -> DanmakuItem {
         if let Ok(t) = parts[4].parse::<i64>() {
             item.send_time = t;
         }
-        if let Ok(t) = parts[5].parse::<i64>() {
-            item.pool_type = t;
-        }
-        item.sender_hash = parts[6].to_string();
         if let Ok(t) = parts[7].parse::<i64>() {
             item.dmid = t;
         }

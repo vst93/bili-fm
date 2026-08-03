@@ -53,7 +53,8 @@ const RecommendList: FC<RecommendListProps> = ({
   // 预加载推荐和热门列表封面图
   const recommendUrls = useMemo(() => recommendList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [recommendList]);
   const hotUrls = useMemo(() => hotList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [hotList]);
-  usePreloadImages([...recommendUrls, ...hotUrls]);
+  const preloadUrls = useMemo(() => [...recommendUrls, ...hotUrls], [recommendUrls, hotUrls]);
+  usePreloadImages(preloadUrls);
 
   // 保存选中的 tab 到 localStorage
   const handleTabChange = (key: string) => {
@@ -202,4 +203,4 @@ const RecommendList: FC<RecommendListProps> = ({
   );
 };
 
-export default RecommendList; 
+export default RecommendList;
