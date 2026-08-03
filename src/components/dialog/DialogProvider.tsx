@@ -1,5 +1,5 @@
 import { useState, createContext, useContext, useCallback, ReactNode } from "react";
-import { CheckOne, CloseOne, Attention, Info, Refresh, Loading } from "@icon-park/react";
+import { CheckOne, CloseOne, Attention, Info, Refresh } from "@icon-park/react";
 import { open } from "@tauri-apps/plugin-shell";
 
 type DialogType = "info" | "success" | "warning" | "error" | "question" | "loading";
@@ -46,7 +46,7 @@ const iconForType = (type: DialogType) => {
     case "error": return <CloseOne fill="#ef4444" size="28" theme="outline" />;
     case "warning": return <Attention fill="#f59e0b" size="28" theme="outline" />;
     case "question": return <Refresh fill="#0ea5e9" size="28" theme="outline" />;
-    case "loading": return <Loading fill="#0ea5e9" size="28" theme="outline" className="dialog-spinner" />;
+    case "loading": return <div className="dialog-loading-spinner" />;
     default: return <Info fill="#0ea5e9" size="28" theme="outline" />;
   }
 };

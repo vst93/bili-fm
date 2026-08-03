@@ -880,7 +880,7 @@ body {
     .bl-feed-list-refresh:hover {
         animation: none !important;
     }
-    /* 注意：.dialog-spinner 是必要的 UI 反馈（检查更新中的加载指示），
+    /* 注意：.dialog-loading-spinner 是必要的 UI 反馈（检查更新中的加载指示），
        不属于装饰性动画，因此不在此禁用 */
 }
 
@@ -3555,8 +3555,14 @@ body.mini-mode #player .rap-volume-btn svg {
     to { transform: rotate(360deg); }
 }
 
-.dialog-spinner {
-    animation: dialog-spin 1s linear infinite;
+/* 纯 CSS loading spinner - 不依赖图标库，保证动画可靠渲染 */
+.dialog-loading-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(14, 165, 233, 0.15);
+    border-top-color: #0ea5e9;
+    border-radius: 50%;
+    animation: dialog-spin 0.7s linear infinite;
 }
 
 .liquid-dialog {

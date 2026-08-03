@@ -59,8 +59,10 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     // Mac native menu events (Tauri EventsEmit)
     const onMenuAbout = () => handleShowAbout();
     const onMenuShortcuts = () => handleShowKeyboardShortcuts();
+    const onMenuCheckUpdate = () => handleCheckUpdate();
     const unlistenAbout = listen("menu:show-about", onMenuAbout);
     const unlistenShortcuts = listen("menu:show-shortcuts", onMenuShortcuts);
+    const unlistenCheckUpdate = listen("menu:check-update", onMenuCheckUpdate);
     window.addEventListener('menu:show-about', onMenuAbout as EventListener);
     window.addEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
 
@@ -70,6 +72,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
       window.removeEventListener('menu:show-shortcuts', onMenuShortcuts as EventListener);
       unlistenAbout.then((fn) => fn());
       unlistenShortcuts.then((fn) => fn());
+      unlistenCheckUpdate.then((fn) => fn());
     };
   }, []);
 

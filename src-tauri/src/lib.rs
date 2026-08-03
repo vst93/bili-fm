@@ -25,7 +25,7 @@ pub mod tray;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 #[cfg(target_os = "macos")]
-use tauri::menu::{Menu, MenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 /// 应用入口。
 pub fn run() {
@@ -171,13 +171,8 @@ pub fn run() {
                 let _ = app.emit("menu:show-shortcuts", ());
             }
             "check-update" => {
-                // 手动检查更新 (对应旧版菜单点击 CheckForUpdates(true, ""))
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let version = app.package_info().version.to_string();
-                    let result = bilibili::check_for_updates(true, "", &version).await;
-                    let _ = app.emit("menu:check-update", result);
-                });
+                // 前端 titleBar 监听 'menu:check-update' 触发更新检查流程
+                let _ = app.emit("menu:check-update", ());
             }
             "quit" => app.exit(0),
             _ => {}
@@ -221,9 +216,20 @@ fn setup_native_menu(app: &AppHandle) -> tauri::Result<()> {
         let check_update =
             MenuItem::with_id(app, "check-update", "检查更新", true, None::<&str>)?;
         let quit = MenuItem::with_id(app, "quit", "退出应用", true, Some("CmdOrCtrl+Q"))?;
+
+        // 编辑菜单: 提供标准的 Cut/Copy/Paste/SelectAll 菜单项。
+        // macOS 下这些快捷键 (Cmd+X/C/V/A) 只有在菜单栏存在对应
+        // PredefinedMenuItem 时才会发送到 WKWebView 的输入框。
+        let edit = Submenu::with_items(app, "编辑", true, &[
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ])?;
+
         let settings =
             Submenu::with_items(app, "设置", true, &[&about, &shortcuts, &check_update, &quit])?;
-        let menu = Menu::with_items(app, &[&settings])?;
+        let menu = Menu::with_items(app, &[&edit, &settings])?;
         app.set_menu(menu)?;
     }
     Ok(())
