@@ -10,19 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "bili-FM",
-        "width": 800,
-        "height": 600,
-        "resizable": false,
-        "fullscreen": false,
-        "decorations": false,
-        "transparent": false,
-        "center": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost http://127.0.0.1:4654; style-src 'self' 'unsafe-inline'; media-src 'self' data: blob: http://127.0.0.1:4654 https://*.bilivideo.com; script-src 'self'"
     }

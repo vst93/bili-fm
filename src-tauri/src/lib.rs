@@ -22,7 +22,7 @@ pub mod dkv;
 pub mod proxy;
 pub mod tray;
 
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, Submenu};
@@ -111,6 +111,38 @@ pub fn run() {
             commands::show_window,
         ])
         .setup(|app| {
+            // 创建主窗口 (平台特定窗口装饰):
+            // - macOS: 原生装饰 + Overlay 标题栏 (红绿灯可见, 内容延伸到标题栏下,
+            //   隐藏原生标题文字避免与前端 brand 重复); 原生窗口处理圆角与阴影。
+            // - Windows/Linux: 无边框 (decorations: false), 由前端自绘标题栏 + CSS 圆角。
+            let mut window_builder = WebviewWindowBuilder::new(
+                app.handle(),
+                "main",
+                WebviewUrl::default(),
+            )
+            .title("bili-FM")
+            .inner_size(800.0, 600.0)
+            .resizable(false)
+            .fullscreen(false)
+            .center();
+
+            #[cfg(target_os = "macos")]
+            {
+                window_builder = window_builder
+                    .decorations(true)
+                    .hidden_title(true)
+                    .title_bar_style(tauri::TitleBarStyle::Overlay);
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                window_builder = window_builder
+                    .decorations(false)
+                    .transparent(false);
+            }
+
+            window_builder.build()?;
+
             // 启动内嵌图片代理 (127.0.0.1:4654), 对应旧版 main.go 的
             // AssetServer middleware + prewarmDNS。服务器在 tauri async runtime
             // 上运行, 不阻塞主线程。

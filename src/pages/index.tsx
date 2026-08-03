@@ -154,6 +154,7 @@ export default function IndexPage() {
       // Linux: 窗口管理器不支持外层圆角，去掉 #root 及所有使用 --app-window-radius 的圆角
       document.body.classList.toggle("platform-linux", platform === "linux");
       document.body.classList.toggle("platform-windows", platform === "windows");
+      document.body.classList.toggle("platform-darwin", platform === "darwin");
     });
     // 初始化时获取用户信息
     refreshUserInfo();

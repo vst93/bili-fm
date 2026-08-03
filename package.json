@@ -3,7 +3,10 @@
   "private": true,
   "version": "2.0.8-preview",
   "type": "module",
-  "sideEffects": ["**/*.css", "**/*.css?*"],
+  "sideEffects": [
+    "**/*.css",
+    "**/*.css?*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -41,9 +44,11 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^6.30.2",
     "tailwind-variants": "0.1.20",
-    "tailwindcss": "3.4.16"
+    "tailwindcss": "3.4.16",
+    "tauri": "^0.15.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "20.5.7",
     "@types/qrcode": "^1.5.6",
     "@types/react": "18.3.3",

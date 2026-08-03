@@ -111,6 +111,13 @@ body.platform-windows #root {
     --app-window-radius: 8px;
 }
 
+/* macOS: 原生窗口 (decorations + Overlay titlebar) 处理圆角与阴影;
+   去掉 #root 的 CSS 圆角与 box-shadow，避免与原生圆角不匹配产生白底/灰线。 */
+body.platform-darwin #root {
+    --app-window-radius: 0px;
+    box-shadow: none;
+}
+
 .app-title-bar {
     widows: 1;
     cursor: default;
@@ -3175,6 +3182,12 @@ body.mini-mode #root {
         radial-gradient(circle at 12% 18%, rgba(14, 165, 233, 0.12), transparent 36%),
         radial-gradient(circle at 92% 72%, rgba(79, 185, 159, 0.14), transparent 38%),
         linear-gradient(145deg, #fbfdff 0%, #f3f8fb 100%);
+}
+
+/* macOS 迷你模式: 原生窗口处理圆角，覆盖 mini-mode 的 12px 圆角与阴影 */
+body.platform-darwin.mini-mode #root {
+    --app-window-radius: 0px;
+    box-shadow: none;
 }
 
 body.mini-mode .app-title-bar {
