@@ -6,16 +6,13 @@ import { open } from "@tauri-apps/plugin-shell";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-import type { UpdateResult } from "@/types/bilibili";
+import type { AppVersion, UpdateResult } from "@/types/bilibili";
 import { useDialog } from "./dialog/DialogProvider";
 
 interface TitleBarProps {
   onSwitchMode?: () => void;
   showSwitchMode?: boolean;
 }
-
-const APP_VERSION = "2.0.0";
-const APP_VERSION_NO = 200;
 
 /** 下载进度状态 (更新进度浮层) */
 interface UpdateProgressState {
@@ -35,6 +32,9 @@ const formatBytes = (bytes: number) => {
 };
 
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
+  // 版本号在运行时从后端获取 (Cargo.toml / tauri.conf.json)
+  const [appVersion, setAppVersion] = useState("");
+  const [appVersionNo, setAppVersionNo] = useState(0);
   const [isMac, setIsMac] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -47,6 +47,10 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     useState<UpdateProgressState | null>(null);
 
   useEffect(() => {
+    invoke<AppVersion>("get_app_version").then((v) => {
+      setAppVersion(v.version);
+      setAppVersionNo(v.build);
+    });
     invoke<string>("get_platform").then((platform: string) => {
       setIsMac(platform === "darwin");
     });
@@ -93,7 +97,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     showDialog({
       title: "关于 bili-FM",
       type: "info",
-      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${APP_VERSION} (Build ${APP_VERSION_NO})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
+      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${appVersion} (Build ${appVersionNo})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
       buttons: [{ label: "好的", value: "ok", primary: true }],
     });
   };
