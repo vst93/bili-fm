@@ -42,6 +42,7 @@ pub async fn start_server() -> Result<(), String> {
     let listener = TcpListener::bind(("127.0.0.1", IMAGE_PROXY_PORT))
         .await
         .map_err(|e| format!("图片代理端口 {IMAGE_PROXY_PORT} 绑定失败: {e}"))?;
+    #[cfg(debug_assertions)]
     println!("image-proxy listening on http://127.0.0.1:{IMAGE_PROXY_PORT}");
     axum::serve(listener, app).await.map_err(|e| e.to_string())
 }
@@ -85,12 +86,15 @@ async fn handle_image_proxy(Query(params): Query<HashMap<String, String>>) -> Re
                 );
                 return response;
             }
-            Err(e) => {
+            Err(error) => {
+                #[cfg(debug_assertions)]
                 eprintln!(
-                    "image-proxy: attempt {} failed for {}: {e}",
+                    "image-proxy: attempt {} failed for {}: {error}",
                     attempt + 1,
                     image_url
                 );
+                #[cfg(not(debug_assertions))]
+                let _ = error;
             }
         }
     }

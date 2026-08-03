@@ -41,6 +41,7 @@ export default function IndexPage() {
   const [currentBvid, setCurrentBvid] = useState("");
   const [currentKeyword, setCurrentKeyword] = useState("");
   const [searchInputValue, setSearchInputValue] = useState("");
+  const searchRequestIdRef = useRef(0);
   const [videoInfo, setVideoInfo] = useState<BL.VideoInfo | undefined>();
   const [playUrl, setPlayUrl] = useState<string>("");
   const [currentPart, setCurrentPart] = useState<string>("");
@@ -531,19 +532,25 @@ export default function IndexPage() {
    * @description 根据关键词搜索视频，并显示搜索结果列表
    */
   const handleSearch = async (keyword: string) => {
-    if (!keyword) {
-      // TODO: 显示错误提示
-      console.log("请输入关键词");
+    const normalizedKeyword = keyword.trim();
+    const requestId = ++searchRequestIdRef.current;
 
+    if (!normalizedKeyword) {
+      setSearchInputValue("");
+      setCurrentKeyword("");
+      setSearchResults([]);
+      setShowSearchList(false);
       return;
     }
 
     try {
-      setCurrentKeyword(keyword);
+      setCurrentKeyword(normalizedKeyword);
       const results = await invoke<BL.SearchResult[]>("search_video", {
-        keyword,
+        keyword: normalizedKeyword,
         order: "",
       });
+
+      if (requestId !== searchRequestIdRef.current) return;
 
       setSearchResults(results);
       setShowSearchList(true);
@@ -551,6 +558,9 @@ export default function IndexPage() {
       setShowFeedList(false);
     } catch (error) {
       console.error("搜索失败:", error);
+      if (requestId === searchRequestIdRef.current) {
+        toast({ type: "error", content: String(error) });
+      }
     }
   };
 
@@ -561,6 +571,7 @@ export default function IndexPage() {
    */
   const handleSortChange = async (order: string) => {
     if (!currentKeyword) return;
+    const requestId = ++searchRequestIdRef.current;
 
     try {
       const results = await invoke<BL.SearchResult[]>("search_video", {
@@ -568,9 +579,14 @@ export default function IndexPage() {
         order,
       });
 
+      if (requestId !== searchRequestIdRef.current) return;
+
       setSearchResults(results);
     } catch (error) {
       console.error("搜索失败:", error);
+      if (requestId === searchRequestIdRef.current) {
+        toast({ type: "error", content: String(error) });
+      }
     }
   };
 

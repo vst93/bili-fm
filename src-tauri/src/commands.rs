@@ -17,7 +17,10 @@ use crate::bilibili;
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn search_video(keyword: String, order: String) -> Vec<bilibili::SearchResult> {
+pub async fn search_video(
+    keyword: String,
+    order: String,
+) -> Result<Vec<bilibili::SearchResult>, String> {
     bilibili::search_video(&keyword, &order).await
 }
 

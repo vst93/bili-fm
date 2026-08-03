@@ -33,8 +33,6 @@ const SESSDATA_KEY: &str = "SESSDATA";
 
 /// bl.go 中绝大多数请求使用的 Chrome UA
 const UA_CHROME: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36";
-/// 搜索请求使用的 Edge UA
-const UA_EDGE: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62";
 /// 获取 bili_ticket 使用的 Firefox UA
 const UA_FIREFOX: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0";
 /// FetchImage / 图片代理使用的 Chrome 131 UA
@@ -631,41 +629,73 @@ pub struct UpdateResult {
 // 搜索
 // ---------------------------------------------------------------------------
 
-/// 对应 Go SearchVideo (失败时返回空列表而非报错)
-pub async fn search_video(keyword: &str, order: &str) -> Vec<SearchResult> {
+/// 搜索视频。B 站偶尔会返回只有 v_voucher 的风控响应，因此在两个
+/// 搜索端点和登录/匿名 Cookie 之间进行有限回退。
+pub async fn search_video(keyword: &str, order: &str) -> Result<Vec<SearchResult>, String> {
     let order_type = match order {
         "click" => "click",
         "update" => "pubdate",
         _ => "totalrank",
     };
-    let Ok(ticket) = get_bili_ticket("").await else {
-        return Vec::new();
-    };
-    let url = format!(
-        "https://api.bilibili.com/x/web-interface/wbi/search/type?search_type=video&page=1&page_size=50&order={order_type}&keyword={}",
+    let query = format!(
+        "search_type=video&page=1&page_size=50&order={order_type}&keyword={}",
         urlencode(keyword)
     );
-    let Ok(v) = get_json(
-        &url,
-        None,
-        &[
-            ("authority", "api.bilibili.com"),
-            ("accept", "*/*"),
-            ("accept-language", "zh-CN,zh;q=0.9"),
-            ("origin", "https://search.bilibili.com"),
-            ("referer", "https://search.bilibili.com/video"),
-            ("user-agent", UA_EDGE),
-            // 搜索请求只带 bili_ticket cookie (与 Go 一致)
-            ("Cookie", &format!("bili_ticket={ticket}")),
-        ],
-    )
-    .await
-    else {
-        return Vec::new();
+    let urls = [
+        format!("https://api.bilibili.com/x/web-interface/search/type?{query}"),
+        format!("https://api.bilibili.com/x/web-interface/wbi/search/type?{query}"),
+    ];
+    let sessdata = get_sessdata();
+    let cookies = if sessdata.is_empty() {
+        vec![None]
+    } else {
+        vec![Some(sessdata.as_str()), None]
     };
-    let Some(result) = v.pointer("/data/result").and_then(|r| r.as_array()) else {
-        return Vec::new();
-    };
+    let mut last_error = "搜索接口未返回结果".to_string();
+
+    for url in &urls {
+        for cookie in &cookies {
+            let response = get_json(
+                url,
+                *cookie,
+                &[
+                    ("authority", "api.bilibili.com"),
+                    ("accept", "*/*"),
+                    ("accept-language", "zh-CN,zh;q=0.9"),
+                    ("origin", "https://search.bilibili.com"),
+                    ("referer", "https://search.bilibili.com/video"),
+                    ("user-agent", UA_CHROME_131),
+                ],
+            )
+            .await;
+
+            match response {
+                Ok(v) => {
+                    let code = code_of(&v);
+                    if code != 0 {
+                        last_error = format!("B 站搜索失败: {} ({code})", message_of(&v));
+                    } else if let Some(result) = v
+                        .pointer("/data/result")
+                        .and_then(|result| result.as_array())
+                    {
+                        return Ok(parse_search_results(result));
+                    } else if v.pointer("/data/v_voucher").is_some() {
+                        last_error = "B 站搜索触发临时校验".to_string();
+                    } else {
+                        last_error = "B 站搜索响应缺少结果数据".to_string();
+                    }
+                }
+                Err(error) => last_error = error,
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    Err(last_error)
+}
+
+fn parse_search_results(result: &[Value]) -> Vec<SearchResult> {
     let mut out = Vec::with_capacity(result.len());
     for item in result {
         let title = str_of(item, "title")
