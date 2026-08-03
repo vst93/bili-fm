@@ -43,11 +43,10 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             }
         });
 
-    // 图标: 优先复用窗口默认图标 (bundle icon), 兜底内嵌 icons/icon.png
-    let icon = match app.default_window_icon() {
-        Some(icon) => icon.clone(),
-        None => tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?,
-    };
+    // 图标: 使用满铺的 icon-square.png (无透明边距), 适配托盘小尺寸显示。
+    // app icon (icon.png) 带有 ~20% 透明边距用于 macOS Dock squircle,
+    // 在状态栏小尺寸下会显得过小。
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon-square.png"))?;
     builder = builder.icon(icon);
     builder.build(app)?;
     Ok(())
