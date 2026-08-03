@@ -18,7 +18,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "icon": ["icons/icon-square.png", "icons/icon.ico", "icons/icon.icns"],
     "windows": {
       "wix": {
         "language": ["zh-CN", "en-US"]
