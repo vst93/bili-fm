@@ -194,7 +194,7 @@ const Playlist: FC<PlaylistProps> = ({
                           <RetryImg
                             alt={item.part}
                             className="w-full h-full object-cover"
-                            src={graftingImage(item.first_frame || item.pic)}
+                            src={graftingImage(item.first_frame || item.pic, 192)}
                           />
                         </div>
 

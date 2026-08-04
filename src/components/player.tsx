@@ -1,5 +1,6 @@
-import { AudioPlayer, AudioPlayerRef } from "react-audio-play";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { Pause, PlayOne, VolumeMute, VolumeNotice } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface PlayerProps {
@@ -10,305 +11,72 @@ interface PlayerProps {
   isPlaying?: boolean;
   aid?: number;
   cid?: number;
-  /** 为 true 时立即强制暂停音频（无视内部状态）——用于视频浮窗打开时
-      确保音频在所有平台（尤其 macOS WebKit）真正停止 */
   forcePause?: boolean;
 }
+
+const formatTime = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.floor(seconds % 60);
+
+  return `${minutes}:${remainder.toString().padStart(2, "0")}`;
+};
 
 const Player = ({
   src,
   onEnded,
   onPlayStateChange,
   onTimeUpdate,
-  isPlaying,
+  isPlaying = false,
   aid,
   cid,
   forcePause = false,
 }: PlayerProps) => {
-  let autoPlay = true;
-  const playerRef = useRef<AudioPlayerRef>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const volumePopoverRef = useRef<HTMLDivElement>(null);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const lastReportedSecondRef = useRef(-1);
+  const lastVolumeRef = useRef(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isVolumeOpen, setIsVolumeOpen] = useState(false);
 
   onTimeUpdateRef.current = onTimeUpdate;
 
-  // 尝试获取内部 audio 元素
   useEffect(() => {
-    const container = document.getElementById("player");
-    if (container) {
-      const audioEl = container.querySelector("audio");
-      if (!audioEl) return;
-
-      lastReportedSecondRef.current = -1;
-      const handleTimeUpdate = () => {
-        const second = Math.floor(audioEl.currentTime);
-        if (second === lastReportedSecondRef.current) return;
-        lastReportedSecondRef.current = second;
-        onTimeUpdateRef.current?.(second);
-      };
-
-      audioEl.addEventListener("timeupdate", handleTimeUpdate);
-      return () => audioEl.removeEventListener("timeupdate", handleTimeUpdate);
-    }
+    setCurrentTime(0);
+    setDuration(0);
+    lastReportedSecondRef.current = -1;
+    if (src) onPlayStateChange?.(true);
   }, [src]);
 
   useEffect(() => {
-    if (src && autoPlay) {
-      onPlayStateChange?.(true);
-    }
-  }, [src]);
+    const audio = audioRef.current;
+    if (!audio) return;
 
-  useEffect(() => {
-    // Fix: react-audio-play's slider drag fights with React's onTimeUpdate.
-    // When audio is playing, the library's onTimeUpdate fires every ~250ms,
-    // causing a React re-render that sets element.style.width = "XX%". This
-    // REPLACES our inline style (including clearing !important), so the
-    // progress bar snaps back to the actual playback position during drag.
-    //
-    // Solution: use a CSS class (.is-dragging) with !important in the CSS
-    // rule itself. React can set style.width all it wants — the CSS !important
-    // rule wins. We pass the desired width via a CSS custom property.
-    //
-    // During drag: add .is-dragging, set --drag-w / --drag-h
-    // On release: seek, wait for timeupdate to update React state, then
-    // remove .is-dragging. This prevents any visual flash.
-
-    const getAudioEl = (): HTMLAudioElement | null => {
-      return document.querySelector("#player audio");
-    };
-
-    const computeRatio = (event: PointerEvent, slider: HTMLElement): number => {
-      const rect = slider.getBoundingClientRect();
-      const isVertical = slider.dataset.direction === "vertical";
-      let ratio: number;
-      if (isVertical) {
-        ratio = 1 - (event.clientY - rect.top) / rect.height;
-      } else {
-        ratio = (event.clientX - rect.left) / rect.width;
-      }
-      return Math.max(0, Math.min(1, ratio));
-    };
-
-    const applyVolume = (ratio: number, audioEl: HTMLAudioElement) => {
-      audioEl.volume = ratio;
-    };
-
-    const seekAudio = (ratio: number, audioEl: HTMLAudioElement) => {
-      if (audioEl.duration && audioEl.duration !== Infinity) {
-        audioEl.currentTime = ratio * audioEl.duration;
-      }
-    };
-
-    // Start dragging: add .is-dragging class and set CSS custom property.
-    // The CSS rule .rap-progress.is-dragging has !important, so React's
-    // inline style.width can never override it.
-    const startDrag = (slider: HTMLElement, ratio: number) => {
-      const progress = slider.querySelector<HTMLElement>(".rap-progress");
-      if (!progress) return;
-      const isVertical = slider.dataset.direction === "vertical";
-      const pct = `${ratio * 100}%`;
-      progress.style.setProperty(isVertical ? "--drag-h" : "--drag-w", pct);
-      progress.classList.add("is-dragging");
-    };
-
-    // Update drag position (just changes the CSS variable)
-    const updateDrag = (slider: HTMLElement, ratio: number) => {
-      const progress = slider.querySelector<HTMLElement>(".rap-progress");
-      if (!progress) return;
-      const isVertical = slider.dataset.direction === "vertical";
-      const pct = `${ratio * 100}%`;
-      progress.style.setProperty(isVertical ? "--drag-h" : "--drag-w", pct);
-    };
-
-    // End dragging: remove .is-dragging class so library's React state
-    // resumes control. Called after timeupdate confirms React state is current.
-    const endDrag = (slider: HTMLElement) => {
-      const progress = slider.querySelector<HTMLElement>(".rap-progress");
-      if (!progress) return;
-      progress.classList.remove("is-dragging");
-      progress.style.removeProperty("--drag-w");
-      progress.style.removeProperty("--drag-h");
-    };
-
-    // Block the library's mousedown handler from starting a competing drag.
-    const blockMouseDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("#player .rap-slider") || target?.closest("#player .rap-pin")) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-    };
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      const slider = target?.closest("#player .rap-slider") as HTMLElement | null;
-      if (!slider) return;
-
-      const audioEl = getAudioEl();
-      if (!audioEl) return;
-
-      slider.setPointerCapture(event.pointerId);
-      event.preventDefault();
-
-      const ratio = computeRatio(event, slider);
-      const isVolume = slider.closest("#player .rap-volume-controls") !== null;
-
-      if (isVolume) {
-        // Volume: apply immediately, it's cheap
-        applyVolume(ratio, audioEl);
-        startDrag(slider, ratio);
-
-        const onMove = (e: PointerEvent) => {
-          e.preventDefault();
-          const r = computeRatio(e, slider);
-          applyVolume(r, audioEl);
-          updateDrag(slider, r);
-        };
-        const onUp = (e: PointerEvent) => {
-          slider.releasePointerCapture(e.pointerId);
-          slider.removeEventListener("pointermove", onMove);
-          slider.removeEventListener("pointerup", onUp);
-          endDrag(slider);
-        };
-        slider.addEventListener("pointermove", onMove);
-        slider.addEventListener("pointerup", onUp);
-      } else {
-        // Seek: visual-only during drag, actual seek on release
-
-        // ---- Cleanup tracking for this drag session ----
-        // We must clean up ALL listeners and timers when the drag ends,
-        // so a rapid re-drag doesn't have stale callbacks that call
-        // endDrag() at the wrong time and cause the "jump" bug.
-        let cleanupFns: (() => void)[] = [];
-        const cleanup = () => {
-          cleanupFns.forEach(fn => fn());
-          cleanupFns = [];
-        };
-
-        startDrag(slider, ratio);
-
-        const onMove = (e: PointerEvent) => {
-          e.preventDefault();
-          const r = computeRatio(e, slider);
-          updateDrag(slider, r);
-        };
-
-        const finishDrag = (e: PointerEvent) => {
-          const finalRatio = computeRatio(e, slider);
-          // Update visual to final position
-          updateDrag(slider, finalRatio);
-          // Seek to final position
-          seekAudio(finalRatio, audioEl);
-
-          // Wait for timeupdate to confirm the seek completed, then
-          // release the CSS lock. The library's React state will now
-          // have the correct position, so removing .is-dragging is seamless.
-          let done = false;
-          const release = () => {
-            if (done) return;
-            done = true;
-            endDrag(slider);
-            cleanup();
-          };
-
-          const onSeekedUpdate = () => {
-            // Verify the audio position actually matches our target
-            // before releasing the visual lock. This prevents releasing
-            // too early if a stale timeupdate fires.
-            const expectedTime = finalRatio * audioEl.duration;
-            const actualTime = audioEl.currentTime;
-            if (Math.abs(actualTime - expectedTime) < 2) {
-              release();
-            }
-            // If not close enough, keep waiting (fallback timer will handle it)
-          };
-          audioEl.addEventListener("timeupdate", onSeekedUpdate);
-          cleanupFns.push(() => audioEl.removeEventListener("timeupdate", onSeekedUpdate));
-
-          // Fallback: release after 800ms if timeupdate doesn't fire
-          const timer = setTimeout(release, 800);
-          cleanupFns.push(() => clearTimeout(timer));
-        };
-
-        const onUp = (e: PointerEvent) => {
-          slider.releasePointerCapture(e.pointerId);
-          slider.removeEventListener("pointermove", onMove);
-          slider.removeEventListener("pointerup", onUp);
-          slider.removeEventListener("pointercancel", onCancel);
-          finishDrag(e);
-        };
-
-        const onCancel = (e: PointerEvent) => {
-          slider.releasePointerCapture(e.pointerId);
-          slider.removeEventListener("pointermove", onMove);
-          slider.removeEventListener("pointerup", onUp);
-          slider.removeEventListener("pointercancel", onCancel);
-          // For cancel, seek and release immediately
-          const finalRatio = computeRatio(e, slider);
-          updateDrag(slider, finalRatio);
-          seekAudio(finalRatio, audioEl);
-          endDrag(slider);
-          cleanup();
-        };
-
-        slider.addEventListener("pointermove", onMove);
-        slider.addEventListener("pointerup", onUp);
-        slider.addEventListener("pointercancel", onCancel);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("mousedown", blockMouseDown, true);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("mousedown", blockMouseDown, true);
-    };
-  }, []);
-
-  // play/pause via useEffect (not render body) for reliable execution.
-  // forcePause 优先：视频浮窗打开期间即使 isPlaying 为 true 也强制暂停。
-  useEffect(() => {
-    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-    if (isPlaying && !forcePause) {
-      playerRef.current?.play();
+    if (isPlaying && src && !forcePause) {
+      void audio.play().catch(() => onPlayStateChange?.(false));
     } else {
-      playerRef.current?.pause();
-      // Belt-and-suspenders: directly pause the <audio> element
-      // The library's pause() may not take effect in all cases
-      if (audioEl && !audioEl.paused) {
-        audioEl.pause();
+      audio.pause();
+    }
+  }, [forcePause, isPlaying, src]);
+
+  useEffect(() => {
+    if (!isVolumeOpen) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!volumePopoverRef.current?.contains(event.target as Node)) {
+        setIsVolumeOpen(false);
       }
-    }
-  }, [isPlaying, forcePause]);
-
-  // 视频播放期间强制暂停音频：macOS WebKit 下 react-audio-play 可能在
-  // React 状态传播完成前自行恢复播放，这里在 forcePause 置位以及
-  // src/isPlaying 变化（可能触发库内部重渲染）时重复执行双重暂停。
-  useEffect(() => {
-    if (!forcePause) return;
-    playerRef.current?.pause();
-    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-    if (audioEl && !audioEl.paused) {
-      audioEl.pause();
-    }
-  }, [forcePause, src, isPlaying]);
-
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as HTMLElement | null;
-      const openVolume = document.querySelector<HTMLElement>("#player .rap-volume-open");
-
-      if (!openVolume || target?.closest("#player .rap-volume")) return;
-      openVolume.click();
     };
 
-    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerdown", closeOnOutsidePress, true);
 
     return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerdown", closeOnOutsidePress, true);
     };
-  }, []);
+  }, [isVolumeOpen]);
 
   useEffect(() => {
     if (isPlaying && aid && cid) {
@@ -316,26 +84,129 @@ const Player = ({
     }
   }, [isPlaying, aid, cid]);
 
-  if (!src) {
-    autoPlay = false;
-  }
+  const handleTimeUpdate = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    setCurrentTime(audio.currentTime);
+    const second = Math.floor(audio.currentTime);
+    if (second !== lastReportedSecondRef.current) {
+      lastReportedSecondRef.current = second;
+      onTimeUpdateRef.current?.(second);
+    }
+  };
+
+  const handleSeek = (value: number) => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+
+    audio.currentTime = value;
+    setCurrentTime(value);
+  };
+
+  const handleVolumeChange = (value: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.volume = value;
+    audio.muted = value === 0;
+    if (value > 0) lastVolumeRef.current = value;
+    setVolume(value);
+  };
+
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div id="player" style={{}}>
-      <AudioPlayer
-        ref={playerRef}
-        autoPlay={autoPlay}
-        hasKeyBindings={false}
-        loop={false}
-        sliderColor="#68bca4"
-        src={src || ""}
-        width="100%"
-        onEnd={onEnded}
+    <div id="player">
+      {/* Audio-only streams do not provide a timed-text track. */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        src={src || undefined}
+        onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
+        onEnded={onEnded}
         onError={() => onPlayStateChange?.(false)}
         onPause={() => onPlayStateChange?.(false)}
         onPlay={() => onPlayStateChange?.(true)}
-        className="bg-transparent"
+        onTimeUpdate={handleTimeUpdate}
       />
+      <div className="player-controls">
+        <button
+          aria-label={isPlaying ? "暂停" : "播放"}
+          className="player-button player-play-button"
+          disabled={!src}
+          title={isPlaying ? "暂停" : "播放"}
+          type="button"
+          onClick={() => onPlayStateChange?.(!isPlaying)}
+        >
+          {isPlaying ? (
+            <Pause fill="currentColor" size={20} theme="filled" />
+          ) : (
+            <PlayOne fill="currentColor" size={20} theme="filled" />
+          )}
+        </button>
+
+        <time className="player-time" dateTime={`PT${Math.floor(currentTime)}S`}>
+          {formatTime(currentTime)}
+        </time>
+
+        <input
+          aria-label="播放进度"
+          aria-valuetext={`${formatTime(currentTime)} / ${formatTime(duration)}`}
+          className="player-timeline"
+          disabled={!src || !duration}
+          max={duration || 0}
+          min="0"
+          step="0.1"
+          style={{ "--player-progress": `${progress}%` } as CSSProperties}
+          type="range"
+          value={Math.min(currentTime, duration || 0)}
+          onChange={(event) => handleSeek(Number(event.currentTarget.value))}
+        />
+
+        <time className="player-time" dateTime={`PT${Math.floor(duration)}S`}>
+          {formatTime(duration)}
+        </time>
+
+        <div className="player-volume" ref={volumePopoverRef}>
+          <button
+            aria-expanded={isVolumeOpen}
+            aria-label={volume > 0 ? "音量" : "取消静音"}
+            className="player-button player-volume-button"
+            data-open={isVolumeOpen || undefined}
+            disabled={!src}
+            title={volume > 0 ? "音量" : "取消静音"}
+            type="button"
+            onClick={() => {
+              if (volume === 0) handleVolumeChange(lastVolumeRef.current || 1);
+              setIsVolumeOpen((open) => !open);
+            }}
+          >
+            {volume > 0 ? (
+              <VolumeNotice fill="currentColor" size={20} theme="outline" />
+            ) : (
+              <VolumeMute fill="currentColor" size={20} theme="outline" />
+            )}
+          </button>
+          {isVolumeOpen && (
+            <div className="player-volume-popover">
+              <input
+                aria-label="音量"
+                aria-valuetext={`${Math.round(volume * 100)}%`}
+                className="player-volume-slider"
+                max="1"
+                min="0"
+                step="0.01"
+                style={{ "--player-volume": `${volume * 100}%` } as CSSProperties}
+                type="range"
+                value={volume}
+                onChange={(event) => handleVolumeChange(Number(event.currentTarget.value))}
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

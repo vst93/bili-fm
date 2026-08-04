@@ -178,7 +178,7 @@ const PageList: FC<PageListProps> = ({
               >
                 {videoInfo?.pages?.map((page, index) => (
                   <Card
-                    key={index}
+                    key={page.cid}
                     isPressable
                     className={`c-list-card ${
                       currentPart === page.part ? "border-2 border-primary cursor-pointer" : ""

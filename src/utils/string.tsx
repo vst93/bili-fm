@@ -14,7 +14,7 @@ export const convertToDuration = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 };
 
-export const graftingImage = (img: string, width = 480) => {
+export const graftingImage = (img: string, width = 400) => {
   if (!img) return img;
 
   let source = img.startsWith("//") ? `https:${img}` : img;

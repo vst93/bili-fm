@@ -62,8 +62,8 @@ const CollectList: FC<CollectListProps> = ({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const bottom =
-      e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
-      e.currentTarget.clientHeight;
+      e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
+        e.currentTarget.clientHeight <= 80;
 
     if (bottom) {
       onLoadMore?.();
@@ -115,6 +115,7 @@ const CollectList: FC<CollectListProps> = ({
               <div className="collect-drawer-title-row">
                 <span>收藏列表</span>
                 <Button
+                  aria-label="刷新收藏列表"
                   isIconOnly
                   size="sm"
                   variant="light"
@@ -166,10 +167,10 @@ const CollectList: FC<CollectListProps> = ({
                 style={{ width: "100%" }}
               >
                 {Array.isArray(collectList) &&
-                  collectList.map((item: any, index: number) => {
+                  collectList.map((item: any) => {
                     return (
                       <Card
-                        key={index}
+                        key={item.id || item.bvid}
                         isPressable
                         shadow="sm"
                         className="c-list-card"

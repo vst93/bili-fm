@@ -147,24 +147,11 @@ const UpVideoList: FC<UpVideoListProps> = ({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const bottom =
-      e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
-      e.currentTarget.clientHeight;
+      e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
+        e.currentTarget.clientHeight <= 80;
 
     if (activeTab === "videos" && bottom && upVideoList?.offset) {
       onLoadMore?.(upVideoList.offset);
-    } else if (activeTab === "series" && bottom) {
-      try {
-        invoke<any[]>("get_series_list", { mid: currentUpMid }).then(list => { 
-          if (!list) {
-            console.error("获取合集列表失败：用户未登录或登录已过期");
-            return;
-          }
-          console.log("合集列表：", list);
-          setSeriesList?.(list);
-        });
-      } catch (error) {
-        console.error("获取合集列表失败：", error);
-      }
     }
   };
 
@@ -275,6 +262,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
               )}
               {currentUpMid > 0 && (
                 <Button
+                  aria-label="刷新 UP 主视频"
                   size="sm"
                   variant="light"
                   isLoading={isFollowingLoading}
@@ -330,13 +318,13 @@ const UpVideoList: FC<UpVideoListProps> = ({
                   className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                   style={{ width: "100%" }}
                 >
-                  {upVideoList?.items?.map((item: any, index) => {
+                  {upVideoList?.items?.map((item: any) => {
                     const info = item.modules.module_dynamic.major.archive;
                     const publishTime = item.modules.module_author.pub_time;
 
                     return (
                       <Card
-                        key={index}
+                        key={info.bvid}
                         isPressable
                         shadow="sm"
                         onPress={() => onVideoSelect?.(info.bvid)}

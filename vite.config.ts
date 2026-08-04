@@ -11,7 +11,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom'],
           tauri: ['@tauri-apps/api', '@tauri-apps/plugin-shell', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
           heroui: ['@heroui/react'],
           icons: ['@icon-park/react'],

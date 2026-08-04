@@ -64,6 +64,7 @@ const SearchForm: FC<SearchFormProps> = ({
           }}
           endContent={
             <button
+              aria-label="搜索"
               className="search-submit-btn"
               title="搜索"
               onClick={() => onSearch?.(value)}
@@ -74,41 +75,35 @@ const SearchForm: FC<SearchFormProps> = ({
         />
       </div>
       <div className="home-global-actions" aria-label="B站内容入口">
-        <button className="top-tool-btn" title="动态" onClick={onFeedClick}>
+        <button aria-label="动态" className="top-tool-btn" title="动态" onClick={onFeedClick}>
           <ShareSys size={18} theme="outline" />
         </button>
-        <button className="top-tool-btn" title="热门与推荐" onClick={onRecommendClick}>
+        <button aria-label="热门与推荐" className="top-tool-btn" title="热门与推荐" onClick={onRecommendClick}>
           <ChartRing size={18} theme="outline" />
         </button>
-        <button className="top-tool-btn" title="收藏" onClick={onCollectClick}>
+        <button aria-label="收藏" className="top-tool-btn" title="收藏" onClick={onCollectClick}>
           <WeixinFavorites size={18} theme="outline" />
         </button>
-        <button className="top-tool-btn" title="历史记录" onClick={onHistoryClick}>
+        <button aria-label="历史记录" className="top-tool-btn" title="历史记录" onClick={onHistoryClick}>
           <History size={18} theme="outline" />
         </button>
       </div>
-      {userFace ? (
+      <button
+        aria-label={userFace ? "切换登录账号" : "登录账号"}
+        className="home-user-button"
+        title={userFace ? "点击登录其他账号" : "点击登录账号"}
+        type="button"
+        onClick={onLoginClick}
+      >
         <Avatar
-          src={userFace}
+          showFallback={!userFace}
+          src={userFace || undefined}
           className="home-user-avatar"
-          onClick={onLoginClick}
           size="md"
           isBordered
-          classNames={{
-            img: "opacity-100",
-          }}
-          title="点击登录其他账号"
+          classNames={userFace ? { img: "opacity-100" } : undefined}
         />
-      ) : (
-        <Avatar
-          showFallback
-          className="home-user-avatar"
-          onClick={onLoginClick}
-          size="md"
-          isBordered
-          title="点击登录账号"
-        />
-      )}
+      </button>
     </div>
   );
 };

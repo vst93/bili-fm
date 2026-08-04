@@ -29,19 +29,14 @@ function App() {
     updateTimeOfDay();
     const timer = setInterval(updateTimeOfDay, 60000);
 
-    // ---- Unified pointer tracking (single listener for both card glow + button light) ----
+    // Pointer tracking is limited to the hovered drawer card. Button highlights
+    // use static CSS states to avoid layout reads on every pointer move.
     const cardSelector = '[data-slot="wrapper"] [role="button"][class*="bg-content"]';
-    const lightSelector =
-      ".liquid-glass-icon-btn, .nav-icon-btn, .top-tool-btn, " +
-      ".search-submit-btn, .login-close-btn, .app-title-bar button, " +
-      "#switch-window-mode, #switch-window-mode-mini";
 
-    const activeCards = new Set<HTMLElement>();
-    const litSurfaces = new Set<HTMLElement>();
+    let activeCard: HTMLElement | null = null;
     let raf = 0;
     let px = 0;
     let py = 0;
-    let pTarget: HTMLElement | null = null;
     const pointerEffectsEnabled = window.matchMedia(
       "(pointer: fine) and (prefers-reduced-motion: no-preference)",
     );
@@ -54,127 +49,64 @@ function App() {
     };
 
     const clearAll = () => {
-      activeCards.forEach(resetCard);
-      activeCards.clear();
-      litSurfaces.forEach((el) => {
-        el.style.removeProperty("--lx");
-        el.style.removeProperty("--ly");
-      });
-      litSurfaces.clear();
-      pTarget = null;
+      if (activeCard) resetCard(activeCard);
+      activeCard = null;
     };
 
     const tick = () => {
       raf = 0;
 
-      // --- Button light tracking: only process ancestors that match ---
-      const nextLit = new Set<HTMLElement>();
-      let litNode: Element | null = pTarget;
-      while (litNode) {
-        if (litNode instanceof HTMLElement && litNode.matches(lightSelector)) {
-          const rect = litNode.getBoundingClientRect();
-          litNode.style.setProperty(
-            "--lx",
-            `${Math.round(((px - rect.left) / rect.width) * 1000) / 10}%`,
-          );
-          litNode.style.setProperty(
-            "--ly",
-            `${Math.round(((py - rect.top) / rect.height) * 1000) / 10}%`,
-          );
-          nextLit.add(litNode);
-        }
-        litNode = litNode.parentElement;
-      }
-      litSurfaces.forEach((el) => {
-        if (!nextLit.has(el)) {
-          el.style.removeProperty("--lx");
-          el.style.removeProperty("--ly");
-        }
-      });
-      litSurfaces.clear();
-      nextLit.forEach((el) => litSurfaces.add(el));
-
-      // --- Card glow: only when inside a drawer wrapper ---
-      const currentCard = pTarget?.closest<HTMLElement>(cardSelector) ?? null;
-      if (!currentCard) {
-        activeCards.forEach(resetCard);
-        activeCards.clear();
-        return;
-      }
-
-      // Small radius: only the hovered card + its immediate neighbors glow.
-      // A large radius lights up dozens of cards simultaneously, each triggering
-      // expensive calc()/color-mix()/filter repaints = scroll jank.
-      // Optimized: 120px radius (down from 180) + contain:layout in CSS limits repaint scope.
-      const radius = 120;
-      const nextCards = new Set<HTMLElement>();
-      const candidates = [
-        currentCard.previousElementSibling,
-        currentCard,
-        currentCard.nextElementSibling,
-      ].filter(
-        (card): card is HTMLElement =>
-          card instanceof HTMLElement && card.matches(cardSelector),
-      );
-
-      for (const card of candidates) {
-        const rect = card.getBoundingClientRect();
-        if (
-          rect.bottom < py - radius ||
-          rect.top > py + radius ||
-          rect.right < px - radius ||
-          rect.left > px + radius
-        )
-          continue;
-
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dist = Math.hypot(px - cx, py - cy);
-        const isCurrent = card === currentCard;
-        const strength = isCurrent ? 1 : Math.max(0, 1 - dist / radius) * 0.4;
-        if (strength <= 0.1) continue;
-
-        nextCards.add(card);
-        card.style.setProperty("--hover-x", `${px - rect.left}px`);
-        card.style.setProperty("--hover-y", `${py - rect.top}px`);
-        card.style.setProperty("--hover-strength", strength.toFixed(3));
-        card.classList.toggle("is-pointer-hovered", isCurrent);
-      }
-
-      activeCards.forEach((card) => {
-        if (!nextCards.has(card)) resetCard(card);
-      });
-      activeCards.clear();
-      nextCards.forEach((c) => activeCards.add(c));
+      if (!activeCard) return;
+      const rect = activeCard.getBoundingClientRect();
+      activeCard.style.setProperty("--hover-x", `${px - rect.left}px`);
+      activeCard.style.setProperty("--hover-y", `${py - rect.top}px`);
+      activeCard.style.setProperty("--hover-strength", "1");
+      activeCard.classList.add("is-pointer-hovered");
     };
 
-    const onPointerMove = (event: PointerEvent) => {
+    const onCardPointerMove = (event: PointerEvent) => {
       if (!pointerEffectsEnabled.matches || document.body.classList.contains("platform-linux")) {
-        if (activeCards.size || litSurfaces.size) clearAll();
+        clearAll();
         return;
       }
-      pTarget = event.target as HTMLElement | null;
       px = event.clientX;
       py = event.clientY;
       if (!raf) raf = requestAnimationFrame(tick);
     };
 
-    const onPointerLeave = () => {
+    const stopTracking = () => {
       if (raf) {
         cancelAnimationFrame(raf);
         raf = 0;
       }
+      activeCard?.removeEventListener("pointermove", onCardPointerMove);
       clearAll();
     };
 
-    document.addEventListener("pointermove", onPointerMove, { capture: true });
-    document.addEventListener("pointerleave", onPointerLeave, true);
+    const onPointerOver = (event: PointerEvent) => {
+      if (!pointerEffectsEnabled.matches || document.body.classList.contains("platform-linux")) return;
+      const card = (event.target as HTMLElement | null)?.closest<HTMLElement>(cardSelector) ?? null;
+      if (!card || card === activeCard) return;
+      stopTracking();
+      activeCard = card;
+      activeCard.addEventListener("pointermove", onCardPointerMove, { passive: true });
+      onCardPointerMove(event);
+    };
+
+    const onPointerOut = (event: PointerEvent) => {
+      if (!activeCard) return;
+      const nextTarget = event.relatedTarget as Node | null;
+      if (nextTarget && activeCard.contains(nextTarget)) return;
+      stopTracking();
+    };
+
+    document.addEventListener("pointerover", onPointerOver, { passive: true });
+    document.addEventListener("pointerout", onPointerOut, { passive: true });
 
     return () => {
-      if (raf) cancelAnimationFrame(raf);
-      document.removeEventListener("pointermove", onPointerMove, { capture: true });
-      document.removeEventListener("pointerleave", onPointerLeave, true);
-      clearAll();
+      document.removeEventListener("pointerover", onPointerOver);
+      document.removeEventListener("pointerout", onPointerOut);
+      stopTracking();
       clearInterval(timer);
     };
   }, []);

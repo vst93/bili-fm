@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Refresh } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
@@ -40,6 +40,7 @@ const HistoryList: FC<HistoryListProps> = ({
     setHistoryCursor,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+    const isLoadingMoreRef = useRef(false);
 
     // 预加载历史记录封面图
     const coverUrls = useMemo(
@@ -56,7 +57,7 @@ const HistoryList: FC<HistoryListProps> = ({
     };
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-        const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop === e.currentTarget.clientHeight;
+        const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight <= 80;
         if (bottom) {
             handleLoadMore();
         }
@@ -78,8 +79,8 @@ const HistoryList: FC<HistoryListProps> = ({
     };
 
     const handleLoadMore = async () => {
-        if ((historyList?.length || 0) >= MAX_RETAINED_ITEMS) return;
-        console.log("load more", historyCursor);
+        if (isLoadingMoreRef.current || (historyList?.length || 0) >= MAX_RETAINED_ITEMS) return;
+        isLoadingMoreRef.current = true;
         try {
             const data = await invoke<BLHistoryList>("get_history_list", { max: historyCursor?.max, viewAt: historyCursor?.view_at, business: historyCursor?.business, ps: 30 });
             if (data?.list) {
@@ -90,6 +91,8 @@ const HistoryList: FC<HistoryListProps> = ({
             }
         } catch (error) {
             console.error("加载更多历史记录失败:", error);
+        } finally {
+            isLoadingMoreRef.current = false;
         }
     };
 
@@ -113,6 +116,7 @@ const HistoryList: FC<HistoryListProps> = ({
                         <DrawerHeader className="flex items-center gap-2 py-2">
                             观看历史
                             <Button
+                                aria-label="刷新历史记录"
                                 isIconOnly
                                 size="sm"
                                 variant="light"
@@ -126,10 +130,10 @@ const HistoryList: FC<HistoryListProps> = ({
                                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                                 style={{ width: "100%" }}
                             >
-                                {historyList?.map((item: any, index: number) => {
+                                {historyList?.map((item: any) => {
                                     return (
                                         <Card
-                                            key={index}
+                                            key={`${item?.history?.bvid}-${item?.view_at || item?.progress || 0}`}
                                             isPressable
                                             shadow="sm"
                                             className="c-list-card"

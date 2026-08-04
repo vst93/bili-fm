@@ -94,9 +94,9 @@ const SearchList: FC<SearchListProps> = ({
                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                 style={{ width: "100%" }}
               >
-                {searchResults.map((video, index) => (
+                {searchResults.map((video) => (
                   <Card
-                    key={index}
+                    key={video.url}
                     isPressable
                     shadow="sm"
                     className="c-list-card"

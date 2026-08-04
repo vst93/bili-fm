@@ -45,6 +45,7 @@ export default function RetryImg({
       style={{ width: width || "100%" }}
       loading="lazy"
       decoding="async"
+      fetchPriority="low"
       onError={(event) => {
         const image = event.currentTarget;
         if (!image.src.endsWith(fallbackSrc)) image.src = fallbackSrc;

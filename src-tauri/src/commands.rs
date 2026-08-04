@@ -199,11 +199,6 @@ pub fn proxy_image_url(url: String) -> String {
 }
 
 #[tauri::command]
-pub async fn fetch_image(url: String) -> Result<String, String> {
-    bilibili::fetch_image(&url).await
-}
-
-#[tauri::command]
 pub fn get_image_proxy_port() -> u16 {
     bilibili::get_image_proxy_port()
 }

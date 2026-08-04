@@ -198,7 +198,6 @@ Bili FM 内置自动更新功能：
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
-- [react-audio-play](https://github.com/riyaddecoder/react-audio-play)
 
 ---
 
@@ -396,4 +395,3 @@ This project is for development and learning purposes only. The original goal is
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
-- [react-audio-play](https://github.com/riyaddecoder/react-audio-play)

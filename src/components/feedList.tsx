@@ -52,7 +52,7 @@ const FeedList: FC<FeedListProps> = ({
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop === e.currentTarget.clientHeight;
+    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight <= 80;
     if (bottom && feedList?.offset) {
       onLoadMore?.(feedList.offset);
     }
@@ -81,6 +81,7 @@ const FeedList: FC<FeedListProps> = ({
             <DrawerHeader className="flex items-center gap-2 py-2">
               动态列表
               <Button
+                aria-label="刷新动态列表"
                 isIconOnly
                 size="sm"
                 variant="light"
@@ -94,7 +95,7 @@ const FeedList: FC<FeedListProps> = ({
                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                 style={{ width: "100%" }}
               >
-                {feedList?.items?.map((item: any, index) => {
+                {feedList?.items?.map((item: any) => {
                   const info = item.modules.module_dynamic.major.archive;
                   const publishTime = item.modules.module_author.pub_time;
                   const userName = item.modules.module_author.name;
@@ -102,7 +103,7 @@ const FeedList: FC<FeedListProps> = ({
 
                   return (
                     <Card
-                      key={index}
+                      key={info.bvid}
                       isPressable
                       shadow="sm"
                       className="c-list-card"
@@ -143,4 +144,4 @@ const FeedList: FC<FeedListProps> = ({
   );
 };
 
-export default FeedList; 
+export default FeedList;

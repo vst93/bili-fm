@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -60,6 +60,7 @@ const SeriesList: FC<SeriesListProps> = ({
     setSeriesVideos,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+    const isLoadingMoreRef = useRef(false);
 
     // 预加载合集视频封面图
     const coverUrls = useMemo(
@@ -76,17 +77,23 @@ const SeriesList: FC<SeriesListProps> = ({
     };
 
     const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-        if (seriesVideos.length >= MAX_RETAINED_ITEMS) return;
+        if (isLoadingMoreRef.current || seriesVideos.length >= MAX_RETAINED_ITEMS) return;
         const bottom =
-            e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
-            e.currentTarget.clientHeight;
+            e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
+                e.currentTarget.clientHeight <= 80;
         if (bottom) {
+            isLoadingMoreRef.current = true;
             const thePage = seriesVideosPage + 1;
-            // console.log("load more", seriesVideosPage);
-            const seriesVideosData = await invoke<SeriesArchive[]>("get_series_videos", { mid: currentUpMid, seriesId: currentSeriesId, pageNum: thePage });
-            if (seriesVideosData.length > 0) {
-                setSeriesVideos([...seriesVideos, ...seriesVideosData].slice(0, MAX_RETAINED_ITEMS));
-                setSeriesVideosPage(thePage);
+            try {
+                const seriesVideosData = await invoke<SeriesArchive[]>("get_series_videos", { mid: currentUpMid, seriesId: currentSeriesId, pageNum: thePage });
+                if (seriesVideosData.length > 0) {
+                    setSeriesVideos([...seriesVideos, ...seriesVideosData].slice(0, MAX_RETAINED_ITEMS));
+                    setSeriesVideosPage(thePage);
+                }
+            } catch (error) {
+                console.error("加载更多合集视频失败:", error);
+            } finally {
+                isLoadingMoreRef.current = false;
             }
         }
     };

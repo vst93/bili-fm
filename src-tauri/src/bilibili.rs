@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use flate2::read::{DeflateDecoder, GzDecoder};
 use hmac::{Hmac, Mac};
 use reqwest::header::SET_COOKIE;
@@ -1390,34 +1389,6 @@ pub fn proxy_image_url(url: &str) -> String {
 
 pub fn get_image_proxy_port() -> u16 {
     IMAGE_PROXY_PORT
-}
-
-/// 对应 Go FetchImage — base64 data URL 直传备用
-pub async fn fetch_image(url: &str) -> Result<String, String> {
-    if url.is_empty() {
-        return Err("empty url".to_string());
-    }
-    let resp = client()
-        .get(url)
-        .header("User-Agent", UA_CHROME_131)
-        .header("Referer", "https://www.bilibili.com/")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("upstream returned {}", resp.status().as_u16()));
-    }
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    Ok(format!(
-        "data:{content_type};base64,{}",
-        BASE64.encode(bytes)
-    ))
 }
 
 // ---------------------------------------------------------------------------

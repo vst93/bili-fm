@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { CloseSmall } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
@@ -11,24 +11,26 @@ import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
 import VideoInfo from "@/components/videoInfo";
 import Player from "@/components/player";
-import PageList from "@/components/pageList";
-import SearchList from "@/components/searchList";
-import FeedList from "@/components/feedList";
-import RecommendList from "@/components/recommendList";
 import DefaultLayout from "@/layouts/default";
 import TitleBar from "@/components/titleBar";
 import { graftingImage, urlToBVID } from "@/utils/string";
-import CollectList from "@/components/collectList";
-import UpVideoList from "@/components/upVideoList";
-import HistoryList from "@/components/historyList";
-import SeriesList from "@/components/seriesList";
 import PlayerVideo from "@/components/playerVideo";
 import MiniVideoInfo from "@/components/miniVideoInfo";
-import DanmakuList from "@/components/danmakuList";
-import Playlist, {
-  type PlaylistItem,
-  type PlaylistPlayMode,
+import type {
+  PlaylistItem,
+  PlaylistPlayMode,
 } from "@/components/playlist";
+
+const PageList = lazy(() => import("@/components/pageList"));
+const SearchList = lazy(() => import("@/components/searchList"));
+const FeedList = lazy(() => import("@/components/feedList"));
+const RecommendList = lazy(() => import("@/components/recommendList"));
+const CollectList = lazy(() => import("@/components/collectList"));
+const UpVideoList = lazy(() => import("@/components/upVideoList"));
+const HistoryList = lazy(() => import("@/components/historyList"));
+const SeriesList = lazy(() => import("@/components/seriesList"));
+const DanmakuList = lazy(() => import("@/components/danmakuList"));
+const Playlist = lazy(() => import("@/components/playlist"));
 
 const MAX_RETAINED_LIST_ITEMS = 240;
 
@@ -111,6 +113,21 @@ export default function IndexPage() {
   );
 
   const playlistLoadedRef = useRef(false);
+  const loginPollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const feedLoadMoreRef = useRef(false);
+  const recommendRequestRef = useRef(new Set<string>());
+  const collectLoadMoreRef = useRef(false);
+  const upVideoLoadMoreRef = useRef(false);
+  const mediaNavigationRef = useRef({
+    previous: () => {},
+    next: () => {},
+  });
+
+  useEffect(() => {
+    return () => {
+      if (loginPollTimerRef.current) clearTimeout(loginPollTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle("mini-mode", isMiniMode);
@@ -250,11 +267,11 @@ export default function IndexPage() {
       });
 
       navigator.mediaSession.setActionHandler("previoustrack", () => {
-        handlePrevTrack();
+        mediaNavigationRef.current.previous();
       });
 
       navigator.mediaSession.setActionHandler("nexttrack", () => {
-        handleNextTrack();
+        mediaNavigationRef.current.next();
       });
     }
 
@@ -273,10 +290,10 @@ export default function IndexPage() {
         setIsPlaying((prev) => !prev);
       } else if (event.code === "MediaTrackPrevious") {
         event.preventDefault();
-        handlePrevTrack();
+        mediaNavigationRef.current.previous();
       } else if (event.code === "MediaTrackNext") {
         event.preventDefault();
-        handleNextTrack();
+        mediaNavigationRef.current.next();
       }
     };
 
@@ -292,14 +309,7 @@ export default function IndexPage() {
         navigator.mediaSession.setActionHandler("nexttrack", null);
       }
     };
-  }, [
-    videoInfo,
-    currentIndex,
-    isPlaylistMode,
-    playlist,
-    currentPlaylistIndex,
-    playlistPlayMode,
-  ]);
+  }, []);
 
   /**
    * 同步 Media Session 播放状态
@@ -447,6 +457,7 @@ export default function IndexPage() {
    */
   const handleLogin = async () => {
     try {
+      if (loginPollTimerRef.current) clearTimeout(loginPollTimerRef.current);
       await invoke("set_login_status", { status: true });
       setShowLoginPanel(true);
       const qrcodeUrl = await invoke<string>("get_login_qrcode");
@@ -483,7 +494,7 @@ export default function IndexPage() {
         setShowLoginPanel(false);
         refreshUserInfo();
       } else {
-        setTimeout(loopLoginStatus, 2000);
+        loginPollTimerRef.current = setTimeout(loopLoginStatus, 2000);
       }
     } catch (error) {
       console.error("获取登录状态失败:", error);
@@ -513,6 +524,10 @@ export default function IndexPage() {
    * @description 关闭登录面板并重置登录状态
    */
   const handleCloseLogin = async () => {
+    if (loginPollTimerRef.current) {
+      clearTimeout(loginPollTimerRef.current);
+      loginPollTimerRef.current = undefined;
+    }
     await invoke("set_login_status", { status: false });
     setShowLoginPanel(false);
   };
@@ -557,19 +572,28 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多动态内容
    */
   const handleLoadMore = async (offset: string) => {
-    if ((feedList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
+    if (
+      feedLoadMoreRef.current ||
+      (feedList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS
+    ) return;
+    feedLoadMoreRef.current = true;
     try {
       const data = await invoke<BL.FeedList>("get_feed_list", { offset });
 
-      if (data?.items && feedList?.items) {
-        setFeedList({
+      if (data?.items) {
+        setFeedList((current) => ({
           ...data,
-          items: [...feedList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
-        });
+          items: [...(current?.items || []), ...data.items].slice(
+            0,
+            MAX_RETAINED_LIST_ITEMS,
+          ),
+        }));
       }
       setFeedOffset(data?.offset || "");
     } catch (error) {
       console.error("加载更多动态失败:", error);
+    } finally {
+      feedLoadMoreRef.current = false;
     }
   };
 
@@ -1299,22 +1323,31 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多UP主视频
    */
   const handleUpVideoLoadMore = async () => {
-    if ((upVideoList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
+    if (
+      upVideoLoadMoreRef.current ||
+      (upVideoList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS
+    ) return;
+    upVideoLoadMoreRef.current = true;
     try {
       const data = await invoke<BL.FeedList>("get_up_video_list", {
         hostMid: currentUpMid,
         offset: upVideoOffset,
       });
 
-      if (data?.items && upVideoList?.items) {
-        setUpVideoList({
+      if (data?.items) {
+        setUpVideoList((current) => ({
           ...data,
-          items: [...upVideoList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
-        });
+          items: [...(current?.items || []), ...data.items].slice(
+            0,
+            MAX_RETAINED_LIST_ITEMS,
+          ),
+        }));
       }
       setUpVideoOffset(data?.offset || "");
     } catch (error) {
       console.error("加载更多UP主视频失败:", error);
+    } finally {
+      upVideoLoadMoreRef.current = false;
     }
   };
 
@@ -1337,7 +1370,7 @@ export default function IndexPage() {
       setSeriesVideosPage(1);
       const seriesVideosData = await invoke<BL.SeriesArchive[]>(
         "get_series_videos",
-        { mid: currentUpMid, seriesId, pageNum: seriesVideosPage },
+        { mid: currentUpMid, seriesId, pageNum: 1 },
       );
 
       setSeriesVideos(seriesVideosData || []);
@@ -1408,30 +1441,11 @@ export default function IndexPage() {
    * 处理推荐按钮点击事件
    * @description 获取并显示推荐视频列表，如果已有数据则直接显示
    */
-  const handleRecommendClick = async () => {
-    // 如果已经有数据，直接显示
-    if (recommendList?.items?.length > 0) {
-      setShowRecommendList(true);
-      setShowSearchList(false);
-      setShowPageList(false);
-      setShowFeedList(false);
-
-      return;
-    }
-
-    try {
-      const data = await invoke<BL.RCMDList>("get_rcmd_list", {
-        page: recommendPage,
-      });
-
-      setRecommendList(data);
-      setShowRecommendList(true);
-      setShowSearchList(false);
-      setShowPageList(false);
-      setShowFeedList(false);
-    } catch (error) {
-      console.error("获取推荐列表失败:", error);
-    }
+  const handleRecommendClick = () => {
+    setShowRecommendList(true);
+    setShowSearchList(false);
+    setShowPageList(false);
+    setShowFeedList(false);
   };
 
   /**
@@ -1439,6 +1453,9 @@ export default function IndexPage() {
    * @description 重置页码并重新获取推荐/热门列表
    */
   const handleRecommendRefresh = async (type: string = "recommend") => {
+    const requestKey = type;
+    if (recommendRequestRef.current.has(requestKey)) return;
+    recommendRequestRef.current.add(requestKey);
     try {
       if (type === "recommend") {
         setRecommendPage(1);
@@ -1453,6 +1470,8 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("刷新列表失败:", error);
+    } finally {
+      recommendRequestRef.current.delete(requestKey);
     }
   };
 
@@ -1464,7 +1483,12 @@ export default function IndexPage() {
     const currentCount = type === "recommend"
       ? recommendList?.items?.length || 0
       : hotList?.items?.length || 0;
-    if (currentCount >= MAX_RETAINED_LIST_ITEMS) return;
+    const requestKey = type;
+    if (
+      recommendRequestRef.current.has(requestKey) ||
+      currentCount >= MAX_RETAINED_LIST_ITEMS
+    ) return;
+    recommendRequestRef.current.add(requestKey);
     try {
       if (type === "recommend") {
         const nextPage = recommendPage + 1;
@@ -1472,11 +1496,14 @@ export default function IndexPage() {
           page: nextPage,
         });
 
-        if (data?.items && recommendList?.items) {
-          setRecommendList({
+        if (data?.items) {
+          setRecommendList((current: BL.RCMDList | undefined) => ({
             ...data,
-            items: [...recommendList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
-          });
+            items: [...(current?.items || []), ...data.items].slice(
+              0,
+              MAX_RETAINED_LIST_ITEMS,
+            ),
+          }));
           setRecommendPage(nextPage);
         }
       } else {
@@ -1485,20 +1512,21 @@ export default function IndexPage() {
           page: nextPage,
         });
 
-        if (data?.items && hotList?.items) {
-          setHotList({
+        if (data?.items) {
+          setHotList((current: BL.PopularList | undefined) => ({
             ...data,
-            items: [...hotList.items, ...data.items].slice(0, MAX_RETAINED_LIST_ITEMS),
-          });
+            items: [...(current?.items || []), ...data.items].slice(
+              0,
+              MAX_RETAINED_LIST_ITEMS,
+            ),
+          }));
           setHotPage(nextPage);
-        } else {
-          // 首次加载或无数据时直接设置
-          setHotList(data);
         }
-        setHotPage(nextPage);
       }
     } catch (error) {
       console.error("加载更多失败:", error);
+    } finally {
+      recommendRequestRef.current.delete(requestKey);
     }
   };
 
@@ -1565,7 +1593,11 @@ export default function IndexPage() {
    * @description 加载当前收藏夹的下一页内容
    */
   const handleCollectLoadMore = async () => {
-    if ((collectList?.length || 0) >= MAX_RETAINED_LIST_ITEMS) return;
+    if (
+      collectLoadMoreRef.current ||
+      (collectList?.length || 0) >= MAX_RETAINED_LIST_ITEMS
+    ) return;
+    collectLoadMoreRef.current = true;
     try {
       if (currentGroupId) {
         const nextPage = collectPage + 1;
@@ -1574,13 +1606,18 @@ export default function IndexPage() {
           page: nextPage,
         });
 
-        if (Array.isArray(data) && Array.isArray(collectList)) {
-          setCollectList([...collectList, ...data].slice(0, MAX_RETAINED_LIST_ITEMS));
+        if (Array.isArray(data)) {
+          setCollectList((current: any[] | undefined) => [
+            ...(Array.isArray(current) ? current : []),
+            ...data,
+          ].slice(0, MAX_RETAINED_LIST_ITEMS));
           setCollectPage(nextPage);
         }
       }
     } catch (error) {
       console.error("加载更多收藏失败:", error);
+    } finally {
+      collectLoadMoreRef.current = false;
     }
   };
 
@@ -1616,12 +1653,13 @@ export default function IndexPage() {
     setIsMiniMode(theIsMiniMode);
     if (theIsMiniMode) {
       invoke("set_window_size", { width: 400, height: 155 });
-      document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "38px");
     } else {
       invoke("set_window_size", { width: 800, height: 600 });
-      document.querySelector<HTMLElement>(".rap-container")?.style.setProperty("height", "56px");
     }
   };
+
+  mediaNavigationRef.current.previous = handlePrevTrack;
+  mediaNavigationRef.current.next = handleNextTrack;
 
   return (
     <DefaultLayout>
@@ -1645,7 +1683,7 @@ export default function IndexPage() {
           <div className="home-now-playing">
             <div className="relative" id="video-cover-container">
               <VideoCover
-                cover={graftingImage(pageFirstFrame)}
+                cover={graftingImage(pageFirstFrame, 480)}
                 isPlaying={isPlaying}
                 onPlayStateChange={handleCoverClick}
               />
@@ -1683,7 +1721,7 @@ export default function IndexPage() {
         ""
       ) : (
         <MiniVideoInfo
-          cover={graftingImage(pageFirstFrame)}
+          cover={graftingImage(pageFirstFrame, 480)}
           isPlaylistMode={isPlaylistMode}
           part={currentPart}
           title={videoInfo?.title}
@@ -1710,6 +1748,12 @@ export default function IndexPage() {
             setIsplay={setIsPlayVideo}
             src={playUrl}
           />
+          <Suspense fallback={
+            <div className="lazy-drawer-loading" role="status" aria-live="polite">
+              <span className="lazy-drawer-spinner" aria-hidden="true" />
+              <span>正在打开</span>
+            </div>
+          }>
           {showSearchList && (
             <SearchList
               searchResults={searchResults}
@@ -1827,6 +1871,7 @@ export default function IndexPage() {
               onVideoSelect={handlePlaylistVideoSelect}
             />
           )}
+          </Suspense>
           {showLoginPanel && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm">
               <div className="login-glass relative w-80 rounded-2xl overflow-visible">

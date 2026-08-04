@@ -12,12 +12,16 @@ const Toast = ({ type, content, duration = 2000, onClose }: ToastProps) => {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
       setIsVisible(false);
-      setTimeout(onClose, 300); // 等待动画结束后再移除
+      closeTimer = setTimeout(onClose, 300); // 等待动画结束后再移除
     }, duration);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (closeTimer) clearTimeout(closeTimer);
+    };
   }, [duration, onClose]);
 
   const getAccent = () => {

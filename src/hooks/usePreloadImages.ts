@@ -15,6 +15,7 @@ export function usePreloadImages(urls: (string | undefined)[]) {
       const img = new Image();
       img.loading = "eager";
       img.decoding = "async";
+      img.fetchPriority = "low";
       img.src = url;
       imgs.push(img);
     }

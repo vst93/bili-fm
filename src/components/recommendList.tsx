@@ -86,7 +86,7 @@ const RecommendList: FC<RecommendListProps> = ({
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop === e.currentTarget.clientHeight;
+    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight <= 80;
     if (bottom) {
       onLoadMore?.(activeTab);
     }
@@ -139,6 +139,7 @@ const RecommendList: FC<RecommendListProps> = ({
                 <Tab key="recommend" title="推荐" />
               </Tabs>
               <Button
+                aria-label="刷新当前列表"
                 isIconOnly
                 size="sm"
                 variant="light"
@@ -157,11 +158,11 @@ const RecommendList: FC<RecommendListProps> = ({
                   className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                   style={{ width: "100%" }}
                 >
-                  {currentList?.items?.map((item: any, index: number) => {
+                  {currentList?.items?.map((item: any) => {
                     const coverUrl = item.pic || item.cover;
                     return (
                       <Card
-                        key={index}
+                        key={item.bvid || item.aid}
                         isPressable
                         shadow="sm"
                         className="c-list-card"

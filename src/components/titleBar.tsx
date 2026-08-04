@@ -33,13 +33,12 @@ const formatBytes = (bytes: number) => {
 
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
   // 版本号在运行时从后端获取 (Cargo.toml / tauri.conf.json)
-  const [appVersion, setAppVersion] = useState("");
-  const [appVersionNo, setAppVersionNo] = useState(0);
   const [isMac, setIsMac] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const versionRef = useRef({ version: "", build: 0 });
   const { showDialog, closeDialog, updateDialog } = useDialog();
   // 用户点击「取消」后置位，检查完成后不再弹出任何结果对话框
   const updateCancelledRef = useRef(false);
@@ -48,8 +47,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   useEffect(() => {
     invoke<AppVersion>("get_app_version").then((v) => {
-      setAppVersion(v.version);
-      setAppVersionNo(v.build);
+      versionRef.current = { version: v.version, build: v.build };
     });
     invoke<string>("get_platform").then((platform: string) => {
       setIsMac(platform === "darwin");
@@ -94,10 +92,11 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   const handleShowAbout = () => {
     setShowMenu(false);
+    const version = versionRef.current;
     showDialog({
       title: "关于 bili-FM",
       type: "info",
-      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${appVersion} (Build ${appVersionNo})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
+      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${version.version} (Build ${version.build})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
       buttons: [{ label: "好的", value: "ok", primary: true }],
     });
   };

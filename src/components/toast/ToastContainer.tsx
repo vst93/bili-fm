@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 
 import Toast from "./Toast";
 
+const MAX_VISIBLE_TOASTS = 4;
+
 export interface ToastItem {
   id: number;
   type: "success" | "error" | "info" | "warning";
@@ -19,7 +21,10 @@ const ToastContainer = () => {
         id: Date.now(),
       };
 
-      setToasts((prev) => [...prev, newToast]);
+      setToasts((prev) => [
+        ...prev.slice(-(MAX_VISIBLE_TOASTS - 1)),
+        newToast,
+      ]);
     };
 
     window.addEventListener("show-toast" as any, handleToast);
