@@ -112,12 +112,12 @@ textarea,
 /* Performance: skip rendering for off-screen list items */
 .c-list-card {
     content-visibility: auto;
-    contain-intrinsic-size: 180px;
+    contain-intrinsic-size: auto 180px;
 }
 
 /* Playlist rows are much shorter than grid cards — use a smaller placeholder */
 .c-list-card.c-list-card-row {
-    contain-intrinsic-size: 56px;
+    contain-intrinsic-size: auto 56px;
 }
 
 body {
@@ -1218,8 +1218,6 @@ body.mini-mode #root::before {
     background-image: var(--glass-sheen-static);
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
-    /* Performance: limit repaint area to this layer */
-    contain: layout style paint;
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -1460,8 +1458,6 @@ body.mini-mode #root::before {
         0 18px 44px rgba(15, 23, 42, 0.1) !important;
     backdrop-filter: var(--liquid-blur);
     -webkit-backdrop-filter: var(--liquid-blur);
-    /* Performance: limit repaint area to the menu */
-    contain: layout style paint;
 }
 
 #settings-menu button {
@@ -1557,10 +1553,8 @@ body.mini-mode #root::before {
 #video-cover.record-disc {
     animation: record-spin 22s linear infinite;
     animation-play-state: paused;
-    /* Performance: promote to compositor layer for GPU-accelerated rotation,
-       contain repaints to this element only */
+    /* Performance: promote to compositor layer for GPU-accelerated rotation */
     will-change: transform;
-    contain: layout style paint;
 }
 
 #video-cover.is-playing {
@@ -1568,12 +1562,6 @@ body.mini-mode #root::before {
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.15),
         0 12px 36px rgba(14, 165, 233, 0.16);
-}
-
-/* Performance: when not playing, drop will-change to free compositor memory.
-   The static transform preserves any rotation angle from the last frame. */
-#video-cover.record-disc:not(.is-playing) {
-    will-change: auto;
 }
 
 .cover-art {
