@@ -71,6 +71,11 @@ export default function IndexPage() {
   const [searchInputValue, setSearchInputValue] = useState("");
   const searchRequestIdRef = useRef(0);
   const [videoInfo, setVideoInfo] = useState<BL.VideoInfo | undefined>();
+  // playingInfo: 正在播放的视频信息 (与 videoInfo 分离)
+  // videoInfo 随浏览操作(列表点击/handleUrlJump)立即更新, 但此时未必开始播放。
+  // playingInfo 仅在真正开始播放时(handleVideoSelect/handlePlaylistVideoSelect)设置,
+  // 显示层用它而非 videoInfo, 避免"点了列表但还没播放, 首页信息就变了"。
+  const [playingInfo, setPlayingInfo] = useState<BL.VideoInfo | undefined>();
   const [playUrl, setPlayUrl] = useState<string>("");
   const [currentPart, setCurrentPart] = useState<string>("");
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -764,10 +769,8 @@ export default function IndexPage() {
       }
       // 更新显示的视频信息（保留视频标题，选集标题通过 currentPart 单独显示）
       if (videoInfo) {
-        setVideoInfo({
-          ...videoInfo,
-          cid: cid,
-        });
+        setVideoInfo({ ...videoInfo, cid: cid });
+        setPlayingInfo({ ...videoInfo, cid: cid });
       }
     } catch (error: any) {
       console.error("获取播放地址失败:", error);
@@ -947,6 +950,7 @@ export default function IndexPage() {
         setCurrentBvid(item.bvid);
         setPageNum(info.pages?.length || 0);
         setVideoInfo(info);
+        setPlayingInfo(info);
         pages = info.pages;
         pic = info.pic || "";
       }
@@ -962,6 +966,9 @@ export default function IndexPage() {
       setCurrentPart(item.part);
       // 确保弹幕按钮可用：将 cid 同步为当前播放项
       setVideoInfo((prev) =>
+        prev ? { ...prev, cid: item.cid } : prev,
+      );
+      setPlayingInfo((prev) =>
         prev ? { ...prev, cid: item.cid } : prev,
       );
       const episodeIndex = pages?.findIndex((p) => p.cid === item.cid) ?? -1;
@@ -1683,18 +1690,15 @@ export default function IndexPage() {
   mediaNavigationRef.current.previous = handlePrevTrack;
   mediaNavigationRef.current.next = handleNextTrack;
 
-  // 播放列表模式下，显示信息从当前播放项派生，避免浏览其他视频时覆盖。
-  // 关键：videoInfo 可能被浏览操作(handleUrlJump)覆盖为其他视频的信息，
-  // 播放列表模式下需要用当前播放项的标识覆盖回来。
-  // - bvid 一致时：videoInfo 就是当前视频的完整信息，保留 desc/owner 等，
-  //   仅用 item 覆盖播放相关字段
-  // - bvid 不一致时：videoInfo 是其他视频的信息，只能用 item 的快照 + 清空不可靠字段
+  // displayVideoInfo: 显示层使用的信息, 基于正在播放的视频(playingInfo)而非浏览中的(videoInfo)。
+  // - 播放列表模式: 从 playingInfo + playlist item 派生, bvid 一致时保留 desc/owner
+  // - 非播放列表模式: 直接用 playingInfo (未播放时为 undefined, 显示占位)
   const displayVideoInfo = useMemo(() => {
     if (isPlaylistMode && currentPlaylistIndex >= 0 && playlist[currentPlaylistIndex]) {
       const item = playlist[currentPlaylistIndex];
-      if (videoInfo?.bvid === item.bvid) {
+      if (playingInfo?.bvid === item.bvid) {
         return {
-          ...videoInfo,
+          ...playingInfo,
           aid: item.aid,
           cid: item.cid,
           title: item.title,
@@ -1702,7 +1706,7 @@ export default function IndexPage() {
         };
       }
       return {
-        ...videoInfo,
+        ...playingInfo,
         title: item.title,
         pic: item.pic,
         bvid: item.bvid,
@@ -1716,8 +1720,8 @@ export default function IndexPage() {
         videos: 0,
       };
     }
-    return videoInfo;
-  }, [isPlaylistMode, currentPlaylistIndex, playlist, videoInfo]);
+    return playingInfo;
+  }, [isPlaylistMode, currentPlaylistIndex, playlist, playingInfo]);
 
   return (
     <DefaultLayout>
