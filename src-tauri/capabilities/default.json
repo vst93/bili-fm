@@ -14,7 +14,6 @@
     "core:window:allow-unminimize",
     "shell:default",
     "store:default",
-    "global-shortcut:default",
     "updater:default",
     "process:default"
   ]

@@ -57,7 +57,7 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式。
+脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式，并自动处理 Wayland/X11 所需的环境变量。
 
 **安装预览版：**
 
@@ -168,12 +168,17 @@ sudo apt install libfuse2
 - **GNOME**：安装 [AppIndicator 扩展](https://extensions.gnome.org/extension/615/appindicator-support-for-gnome-shell/)
 - **KDE Plasma**：原生支持，无需额外配置
 
-#### Wayland 下窗口装饰异常
+#### Wayland 环境注意事项
 
-如果使用 Wayland 且窗口标题栏显示异常，尝试设置环境变量：
+在 Wayland 桌面（如 GNOME on Wayland、Sway）下，可能遇到窗口装饰异常或渲染问题。安装脚本会自动设置以下环境变量：
+
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` — 规避 WebKit2GTK dmabuf 渲染器在某些 GPU 驱动上的 EGL 初始化失败
+- `WEBKIT_DISABLE_COMPOSITING_MODE=1` — Wayland 下的窗口装饰兼容
+
+手动安装的用户可设置这些环境变量后运行：
 
 ```bash
-WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
 ```
 
 ### 应用更新
@@ -263,7 +268,7 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-The script auto-detects your platform and architecture, then downloads and installs the latest stable release. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut.
+The script auto-detects your platform and architecture, then downloads and installs the latest stable release. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut, and automatically handles the environment variables required for Wayland/X11.
 
 **Install pre-release:**
 
@@ -374,12 +379,17 @@ Some desktop environments (e.g., GNOME) don't enable tray icons by default:
 - **GNOME**: Install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support-for-gnome-shell/)
 - **KDE Plasma**: Supported natively, no extra config needed
 
-#### Window decoration issues on Wayland
+#### Wayland Notes
 
-If window title bars render incorrectly under Wayland, try:
+On Wayland desktops (e.g., GNOME on Wayland, Sway), you may encounter window decoration or rendering issues. The install script automatically sets the following environment variables:
+
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` — avoids WebKit2GTK dmabuf renderer EGL initialization failures on certain GPU drivers
+- `WEBKIT_DISABLE_COMPOSITING_MODE=1` — window decoration compatibility under Wayland
+
+For manual installs, set these environment variables before running:
 
 ```bash
-WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
 ```
 
 ### Updates
