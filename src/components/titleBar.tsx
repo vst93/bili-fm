@@ -184,6 +184,24 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
    */
   const handleCheckUpdate = async () => {
     setShowMenu(false);
+
+    // Microsoft Store 安装的版本由商店接管更新，应用内更新不可用
+    try {
+      const isStore = await invoke<boolean>("is_ms_store_install");
+      if (isStore) {
+        showDialog({
+          title: "检查更新",
+          type: "info",
+          message:
+            "本应用通过 Microsoft Store 安装，请通过商店进行更新。\n\n打开 Microsoft Store -> 搜索 Bili FM -> 点击更新",
+          buttons: [{ label: "好的", value: "ok", primary: true }],
+        });
+        return;
+      }
+    } catch {
+      // 检测失败时继续走正常更新流程
+    }
+
     updateCancelledRef.current = false;
 
     // 立即显示加载对话框，不等网络返回；提供「取消」按钮避免慢网络下无法退出

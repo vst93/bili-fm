@@ -97,6 +97,7 @@ pub fn run() {
             // 应用信息 / 更新 / 退出
             commands::check_for_updates,
             commands::get_platform,
+            commands::is_ms_store_install,
             commands::quit_app,
             commands::get_app_version,
             // 窗口控制 (迷你模式等)

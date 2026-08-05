@@ -267,6 +267,21 @@ pub fn get_platform() -> String {
     bilibili::get_platform()
 }
 
+/// 检测是否为 Microsoft Store 安装版本。
+/// MS Store 应用的 exe 路径包含 `WindowsApps`。
+#[tauri::command]
+pub fn is_ms_store_install() -> bool {
+    if cfg!(target_os = "windows") {
+        if let Ok(exe) = std::env::current_exe() {
+            return exe
+                .to_string_lossy()
+                .to_lowercase()
+                .contains("windowsapps");
+        }
+    }
+    false
+}
+
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
