@@ -37,11 +37,6 @@ const Player = ({
   const audioRef = useRef<HTMLAudioElement>(null);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const speedPopoverRef = useRef<HTMLDivElement>(null);
-  const audioGraphRef = useRef<{
-    ctx: AudioContext;
-    source: MediaElementAudioSourceNode;
-    compressor: DynamicsCompressorNode;
-  } | null>(null);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const lastReportedSecondRef = useRef(-1);
   const lastVolumeRef = useRef(1);
@@ -51,7 +46,6 @@ const Player = ({
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isSpeedOpen, setIsSpeedOpen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [isLoudnessEq, setIsLoudnessEq] = useState(false);
 
   onTimeUpdateRef.current = onTimeUpdate;
 
@@ -115,17 +109,6 @@ const Player = ({
     }
   }, [isPlaying, aid, cid]);
 
-  useEffect(() => {
-    return () => {
-      if (audioGraphRef.current) {
-        try {
-          void audioGraphRef.current.ctx.close();
-        } catch {}
-        audioGraphRef.current = null;
-      }
-    };
-  }, []);
-
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -154,42 +137,6 @@ const Player = ({
     audio.muted = value === 0;
     if (value > 0) lastVolumeRef.current = value;
     setVolume(value);
-  };
-
-  const initAudioGraph = () => {
-    if (audioGraphRef.current || !audioRef.current) return;
-    const ctx = new AudioContext();
-    if (ctx.state === "suspended") void ctx.resume();
-    const source = ctx.createMediaElementSource(audioRef.current);
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -50;
-    compressor.knee.value = 40;
-    compressor.ratio.value = 12;
-    compressor.attack.value = 0;
-    compressor.release.value = 0.25;
-    source.connect(ctx.destination);
-    audioGraphRef.current = { ctx, source, compressor };
-  };
-
-  const toggleLoudnessEq = () => {
-    if (!audioGraphRef.current) initAudioGraph();
-    const graph = audioGraphRef.current;
-    if (!graph) return;
-    if (graph.ctx.state === "suspended") void graph.ctx.resume();
-    const newEnabled = !isLoudnessEq;
-    setIsLoudnessEq(newEnabled);
-    try {
-      graph.source.disconnect();
-      graph.compressor.disconnect();
-    } catch {}
-    if (newEnabled) {
-      graph.source.connect(graph.compressor);
-      graph.compressor.connect(graph.ctx.destination);
-    } else {
-      graph.source.connect(graph.ctx.destination);
-    }
-    const audio = audioRef.current;
-    if (audio && src && !audio.paused) void audio.play().catch(() => {});
   };
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -321,18 +268,6 @@ const Player = ({
             </div>
           )}
         </div>
-
-        <button
-          aria-label={isLoudnessEq ? "关闭音量均衡" : "开启音量均衡"}
-          className="player-button player-eq-button"
-          data-active={isLoudnessEq || undefined}
-          disabled={!src}
-          title={isLoudnessEq ? "音量均衡: 开" : "音量均衡: 关"}
-          type="button"
-          onClick={toggleLoudnessEq}
-        >
-          <span className="player-eq-label">EQ</span>
-        </button>
       </div>
     </div>
   );

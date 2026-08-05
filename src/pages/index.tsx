@@ -2,6 +2,7 @@ import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { CloseSmall } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
+import { load } from "@tauri-apps/plugin-store";
 import QRCode from "qrcode";
 
 import { toast } from "../utils/toast";
@@ -147,6 +148,9 @@ export default function IndexPage() {
   );
 
   const playlistLoadedRef = useRef(false);
+  const playlistStoreRef = useRef<Awaited<ReturnType<typeof load>> | null>(
+    null,
+  );
   const loginPollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const feedLoadMoreRef = useRef(false);
   const recommendRequestRef = useRef(new Set<string>());
@@ -264,17 +268,6 @@ export default function IndexPage() {
     });
     // 初始化时获取用户信息
     refreshUserInfo();
-    // 从本地加载播放列表和播放模式
-    invoke<string>("get_playlist").then((json) => {
-      if (json) {
-        try {
-          setPlaylist(JSON.parse(json));
-        } catch (e) {
-          console.error("加载播放列表失败:", e);
-        }
-      }
-      playlistLoadedRef.current = true;
-    });
     invoke<string>("get_playlist_play_mode").then((mode) => {
       if (mode === "shuffle" || mode === "sequence") {
         setPlaylistPlayMode(mode);
@@ -282,11 +275,80 @@ export default function IndexPage() {
     });
   }, []);
 
+  // 从本地加载播放列表和播放模式
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const store = await load("playlist.json", { autoSave: false });
+        const [
+          savedUserPlaylist,
+          savedSeriesPlaylist,
+          savedIndex,
+          savedSeriesIndex,
+        ] = await Promise.all([
+          store.get<PlaylistItem[]>("userPlaylist"),
+          store.get<PlaylistItem[]>("seriesPlaylist"),
+          store.get<number>("currentPlaylistIndex"),
+          store.get<number>("currentSeriesPlaylistIndex"),
+        ]);
+
+        if (cancelled) return;
+        playlistStoreRef.current = store;
+        if (savedUserPlaylist) {
+          setPlaylist(savedUserPlaylist);
+        } else {
+          try {
+            const json = await invoke<string>("get_playlist");
+            if (json) setPlaylist(JSON.parse(json));
+          } catch (e) {
+            console.error("加载播放列表失败:", e);
+          }
+        }
+        if (savedSeriesPlaylist) setSeriesPlaylist(savedSeriesPlaylist);
+        if (savedIndex !== null && savedIndex !== undefined) {
+          setCurrentPlaylistIndex(savedIndex);
+        }
+        if (savedSeriesIndex !== null && savedSeriesIndex !== undefined) {
+          setCurrentSeriesPlaylistIndex(savedSeriesIndex);
+        }
+        playlistLoadedRef.current = true;
+      } catch (e) {
+        console.error("Failed to load playlist:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 播放列表变更时自动持久化（初始加载完成后才生效）
   useEffect(() => {
-    if (!playlistLoadedRef.current) return;
-    invoke("set_playlist", { playlistJson: JSON.stringify(playlist) });
-  }, [playlist]);
+    const store = playlistStoreRef.current;
+    if (!playlistLoadedRef.current || !store) return;
+
+    (async () => {
+      try {
+        await store.set("userPlaylist", playlist);
+        await store.set("currentPlaylistIndex", currentPlaylistIndex);
+        await store.set("seriesPlaylist", seriesPlaylist);
+        await store.set(
+          "currentSeriesPlaylistIndex",
+          currentSeriesPlaylistIndex,
+        );
+        await store.save();
+      } catch (e) {
+        console.error("Failed to save playlist:", e);
+      }
+    })();
+  }, [
+    playlist,
+    currentPlaylistIndex,
+    seriesPlaylist,
+    currentSeriesPlaylistIndex,
+  ]);
 
   // 播放模式变更时自动持久化
   useEffect(() => {
@@ -821,6 +883,7 @@ export default function IndexPage() {
     }
 
     if (!videoInfo?.pages || !videoInfo.pages.length) return;
+    if (videoInfo.pages.length <= 1) return;
 
     const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
     const nextPage = videoInfo.pages[nextIndex];
@@ -855,6 +918,8 @@ export default function IndexPage() {
 
       handlePlaylistVideoSelect(prevIndex);
     } else if (videoInfo?.pages) {
+      if (videoInfo.pages.length <= 1) return;
+
       const prevIndex =
         (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
       const prevPage = videoInfo.pages[prevIndex];
@@ -891,6 +956,8 @@ export default function IndexPage() {
       }
       handlePlaylistVideoSelect(nextIndex);
     } else if (videoInfo?.pages) {
+      if (videoInfo.pages.length <= 1) return;
+
       const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
       const nextPage = videoInfo.pages[nextIndex];
 
