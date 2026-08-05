@@ -195,16 +195,9 @@ install_linux() {
   # This works around a known WebKit2GTK EGL initialization failure on
   # certain GPU driver / Mesa combinations (EGL_BAD_PARAMETER).
   local wrapper="${INSTALL_DIR}/bili-fm"
-
-  # Detect Wayland session
-  local WAYLAND_ENV=""
-  if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
-    WAYLAND_ENV="WEBKIT_DISABLE_COMPOSITING_MODE=1 "
-  fi
-
   cat > "$wrapper" <<EOF
 #!/usr/bin/env bash
-exec env WEBKIT_DISABLE_DMABUF_RENDERER=1 ${WAYLAND_ENV}"\${BASH_SOURCE[0]%/*}/${appimage_name}" "\$@"
+exec env WEBKIT_DISABLE_DMABUF_RENDERER=1 "\${BASH_SOURCE[0]%/*}/${appimage_name}" "\$@"
 EOF
   chmod +x "$wrapper"
 
@@ -233,17 +226,6 @@ EOF
   info "安装完成！"
   info "  命令行运行: bili-fm"
   info "  或从应用菜单启动 bili-FM"
-
-  # Also check if .deb is available for this system
-  if command -v dpkg &>/dev/null; then
-    info "  也可下载 .deb 包安装: sudo dpkg -i bili-FM-linux-${arch}.deb"
-  fi
-
-  # Arch Linux users can also convert the .deb package with debtap
-  if command -v pacman &>/dev/null; then
-    info "  Arch Linux 用户也可使用 debtap 转换 .deb 包:"
-    info "    debtap bili-FM-linux-${arch}.deb && sudo pacman -U bili-fm-*.pkg.tar.zst"
-  fi
 
   # Warn if PATH doesn't include install dir
   case ":${PATH}:" in
