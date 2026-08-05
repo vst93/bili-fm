@@ -846,6 +846,8 @@ export default function IndexPage() {
         : currentPlaylistIndex;
 
     if (isPlaylistMode && activePlaylist.length > 0) {
+      if (activePlaylist.length <= 1) return;
+
       const prevIndex =
         activePlaylistIndex <= 0
           ? activePlaylist.length - 1
@@ -876,6 +878,8 @@ export default function IndexPage() {
         : currentPlaylistIndex;
 
     if (isPlaylistMode && activePlaylist.length > 0) {
+      if (activePlaylist.length <= 1) return;
+
       let nextIndex: number;
 
       if (playlistPlayMode === "shuffle" && activePlaylist.length > 1) {
@@ -2095,6 +2099,12 @@ export default function IndexPage() {
               currentSeriesPlaylistIndex={currentSeriesPlaylistIndex}
               isPlaylistMode={isPlaylistMode}
               playMode={playlistPlayMode}
+              playingIndex={
+                activePlaylistType === "series"
+                  ? currentSeriesPlaylistIndex
+                  : currentPlaylistIndex
+              }
+              playingPlaylistType={activePlaylistType}
               playlist={playlist}
               seriesPlaylist={seriesPlaylist}
               onClear={handlePlaylistClear}

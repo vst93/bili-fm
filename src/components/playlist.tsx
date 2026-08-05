@@ -35,6 +35,8 @@ interface PlaylistProps {
   seriesPlaylist?: PlaylistItem[];
   currentSeriesPlaylistIndex?: number;
   activePlaylistType?: "user" | "series";
+  playingPlaylistType?: "user" | "series";
+  playingIndex?: number;
   playMode?: PlaylistPlayMode;
   isPlaylistMode?: boolean;
   onVideoSelect?: (index: number) => void;
@@ -52,6 +54,8 @@ const Playlist: FC<PlaylistProps> = ({
   seriesPlaylist = [],
   currentSeriesPlaylistIndex = -1,
   activePlaylistType = "user",
+  playingPlaylistType,
+  playingIndex,
   playMode = "sequence",
   isPlaylistMode = false,
   onVideoSelect,
@@ -194,7 +198,9 @@ const Playlist: FC<PlaylistProps> = ({
                 <div className="flex flex-col gap-1" style={{ width: "100%" }}>
                   {activePlaylist.map((item, index) => {
                     const isCurrent =
-                      isPlaylistMode && index === activePlaylistIndex;
+                      isPlaylistMode &&
+                      activePlaylistType === playingPlaylistType &&
+                      index === playingIndex;
                     const isDragOver =
                       !isSeriesPlaylist && dragOverIndex === index;
 
