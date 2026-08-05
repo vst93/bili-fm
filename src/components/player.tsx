@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { Pause, PlayOne, Timer, VolumeMute, VolumeNotice } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
-const PLAYBACK_RATES = [1, 1.25, 1.5, 2, 0.75] as const;
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
 
 interface PlayerProps {
   src?: string;
