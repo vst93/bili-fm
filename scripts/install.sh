@@ -177,26 +177,142 @@ install_linux() {
 
   info "检测到 Linux (${arch})"
 
-  # AppImage is universal - download to ~/.local/bin
+  need curl
+
+  # Arch Linux / pacman 系统: AppImage 在 Mesa 26+ 上有 EGL_BAD_PARAMETER 崩溃,
+  # 改用 .deb + debtap 转换安装, 走系统 webkit2gtk/mesa。
+  if command -v pacman &>/dev/null; then
+    install_linux_arch "$arch" "$tag"
+    return
+  fi
+
+  # Debian/Ubuntu: 直接用 .deb
+  if command -v dpkg &>/dev/null; then
+    install_linux_deb "$arch" "$tag"
+    return
+  fi
+
+  # 其他发行版: 回退到 AppImage
+  install_linux_appimage "$arch" "$tag"
+}
+
+# ── Arch Linux (pacman + debtap) ─────────────────────────────────────────────
+
+install_linux_arch() {
+  local arch="$1" tag="$2"
+  local deb_name="bili-FM-linux-${arch}.deb"
+  local deb_url="https://github.com/${REPO}/releases/download/${tag}/${deb_name}"
+
+  info "检测到 Arch Linux (pacman)"
+  info ""
+  info "⚠ 为什么不装 AppImage？"
+  info "  AppImage 自带的 webkit2gtk 库在 Arch 的滚动版 Mesa 驱动上"
+  info "  会触发 EGL_BAD_PARAMETER 崩溃（已知 bug，影响所有 Tauri AppImage）。"
+  info "  改用 .deb 包 + debtap 转换安装，走系统 webkit2gtk/mesa，可避免此问题。"
+  info ""
+
+  # 检查 debtap
+  if ! command -v debtap &>/dev/null; then
+    warn "未找到 debtap, 正在安装..."
+    if command -v yay &>/dev/null; then
+      yay -S --noconfirm debtap
+    elif command -v paru &>/dev/null; then
+      paru -S --noconfirm debtap
+    else
+      error "需要 debtap 但未找到, 也未检测到 yay/paru AUR 助手。\n请手动安装: yay -S debtap && sudo debtap -u"
+    fi
+    sudo debtap -u 2>/dev/null || true
+  fi
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' RETURN
+
+  local deb="${tmpdir}/${deb_name}"
+  info "下载 ${deb_url} ..."
+  curl -fSL -o "$deb" "$deb_url"
+
+  info "转换 .deb -> Arch 包 (debtap)..."
+  cd "$tmpdir"
+  debtap -q "$deb_name" 2>/dev/null || debtap "$deb_name"
+  local pkg_file
+  pkg_file=$(ls *.pkg.tar.* 2>/dev/null | head -1)
+  [[ -n "$pkg_file" ]] || error "debtap 转换失败"
+
+  info "安装 ${pkg_file} ..."
+  sudo pacman -U --noconfirm "$pkg_file"
+  cd - >/dev/null
+
+  # 图标和 .desktop
+  mkdir -p "$APPDIR_DIR" "$ICON_DIR"
+  local icon_url="https://raw.githubusercontent.com/${REPO}/${tag}/src-tauri/icons/icon.png"
+  curl -fsSL -o "${ICON_DIR}/bili-fm.png" "$icon_url" 2>/dev/null || true
+
+  cat > "${APPDIR_DIR}/bili-fm.desktop" <<EOF
+[Desktop Entry]
+Name=bili-FM
+Comment=Listen to Bilibili content in audio-only mode
+Exec=bili-fm
+Icon=bili-fm
+Type=Application
+Categories=AudioVideo;Audio;Player;
+Terminal=false
+StartupWMClass=bili-FM
+EOF
+  update-desktop-database "$APPDIR_DIR" 2>/dev/null || true
+
+  info "安装完成！"
+  info "  命令行运行: bili-fm"
+  info "  或从应用菜单启动 bili-FM"
+
+  _warn_path
+}
+
+# ── Debian/Ubuntu (dpkg) ─────────────────────────────────────────────────────
+
+install_linux_deb() {
+  local arch="$1" tag="$2"
+  local deb_name="bili-FM-linux-${arch}.deb"
+  local deb_url="https://github.com/${REPO}/releases/download/${tag}/${deb_name}"
+
+  info "检测到 Debian/Ubuntu (dpkg)"
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' RETURN
+
+  local deb="${tmpdir}/${deb_name}"
+  info "下载 ${deb_url} ..."
+  curl -fSL -o "$deb" "$deb_url"
+
+  info "安装 ${deb_name} ..."
+  sudo dpkg -i "$deb" || sudo apt-get install -f -y
+
+  info "安装完成！"
+  info "  命令行运行: bili-fm"
+  info "  或从应用菜单启动 bili-FM"
+}
+
+# ── AppImage (fallback) ──────────────────────────────────────────────────────
+
+install_linux_appimage() {
+  local arch="$1" tag="$2"
   local appimage_name="bili-FM-linux-${arch}.AppImage"
   local appimage_url="https://github.com/${REPO}/releases/download/${tag}/${appimage_name}"
 
-  need curl
+  info "使用 AppImage 安装"
+  warn "注意: AppImage 在某些滚动发行版 (Arch/Fedora) + Mesa 26+ 上可能白屏。"
+  warn "如遇白屏, 请改用 .deb 包安装。"
 
   mkdir -p "$INSTALL_DIR"
 
-  # Download AppImage with its original name
   local appimage="${INSTALL_DIR}/${appimage_name}"
   info "下载 ${appimage_url} ..."
   curl -fSL -o "$appimage" "$appimage_url"
   chmod +x "$appimage"
 
-  # Create a wrapper script that sets WEBKIT_DISABLE_DMABUF_RENDERER=1
-  # This works around a known WebKit2GTK EGL initialization failure on
-  # certain GPU driver / Mesa combinations (EGL_BAD_PARAMETER).
+  # Wrapper: 设置 WebKit2GTK 兼容环境变量
   local wrapper="${INSTALL_DIR}/bili-fm"
-
-  # Detect Wayland session
   local WAYLAND_ENV=""
   if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
     WAYLAND_ENV="WEBKIT_DISABLE_COMPOSITING_MODE=1 "
@@ -208,10 +324,8 @@ exec env WEBKIT_DISABLE_DMABUF_RENDERER=1 ${WAYLAND_ENV}"\${BASH_SOURCE[0]%/*}/$
 EOF
   chmod +x "$wrapper"
 
-  # Create .desktop entry
+  # .desktop entry
   mkdir -p "$APPDIR_DIR" "$ICON_DIR"
-
-  # Download icon from repo
   local icon_url="https://raw.githubusercontent.com/${REPO}/${tag}/src-tauri/icons/icon.png"
   curl -fsSL -o "${ICON_DIR}/bili-fm.png" "$icon_url" 2>/dev/null || true
 
@@ -226,30 +340,22 @@ Categories=AudioVideo;Audio;Player;
 Terminal=false
 StartupWMClass=bili-FM
 EOF
-
-  # Update desktop database if possible
   update-desktop-database "$APPDIR_DIR" 2>/dev/null || true
 
   info "安装完成！"
   info "  命令行运行: bili-fm"
   info "  或从应用菜单启动 bili-FM"
 
-  # Also check if .deb is available for this system
-  if command -v dpkg &>/dev/null; then
-    info "  也可下载 .deb 包安装: sudo dpkg -i bili-FM-linux-${arch}.deb"
-  fi
+  _warn_path
+}
 
-  # Arch Linux users can also convert the .deb package with debtap
-  if command -v pacman &>/dev/null; then
-    info "  Arch Linux 用户也可使用 debtap 转换 .deb 包:"
-    info "    debtap bili-FM-linux-${arch}.deb && sudo pacman -U bili-fm-*.pkg.tar.zst"
-  fi
-
-  # Warn if PATH doesn't include install dir
+_warn_path() {
   case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
-    *) warn "${INSTALL_DIR} 不在 PATH 中，请将其添加到 ~/.bashrc 或 ~/.zshrc:"
-       warn "  export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+    *)
+      warn "${INSTALL_DIR} 不在 PATH 中，请将其添加到 ~/.bashrc 或 ~/.zshrc:"
+      warn "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+      ;;
   esac
 }
 
