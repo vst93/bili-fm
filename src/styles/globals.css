@@ -1051,6 +1051,16 @@ html[data-time-of-day="latenight"] #root::before {
     opacity: 0.25;
 }
 
+/* 深色主题下播放栏背景跟随主题色, 避免浅白叠加发白 */
+html[data-time-of-day="midnight"] #player .player-controls,
+html[data-time-of-day="predawn"] #player .player-controls,
+html[data-time-of-day="dusk"] #player .player-controls,
+html[data-time-of-day="evening"] #player .player-controls,
+html[data-time-of-day="latenight"] #player .player-controls {
+    background: rgba(30, 38, 55, 0.35);
+    border-top-color: rgba(255, 255, 255, 0.08);
+}
+
 body.mini-mode #root::before {
     display: none;
 }
