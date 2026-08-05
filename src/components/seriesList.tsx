@@ -1,11 +1,12 @@
 import type { FC } from "react";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
+    Button,
     Drawer,
     DrawerContent,
     DrawerBody,
@@ -14,6 +15,7 @@ import {
     CardBody,
     CardFooter,
 } from "@heroui/react";
+import { Play } from "@icon-park/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
 
@@ -38,6 +40,7 @@ interface SeriesListProps {
     onSlideClick?: () => void;
     seriesVideos?: SeriesVideoItem[];
     onVideoSelect?: (bvid: string) => void;
+    onPlayAll?: (videos: SeriesVideoItem[]) => void | Promise<void>;
     seriesTitle?: string;
     currentBvid?: string;
     seriesVideosPage: number;
@@ -51,6 +54,7 @@ const SeriesList: FC<SeriesListProps> = ({
     onSlideClick,
     seriesVideos = [],
     onVideoSelect,
+    onPlayAll,
     seriesTitle = "",
     currentBvid,
     seriesVideosPage = 1,
@@ -61,6 +65,7 @@ const SeriesList: FC<SeriesListProps> = ({
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
+    const [isPlayingAll, setIsPlayingAll] = useState(false);
 
     // 预加载合集视频封面图
     const coverUrls = useMemo(
@@ -98,6 +103,17 @@ const SeriesList: FC<SeriesListProps> = ({
         }
     };
 
+    const handlePlayAll = async () => {
+        if (isPlayingAll || seriesVideos.length === 0) return;
+
+        setIsPlayingAll(true);
+        try {
+            await onPlayAll?.(seriesVideos);
+        } finally {
+            setIsPlayingAll(false);
+        }
+    };
+
     return (
         <Drawer
             classNames={{
@@ -110,8 +126,21 @@ const SeriesList: FC<SeriesListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex gap-2 py-2">
-                            {seriesTitle}
+                        <DrawerHeader className="flex items-center gap-3 py-2 pr-12">
+                            <span className="min-w-0 truncate">{seriesTitle}</span>
+                            <Button
+                                isDisabled={seriesVideos.length === 0}
+                                isLoading={isPlayingAll}
+                                size="sm"
+                                title="播放合集中的全部视频"
+                                variant="flat"
+                                onClick={handlePlayAll}
+                            >
+                                {!isPlayingAll && (
+                                    <Play fill="#666" size="16" theme="filled" />
+                                )}
+                                <span className="text-xs">播放全部</span>
+                            </Button>
                         </DrawerHeader>
                         <DrawerBody onScroll={handleScroll}>
                             <div

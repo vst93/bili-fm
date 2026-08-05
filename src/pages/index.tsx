@@ -927,8 +927,11 @@ export default function IndexPage() {
    * 播放播放列表中的指定项
    * @description 切换到播放列表模式，加载视频并自动播放第一集
    */
-  const handlePlaylistVideoSelect = async (index: number) => {
-    const item = playlist[index];
+  const handlePlaylistVideoSelect = async (
+    index: number,
+    sourcePlaylist: PlaylistItem[] = playlist,
+  ) => {
+    const item = sourcePlaylist[index];
 
     if (!item) return;
     setIsPlaylistMode(true);
@@ -979,6 +982,111 @@ export default function IndexPage() {
       toast({
         type: "error",
         content: "播放失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    }
+  };
+
+  /**
+   * 加载合集中的全部视频到播放列表并从第一集开始播放
+   */
+  const handleSeriesPlayAll = async (loadedVideos: BL.SeriesArchive[]) => {
+    if (loadedVideos.length === 0) return;
+
+    toast({ type: "info", content: "正在加载合集..." });
+
+    try {
+      const allVideos: BL.SeriesArchive[] = [];
+      const loadedBvids = new Set<string>();
+
+      loadedVideos.forEach((video) => {
+        if (!loadedBvids.has(video.bvid)) {
+          loadedBvids.add(video.bvid);
+          allVideos.push(video);
+        }
+      });
+
+      let nextPage = seriesVideosPage + 1;
+      while (true) {
+        const pageVideos = await invoke<BL.SeriesArchive[]>(
+          "get_series_videos",
+          {
+            mid: currentUpMid,
+            seriesId: currentSeriesId,
+            pageNum: nextPage,
+          },
+        );
+
+        if (pageVideos.length === 0) break;
+
+        let addedCount = 0;
+        pageVideos.forEach((video) => {
+          if (!loadedBvids.has(video.bvid)) {
+            loadedBvids.add(video.bvid);
+            allVideos.push(video);
+            addedCount += 1;
+          }
+        });
+
+        // 防止接口异常地重复返回同一页，导致无限请求
+        if (addedCount === 0) break;
+        nextPage += 1;
+      }
+
+      setSeriesVideos(allVideos.slice(0, MAX_RETAINED_LIST_ITEMS));
+      setSeriesVideosPage(Math.max(seriesVideosPage, nextPage - 1));
+
+      const items: PlaylistItem[] = [];
+      for (let i = 0; i < allVideos.length; i += 5) {
+        const batch = allVideos.slice(i, i + 5);
+        const results = await Promise.all(
+          batch.map(async (video): Promise<PlaylistItem | null> => {
+            try {
+              const info = await invoke<BL.VideoInfo>("get_clist", {
+                bvid: video.bvid,
+              });
+              const firstPage = info.pages?.[0];
+
+              if (!firstPage?.cid) return null;
+
+              return {
+                id: `${video.bvid}-${firstPage.cid}`,
+                bvid: video.bvid,
+                aid: info.aid,
+                cid: firstPage.cid,
+                part: firstPage.part || video.title,
+                first_frame: firstPage.first_frame || video.pic,
+                title: info.title || video.title,
+                pic: info.pic || video.pic,
+              };
+            } catch (error) {
+              console.error(`获取合集视频信息失败 (${video.bvid}):`, error);
+              return null;
+            }
+          }),
+        );
+
+        items.push(
+          ...results.filter((item): item is PlaylistItem => item !== null),
+        );
+      }
+
+      if (items.length === 0) {
+        toast({ type: "error", content: "合集中的视频暂时都无法播放" });
+        return;
+      }
+
+      setPlaylist(items);
+      setCurrentPlaylistIndex(-1);
+      setPlaylistPlayMode("sequence");
+      setIsPlaylistMode(true);
+      setShowSeriesList(false);
+      await handlePlaylistVideoSelect(0, items);
+      toast({ type: "success", content: `已加载 ${items.length} 集到播放列表` });
+    } catch (error: any) {
+      console.error("加载合集失败:", error);
+      toast({
+        type: "error",
+        content: "加载合集失败: " + (error?.message || error?.toString() || "未知错误"),
       });
     }
   };
@@ -1904,6 +2012,7 @@ export default function IndexPage() {
               seriesVideosPage={seriesVideosPage}
               setSeriesVideos={setSeriesVideos}
               setSeriesVideosPage={setSeriesVideosPage}
+              onPlayAll={handleSeriesPlayAll}
               onSlideClick={handleSeriesListClose}
               onVideoSelect={handleSearchVideoSelect}
             />
