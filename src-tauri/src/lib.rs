@@ -137,7 +137,16 @@ pub fn run() {
                     .transparent(false);
             }
 
-            window_builder.build()?;
+            let window = window_builder.build()?;
+
+            // Linux: 通过环境变量 WEBKIT_DEBUG=1 打开 Web Inspector (开发者工具),
+            // 用于排查 Linux 白屏/渲染问题。需要启用 tauri 的 `devtools` feature
+            // (release 构建中 open_devtools 仅在该 feature 下可用)。
+            // 正常使用不受影响: 未设置该变量时行为与之前完全一致。
+            #[cfg(target_os = "linux")]
+            if std::env::var("WEBKIT_DEBUG").as_deref() == Ok("1") {
+                window.open_devtools();
+            }
 
             // 启动内嵌图片代理 (127.0.0.1:4654), 对应旧版 main.go 的
             // AssetServer middleware + prewarmDNS。服务器在 tauri async runtime
