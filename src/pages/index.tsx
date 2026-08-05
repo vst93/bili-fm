@@ -762,20 +762,10 @@ export default function IndexPage() {
       if (typeof index === "number") {
         setCurrentIndex(index);
       }
-      // 更新显示的视频信息
+      // 更新显示的视频信息（保留视频标题，选集标题通过 currentPart 单独显示）
       if (videoInfo) {
         setVideoInfo({
           ...videoInfo,
-          title: videoInfo.pages?.[index || 0]?.part || videoInfo.title,
-          desc: videoInfo.desc,
-          owner_name: videoInfo.owner_name,
-          owner_face: videoInfo.owner_face,
-          pages: videoInfo.pages,
-          aid: videoInfo.aid,
-          bvid: videoInfo.bvid,
-          owner_mid: videoInfo.owner_mid,
-          pic: videoInfo.pic,
-          videos: videoInfo.videos,
           cid: cid,
         });
       }
@@ -1693,11 +1683,24 @@ export default function IndexPage() {
   mediaNavigationRef.current.previous = handlePrevTrack;
   mediaNavigationRef.current.next = handleNextTrack;
 
-  // 播放列表模式下，显示信息从当前播放项派生，避免浏览其他视频时覆盖
+  // 播放列表模式下，显示信息从当前播放项派生，避免浏览其他视频时覆盖。
+  // 关键：videoInfo 可能被浏览操作(handleUrlJump)覆盖为其他视频的信息，
+  // 播放列表模式下需要用当前播放项的标识覆盖回来。
+  // - bvid 一致时：videoInfo 就是当前视频的完整信息，保留 desc/owner 等，
+  //   仅用 item 覆盖播放相关字段
+  // - bvid 不一致时：videoInfo 是其他视频的信息，只能用 item 的快照 + 清空不可靠字段
   const displayVideoInfo = useMemo(() => {
     if (isPlaylistMode && currentPlaylistIndex >= 0 && playlist[currentPlaylistIndex]) {
       const item = playlist[currentPlaylistIndex];
-
+      if (videoInfo?.bvid === item.bvid) {
+        return {
+          ...videoInfo,
+          aid: item.aid,
+          cid: item.cid,
+          title: item.title,
+          pic: item.pic,
+        };
+      }
       return {
         ...videoInfo,
         title: item.title,
@@ -1705,9 +1708,14 @@ export default function IndexPage() {
         bvid: item.bvid,
         aid: item.aid,
         cid: item.cid,
+        desc: "",
+        owner_name: "",
+        owner_face: "",
+        owner_mid: 0,
+        pages: [],
+        videos: 0,
       };
     }
-
     return videoInfo;
   }, [isPlaylistMode, currentPlaylistIndex, playlist, videoInfo]);
 
