@@ -78,6 +78,7 @@ export default function IndexPage() {
   // 显示层用它而非 videoInfo, 避免"点了列表但还没播放, 首页信息就变了"。
   const [playingInfo, setPlayingInfo] = useState<BL.VideoInfo | undefined>();
   const [playUrl, setPlayUrl] = useState<string>("");
+  const [isLoudnessEq, setIsLoudnessEq] = useState(false);
   const [currentPart, setCurrentPart] = useState<string>("");
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [pageFirstFrame, setPageFirstFrame] = useState<string>("");
@@ -1961,6 +1962,17 @@ export default function IndexPage() {
     seriesPlaylist,
   ]);
 
+  const playerSrc = useMemo(() => {
+    if (
+      !isLoudnessEq ||
+      !playUrl ||
+      playUrl.startsWith("http://127.0.0.1")
+    ) {
+      return playUrl;
+    }
+    return `http://127.0.0.1:4654/audio-proxy?url=${encodeURIComponent(playUrl)}`;
+  }, [isLoudnessEq, playUrl]);
+
   return (
     <DefaultLayout>
       <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode && !isLinux} />
@@ -2033,8 +2045,9 @@ export default function IndexPage() {
         cid={displayVideoInfo?.cid}
         forcePause={isPlayVideo}
         isPlaying={isPlaying}
-        src={playUrl}
+        src={playerSrc}
         onEnded={handleVideoEnded}
+        onLoudnessEqChange={setIsLoudnessEq}
         onPlayStateChange={setIsPlaying}
         onTimeUpdate={showDanmakuList ? handleTimeUpdate : undefined}
       />

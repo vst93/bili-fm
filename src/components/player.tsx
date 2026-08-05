@@ -8,6 +8,7 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
 interface PlayerProps {
   src?: string;
   onEnded?: () => void;
+  onLoudnessEqChange?: (enabled: boolean) => void;
   onPlayStateChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (time: number) => void;
   isPlaying?: boolean;
@@ -27,6 +28,7 @@ const formatTime = (seconds: number) => {
 const Player = ({
   src,
   onEnded,
+  onLoudnessEqChange,
   onPlayStateChange,
   onTimeUpdate,
   isPlaying = false,
@@ -38,6 +40,14 @@ const Player = ({
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const speedPopoverRef = useRef<HTMLDivElement>(null);
   const onTimeUpdateRef = useRef(onTimeUpdate);
+  const audioGraphRef = useRef<{
+    ctx: AudioContext;
+    source: MediaElementAudioSourceNode;
+    compressor: DynamicsCompressorNode;
+  } | null>(null);
+  const graphCleanupTimerRef = useRef<number | null>(null);
+  const resumeTimeRef = useRef<number | null>(null);
+  const eqToggleRef = useRef(false);
   const lastReportedSecondRef = useRef(-1);
   const lastVolumeRef = useRef(1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -45,15 +55,18 @@ const Player = ({
   const [volume, setVolume] = useState(1);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isSpeedOpen, setIsSpeedOpen] = useState(false);
+  const [isLoudnessEq, setIsLoudnessEq] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
   onTimeUpdateRef.current = onTimeUpdate;
 
   useEffect(() => {
+    const isEqToggle = eqToggleRef.current;
+    eqToggleRef.current = false;
     setCurrentTime(0);
     setDuration(0);
     lastReportedSecondRef.current = -1;
-    if (src) onPlayStateChange?.(true);
+    if (src && !isEqToggle) onPlayStateChange?.(true);
   }, [src]);
 
   useEffect(() => {
@@ -61,6 +74,8 @@ const Player = ({
     if (!audio) return;
 
     if (isPlaying && src && !forcePause) {
+      const graph = audioGraphRef.current;
+      if (graph?.ctx.state === "suspended") void graph.ctx.resume();
       void audio.play().catch(() => onPlayStateChange?.(false));
     } else {
       audio.pause();
@@ -68,8 +83,48 @@ const Player = ({
   }, [forcePause, isPlaying, src]);
 
   useEffect(() => {
+    if (!isLoudnessEq || !audioRef.current) return;
+
+    if (graphCleanupTimerRef.current !== null) {
+      window.clearTimeout(graphCleanupTimerRef.current);
+      graphCleanupTimerRef.current = null;
+    }
+
+    let graph = audioGraphRef.current;
+    if (!graph) {
+      const ctx = new AudioContext();
+      const source = ctx.createMediaElementSource(audioRef.current);
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -50;
+      compressor.knee.value = 40;
+      compressor.ratio.value = 12;
+      compressor.attack.value = 0;
+      compressor.release.value = 0.25;
+      source.connect(compressor);
+      compressor.connect(ctx.destination);
+      graph = { ctx, source, compressor };
+      audioGraphRef.current = graph;
+    }
+    if (graph.ctx.state === "suspended") void graph.ctx.resume();
+
+    return () => {
+      graphCleanupTimerRef.current = window.setTimeout(() => {
+        try {
+          graph.source.disconnect();
+          graph.compressor.disconnect();
+        } catch {
+          // Audio nodes may already be disconnected while the element is replaced.
+        }
+        void graph.ctx.close();
+        if (audioGraphRef.current === graph) audioGraphRef.current = null;
+        graphCleanupTimerRef.current = null;
+      }, 0);
+    };
+  }, [isLoudnessEq]);
+
+  useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = playbackRate;
-  }, [playbackRate]);
+  }, [isLoudnessEq, playbackRate]);
 
   useEffect(() => {
     if (!isVolumeOpen) return;
@@ -139,6 +194,29 @@ const Player = ({
     setVolume(value);
   };
 
+  const handleLoadedMetadata = (audio: HTMLAudioElement) => {
+    audio.volume = volume;
+    audio.muted = volume === 0;
+    audio.playbackRate = playbackRate;
+    const resumeTime = resumeTimeRef.current;
+    if (resumeTime === null) return;
+
+    audio.currentTime = Math.min(resumeTime, audio.duration || resumeTime);
+    setCurrentTime(audio.currentTime);
+    resumeTimeRef.current = null;
+  };
+
+  const toggleLoudnessEq = () => {
+    const newEnabled = !isLoudnessEq;
+    const audio = audioRef.current;
+    if (audio && Number.isFinite(audio.currentTime)) {
+      resumeTimeRef.current = audio.currentTime;
+    }
+    eqToggleRef.current = Boolean(onLoudnessEqChange);
+    setIsLoudnessEq(newEnabled);
+    onLoudnessEqChange?.(newEnabled);
+  };
+
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
@@ -146,12 +224,15 @@ const Player = ({
       {/* Audio-only streams do not provide a timed-text track. */}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
+        key={isLoudnessEq ? "eq" : "direct"}
         ref={audioRef}
+        crossOrigin={isLoudnessEq ? "anonymous" : undefined}
         preload="metadata"
         src={src || undefined}
         onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
         onEnded={onEnded}
         onError={() => onPlayStateChange?.(false)}
+        onLoadedMetadata={(event) => handleLoadedMetadata(event.currentTarget)}
         onPause={() => onPlayStateChange?.(false)}
         onPlay={() => onPlayStateChange?.(true)}
         onTimeUpdate={handleTimeUpdate}
@@ -268,6 +349,18 @@ const Player = ({
             </div>
           )}
         </div>
+
+        <button
+          aria-label={isLoudnessEq ? "关闭音量均衡" : "开启音量均衡"}
+          className="player-button player-eq-button"
+          data-active={isLoudnessEq || undefined}
+          disabled={!src}
+          title={isLoudnessEq ? "音量均衡: 开" : "音量均衡: 关"}
+          type="button"
+          onClick={toggleLoudnessEq}
+        >
+          <span className="player-eq-label">EQ</span>
+        </button>
       </div>
     </div>
   );

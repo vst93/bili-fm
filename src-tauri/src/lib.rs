@@ -85,6 +85,7 @@ pub fn run() {
             commands::report_play_progress,
             // 图片
             commands::proxy_image_url,
+            commands::proxy_audio_url,
             commands::get_image_proxy_port,
             // 播放列表持久化
             commands::get_playlist,

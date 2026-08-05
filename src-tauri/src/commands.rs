@@ -198,6 +198,12 @@ pub fn proxy_image_url(url: String) -> String {
     bilibili::proxy_image_url(&url)
 }
 
+// 音频代理
+#[tauri::command]
+pub fn proxy_audio_url(url: String) -> String {
+    bilibili::proxy_audio_url(&url)
+}
+
 #[tauri::command]
 pub fn get_image_proxy_port() -> u16 {
     bilibili::get_image_proxy_port()

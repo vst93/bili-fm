@@ -1387,6 +1387,16 @@ pub fn proxy_image_url(url: &str) -> String {
     )
 }
 
+pub fn proxy_audio_url(url: &str) -> String {
+    if url.is_empty() || url.starts_with("http://127.0.0.1") {
+        return url.to_string();
+    }
+    format!(
+        "http://127.0.0.1:{IMAGE_PROXY_PORT}/audio-proxy?url={}",
+        urlencode(url)
+    )
+}
+
 pub fn get_image_proxy_port() -> u16 {
     IMAGE_PROXY_PORT
 }

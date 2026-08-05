@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use axum::body::Body;
 use axum::extract::Query;
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -40,7 +41,6 @@ fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(15))
             .danger_accept_invalid_certs(true)
             .build()
@@ -51,13 +51,80 @@ fn client() -> &'static reqwest::Client {
 /// 启动图片代理服务器 (阻塞直到服务器退出)。
 /// 调用方应在 tauri 的 async runtime 中 spawn (Round 2 的 lib.rs)。
 pub async fn start_server() -> Result<(), String> {
-    let app = Router::new().route("/image-proxy", get(handle_image_proxy));
+    let app = Router::new()
+        .route("/image-proxy", get(handle_image_proxy))
+        .route("/audio-proxy", get(handle_audio_proxy));
     let listener = TcpListener::bind(("127.0.0.1", IMAGE_PROXY_PORT))
         .await
         .map_err(|e| format!("图片代理端口 {IMAGE_PROXY_PORT} 绑定失败: {e}"))?;
     #[cfg(debug_assertions)]
     println!("image-proxy listening on http://127.0.0.1:{IMAGE_PROXY_PORT}");
     axum::serve(listener, app).await.map_err(|e| e.to_string())
+}
+
+async fn handle_audio_proxy(
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(url) = params.get("url").filter(|url| !url.is_empty()) else {
+        return (StatusCode::BAD_REQUEST, "Missing 'url' query parameter").into_response();
+    };
+    let mut audio_url = url.clone();
+    if audio_url.starts_with("//") {
+        audio_url = format!("https:{audio_url}");
+    }
+
+    let mut request = client()
+        .get(&audio_url)
+        .header(header::USER_AGENT, UA_CHROME_131)
+        .header(header::REFERER, "https://www.bilibili.com/")
+        .header(header::ACCEPT, "audio/*,*/*;q=0.8")
+        .header(header::ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8");
+    if let Some(range) = headers.get(header::RANGE) {
+        request = request.header(header::RANGE, range);
+    }
+
+    let upstream = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            #[cfg(debug_assertions)]
+            eprintln!("audio-proxy: failed for {audio_url}: {error}");
+            return (StatusCode::BAD_GATEWAY, "Failed to fetch audio").into_response();
+        }
+    };
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let mut response = Response::new(Body::from_stream(upstream.bytes_stream()));
+    *response.status_mut() = status;
+
+    let response_headers = response.headers_mut();
+    response_headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    response_headers.insert(
+        header::ACCEPT_RANGES,
+        HeaderValue::from_static("bytes"),
+    );
+    response_headers.insert(
+        header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("Accept-Ranges, Content-Length, Content-Range"),
+    );
+    for name in [
+        header::CONTENT_TYPE,
+        header::CONTENT_LENGTH,
+        header::CONTENT_RANGE,
+        header::ETAG,
+        header::LAST_MODIFIED,
+    ] {
+        if let Some(value) = upstream_headers.get(&name) {
+            response_headers.insert(name, value.clone());
+        }
+    }
+    if !response_headers.contains_key(header::CONTENT_TYPE) {
+        response_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("audio/mpeg"));
+    }
+    response
 }
 
 async fn handle_image_proxy(Query(params): Query<HashMap<String, String>>) -> Response {
@@ -151,6 +218,7 @@ impl std::fmt::Display for FetchError {
 async fn fetch_image(url: &str) -> Result<(String, Vec<u8>), FetchError> {
     let resp = client()
         .get(url)
+        .timeout(Duration::from_secs(30))
         .header(header::USER_AGENT, UA_CHROME_131)
         .header(header::REFERER, "https://www.bilibili.com/")
         .header(
