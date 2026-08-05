@@ -7,7 +7,14 @@
     <title>bili-FM</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-fallback" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#1a1a2e;color:#e0e0e0;font-family:system-ui;font-size:20px;">
+        <div style="text-align:center;">
+          <h1 style="color:#fff;">bili-FM 加载中...</h1>
+          <p style="color:#aaa;font-size:14px;">如果你持续看到此页面，说明 JavaScript 未执行</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
