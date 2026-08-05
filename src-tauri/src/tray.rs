@@ -5,8 +5,8 @@
 //! - 右键菜单: 「显示窗口」/「退出」
 //! - Linux (libappindicator): 不触发 Click 事件, 菜单常驻「显示窗口」恢复窗口
 //!
-//! 窗口关闭行为见 lib.rs 的 `on_window_event`: macOS/Linux 关闭时隐藏到托盘
-//! (托盘常驻), Windows 关闭即退出。
+//! 窗口关闭行为见 lib.rs 的 `on_window_event`: 全平台关闭时隐藏到托盘
+//! (托盘常驻)。
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -53,7 +53,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// 显示并聚焦主窗口 (从托盘恢复, 对应旧版 bringWindowToFront 等逻辑)。
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();

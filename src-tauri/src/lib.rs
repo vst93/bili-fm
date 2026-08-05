@@ -10,8 +10,8 @@
 //!
 //! 行为对齐旧版 main.go:
 //! - Windows: 设置 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 允许混合内容 (图片代理)
-//! - macOS: 原生菜单 (关于 / 快捷键 / 检查更新 / 退出), 关闭窗口仅隐藏
-//! - macOS/Linux: 关闭窗口隐藏到托盘 (托盘常驻); Windows: 关闭即退出
+//! - macOS: 原生菜单 (关于 / 快捷键 / 检查更新 / 退出)
+//! - 全平台: 关闭窗口隐藏到托盘 (托盘常驻)
 //! - 单实例: 第二实例启动时唤起已运行实例的主窗口
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -22,7 +22,7 @@ pub mod dkv;
 pub mod proxy;
 pub mod tray;
 
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -46,11 +46,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 第二实例启动: 显示并聚焦已运行实例的主窗口
             // (对应旧版 main.go SingleInstanceLock.OnSecondInstanceLaunch)
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            tray::show_main_window(app);
         }))
         .invoke_handler(tauri::generate_handler![
             // 搜索 / 视频信息
@@ -178,23 +174,24 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // 窗口关闭行为 (对应旧版 HideWindowOnClose + OnBeforeClose):
-            // - macOS/Linux: 关闭按钮 / Cmd+W / Alt+F4 仅隐藏窗口, 托盘常驻
-            // - Windows: 关闭窗口即退出应用
+            // 全平台关闭按钮 / Cmd+W / Alt+F4 仅隐藏窗口, 托盘常驻。
             if let WindowEvent::CloseRequested { api, .. } = event {
-                #[cfg(not(target_os = "windows"))]
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
+                api.prevent_close();
+                let _ = window.hide();
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building bili-FM")
         .run(|_app, event| {
-            // CMD+Q / 托盘「退出」/ quit_app 触发的退出均不拦截;
-            // Windows 关闭窗口后的退出流程也保持默认。
-            if let RunEvent::ExitRequested { .. } = event {
-                // 无需 prevent_exit: 允许正常退出
+            match event {
+                // macOS 点击 Dock 图标时恢复被关闭按钮隐藏的主窗口。
+                #[cfg(target_os = "macos")]
+                RunEvent::Reopen { .. } => tray::show_main_window(_app),
+                // CMD+Q / 托盘「退出」/ quit_app 触发的退出均不拦截。
+                RunEvent::ExitRequested { .. } => {
+                    // 无需 prevent_exit: 允许正常退出
+                }
+                _ => {}
             }
         });
 }
