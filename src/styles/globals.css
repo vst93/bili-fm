@@ -89,8 +89,9 @@ textarea,
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
     box-shadow: 0 -16px 50px rgba(15, 23, 42, 0.08);
-    backdrop-filter: blur(14px) saturate(1.35);
-    -webkit-backdrop-filter: blur(14px) saturate(1.35);
+    /* GPU 优化: 去掉 backdrop-filter, 用更实的不透明背景补偿 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     animation: lazy-drawer-reveal 120ms ease 140ms both;
 }
 
@@ -1466,8 +1467,9 @@ body.mini-mode #root::before {
     box-shadow:
         var(--glass-specular),
         0 18px 44px rgba(15, 23, 42, 0.1) !important;
-    backdrop-filter: var(--liquid-blur);
-    -webkit-backdrop-filter: var(--liquid-blur);
+    /* GPU 优化: 去掉 backdrop-filter */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 #settings-menu button {
@@ -2427,8 +2429,9 @@ body.mini-mode #root::before {
     box-shadow:
         var(--glass-specular),
         var(--liquid-shadow-lifted);
-    backdrop-filter: var(--liquid-blur);
-    -webkit-backdrop-filter: var(--liquid-blur);
+    /* GPU 优化: 去掉 backdrop-filter, 用实色背景补偿 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     transform: translateY(-50%);
     transform-origin: 100% 50%;
     transition:
@@ -2463,9 +2466,10 @@ body.mini-mode #root::before {
     padding: 4px;
     border: 1px solid rgba(255, 255, 255, 0.72);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(10px) saturate(1.4);
-    -webkit-backdrop-filter: blur(10px) saturate(1.4);
+    background: rgba(255, 255, 255, 0.92);
+    /* GPU 优化: 去掉 backdrop-filter, 用实色背景补偿 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.95),
         0 8px 24px rgba(15, 23, 42, 0.12);
@@ -2632,9 +2636,9 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-radius: inherit;
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: blur(14px) saturate(1.35);
-    -webkit-backdrop-filter: blur(14px) saturate(1.35);
-    /* Performance: limit repaint area to the drawer panel */
+    /* GPU 优化: 去掉 backdrop-filter, HeroUI 容器用实色背景 */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     contain: layout style paint;
     z-index: -1;
 }
@@ -3759,8 +3763,9 @@ body.mini-mode #player .player-controls {
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
         0 -10px 22px rgba(15, 23, 42, 0.05) !important;
-    backdrop-filter: blur(20px) saturate(1.4);
-    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    /* GPU 优化: 迷你模式播放栏去掉 backdrop-filter */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     grid-template-columns: 34px 44px minmax(0, 1fr) 44px 30px 36px 30px;
     gap: 8px;
 }
@@ -3835,8 +3840,9 @@ body.mini-mode #player .player-button svg {
     box-shadow:
         var(--glass-specular),
         var(--glass-shadow-lifted);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    /* GPU 优化: 去掉 backdrop-filter */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* Performance: limit repaint area to the toast */
     contain: layout style paint;
     overflow: hidden;
@@ -3860,8 +3866,9 @@ body.mini-mode #player .player-button svg {
     box-shadow:
         var(--glass-specular),
         var(--glass-shadow-lifted);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+    /* GPU 优化: 去掉 backdrop-filter */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* Performance: limit repaint area to the login panel */
     contain: layout style paint;
 }
@@ -4001,8 +4008,9 @@ body.mini-mode #player .player-button svg {
         inset 0 -1px 3px rgba(15, 23, 42, 0.05),
         0 24px 64px rgba(15, 23, 42, 0.22),
         0 4px 16px rgba(15, 23, 42, 0.06);
-    backdrop-filter: blur(24px) saturate(1.6);
-    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    /* GPU 优化: 去掉 backdrop-filter */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* Performance: limit repaint area to the dialog */
     contain: layout style paint;
     position: relative;
