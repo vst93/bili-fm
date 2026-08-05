@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Pause, PlayOne, Timer, VolumeMute, VolumeNotice } from "@icon-park/react";
+import { Pause, PlayOne, VolumeMute, VolumeNotice } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
@@ -243,12 +243,10 @@ const Player = ({
             type="button"
             onClick={() => setIsSpeedOpen((open) => !open)}
           >
-            <Timer fill="currentColor" size={16} theme="outline" />
             <span className="player-speed-label">
-              {playbackRate === 1 || playbackRate === 2
+              {playbackRate === 1 || playbackRate === 2 || playbackRate === 3
                 ? playbackRate.toFixed(1)
-                : playbackRate}
-              x
+                : playbackRate}x
             </span>
           </button>
           {isSpeedOpen && (
@@ -263,7 +261,7 @@ const Player = ({
                     setIsSpeedOpen(false);
                   }}
                 >
-                  {rate === 1 || rate === 2 ? rate.toFixed(1) : rate}x
+                  {rate === 1 || rate === 2 || rate === 3 ? rate.toFixed(1) : rate}x
                 </button>
               ))}
             </div>

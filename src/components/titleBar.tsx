@@ -96,7 +96,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     showDialog({
       title: "关于 bili-FM",
       type: "info",
-      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${version.version} (Build ${version.build})\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
+      message: `用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v${version.version}\n项目地址：[github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)`,
       buttons: [{ label: "好的", value: "ok", primary: true }],
     });
   };

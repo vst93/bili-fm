@@ -2012,7 +2012,7 @@ body.mini-mode #root::before {
     height: 56px;
     padding: 0 16px;
     display: grid;
-    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 38px;
+    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 44px;
     align-items: center;
     gap: 12px;
     position: relative;
@@ -2081,19 +2081,15 @@ body.mini-mode #root::before {
 }
 
 #player .player-speed-button {
-    width: 38px;
+    width: 44px;
     height: 38px;
     border-color: var(--glass-border);
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.7),
         0 4px 12px rgba(15, 23, 42, 0.06);
     color: #526174;
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: 16px 12px;
-    gap: 1px;
-    border-radius: 50%;
-    font-size: 10px;
+    border-radius: 19px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
 }
@@ -2385,9 +2381,10 @@ body.mini-mode #root::before {
     bottom: auto;
     transform: translateY(-50%);
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 6px;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
     border: 1px solid rgba(255, 255, 255, 0.72);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.82);
@@ -2400,13 +2397,13 @@ body.mini-mode #root::before {
 }
 
 #player .player-speed-option {
-    min-width: 48px;
-    padding: 6px 12px;
+    min-width: 36px;
+    padding: 4px 8px;
     border: 0;
     border-radius: 8px;
     background: transparent;
     color: #475569;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
@@ -3688,7 +3685,7 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05) !important;
     backdrop-filter: blur(10px) saturate(1.4);
     -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 30px;
+    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 36px;
     gap: 8px;
 }
 
@@ -3700,13 +3697,10 @@ body.mini-mode #player .player-button {
 }
 
 body.mini-mode #player .player-speed-button {
-    width: 30px;
+    width: 36px;
     height: 30px;
-    grid-template-columns: 1fr;
-    grid-template-rows: 12px 9px;
-    gap: 0px;
-    border-radius: 50%;
-    font-size: 8px;
+    border-radius: 15px;
+    font-size: 10px;
 }
 
 body.mini-mode #player .player-volume-popover {
