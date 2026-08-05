@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "bili-FM",
-  "version": "2.0.19-preview",
+  "version": "2.0.20-preview",
   "identifier": "com.bili-fm.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
