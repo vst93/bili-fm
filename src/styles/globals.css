@@ -2012,7 +2012,7 @@ body.mini-mode #root::before {
     height: 56px;
     padding: 0 16px;
     display: grid;
-    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 64px;
+    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 38px;
     align-items: center;
     gap: 12px;
     position: relative;
@@ -2081,13 +2081,34 @@ body.mini-mode #root::before {
 }
 
 #player .player-speed-button {
-    width: 64px;
-    grid-template-columns: 16px auto;
-    gap: 4px;
-    border-radius: 18px;
-    font-size: 11px;
+    width: 38px;
+    height: 38px;
+    border-color: var(--glass-border);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.7),
+        0 4px 12px rgba(15, 23, 42, 0.06);
+    color: #526174;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: 16px 12px;
+    gap: 1px;
+    border-radius: 50%;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
+}
+
+#player .player-speed-button[data-open] {
+    border-color: rgba(2, 132, 199, 0.16);
+    color: var(--studio-blue);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.82),
+        inset 0 -2px 5px rgba(2, 132, 199, 0.08),
+        0 5px 16px rgba(2, 132, 199, 0.13);
+}
+
+#player .player-speed-button[data-open]::before {
+    background-color: var(--liquid-bg-hover);
 }
 
 #player .player-button:active {
@@ -2184,6 +2205,18 @@ body.mini-mode #root::before {
             inset 0 1px 1px rgba(255, 255, 255, 0.86),
             0 6px 16px rgba(15, 23, 42, 0.08);
     }
+
+    #player .player-speed-button:hover:not(:disabled) {
+        border-color: rgba(255, 255, 255, 0.7);
+        color: var(--studio-blue);
+        box-shadow:
+            inset 0 1px 1px rgba(255, 255, 255, 0.86),
+            0 6px 16px rgba(15, 23, 42, 0.08);
+    }
+
+    #player .player-speed-button:hover:not(:disabled)::before {
+        background-color: var(--liquid-bg-hover);
+    }
 }
 
 #player .player-play-button:active:not(:disabled),
@@ -2196,6 +2229,17 @@ body.mini-mode #root::before {
 
 #player .player-play-button:active:not(:disabled)::before,
 #player .player-volume-button:active:not(:disabled)::before {
+    background-color: var(--liquid-bg-active);
+}
+
+#player .player-speed-button:active:not(:disabled) {
+    transform: scale(0.93);
+    box-shadow:
+        inset 0 2px 5px rgba(15, 23, 42, 0.1),
+        0 2px 7px rgba(15, 23, 42, 0.06);
+}
+
+#player .player-speed-button:active:not(:disabled)::before {
     background-color: var(--liquid-bg-active);
 }
 
@@ -2328,6 +2372,55 @@ body.mini-mode #root::before {
 #player .player-volume-slider {
     width: 100%;
     height: 24px;
+}
+
+#player .player-speed {
+    position: relative;
+}
+
+#player .player-speed-popover {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 10px);
+    bottom: auto;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(10px) saturate(1.4);
+    -webkit-backdrop-filter: blur(10px) saturate(1.4);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.95),
+        0 8px 24px rgba(15, 23, 42, 0.12);
+    z-index: 20;
+}
+
+#player .player-speed-option {
+    min-width: 48px;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+#player .player-speed-option:hover {
+    background: rgba(14, 165, 233, 0.1);
+    color: var(--studio-blue);
+}
+
+#player .player-speed-option.is-active {
+    background: rgba(14, 165, 233, 0.16);
+    color: var(--studio-blue);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3595,7 +3688,7 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05) !important;
     backdrop-filter: blur(10px) saturate(1.4);
     -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 52px;
+    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 30px;
     gap: 8px;
 }
 
@@ -3607,11 +3700,13 @@ body.mini-mode #player .player-button {
 }
 
 body.mini-mode #player .player-speed-button {
-    width: 52px;
-    grid-template-columns: 16px auto;
-    gap: 2px;
-    border-radius: 15px;
-    font-size: 10px;
+    width: 30px;
+    height: 30px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 12px 9px;
+    gap: 0px;
+    border-radius: 50%;
+    font-size: 8px;
 }
 
 body.mini-mode #player .player-volume-popover {

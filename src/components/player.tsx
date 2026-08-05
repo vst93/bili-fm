@@ -36,6 +36,7 @@ const Player = ({
 }: PlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
+  const speedPopoverRef = useRef<HTMLDivElement>(null);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const lastReportedSecondRef = useRef(-1);
   const lastVolumeRef = useRef(1);
@@ -43,6 +44,7 @@ const Player = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
+  const [isSpeedOpen, setIsSpeedOpen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
   onTimeUpdateRef.current = onTimeUpdate;
@@ -84,6 +86,22 @@ const Player = ({
       document.removeEventListener("pointerdown", closeOnOutsidePress, true);
     };
   }, [isVolumeOpen]);
+
+  useEffect(() => {
+    if (!isSpeedOpen) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!speedPopoverRef.current?.contains(event.target as Node)) {
+        setIsSpeedOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress, true);
+    };
+  }, [isSpeedOpen]);
 
   useEffect(() => {
     if (isPlaying && aid && cid) {
@@ -214,29 +232,43 @@ const Player = ({
           )}
         </div>
 
-        <button
-          aria-label={`播放速度 ${playbackRate} 倍`}
-          className="player-button player-speed-button"
-          disabled={!src}
-          title={`播放速度 ${playbackRate} 倍`}
-          type="button"
-          onClick={() => {
-            const currentIndex = PLAYBACK_RATES.indexOf(
-              playbackRate as (typeof PLAYBACK_RATES)[number],
-            );
-            const nextIndex = (currentIndex + 1) % PLAYBACK_RATES.length;
-
-            setPlaybackRate(PLAYBACK_RATES[nextIndex]);
-          }}
-        >
-          <Timer fill="currentColor" size={16} theme="outline" />
-          <span>
-            {playbackRate === 1 || playbackRate === 2
-              ? playbackRate.toFixed(1)
-              : playbackRate}
-            x
-          </span>
-        </button>
+        <div className="player-speed" ref={speedPopoverRef}>
+          <button
+            aria-label={`播放速度 ${playbackRate} 倍`}
+            aria-expanded={isSpeedOpen}
+            className="player-button player-speed-button"
+            data-open={isSpeedOpen || undefined}
+            disabled={!src}
+            title={`播放速度 ${playbackRate} 倍`}
+            type="button"
+            onClick={() => setIsSpeedOpen((open) => !open)}
+          >
+            <Timer fill="currentColor" size={16} theme="outline" />
+            <span className="player-speed-label">
+              {playbackRate === 1 || playbackRate === 2
+                ? playbackRate.toFixed(1)
+                : playbackRate}
+              x
+            </span>
+          </button>
+          {isSpeedOpen && (
+            <div className="player-speed-popover">
+              {PLAYBACK_RATES.map((rate) => (
+                <button
+                  key={rate}
+                  className={`player-speed-option ${rate === playbackRate ? "is-active" : ""}`}
+                  type="button"
+                  onClick={() => {
+                    setPlaybackRate(rate);
+                    setIsSpeedOpen(false);
+                  }}
+                >
+                  {rate === 1 || rate === 2 ? rate.toFixed(1) : rate}x
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
