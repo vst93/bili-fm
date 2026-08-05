@@ -2012,7 +2012,7 @@ body.mini-mode #root::before {
     height: 56px;
     padding: 0 16px;
     display: grid;
-    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 44px;
+    grid-template-columns: 46px 52px minmax(0, 1fr) 52px 38px 44px;
     align-items: center;
     gap: 12px;
     position: relative;
@@ -2138,18 +2138,27 @@ body.mini-mode #root::before {
 }
 
 #player .player-play-button {
-    width: 42px;
-    height: 42px;
-    border-color: var(--glass-border);
+    width: 46px;
+    height: 46px;
+    border-color: rgba(2, 132, 199, 0.2);
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.88),
-        inset 0 -2px 4px rgba(15, 23, 42, 0.06),
-        0 7px 18px rgba(15, 23, 42, 0.08);
-    color: #087da9;
+        inset 0 1px 2px rgba(255, 255, 255, 0.9),
+        inset 0 -3px 6px rgba(2, 132, 199, 0.08),
+        0 8px 22px rgba(2, 132, 199, 0.18);
+    color: #0284c7;
+    background-image: radial-gradient(120% 80% at 35% 0%, rgba(255, 255, 255, 0.5), transparent 60%);
+}
+
+#player .player-play-button::before {
+    background-color: rgba(186, 230, 253, 0.35);
+    background-image:
+        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.8), transparent 58%),
+        linear-gradient(165deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
 }
 
 #player .player-play-button svg {
     transform: translateX(0.5px);
+    filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.6));
 }
 
 #player .player-volume-button {
@@ -2177,16 +2186,22 @@ body.mini-mode #root::before {
 
 @media (hover: hover) and (pointer: fine) {
     #player .player-play-button:hover:not(:disabled) {
-        border-color: rgba(255, 255, 255, 0.96);
-        color: #007eae;
+        border-color: rgba(2, 132, 199, 0.35);
+        color: #0284c7;
         box-shadow:
             inset 0 1px 2px rgba(255, 255, 255, 1),
-            inset 0 -3px 7px rgba(2, 132, 199, 0.1),
-            0 0 0 3px rgba(255, 255, 255, 0.2),
-            0 8px 24px rgba(2, 132, 199, 0.22);
+            inset 0 -4px 8px rgba(2, 132, 199, 0.12),
+            0 0 0 3px rgba(186, 230, 253, 0.3),
+            0 10px 28px rgba(2, 132, 199, 0.25);
     }
 
-    #player .player-play-button:hover:not(:disabled)::before,
+    #player .player-play-button:hover:not(:disabled)::before {
+        background-color: rgba(186, 230, 253, 0.5);
+        background-image:
+            radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.9), transparent 58%),
+            linear-gradient(165deg, rgba(14, 165, 233, 0.2), rgba(125, 211, 252, 0.1));
+    }
+
     #player .player-volume-button:hover:not(:disabled)::before {
         background-color: var(--liquid-bg-hover);
         background-image:
@@ -3685,7 +3700,7 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05) !important;
     backdrop-filter: blur(10px) saturate(1.4);
     -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 36px;
+    grid-template-columns: 34px 44px minmax(0, 1fr) 44px 30px 36px;
     gap: 8px;
 }
 
@@ -3694,6 +3709,25 @@ body.mini-mode #player .player-button {
     height: 30px;
     flex-basis: 30px;
     border-radius: 50%;
+}
+
+body.mini-mode #player .player-play-button {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    color: #0284c7;
+    border-color: rgba(2, 132, 199, 0.2);
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.9),
+        inset 0 -2px 4px rgba(2, 132, 199, 0.08),
+        0 4px 12px rgba(2, 132, 199, 0.15);
+}
+
+body.mini-mode #player .player-play-button::before {
+    background-color: rgba(186, 230, 253, 0.35);
+    background-image:
+        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.8), transparent 58%),
+        linear-gradient(165deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
 }
 
 body.mini-mode #player .player-speed-button {

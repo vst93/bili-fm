@@ -166,9 +166,9 @@ const Player = ({
           onClick={() => onPlayStateChange?.(!isPlaying)}
         >
           {isPlaying ? (
-            <Pause fill="currentColor" size={20} theme="filled" />
+            <Pause fill="currentColor" size={24} theme="filled" />
           ) : (
-            <PlayOne fill="currentColor" size={20} theme="filled" />
+            <PlayOne fill="currentColor" size={24} theme="filled" />
           )}
         </button>
 
