@@ -6,7 +6,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   build: {
-    target: 'es2021',
+    target: 'es2019',
     minify: 'esbuild',
     rollupOptions: {
       output: {
