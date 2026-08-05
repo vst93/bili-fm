@@ -21,16 +21,40 @@ import type {
   PlaylistPlayMode,
 } from "@/components/playlist";
 
-const PageList = lazy(() => import("@/components/pageList"));
-const SearchList = lazy(() => import("@/components/searchList"));
-const FeedList = lazy(() => import("@/components/feedList"));
-const RecommendList = lazy(() => import("@/components/recommendList"));
-const CollectList = lazy(() => import("@/components/collectList"));
-const UpVideoList = lazy(() => import("@/components/upVideoList"));
-const HistoryList = lazy(() => import("@/components/historyList"));
-const SeriesList = lazy(() => import("@/components/seriesList"));
-const DanmakuList = lazy(() => import("@/components/danmakuList"));
-const Playlist = lazy(() => import("@/components/playlist"));
+const loadPageList = () => import("@/components/pageList");
+const loadSearchList = () => import("@/components/searchList");
+const loadFeedList = () => import("@/components/feedList");
+const loadRecommendList = () => import("@/components/recommendList");
+const loadCollectList = () => import("@/components/collectList");
+const loadUpVideoList = () => import("@/components/upVideoList");
+const loadHistoryList = () => import("@/components/historyList");
+const loadSeriesList = () => import("@/components/seriesList");
+const loadDanmakuList = () => import("@/components/danmakuList");
+const loadPlaylist = () => import("@/components/playlist");
+
+const drawerLoaders = [
+  loadPageList,
+  loadSearchList,
+  loadFeedList,
+  loadRecommendList,
+  loadCollectList,
+  loadUpVideoList,
+  loadHistoryList,
+  loadSeriesList,
+  loadDanmakuList,
+  loadPlaylist,
+];
+
+const PageList = lazy(loadPageList);
+const SearchList = lazy(loadSearchList);
+const FeedList = lazy(loadFeedList);
+const RecommendList = lazy(loadRecommendList);
+const CollectList = lazy(loadCollectList);
+const UpVideoList = lazy(loadUpVideoList);
+const HistoryList = lazy(loadHistoryList);
+const SeriesList = lazy(loadSeriesList);
+const DanmakuList = lazy(loadDanmakuList);
+const Playlist = lazy(loadPlaylist);
 
 const MAX_RETAINED_LIST_ITEMS = 240;
 
@@ -127,6 +151,14 @@ export default function IndexPage() {
     return () => {
       if (loginPollTimerRef.current) clearTimeout(loginPollTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const preloadTimer = setTimeout(() => {
+      void Promise.all(drawerLoaders.map((loadDrawer) => loadDrawer())).catch(() => {});
+    }, 0);
+
+    return () => clearTimeout(preloadTimer);
   }, []);
 
   useEffect(() => {
@@ -1661,6 +1693,24 @@ export default function IndexPage() {
   mediaNavigationRef.current.previous = handlePrevTrack;
   mediaNavigationRef.current.next = handleNextTrack;
 
+  // 播放列表模式下，显示信息从当前播放项派生，避免浏览其他视频时覆盖
+  const displayVideoInfo = useMemo(() => {
+    if (isPlaylistMode && currentPlaylistIndex >= 0 && playlist[currentPlaylistIndex]) {
+      const item = playlist[currentPlaylistIndex];
+
+      return {
+        ...videoInfo,
+        title: item.title,
+        pic: item.pic,
+        bvid: item.bvid,
+        aid: item.aid,
+        cid: item.cid,
+      };
+    }
+
+    return videoInfo;
+  }, [isPlaylistMode, currentPlaylistIndex, playlist, videoInfo]);
+
   return (
     <DefaultLayout>
       <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode && !isLinux} />
@@ -1689,17 +1739,17 @@ export default function IndexPage() {
               />
             </div>
             <VideoInfo
-              bvid={videoInfo?.bvid}
-              cid={videoInfo?.cid}
+              bvid={displayVideoInfo?.bvid}
+              cid={displayVideoInfo?.cid}
               currentSeriesTitle={currentSeriesTitle}
-              desc={videoInfo?.desc}
-              ownerFace={videoInfo?.owner_face}
-              ownerMid={videoInfo?.owner_mid}
-              ownerName={videoInfo?.owner_name}
+              desc={displayVideoInfo?.desc}
+              ownerFace={displayVideoInfo?.owner_face}
+              ownerMid={displayVideoInfo?.owner_mid}
+              ownerName={displayVideoInfo?.owner_name}
               part={currentPart}
               playlistCount={playlist.length}
               searchResultsCount={searchResults?.length || 0}
-              title={videoInfo?.title}
+              title={displayVideoInfo?.title}
               onCollectClick={handleCollectClick}
               onDanmakuClick={handleDanmakuClick}
               onFeedClick={handleFeedClick}
@@ -1724,13 +1774,13 @@ export default function IndexPage() {
           cover={graftingImage(pageFirstFrame, 480)}
           isPlaylistMode={isPlaylistMode}
           part={currentPart}
-          title={videoInfo?.title}
+          title={displayVideoInfo?.title}
           onSwitchMode={switchWindowMode}
         />
       )}
       <Player
-        aid={videoInfo?.aid}
-        cid={videoInfo?.cid}
+        aid={displayVideoInfo?.aid}
+        cid={displayVideoInfo?.cid}
         forcePause={isPlayVideo}
         isPlaying={isPlaying}
         src={playUrl}
@@ -1746,6 +1796,7 @@ export default function IndexPage() {
             isPlay={isPlayVideo}
             isPlayVideoStop={isPlayVideoStop}
             setIsplay={setIsPlayVideo}
+            setIsPlayVideoStop={setIsPlayVideoStop}
             src={playUrl}
           />
           <Suspense fallback={

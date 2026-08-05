@@ -2012,7 +2012,7 @@ body.mini-mode #root::before {
     height: 56px;
     padding: 0 16px;
     display: grid;
-    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px;
+    grid-template-columns: 42px 52px minmax(0, 1fr) 52px 38px 64px;
     align-items: center;
     gap: 12px;
     position: relative;
@@ -2078,6 +2078,16 @@ body.mini-mode #root::before {
     position: relative;
     z-index: 1;
     filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+#player .player-speed-button {
+    width: 64px;
+    grid-template-columns: 16px auto;
+    gap: 4px;
+    border-radius: 18px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
 }
 
 #player .player-button:active {
@@ -3050,6 +3060,12 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     min-height: 0 !important;
     max-height: none !important;
     padding: 8px 10px 16px 10px;
+    will-change: scroll-position;
+}
+
+.danmaku-scroll-area p {
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 .danmaku-time-row {
@@ -3182,6 +3198,8 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     line-height: 18px;
     text-overflow: ellipsis;
     text-shadow: 0 1px 1px rgba(255, 255, 255, 0.68);
+    will-change: transform;
+    transform: translateZ(0);
     white-space: nowrap;
 }
 
@@ -3577,7 +3595,7 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05) !important;
     backdrop-filter: blur(10px) saturate(1.4);
     -webkit-backdrop-filter: blur(10px) saturate(1.4);
-    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px;
+    grid-template-columns: 30px 44px minmax(0, 1fr) 44px 30px 52px;
     gap: 8px;
 }
 
@@ -3586,6 +3604,14 @@ body.mini-mode #player .player-button {
     height: 30px;
     flex-basis: 30px;
     border-radius: 50%;
+}
+
+body.mini-mode #player .player-speed-button {
+    width: 52px;
+    grid-template-columns: 16px auto;
+    gap: 2px;
+    border-radius: 15px;
+    font-size: 10px;
 }
 
 body.mini-mode #player .player-volume-popover {

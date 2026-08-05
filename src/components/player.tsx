@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Pause, PlayOne, VolumeMute, VolumeNotice } from "@icon-park/react";
+import { Pause, PlayOne, Timer, VolumeMute, VolumeNotice } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
+
+const PLAYBACK_RATES = [1, 1.25, 1.5, 2, 0.75] as const;
 
 interface PlayerProps {
   src?: string;
@@ -41,6 +43,7 @@ const Player = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   onTimeUpdateRef.current = onTimeUpdate;
 
@@ -61,6 +64,10 @@ const Player = ({
       audio.pause();
     }
   }, [forcePause, isPlaying, src]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   useEffect(() => {
     if (!isVolumeOpen) return;
@@ -206,6 +213,30 @@ const Player = ({
             </div>
           )}
         </div>
+
+        <button
+          aria-label={`播放速度 ${playbackRate} 倍`}
+          className="player-button player-speed-button"
+          disabled={!src}
+          title={`播放速度 ${playbackRate} 倍`}
+          type="button"
+          onClick={() => {
+            const currentIndex = PLAYBACK_RATES.indexOf(
+              playbackRate as (typeof PLAYBACK_RATES)[number],
+            );
+            const nextIndex = (currentIndex + 1) % PLAYBACK_RATES.length;
+
+            setPlaybackRate(PLAYBACK_RATES[nextIndex]);
+          }}
+        >
+          <Timer fill="currentColor" size={16} theme="outline" />
+          <span>
+            {playbackRate === 1 || playbackRate === 2
+              ? playbackRate.toFixed(1)
+              : playbackRate}
+            x
+          </span>
+        </button>
       </div>
     </div>
   );

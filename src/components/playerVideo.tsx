@@ -6,6 +6,7 @@ interface PlayerVideoProps {
   isPlay?: boolean;
   isPlayVideoStop?: boolean;
   setIsplay: (isPlay: boolean) => void;
+  setIsPlayVideoStop: (v: boolean) => void;
 }
 
 export default function PlayerVideo({
@@ -13,6 +14,7 @@ export default function PlayerVideo({
   isPlay,
   isPlayVideoStop,
   setIsplay,
+  setIsPlayVideoStop,
 }: PlayerVideoProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -82,6 +84,8 @@ export default function PlayerVideo({
           controls
           autoPlay={isPlay && !isPlayVideoStop}
           className="player-video-element"
+          onPause={() => setIsPlayVideoStop(true)}
+          onPlay={() => setIsPlayVideoStop(false)}
         />
         <button
           className="player-video-close"
