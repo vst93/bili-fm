@@ -1061,6 +1061,79 @@ html[data-time-of-day="latenight"] #player .player-controls {
     border-top-color: rgba(255, 255, 255, 0.08);
 }
 
+/* 深色主题下播放栏文字/icon 提亮, 保证对比度 */
+html[data-time-of-day="midnight"] #player .player-button,
+html[data-time-of-day="predawn"] #player .player-button,
+html[data-time-of-day="dusk"] #player .player-button,
+html[data-time-of-day="evening"] #player .player-button,
+html[data-time-of-day="latenight"] #player .player-button {
+    color: #cbd5e1;
+}
+
+html[data-time-of-day="midnight"] #player .player-time,
+html[data-time-of-day="predawn"] #player .player-time,
+html[data-time-of-day="dusk"] #player .player-time,
+html[data-time-of-day="evening"] #player .player-time,
+html[data-time-of-day="latenight"] #player .player-time {
+    color: #94a3b8;
+}
+
+html[data-time-of-day="midnight"] #player .player-speed-button,
+html[data-time-of-day="midnight"] #player .player-volume-button,
+html[data-time-of-day="midnight"] #player .player-eq-button,
+html[data-time-of-day="predawn"] #player .player-speed-button,
+html[data-time-of-day="predawn"] #player .player-volume-button,
+html[data-time-of-day="predawn"] #player .player-eq-button,
+html[data-time-of-day="dusk"] #player .player-speed-button,
+html[data-time-of-day="dusk"] #player .player-volume-button,
+html[data-time-of-day="dusk"] #player .player-eq-button,
+html[data-time-of-day="evening"] #player .player-speed-button,
+html[data-time-of-day="evening"] #player .player-volume-button,
+html[data-time-of-day="evening"] #player .player-eq-button,
+html[data-time-of-day="latenight"] #player .player-speed-button,
+html[data-time-of-day="latenight"] #player .player-volume-button,
+html[data-time-of-day="latenight"] #player .player-eq-button {
+    color: #94a3b8;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.08),
+        0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 播放按钮暂停态: 深色主题下用浅色 */
+html[data-time-of-day="midnight"] #player .player-play-button:not([data-playing]),
+html[data-time-of-day="predawn"] #player .player-play-button:not([data-playing]),
+html[data-time-of-day="dusk"] #player .player-play-button:not([data-playing]),
+html[data-time-of-day="evening"] #player .player-play-button:not([data-playing]),
+html[data-time-of-day="latenight"] #player .player-play-button:not([data-playing]) {
+    color: #cbd5e1;
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.06),
+        0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+html[data-time-of-day="midnight"] #player .player-play-button:not([data-playing])::before,
+html[data-time-of-day="predawn"] #player .player-play-button:not([data-playing])::before,
+html[data-time-of-day="dusk"] #player .player-play-button:not([data-playing])::before,
+html[data-time-of-day="evening"] #player .player-play-button:not([data-playing])::before,
+html[data-time-of-day="latenight"] #player .player-play-button:not([data-playing])::before {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* 时间轴/进度条: 深色主题下轨道提亮 */
+html[data-time-of-day="midnight"] #player input.player-timeline::-webkit-slider-runnable-track,
+html[data-time-of-day="predawn"] #player input.player-timeline::-webkit-slider-runnable-track,
+html[data-time-of-day="dusk"] #player input.player-timeline::-webkit-slider-runnable-track,
+html[data-time-of-day="evening"] #player input.player-timeline::-webkit-slider-runnable-track,
+html[data-time-of-day="latenight"] #player input.player-timeline::-webkit-slider-runnable-track {
+    background: linear-gradient(
+        to right,
+        rgba(56, 189, 248, 0.8) var(--player-progress, 0%),
+        rgba(255, 255, 255, 0.12) var(--player-progress, 0%)
+    );
+}
+
 body.mini-mode #root::before {
     display: none;
 }
@@ -1563,11 +1636,12 @@ body.mini-mode #root::before {
 #video-cover.record-disc {
     animation: record-spin 22s linear infinite;
     animation-play-state: paused;
-    /* Performance: promote to compositor layer for GPU-accelerated rotation */
-    will-change: transform;
 }
 
 #video-cover.is-playing {
+    /* Performance: 仅在旋转时提升为独立合成层; 暂停时不长期占用 GPU 进程内存
+       (Windows WebView2 下 will-change 会常驻一张合成层纹理) */
+    will-change: transform;
     animation-play-state: running;
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.15),
@@ -2506,11 +2580,43 @@ body.mini-mode #root::before {
 }
 
 @media (prefers-reduced-transparency: reduce) {
+    /* 关闭系统透明度时, 去掉所有玻璃模糊层。Windows WebView2 下每个
+       backdrop-filter 表面都会在 GPU 进程里常驻模糊纹理, 是 GPU 进程内存
+       (任务管理器 ~100MB) 的主要来源之一; 此媒体查询随系统"透明度效果"联动。 */
     #player .player-controls,
-    #player .player-volume-popover {
-        background: #f8fbfe;
+    body.mini-mode #player .player-controls,
+    #player .player-volume-popover,
+    #player .player-speed-popover,
+    .home-searchbar::before,
+    .home-global-actions::before,
+    .video-part-pill::before,
+    .video-context-dock::before,
+    [data-slot="wrapper"] > section::before,
+    .lazy-drawer-loading,
+    #settings-menu,
+    .toast-glass,
+    .login-glass,
+    .liquid-dialog {
+        background: #f8fbfe !important;
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
+    }
+    /* 伪元素玻璃层去掉模糊后需要更实的不透明度, 避免半透明悬浮在渐变背景上发虚 */
+    .home-searchbar::before,
+    .home-global-actions::before,
+    .video-part-pill::before,
+    .video-context-dock::before,
+    [data-slot="wrapper"] > section::before,
+    .lazy-drawer-loading {
+        background: rgba(255, 255, 255, 0.92);
+    }
+    /* 玻璃 rim 光晕层依赖模糊背景, 模糊关闭后一并去掉 */
+    [data-slot="wrapper"] > section::after,
+    .home-searchbar::after,
+    .home-global-actions::after,
+    .video-part-pill::after,
+    .video-context-dock::after {
+        box-shadow: none;
     }
 }
 

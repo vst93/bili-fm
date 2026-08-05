@@ -116,6 +116,7 @@ async fn handle_audio_proxy(
         header::CONTENT_RANGE,
         header::ETAG,
         header::LAST_MODIFIED,
+        header::CACHE_CONTROL,
     ] {
         if let Some(value) = upstream_headers.get(&name) {
             response_headers.insert(name, value.clone());
@@ -123,6 +124,14 @@ async fn handle_audio_proxy(
     }
     if !response_headers.contains_key(header::CONTENT_TYPE) {
         response_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("audio/mpeg"));
+    }
+    // 上游未带缓存头时兜底: 让 WebView2 媒体栈能缓存 Range 分段,
+    // 拖动进度条时走 Range 续传而不是重新拉取整个流 (减少网络与内存开销)
+    if !response_headers.contains_key(header::CACHE_CONTROL) {
+        response_headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=86400"),
+        );
     }
     response
 }
