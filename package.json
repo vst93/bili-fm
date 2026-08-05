@@ -1,7 +1,7 @@
 {
   "name": "bili-fm",
   "private": true,
-  "version": "2.0.14-preview",
+  "version": "2.0.15-preview",
   "type": "module",
   "sideEffects": [
     "**/*.css",
