@@ -131,6 +131,11 @@ export default function IndexPage() {
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number>(-1);
+  const [seriesPlaylist, setSeriesPlaylist] = useState<PlaylistItem[]>([]);
+  const [currentSeriesPlaylistIndex, setCurrentSeriesPlaylistIndex] =
+    useState<number>(-1);
+  const [activePlaylistType, setActivePlaylistType] =
+    useState<"user" | "series">("user");
   const [playlistPlayMode, setPlaylistPlayMode] =
     useState<PlaylistPlayMode>("sequence");
   const [isPlaylistMode, setIsPlaylistMode] = useState<boolean>(false);
@@ -462,6 +467,9 @@ export default function IndexPage() {
     isPlaylistMode,
     playlist,
     currentPlaylistIndex,
+    seriesPlaylist,
+    currentSeriesPlaylistIndex,
+    activePlaylistType,
     playlistPlayMode,
   ]);
 
@@ -786,19 +794,26 @@ export default function IndexPage() {
    * @description 播放列表模式下自动播放下一个播放列表项；选集模式下自动播放下一集
    */
   const handleVideoEnded = async () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
       let nextIndex: number;
 
       if (playlistPlayMode === "shuffle") {
-        if (playlist.length === 1) {
+        if (activePlaylist.length === 1) {
           nextIndex = 0;
         } else {
           do {
-            nextIndex = Math.floor(Math.random() * playlist.length);
-          } while (nextIndex === currentPlaylistIndex);
+            nextIndex = Math.floor(Math.random() * activePlaylist.length);
+          } while (nextIndex === activePlaylistIndex);
         }
       } else {
-        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+        nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
       await handlePlaylistVideoSelect(nextIndex);
 
@@ -823,9 +838,18 @@ export default function IndexPage() {
    * 上一曲/下一曲导航，根据播放模式自动选择播放列表或选集
    */
   const handlePrevTrack = () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
       const prevIndex =
-        (currentPlaylistIndex - 1 + playlist.length) % playlist.length;
+        activePlaylistIndex <= 0
+          ? activePlaylist.length - 1
+          : activePlaylistIndex - 1;
 
       handlePlaylistVideoSelect(prevIndex);
     } else if (videoInfo?.pages) {
@@ -844,15 +868,22 @@ export default function IndexPage() {
   };
 
   const handleNextTrack = () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
       let nextIndex: number;
 
-      if (playlistPlayMode === "shuffle" && playlist.length > 1) {
+      if (playlistPlayMode === "shuffle" && activePlaylist.length > 1) {
         do {
-          nextIndex = Math.floor(Math.random() * playlist.length);
-        } while (nextIndex === currentPlaylistIndex);
+          nextIndex = Math.floor(Math.random() * activePlaylist.length);
+        } while (nextIndex === activePlaylistIndex);
       } else {
-        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+        nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
       handlePlaylistVideoSelect(nextIndex);
     } else if (videoInfo?.pages) {
@@ -929,13 +960,21 @@ export default function IndexPage() {
    */
   const handlePlaylistVideoSelect = async (
     index: number,
-    sourcePlaylist: PlaylistItem[] = playlist,
+    sourcePlaylist?: PlaylistItem[],
+    sourcePlaylistType: "user" | "series" = activePlaylistType,
   ) => {
-    const item = sourcePlaylist[index];
+    const selectedPlaylist =
+      sourcePlaylist ||
+      (activePlaylistType === "series" ? seriesPlaylist : playlist);
+    const item = selectedPlaylist[index];
 
     if (!item) return;
     setIsPlaylistMode(true);
-    setCurrentPlaylistIndex(index);
+    if (sourcePlaylistType === "series") {
+      setCurrentSeriesPlaylistIndex(index);
+    } else {
+      setCurrentPlaylistIndex(index);
+    }
     setShowSearchList(false);
     setShowPageList(false);
     setShowFeedList(false);
@@ -1075,12 +1114,13 @@ export default function IndexPage() {
         return;
       }
 
-      setPlaylist(items);
-      setCurrentPlaylistIndex(-1);
+      setSeriesPlaylist(items);
+      setActivePlaylistType("series");
+      setCurrentSeriesPlaylistIndex(-1);
       setPlaylistPlayMode("sequence");
       setIsPlaylistMode(true);
       setShowSeriesList(false);
-      await handlePlaylistVideoSelect(0, items);
+      await handlePlaylistVideoSelect(0, items, "series");
       toast({ type: "success", content: `已加载 ${items.length} 集到播放列表` });
     } catch (error: any) {
       console.error("加载合集失败:", error);
@@ -1101,7 +1141,7 @@ export default function IndexPage() {
     setPlaylist((prev) => prev.filter((item) => item.id !== id));
 
     if (deletedIndex === currentPlaylistIndex) {
-      setIsPlaylistMode(false);
+      if (activePlaylistType === "user") setIsPlaylistMode(false);
       setCurrentPlaylistIndex(-1);
     } else if (deletedIndex < currentPlaylistIndex) {
       setCurrentPlaylistIndex(currentPlaylistIndex - 1);
@@ -1130,7 +1170,7 @@ export default function IndexPage() {
   const handlePlaylistClear = () => {
     setPlaylist([]);
     setCurrentPlaylistIndex(-1);
-    setIsPlaylistMode(false);
+    if (activePlaylistType === "user") setIsPlaylistMode(false);
   };
 
   const handlePlaylistPlayModeToggle = () => {
@@ -1802,8 +1842,19 @@ export default function IndexPage() {
   // - 播放列表模式: 从 playingInfo + playlist item 派生, bvid 一致时保留 desc/owner
   // - 非播放列表模式: 直接用 playingInfo (未播放时为 undefined, 显示占位)
   const displayVideoInfo = useMemo(() => {
-    if (isPlaylistMode && currentPlaylistIndex >= 0 && playlist[currentPlaylistIndex]) {
-      const item = playlist[currentPlaylistIndex];
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (
+      isPlaylistMode &&
+      activePlaylistIndex >= 0 &&
+      activePlaylist[activePlaylistIndex]
+    ) {
+      const item = activePlaylist[activePlaylistIndex];
       if (playingInfo?.bvid === item.bvid) {
         return {
           ...playingInfo,
@@ -1829,7 +1880,15 @@ export default function IndexPage() {
       };
     }
     return playingInfo;
-  }, [isPlaylistMode, currentPlaylistIndex, playlist, playingInfo]);
+  }, [
+    activePlaylistType,
+    currentPlaylistIndex,
+    currentSeriesPlaylistIndex,
+    isPlaylistMode,
+    playlist,
+    playingInfo,
+    seriesPlaylist,
+  ]);
 
   return (
     <DefaultLayout>
@@ -2031,15 +2090,19 @@ export default function IndexPage() {
           )}
           {showPlaylist && (
             <Playlist
+              activePlaylistType={activePlaylistType}
               currentPlaylistIndex={currentPlaylistIndex}
+              currentSeriesPlaylistIndex={currentSeriesPlaylistIndex}
               isPlaylistMode={isPlaylistMode}
               playMode={playlistPlayMode}
               playlist={playlist}
+              seriesPlaylist={seriesPlaylist}
               onClear={handlePlaylistClear}
               onDelete={handlePlaylistDelete}
               onPlayModeToggle={handlePlaylistPlayModeToggle}
               onReorder={handlePlaylistReorder}
               onSlideClick={() => setShowPlaylist(false)}
+              onSwitchPlaylistType={setActivePlaylistType}
               onVideoSelect={handlePlaylistVideoSelect}
             />
           )}

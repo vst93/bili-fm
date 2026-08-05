@@ -32,6 +32,9 @@ interface PlaylistProps {
   onSlideClick?: () => void;
   playlist?: PlaylistItem[];
   currentPlaylistIndex?: number;
+  seriesPlaylist?: PlaylistItem[];
+  currentSeriesPlaylistIndex?: number;
+  activePlaylistType?: "user" | "series";
   playMode?: PlaylistPlayMode;
   isPlaylistMode?: boolean;
   onVideoSelect?: (index: number) => void;
@@ -39,12 +42,16 @@ interface PlaylistProps {
   onReorder?: (from: number, to: number) => void;
   onClear?: () => void;
   onPlayModeToggle?: () => void;
+  onSwitchPlaylistType?: (type: "user" | "series") => void;
 }
 
 const Playlist: FC<PlaylistProps> = ({
   onSlideClick,
   playlist = [],
   currentPlaylistIndex = -1,
+  seriesPlaylist = [],
+  currentSeriesPlaylistIndex = -1,
+  activePlaylistType = "user",
   playMode = "sequence",
   isPlaylistMode = false,
   onVideoSelect,
@@ -52,10 +59,16 @@ const Playlist: FC<PlaylistProps> = ({
   onReorder,
   onClear,
   onPlayModeToggle,
+  onSwitchPlaylistType,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const isSeriesPlaylist = activePlaylistType === "series";
+  const activePlaylist = isSeriesPlaylist ? seriesPlaylist : playlist;
+  const activePlaylistIndex = isSeriesPlaylist
+    ? currentSeriesPlaylistIndex
+    : currentPlaylistIndex;
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -108,8 +121,27 @@ const Playlist: FC<PlaylistProps> = ({
         {() => (
           <>
             <DrawerHeader className="flex items-center gap-2 py-2">
-              <span className="text-sm font-medium">播放列表({playlist.length})</span>
-              {isPlaylistMode && currentPlaylistIndex >= 0 && (
+              <Button
+                aria-pressed={!isSeriesPlaylist}
+                color={!isSeriesPlaylist ? "primary" : "default"}
+                size="sm"
+                variant={!isSeriesPlaylist ? "flat" : "light"}
+                onClick={() => onSwitchPlaylistType?.("user")}
+              >
+                我的列表({playlist.length})
+              </Button>
+              {seriesPlaylist.length > 0 && (
+                <Button
+                  aria-pressed={isSeriesPlaylist}
+                  color={isSeriesPlaylist ? "primary" : "default"}
+                  size="sm"
+                  variant={isSeriesPlaylist ? "flat" : "light"}
+                  onClick={() => onSwitchPlaylistType?.("series")}
+                >
+                  合集列表({seriesPlaylist.length})
+                </Button>
+              )}
+              {isPlaylistMode && activePlaylistIndex >= 0 && (
                 <Button
                   isIconOnly
                   className="min-w-7 w-7 h-7"
@@ -137,7 +169,7 @@ const Playlist: FC<PlaylistProps> = ({
                   <Shuffle fill="#3b82f6" size="18" theme="outline" />
                 )}
               </Button>
-              {playlist.length > 0 && (
+              {!isSeriesPlaylist && playlist.length > 0 && (
                 <Button
                   isIconOnly
                   className="min-w-7 w-7 h-7"
@@ -151,7 +183,7 @@ const Playlist: FC<PlaylistProps> = ({
               )}
             </DrawerHeader>
             <DrawerBody>
-              {playlist.length === 0 ? (
+              {activePlaylist.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                   <p className="text-sm">播放列表为空</p>
                   <p className="text-xs mt-1">
@@ -160,15 +192,16 @@ const Playlist: FC<PlaylistProps> = ({
                 </div>
               ) : (
                 <div className="flex flex-col gap-1" style={{ width: "100%" }}>
-                  {playlist.map((item, index) => {
+                  {activePlaylist.map((item, index) => {
                     const isCurrent =
-                      isPlaylistMode && index === currentPlaylistIndex;
-                    const isDragOver = dragOverIndex === index;
+                      isPlaylistMode && index === activePlaylistIndex;
+                    const isDragOver =
+                      !isSeriesPlaylist && dragOverIndex === index;
 
                     return (
                       <div
                         key={item.id}
-                        draggable
+                        draggable={!isSeriesPlaylist}
                         role="button"
                         tabIndex={0}
                         className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors group c-list-card c-list-card-row ${
@@ -185,10 +218,22 @@ const Playlist: FC<PlaylistProps> = ({
                             onVideoSelect?.(index);
                           }
                         }}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDragStart={() => handleDragStart(index)}
-                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={isSeriesPlaylist ? undefined : handleDragEnd}
+                        onDragOver={
+                          isSeriesPlaylist
+                            ? undefined
+                            : (e) => handleDragOver(e, index)
+                        }
+                        onDragStart={
+                          isSeriesPlaylist
+                            ? undefined
+                            : () => handleDragStart(index)
+                        }
+                        onDrop={
+                          isSeriesPlaylist
+                            ? undefined
+                            : (e) => handleDrop(e, index)
+                        }
                       >
                         <div className="flex-shrink-0 w-16 h-9 rounded overflow-hidden bg-gray-200">
                           <RetryImg
@@ -218,19 +263,21 @@ const Playlist: FC<PlaylistProps> = ({
                           </p>
                         </div>
 
-                        <Button
-                          isIconOnly
-                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                          size="sm"
-                          title="删除"
-                          variant="light"
-                          onClick={(e: React.MouseEvent) => {
-                            e.stopPropagation();
-                            onDelete?.(item.id);
-                          }}
-                        >
-                          <Close fill="#999" size="16" theme="outline" />
-                        </Button>
+                        {!isSeriesPlaylist && (
+                          <Button
+                            isIconOnly
+                            className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            size="sm"
+                            title="删除"
+                            variant="light"
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              onDelete?.(item.id);
+                            }}
+                          >
+                            <Close fill="#999" size="16" theme="outline" />
+                          </Button>
+                        )}
                       </div>
                     );
                   })}
