@@ -149,8 +149,8 @@ const UpVideoList: FC<UpVideoListProps> = ({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const bottom =
-      e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
-      e.currentTarget.clientHeight;
+      e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
+        e.currentTarget.clientHeight <= 80;
 
     if (activeTab === "videos" && bottom && upVideoList?.offset) {
       onLoadMore?.(upVideoList.offset);

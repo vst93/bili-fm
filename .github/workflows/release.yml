@@ -1,9 +1,20 @@
-name: Wails build
+name: Wails Release
 
 on:
-  release:
-    types: [created]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 2.0.0). Leave empty to bump patch from current.'
+        required: false
+        default: ''
+      notes:
+        description: 'Release notes. Leave empty to auto-generate from commits.'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark as pre-release (true/false)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -11,111 +22,149 @@ permissions:
 
 env:
   BINARY_PREFIX: "bili-FM"
-  BINARY_SUFFIX: ""
 
 jobs:
+  # ── Determine version, update files, create tag, create release ──────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
+      prerelease: ${{ steps.prerelease.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          CURRENT=$(grep -oP 'const APP_VERSION = "\K[^"]+' service/config.go)
+          INPUT="${{ inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            VERSION="$INPUT"
+          else
+            MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+            MINOR=$(echo "$CURRENT" | cut -d. -f2)
+            PATCH=$(echo "$CURRENT" | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT -> New: $VERSION"
+
+      - name: Determine prerelease
+        id: prerelease
+        run: |
+          PRERELEASE="${{ inputs.prerelease }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          # Auto-detect prerelease from version string (contains -alpha, -beta, -preview, -rc)
+          if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then
+            PRERELEASE="true"
+          fi
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: Update version in files
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # APP_VERSION_NO is the dot-stripped numeric build number shown in the About dialog
+          BUILD_NO=$(echo "$VERSION" | tr -cd '0-9')
+          sed -i "s/const APP_VERSION = \".*\"/const APP_VERSION = \"$VERSION\"/" service/config.go
+          sed -i "s/const APP_VERSION_NO = [0-9]*/const APP_VERSION_NO = $BUILD_NO/" service/config.go
+          grep -n 'APP_VERSION' service/config.go
+
+      - name: Generate release notes
+        id: notes
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          if [ -n "$INPUT_NOTES" ]; then
+            NOTES="$INPUT_NOTES"
+          else
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMITS=$(git log "$LAST_TAG..HEAD" --pretty=format:"- %s" --no-merges)
+            else
+              COMMITS=$(git log --pretty=format:"- %s" --no-merges -20)
+            fi
+            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the installer for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon.dmg` | macOS (Apple Silicon) |\n| `bili-FM-macos-intel.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64.deb` / `.rpm` / `.AppImage` | Linux (x86_64) |\n| `bili-FM-linux-arm64.deb` / `.AppImage` | Linux (ARM64) |\n| `bili-FM-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS")
+          fi
+          NOTES="${NOTES//'%'/'%25'}"
+          NOTES="${NOTES//$'\n'/'%0A'}"
+          NOTES="${NOTES//$'\r'/'%0D'}"
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No version changes to commit (already at $VERSION)"
+          else
+            git commit -m "release: $VERSION"
+          fi
+          # bili-FM tags have NO v prefix (matching original convention)
+          git tag -f "$VERSION"
+          git push origin "${{ github.ref_name }}"
+          git push origin -f "$VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PRERELEASE="${{ steps.prerelease.outputs.prerelease }}"
+          # Decode the percent-encoded notes back to real newlines
+          NOTES=$(printf '%b' "${NOTES//%/\\x}")
+          EXTRA_ARGS=""
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA_ARGS="--prerelease"
+          fi
+          gh release create "$VERSION" \
+            --title "bili-FM $VERSION" \
+            --notes "$NOTES" \
+            --target "${{ github.ref_name }}" \
+            $EXTRA_ARGS
+
+  # ── Build & package native installers per platform ──────────────────────
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
-        build: [
-          {platform: linux/amd64, os: ubuntu-latest, goos: linux, goarch: amd64},
-          {platform: windows/amd64, os: ubuntu-latest, goos: windows, goarch: amd64},
-          {platform: darwin/amd64, os: macos-latest, goos: darwin, goarch: amd64},
-          {platform: darwin/arm64, os: macos-latest, goos: darwin, goarch: arm64}
-        ]
-    runs-on: ${{ matrix.build.os }}
+        include:
+          - os: macos-14
+            target: darwin/arm64
+            arch: arm64
+            label: macos-apple-silicon
+          - os: macos-14
+            target: darwin/amd64
+            arch: amd64
+            label: macos-intel
+          - os: ubuntu-latest
+            target: linux/amd64
+            arch: amd64
+            label: linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: linux/arm64
+            arch: arm64
+            label: linux-arm64
+          - os: windows-latest
+            target: windows/amd64
+            arch: amd64
+            label: windows-x86_64
+          - os: windows-latest
+            target: windows/arm64
+            arch: arm64
+            label: windows-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: install pnpm
-        run: npm install -g pnpm
-      - uses: dAppServer/wails-build-action@main
         with:
-          build-name: ${{ env.BINARY_PREFIX }}
-          build-platform: ${{ matrix.build.platform }}
-          package: false
-      - name: zip binary
-        env:
-          GOOS: ${{ matrix.build.goos }}
-          GOARCH: ${{ matrix.build.goarch }}
-        run: |
-          cd "$GITHUB_WORKSPACE/build/bin"
-          rm -f ./*.zip
-          if [ "$GOOS" = "windows" ] && [ -f "$BINARY_PREFIX" ]; then mv "$BINARY_PREFIX" "$BINARY_PREFIX.exe"; fi
-          if [ "$GOOS" = "windows" ]; then export BINARY_SUFFIX=".exe"; fi
-          if [ "$GOOS" = "darwin" ]; then export BINARY_SUFFIX=".app"; fi
-          export BINARY_NAME="$BINARY_PREFIX$BINARY_SUFFIX"
-          zip -r -y "$BINARY_PREFIX-$GOOS-$GOARCH.zip" "$BINARY_NAME" -x "*.DS_Store" "__MACOSX"
-
-      - name: Upload release asset
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: build/bin/${{ env.BINARY_PREFIX }}*.zip*
-          overwrite: true
-          file_glob: true
-
-  linux-deb:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Linux binary from release
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: vst93/bili-fm
-          tag: ${{ github.event.release.tag_name }}
-          fileName: bili-FM-linux-amd64.zip
-          out-file-path: /tmp/deb-src
-
-      - name: Build .deb package
-        run: |
-          mkdir -p /tmp/deb/DEBIAN /tmp/deb/usr/bin /tmp/deb/usr/share/applications /tmp/deb/usr/share/pixmaps
-          cd /tmp/deb-src && unzip -o bili-FM-linux-amd64.zip
-          cp bili-FM /tmp/deb/usr/bin/bili-fm
-          chmod 755 /tmp/deb/usr/bin/bili-fm
-          cat > /tmp/deb/usr/share/applications/bili-fm.desktop << 'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=bili-FM
-          Comment=A Bilibili audio player
-          Exec=bili-fm
-          Icon=bili-FM
-          Terminal=false
-          Categories=AudioVideo;Audio;Player;
-          EOF
-          cp $GITHUB_WORKSPACE/build/appicon.png /tmp/deb/usr/share/pixmaps/bili-FM.png
-          TAG="${{ github.event.release.tag_name }}"
-          cat > /tmp/deb/DEBIAN/control << EOF
-          Package: bili-fm
-          Version: ${TAG}
-          Section: sound
-          Priority: optional
-          Architecture: amd64
-          Depends: libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37, libgtk-3-0, libsoup-3.0-0 | libsoup2-4-1, libc6, libstdc++6
-          Maintainer: vst <vst93@users.noreply.github.com>
-          Description: A Bilibili audio player
-           Listen to Bilibili content in audio-only mode.
-          EOF
-          dpkg-deb --build --root-owner-group /tmp/deb /tmp/deb/bili-FM-linux-amd64.deb
-
-      - name: Upload .deb to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /tmp/deb/bili-FM-linux-amd64.deb
-          overwrite: true
-
-  windows-store-package:
-    runs-on: windows-latest
-    env:
-      MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || 'biliFM' }}
-      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=vst' }}
-      MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'vst' }}
-      MSIX_DESCRIPTION: ${{ vars.MSIX_DESCRIPTION || 'bili-FM' }}
-    steps:
-      - uses: actions/checkout@v4
+          ref: ${{ needs.prepare.outputs.version }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -131,7 +180,107 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm dpkg
+
+      # ── macOS: .app + DMG ────────────────────────────────────────────────
+      - name: Build macOS app
+        if: runner.os == 'macOS'
+        run: |
+          wails build -platform ${{ matrix.target }} -clean
+          test -d "build/bin/$BINARY_PREFIX.app" && echo "app bundle OK"
+
+      - name: Create DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create \
+            -volname "bili-FM" \
+            -srcfolder "build/bin/$BINARY_PREFIX.app" \
+            -ov -format UDZO \
+            "$GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}.dmg"
+
+      # ── Windows: NSIS installer ──────────────────────────────────────────
+      - name: Build Windows NSIS installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          wails build -platform ${{ matrix.target }} -clean -nsis
+          if (-not (Test-Path "build/bin/$env:BINARY_PREFIX-setup.exe")) {
+            throw "NSIS installer not found: build/bin/$env:BINARY_PREFIX-setup.exe"
+          }
+          Copy-Item "build/bin/$env:BINARY_PREFIX-setup.exe" "$env:GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-setup.exe"
+
+      # ── Linux: binary + deb + rpm + AppImage ─────────────────────────────
+      - name: Build Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          wails build -platform ${{ matrix.target }} -clean
+          test -x "build/bin/$BINARY_PREFIX" && echo "binary OK"
+
+      - name: Build .deb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ./build/linux/build-deb.sh "$VERSION" "${{ matrix.arch }}" "build/bin/$BINARY_PREFIX" .
+
+      - name: Build .rpm (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ./build/linux/build-rpm.sh "$VERSION" "${{ matrix.arch }}" "build/bin/$BINARY_PREFIX" .
+
+      - name: Build AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          ./build/linux/build-appimage.sh "${{ matrix.arch }}" "build/bin/$BINARY_PREFIX" .
+
+      # ── Upload to the release ────────────────────────────────────────────
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          files: |
+            *.dmg
+            *.deb
+            *.rpm
+            *.AppImage
+            *-setup.exe
+          fail_on_unmatched_files: false
+
+  # ── Windows Store MSIX package ───────────────────────────────────────────
+  windows-store-package:
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME || 'biliFM' }}
+      MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER || 'CN=vst' }}
+      MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME || 'vst' }}
+      MSIX_DESCRIPTION: ${{ vars.MSIX_DESCRIPTION || 'bili-FM' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Validate Store metadata
         shell: pwsh

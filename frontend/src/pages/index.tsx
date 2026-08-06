@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { CloseSmall } from "@icon-park/react";
 
 import { BrowserOpenURL } from "../../wailsjs/runtime";
@@ -34,24 +34,27 @@ import SearchForm from "@/components/searchForm";
 import VideoCover from "@/components/videoCover";
 import VideoInfo from "@/components/videoInfo";
 import Player from "@/components/player";
-import PageList from "@/components/pageList";
-import SearchList from "@/components/searchList";
-import FeedList from "@/components/feedList";
-import RecommendList from "@/components/recommendList";
 import DefaultLayout from "@/layouts/default";
 import TitleBar from "@/components/titleBar";
 import { graftingImage, urlToBVID } from "@/utils/string";
-import CollectList from "@/components/collectList";
-import UpVideoList from "@/components/upVideoList";
-import HistoryList from "@/components/historyList";
-import SeriesList from "@/components/seriesList";
 import PlayerVideo from "@/components/playerVideo";
 import MiniVideoInfo from "@/components/miniVideoInfo";
-import DanmakuList from "@/components/danmakuList";
-import Playlist, {
-  type PlaylistItem,
-  type PlaylistPlayMode,
+import type {
+  PlaylistItem,
+  PlaylistPlayMode,
 } from "@/components/playlist";
+
+// 抽屉列表组件懒加载，减小初始 bundle、加快启动
+const SearchList = lazy(() => import("@/components/searchList"));
+const PageList = lazy(() => import("@/components/pageList"));
+const FeedList = lazy(() => import("@/components/feedList"));
+const RecommendList = lazy(() => import("@/components/recommendList"));
+const CollectList = lazy(() => import("@/components/collectList"));
+const UpVideoList = lazy(() => import("@/components/upVideoList"));
+const HistoryList = lazy(() => import("@/components/historyList"));
+const SeriesList = lazy(() => import("@/components/seriesList"));
+const DanmakuList = lazy(() => import("@/components/danmakuList"));
+const Playlist = lazy(() => import("@/components/playlist"));
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -122,6 +125,19 @@ export default function IndexPage() {
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number>(-1);
+  const [seriesPlaylist, setSeriesPlaylist] = useState<PlaylistItem[]>([]);
+  const [currentSeriesPlaylistIndex, setCurrentSeriesPlaylistIndex] =
+    useState<number>(-1);
+  const [activePlaylistType, setActivePlaylistType] =
+    useState<"user" | "series">("user");
+  // playingInfo: 真正正在播放的视频（与浏览中的 videoInfo 分离）
+  const [playingInfo, setPlayingInfo] = useState<
+    MainModels.VideoInfo | undefined
+  >();
+  // playingPlaylistType/playingPlaylistIndex: 真正在播放的那个列表及其索引（与浏览的 activePlaylistType 分离）
+  const [playingPlaylistType, setPlayingPlaylistType] =
+    useState<"user" | "series">("user");
+  const [playingPlaylistIndex, setPlayingPlaylistIndex] = useState<number>(-1);
   const [playlistPlayMode, setPlaylistPlayMode] =
     useState<PlaylistPlayMode>("sequence");
   const [isPlaylistMode, setIsPlaylistMode] = useState<boolean>(false);
@@ -186,7 +202,19 @@ export default function IndexPage() {
     GetPlaylist().then((json) => {
       if (json) {
         try {
-          setPlaylist(JSON.parse(json));
+          const data = JSON.parse(json);
+          // 兼容旧版（纯数组 / 仅用户列表）与新版（{ userPlaylist, seriesPlaylist, ... }）格式
+          if (Array.isArray(data)) {
+            setPlaylist(data);
+          } else {
+            if (Array.isArray(data.userPlaylist)) setPlaylist(data.userPlaylist);
+            if (Array.isArray(data.seriesPlaylist))
+              setSeriesPlaylist(data.seriesPlaylist);
+            if (typeof data.currentPlaylistIndex === "number")
+              setCurrentPlaylistIndex(data.currentPlaylistIndex);
+            if (typeof data.currentSeriesPlaylistIndex === "number")
+              setCurrentSeriesPlaylistIndex(data.currentSeriesPlaylistIndex);
+          }
         } catch (e) {
           console.error("加载播放列表失败:", e);
         }
@@ -203,8 +231,15 @@ export default function IndexPage() {
   // 播放列表变更时自动持久化（初始加载完成后才生效）
   useEffect(() => {
     if (!playlistLoadedRef.current) return;
-    SetPlaylist(JSON.stringify(playlist));
-  }, [playlist]);
+    SetPlaylist(
+      JSON.stringify({
+        userPlaylist: playlist,
+        seriesPlaylist,
+        currentPlaylistIndex,
+        currentSeriesPlaylistIndex,
+      }),
+    );
+  }, [playlist, currentPlaylistIndex, seriesPlaylist, currentSeriesPlaylistIndex]);
 
   // 播放模式变更时自动持久化
   useEffect(() => {
@@ -661,22 +696,22 @@ export default function IndexPage() {
       }
       // 更新显示的视频信息
       if (videoInfo) {
-        setVideoInfo(
-          MainModels.VideoInfo.createFrom({
-            ...videoInfo,
-            title: videoInfo.pages?.[index || 0]?.part || videoInfo.title,
-            desc: videoInfo.desc,
-            owner_name: videoInfo.owner_name,
-            owner_face: videoInfo.owner_face,
-            pages: videoInfo.pages,
-            aid: videoInfo.aid,
-            bvid: videoInfo.bvid,
-            owner_mid: videoInfo.owner_mid,
-            pic: videoInfo.pic,
-            videos: videoInfo.videos,
-            cid: cid,
-          }),
-        );
+        const updatedInfo = MainModels.VideoInfo.createFrom({
+          ...videoInfo,
+          title: videoInfo.pages?.[index || 0]?.part || videoInfo.title,
+          desc: videoInfo.desc,
+          owner_name: videoInfo.owner_name,
+          owner_face: videoInfo.owner_face,
+          pages: videoInfo.pages,
+          aid: videoInfo.aid,
+          bvid: videoInfo.bvid,
+          owner_mid: videoInfo.owner_mid,
+          pic: videoInfo.pic,
+          videos: videoInfo.videos,
+          cid: cid,
+        });
+        setVideoInfo(updatedInfo);
+        setPlayingInfo(updatedInfo);
       }
     } catch (error: any) {
       console.error("获取播放地址失败:", error);
@@ -692,19 +727,26 @@ export default function IndexPage() {
    * @description 播放列表模式下自动播放下一个播放列表项；选集模式下自动播放下一集
    */
   const handleVideoEnded = async () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
       let nextIndex: number;
 
       if (playlistPlayMode === "shuffle") {
-        if (playlist.length === 1) {
+        if (activePlaylist.length === 1) {
           nextIndex = 0;
         } else {
           do {
-            nextIndex = Math.floor(Math.random() * playlist.length);
-          } while (nextIndex === currentPlaylistIndex);
+            nextIndex = Math.floor(Math.random() * activePlaylist.length);
+          } while (nextIndex === activePlaylistIndex);
         }
       } else {
-        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+        nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
       await handlePlaylistVideoSelect(nextIndex);
 
@@ -712,6 +754,7 @@ export default function IndexPage() {
     }
 
     if (!videoInfo?.pages || !videoInfo.pages.length) return;
+    if (videoInfo.pages.length <= 1) return;
 
     const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
     const nextPage = videoInfo.pages[nextIndex];
@@ -729,12 +772,25 @@ export default function IndexPage() {
    * 上一曲/下一曲导航，根据播放模式自动选择播放列表或选集
    */
   const handlePrevTrack = () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
+      if (activePlaylist.length <= 1) return;
+
       const prevIndex =
-        (currentPlaylistIndex - 1 + playlist.length) % playlist.length;
+        activePlaylistIndex <= 0
+          ? activePlaylist.length - 1
+          : activePlaylistIndex - 1;
 
       handlePlaylistVideoSelect(prevIndex);
     } else if (videoInfo?.pages) {
+      if (videoInfo.pages.length <= 1) return;
+
       const prevIndex =
         (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
       const prevPage = videoInfo.pages[prevIndex];
@@ -750,18 +806,29 @@ export default function IndexPage() {
   };
 
   const handleNextTrack = () => {
-    if (isPlaylistMode && playlist.length > 0) {
+    const activePlaylist =
+      activePlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex =
+      activePlaylistType === "series"
+        ? currentSeriesPlaylistIndex
+        : currentPlaylistIndex;
+
+    if (isPlaylistMode && activePlaylist.length > 0) {
+      if (activePlaylist.length <= 1) return;
+
       let nextIndex: number;
 
-      if (playlistPlayMode === "shuffle" && playlist.length > 1) {
+      if (playlistPlayMode === "shuffle" && activePlaylist.length > 1) {
         do {
-          nextIndex = Math.floor(Math.random() * playlist.length);
-        } while (nextIndex === currentPlaylistIndex);
+          nextIndex = Math.floor(Math.random() * activePlaylist.length);
+        } while (nextIndex === activePlaylistIndex);
       } else {
-        nextIndex = (currentPlaylistIndex + 1) % playlist.length;
+        nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
       handlePlaylistVideoSelect(nextIndex);
     } else if (videoInfo?.pages) {
+      if (videoInfo.pages.length <= 1) return;
+
       const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
       const nextPage = videoInfo.pages[nextIndex];
 
@@ -833,12 +900,26 @@ export default function IndexPage() {
    * 播放播放列表中的指定项
    * @description 切换到播放列表模式，加载视频并自动播放第一集
    */
-  const handlePlaylistVideoSelect = async (index: number) => {
-    const item = playlist[index];
+  const handlePlaylistVideoSelect = async (
+    index: number,
+    sourcePlaylist?: PlaylistItem[],
+    sourcePlaylistType: "user" | "series" = activePlaylistType,
+  ) => {
+    const selectedPlaylist =
+      sourcePlaylist ||
+      (activePlaylistType === "series" ? seriesPlaylist : playlist);
+    const item = selectedPlaylist[index];
 
     if (!item) return;
     setIsPlaylistMode(true);
-    setCurrentPlaylistIndex(index);
+    // 记录真正在播放的列表及索引（与浏览中的 activePlaylistType 分离）
+    setPlayingPlaylistType(sourcePlaylistType);
+    setPlayingPlaylistIndex(index);
+    if (sourcePlaylistType === "series") {
+      setCurrentSeriesPlaylistIndex(index);
+    } else {
+      setCurrentPlaylistIndex(index);
+    }
     setShowSearchList(false);
     setShowPageList(false);
     setShowFeedList(false);
@@ -853,9 +934,11 @@ export default function IndexPage() {
       // Only reload video info when switching to a different video
       if (item.bvid !== currentBvid) {
         const info = await GetCList(item.bvid);
+        const infoModel = MainModels.VideoInfo.createFrom(info);
         setCurrentBvid(item.bvid);
         setPageNum(info.pages?.length || 0);
-        setVideoInfo(MainModels.VideoInfo.createFrom(info));
+        setVideoInfo(infoModel);
+        setPlayingInfo(infoModel);
         pages = info.pages;
         pic = info.pic || "";
       }
@@ -867,11 +950,12 @@ export default function IndexPage() {
       setPlayUrl(playInfo.url);
       setCurrentPart(item.part);
       // 确保弹幕按钮可用：将 cid 同步为当前播放项
-      setVideoInfo((prev) =>
-        prev
-          ? MainModels.VideoInfo.createFrom({ ...prev, cid: item.cid })
-          : prev,
-      );
+      setVideoInfo((prev) => {
+        if (!prev) return prev;
+        const updated = MainModels.VideoInfo.createFrom({ ...prev, cid: item.cid });
+        setPlayingInfo(updated);
+        return updated;
+      });
       const episodeIndex = pages?.findIndex((p) => p.cid === item.cid) ?? -1;
       setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
       setPageFirstFrame(item.first_frame || pic || "");
@@ -880,6 +964,102 @@ export default function IndexPage() {
       toast({
         type: "error",
         content: "播放失败: " + (error?.message || error?.toString() || "未知错误"),
+      });
+    }
+  };
+
+  /**
+   * 加载合集中的全部视频到播放列表并从第一集开始播放
+   */
+  const handleSeriesPlayAll = async (loadedVideos: any[]) => {
+    if (loadedVideos.length === 0) return;
+
+    toast({ type: "info", content: "正在加载合集..." });
+
+    try {
+      const allVideos: any[] = [];
+      const loadedBvids = new Set<string>();
+
+      loadedVideos.forEach((video) => {
+        if (!loadedBvids.has(video.bvid)) {
+          loadedBvids.add(video.bvid);
+          allVideos.push(video);
+        }
+      });
+
+      let nextPage = seriesVideosPage + 1;
+      while (true) {
+        const pageVideos = await GetSeriesVideos(currentUpMid, currentSeriesId, nextPage);
+
+        if (pageVideos.length === 0) break;
+
+        let addedCount = 0;
+        pageVideos.forEach((video) => {
+          if (!loadedBvids.has(video.bvid)) {
+            loadedBvids.add(video.bvid);
+            allVideos.push(video);
+            addedCount += 1;
+          }
+        });
+
+        // 防止接口异常地重复返回同一页，导致无限请求
+        if (addedCount === 0) break;
+        nextPage += 1;
+      }
+
+      setSeriesVideos(allVideos.slice(0, 240));
+      setSeriesVideosPage(Math.max(seriesVideosPage, nextPage - 1));
+
+      const items: PlaylistItem[] = [];
+      for (let i = 0; i < allVideos.length; i += 5) {
+        const batch = allVideos.slice(i, i + 5);
+        const results = await Promise.all(
+          batch.map(async (video: any): Promise<PlaylistItem | null> => {
+            try {
+              const info = await GetCList(video.bvid);
+              const firstPage = info.pages?.[0];
+              if (!firstPage?.cid) return null;
+
+              return {
+                id: `${video.bvid}-${firstPage.cid}`,
+                bvid: video.bvid,
+                aid: info.aid,
+                cid: firstPage.cid,
+                part: firstPage.part || video.title,
+                first_frame: firstPage.first_frame || video.pic,
+                title: info.title || video.title,
+                pic: info.pic || video.pic,
+              };
+            } catch (error) {
+              console.error(`获取合集视频信息失败 (${video.bvid}):`, error);
+              return null;
+            }
+          }),
+        );
+
+        items.push(
+          ...results.filter((item): item is PlaylistItem => item !== null),
+        );
+      }
+
+      if (items.length === 0) {
+        toast({ type: "error", content: "合集中的视频暂时都无法播放" });
+        return;
+      }
+
+      setSeriesPlaylist(items);
+      setActivePlaylistType("series");
+      setCurrentSeriesPlaylistIndex(-1);
+      setPlaylistPlayMode("sequence");
+      setIsPlaylistMode(true);
+      setShowSeriesList(false);
+      await handlePlaylistVideoSelect(0, items, "series");
+      toast({ type: "success", content: `已加载 ${items.length} 集到播放列表` });
+    } catch (error: any) {
+      console.error("加载合集失败:", error);
+      toast({
+        type: "error",
+        content: "加载合集失败: " + (error?.message || error?.toString() || "未知错误"),
       });
     }
   };
@@ -894,10 +1074,19 @@ export default function IndexPage() {
     setPlaylist((prev) => prev.filter((item) => item.id !== id));
 
     if (deletedIndex === currentPlaylistIndex) {
-      setIsPlaylistMode(false);
+      if (activePlaylistType === "user") setIsPlaylistMode(false);
       setCurrentPlaylistIndex(-1);
     } else if (deletedIndex < currentPlaylistIndex) {
       setCurrentPlaylistIndex(currentPlaylistIndex - 1);
+    }
+
+    // 同步真正在播放的列表索引
+    if (playingPlaylistType === "user") {
+      if (deletedIndex === playingPlaylistIndex) {
+        setPlayingPlaylistIndex(-1);
+      } else if (deletedIndex < playingPlaylistIndex) {
+        setPlayingPlaylistIndex(playingPlaylistIndex - 1);
+      }
     }
   };
 
@@ -918,12 +1107,25 @@ export default function IndexPage() {
       if (from > prevIdx && to <= prevIdx) return prevIdx + 1;
       return prevIdx;
     });
+
+    // 播放列表拖拽排序时，同步真正在播放的索引
+    if (playingPlaylistType === "user" && playingPlaylistIndex >= 0) {
+      setPlayingPlaylistIndex((prevIdx) => {
+        if (prevIdx === from) return to;
+        if (from < prevIdx && to >= prevIdx) return prevIdx - 1;
+        if (from > prevIdx && to <= prevIdx) return prevIdx + 1;
+        return prevIdx;
+      });
+    }
   };
 
   const handlePlaylistClear = () => {
     setPlaylist([]);
     setCurrentPlaylistIndex(-1);
-    setIsPlaylistMode(false);
+    if (playingPlaylistType === "user") {
+      setPlayingPlaylistIndex(-1);
+    }
+    if (activePlaylistType === "user") setIsPlaylistMode(false);
   };
 
   const handlePlaylistPlayModeToggle = () => {
@@ -1510,6 +1712,58 @@ export default function IndexPage() {
     }
   };
 
+  // displayVideoInfo: 显示层使用的信息，基于真正正在播放的视频(playingInfo)而非浏览中的(videoInfo)。
+  // 播放列表模式：从 playingInfo + 正在播放的列表项派生；非播放列表模式：直接用 playingInfo。
+  const displayVideoInfo = useMemo(() => {
+    const activePlaylist =
+      playingPlaylistType === "series" ? seriesPlaylist : playlist;
+    const activePlaylistIndex = playingPlaylistIndex;
+
+    if (
+      isPlaylistMode &&
+      activePlaylistIndex >= 0 &&
+      activePlaylist[activePlaylistIndex]
+    ) {
+      const item = activePlaylist[activePlaylistIndex];
+      if (playingInfo?.bvid === item.bvid) {
+        return MainModels.VideoInfo.createFrom({
+          ...playingInfo,
+          aid: item.aid,
+          cid: item.cid,
+          title: item.title,
+          pic: item.pic,
+        });
+      }
+      return MainModels.VideoInfo.createFrom({
+        bvid: item.bvid,
+        aid: item.aid,
+        cid: item.cid,
+        title: item.title,
+        pic: item.pic,
+        desc: "",
+        owner_name: "",
+        owner_face: "",
+        owner_mid: 0,
+        pages: [],
+        videos: 0,
+      });
+    }
+    return playingInfo;
+  }, [
+    playingPlaylistType,
+    playingPlaylistIndex,
+    isPlaylistMode,
+    playlist,
+    seriesPlaylist,
+    playingInfo,
+  ]);
+
+  // 播放列表按钮角标：跟随真正在播放的列表；两个列表都未播放时默认显示「我的列表」
+  const playlistBadgeType =
+    isPlaylistMode && playingPlaylistType === "series" ? "series" : "user";
+  const playlistBadgeCount =
+    playlistBadgeType === "series" ? seriesPlaylist.length : playlist.length;
+
   return (
     <DefaultLayout>
       <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode && !isLinux} />
@@ -1532,23 +1786,24 @@ export default function IndexPage() {
           <div className="home-now-playing">
             <div className="relative" id="video-cover-container">
               <VideoCover
-                cover={graftingImage(pageFirstFrame)}
+                cover={graftingImage(pageFirstFrame, 480)}
                 isPlaying={isPlaying}
                 onPlayStateChange={handleCoverClick}
               />
             </div>
             <VideoInfo
-              bvid={videoInfo?.bvid}
-              cid={videoInfo?.cid}
+              bvid={displayVideoInfo?.bvid}
+              cid={displayVideoInfo?.cid}
               currentSeriesTitle={currentSeriesTitle}
-              desc={videoInfo?.desc}
-              ownerFace={videoInfo?.owner_face}
-              ownerMid={videoInfo?.owner_mid}
-              ownerName={videoInfo?.owner_name}
+              desc={displayVideoInfo?.desc}
+              ownerFace={displayVideoInfo?.owner_face}
+              ownerMid={displayVideoInfo?.owner_mid}
+              ownerName={displayVideoInfo?.owner_name}
               part={currentPart}
-              playlistCount={playlist.length}
+              playlistCount={playlistBadgeCount}
+              playlistBadgeSeries={playlistBadgeType === "series"}
               searchResultsCount={searchResults?.length || 0}
-              title={videoInfo?.title}
+              title={displayVideoInfo?.title}
               onCollectClick={handleCollectClick}
               onDanmakuClick={handleDanmakuClick}
               onFeedClick={handleFeedClick}
@@ -1570,21 +1825,22 @@ export default function IndexPage() {
         ""
       ) : (
         <MiniVideoInfo
-          cover={graftingImage(pageFirstFrame)}
+          cover={graftingImage(pageFirstFrame, 480)}
           isPlaylistMode={isPlaylistMode}
           part={currentPart}
-          title={videoInfo?.title}
+          title={displayVideoInfo?.title}
           onSwitchMode={switchWindowMode}
         />
       )}
       <Player
-        aid={videoInfo?.aid}
-        cid={videoInfo?.cid}
+        aid={displayVideoInfo?.aid}
+        cid={displayVideoInfo?.cid}
+        forcePause={isPlayVideo}
         isPlaying={isPlaying}
         src={playUrl}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
-        onTimeUpdate={handleTimeUpdate}
+        onTimeUpdate={showDanmakuList ? handleTimeUpdate : undefined}
       />
       {isMiniMode ? (
         ""
@@ -1596,6 +1852,14 @@ export default function IndexPage() {
             setIsplay={setIsPlayVideo}
             src={playUrl}
           />
+          <Suspense
+            fallback={
+              <div className="lazy-drawer-loading" role="status" aria-live="polite">
+                <span className="lazy-drawer-spinner" aria-hidden="true" />
+                <span>正在打开</span>
+              </div>
+            }
+          >
           {showSearchList && (
             <SearchList
               searchResults={searchResults}
@@ -1683,6 +1947,7 @@ export default function IndexPage() {
               seriesVideosPage={seriesVideosPage}
               setSeriesVideos={setSeriesVideos}
               setSeriesVideosPage={setSeriesVideosPage}
+              onPlayAll={handleSeriesPlayAll}
               onSlideClick={handleSeriesListClose}
               onVideoSelect={handleSearchVideoSelect}
             />
@@ -1701,18 +1966,25 @@ export default function IndexPage() {
           )}
           {showPlaylist && (
             <Playlist
+              activePlaylistType={activePlaylistType}
               currentPlaylistIndex={currentPlaylistIndex}
+              currentSeriesPlaylistIndex={currentSeriesPlaylistIndex}
               isPlaylistMode={isPlaylistMode}
               playMode={playlistPlayMode}
+              playingIndex={playingPlaylistIndex}
+              playingPlaylistType={playingPlaylistType}
               playlist={playlist}
+              seriesPlaylist={seriesPlaylist}
               onClear={handlePlaylistClear}
               onDelete={handlePlaylistDelete}
               onPlayModeToggle={handlePlaylistPlayModeToggle}
               onReorder={handlePlaylistReorder}
               onSlideClick={() => setShowPlaylist(false)}
+              onSwitchPlaylistType={setActivePlaylistType}
               onVideoSelect={handlePlaylistVideoSelect}
             />
           )}
+          </Suspense>
           {showLoginPanel && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm">
               <div className="login-glass relative w-80 rounded-2xl overflow-visible">

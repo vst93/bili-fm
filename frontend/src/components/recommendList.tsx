@@ -53,7 +53,8 @@ const RecommendList: FC<RecommendListProps> = ({
   // 预加载推荐和热门列表封面图
   const recommendUrls = useMemo(() => recommendList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [recommendList]);
   const hotUrls = useMemo(() => hotList?.items?.map((item: any) => graftingImage(item.pic || item.cover)) ?? [], [hotList]);
-  usePreloadImages([...recommendUrls, ...hotUrls]);
+  const preloadUrls = useMemo(() => [...recommendUrls, ...hotUrls], [recommendUrls, hotUrls]);
+  usePreloadImages(preloadUrls);
 
   // 保存选中的 tab 到 localStorage
   const handleTabChange = (key: string) => {
@@ -85,7 +86,7 @@ const RecommendList: FC<RecommendListProps> = ({
   };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop === e.currentTarget.clientHeight;
+    const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight <= 80;
     if (bottom) {
       onLoadMore?.(activeTab);
     }
@@ -138,6 +139,7 @@ const RecommendList: FC<RecommendListProps> = ({
                 <Tab key="recommend" title="推荐" />
               </Tabs>
               <Button
+                aria-label="刷新当前列表"
                 isIconOnly
                 size="sm"
                 variant="light"
@@ -156,13 +158,14 @@ const RecommendList: FC<RecommendListProps> = ({
                   className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                   style={{ width: "100%" }}
                 >
-                  {currentList?.items?.map((item: any, index: number) => {
+                  {currentList?.items?.map((item: any) => {
                     const coverUrl = item.pic || item.cover;
                     return (
                       <Card
-                        key={index}
+                        key={item.bvid || item.aid}
                         isPressable
                         shadow="sm"
+                        className="c-list-card"
                         onPress={() => onVideoSelect?.(item.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
@@ -201,4 +204,4 @@ const RecommendList: FC<RecommendListProps> = ({
   );
 };
 
-export default RecommendList; 
+export default RecommendList;

@@ -1,7 +1,7 @@
 import { useState, createContext, useContext, useCallback, ReactNode } from "react";
 import { CheckOne, CloseOne, Attention, Info, Refresh } from "@icon-park/react";
 
-type DialogType = "info" | "success" | "warning" | "error" | "question";
+type DialogType = "info" | "success" | "warning" | "error" | "question" | "loading";
 
 interface DialogButton {
   label: string;
@@ -22,8 +22,18 @@ interface DialogState extends DialogConfig {
   visible: boolean;
 }
 
-const DialogContext = createContext<(config: DialogConfig) => void>(() => {});
-export const useDialog = () => useContext(DialogContext);
+interface DialogContextValue {
+  showDialog: (config: DialogConfig) => number;
+  updateDialog: (id: number, config: DialogConfig) => void;
+  closeDialog: (id: number, value: string) => void;
+}
+
+const DialogContext = createContext<DialogContextValue | null>(null);
+export const useDialog = () => {
+  const ctx = useContext(DialogContext);
+  if (!ctx) throw new Error("useDialog must be used within DialogProvider");
+  return ctx;
+};
 
 const iconForType = (type: DialogType) => {
   switch (type) {
@@ -31,6 +41,7 @@ const iconForType = (type: DialogType) => {
     case "error": return <CloseOne fill="#ef4444" size="28" theme="outline" />;
     case "warning": return <Attention fill="#f59e0b" size="28" theme="outline" />;
     case "question": return <Refresh fill="#0ea5e9" size="28" theme="outline" />;
+    case "loading": return <span className="dialog-loading-icon"><Refresh fill="#0ea5e9" size="28" theme="outline" /></span>;
     default: return <Info fill="#0ea5e9" size="28" theme="outline" />;
   }
 };
@@ -41,6 +52,7 @@ const accentForType = (type: DialogType) => {
     case "error": return "rgba(239, 68, 68, 0.10)";
     case "warning": return "rgba(245, 158, 11, 0.10)";
     case "question": return "rgba(14, 165, 233, 0.10)";
+    case "loading": return "rgba(14, 165, 233, 0.08)";
     default: return "rgba(14, 165, 233, 0.06)";
   }
 };
@@ -105,6 +117,12 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
     requestAnimationFrame(() => {
       setDialogs(prev => prev.map(d => d.id === id ? { ...d, visible: true } : d));
     });
+    return id;
+  }, []);
+
+  // 原地更新某个对话框的内容（标题/消息/类型/按钮），用于加载 -> 结果的切换
+  const updateDialog = useCallback((id: number, config: DialogConfig) => {
+    setDialogs(prev => prev.map(d => d.id === id ? { ...d, ...config } : d));
   }, []);
 
   const closeDialog = useCallback((id: number, value: string) => {
@@ -117,7 +135,7 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [dialogs]);
 
   return (
-    <DialogContext.Provider value={showDialog}>
+    <DialogContext.Provider value={{ showDialog, updateDialog, closeDialog }}>
       {children}
       {dialogs.map(d => (
         <div

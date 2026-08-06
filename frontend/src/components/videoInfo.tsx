@@ -48,6 +48,7 @@ interface VideoInfoProps {
   currentSeriesTitle?: string;
   searchResultsCount?: number;
   playlistCount?: number;
+  playlistBadgeSeries?: boolean;
   cid?: number;
 }
 
@@ -71,6 +72,7 @@ export default function VideoInfo({
   currentSeriesTitle,
   searchResultsCount = 0,
   playlistCount = 0,
+  playlistBadgeSeries = false,
   cid,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
@@ -140,6 +142,7 @@ export default function VideoInfo({
 
   const gray = "#64748b";
   const blue = "#0ea5e9";
+  const seriesColor = "#8b5cf6";
 
   return (
     <div id="video-info">
@@ -155,6 +158,7 @@ export default function VideoInfo({
               radius="full"
               src={graftingImage(
                 ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+                96,
               )}
               width={40}
               onClick={() => onOwnerClick?.(ownerMid, ownerName)}
@@ -261,12 +265,24 @@ export default function VideoInfo({
             onClick={onPlaylistClick}
           >
             <MusicList
-              fill={isPlaylistMode ? blue : gray}
+              fill={
+                isPlaylistMode
+                  ? playlistBadgeSeries
+                    ? seriesColor
+                    : blue
+                  : gray
+              }
               size={20}
               theme="outline"
             />
             {playlistCount > 0 && (
-              <span className="nav-badge">
+              <span
+                className={
+                  playlistBadgeSeries
+                    ? "nav-badge nav-badge-series"
+                    : "nav-badge"
+                }
+              >
                 {playlistCount > 99 ? "99+" : playlistCount}
               </span>
             )}

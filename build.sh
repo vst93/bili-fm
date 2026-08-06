@@ -1,71 +1,60 @@
 #!/bin/bash
+# Build bili-FM with native installers (Wails official packaging).
+#
+# Usage:
+#   ./build.sh [platform ...]
+#   ./build.sh                       # builds all default platforms
+#   ./build.sh linux/amd64           # build one platform
+#   ./build.sh darwin/arm64 linux/amd64
+#
+# Outputs (per platform):
+#   macOS  -> build/bin/bili-FM.app  +  bili-FM-macos-<arch>.dmg
+#   Windows-> build/bin/bili-FM-setup.exe  (NSIS installer)
+#   Linux  -> build/bin/bili-FM      +  .deb / .rpm / .AppImage
+#
+# Requires native tooling for each platform:
+#   macOS: hdiutil (built-in)
+#   Windows: makensis (installed by `wails build -nsis`)
+#   Linux: dpkg-deb + rpm (rpmbuild) + curl (AppImage tools)
+set -euo pipefail
 
-# 输入版本号
-read -p "请输入版本号（例如 x.x.x）: " VERSION
+VERSION=$(grep -oP 'const APP_VERSION = "\K[^"]+' service/config.go)
+PLATFORMS=("${@:-darwin/arm64 darwin/amd64 windows/amd64 linux/amd64}")
 
-# 定义平台和架构
-PLATFORMS=("darwin/amd64" "darwin/arm64" "windows/amd64" "linux/amd64")
-
-# 标志是否为第一次循环
-FIRST_RUN=true
-
-# 遍历平台并构建
 for PLATFORM in "${PLATFORMS[@]}"; do
-  # 提取平台名称和架构
-  OS=$(echo $PLATFORM | cut -d'/' -f1)
-  ARCH=$(echo $PLATFORM | cut -d'/' -f2)
+  OS=$(echo "$PLATFORM" | cut -d/ -f1)
+  ARCH=$(echo "$PLATFORM" | cut -d/ -f2)
+  echo "=== Building ${PLATFORM} (v${VERSION}) ==="
 
-  if [ "$OS" == "darwin" ]; then
-    OS="mac"
-  fi
+  case "$OS" in
+    darwin)
+      wails build -platform "$PLATFORM" -clean
+      test -d "build/bin/bili-FM.app" || { echo "build/bin/bili-FM.app missing" >&2; exit 1; }
+      hdiutil create \
+        -volname "bili-FM" \
+        -srcfolder "build/bin/bili-FM.app" \
+        -ov -format UDZO \
+        "bili-FM-macos-${ARCH}.dmg"
+      ;;
 
-  # 设置输出文件名
-  OUTPUT_NAME="bili-FM"
-  ZIP_NAME="bili-FM_${VERSION}_${OS}_${ARCH}.zip"
+    windows)
+      wails build -platform "$PLATFORM" -clean -nsis
+      echo "NSIS installer: build/bin/bili-FM-setup.exe"
+      ;;
 
-  # 构建应用程序
-  echo "正在构建 ${OS} ${ARCH} 平台..."
+    linux)
+      wails build -platform "$PLATFORM" -clean
+      test -x "build/bin/bili-FM" || { echo "build/bin/bili-FM missing" >&2; exit 1; }
+      ./build/linux/build-deb.sh "$VERSION" "$ARCH" "build/bin/bili-FM" .
+      ./build/linux/build-rpm.sh "$VERSION" "$ARCH" "build/bin/bili-FM" .
+      ./build/linux/build-appimage.sh "$ARCH" "build/bin/bili-FM" .
+      ;;
 
-  # 如果是第一次循环，加上 -clean 参数
-  if [ "$FIRST_RUN" = true ]; then
-    wails build -platform $PLATFORM -clean -s 
-    FIRST_RUN=false
-  else
-    wails build -platform $PLATFORM -s -skipbindings
-  fi
-
-  # 检查构建是否成功
-  if [ $? -eq 0 ]; then
-    echo "构建成功！正在打包为 ${ZIP_NAME}..."
-
-    # 进入构建输出目录
-    cd build/bin || { echo "无法进入 build/bin 目录"; exit 1; }
-
-    # 打包为 ZIP 文件
-    if [ "$OS" == "windows" ]; then
-      zip -r ./${ZIP_NAME} ${OUTPUT_NAME}.exe
-    elif [ "$OS" == "darwin" ]; then
-      zip -r ./${ZIP_NAME} ${OUTPUT_NAME}.app
-    elif [ "$OS" == "mac" ]; then
-      zip -r ./${ZIP_NAME} ${OUTPUT_NAME}.app
-    else
-      zip -r ./${ZIP_NAME} ${OUTPUT_NAME}
-    fi
-
-    # 返回上一级目录
-    cd ../..
-
-    # 检查打包是否成功
-    if [ $? -eq 0 ]; then
-      echo "打包完成: ${ZIP_NAME}"
-    else
-      echo "打包失败: ${OS} ${ARCH}"
+    *)
+      echo "Unknown OS: $OS (expected darwin|windows|linux)" >&2
       exit 1
-    fi
-  else
-    echo "构建失败: ${OS} ${ARCH}"
-    exit 1
-  fi
+      ;;
+  esac
 done
 
-echo "所有平台构建和打包完成！"
+echo "=== All builds complete ==="

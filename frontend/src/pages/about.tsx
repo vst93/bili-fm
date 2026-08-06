@@ -39,9 +39,6 @@ export default function AboutPage() {
             <Chip color="primary" variant="flat" size="lg">
               版本: {appVersion?.version ?? "..."}
             </Chip>
-            <Chip color="secondary" variant="flat" size="lg">
-              Build: {appVersion?.build ?? "..."}
-            </Chip>
           </div>
         </div>
 

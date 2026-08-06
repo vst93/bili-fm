@@ -13,64 +13,64 @@ import (
 )
 
 var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	shell32          = syscall.NewLazyDLL("shell32.dll")
-	kernel32         = syscall.NewLazyDLL("kernel32.dll")
-	procShellNotify  = shell32.NewProc("Shell_NotifyIconW")
-	procCreateWindow = user32.NewProc("CreateWindowExW")
-	procDefWindowProc = user32.NewProc("DefWindowProcW")
-	procGetMessage   = user32.NewProc("GetMessageW")
-	procTranslateMsg = user32.NewProc("TranslateMessage")
-	procDispatchMsg  = user32.NewProc("DispatchMessageW")
-	procPostQuitMsg  = user32.NewProc("PostQuitMessage")
-	procRegisterClass = user32.NewProc("RegisterClassExW")
-	procShowWindow   = user32.NewProc("ShowWindow")
-	procSetForeground = user32.NewProc("SetForegroundWindow")
-	procCreateMutex  = kernel32.NewProc("CreateMutexW")
-	procCloseHandle  = kernel32.NewProc("CloseHandle")
+	user32              = syscall.NewLazyDLL("user32.dll")
+	shell32             = syscall.NewLazyDLL("shell32.dll")
+	kernel32            = syscall.NewLazyDLL("kernel32.dll")
+	procShellNotify     = shell32.NewProc("Shell_NotifyIconW")
+	procCreateWindow    = user32.NewProc("CreateWindowExW")
+	procDefWindowProc   = user32.NewProc("DefWindowProcW")
+	procGetMessage      = user32.NewProc("GetMessageW")
+	procTranslateMsg    = user32.NewProc("TranslateMessage")
+	procDispatchMsg     = user32.NewProc("DispatchMessageW")
+	procPostQuitMsg     = user32.NewProc("PostQuitMessage")
+	procRegisterClass   = user32.NewProc("RegisterClassExW")
+	procShowWindow      = user32.NewProc("ShowWindow")
+	procSetForeground   = user32.NewProc("SetForegroundWindow")
+	procCreateMutex     = kernel32.NewProc("CreateMutexW")
+	procCloseHandle     = kernel32.NewProc("CloseHandle")
 	procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
-	procExtractIcon  = shell32.NewProc("ExtractIconW")
+	procExtractIcon     = shell32.NewProc("ExtractIconW")
 )
 
 const (
-	WM_USER            = 0x0400
-	WM_TRAYICON        = WM_USER + 1
-	WM_COMMAND         = 0x0111
-	WM_LBUTTONDBLCLK   = 0x0203
-	WM_RBUTTONUP       = 0x0205
-	WS_EX_APPWINDOW    = 0x00040000
-	WS_OVERLAPPED      = 0x00000000
-	SW_RESTORE         = 9
-	SW_HIDE            = 0
-	NIF_ICON           = 0x00000002
-	NIF_MESSAGE        = 0x00000001
-	NIF_TIP            = 0x00000004
-	NIM_ADD            = 0x00000000
-	NIM_DELETE         = 0x00000002
-	IDI_APPLICATION    = 32512
-	MF_STRING          = 0x00000000
-	MF_SEPARATOR       = 0x00000800
-	TPM_RIGHTBUTTON    = 0x0002
-	TPM_BOTTOMALIGN    = 0x0020
+	WM_USER              = 0x0400
+	WM_TRAYICON          = WM_USER + 1
+	WM_COMMAND           = 0x0111
+	WM_LBUTTONDBLCLK     = 0x0203
+	WM_RBUTTONUP         = 0x0205
+	WS_EX_APPWINDOW      = 0x00040000
+	WS_OVERLAPPED        = 0x00000000
+	SW_RESTORE           = 9
+	SW_HIDE              = 0
+	NIF_ICON             = 0x00000002
+	NIF_MESSAGE          = 0x00000001
+	NIF_TIP              = 0x00000004
+	NIM_ADD              = 0x00000000
+	NIM_DELETE           = 0x00000002
+	IDI_APPLICATION      = 32512
+	MF_STRING            = 0x00000000
+	MF_SEPARATOR         = 0x00000800
+	TPM_RIGHTBUTTON      = 0x0002
+	TPM_BOTTOMALIGN      = 0x0020
 	ERROR_ALREADY_EXISTS = 183
 )
 
 type NOTIFYICONDATA struct {
-	CbSize           uint32
-	HWnd             uintptr
-	UID              uint32
-	UFlags           uint32
-	UCallbackMessage uint32
-	HIcon            uintptr
-	SzTip            [128]uint16
-	DwState          uint32
-	DwStateMask      uint32
-	SzInfo           [256]uint16
+	CbSize            uint32
+	HWnd              uintptr
+	UID               uint32
+	UFlags            uint32
+	UCallbackMessage  uint32
+	HIcon             uintptr
+	SzTip             [128]uint16
+	DwState           uint32
+	DwStateMask       uint32
+	SzInfo            [256]uint16
 	UTimeoutOrVersion uint32
-	SzInfoTitle      [64]uint16
-	DwInfoFlags      uint32
-	GuidItem         [16]byte
-	HBalloonIcon     uintptr
+	SzInfoTitle       [64]uint16
+	DwInfoFlags       uint32
+	GuidItem          [16]byte
+	HBalloonIcon      uintptr
 }
 
 type MSG struct {
@@ -102,13 +102,13 @@ type POINT struct {
 }
 
 var (
-	trayWindow    uintptr
-	trayIcon      uintptr
-	onShowWindow  func()
-	onExit        func()
-	trayOnce      sync.Once
-	exiting       bool
-	wailsCtx      context.Context // Wails runtime context，用于第二实例启动时显示窗口
+	trayWindow   uintptr
+	trayIcon     uintptr
+	onShowWindow func()
+	onExit       func()
+	trayOnce     sync.Once
+	exiting      bool
+	wailsCtx     context.Context // Wails runtime context，用于第二实例启动时显示窗口
 )
 
 // checkSingleInstanceWindows 检查是否已有实例运行
@@ -187,9 +187,9 @@ func initTrayWindows(showFn func(), exitFn func()) {
 		// 注册窗口类
 		className, _ := syscall.UTF16PtrFromString("BiliFMTrayClass")
 		wndClass := WNDCLASSEX{
-			CbSize:      uint32(unsafe.Sizeof(WNDCLASSEX{})),
-			LpfnWndProc: syscall.NewCallback(wndProc),
-			HInstance:    hInstance,
+			CbSize:        uint32(unsafe.Sizeof(WNDCLASSEX{})),
+			LpfnWndProc:   syscall.NewCallback(wndProc),
+			HInstance:     hInstance,
 			LpszClassName: className,
 		}
 		procRegisterClass.Call(uintptr(unsafe.Pointer(&wndClass)))
@@ -376,3 +376,9 @@ func bringWindowToFront() {
 
 // initTrayLinux stub for non-Linux platforms
 func initTrayLinux(ctx context.Context, exitFn func()) {}
+
+// initTrayDarwin stub for non-macOS platforms
+func initTrayDarwin(ctx context.Context, showFn func(), exitFn func()) {}
+
+// removeTrayDarwin stub for non-macOS platforms
+func removeTrayDarwin() {}

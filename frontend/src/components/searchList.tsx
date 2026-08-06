@@ -1,10 +1,9 @@
-import type { FC } from "react";
+import type { FC, Key } from "react";
 import type { service as blSer } from "../../wailsjs/go/models";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDisclosure } from "@heroui/react";
 import {
-  Button,
   Drawer,
   DrawerContent,
   DrawerBody,
@@ -12,6 +11,8 @@ import {
   Card,
   CardBody,
   CardFooter,
+  Tab,
+  Tabs,
 } from "@heroui/react";
 
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -34,6 +35,7 @@ const SearchList: FC<SearchListProps> = ({
   onSortChange,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+  const [sortOrder, setSortOrder] = useState("totalrank");
 
   // 预加载搜索结果封面图
   const coverUrls = useMemo(
@@ -50,6 +52,12 @@ const SearchList: FC<SearchListProps> = ({
     onOpenChange();
   };
 
+  const handleSortChange = (key: Key) => {
+    const nextOrder = key.toString();
+    setSortOrder(nextOrder);
+    onSortChange?.(nextOrder === "totalrank" ? "" : nextOrder);
+  };
+
   return (
     <Drawer
       classNames={{
@@ -62,40 +70,36 @@ const SearchList: FC<SearchListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2 py-2">
-              搜索
-              <Button
-                size="sm"
-                variant="flat"
-                onClick={() => onSortChange?.("")}
+            <DrawerHeader className="search-drawer-header flex items-center gap-3 py-2">
+              <span className="search-drawer-title">搜索</span>
+              <Tabs
+                aria-label="搜索结果排序"
+                classNames={{
+                  tabList: "gap-2",
+                  cursor: "bg-default-100",
+                  tab: "h-8 px-4",
+                  tabContent: "group-data-[selected=true]:text-primary",
+                }}
+                selectedKey={sortOrder}
+                variant="light"
+                onSelectionChange={handleSortChange}
               >
-                综合排序
-              </Button>
-              <Button
-                size="sm"
-                variant="flat"
-                onClick={() => onSortChange?.("click")}
-              >
-                最多播放
-              </Button>
-              <Button
-                size="sm"
-                variant="flat"
-                onClick={() => onSortChange?.("update")}
-              >
-                最新发布
-              </Button>
+                <Tab key="totalrank" title="综合" />
+                <Tab key="click" title="最多播放" />
+                <Tab key="update" title="最新发布" />
+              </Tabs>
             </DrawerHeader>
             <DrawerBody>
               <div
                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                 style={{ width: "100%" }}
               >
-                {searchResults.map((video, index) => (
+                {searchResults.map((video) => (
                   <Card
-                    key={index}
+                    key={video.url}
                     isPressable
                     shadow="sm"
+                    className="c-list-card"
                     onPress={() => onVideoSelect?.(video.url)}
                   >
                     <CardBody className="overflow-visible p-0 img-container">

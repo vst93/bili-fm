@@ -1,4 +1,4 @@
-//go:build !windows && !linux
+//go:build !windows && !linux && !darwin
 
 package main
 
@@ -31,6 +31,12 @@ func removeTrayLinux() {}
 
 // initTrayLinux 非 Linux 平台的 stub
 func initTrayLinux(ctx context.Context, exitFn func()) {}
+
+// initTrayDarwin 非 macOS 平台的 stub
+func initTrayDarwin(ctx context.Context, showFn func(), exitFn func()) {}
+
+// removeTrayDarwin 非 macOS 平台的 stub
+func removeTrayDarwin() {}
 
 // IsExiting 非 Windows 平台的 stub
 func IsExiting() bool {

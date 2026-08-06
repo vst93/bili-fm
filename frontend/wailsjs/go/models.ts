@@ -1,3 +1,42 @@
+export namespace main {
+	
+	export class ApplyResult {
+	    success: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ApplyResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	    }
+	}
+	export class UpdateResult {
+	    hasUpdate: boolean;
+	    latestVersion: string;
+	    downloadUrl: string;
+	    isLatest: boolean;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hasUpdate = source["hasUpdate"];
+	        this.latestVersion = source["latestVersion"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.isLatest = source["isLatest"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace service {
 	
 	export class AppVersion {

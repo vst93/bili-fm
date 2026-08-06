@@ -47,7 +47,7 @@ var proxyTransport = &http.Transport{
 	MaxIdleConnsPerHost:   30,
 	MaxConnsPerHost:       50,
 	IdleConnTimeout:       120 * time.Second,
-	TLSHandshakeTimeout:  15 * time.Second,
+	TLSHandshakeTimeout:   15 * time.Second,
 	ExpectContinueTimeout: 2 * time.Second,
 	ResponseHeaderTimeout: 30 * time.Second,
 	DisableKeepAlives:     false,
@@ -216,7 +216,7 @@ func main() {
 			wailsruntime.EventsEmit(AppContext, "menu:show-shortcuts")
 		})
 		aboutMenu.AddText("检查更新", nil, func(_ *menu.CallbackData) {
-			appMenu.CheckForUpdates(true, "")
+			wailsruntime.EventsEmit(AppContext, "menu:check-update")
 		})
 		aboutMenu.AddText("退出应用", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
 			appMenu.CloseApp()
@@ -309,6 +309,19 @@ func main() {
 					}()
 				})
 			}
+
+			// macOS: 初始化状态栏托盘
+			if runtime.GOOS == "darwin" {
+				initTrayDarwin(ctx, func() {
+					wailsruntime.Show(ctx)
+				}, func() {
+					removeTrayDarwin()
+					go func() {
+						time.Sleep(100 * time.Millisecond)
+						os.Exit(0)
+					}()
+				})
+			}
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
 			// 正在退出中（菜单/托盘触发的 os.Exit），允许关闭
@@ -327,6 +340,9 @@ func main() {
 			}
 			if runtime.GOOS == "linux" {
 				removeTrayLinux()
+			}
+			if runtime.GOOS == "darwin" {
+				removeTrayDarwin()
 			}
 		},
 		Bind: []interface{}{

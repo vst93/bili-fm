@@ -13,86 +13,80 @@ import (
 )
 
 /*
-#cgo pkg-config: gtk+-3.0
+#cgo pkg-config: gtk+-3.0 ayatana-appindicator3-0.1
 #include <gtk/gtk.h>
+#include <libayatana-appindicator/app-indicator.h>
 
-// GtkStatusIcon is deprecated in GTK3 but still functional and requires
-// no extra dependencies (unlike AppIndicator).
+// 使用 libayatana-appindicator (AppIndicator)，通过 StatusNotifierItem 协议
+// 同时支持 X11 与 Wayland（GNOME 需安装 AppIndicator 扩展，KDE 原生支持）。
+// GTK StatusIcon 已废弃且 Wayland 下不工作。
 
-// We use gpointer for callback params to avoid cgo type-matching issues
-// with typedef'd pointer types.
+extern void onIndicatorMenuShow(gpointer user_data);
+extern void onIndicatorMenuQuit(gpointer user_data);
 
-extern void onTrayActivate(gpointer icon, gpointer user_data);
-extern void onTrayPopupMenu(gpointer icon, guint button, guint activate_time, gpointer user_data);
-extern void onTrayMenuItemShow(gpointer user_data);
-extern void onTrayMenuItemQuit(gpointer user_data);
-
-static gpointer createStatusIcon(const char *icon_path) {
-	GtkStatusIcon *icon = gtk_status_icon_new_from_file(icon_path);
-	gtk_status_icon_set_tooltip_text(icon, "bili-FM");
-	gtk_status_icon_set_visible(icon, TRUE);
-	return (gpointer)icon;
+static AppIndicator *createIndicator(const char *icon_path) {
+	AppIndicator *indicator = app_indicator_new("bili-FM", "bili-FM",
+		APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
+	if (indicator) {
+		GError *error = NULL;
+		GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(icon_path, &error);
+		if (pixbuf) {
+			app_indicator_set_icon_full(indicator, pixbuf, "bili-FM");
+			g_object_unref(pixbuf);
+		} else if (error) {
+			g_error_free(error);
+		}
+		app_indicator_set_status(indicator, APP_INDICATOR_STATUS_ACTIVE);
+	}
+	return indicator;
 }
 
-static void connectTraySignals(gpointer icon_ptr) {
-	GtkStatusIcon *icon = GTK_STATUS_ICON(icon_ptr);
-	g_signal_connect(icon, "activate", G_CALLBACK(onTrayActivate), NULL);
-	g_signal_connect(icon, "popup-menu", G_CALLBACK(onTrayPopupMenu), NULL);
-}
-
-static void showTrayMenu(gpointer icon_ptr, guint button, guint activate_time) {
-	GtkMenu *menu = GTK_MENU(gtk_menu_new());
+static GtkWidget *buildIndicatorMenu() {
+	GtkWidget *menu = gtk_menu_new();
 	GtkWidget *item_show = gtk_menu_item_new_with_label("显示窗口");
 	GtkWidget *item_sep = gtk_separator_menu_item_new();
 	GtkWidget *item_quit = gtk_menu_item_new_with_label("退出");
 
-	g_signal_connect_swapped(item_show, "activate", G_CALLBACK(onTrayMenuItemShow), NULL);
-	g_signal_connect_swapped(item_quit, "activate", G_CALLBACK(onTrayMenuItemQuit), NULL);
+	g_signal_connect_swapped(item_show, "activate", G_CALLBACK(onIndicatorMenuShow), NULL);
+	g_signal_connect_swapped(item_quit, "activate", G_CALLBACK(onIndicatorMenuQuit), NULL);
 
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_show);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_sep);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_quit);
-	gtk_widget_show_all(GTK_WIDGET(menu));
-
-	gtk_menu_popup(menu, NULL, NULL, gtk_status_icon_position_menu,
-		GTK_STATUS_ICON(icon_ptr), button, activate_time);
+	gtk_widget_show_all(menu);
+	return menu;
 }
 
-static void setTrayVisible(gpointer icon_ptr, gboolean visible) {
-	gtk_status_icon_set_visible(GTK_STATUS_ICON(icon_ptr), visible);
+static void attachIndicatorMenu(AppIndicator *indicator, GtkWidget *menu) {
+	app_indicator_set_menu(indicator, GTK_MENU(menu));
+}
+
+static void destroyIndicator(AppIndicator *indicator) {
+	if (indicator) {
+		app_indicator_set_status(indicator, APP_INDICATOR_STATUS_PASSIVE);
+		g_object_unref(indicator);
+	}
 }
 */
 import "C"
 
 var (
-	linuxTrayOnce sync.Once
-	linuxTrayIcon C.gpointer
-	linuxWailsCtx context.Context
-	linuxOnExit   func()
-	linuxExiting  bool
+	linuxTrayOnce  sync.Once
+	linuxIndicator *C.AppIndicator
+	linuxWailsCtx  context.Context
+	linuxOnExit    func()
+	linuxExiting   bool
 )
 
-//export onTrayActivate
-func onTrayActivate(icon C.gpointer, userData C.gpointer) {
+//export onIndicatorMenuShow
+func onIndicatorMenuShow(userData C.gpointer) {
 	if linuxWailsCtx != nil {
 		runtime.Show(linuxWailsCtx)
 	}
 }
 
-//export onTrayPopupMenu
-func onTrayPopupMenu(icon C.gpointer, button C.guint, activateTime C.guint, userData C.gpointer) {
-	C.showTrayMenu(linuxTrayIcon, button, activateTime)
-}
-
-//export onTrayMenuItemShow
-func onTrayMenuItemShow(userData C.gpointer) {
-	if linuxWailsCtx != nil {
-		runtime.Show(linuxWailsCtx)
-	}
-}
-
-//export onTrayMenuItemQuit
-func onTrayMenuItemQuit(userData C.gpointer) {
+//export onIndicatorMenuQuit
+func onIndicatorMenuQuit(userData C.gpointer) {
 	linuxDoExit()
 }
 
@@ -110,15 +104,13 @@ func linuxDoExit() {
 	}()
 }
 
-// initTrayLinux creates a GTK StatusIcon tray on Linux.
-// Must be called from the GTK main thread (wails OnStartup runs on it).
+// mustRunOnMainThread 在 GTK 主线程上执行（Wails OnStartup 运行在主线程）。
 func initTrayLinux(ctx context.Context, exitFn func()) {
 	linuxTrayOnce.Do(func() {
 		linuxWailsCtx = ctx
 		linuxOnExit = exitFn
 
-		// Use the app icon - try /usr/share/pixmaps first (installed path),
-		// then fall back to build/appicon.png (dev/build path)
+		// 图标路径：优先已安装路径，回退到构建路径
 		iconPath := "/usr/share/pixmaps/bili-FM.png"
 		if _, err := os.Stat(iconPath); err != nil {
 			iconPath = "build/appicon.png"
@@ -126,14 +118,19 @@ func initTrayLinux(ctx context.Context, exitFn func()) {
 
 		cPath := C.CString(iconPath)
 		defer C.free(unsafe.Pointer(cPath))
-		linuxTrayIcon = C.createStatusIcon(cPath)
-		C.connectTraySignals(linuxTrayIcon)
+
+		linuxIndicator = C.createIndicator(cPath)
+		if linuxIndicator != nil {
+			menu := C.buildIndicatorMenu()
+			C.attachIndicatorMenu(linuxIndicator, menu)
+		}
 	})
 }
 
 func removeTrayLinux() {
-	if linuxTrayIcon != nil {
-		C.setTrayVisible(linuxTrayIcon, C.FALSE)
+	if linuxIndicator != nil {
+		C.destroyIndicator(linuxIndicator)
+		linuxIndicator = nil
 	}
 }
 
@@ -143,17 +140,23 @@ func linuxShowExistingWindow() {
 	}
 }
 
-// ---- Common API (matches tray_windows.go / tray_other.go) ----
+// ---- Common API (匹配 tray_windows.go / tray_other.go / tray_darwin.go) ----
 
 // Stubs for Windows-only functions (not used on Linux)
-func checkSingleInstanceWindows() (bool, uintptr) { return true, 0 }
-func closeMutex(handle uintptr)                   {}
-func findExistingWindow() uintptr                 { return 0 }
+func checkSingleInstanceWindows() (bool, uintptr)  { return true, 0 }
+func closeMutex(handle uintptr)                    {}
+func findExistingWindow() uintptr                  { return 0 }
 func restoreExistingWindow(hwnd uintptr)           {}
 func initTrayWindows(showFn func(), exitFn func()) {}
-func removeTrayWindows()                          {}
-func setWailsContext(ctx context.Context)         {}
-func bringWindowToFront()                         {}
+func removeTrayWindows()                           {}
+func setWailsContext(ctx context.Context)          {}
+
+// Stubs for macOS-only functions (not used on Linux)
+func initTrayDarwin(ctx context.Context, showFn func(), exitFn func()) {}
+func removeTrayDarwin()                                                {}
+
+// bringWindowToFront 非 Linux 平台的 stub
+func bringWindowToFront() {}
 
 // IsExiting checks if the app is in the process of exiting.
 func IsExiting() bool {

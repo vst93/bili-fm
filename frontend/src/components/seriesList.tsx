@@ -1,11 +1,12 @@
 import type { FC } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
 import {
+    Button,
     Drawer,
     DrawerContent,
     DrawerBody,
@@ -14,9 +15,12 @@ import {
     CardBody,
     CardFooter,
 } from "@heroui/react";
+import { Play } from "@icon-park/react";
 
 import { graftingImage, formatDatetime } from "@/utils/string";
 import { GetSeriesVideos } from "../../wailsjs/go/service/BL";
+
+const MAX_RETAINED_ITEMS = 240;
 
 interface SeriesVideoItem {
     aid: number;
@@ -35,6 +39,7 @@ interface SeriesListProps {
     onSlideClick?: () => void;
     seriesVideos?: SeriesVideoItem[];
     onVideoSelect?: (bvid: string) => void;
+    onPlayAll?: (videos: SeriesVideoItem[]) => void | Promise<void>;
     seriesTitle?: string;
     currentBvid?: string;
     seriesVideosPage: number;
@@ -48,6 +53,7 @@ const SeriesList: FC<SeriesListProps> = ({
     onSlideClick,
     seriesVideos = [],
     onVideoSelect,
+    onPlayAll,
     seriesTitle = "",
     currentBvid,
     seriesVideosPage = 1,
@@ -57,6 +63,8 @@ const SeriesList: FC<SeriesListProps> = ({
     setSeriesVideos,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
+    const isLoadingMoreRef = useRef(false);
+    const [isPlayingAll, setIsPlayingAll] = useState(false);
 
     // 预加载合集视频封面图
     const coverUrls = useMemo(
@@ -73,17 +81,35 @@ const SeriesList: FC<SeriesListProps> = ({
     };
 
     const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
+        if (isLoadingMoreRef.current || seriesVideos.length >= MAX_RETAINED_ITEMS) return;
         const bottom =
-            e.currentTarget.scrollHeight - e.currentTarget.scrollTop ===
-            e.currentTarget.clientHeight;
+            e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
+                e.currentTarget.clientHeight <= 80;
         if (bottom) {
+            isLoadingMoreRef.current = true;
             const thePage = seriesVideosPage + 1;
-            // console.log("load more", seriesVideosPage);
-            const seriesVideosData = await GetSeriesVideos(currentUpMid, currentSeriesId, thePage);
-            if (seriesVideosData.length > 0) {
-                setSeriesVideos([...seriesVideos, ...seriesVideosData]);
-                setSeriesVideosPage(thePage);
+            try {
+                const seriesVideosData = await GetSeriesVideos(currentUpMid, currentSeriesId, thePage);
+                if (seriesVideosData.length > 0) {
+                    setSeriesVideos([...seriesVideos, ...seriesVideosData].slice(0, MAX_RETAINED_ITEMS));
+                    setSeriesVideosPage(thePage);
+                }
+            } catch (error) {
+                console.error("加载更多合集视频失败:", error);
+            } finally {
+                isLoadingMoreRef.current = false;
             }
+        }
+    };
+
+    const handlePlayAll = async () => {
+        if (isPlayingAll || seriesVideos.length === 0) return;
+
+        setIsPlayingAll(true);
+        try {
+            await onPlayAll?.(seriesVideos);
+        } finally {
+            setIsPlayingAll(false);
         }
     };
 
@@ -99,8 +125,21 @@ const SeriesList: FC<SeriesListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex gap-2 py-2">
-                            {seriesTitle}
+                        <DrawerHeader className="flex items-center gap-3 py-2 pr-12">
+                            <span className="min-w-0 truncate">{seriesTitle}</span>
+                            <Button
+                                isDisabled={seriesVideos.length === 0}
+                                isLoading={isPlayingAll}
+                                size="sm"
+                                title="播放合集中的全部视频"
+                                variant="flat"
+                                onClick={handlePlayAll}
+                            >
+                                {!isPlayingAll && (
+                                    <Play fill="#666" size="16" theme="filled" />
+                                )}
+                                <span className="text-xs">播放全部</span>
+                            </Button>
                         </DrawerHeader>
                         <DrawerBody onScroll={handleScroll}>
                             <div
