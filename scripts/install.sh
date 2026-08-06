@@ -211,10 +211,14 @@ install_linux_arch() {
   info "  改用 .deb 包解压安装，走系统 webkit2gtk/mesa，可避免此问题。"
   info ""
 
-  # 检查依赖: webkit2gtk-4.1 是运行时必须的
-  if ! pacman -Q webkit2gtk-4.1 &>/dev/null; then
-    warn "未检测到 webkit2gtk-4.1，正在安装..."
-    sudo pacman -S --noconfirm webkit2gtk-4.1
+  # 自动安装缺失依赖
+  local missing=()
+  pacman -Q binutils &>/dev/null || missing+=("binutils")
+  pacman -Q webkit2gtk-4.1 &>/dev/null || missing+=("webkit2gtk-4.1")
+  pacman -Q librsvg &>/dev/null || missing+=("librsvg")
+  if [ ${#missing[@]} -gt 0 ]; then
+    warn "安装缺失依赖: ${missing[*]}"
+    sudo pacman -S --noconfirm --needed "${missing[@]}"
   fi
 
   local tmpdir
@@ -227,17 +231,10 @@ install_linux_arch() {
 
   info "解压 .deb ..."
   cd "$tmpdir"
-  # .deb 是 ar 归档，里面含 data.tar.* 
-  ar x "$deb_name" 2>/dev/null || {
-    # 如果没有 ar，用 dpkg-deb 或手动
-    if command -v dpkg-deb &>/dev/null; then
-      dpkg-deb -x "$deb_name" .
-    else
-      error "需要 ar (binutils) 来解压 .deb: sudo pacman -S binutils"
-    fi
-  }
+  # .deb 是 ar 归档，里面含 data.tar.*
+  ar x "$deb_name"
   # 解压 data.tar
-  tar xf data.tar.* 2>/dev/null
+  tar xf data.tar.*
 
   # 手动复制文件到系统目录
   info "安装文件..."
@@ -296,6 +293,16 @@ install_linux_deb() {
 
   info "检测到 Debian/Ubuntu (dpkg)"
 
+  # 自动安装缺失依赖
+  local missing=()
+  dpkg -s libwebkit2gtk-4.1-0 &>/dev/null || missing+=("libwebkit2gtk-4.1-0")
+  dpkg -s librsvg2-2 &>/dev/null || missing+=("librsvg2-2")
+  if [ ${#missing[@]} -gt 0 ]; then
+    warn "安装缺失依赖: ${missing[*]}"
+    sudo apt-get update -qq
+    sudo apt-get install -y "${missing[@]}"
+  fi
+
   local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' RETURN
@@ -305,7 +312,7 @@ install_linux_deb() {
   curl -fSL -o "$deb" "$deb_url"
 
   info "安装 ${deb_name} ..."
-  sudo dpkg -i "$deb" || sudo apt-get install -f -y
+  sudo dpkg -i "$deb" 2>/dev/null || sudo apt-get install -f -y
 
   info "安装完成！"
   info "  命令行运行: bili-fm"
