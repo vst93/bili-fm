@@ -22,6 +22,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 TOOLS_DIR="/tmp/bili-fm-appimage-tools"
 mkdir -p "$TOOLS_DIR"
+
+# Resolve to absolute paths before changing directory below.
+BINARY="$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
+
 cd "$TOOLS_DIR"
 
 # FUSE is usually unavailable in CI; use the extract-and-run mode.
