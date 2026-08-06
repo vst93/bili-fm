@@ -211,14 +211,18 @@ install_linux_arch() {
   info "  改用 .deb 包解压安装，走系统 webkit2gtk/mesa，可避免此问题。"
   info ""
 
-  # 自动安装缺失依赖
+  # 自动安装缺失依赖 (需用户确认 sudo)
   local missing=()
   pacman -Q binutils &>/dev/null || missing+=("binutils")
   pacman -Q webkit2gtk-4.1 &>/dev/null || missing+=("webkit2gtk-4.1")
   pacman -Q librsvg &>/dev/null || missing+=("librsvg")
   if [ ${#missing[@]} -gt 0 ]; then
-    warn "安装缺失依赖: ${missing[*]}"
-    sudo pacman -S --noconfirm --needed "${missing[@]}"
+    echo ""
+    warn "以下依赖需要安装: ${missing[*]}"
+    printf "\033[1;33m!!\033[0m 即将执行: sudo pacman -S --needed %s\n" "${missing[*]}"
+    printf "\033[1;34m==>\033[0m 按 Enter 继续, Ctrl+C 取消... " >&2
+    read -r
+    sudo pacman -S --needed "${missing[@]}"
   fi
 
   local tmpdir
@@ -293,12 +297,16 @@ install_linux_deb() {
 
   info "检测到 Debian/Ubuntu (dpkg)"
 
-  # 自动安装缺失依赖
+  # 自动安装缺失依赖 (需用户确认 sudo)
   local missing=()
   dpkg -s libwebkit2gtk-4.1-0 &>/dev/null || missing+=("libwebkit2gtk-4.1-0")
   dpkg -s librsvg2-2 &>/dev/null || missing+=("librsvg2-2")
   if [ ${#missing[@]} -gt 0 ]; then
-    warn "安装缺失依赖: ${missing[*]}"
+    echo ""
+    warn "以下依赖需要安装: ${missing[*]}"
+    printf "\033[1;33m!!\033[0m 即将执行: sudo apt-get install %s\n" "${missing[*]}"
+    printf "\033[1;34m==>\033[0m 按 Enter 继续, Ctrl+C 取消... " >&2
+    read -r
     sudo apt-get update -qq
     sudo apt-get install -y "${missing[@]}"
   fi
