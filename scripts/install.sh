@@ -208,20 +208,13 @@ install_linux_arch() {
   info "⚠ 为什么不装 AppImage？"
   info "  AppImage 自带的 webkit2gtk 库在 Arch 的滚动版 Mesa 驱动上"
   info "  会触发 EGL_BAD_PARAMETER 崩溃（已知 bug，影响所有 Tauri AppImage）。"
-  info "  改用 .deb 包 + debtap 转换安装，走系统 webkit2gtk/mesa，可避免此问题。"
+  info "  改用 .deb 包解压安装，走系统 webkit2gtk/mesa，可避免此问题。"
   info ""
 
-  # 检查 debtap
-  if ! command -v debtap &>/dev/null; then
-    warn "未找到 debtap, 正在安装..."
-    if command -v yay &>/dev/null; then
-      yay -S --noconfirm debtap
-    elif command -v paru &>/dev/null; then
-      paru -S --noconfirm debtap
-    else
-      error "需要 debtap 但未找到, 也未检测到 yay/paru AUR 助手。\n请手动安装: yay -S debtap && sudo debtap -u"
-    fi
-    sudo debtap -u 2>/dev/null || true
+  # 检查依赖: webkit2gtk-4.1 是运行时必须的
+  if ! pacman -Q webkit2gtk-4.1 &>/dev/null; then
+    warn "未检测到 webkit2gtk-4.1，正在安装..."
+    sudo pacman -S --noconfirm webkit2gtk-4.1
   fi
 
   local tmpdir
@@ -232,23 +225,48 @@ install_linux_arch() {
   info "下载 ${deb_url} ..."
   curl -fSL -o "$deb" "$deb_url"
 
-  info "转换 .deb -> Arch 包 (debtap)..."
+  info "解压 .deb ..."
   cd "$tmpdir"
-  debtap -q "$deb_name" 2>/dev/null || debtap "$deb_name"
-  local pkg_file
-  pkg_file=$(ls *.pkg.tar.* 2>/dev/null | head -1)
-  [[ -n "$pkg_file" ]] || error "debtap 转换失败"
+  # .deb 是 ar 归档，里面含 data.tar.* 
+  ar x "$deb_name" 2>/dev/null || {
+    # 如果没有 ar，用 dpkg-deb 或手动
+    if command -v dpkg-deb &>/dev/null; then
+      dpkg-deb -x "$deb_name" .
+    else
+      error "需要 ar (binutils) 来解压 .deb: sudo pacman -S binutils"
+    fi
+  }
+  # 解压 data.tar
+  tar xf data.tar.* 2>/dev/null
 
-  info "安装 ${pkg_file} ..."
-  sudo pacman -U --noconfirm "$pkg_file"
+  # 手动复制文件到系统目录
+  info "安装文件..."
+  # 二进制
+  if [ -f usr/bin/bili-fm ]; then
+    sudo cp usr/bin/bili-fm /usr/bin/bili-fm
+    sudo chmod +x /usr/bin/bili-fm
+  fi
+  # 资源目录 (如果有)
+  if [ -d usr/lib/bili-fm ]; then
+    sudo cp -r usr/lib/bili-fm /usr/lib/
+  fi
+  # .desktop
+  if [ -f usr/share/applications/*.desktop ]; then
+    sudo cp usr/share/applications/*.desktop /usr/share/applications/ 2>/dev/null || true
+  fi
+  # 图标
+  if [ -d usr/share/icons ]; then
+    sudo cp -r usr/share/icons/* /usr/share/icons/ 2>/dev/null || true
+  fi
   cd - >/dev/null
 
-  # 图标和 .desktop
+  # 确保有 .desktop 和图标 (如果 .deb 里没有)
   mkdir -p "$APPDIR_DIR" "$ICON_DIR"
   local icon_url="https://raw.githubusercontent.com/${REPO}/${tag}/src-tauri/icons/icon.png"
   curl -fsSL -o "${ICON_DIR}/bili-fm.png" "$icon_url" 2>/dev/null || true
 
-  cat > "${APPDIR_DIR}/bili-fm.desktop" <<EOF
+  if [ ! -f /usr/share/applications/bili-fm.desktop ]; then
+    sudo tee /usr/share/applications/bili-fm.desktop <<EOF
 [Desktop Entry]
 Name=bili-FM
 Comment=Listen to Bilibili content in audio-only mode
@@ -259,7 +277,8 @@ Categories=AudioVideo;Audio;Player;
 Terminal=false
 StartupWMClass=bili-FM
 EOF
-  update-desktop-database "$APPDIR_DIR" 2>/dev/null || true
+  fi
+  update-desktop-database /usr/share/applications 2>/dev/null || true
 
   info "安装完成！"
   info "  命令行运行: bili-fm"
