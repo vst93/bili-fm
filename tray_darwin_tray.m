@@ -31,11 +31,22 @@ static void doInitAppTrayWithPath(NSString *iconPath) {
     NSStatusBar *bar = [NSStatusBar systemStatusBar];
     g_statusItem = [bar statusItemWithLength:NSVariableStatusItemLength];
 
-    // 诊断：同时设文字标题 + 图标，确认状态栏项是否真的在菜单栏
-    g_statusItem.button.title = @"FM";
-    NSImage *image = [NSImage imageNamed:@"NSApplicationIcon"];
-    [image setSize:NSMakeSize(18, 18)];
-    g_statusItem.button.image = image;
+    // 使用自定义图标替代系统默认图标
+    if (iconPath && [[NSFileManager defaultManager] fileExistsAtPath:iconPath]) {
+        NSImage *customIcon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+        if (customIcon) {
+            [customIcon setSize:NSMakeSize(18, 18)];
+            g_statusItem.button.image = customIcon;
+        } else {
+            NSImage *image = [NSImage imageNamed:@"NSApplicationIcon"];
+            [image setSize:NSMakeSize(18, 18)];
+            g_statusItem.button.image = image;
+        }
+    } else {
+        NSImage *image = [NSImage imageNamed:@"NSApplicationIcon"];
+        [image setSize:NSMakeSize(18, 18)];
+        g_statusItem.button.image = image;
+    }
 
     // 左键：显示主窗口
     g_statusItem.button.target = g_helper;
@@ -52,11 +63,9 @@ static void doInitAppTrayWithPath(NSString *iconPath) {
     [menu addItem:quitItem];
     [g_statusItem.button setMenu:menu];
 
-    NSLog(@"bili-FM tray: created on main=%d, item=%@, button-frame=%@, title=%@",
+    NSLog(@"bili-FM tray: created on main=%d, item=%@",
           [[NSThread currentThread] isMainThread],
-          g_statusItem ? @"yes" : @"nil",
-          NSStringFromRect(g_statusItem.button.frame),
-          g_statusItem.button.title);
+          g_statusItem ? @"yes" : @"nil");
 }
 
 void initAppTray(const char* iconPath) {
