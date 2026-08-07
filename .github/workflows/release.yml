@@ -217,7 +217,9 @@ jobs:
         shell: pwsh
         run: |
           wails build -platform ${{ matrix.target }} -clean -nsis
-          $setup = Get-ChildItem "build/bin/*-setup.exe" | Select-Object -First 1
+          Write-Host "=== build/bin contents ==="
+          Get-ChildItem "build/bin" | Format-Table Name, Length
+          $setup = Get-ChildItem "build/bin" -Filter "*.exe" | Where-Object { $_.Name -ne "$env:BINARY_PREFIX.exe" } | Select-Object -First 1
           if (-not $setup) {
             throw "NSIS installer not found in build/bin/"
           }
