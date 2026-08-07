@@ -43,6 +43,8 @@ interface VideoInfoProps {
   currentSeriesTitle?: string;
   searchResultsCount?: number;
   playlistCount?: number;
+  seriesPlaylistCount?: number;
+  playingPlaylistType?: "user" | "series";
   cid?: number;
 }
 
@@ -66,6 +68,8 @@ export default function VideoInfo({
   currentSeriesTitle,
   searchResultsCount = 0,
   playlistCount = 0,
+  seriesPlaylistCount = 0,
+  playingPlaylistType = "user",
   cid,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
@@ -263,13 +267,34 @@ export default function VideoInfo({
             onClick={onPlaylistClick}
           >
             <MusicList
-              fill={isPlaylistMode ? blue : gray}
+              fill={
+                isPlaylistMode
+                  ? playingPlaylistType === "series"
+                    ? "#a855f7"
+                    : blue
+                  : gray
+              }
               size={20}
               theme="outline"
             />
-            {playlistCount > 0 && (
-              <span className="nav-badge">
-                {playlistCount > 99 ? "99+" : playlistCount}
+            {(playingPlaylistType === "series"
+              ? seriesPlaylistCount
+              : playlistCount) > 0 && (
+              <span
+                className="nav-badge"
+                style={
+                  isPlaylistMode && playingPlaylistType === "series"
+                    ? { backgroundColor: "#a855f7" }
+                    : undefined
+                }
+              >
+                {(playingPlaylistType === "series"
+                  ? seriesPlaylistCount
+                  : playlistCount) > 99
+                  ? "99+"
+                  : playingPlaylistType === "series"
+                    ? seriesPlaylistCount
+                    : playlistCount}
               </span>
             )}
           </button>

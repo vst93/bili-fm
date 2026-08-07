@@ -2008,6 +2008,8 @@ export default function IndexPage() {
               ownerName={displayVideoInfo?.owner_name}
               part={currentPart}
               playlistCount={playlist.length}
+              seriesPlaylistCount={seriesPlaylist.length}
+              playingPlaylistType={playingPlaylistType}
               searchResultsCount={searchResults?.length || 0}
               title={displayVideoInfo?.title}
               onCollectClick={handleCollectClick}
