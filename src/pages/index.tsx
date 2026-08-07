@@ -137,6 +137,8 @@ export default function IndexPage() {
     useState<number>(-1);
   const [activePlaylistType, setActivePlaylistType] =
     useState<"user" | "series">("user");
+  const [playingPlaylistType, setPlayingPlaylistType] =
+    useState<"user" | "series">("user");
   const [playlistPlayMode, setPlaylistPlayMode] =
     useState<PlaylistPlayMode>("sequence");
   const [isPlaylistMode, setIsPlaylistMode] = useState<boolean>(false);
@@ -857,9 +859,9 @@ export default function IndexPage() {
    */
   const handleVideoEnded = async () => {
     const activePlaylist =
-      activePlaylistType === "series" ? seriesPlaylist : playlist;
+      playingPlaylistType === "series" ? seriesPlaylist : playlist;
     const activePlaylistIndex =
-      activePlaylistType === "series"
+      playingPlaylistType === "series"
         ? currentSeriesPlaylistIndex
         : currentPlaylistIndex;
 
@@ -902,9 +904,9 @@ export default function IndexPage() {
    */
   const handlePrevTrack = () => {
     const activePlaylist =
-      activePlaylistType === "series" ? seriesPlaylist : playlist;
+      playingPlaylistType === "series" ? seriesPlaylist : playlist;
     const activePlaylistIndex =
-      activePlaylistType === "series"
+      playingPlaylistType === "series"
         ? currentSeriesPlaylistIndex
         : currentPlaylistIndex;
 
@@ -936,9 +938,9 @@ export default function IndexPage() {
 
   const handleNextTrack = () => {
     const activePlaylist =
-      activePlaylistType === "series" ? seriesPlaylist : playlist;
+      playingPlaylistType === "series" ? seriesPlaylist : playlist;
     const activePlaylistIndex =
-      activePlaylistType === "series"
+      playingPlaylistType === "series"
         ? currentSeriesPlaylistIndex
         : currentPlaylistIndex;
 
@@ -1041,6 +1043,7 @@ export default function IndexPage() {
 
     if (!item) return;
     setIsPlaylistMode(true);
+    setPlayingPlaylistType(sourcePlaylistType);
     if (sourcePlaylistType === "series") {
       setCurrentSeriesPlaylistIndex(index);
     } else {
@@ -1914,9 +1917,9 @@ export default function IndexPage() {
   // - 非播放列表模式: 直接用 playingInfo (未播放时为 undefined, 显示占位)
   const displayVideoInfo = useMemo(() => {
     const activePlaylist =
-      activePlaylistType === "series" ? seriesPlaylist : playlist;
+      playingPlaylistType === "series" ? seriesPlaylist : playlist;
     const activePlaylistIndex =
-      activePlaylistType === "series"
+      playingPlaylistType === "series"
         ? currentSeriesPlaylistIndex
         : currentPlaylistIndex;
 
@@ -2174,11 +2177,11 @@ export default function IndexPage() {
               isPlaylistMode={isPlaylistMode}
               playMode={playlistPlayMode}
               playingIndex={
-                activePlaylistType === "series"
+                playingPlaylistType === "series"
                   ? currentSeriesPlaylistIndex
                   : currentPlaylistIndex
               }
-              playingPlaylistType={activePlaylistType}
+              playingPlaylistType={playingPlaylistType}
               playlist={playlist}
               seriesPlaylist={seriesPlaylist}
               onClear={handlePlaylistClear}
