@@ -29,9 +29,9 @@ cp "$REPO_ROOT/build/appicon.png" "$ROOT/usr/share/pixmaps/bili-FM.png"
 
 SPEC="/tmp/bili-fm.spec"
 cat > "$SPEC" <<EOF
-Name:       bili-fm
+Name:       bili-FM
 Version:    ${VERSION}
-Release:    1
+Release:    0
 Summary:    A Bilibili audio player
 License:    GPLv3
 URL:        https://github.com/vst93/bili-fm
@@ -56,7 +56,7 @@ mkdir -p "$OUT_DIR"
 rpmbuild -bb \
   --define "_topdir /tmp/bili-fm-rpm-topdir" \
   --define "_rpmdir $OUT_DIR" \
-  --define "_rpmfilename %{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm" \
+  --define "_rpmfilename %{NAME}-%{VERSION}.%{ARCH}.rpm" \
   "$SPEC"
 
 echo "=== .rpm ==="
