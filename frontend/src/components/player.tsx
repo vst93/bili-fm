@@ -44,13 +44,8 @@ const Player = ({
   const audioGraphRef = useRef<{
     ctx: AudioContext;
     source: MediaElementAudioSourceNode;
-    compressor: DynamicsCompressorNode;
+    compressor: DynamicsCompressorNode | null;
   } | null>(null);
-  const graphCleanupTimerRef = useRef<number | null>(null);
-  const resumeTimeRef = useRef<number | null>(null);
-  const eqToggleRef = useRef(false);
-  // EQ 切换时记录是否需要恢复播放（元素因 key 变化重挂载）
-  const resumePlaybackRef = useRef(false);
   const lastReportedSecondRef = useRef(-1);
   const lastVolumeRef = useRef(1);
   const [currentTime, setCurrentTime] = useState(0);
@@ -71,13 +66,10 @@ const Player = ({
   onTimeUpdateRef.current = onTimeUpdate;
 
   useEffect(() => {
-    const isEqToggle = eqToggleRef.current;
-    eqToggleRef.current = false;
-    resumePlaybackRef.current = false;
     setCurrentTime(0);
     setDuration(0);
     lastReportedSecondRef.current = -1;
-    if (src && !isEqToggle) onPlayStateChange?.(true);
+    if (src) onPlayStateChange?.(true);
   }, [src]);
 
   useEffect(() => {
@@ -93,58 +85,61 @@ const Player = ({
     }
   }, [forcePause, isPlaying, src]);
 
-  // EQ 开启时：在重挂载的音频元素上建立 Web Audio 图
+  // 一次性创建 Web Audio 图（不随 EQ 切换重建）
   useEffect(() => {
-    if (!isLoudnessEq || !audioRef.current) return;
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    if (graphCleanupTimerRef.current !== null) {
-      window.clearTimeout(graphCleanupTimerRef.current);
-      graphCleanupTimerRef.current = null;
-    }
+    const ctx = new AudioContext();
+    const source = ctx.createMediaElementSource(audio);
+    // 默认直连：source → destination
+    source.connect(ctx.destination);
+    audioGraphRef.current = { ctx, source, compressor: null };
 
-    let graph = audioGraphRef.current;
-    if (!graph) {
-      const ctx = new AudioContext();
-      const source = ctx.createMediaElementSource(audioRef.current);
-      const compressor = ctx.createDynamicsCompressor();
+    return () => {
+      try {
+        source.disconnect();
+      } catch {
+        // already disconnected
+      }
+      void ctx.close();
+      audioGraphRef.current = null;
+    };
+  }, []);
+
+  // EQ 切换：只连接/断开 compressor，不重建 audio 元素
+  useEffect(() => {
+    const graph = audioGraphRef.current;
+    if (!graph) return;
+
+    if (isLoudnessEq) {
+      // 插入 compressor：source → compressor → destination
+      const compressor = graph.ctx.createDynamicsCompressor();
       compressor.threshold.value = -50;
       compressor.knee.value = 40;
       compressor.ratio.value = 12;
       compressor.attack.value = 0;
       compressor.release.value = 0.25;
-      source.connect(compressor);
-      compressor.connect(ctx.destination);
-      graph = { ctx, source, compressor };
-      audioGraphRef.current = graph;
+      graph.source.disconnect();
+      graph.source.connect(compressor);
+      compressor.connect(graph.ctx.destination);
+      graph.compressor = compressor;
+    } else {
+      // 移除 compressor：source → destination
+      if (graph.compressor) {
+        graph.source.disconnect();
+        graph.compressor.disconnect();
+        graph.compressor = null;
+      }
+      graph.source.connect(graph.ctx.destination);
     }
+
     if (graph.ctx.state === "suspended") void graph.ctx.resume();
-
-    // 重挂载后恢复播放
-    if (resumePlaybackRef.current) {
-      resumePlaybackRef.current = false;
-      void audioRef.current
-        .play()
-        .catch(() => onPlayStateChange?.(false));
-    }
-
-    return () => {
-      graphCleanupTimerRef.current = window.setTimeout(() => {
-        try {
-          graph.source.disconnect();
-          graph.compressor.disconnect();
-        } catch {
-          // Audio nodes may already be disconnected while the element is replaced.
-        }
-        void graph.ctx.close();
-        if (audioGraphRef.current === graph) audioGraphRef.current = null;
-        graphCleanupTimerRef.current = null;
-      }, 0);
-    };
   }, [isLoudnessEq]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = playbackRate;
-  }, [isLoudnessEq, playbackRate]);
+  }, [playbackRate]);
 
   // 持久化 EQ 状态，下次启动恢复
   useEffect(() => {
@@ -224,28 +219,10 @@ const Player = ({
     audio.volume = volume;
     audio.muted = volume === 0;
     audio.playbackRate = playbackRate;
-    const resumeTime = resumeTimeRef.current;
-    if (resumeTime !== null) {
-      audio.currentTime = Math.min(resumeTime, audio.duration || resumeTime);
-      setCurrentTime(audio.currentTime);
-      resumeTimeRef.current = null;
-    }
-    // 关闭 EQ 后恢复播放（非 EQ 路径直接 play）
-    if (resumePlaybackRef.current && !isLoudnessEq) {
-      resumePlaybackRef.current = false;
-      void audio.play().catch(() => onPlayStateChange?.(false));
-    }
   };
 
   const toggleLoudnessEq = () => {
     const newEnabled = !isLoudnessEq;
-    const audio = audioRef.current;
-    if (audio && Number.isFinite(audio.currentTime)) {
-      resumeTimeRef.current = audio.currentTime;
-      // 记录切换前是否正在播放，用于重挂载后自动恢复
-      resumePlaybackRef.current = !audio.paused;
-    }
-    eqToggleRef.current = Boolean(onLoudnessEqChange);
     setIsLoudnessEq(newEnabled);
     onLoudnessEqChange?.(newEnabled);
   };
@@ -256,9 +233,8 @@ const Player = ({
     <div id="player">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
-        key={isLoudnessEq ? "eq" : "direct"}
         ref={audioRef}
-        crossOrigin={isLoudnessEq ? "anonymous" : undefined}
+        crossOrigin="anonymous"
         preload="metadata"
         src={src || undefined}
         onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
