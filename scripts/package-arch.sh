@@ -45,7 +45,15 @@ mkdir -p "$package_root"
 
 data_member="$(ar t "$deb_path" | sed -n '/^data\.tar\./p' | sed -n '1p')"
 [[ -n "$data_member" ]] || { echo "The deb package has no data archive" >&2; exit 1; }
-ar p "$deb_path" "$data_member" | tar -xf - -C "$package_root"
+case "$data_member" in
+  *.tar.gz) tar_compression=(-z) ;;
+  *.tar.xz) tar_compression=(-J) ;;
+  *.tar.zst) tar_compression=(--zstd) ;;
+  *.tar.bz2) tar_compression=(-j) ;;
+  *.tar.lzma) tar_compression=(--lzma) ;;
+  *) tar_compression=() ;;
+esac
+ar p "$deb_path" "$data_member" | tar "${tar_compression[@]}" -xf - -C "$package_root"
 [[ -x "${package_root}/usr/bin/bili-fm" ]] || {
   echo "The deb package does not contain usr/bin/bili-fm" >&2
   exit 1
