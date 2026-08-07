@@ -184,11 +184,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install frontend dependencies
-        run: pnpm install --config.dangerouslyAllowAllBuilds=true
+        run: npm install
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
       # Linux deliberately excludes AppImage because its bundled WebKit can render a blank window.
@@ -268,8 +265,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          pnpm tauri signer sign "renamed/bili-FM-${{ matrix.label }}.deb"
-          pnpm tauri signer sign "renamed/bili-FM-${{ matrix.label }}.rpm"
+          npx tauri signer sign "renamed/bili-FM-${{ matrix.label }}.deb"
+          npx tauri signer sign "renamed/bili-FM-${{ matrix.label }}.rpm"
 
       - name: Collect and rename artifacts (Windows)
         if: runner.os == 'Windows'
