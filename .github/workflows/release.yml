@@ -217,10 +217,12 @@ jobs:
         shell: pwsh
         run: |
           wails build -platform ${{ matrix.target }} -clean -nsis
-          if (-not (Test-Path "build/bin/$env:BINARY_PREFIX-setup.exe")) {
-            throw "NSIS installer not found: build/bin/$env:BINARY_PREFIX-setup.exe"
+          $setup = Get-ChildItem "build/bin/*-setup.exe" | Select-Object -First 1
+          if (-not $setup) {
+            throw "NSIS installer not found in build/bin/"
           }
-          Copy-Item "build/bin/$env:BINARY_PREFIX-setup.exe" "$env:GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-setup.exe"
+          Write-Host "Found installer: $($setup.Name)"
+          Copy-Item $setup.FullName "$env:GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-setup.exe"
 
       # ── Linux: binary + deb + rpm + AppImage ─────────────────────────────
       - name: Build Linux binary
