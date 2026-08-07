@@ -1,6 +1,6 @@
 [package]
 name = "bili-fm"
-version = "2.0.42-preview"
+version = "2.0.43-preview"
 description = "bili-FM - 用音频聆听 B 站内容"
 authors = ["vst"]
 edition = "2021"
