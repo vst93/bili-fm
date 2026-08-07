@@ -57,7 +57,7 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew，Linux 上安装 AppImage 并创建桌面快捷方式，并自动处理 Wayland/X11 所需的环境变量。
+脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew；Linux 上使用发行版原生包，由 pacman、apt、dnf/yum 或 zypper 负责依赖、升级和卸载。
 
 **安装预览版：**
 
@@ -100,30 +100,31 @@ brew upgrade bili-fm
 
 ##### Arch Linux
 
-从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载对应包手动安装：
+推荐使用上方一键安装命令。脚本会下载原生 pacman 包，并自动处理旧版脚本手工安装遗留的未托管文件。也可从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载后手动安装：
 
 ```bash
-# AppImage（推荐，无需安装依赖）
-chmod +x bili-FM-linux-x86_64.AppImage
-./bili-FM-linux-x86_64.AppImage
-
-# 或用 debtap 转换 .deb 包后安装
-debtap bili-FM-linux-x86_64.deb
-sudo pacman -U bili-fm-*.pkg.tar.zst
+sudo pacman -U ./bili-FM-linux-x86_64.pkg.tar.zst
 ```
 
-> **webkit2gtk 依赖**：Tauri v2 应用依赖 `webkit2gtk-4.1`。Arch Linux 默认仓库已包含此依赖，安装包时会自动拉取。
+pacman 会自动安装 `webkit2gtk-4.1` 等依赖，并完整跟踪应用文件。卸载可执行 `sudo pacman -R bili-fm`。
 
 ##### Ubuntu / Debian
 
 ```bash
-sudo dpkg -i bili-FM-linux-x86_64.deb
-sudo apt-get install -f  # 自动安装缺失依赖
+sudo apt install ./bili-FM-linux-x86_64.deb
 ```
 
 > 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
 
-> **EGL 错误排查**：如果启动时遇到 `Could not create default EGL display: EGL_BAD_PARAMETER`，这是 WebKit2GTK 的 dmabuf 渲染器在某些 GPU 驱动上的已知问题。通过安装脚本安装的版本已自动注入 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 规避此问题；手动安装的用户可设置该环境变量后运行。
+##### Fedora / RHEL / openSUSE
+
+一键安装脚本会自动使用 dnf、yum 或 zypper。手动安装示例：
+
+```bash
+sudo dnf install ./bili-FM-linux-x86_64.rpm
+```
+
+Linux 不再发布 AppImage。AppImage 捆绑的 WebKit 运行时在部分 Mesa/滚动发行版环境中会出现白屏或 EGL 初始化失败；原生包直接使用系统 WebKit2GTK，兼容性和包管理体验更稳定。
 
 ### macOS 特殊权限说明
 
@@ -149,18 +150,6 @@ xattr -dr com.apple.quarantine ~/Downloads/bili-FM.app
 
 ### Linux 补充说明
 
-#### AppImage 无法运行
-
-如果 AppImage 双击无反应，可能是缺少 FUSE 支持：
-
-```bash
-# Arch Linux
-sudo pacman -S fuse2
-
-# Ubuntu / Debian
-sudo apt install libfuse2
-```
-
 #### 系统托盘不显示
 
 部分桌面环境（如 GNOME）默认不启用托盘图标，需安装扩展：
@@ -170,15 +159,10 @@ sudo apt install libfuse2
 
 #### Wayland 环境注意事项
 
-在 Wayland 桌面（如 GNOME on Wayland、Sway）下，可能遇到窗口装饰异常或渲染问题。安装脚本会自动设置以下环境变量：
-
-- `WEBKIT_DISABLE_DMABUF_RENDERER=1` — 规避 WebKit2GTK dmabuf 渲染器在某些 GPU 驱动上的 EGL 初始化失败
-- `WEBKIT_DISABLE_COMPOSITING_MODE=1` — Wayland 下的窗口装饰兼容
-
-手动安装的用户可设置这些环境变量后运行：
+原生包通常无需额外配置。如果在 Wayland 下仍遇到 `EGL_BAD_PARAMETER` 或白屏，可临时禁用 WebKit2GTK 的 dmabuf 渲染器确认是否为驱动兼容问题：
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+WEBKIT_DISABLE_DMABUF_RENDERER=1 bili-fm
 ```
 
 ### 应用更新
@@ -190,7 +174,7 @@ Bili FM 内置自动更新功能：
 3. 发现新版本后点击"立即更新"，应用内下载并自动安装重启
 4. 国内用户优先从 Gitee 获取更新，网络不通时自动回退到 GitHub
 
-> 也可手动前往 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载最新版本覆盖安装。
+> Debian/Ubuntu 和 RPM 系发行版支持应用内下载并调用系统安装器更新。Tauri 暂不支持 pacman 包，因此 Arch、Manjaro、EndeavourOS 等系统会提示重新运行一键安装脚本，或从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.pkg.tar.zst` 后执行 `pacman -U`。此流程不依赖 AUR。
 
 ### 开发说明
 
@@ -268,7 +252,7 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
 ```
 
-The script auto-detects your platform and architecture, then downloads and installs the latest stable release. On macOS it prefers Homebrew; on Linux it installs the AppImage and creates a desktop shortcut, and automatically handles the environment variables required for Wayland/X11.
+The script auto-detects your platform and architecture, then downloads and installs the latest stable release. It prefers Homebrew on macOS. On Linux it installs a native package through pacman, apt, dnf/yum, or zypper so dependencies, upgrades, and removal remain managed by the system.
 
 **Install pre-release:**
 
@@ -311,30 +295,31 @@ brew upgrade bili-fm
 
 ##### Arch Linux
 
-Download from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and install manually:
+The quick-install command above is recommended. It installs a native pacman package and migrates unmanaged files left by older versions of the script. To install a package downloaded from [GitHub Releases](https://github.com/vst93/bili-fm/releases) manually:
 
 ```bash
-# AppImage (recommended, no dependencies needed)
-chmod +x bili-FM-linux-x86_64.AppImage
-./bili-FM-linux-x86_64.AppImage
-
-# Or convert the .deb package with debtap and install
-debtap bili-FM-linux-x86_64.deb
-sudo pacman -U bili-fm-*.pkg.tar.zst
+sudo pacman -U ./bili-FM-linux-x86_64.pkg.tar.zst
 ```
 
-> **webkit2gtk dependency**: Tauri v2 apps require `webkit2gtk-4.1`. Arch Linux repos include this by default; it will be pulled in automatically.
+pacman installs dependencies such as `webkit2gtk-4.1` and tracks all application files. Remove the app with `sudo pacman -R bili-fm`.
 
 ##### Ubuntu / Debian
 
 ```bash
-sudo dpkg -i bili-FM-linux-x86_64.deb
-sudo apt-get install -f  # auto-install missing dependencies
+sudo apt install ./bili-FM-linux-x86_64.deb
 ```
 
 > Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible.
 
-> **EGL troubleshooting**: If you see `Could not create default EGL display: EGL_BAD_PARAMETER` on launch, this is a known WebKit2GTK dmabuf renderer issue on certain GPU drivers. The install script automatically injects `WEBKIT_DISABLE_DMABUF_RENDERER=1` to work around this; for manual installs, set that environment variable before running.
+##### Fedora / RHEL / openSUSE
+
+The quick installer automatically uses dnf, yum, or zypper. For manual installation:
+
+```bash
+sudo dnf install ./bili-FM-linux-x86_64.rpm
+```
+
+AppImage is no longer published. Its bundled WebKit runtime can produce blank windows or EGL initialization failures with some Mesa and rolling-release configurations. Native packages use the system WebKit2GTK runtime and provide more reliable package management.
 
 ### macOS Permissions
 
@@ -360,18 +345,6 @@ After that, open the app again.
 
 ### Linux Notes
 
-#### AppImage won't run
-
-If the AppImage doesn't launch on double-click, you may be missing FUSE support:
-
-```bash
-# Arch Linux
-sudo pacman -S fuse2
-
-# Ubuntu / Debian
-sudo apt install libfuse2
-```
-
 #### System tray not showing
 
 Some desktop environments (e.g., GNOME) don't enable tray icons by default:
@@ -381,15 +354,10 @@ Some desktop environments (e.g., GNOME) don't enable tray icons by default:
 
 #### Wayland Notes
 
-On Wayland desktops (e.g., GNOME on Wayland, Sway), you may encounter window decoration or rendering issues. The install script automatically sets the following environment variables:
-
-- `WEBKIT_DISABLE_DMABUF_RENDERER=1` — avoids WebKit2GTK dmabuf renderer EGL initialization failures on certain GPU drivers
-- `WEBKIT_DISABLE_COMPOSITING_MODE=1` — window decoration compatibility under Wayland
-
-For manual installs, set these environment variables before running:
+Native packages normally need no extra configuration. If Wayland still produces `EGL_BAD_PARAMETER` or a blank window, temporarily disable WebKit2GTK's dmabuf renderer to confirm a driver compatibility issue:
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 bili-fm
+WEBKIT_DISABLE_DMABUF_RENDERER=1 bili-fm
 ```
 
 ### Updates
@@ -401,7 +369,7 @@ Bili FM includes built-in auto-update:
 3. When an update is found, click "Update Now" to download and install in-app
 4. China users get updates from Gitee first, falling back to GitHub automatically
 
-> You can also manually download from [GitHub Releases](https://github.com/vst93/bili-fm/releases).
+> Debian/Ubuntu and RPM-based distributions support in-app downloads through their system installer. Tauri does not support pacman packages, so Arch, Manjaro, and EndeavourOS users are prompted to re-run the quick installer or download the `.pkg.tar.zst` from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and run `pacman -U`. This flow does not depend on AUR.
 
 ### Development
 

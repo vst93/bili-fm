@@ -22,6 +22,11 @@ const stripCrossorigin = (): Plugin => ({
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), tsconfigPaths(), stripCrossorigin()],
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+  },
   build: {
     target: 'es2019',
     minify: 'esbuild',

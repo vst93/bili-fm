@@ -97,6 +97,8 @@ pub fn run() {
             // 应用信息 / 更新 / 退出
             commands::check_for_updates,
             commands::get_platform,
+            commands::is_pacman_system,
+            commands::get_linux_updater_target,
             commands::is_ms_store_install,
             commands::quit_app,
             commands::get_app_version,

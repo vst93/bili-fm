@@ -34,6 +34,7 @@ const formatBytes = (bytes: number) => {
 const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
   // 版本号在运行时从后端获取 (Cargo.toml / tauri.conf.json)
   const [isMac, setIsMac] = useState(false);
+  const [isLinux, setIsLinux] = useState(navigator.userAgent.includes("Linux"));
   const [showMenu, setShowMenu] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
@@ -51,6 +52,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     });
     invoke<string>("get_platform").then((platform: string) => {
       setIsMac(platform === "darwin");
+      setIsLinux(platform === "linux");
     });
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
@@ -179,7 +181,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
 
   /**
    * 检查更新：立即弹出加载对话框，并行执行两条检查链路
-   * 1. tauri-plugin-updater check() — 端点 Gitee 优先、GitHub 回退，支持应用内下载安装
+   * 1. tauri-plugin-updater check() — macOS/Windows/deb/rpm 支持应用内下载安装
    * 2. check_for_updates 旧命令 — Gitee API 优先、GitHub API 回退，仅返回版本信息
    */
   const handleCheckUpdate = async () => {
@@ -228,9 +230,19 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
     });
 
     try {
+      // Tauri 不支持 pacman 包；识别失败时在 Linux 上保守地回退到手动升级。
+      const isPacmanSystem = await invoke<boolean>("is_pacman_system").catch(
+        () => isLinux,
+      );
+      const linuxUpdaterTarget = isLinux
+        ? await invoke<string | null>("get_linux_updater_target").catch(() => null)
+        : null;
+      const pluginCheck = isPacmanSystem
+        ? Promise.resolve(null)
+        : check(linuxUpdaterTarget ? { target: linuxUpdaterTarget } : undefined);
       const [rustResult, pluginUpdate] = await Promise.allSettled([
         invoke<UpdateResult>("check_for_updates", { isManual: true, gitFrom: "" }),
-        check(),
+        pluginCheck,
       ]);
 
       // 用户已取消：不弹出任何结果对话框
@@ -282,11 +294,13 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
           ],
         });
       } else if (rust?.hasUpdate) {
-        // 仅版本检查可用：跳转下载页（Gitee 优先，失败回退 GitHub）
+        // pacman 包和 updater 不可用时跳转下载页。
         updateDialog(loadingId, {
           title: "发现新版本",
           type: "question",
-          message: `新版本 v${version} 已发布\n前往下载页面获取最新版本`,
+          message: isPacmanSystem
+            ? `新版本 v${version} 已发布\nArch 系统请重新运行安装脚本，或前往下载页面升级`
+            : `新版本 v${version} 已发布\n前往下载页面获取最新版本`,
           buttons: [
             { label: "前往下载", value: "yes", primary: true },
             { label: "稍后再说", value: "no" },

@@ -1051,14 +1051,27 @@ html[data-time-of-day="latenight"] #root::before {
     opacity: 0.25;
 }
 
-/* 深色主题下播放栏背景跟随主题色, 避免浅白叠加发白 */
-html[data-time-of-day="midnight"] #player .player-controls,
-html[data-time-of-day="predawn"] #player .player-controls,
-html[data-time-of-day="dusk"] #player .player-controls,
-html[data-time-of-day="evening"] #player .player-controls,
-html[data-time-of-day="latenight"] #player .player-controls {
-    background: rgba(30, 38, 55, 0.35);
-    border-top-color: rgba(255, 255, 255, 0.08);
+/* Darker time periods use a smoked glass player instead of an opaque color band. */
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player {
+    --player-surface: rgba(30, 41, 59, 0.16);
+    --player-sheen:
+        radial-gradient(120% 90% at 18% -20%, rgba(255, 255, 255, 0.2), transparent 48%),
+        linear-gradient(170deg, rgba(255, 255, 255, 0.055), transparent 56%);
+    --player-border: rgba(255, 255, 255, 0.22);
+    --player-edge-fade: rgba(71, 85, 105, 0.11);
+    --player-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.24),
+        inset 0 -1px 0 rgba(15, 23, 42, 0.08),
+        0 -10px 28px rgba(15, 23, 42, 0.045);
+    --player-time-color: rgba(51, 65, 85, 0.72);
+    --player-track-border: rgba(255, 255, 255, 0.28);
+    --player-track-rest: rgba(255, 255, 255, 0.2);
 }
 
 body.mini-mode #root::before {
@@ -1191,10 +1204,10 @@ body.mini-mode #root::before {
 
 .home-stage {
     height: calc(100% - 56px);
-    padding: 25px 24px 0;
+    padding: 20px 28px 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0;
 }
 
 .home-searchbar {
@@ -1492,11 +1505,11 @@ body.mini-mode #root::before {
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-columns: 304px minmax(0, 1fr);
     align-content: center;
     align-items: center;
-    gap: 20px;
-    padding: 0 6px 10px;
+    gap: 28px;
+    padding: 0 8px 32px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1516,7 +1529,7 @@ body.mini-mode #root::before {
 }
 
 .cover-shell {
-    width: 320px;
+    width: 292px;
     aspect-ratio: 1;
     position: relative;
     display: grid;
@@ -1596,11 +1609,11 @@ body.mini-mode #root::before {
     max-width: none;
     min-width: 0;
     min-height: 0;
-    height: 326px;
+    height: 332px;
     margin: 0;
     float: none;
     display: block;
-    padding: 6px;
+    padding: 2px 0;
     overflow: hidden;
 }
 
@@ -1619,8 +1632,8 @@ body.mini-mode #root::before {
     align-items: center;
     justify-content: flex-start;
     gap: 14px;
-    margin-bottom: 14px;
-    padding-top: 2px;
+    margin-bottom: 18px;
+    padding-top: 0;
 }
 
 .video-owner-wrap {
@@ -1712,13 +1725,13 @@ body.mini-mode #root::before {
 
 #video-title h2 {
     margin: 0;
-    min-height: 56px;
-    max-height: 64px;
+    min-height: 52px;
+    max-height: 58px;
     display: -webkit-box;
     overflow: hidden;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
-    font-size: 23px;
+    font-size: 22px;
     font-weight: 800;
     line-height: 1.18;
     color: var(--studio-ink);
@@ -1726,38 +1739,38 @@ body.mini-mode #root::before {
 }
 
 #video-desc {
-    margin: 10px 0 0;
+    margin: 14px 0 0;
     max-height: none;
     color: var(--studio-muted);
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.55;
 }
 
 #video-desc p {
     min-height: 46px;
-    max-height: 46px;
+    max-height: 60px;
     margin: 0;
     display: -webkit-box;
     overflow: hidden;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
 }
 
 .video-part-pill {
     width: min(100%, 430px);
     max-width: 100%;
-    min-height: 34px;
-    margin-top: 8px;
+    min-height: 36px;
+    margin-top: 12px;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 12px;
+    padding: 5px 11px;
     border: 1px solid var(--glass-border);
     border-radius: 999px;
     background: transparent;
     box-shadow: var(--liquid-shadow);
     color: #0369a1;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     overflow: hidden;
     position: relative;
@@ -1830,7 +1843,7 @@ body.mini-mode #root::before {
     align-self: start;
     width: fit-content;
     max-width: 100%;
-    margin-top: 10px;
+    margin-top: 14px;
     padding: 0;
     display: inline-flex;
     flex-wrap: wrap;
@@ -1847,7 +1860,7 @@ body.mini-mode #root::before {
     align-self: start;
     width: fit-content;
     max-width: 100%;
-    margin-top: 8px;
+    margin-top: 12px;
     padding: 4px;
     display: inline-flex;
     flex-wrap: wrap;
@@ -1856,7 +1869,7 @@ body.mini-mode #root::before {
     gap: 3px;
     position: relative;
     isolation: isolate;
-    border-radius: 16px;
+    border-radius: 10px;
     background: transparent;
     border: 1px solid var(--glass-border);
     box-shadow: var(--liquid-shadow);
@@ -1953,9 +1966,9 @@ body.mini-mode #root::before {
 }
 
 .video-context-dock .nav-icon-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
     opacity: 0.78;
 }
 
@@ -2011,7 +2024,7 @@ body.mini-mode #root::before {
     top: -10px;
     height: 10px;
     pointer-events: none;
-    background: linear-gradient(to bottom, transparent, rgba(168, 212, 234, 0.15));
+    background: linear-gradient(to bottom, transparent, var(--player-edge-fade, rgba(186, 230, 253, 0.24)));
 }
 
 #player audio {
@@ -2020,30 +2033,36 @@ body.mini-mode #root::before {
 
 #player .player-controls {
     height: 56px;
-    padding: 0 16px;
+    padding: 0 18px;
     display: grid;
-    grid-template-columns: 46px 52px minmax(0, 1fr) 52px 38px 44px 38px;
+    grid-template-columns: 42px 46px minmax(0, 1fr) 46px 34px 40px 34px;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     position: relative;
     isolation: isolate;
-    border-top: 1px solid var(--glass-border);
-    background: rgba(248, 251, 254, 0.38);
-    box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.04);
+    border-top: 1px solid var(--player-border, rgba(255, 255, 255, 0.72));
+    background-color: var(--player-surface, rgba(241, 248, 253, 0.36));
+    background-image: var(--player-sheen, var(--glass-sheen-static));
+    box-shadow: var(--player-shadow,
+        inset 0 1px 1px rgba(255, 255, 255, 0.88),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.05),
+        0 -10px 28px rgba(15, 23, 42, 0.05));
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
 }
 
 #player .player-button {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     display: inline-grid;
     place-items: center;
     padding: 0;
-    border: 1px solid transparent;
-    border-radius: 50%;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
     background: transparent;
-    box-shadow: none;
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.7),
+        0 2px 7px rgba(15, 23, 42, 0.045);
     color: #334155;
     position: relative;
     isolation: isolate;
@@ -2080,7 +2099,9 @@ body.mini-mode #root::before {
     -webkit-mask-composite: xor;
     mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     mask-composite: exclude;
-    box-shadow: var(--liquid-chromatic);
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px rgba(255, 255, 255, 0.46);
 }
 
 #player .player-button svg {
@@ -2091,57 +2112,69 @@ body.mini-mode #root::before {
 }
 
 #player .player-speed-button {
-    width: 44px;
-    height: 38px;
+    width: 40px;
+    height: 32px;
     border-color: var(--glass-border);
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.7),
-        0 4px 12px rgba(15, 23, 42, 0.06);
+        inset 0 1px 1px rgba(255, 255, 255, 0.68),
+        0 2px 7px rgba(15, 23, 42, 0.045);
     color: #526174;
-    border-radius: 19px;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-}
-
-#player .player-speed-button[data-open] {
-    border-color: rgba(2, 132, 199, 0.16);
-    color: var(--studio-blue);
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.82),
-        inset 0 -2px 5px rgba(2, 132, 199, 0.08),
-        0 5px 16px rgba(2, 132, 199, 0.13);
-}
-
-#player .player-speed-button[data-open]::before {
-    background-color: var(--liquid-bg-hover);
-}
-
-#player .player-eq-button {
-    width: 38px;
-    height: 38px;
-    border-color: var(--glass-border);
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.7),
-        0 4px 12px rgba(15, 23, 42, 0.06);
-    color: #526174;
-    border-radius: 19px;
+    border-radius: 8px;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
 }
 
+#player .player-speed-button[data-open] {
+    border-color: rgba(2, 132, 199, 0.12);
+    color: var(--studio-blue);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.46);
+}
+
+#player .player-speed-button[data-open]::before {
+    background-color: rgba(186, 230, 253, 0.3);
+    background-image: var(--glass-sheen-static);
+}
+
+#player .player-eq-button {
+    width: 34px;
+    height: 32px;
+    border-color: var(--glass-border);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.68),
+        0 2px 7px rgba(15, 23, 42, 0.045);
+    color: #526174;
+    border-radius: 8px;
+}
+
+/* Tool buttons use a quiet glass rim. The player surface and timeline carry
+   the stronger refraction; these controls should not read as white outlines. */
+#player .player-volume-button,
+#player .player-speed-button,
+#player .player-eq-button {
+    border-color: rgba(148, 163, 184, 0.2);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.44),
+        0 2px 7px rgba(15, 23, 42, 0.045);
+}
+
+#player .player-volume-button::after,
+#player .player-speed-button::after,
+#player .player-eq-button::after {
+    opacity: 0.52;
+}
+
 #player .player-eq-button[data-active] {
-    border-color: rgba(2, 132, 199, 0.16);
+    border-color: rgba(2, 132, 199, 0.28);
     color: var(--studio-blue);
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.82),
-        inset 0 -2px 5px rgba(2, 132, 199, 0.08),
-        0 5px 16px rgba(2, 132, 199, 0.13);
+        inset 0 0 0 1px rgba(186, 230, 253, 0.7),
+        0 2px 8px rgba(2, 132, 199, 0.14);
 }
 
 #player .player-eq-button[data-active]::before {
-    background-color: var(--liquid-bg-hover);
+    background-color: rgba(186, 230, 253, 0.32);
+    background-image: var(--glass-sheen-static);
 }
 
 #player .player-button:active {
@@ -2161,9 +2194,8 @@ body.mini-mode #root::before {
 
 #player .player-button:disabled {
     transform: none;
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.72),
-        0 3px 10px rgba(15, 23, 42, 0.04);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.56);
+    opacity: 0.42;
 }
 
 #player .player-button:disabled svg {
@@ -2174,42 +2206,42 @@ body.mini-mode #root::before {
     opacity: 0.42;
 }
 
+#player .player-timeline-wrap:has(.player-timeline:disabled) .player-timeline-track {
+    opacity: 0.42;
+}
+
 #player .player-play-button[data-playing] {
-    width: 46px;
-    height: 46px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
     color: #0284c7;
-    border-color: rgba(2, 132, 199, 0.25);
+    border-color: rgba(2, 132, 199, 0.2);
     box-shadow:
-        inset 0 1px 2px rgba(255, 255, 255, 0.9),
-        inset 0 -3px 6px rgba(2, 132, 199, 0.1),
-        0 8px 22px rgba(2, 132, 199, 0.2);
-    background-image: radial-gradient(120% 80% at 35% 0%, rgba(255, 255, 255, 0.5), transparent 60%);
+        inset 0 1px 1px rgba(255, 255, 255, 0.82),
+        0 5px 14px rgba(2, 132, 199, 0.14);
+    background-image: none;
 }
 
 #player .player-play-button[data-playing]::before {
-    background-color: rgba(186, 230, 253, 0.4);
-    background-image:
-        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.85), transparent 58%),
-        linear-gradient(165deg, rgba(14, 165, 233, 0.15), rgba(125, 211, 252, 0.08));
+    background-color: rgba(186, 230, 253, 0.42);
+    background-image: var(--glass-sheen-static);
 }
 
 #player .player-play-button:not([data-playing]) {
-    width: 46px;
-    height: 46px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
     color: #475569;
-    border-color: rgba(148, 163, 184, 0.3);
+    border-color: rgba(148, 163, 184, 0.22);
     box-shadow:
-        inset 0 1px 2px rgba(255, 255, 255, 0.8),
-        inset 0 -2px 4px rgba(15, 23, 42, 0.06),
-        0 4px 12px rgba(15, 23, 42, 0.08);
-    background-image: radial-gradient(120% 80% at 35% 0%, rgba(255, 255, 255, 0.6), transparent 60%);
+        inset 0 1px 1px rgba(255, 255, 255, 0.76),
+        0 3px 10px rgba(15, 23, 42, 0.06);
+    background-image: none;
 }
 
 #player .player-play-button:not([data-playing])::before {
-    background-color: rgba(241, 245, 249, 0.6);
-    background-image:
-        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.7), transparent 58%),
-        linear-gradient(165deg, rgba(148, 163, 184, 0.08), rgba(203, 213, 225, 0.04));
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
 }
 
 #player .player-play-button svg {
@@ -2218,73 +2250,81 @@ body.mini-mode #root::before {
 }
 
 #player .player-volume-button {
-    width: 38px;
-    height: 38px;
+    width: 32px;
+    height: 32px;
     border-color: var(--glass-border);
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.7),
-        0 4px 12px rgba(15, 23, 42, 0.06);
+        inset 0 1px 1px rgba(255, 255, 255, 0.68),
+        0 2px 7px rgba(15, 23, 42, 0.045);
     color: #526174;
 }
 
 #player .player-volume-button[data-open] {
-    border-color: rgba(2, 132, 199, 0.16);
+    border-color: rgba(2, 132, 199, 0.12);
     color: var(--studio-blue);
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.82),
-        inset 0 -2px 5px rgba(2, 132, 199, 0.08),
-        0 5px 16px rgba(2, 132, 199, 0.13);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.46);
 }
 
 #player .player-volume-button[data-open]::before {
-    background-color: var(--liquid-bg-hover);
+    background-color: rgba(186, 230, 253, 0.3);
+    background-image: var(--glass-sheen-static);
+}
+
+#player .player-volume-button {
+    border-color: rgba(148, 163, 184, 0.2);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.44),
+        0 2px 7px rgba(15, 23, 42, 0.045);
+}
+
+#player .player-volume-button[data-open] {
+    border-color: rgba(2, 132, 199, 0.2);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.48),
+        0 2px 8px rgba(2, 132, 199, 0.1);
 }
 
 @media (hover: hover) and (pointer: fine) {
     #player .player-play-button:hover:not(:disabled) {
-        border-color: rgba(2, 132, 199, 0.35);
+        border-color: rgba(2, 132, 199, 0.28);
         color: #0284c7;
         box-shadow:
-            inset 0 1px 2px rgba(255, 255, 255, 1),
-            inset 0 -4px 8px rgba(2, 132, 199, 0.12),
-            0 0 0 3px rgba(186, 230, 253, 0.3),
-            0 10px 28px rgba(2, 132, 199, 0.25);
+            inset 0 1px 1px rgba(255, 255, 255, 0.9),
+            0 6px 16px rgba(2, 132, 199, 0.18);
+        transform: translateY(-1px);
     }
 
     #player .player-play-button:hover:not(:disabled)::before {
         background-color: rgba(186, 230, 253, 0.5);
-        background-image:
-            radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.9), transparent 58%),
-            linear-gradient(165deg, rgba(14, 165, 233, 0.2), rgba(125, 211, 252, 0.1));
+        background-image: var(--glass-sheen-static);
     }
 
-    #player .player-volume-button:hover:not(:disabled)::before {
-        background-color: var(--liquid-bg-hover);
-        background-image:
-            radial-gradient(90% 72% at 28% 0%, rgba(255, 255, 255, 0.72), transparent 58%),
-            linear-gradient(155deg, rgba(255, 255, 255, 0.16), rgba(186, 230, 253, 0.08));
-    }
-
-    #player .player-volume-button:hover:not(:disabled) {
-        border-color: rgba(255, 255, 255, 0.7);
-        color: var(--studio-blue);
-        box-shadow:
-            inset 0 1px 1px rgba(255, 255, 255, 0.86),
-            0 6px 16px rgba(15, 23, 42, 0.08);
-    }
-
+    #player .player-volume-button:hover:not(:disabled),
     #player .player-speed-button:hover:not(:disabled),
     #player .player-eq-button:hover:not(:disabled) {
-        border-color: rgba(255, 255, 255, 0.7);
+        border-color: rgba(148, 163, 184, 0.32);
         color: var(--studio-blue);
         box-shadow:
-            inset 0 1px 1px rgba(255, 255, 255, 0.86),
-            0 6px 16px rgba(15, 23, 42, 0.08);
+            inset 0 1px 1px rgba(255, 255, 255, 0.56),
+            0 3px 9px rgba(15, 23, 42, 0.06);
     }
 
+    #player .player-volume-button:hover:not(:disabled)::before,
     #player .player-speed-button:hover:not(:disabled)::before,
     #player .player-eq-button:hover:not(:disabled)::before {
-        background-color: var(--liquid-bg-hover);
+        background-color: rgba(255, 255, 255, 0.34);
+    }
+
+    #player .player-eq-button[data-active]:hover:not(:disabled) {
+        border-color: rgba(2, 132, 199, 0.34);
+        color: #0369a1;
+        box-shadow:
+            inset 0 0 0 1px rgba(186, 230, 253, 0.84),
+            0 3px 10px rgba(2, 132, 199, 0.18);
+    }
+
+    #player .player-eq-button[data-active]:hover:not(:disabled)::before {
+        background-color: rgba(2, 132, 199, 0.15);
     }
 
 }
@@ -2292,9 +2332,7 @@ body.mini-mode #root::before {
 #player .player-play-button:active:not(:disabled),
 #player .player-volume-button:active:not(:disabled) {
     transform: scale(0.93);
-    box-shadow:
-        inset 0 2px 5px rgba(15, 23, 42, 0.1),
-        0 2px 7px rgba(15, 23, 42, 0.06);
+    box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.1);
 }
 
 #player .player-play-button:active:not(:disabled)::before,
@@ -2305,9 +2343,7 @@ body.mini-mode #root::before {
 #player .player-speed-button:active:not(:disabled),
 #player .player-eq-button:active:not(:disabled) {
     transform: scale(0.93);
-    box-shadow:
-        inset 0 2px 5px rgba(15, 23, 42, 0.1),
-        0 2px 7px rgba(15, 23, 42, 0.06);
+    box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.1);
 }
 
 #player .player-speed-button:active:not(:disabled)::before,
@@ -2320,9 +2356,9 @@ body.mini-mode #root::before {
     padding: 0 4px;
     border: 0;
     background: transparent;
-    color: #475569;
-    font-size: 12px;
-    font-weight: 650;
+    color: var(--player-time-color, #64748b);
+    font-size: 11px;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 18px;
     text-align: center;
@@ -2338,65 +2374,107 @@ body.mini-mode #root::before {
     touch-action: none;
 }
 
+#player .player-timeline-wrap {
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    position: relative;
+}
+
+#player .player-timeline-track {
+    position: absolute;
+    top: 50%;
+    left: 7px;
+    right: 7px;
+    height: 6px;
+    box-sizing: border-box;
+    border: 1px solid var(--player-track-border, rgba(255, 255, 255, 0.68));
+    border-radius: 999px;
+    pointer-events: none;
+    transform: translateY(-50%);
+    background: linear-gradient(
+        90deg,
+        rgba(45, 212, 191, 0.78) 0,
+        rgba(2, 132, 199, 0.82) var(--player-progress, 0%),
+        var(--player-track-rest, rgba(255, 255, 255, 0.32)) var(--player-progress, 0%)
+    );
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.88),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.08),
+        0 2px 7px rgba(14, 165, 233, 0.1);
+}
+
 #player .player-timeline {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
     width: 100%;
     min-width: 0;
     height: 24px;
 }
 
-#player input.player-timeline::-webkit-slider-runnable-track,
+#player input.player-timeline::-webkit-slider-runnable-track {
+    height: 6px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
 #player input.player-volume-slider::-webkit-slider-runnable-track {
-    height: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.72);
+    height: 6px;
+    border: 1px solid var(--player-track-border, rgba(255, 255, 255, 0.68));
     border-radius: 999px;
     background: linear-gradient(
         90deg,
-        rgba(45, 212, 191, 0.9) 0,
-        rgba(14, 165, 233, 0.86) var(--player-progress, var(--player-volume, 0%)),
-        rgba(255, 255, 255, 0.5) var(--player-progress, var(--player-volume, 0%))
+        rgba(45, 212, 191, 0.78) 0,
+        rgba(2, 132, 199, 0.82) var(--player-progress, var(--player-volume, 0%)),
+        var(--player-track-rest, rgba(255, 255, 255, 0.32)) var(--player-progress, var(--player-volume, 0%))
     );
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.95),
-        inset 0 -1px 2px rgba(15, 23, 42, 0.08),
-        0 2px 8px rgba(14, 165, 233, 0.1);
+        inset 0 1px 1px rgba(255, 255, 255, 0.88),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.08),
+        0 2px 7px rgba(14, 165, 233, 0.1);
 }
 
 #player input.player-timeline::-webkit-slider-thumb,
 #player input.player-volume-slider::-webkit-slider-thumb {
     appearance: none;
     -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     margin-top: -5px;
-    border: 1px solid rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.9);
     border-radius: 50%;
     background:
-        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.98) 0 12%, rgba(255, 255, 255, 0.34) 30%, transparent 52%),
-        linear-gradient(145deg, rgba(255, 255, 255, 0.42), rgba(186, 230, 253, 0.2));
+        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.98) 0 15%, rgba(255, 255, 255, 0.42) 34%, transparent 58%),
+        rgba(224, 242, 254, 0.62);
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.96),
-        inset 0 -2px 3px rgba(14, 165, 233, 0.12),
-        0 2px 8px rgba(14, 165, 233, 0.26);
+        inset 0 1px 1px rgba(255, 255, 255, 0.92),
+        inset 0 -1px 2px rgba(2, 132, 199, 0.1),
+        0 2px 7px rgba(2, 132, 199, 0.24);
     transition: transform 100ms ease, box-shadow 140ms ease;
 }
 
+#player input.player-timeline::-webkit-slider-thumb {
+    margin-top: -4px;
+}
+
 @media (hover: hover) and (pointer: fine) {
-    #player input.player-timeline:hover::-webkit-slider-runnable-track,
+    #player .player-timeline-wrap:hover .player-timeline-track,
     #player input.player-volume-slider:hover::-webkit-slider-runnable-track {
-        border-color: rgba(255, 255, 255, 0.94);
         box-shadow:
-            inset 0 1px 1px rgba(255, 255, 255, 1),
-            inset 0 -1px 2px rgba(2, 132, 199, 0.1),
-            0 3px 12px rgba(14, 165, 233, 0.2);
+            inset 0 1px 1px rgba(255, 255, 255, 0.94),
+            inset 0 -1px 1px rgba(15, 23, 42, 0.08),
+            0 0 0 2px rgba(14, 165, 233, 0.08),
+            0 2px 9px rgba(14, 165, 233, 0.16);
     }
 
     #player input.player-timeline:hover::-webkit-slider-thumb,
     #player input.player-volume-slider:hover::-webkit-slider-thumb {
         transform: scale(1.1);
         box-shadow:
-            inset 0 1px 1px rgba(255, 255, 255, 1),
-            0 0 0 4px rgba(255, 255, 255, 0.22),
-            0 3px 12px rgba(14, 165, 233, 0.38);
+            0 0 0 3px rgba(14, 165, 233, 0.1),
+            0 2px 7px rgba(2, 132, 199, 0.28);
     }
 }
 
@@ -2505,15 +2583,6 @@ body.mini-mode #root::before {
     }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-    #player .player-controls,
-    #player .player-volume-popover {
-        background: #f8fbfe;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-    }
-}
-
 #switch-window-mode {
     display: inline-flex;
     align-items: center;
@@ -2570,13 +2639,13 @@ body.mini-mode #root::before {
     .home-now-playing {
         grid-template-columns: 1fr;
         align-content: start;
-        gap: 14px;
-        padding: 14px;
+        gap: 12px;
+        padding: 16px 8px 12px;
         overflow-y: auto;
     }
 
     .cover-shell {
-        width: min(220px, 62vw);
+        width: min(196px, 56vw);
     }
 
     #video-info {
@@ -3748,17 +3817,18 @@ body.mini-mode #player {
 body.mini-mode #player::before {
     top: -10px;
     height: 12px;
-    background: linear-gradient(to bottom, transparent, rgba(244, 248, 252, 0.52));
+    background: linear-gradient(to bottom, transparent, var(--player-edge-fade, rgba(244, 248, 252, 0.52)));
 }
 
 body.mini-mode #player .player-controls {
     height: 43px !important;
     padding: 0 10px !important;
-    background: rgba(248, 251, 254, 0.38) !important;
-    box-shadow:
+    background-color: var(--player-surface, rgba(241, 248, 253, 0.36)) !important;
+    background-image: var(--player-sheen, var(--glass-sheen-static)) !important;
+    box-shadow: var(--player-shadow,
         inset 0 1px 1px var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 -10px 22px rgba(15, 23, 42, 0.05) !important;
+        0 -10px 22px rgba(15, 23, 42, 0.05)) !important;
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
     grid-template-columns: 34px 44px minmax(0, 1fr) 44px 30px 36px 30px;
@@ -3794,15 +3864,14 @@ body.mini-mode #player .player-play-button::before {
 body.mini-mode #player .player-speed-button {
     width: 36px;
     height: 30px;
-    border-radius: 15px;
+    border-radius: 7px;
     font-size: 10px;
 }
 
 body.mini-mode #player .player-eq-button {
     width: 30px;
     height: 30px;
-    border-radius: 15px;
-    font-size: 9px;
+    border-radius: 7px;
 }
 
 body.mini-mode #player .player-volume-popover {
@@ -3825,6 +3894,253 @@ body.mini-mode #player .player-volume-slider {
 body.mini-mode #player .player-button svg {
     width: 18px !important;
     height: 18px !important;
+}
+
+/* Smoked-glass tuning for the player. Keep transport and progress prominent,
+   while utility controls recede into the evening backdrop. */
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-controls {
+    backdrop-filter: blur(20px) saturate(1.28);
+    -webkit-backdrop-filter: blur(20px) saturate(1.28);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-button {
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(51, 65, 85, 0.84);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 2px 7px rgba(15, 23, 42, 0.05);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-button::before {
+    background-color: rgba(255, 255, 255, 0.085);
+    background-image: var(--player-sheen);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-button::after {
+    opacity: 0.3;
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-play-button {
+    border-color: rgba(224, 242, 254, 0.48);
+    color: #0369a1;
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.46),
+        inset 0 -1px 1px rgba(2, 132, 199, 0.08),
+        0 4px 12px rgba(15, 23, 42, 0.1);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-play-button::before {
+    background-color: rgba(224, 242, 254, 0.24);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-eq-button[data-active] {
+    border-color: rgba(125, 211, 252, 0.42);
+    color: #0284c7;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.32),
+        0 2px 9px rgba(2, 132, 199, 0.12);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-eq-button[data-active]::before,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-volume-button[data-open]::before,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-speed-button[data-open]::before {
+    background-color: rgba(125, 211, 252, 0.16);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-timeline-track,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player input.player-volume-slider::-webkit-slider-runnable-track {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.1),
+        0 2px 7px rgba(14, 165, 233, 0.07);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player input.player-timeline::-webkit-slider-thumb,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player input.player-volume-slider::-webkit-slider-thumb {
+    border-color: rgba(255, 255, 255, 0.68);
+    background:
+        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.9) 0 14%, rgba(255, 255, 255, 0.28) 34%, transparent 58%),
+        rgba(224, 242, 254, 0.48);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.58),
+        0 2px 7px rgba(2, 132, 199, 0.2);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-volume-popover,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-speed-popover {
+    border-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(71, 85, 105, 0.64);
+    background-image: var(--player-sheen);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        0 10px 24px rgba(15, 23, 42, 0.14);
+}
+
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-speed-option {
+    color: rgba(241, 245, 249, 0.78);
+}
+
+/* Accessibility preferences come last so dark and mini-mode materials cannot
+   override their solid, lower-cost fallback. */
+@media (prefers-reduced-transparency: reduce) {
+    html:root #player {
+        --player-surface: #e6edf4;
+        --player-sheen: none;
+        --player-border: rgba(71, 85, 105, 0.28);
+        --player-edge-fade: rgba(71, 85, 105, 0.08);
+        --player-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.72),
+            0 -8px 20px rgba(15, 23, 42, 0.04);
+    }
+
+    html:root #player .player-controls,
+    html:root #player .player-volume-popover,
+    html:root #player .player-speed-popover {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+
+    html:root #player .player-volume-popover,
+    html:root #player .player-speed-popover {
+        background-color: #e6edf4;
+        background-image: none;
+    }
+
+    html:root #player .player-controls .player-button::before {
+        background-color: rgba(248, 251, 254, 0.88);
+        background-image: none;
+    }
+
+    html:root #player .player-controls .player-eq-button[data-active]::before,
+    html:root #player .player-controls .player-volume-button[data-open]::before,
+    html:root #player .player-controls .player-speed-button[data-open]::before {
+        background-color: #d9eef9;
+    }
+
+    html:root #player .player-speed-option {
+        color: #334155;
+    }
+}
+
+@media (prefers-contrast: more) {
+    html:root #player {
+        --player-time-color: #334155;
+        --player-border: rgba(51, 65, 85, 0.52);
+        --player-track-border: rgba(51, 65, 85, 0.58);
+        --player-track-rest: rgba(51, 65, 85, 0.3);
+    }
+
+    html:root #player .player-controls .player-button {
+        border-color: rgba(51, 65, 85, 0.44);
+        color: #1e293b;
+    }
+
+    html:root #player .player-controls .player-eq-button[data-active] {
+        border-color: #0369a1;
+        color: #075985;
+    }
 }
 
 /* ====== Toast liquid glass ====== */

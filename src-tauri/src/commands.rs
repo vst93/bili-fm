@@ -267,6 +267,68 @@ pub fn get_platform() -> String {
     bilibili::get_platform()
 }
 
+/// pacman packages are distributed through GitHub Releases because AUR publishing is unavailable.
+/// Tauri's updater supports deb/rpm installers but cannot install .pkg.tar.zst packages.
+#[tauri::command]
+pub fn is_pacman_system() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::path::Path;
+
+        if Path::new("/usr/share/bili-fm/package-manager-pacman").exists()
+            || Path::new("/etc/arch-release").exists()
+        {
+            return true;
+        }
+
+        if let Ok(os_release) = std::fs::read_to_string("/etc/os-release") {
+            for line in os_release.lines() {
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                if key == "ID" || key == "ID_LIKE" {
+                    let value = value.trim_matches('"').to_ascii_lowercase();
+                    if value.split_whitespace().any(|id| {
+                        matches!(
+                            id,
+                            "arch" | "manjaro" | "endeavouros" | "artix" | "garuda"
+                        )
+                    }) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Uses a namespaced target so older Arch installs, whose binary came from a deb package,
+/// cannot mistake a deb updater for a pacman-compatible update.
+#[tauri::command]
+pub fn get_linux_updater_target() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use tauri::utils::{config::BundleType, platform::bundle_type};
+
+        let package_type = match bundle_type()? {
+            BundleType::Deb => "deb",
+            BundleType::Rpm => "rpm",
+            _ => return None,
+        };
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => "x86_64",
+            "aarch64" => "aarch64",
+            _ => return None,
+        };
+        return Some(format!("bili-fm-linux-{arch}-{package_type}-v2"));
+    }
+
+    #[allow(unreachable_code)]
+    None
+}
+
 /// 检测是否为 Microsoft Store 安装版本。
 /// MS Store 应用的 exe 路径包含 `WindowsApps`。
 #[tauri::command]

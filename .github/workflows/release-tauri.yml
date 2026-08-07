@@ -40,10 +40,11 @@ jobs:
           if [ -n "$INPUT" ]; then
             VERSION="$INPUT"
           else
-            MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-            MINOR=$(echo "$CURRENT" | cut -d. -f2)
-            PATCH=$(echo "$CURRENT" | cut -d. -f3)
-            PATCH=$((PATCH + 1))
+            BASE_VERSION="${CURRENT%%-*}"
+            MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
+            MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
+            PATCH=$(echo "$BASE_VERSION" | cut -d. -f3)
+            PATCH=$((10#$PATCH + 1))
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -81,7 +82,7 @@ jobs:
             else
               COMMITS=$(git log --pretty=format:"- %s" --no-merges -20)
             fi
-            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the file for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon.dmg` | macOS (M1/M2/M3/M4) |\n| `bili-FM-macos-intel.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64.deb` | Linux (x86_64) |\n| `bili-FM-linux-x86_64.AppImage` | Linux (x86_64) |\n| `bili-FM-linux-arm64.deb` | Linux (ARM64) |\n| `bili-FM-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS")
+            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the file for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon.dmg` | macOS (M1/M2/M3/M4) |\n| `bili-FM-macos-intel.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64.pkg.tar.zst` | Arch Linux (x86_64) |\n| `bili-FM-linux-arm64.pkg.tar.zst` | Arch Linux (ARM64) |\n| `bili-FM-linux-x86_64.deb` | Debian/Ubuntu (x86_64) |\n| `bili-FM-linux-arm64.deb` | Debian/Ubuntu (ARM64) |\n| `bili-FM-linux-x86_64.rpm` | Fedora/RHEL/openSUSE (x86_64) |\n| `bili-FM-linux-arm64.rpm` | Fedora/RHEL/openSUSE (ARM64) |\n| `bili-FM-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS")
           fi
           NOTES="${NOTES//'%'/'%25'}"
           NOTES="${NOTES//$'\n'/'%0A'}"
@@ -133,21 +134,27 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             label: macos-apple-silicon
+            bundles: dmg
           - os: macos-14
             target: x86_64-apple-darwin
             label: macos-intel
+            bundles: dmg
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             label: linux-x86_64
+            bundles: deb,rpm
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             label: linux-arm64
+            bundles: deb,rpm
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             label: windows-x86_64
+            bundles: nsis
           - os: windows-11-arm
             target: aarch64-pc-windows-msvc
             label: windows-arm64
+            bundles: nsis
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -170,7 +177,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev xdg-utils
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev xdg-utils zstd
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -181,10 +188,11 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: pnpm install --config.confirmModulesPurge=false --config.dangerouslyAllowAllBuilds=true
+        run: pnpm install
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
-      # Windows: use nsis only (skip msi - it rejects pre-release version strings like "2.0.0-preview")
+      # Linux deliberately excludes AppImage because its bundled WebKit can render a blank window.
+      # Windows uses NSIS only because MSI rejects pre-release version strings.
       # Signing: TAURI_SIGNING_PRIVATE_KEY env enables .sig generation for the updater plugin.
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -192,7 +200,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --target ${{ matrix.target }} ${{ runner.os == 'Windows' && '--bundles nsis' || '' }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       # DMG bundling on macOS can fail intermittently.
       - name: Retry without DMG (macOS only)
@@ -240,20 +248,28 @@ jobs:
             cp "$found_rpm" "renamed/bili-FM-${LABEL}.rpm"
           fi
 
-          # .AppImage (Linux)
-          found_appimage=$(find "$BUNDLE_DIR" -name "*.AppImage" -type f | head -1)
-          if [ -n "$found_appimage" ]; then
-            cp "$found_appimage" "renamed/bili-FM-${LABEL}.AppImage"
-          fi
-
-          # .AppImage.sig (Linux - updater signature)
-          found_appimage_sig=$(find "$BUNDLE_DIR" -name "*.AppImage.sig" -type f | head -1)
-          if [ -n "$found_appimage_sig" ]; then
-            cp "$found_appimage_sig" "renamed/bili-FM-${LABEL}.AppImage.sig"
-          fi
-
           echo "=== Renamed files ==="
           ls -la renamed/
+
+      - name: Build Arch Linux package
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/package-arch.sh \
+            "renamed/bili-FM-${{ matrix.label }}.deb" \
+            "${{ needs.prepare.outputs.version }}" \
+            "${{ matrix.label == 'linux-arm64' && 'arm64' || 'x86_64' }}" \
+            "renamed/bili-FM-${{ matrix.label }}.pkg.tar.zst"
+
+      # Tauri's artifact generator only accepts app/AppImage/MSI/NSIS targets.
+      # The updater runtime supports deb/rpm, so sign those native packages directly.
+      - name: Sign Linux updater packages
+        if: runner.os == 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          pnpm tauri signer sign "renamed/bili-FM-${{ matrix.label }}.deb"
+          pnpm tauri signer sign "renamed/bili-FM-${{ matrix.label }}.rpm"
 
       - name: Collect and rename artifacts (Windows)
         if: runner.os == 'Windows'
@@ -317,13 +333,17 @@ jobs:
           # Read signatures
           macos_arm_sig=$(cat "sigs/bili-FM-macos-apple-silicon.app.tar.gz.sig" 2>/dev/null | tr -d '\n' || echo "")
           macos_x86_sig=$(cat "sigs/bili-FM-macos-intel.app.tar.gz.sig" 2>/dev/null | tr -d '\n' || echo "")
-          linux_x86_sig=$(cat "sigs/bili-FM-linux-x86_64.AppImage.sig" 2>/dev/null | tr -d '\n' || echo "")
-          linux_arm_sig=$(cat "sigs/bili-FM-linux-arm64.AppImage.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_x86_deb_sig=$(cat "sigs/bili-FM-linux-x86_64.deb.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_x86_rpm_sig=$(cat "sigs/bili-FM-linux-x86_64.rpm.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_arm_deb_sig=$(cat "sigs/bili-FM-linux-arm64.deb.sig" 2>/dev/null | tr -d '\n' || echo "")
+          linux_arm_rpm_sig=$(cat "sigs/bili-FM-linux-arm64.rpm.sig" 2>/dev/null | tr -d '\n' || echo "")
           win_x86_sig=$(cat "sigs/bili-FM-windows-x86_64-setup.exe.sig" 2>/dev/null | tr -d '\n' || echo "")
           win_arm_sig=$(cat "sigs/bili-FM-windows-arm64-setup.exe.sig" 2>/dev/null | tr -d '\n' || echo "")
 
           export VERSION BASE
-          export macos_arm_sig macos_x86_sig linux_x86_sig linux_arm_sig win_x86_sig win_arm_sig
+          export macos_arm_sig macos_x86_sig
+          export linux_x86_deb_sig linux_x86_rpm_sig linux_arm_deb_sig linux_arm_rpm_sig
+          export win_x86_sig win_arm_sig
 
           python3 << 'PYEOF'
           import json, datetime, os
@@ -334,8 +354,10 @@ jobs:
           sigs = {
               "darwin-aarch64": os.environ.get('macos_arm_sig', ''),
               "darwin-x86_64": os.environ.get('macos_x86_sig', ''),
-              "linux-x86_64": os.environ.get('linux_x86_sig', ''),
-              "linux-aarch64": os.environ.get('linux_arm_sig', ''),
+              "bili-fm-linux-x86_64-deb-v2": os.environ.get('linux_x86_deb_sig', ''),
+              "bili-fm-linux-x86_64-rpm-v2": os.environ.get('linux_x86_rpm_sig', ''),
+              "bili-fm-linux-aarch64-deb-v2": os.environ.get('linux_arm_deb_sig', ''),
+              "bili-fm-linux-aarch64-rpm-v2": os.environ.get('linux_arm_rpm_sig', ''),
               "windows-x86_64": os.environ.get('win_x86_sig', ''),
               "windows-aarch64": os.environ.get('win_arm_sig', ''),
           }
@@ -343,8 +365,10 @@ jobs:
           platforms = {
               "darwin-aarch64": {"signature": sigs["darwin-aarch64"], "url": f"{base}/bili-FM-macos-apple-silicon.app.tar.gz"},
               "darwin-x86_64": {"signature": sigs["darwin-x86_64"], "url": f"{base}/bili-FM-macos-intel.app.tar.gz"},
-              "linux-x86_64": {"signature": sigs["linux-x86_64"], "url": f"{base}/bili-FM-linux-x86_64.AppImage"},
-              "linux-aarch64": {"signature": sigs["linux-aarch64"], "url": f"{base}/bili-FM-linux-arm64.AppImage"},
+              "bili-fm-linux-x86_64-deb-v2": {"signature": sigs["bili-fm-linux-x86_64-deb-v2"], "url": f"{base}/bili-FM-linux-x86_64.deb"},
+              "bili-fm-linux-x86_64-rpm-v2": {"signature": sigs["bili-fm-linux-x86_64-rpm-v2"], "url": f"{base}/bili-FM-linux-x86_64.rpm"},
+              "bili-fm-linux-aarch64-deb-v2": {"signature": sigs["bili-fm-linux-aarch64-deb-v2"], "url": f"{base}/bili-FM-linux-arm64.deb"},
+              "bili-fm-linux-aarch64-rpm-v2": {"signature": sigs["bili-fm-linux-aarch64-rpm-v2"], "url": f"{base}/bili-FM-linux-arm64.rpm"},
               "windows-x86_64": {"signature": sigs["windows-x86_64"], "url": f"{base}/bili-FM-windows-x86_64-setup.exe"},
               "windows-aarch64": {"signature": sigs["windows-aarch64"], "url": f"{base}/bili-FM-windows-arm64-setup.exe"},
           }
