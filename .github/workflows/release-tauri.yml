@@ -188,7 +188,7 @@ jobs:
         run: npm install -g pnpm
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --config.dangerouslyAllowAllBuilds=true
 
       # Build only - no tagName so tauri-action does NOT auto-upload.
       # Linux deliberately excludes AppImage because its bundled WebKit can render a blank window.
