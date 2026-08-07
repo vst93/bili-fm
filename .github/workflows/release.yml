@@ -87,7 +87,7 @@ jobs:
             else
               COMMITS=$(git log --pretty=format:"- %s" --no-merges -20)
             fi
-            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the installer for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon.dmg` | macOS (Apple Silicon) |\n| `bili-FM-macos-intel.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64.deb` / `.rpm` / `.AppImage` | Linux (x86_64) |\n| `bili-FM-linux-arm64.deb` / `.AppImage` | Linux (ARM64) |\n| `bili-FM-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS")
+            NOTES=$(printf '## Changes\n\n%s\n\n---\n\n## Install\n\nDownload the installer for your platform:\n\n| File | Platform |\n|------|----------|\n| `bili-FM-macos-apple-silicon-%s.dmg` | macOS (Apple Silicon) |\n| `bili-FM-macos-intel-%s.dmg` | macOS (Intel) |\n| `bili-FM-linux-x86_64-%s.deb` / `.rpm` / `.AppImage` | Linux (x86_64) |\n| `bili-FM-linux-arm64-%s.deb` / `.AppImage` | Linux (ARM64) |\n| `bili-FM-windows-x86_64-%s-setup.exe` | Windows (x86_64) |\n| `bili-FM-windows-arm64-%s-setup.exe` | Windows (ARM64) |\n\n> **macOS note:** This app is not code-signed with an Apple Developer certificate, so macOS reports it as damaged. Run this in Terminal to fix:\n>\n> ```\n> xattr -cr /Applications/bili-FM.app\n> ```\n' "$COMMITS" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION")
           fi
           NOTES="${NOTES//'%'/'%25'}"
           NOTES="${NOTES//$'\n'/'%0A'}"
@@ -205,26 +205,27 @@ jobs:
       - name: Create DMG (macOS)
         if: runner.os == 'macOS'
         run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
           hdiutil create \
             -volname "bili-FM" \
             -srcfolder "build/bin/$BINARY_PREFIX.app" \
             -ov -format UDZO \
-            "$GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}.dmg"
+            "$GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-${VERSION}.dmg"
 
       # ── Windows: NSIS installer ──────────────────────────────────────────
       - name: Build Windows NSIS installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $VERSION = "${{ needs.prepare.outputs.version }}"
           wails build -platform ${{ matrix.target }} -clean -nsis
-          Write-Host "=== build/bin contents ==="
-          Get-ChildItem "build/bin" | Format-Table Name, Length
+          # Wails NSIS output name varies; find any exe that isn't the main binary
           $setup = Get-ChildItem "build/bin" -Filter "*.exe" | Where-Object { $_.Name -ne "$env:BINARY_PREFIX.exe" } | Select-Object -First 1
           if (-not $setup) {
             throw "NSIS installer not found in build/bin/"
           }
           Write-Host "Found installer: $($setup.Name)"
-          Copy-Item $setup.FullName "$env:GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-setup.exe"
+          Copy-Item $setup.FullName "$env:GITHUB_WORKSPACE/bili-FM-${{ matrix.label }}-${VERSION}-setup.exe"
 
       # ── Linux: binary + deb + rpm + AppImage ─────────────────────────────
       - name: Build Linux binary
@@ -248,7 +249,14 @@ jobs:
       - name: Build AppImage (Linux)
         if: runner.os == 'Linux'
         run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
           ./build/linux/build-appimage.sh "${{ matrix.arch }}" "build/bin/$BINARY_PREFIX" .
+          # Rename AppImage to include version
+          for f in *.AppImage; do
+            ext="${f##*.}"
+            base="${f%.*}"
+            mv "$f" "bili-FM-${{ matrix.label }}-${VERSION}.AppImage" 2>/dev/null || true
+          done
 
       # ── Upload to the release ────────────────────────────────────────────
       - name: Upload to GitHub Release
