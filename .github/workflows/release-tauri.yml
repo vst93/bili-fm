@@ -218,31 +218,31 @@ jobs:
           # .dmg (macOS)
           found_dmg=$(find "$BUNDLE_DIR" -name "*.dmg" -type f | head -1)
           if [ -n "$found_dmg" ]; then
-            cp "$found_dmg" "renamed/bili-FM-${LABEL}.dmg"
+            cp "$found_dmg" "renamed/bili-FM-${VERSION}-${LABEL}.dmg"
           fi
 
           # .app.tar.gz (macOS - for updater)
           found_targz=$(find "$BUNDLE_DIR" -name "*.app.tar.gz" -type f | head -1)
           if [ -n "$found_targz" ]; then
-            cp "$found_targz" "renamed/bili-FM-${LABEL}.app.tar.gz"
+            cp "$found_targz" "renamed/bili-FM-${VERSION}-${LABEL}.app.tar.gz"
           fi
 
           # .app.tar.gz.sig (macOS - updater signature)
           found_sig=$(find "$BUNDLE_DIR" -name "*.app.tar.gz.sig" -type f | head -1)
           if [ -n "$found_sig" ]; then
-            cp "$found_sig" "renamed/bili-FM-${LABEL}.app.tar.gz.sig"
+            cp "$found_sig" "renamed/bili-FM-${VERSION}-${LABEL}.app.tar.gz.sig"
           fi
 
           # .deb (Linux)
           found_deb=$(find "$BUNDLE_DIR" -name "*.deb" -type f | head -1)
           if [ -n "$found_deb" ]; then
-            cp "$found_deb" "renamed/bili-FM-${LABEL}.deb"
+            cp "$found_deb" "renamed/bili-FM-${VERSION}-${LABEL}.deb"
           fi
 
           # .rpm (Linux)
           found_rpm=$(find "$BUNDLE_DIR" -name "*.rpm" -type f | head -1)
           if [ -n "$found_rpm" ]; then
-            cp "$found_rpm" "renamed/bili-FM-${LABEL}.rpm"
+            cp "$found_rpm" "renamed/bili-FM-${VERSION}-${LABEL}.rpm"
           fi
 
           echo "=== Renamed files ==="
@@ -252,10 +252,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash scripts/package-arch.sh \
-            "renamed/bili-FM-${{ matrix.label }}.deb" \
+            "renamed/bili-FM-${{ needs.prepare.outputs.version }}-${{ matrix.label }}.deb" \
             "${{ needs.prepare.outputs.version }}" \
             "${{ matrix.label == 'linux-arm64' && 'arm64' || 'x86_64' }}" \
-            "renamed/bili-FM-${{ matrix.label }}.pkg.tar.zst"
+            "renamed/bili-FM-${{ needs.prepare.outputs.version }}-${{ matrix.label }}.pkg.tar.zst"
 
       # Tauri's artifact generator only accepts app/AppImage/MSI/NSIS targets.
       # The updater runtime supports deb/rpm, so sign those native packages directly.
@@ -265,13 +265,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          npx tauri signer sign "renamed/bili-FM-${{ matrix.label }}.deb"
-          npx tauri signer sign "renamed/bili-FM-${{ matrix.label }}.rpm"
+          npx tauri signer sign "renamed/bili-FM-${{ needs.prepare.outputs.version }}-${{ matrix.label }}.deb"
+          npx tauri signer sign "renamed/bili-FM-${{ needs.prepare.outputs.version }}-${{ matrix.label }}.rpm"
 
       - name: Collect and rename artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $VERSION = "${{ needs.prepare.outputs.version }}"
           $LABEL = "${{ matrix.label }}"
           $BUNDLE_DIR = "src-tauri/target/${{ matrix.target }}/release/bundle"
           New-Item -ItemType Directory -Force -Path renamed
@@ -282,7 +283,7 @@ jobs:
             $exe = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*.exe" | Select-Object -First 1
           }
           if ($exe) {
-            Copy-Item $exe.FullName "renamed/bili-FM-$LABEL-setup.exe"
+            Copy-Item $exe.FullName "renamed/bili-FM-$VERSION-$LABEL-setup.exe"
           }
 
           # .exe.sig (updater signature)
@@ -291,7 +292,7 @@ jobs:
             $sig = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*.exe.sig" | Select-Object -First 1
           }
           if ($sig) {
-            Copy-Item $sig.FullName "renamed/bili-FM-$LABEL-setup.exe.sig"
+            Copy-Item $sig.FullName "renamed/bili-FM-$VERSION-$LABEL-setup.exe.sig"
           }
 
           echo "=== Renamed files ==="
