@@ -1,0 +1,60 @@
+# Maintainer: vst <vst93@users.noreply.github.com>
+# PKGBUILD for bili-fm-git - build from source (latest tauri-rewrite branch)
+# Install: makepkg -si
+
+pkgname=bili-fm-git
+_pkgname=bili-fm
+pkgver=2.0.48_preview
+pkgrel=1
+pkgdesc="A Bilibili audio player - listen to B站 content as music or podcasts"
+arch=('x86_64')
+url="https://github.com/vst93/bili-fm"
+license=('MIT')
+depends=(
+    'webkit2gtk-4.1'
+    'gtk3'
+    'libsoup3'
+    'libayatana-appindicator'
+    'librsvg'
+    'glib2'
+    'glibc'
+)
+makedepends=(
+    'rust'
+    'nodejs'
+    'npm'
+    'webkit2gtk-4.1'
+    'gtk3'
+    'git'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=(
+    "git+https://github.com/vst93/bili-fm.git#branch=tauri-rewrite"
+)
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$_pkgname"
+    git describe --tags --long 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' || echo "$pkgver"
+}
+
+build() {
+    cd "$srcdir/$_pkgname"
+
+    # Install frontend dependencies
+    npm install --legacy-peer-deps
+
+    # Build Tauri app
+    npm run tauri build
+}
+
+package() {
+    cd "$srcdir/$_pkgname"
+
+    # The Tauri build outputs a .deb; extract it for installation
+    local deb=$(find src-tauri/target -name "*.deb" -type f | head -1)
+    if [ -n "$deb" ]; then
+        ar p "$deb" data.tar.* | tar -xf - -C "$pkgdir"
+    fi
+}

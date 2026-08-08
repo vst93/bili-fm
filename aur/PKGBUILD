@@ -1,0 +1,32 @@
+# Maintainer: vst <vst93@users.noreply.github.com>
+# PKGBUILD for bili-fm - download prebuilt package from GitHub Releases
+# Install: makepkg -si
+
+pkgname=bili-fm
+pkgver=2.0.48_preview
+pkgrel=1
+pkgdesc="A Bilibili audio player - listen to B站 content as music or podcasts"
+arch=('x86_64')
+url="https://github.com/vst93/bili-fm"
+license=('MIT')
+depends=(
+    'webkit2gtk-4.1'
+    'gtk3'
+    'libsoup3'
+    'libayatana-appindicator'
+    'librsvg'
+    'glib2'
+    'glibc'
+)
+source=(
+    "bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst::${url}/releases/download/${pkgver//_/-}/bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst"
+)
+sha256sums=('SKIP')
+noextract=("bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst")
+
+package() {
+    cd "${srcdir}"
+    # The .pkg.tar.zst is a pacman package; extract its payload directly.
+    tar --use-compress-program=zstd -xf "bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst" \
+        -C "${pkgdir}" --exclude=".PKGINFO"
+}
