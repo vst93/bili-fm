@@ -78,7 +78,7 @@ size = ${installed_size}
 arch = ${package_arch}
 license = MIT
 depend = webkit2gtk-4.1
-depend = libappindicator-gtk3
+depend = libayatana-appindicator
 depend = librsvg
 EOF
 
