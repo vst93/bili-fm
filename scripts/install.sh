@@ -168,8 +168,8 @@ install_macos() {
   local arch="$1" tag="$2" asset_prefix dmg_url dmg mountpoint
 
   case "$arch" in
-    arm64) asset_prefix="bili-FM-macos-apple-silicon" ;;
-    x86_64) asset_prefix="bili-FM-macos-intel" ;;
+    arm64) asset_prefix="bili-FM-${tag}-macos-apple-silicon" ;;
+    x86_64) asset_prefix="bili-FM-${tag}-macos-intel" ;;
   esac
 
   info "检测到 macOS (${arch})"
@@ -227,7 +227,7 @@ find_legacy_arch_files() {
 
 install_linux_arch() {
   local arch="$1" tag="$2" package_name package_url package
-  package_name="bili-FM-linux-${arch}.pkg.tar.zst"
+  package_name="bili-FM-${tag}-linux-${arch}.pkg.tar.zst"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 Arch Linux / pacman"
@@ -255,7 +255,7 @@ install_linux_arch() {
 
 install_linux_deb() {
   local arch="$1" tag="$2" package_name package_url package
-  package_name="bili-FM-linux-${arch}.deb"
+  package_name="bili-FM-${tag}-linux-${arch}.deb"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 Debian / Ubuntu"
@@ -270,7 +270,7 @@ install_linux_deb() {
 
 install_linux_rpm() {
   local arch="$1" tag="$2" manager="$3" package_name package_url package
-  package_name="bili-FM-linux-${arch}.rpm"
+  package_name="bili-FM-${tag}-linux-${arch}.rpm"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 RPM 系发行版 (${manager})"
