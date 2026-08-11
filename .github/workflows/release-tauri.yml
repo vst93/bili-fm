@@ -306,6 +306,64 @@ jobs:
           files: renamed/*
           fail_on_unmatched_files: false
 
+  # ── Build MSIX package for Microsoft Store ───────────────────────────────
+  # Tauri CLI does NOT generate MSIX natively, so we build the raw executable
+  # and wrap it into an MSIX with makeappx.exe (Windows SDK) via
+  # build/windows/package-store.ps1 (ported from the wails branch).
+  # Submission to the Store is done manually with scripts/submit_to_store.py
+  # (needs AZURE_* credentials) — this job only produces the .msix artifact.
+  windows-store-package:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: windows-store
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frontend dependencies
+        run: npm install --legacy-peer-deps
+
+      # Build the raw executable only (no NSIS/MSI bundle) so package-store.ps1
+      # can wrap it into an MSIX. --no-bundle leaves bili-FM.exe in target/release.
+      - name: Build executable (no bundle)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --no-bundle
+
+      - name: Package MSIX for Microsoft Store
+        shell: pwsh
+        run: |
+          $env:VERSION = "${{ needs.prepare.outputs.version }}"
+          ./build/windows/package-store.ps1 `
+            -Version "$env:VERSION" `
+            -IdentityName "biliFM" `
+            -Publisher "CN=vst" `
+            -PublisherDisplayName "vst" `
+            -DisplayName "bili-FM" `
+            -Description "bili-FM" `
+            -ExeDir "src-tauri/target/release"
+
+      - name: Upload MSIX to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          files: build/msix/*.msix
+          fail_on_unmatched_files: false
+
   # ── Generate latest.json updater manifest ────────────────────────────────
   manifest:
     needs: [prepare, build]

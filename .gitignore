@@ -27,5 +27,10 @@ dist-ssr
 pnpm-lock.yaml
 yarn.lock
 package-lock.json
-bun.lockbaur/bili-FM-*.pkg.tar.zst
+bun.lock
+
+# MSIX packaging intermediate output (build/windows sources are committed)
+build/msix/
+__pycache__/
+aur/bili-FM-*.pkg.tar.zst
 aur/bili-FM-2.0.48-preview-linux-x86_64.pkg.tar.zst
