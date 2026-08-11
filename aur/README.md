@@ -14,7 +14,7 @@ This downloads the prebuilt `.pkg.tar.zst` from the latest GitHub Release.
 The package is built by CI directly (not converted from .deb), so it installs
 cleanly with pacman.
 
-### Build from source (latest tauri-rewrite)
+### Build from source (latest main)
 
 ```bash
 git clone https://github.com/vst93/bili-fm.git

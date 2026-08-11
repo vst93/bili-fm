@@ -103,7 +103,7 @@ jobs:
           fi
           # bili-FM tags have NO v prefix (matching original convention)
           git tag -f "$VERSION"
-          git push origin tauri-rewrite
+          git push origin main
           git push origin -f "$VERSION"
 
       - name: Create GitHub Release
@@ -122,7 +122,7 @@ jobs:
           gh release create "$VERSION" \
             --title "bili-FM $VERSION" \
             --notes "$NOTES" \
-            --target tauri-rewrite \
+            --target main \
             $EXTRA_ARGS
 
   # ── Build for each platform ──────────────────────────────────────────────

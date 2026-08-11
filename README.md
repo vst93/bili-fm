@@ -54,7 +54,7 @@ B 站电脑端暂未提供完整的"听视频"体验，Bili FM 主要面向以�
 #### 一键安装（macOS / Linux）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash
 ```
 
 脚本会自动检测平台和架构，下载并安装最新稳定版。macOS 上优先使用 Homebrew；Linux 上使用发行版原生包，由 pacman、apt、dnf/yum 或 zypper 负责依赖、升级和卸载。
@@ -62,13 +62,13 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts
 **安装预览版：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --pre-release
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --pre-release
 ```
 
 **安装指定版本：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --version 2.0.8-preview
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.8-preview
 ```
 
 #### Windows
@@ -249,7 +249,7 @@ Bilibili's desktop client does not offer a complete "listen to video" experience
 #### Quick Install (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash
 ```
 
 The script auto-detects your platform and architecture, then downloads and installs the latest stable release. It prefers Homebrew on macOS. On Linux it installs a native package through pacman, apt, dnf/yum, or zypper so dependencies, upgrades, and removal remain managed by the system.
@@ -257,13 +257,13 @@ The script auto-detects your platform and architecture, then downloads and insta
 **Install pre-release:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --pre-release
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --pre-release
 ```
 
 **Install a specific version:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/tauri-rewrite/scripts/install.sh | bash -s -- --version 2.0.8-preview
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.8-preview
 ```
 
 #### Windows
