@@ -352,7 +352,7 @@ jobs:
             -Version "$env:VERSION" `
             -IdentityName "biliFM" `
             -Publisher "CN=vst" `
-            -PublisherDisplayName "vst" `
+            -PublisherDisplayName "vvv_" `
             -DisplayName "bili-FM" `
             -Description "bili-FM" `
             -ExeDir "src-tauri/target/release"

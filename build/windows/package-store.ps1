@@ -2,7 +2,7 @@ param(
   [string]$Version,
   [string]$IdentityName = "biliFM",
   [string]$Publisher = "CN=vst",
-  [string]$PublisherDisplayName = "vst",
+  [string]$PublisherDisplayName = "vvv_",
   [string]$DisplayName = "bili-FM",
   [string]$Description = "bili-FM",
   # Optional: override the Tauri release binary dir (e.g. when built with --target <triple>)
