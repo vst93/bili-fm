@@ -391,3 +391,22 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.version }}
           files: latest.json
           fail_on_unmatched_files: true
+
+  # ── Trigger homebrew-tap update ──────────────────────────────────────────
+  notify-tap:
+    needs: [prepare, build, manifest]
+    runs-on: ubuntu-latest
+    if: ${{ needs.prepare.outputs.prerelease != 'true' }}
+    steps:
+      - name: Trigger homebrew-tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          gh workflow run update-formulas.yml \
+            --repo vst93/homebrew-tap \
+            --ref main \
+            -f casks="bili-fm" \
+            -f formulas="" \
+            -f dry_run="false" \
+            -f create_pr="false" \
+            || echo "homebrew-tap trigger failed (token may be missing)"
