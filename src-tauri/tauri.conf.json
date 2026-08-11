@@ -27,6 +27,15 @@
       "nsis": {
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true
+      },
+      "msix": {
+        "displayName": "bili-FM",
+        "identity": "biliFM",
+        "publisher": "CN=vst",
+        "languages": ["zh-CN", "en-US"],
+        "logoPath": "icons/icon.png",
+        "signingCertificate": null,
+        "certificateThumbprint": null
       }
     }
   },
