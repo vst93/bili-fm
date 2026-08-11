@@ -28,8 +28,8 @@ makepkg -si
 Download the `.deb` file from [GitHub Releases](https://github.com/vst93/bili-fm/releases/latest):
 
 ```bash
-# Replace VERSION with the actual version, e.g. 2.0.48-preview
-VERSION=2.0.48-preview
+# Replace VERSION with the actual version, e.g. 2.0.0
+VERSION=2.0.0
 wget "https://github.com/vst93/bili-fm/releases/download/${VERSION}/bili-FM-${VERSION}-linux-x86_64.deb"
 sudo dpkg -i "bili-FM-${VERSION}-linux-x86_64.deb"
 sudo apt-get install -f  # fix missing dependencies

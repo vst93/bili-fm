@@ -68,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 **安装指定版本：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.8-preview
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.0
 ```
 
 #### Windows
@@ -263,7 +263,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 **Install a specific version:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.8-preview
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.0
 ```
 
 #### Windows

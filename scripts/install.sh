@@ -5,7 +5,7 @@
 # Examples:
 #   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --pre-release
-#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.8-preview
+#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.0
 
 set -euo pipefail
 
@@ -50,7 +50,7 @@ bili-FM 安装脚本
   install.sh [选项]
 
 选项:
-  -v, --version <tag>  安装指定版本 (如 2.0.8-preview)
+  -v, --version <tag>  安装指定版本 (如 2.0.0)
   -p, --pre-release    安装最新版本 (包括预览版)
   -y, --yes            不询问确认，适用于自动化环境
   -h, --help           显示帮助
