@@ -151,11 +151,11 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             label: windows-x86_64
-            bundles: nsis,msix
+            bundles: nsis
           - os: windows-11-arm
             target: aarch64-pc-windows-msvc
             label: windows-arm64
-            bundles: nsis,msix
+            bundles: nsis
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -294,12 +294,6 @@ jobs:
           }
           if ($sig) {
             Copy-Item $sig.FullName "renamed/bili-FM-$VERSION-$LABEL-setup.exe.sig"
-          }
-
-          # .msix (Microsoft Store package)
-          $msix = Get-ChildItem -Path $BUNDLE_DIR -Recurse -Filter "*.msix" | Select-Object -First 1
-          if ($msix) {
-            Copy-Item $msix.FullName "renamed/bili-FM-$VERSION-$LABEL.msix"
           }
 
           echo "=== Renamed files ==="
