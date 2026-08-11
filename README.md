@@ -180,7 +180,7 @@ Bili FM 内置自动更新功能：
 
 - 项目使用 **Tauri v2**（Rust + React）开发
 - 前端使用 React + HeroUI + TailwindCSS
-- 后端使用 Rust，内嵌 HTTP 图片代理解决 B 站 CDN 防盗链
+- 后端使用 Rust，内嵌 HTTP 图片代理
 - 登录态兼容旧版 Wails 的 dkv 存储格式，升级无需重新登录
 - 项目开源，欢迎提出 Issue、建议或 Pull Request
 
@@ -375,7 +375,7 @@ Bili FM includes built-in auto-update:
 
 - Built with **Tauri v2** (Rust + React)
 - Frontend: React + HeroUI + TailwindCSS
-- Backend: Rust with embedded HTTP image proxy for Bilibili CDN
+- Backend: Rust with embedded HTTP image proxy
 - Login state is compatible with the legacy Wails dkv storage format
 - Open source — issues, suggestions, and pull requests welcome
 
