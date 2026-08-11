@@ -350,8 +350,8 @@ jobs:
           $env:VERSION = "${{ needs.prepare.outputs.version }}"
           ./build/windows/package-store.ps1 `
             -Version "$env:VERSION" `
-            -IdentityName "biliFM" `
-            -Publisher "CN=vst" `
+            -IdentityName "vvv.bilifm" `
+            -Publisher "CN=21D233E1-6650-4700-A43E-EDA723C43F96" `
             -PublisherDisplayName "vvv_" `
             -DisplayName "bili-FM" `
             -Description "bili-FM" `

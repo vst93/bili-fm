@@ -1,7 +1,7 @@
 param(
   [string]$Version,
-  [string]$IdentityName = "biliFM",
-  [string]$Publisher = "CN=vst",
+  [string]$IdentityName = "vvv.bilifm",
+  [string]$Publisher = "CN=21D233E1-6650-4700-A43E-EDA723C43F96",
   [string]$PublisherDisplayName = "vvv_",
   [string]$DisplayName = "bili-FM",
   [string]$Description = "bili-FM",
