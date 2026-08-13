@@ -20,6 +20,7 @@ pub mod bilibili;
 pub mod commands;
 pub mod dkv;
 pub mod proxy;
+pub mod stats;
 pub mod tray;
 
 use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -158,6 +159,9 @@ pub fn run() {
                     eprintln!("image-proxy exited: {e}");
                 }
             });
+
+            // 发送应用启动统计，不阻塞主线程。
+            tauri::async_runtime::spawn(stats::send_app_stats());
 
             // macOS 原生菜单 (与旧版 main.go 一致); 其他平台为 no-op,
             // 由前端自绘标题栏菜单处理。
