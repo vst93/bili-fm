@@ -58,6 +58,7 @@ const DanmakuList = lazy(loadDanmakuList);
 const Playlist = lazy(loadPlaylist);
 
 const MAX_RETAINED_LIST_ITEMS = 240;
+const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
@@ -84,6 +85,7 @@ export default function IndexPage() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPlayVideo, setIsPlayVideo] = useState(false);
   const [isPlayVideoStop, setIsPlayVideoStop] = useState(true);
+  const [videoInitialTime, setVideoInitialTime] = useState(0);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [userFace, setUserFace] = useState("");
@@ -105,6 +107,9 @@ export default function IndexPage() {
   const [currentUpMid, setCurrentUpMid] = useState(0);
   const [currentUpName, setCurrentUpName] = useState("");
   const [showHistoryList, setShowHistoryList] = useState(false);
+  const [isIncognitoMode, setIsIncognitoMode] = useState(
+    () => localStorage.getItem(INCOGNITO_MODE_STORAGE_KEY) === "true",
+  );
   const [historyList, setHistoryList] = useState<any>();
   const [historyCursor, setHistoryCursor] = useState<{
     max: number;
@@ -275,6 +280,21 @@ export default function IndexPage() {
         setPlaylistPlayMode(mode);
       }
     });
+    invoke<string | null>("get_kv", {
+      key: INCOGNITO_MODE_STORAGE_KEY,
+    })
+      .then((savedMode) => {
+        if (savedMode === "true" || savedMode === "false") {
+          const enabled = savedMode === "true";
+
+          setIsIncognitoMode(enabled);
+          localStorage.setItem(
+            INCOGNITO_MODE_STORAGE_KEY,
+            String(enabled),
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // 从本地加载播放列表和播放模式
@@ -1485,6 +1505,15 @@ export default function IndexPage() {
     setIsPlaying(playing);
   };
 
+  const handleIncognitoModeChange = (enabled: boolean) => {
+    setIsIncognitoMode(enabled);
+    localStorage.setItem(INCOGNITO_MODE_STORAGE_KEY, String(enabled));
+    void invoke("set_kv", {
+      key: INCOGNITO_MODE_STORAGE_KEY,
+      value: String(enabled),
+    }).catch(() => {});
+  };
+
   /**
    * 处理分享按钮点击事件
    * @description 在浏览器中打开当前视频的B站页面
@@ -1681,6 +1710,9 @@ export default function IndexPage() {
     // 先强制暂停音频（双保险：state + DOM）
     setIsPlaying(false);
     const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+    setVideoInitialTime(
+      audioEl && Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : 0,
+    );
     if (audioEl && !audioEl.paused) {
       audioEl.pause();
     }
@@ -1999,6 +2031,7 @@ export default function IndexPage() {
               />
             </div>
             <VideoInfo
+              aid={displayVideoInfo?.aid}
               bvid={displayVideoInfo?.bvid}
               cid={displayVideoInfo?.cid}
               currentSeriesTitle={currentSeriesTitle}
@@ -2043,6 +2076,7 @@ export default function IndexPage() {
       <Player
         aid={displayVideoInfo?.aid}
         cid={displayVideoInfo?.cid}
+        cloudHistoryEnabled={!isIncognitoMode}
         forcePause={isPlayVideo}
         isPlaying={isPlaying}
         src={playerSrc}
@@ -2055,6 +2089,10 @@ export default function IndexPage() {
       ) : (
         <>
           <PlayerVideo
+            aid={displayVideoInfo?.aid}
+            cid={displayVideoInfo?.cid}
+            cloudHistoryEnabled={!isIncognitoMode}
+            initialTime={videoInitialTime}
             isPlay={isPlayVideo}
             isPlayVideoStop={isPlayVideoStop}
             setIsplay={setIsPlayVideo}
@@ -2063,8 +2101,13 @@ export default function IndexPage() {
           />
           <Suspense fallback={
             <div className="lazy-drawer-loading" role="status" aria-live="polite">
-              <span className="lazy-drawer-spinner" aria-hidden="true" />
-              <span>正在打开</span>
+              <div className="lazy-drawer-loading-card">
+                <img alt="" className="lazy-drawer-loading-logo" src="/logo-transparent.png" />
+                <span className="lazy-drawer-levels" aria-hidden="true">
+                  <i /><i /><i />
+                </span>
+                <span>正在打开</span>
+              </div>
             </div>
           }>
           {showSearchList && (
@@ -2139,8 +2182,10 @@ export default function IndexPage() {
             <HistoryList
               historyCursor={historyCursor}
               historyList={historyList}
+              isIncognitoMode={isIncognitoMode}
               setHistoryCursor={setHistoryCursor}
               setHistoryList={setHistoryList}
+              onIncognitoModeChange={handleIncognitoModeChange}
               onSlideClick={() => setShowHistoryList(false)}
               onVideoSelect={handleSearchVideoSelect}
             />

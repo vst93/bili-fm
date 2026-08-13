@@ -22,6 +22,9 @@ const SEEK_KEYS = new Set([
 ]);
 const EQ_TRANSITION_SECONDS = 0.06;
 const EQ_STORAGE_KEY = "loudnessEqEnabled";
+const PLAY_PROGRESS_REPORT_INTERVAL_MS = 30_000;
+const PLAY_PROGRESS_CRITICAL_INTERVAL_MS = 3_000;
+const CLOUD_PROGRESS_STARTUP_BUDGET_MS = 800;
 
 type AudioGraph = {
   ctx: AudioContext;
@@ -38,6 +41,7 @@ interface PlayerProps {
   aid?: number;
   cid?: number;
   forcePause?: boolean;
+  cloudHistoryEnabled?: boolean;
 }
 
 const formatTime = (seconds: number) => {
@@ -83,6 +87,7 @@ const Player = ({
   aid,
   cid,
   forcePause = false,
+  cloudHistoryEnabled = true,
 }: PlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const timelineRef = useRef<HTMLInputElement>(null);
@@ -98,7 +103,20 @@ const Player = ({
   const seekPointerIdRef = useRef<number | null>(null);
   const seekPreviewRef = useRef<number | null>(null);
   const currentTimeRef = useRef(0);
+  const cloudHistoryEnabledRef = useRef(cloudHistoryEnabled);
+  const cloudProgressRequestIdRef = useRef(0);
+  const cloudProgressPendingRef = useRef(false);
+  const cloudProgressReadyRef = useRef(false);
+  const pendingCloudProgressRef = useRef<number | null>(null);
+  const metadataMediaKeyRef = useRef("");
+  const cloudSeekInFlightRef = useRef(false);
+  const cloudSeekRetryRef = useRef(0);
+  const cloudSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cloudProgressStartupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playAttemptIdRef = useRef(0);
+  const lastCloudReportRef = useRef({ mediaKey: "", progress: -1, at: 0 });
   const [duration, setDuration] = useState(0);
+  const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
   const [volume, setVolume] = useState(1);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isSpeedOpen, setIsSpeedOpen] = useState(false);
@@ -108,6 +126,178 @@ const Player = ({
   const [playbackRate, setPlaybackRate] = useState(1);
 
   onTimeUpdateRef.current = onTimeUpdate;
+  cloudHistoryEnabledRef.current = cloudHistoryEnabled;
+  const mediaKey = src && aid && cid ? `${src}:${aid}:${cid}` : "";
+
+  const clearCloudSeekTimer = () => {
+    if (cloudSeekTimerRef.current !== null) {
+      clearTimeout(cloudSeekTimerRef.current);
+      cloudSeekTimerRef.current = null;
+    }
+  };
+
+  const clearCloudProgressStartupTimer = () => {
+    if (cloudProgressStartupTimerRef.current !== null) {
+      clearTimeout(cloudProgressStartupTimerRef.current);
+      cloudProgressStartupTimerRef.current = null;
+    }
+  };
+
+  const markCloudProgressReady = () => {
+    clearCloudSeekTimer();
+    clearCloudProgressStartupTimer();
+    cloudSeekInFlightRef.current = false;
+    cloudProgressReadyRef.current = true;
+    setCloudProgressReadyKey(mediaKey);
+  };
+
+  const completeCloudSeek = (audio: HTMLAudioElement, target: number) => {
+    pendingCloudProgressRef.current = null;
+    currentTimeRef.current = audio.currentTime;
+    updateSeekPreviewUi(
+      timelineRef.current,
+      currentTimeLabelRef.current,
+      audio.currentTime,
+      audio.duration || 0,
+    );
+    if (import.meta.env.DEV) {
+      console.debug("[player] confirmed cloud progress", {
+        aid,
+        cid,
+        progress: target,
+        currentTime: audio.currentTime,
+      });
+    }
+    markCloudProgressReady();
+  };
+
+  const applyPendingCloudProgress = (audio: HTMLAudioElement) => {
+    const progress = pendingCloudProgressRef.current;
+    if (
+      progress === null ||
+      audio.readyState < HTMLMediaElement.HAVE_METADATA ||
+      metadataMediaKeyRef.current !== mediaKey ||
+      cloudSeekInFlightRef.current
+    ) {
+      return false;
+    }
+
+    const target = Number.isFinite(audio.duration)
+      ? Math.min(progress, Math.max(0, audio.duration - 0.5))
+      : progress;
+
+    try {
+      const normalizedTarget = Math.max(0, target);
+      if (normalizedTarget <= 0.5) {
+        audio.currentTime = 0;
+        currentTimeRef.current = 0;
+        pendingCloudProgressRef.current = null;
+        markCloudProgressReady();
+        return true;
+      }
+
+      if (Math.abs(audio.currentTime - normalizedTarget) <= 1.5) {
+        completeCloudSeek(audio, normalizedTarget);
+        return true;
+      }
+
+      cloudSeekInFlightRef.current = true;
+      audio.currentTime = normalizedTarget;
+      currentTimeRef.current = normalizedTarget;
+      if (import.meta.env.DEV) {
+        console.debug("[player] requested cloud seek", {
+          aid,
+          cid,
+          progress,
+          target: normalizedTarget,
+        });
+      }
+
+      clearCloudSeekTimer();
+      cloudSeekTimerRef.current = setTimeout(() => {
+        if (
+          pendingCloudProgressRef.current === null ||
+          metadataMediaKeyRef.current !== mediaKey
+        ) return;
+
+        if (Math.abs(audio.currentTime - normalizedTarget) <= 1.5) {
+          completeCloudSeek(audio, normalizedTarget);
+          return;
+        }
+
+        cloudSeekInFlightRef.current = false;
+        if (cloudSeekRetryRef.current < 1) {
+          cloudSeekRetryRef.current += 1;
+          applyPendingCloudProgress(audio);
+        } else {
+          // A broken/missing Range response must not leave playback blocked.
+          pendingCloudProgressRef.current = null;
+          markCloudProgressReady();
+        }
+      }, 800);
+
+      return false;
+    } catch {
+      cloudSeekInFlightRef.current = false;
+      return false;
+    }
+  };
+
+  const reportCloudProgress = (
+    progress: number,
+    force = false,
+    allowZero = false,
+  ) => {
+    if (
+      !cloudHistoryEnabledRef.current ||
+      !cloudProgressReadyRef.current ||
+      !aid ||
+      !cid ||
+      !mediaKey
+    ) return;
+
+    const normalizedProgress = progress < 0 ? -1 : Math.max(0, Math.floor(progress));
+    // Startup/pause events at zero must never erase an existing cloud
+    // checkpoint. The first regular report is sent after actual playback.
+    if (normalizedProgress === 0 && !allowZero) return;
+    const now = Date.now();
+    const lastReport = lastCloudReportRef.current;
+    const progressDelta = Math.abs(lastReport.progress - normalizedProgress);
+    if (
+      lastReport.mediaKey === mediaKey &&
+      lastReport.progress === normalizedProgress
+    ) {
+      return;
+    }
+    if (
+      force &&
+      normalizedProgress >= 0 &&
+      lastReport.mediaKey === mediaKey &&
+      !allowZero &&
+      progressDelta < 5 &&
+      now - lastReport.at < PLAY_PROGRESS_CRITICAL_INTERVAL_MS
+    ) {
+      return;
+    }
+    if (
+      !force &&
+      lastReport.mediaKey === mediaKey &&
+      now - lastReport.at < PLAY_PROGRESS_REPORT_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    lastCloudReportRef.current = {
+      mediaKey,
+      progress: normalizedProgress,
+      at: now,
+    };
+    void invoke("report_play_progress", {
+      aid,
+      cid,
+      progress: normalizedProgress,
+    }).catch(() => {});
+  };
 
   const getOrCreateAudioGraph = (audio: HTMLAudioElement) => {
     const currentGraph = audioGraphRef.current;
@@ -146,29 +336,130 @@ const Player = ({
   };
 
   useEffect(() => {
+    return () => {
+      clearCloudSeekTimer();
+      clearCloudProgressStartupTimer();
+      reportCloudProgress(currentTimeRef.current, true);
+    };
+  }, [mediaKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     setDuration(0);
     isSeekingRef.current = false;
     isKeyboardSeekingRef.current = false;
     seekPointerIdRef.current = null;
     seekPreviewRef.current = null;
     currentTimeRef.current = 0;
+    metadataMediaKeyRef.current = "";
+    cloudSeekInFlightRef.current = false;
+    cloudSeekRetryRef.current = 0;
+    clearCloudSeekTimer();
+    clearCloudProgressStartupTimer();
     updateSeekPreviewUi(timelineRef.current, currentTimeLabelRef.current, 0, 0);
     lastReportedSecondRef.current = -1;
     if (src) onPlayStateChange?.(true);
   }, [src]);
 
   useEffect(() => {
+    const requestId = ++cloudProgressRequestIdRef.current;
+    pendingCloudProgressRef.current = null;
+    cloudProgressPendingRef.current = false;
+    cloudSeekInFlightRef.current = false;
+    cloudSeekRetryRef.current = 0;
+    clearCloudSeekTimer();
+    clearCloudProgressStartupTimer();
+
+    if (!mediaKey || !cloudHistoryEnabled) {
+      markCloudProgressReady();
+
+      return;
+    }
+
+    setCloudProgressReadyKey("");
+    cloudProgressPendingRef.current = true;
+    cloudProgressReadyRef.current = false;
+    cloudProgressStartupTimerRef.current = setTimeout(() => {
+      if (requestId !== cloudProgressRequestIdRef.current) return;
+
+      // Keep startup responsive on slow/offline networks. Invalidating the
+      // request also prevents a late response from jumping an already-playing
+      // track.
+      cloudProgressRequestIdRef.current += 1;
+      cloudProgressPendingRef.current = false;
+      pendingCloudProgressRef.current = null;
+      markCloudProgressReady();
+      if (import.meta.env.DEV) {
+        console.debug("[player] cloud progress startup budget exceeded", {
+          aid,
+          cid,
+        });
+      }
+    }, CLOUD_PROGRESS_STARTUP_BUDGET_MS);
+    void invoke<number>("get_play_progress", { aid, cid })
+      .then((progress) => {
+        if (requestId !== cloudProgressRequestIdRef.current) return;
+
+        clearCloudProgressStartupTimer();
+        const normalizedProgress = Math.max(0, progress || 0);
+        pendingCloudProgressRef.current = normalizedProgress;
+        cloudProgressPendingRef.current = false;
+        if (import.meta.env.DEV) {
+          console.debug("[player] received cloud progress", {
+            aid,
+            cid,
+            progress: normalizedProgress,
+          });
+        }
+        const audio = audioRef.current;
+        if (!audio) {
+          markCloudProgressReady();
+        } else {
+          applyPendingCloudProgress(audio);
+        }
+      })
+      .catch(() => {
+        if (requestId !== cloudProgressRequestIdRef.current) return;
+
+        clearCloudProgressStartupTimer();
+        cloudProgressPendingRef.current = false;
+        markCloudProgressReady();
+        if (import.meta.env.DEV) {
+          console.debug("[player] cloud progress unavailable", { aid, cid });
+        }
+      });
+  }, [aid, cid, cloudHistoryEnabled, mediaKey]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    const playAttemptId = ++playAttemptIdRef.current;
 
-    if (isPlaying && src && !forcePause) {
+    const isCloudProgressReady =
+      !cloudHistoryEnabled || !mediaKey || cloudProgressReadyKey === mediaKey;
+
+    if (isPlaying && src && !forcePause && isCloudProgressReady) {
       const graph = audioGraphRef.current;
-      if (graph?.ctx.state === "suspended") void graph.ctx.resume();
-      void audio.play().catch(() => onPlayStateChange?.(false));
+      void (async () => {
+        if (graph?.ctx.state === "suspended") {
+          try {
+            await graph.ctx.resume();
+          } catch {
+            return;
+          }
+        }
+        if (playAttemptId !== playAttemptIdRef.current) return;
+        try {
+          await audio.play();
+        } catch {
+          onPlayStateChange?.(false);
+        }
+      })();
     } else {
-      audio.pause();
+      if (!audio.paused) {
+        audio.pause();
+      }
     }
-  }, [forcePause, isPlaying, src]);
+  }, [cloudHistoryEnabled, cloudProgressReadyKey, forcePause, isPlaying, mediaKey, src]);
 
   useEffect(() => {
     return () => {
@@ -217,15 +508,11 @@ const Player = ({
     };
   }, [isSpeedOpen]);
 
-  useEffect(() => {
-    if (isPlaying && aid && cid) {
-      invoke("report_play_progress", { aid, cid, progress: 0 });
-    }
-  }, [isPlaying, aid, cid]);
-
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    if (pendingCloudProgressRef.current !== null) return;
 
     currentTimeRef.current = audio.currentTime;
     if (!isSeekingRef.current) {
@@ -241,6 +528,7 @@ const Player = ({
       lastReportedSecondRef.current = second;
       onTimeUpdateRef.current?.(second);
     }
+    reportCloudProgress(second);
   };
 
   const handleSeek = (value: number) => {
@@ -311,6 +599,7 @@ const Player = ({
       if (value !== null && audio && duration) {
         audio.currentTime = value;
         currentTimeRef.current = value;
+        reportCloudProgress(value, true, value <= 0.5);
       }
       resetPointerSeek(false);
     };
@@ -339,9 +628,17 @@ const Player = ({
   };
 
   const handleLoadedMetadata = (audio: HTMLAudioElement) => {
+    metadataMediaKeyRef.current = mediaKey;
     audio.volume = volume;
     audio.muted = volume === 0;
     audio.playbackRate = playbackRate;
+    if (!cloudProgressPendingRef.current) {
+      const hasPendingProgress = pendingCloudProgressRef.current !== null;
+      applyPendingCloudProgress(audio);
+      if (!hasPendingProgress) {
+        markCloudProgressReady();
+      }
+    }
     const graph = isLoudnessEq
       ? getOrCreateAudioGraph(audio)
       : audioGraphRef.current;
@@ -353,6 +650,12 @@ const Player = ({
       } else if (!audio.paused && graph.ctx.state === "suspended") {
         void graph.ctx.resume();
       }
+    }
+  };
+
+  const handleCanPlay = (audio: HTMLAudioElement) => {
+    if (!cloudProgressPendingRef.current && pendingCloudProgressRef.current !== null) {
+      applyPendingCloudProgress(audio);
     }
   };
 
@@ -399,8 +702,10 @@ const Player = ({
         crossOrigin="anonymous"
         preload="metadata"
         src={src || undefined}
+        onCanPlay={(event) => handleCanPlay(event.currentTarget)}
         onDurationChange={(event) => handleDurationChange(event.currentTarget)}
         onEnded={() => {
+          reportCloudProgress(-1, true);
           suspendAudioGraph();
           onEnded?.();
         }}
@@ -409,11 +714,36 @@ const Player = ({
           onPlayStateChange?.(false);
         }}
         onLoadedMetadata={(event) => handleLoadedMetadata(event.currentTarget)}
-        onPause={() => {
+        onPause={(event) => {
+          // The React state is the source of truth. A native pause event while
+          // playback is still desired can only come from source/cloud-sync
+          // coordination, even if the event is delivered after playback has
+          // already resumed.
+          if (isPlaying && Boolean(src) && !forcePause) {
+            return;
+          }
+          if (!event.currentTarget.ended) {
+            reportCloudProgress(currentTimeRef.current, true);
+          }
           suspendAudioGraph();
           onPlayStateChange?.(false);
         }}
-        onPlay={() => onPlayStateChange?.(true)}
+        onPlay={() => {
+          reportCloudProgress(currentTimeRef.current, true);
+          onPlayStateChange?.(true);
+        }}
+        onSeeked={(event) => {
+          const audio = event.currentTarget;
+          const target = pendingCloudProgressRef.current;
+          if (target === null) return;
+
+          const boundedTarget = Number.isFinite(audio.duration)
+            ? Math.min(target, Math.max(0, audio.duration - 0.5))
+            : target;
+          if (Math.abs(audio.currentTime - boundedTarget) <= 1.5) {
+            completeCloudSeek(audio, boundedTarget);
+          }
+        }}
         onTimeUpdate={handleTimeUpdate}
       />
       <div className="player-controls">
@@ -471,6 +801,11 @@ const Player = ({
             onKeyUp={(event) => {
               if (SEEK_KEYS.has(event.key)) {
                 isKeyboardSeekingRef.current = false;
+                reportCloudProgress(
+                  currentTimeRef.current,
+                  true,
+                  currentTimeRef.current <= 0.5,
+                );
               }
             }}
             onPointerDown={(event) => {

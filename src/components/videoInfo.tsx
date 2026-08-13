@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Search,
   DoubleUp,
@@ -9,6 +9,7 @@ import {
   VideoTwo,
   MusicList,
   Comment,
+  Star,
 } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -56,6 +57,7 @@ export default function VideoInfo({
   ownerMid = 0,
   part = "",
   bvid = "",
+  aid = 0,
   onSearchClick,
   onPageListClick,
   onShareClick,
@@ -74,6 +76,9 @@ export default function VideoInfo({
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isFavoriteUpdating, setIsFavoriteUpdating] = useState(false);
+  const favoriteRequestIdRef = useRef(0);
 
   const checkLikeStatus = async () => {
     try {
@@ -94,6 +99,9 @@ export default function VideoInfo({
   };
 
   useEffect(() => {
+    let cancelled = false;
+    const requestId = ++favoriteRequestIdRef.current;
+
     if (bvid) {
       checkLikeStatus();
       checkCoinStatus();
@@ -101,7 +109,30 @@ export default function VideoInfo({
       setIsLiked(false);
       setCoinCount(0);
     }
-  }, [bvid]);
+
+    setIsFavorite(false);
+    setIsFavoriteUpdating(Boolean(aid));
+    if (aid) {
+      invoke<boolean>("has_favorite", { aid })
+        .then((favorite) => {
+          if (!cancelled && requestId === favoriteRequestIdRef.current) {
+            setIsFavorite(favorite);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) console.error("检查收藏状态失败:", error);
+        })
+        .finally(() => {
+          if (!cancelled && requestId === favoriteRequestIdRef.current) {
+            setIsFavoriteUpdating(false);
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aid, bvid]);
 
   const handleLike = async () => {
     try {
@@ -140,6 +171,41 @@ export default function VideoInfo({
         type: "error",
         content: "投币失败: " + (error?.message || error?.toString() || "未知错误"),
       });
+    }
+  };
+
+  const handleFavorite = async () => {
+    if (!aid || isFavoriteUpdating) return;
+
+    const nextFavorite = !isFavorite;
+    const requestId = ++favoriteRequestIdRef.current;
+
+    setIsFavoriteUpdating(true);
+    try {
+      const result = await invoke<boolean>("set_favorite", {
+        aid,
+        favorite: nextFavorite,
+      });
+      if (result && requestId === favoriteRequestIdRef.current) {
+        setIsFavorite(nextFavorite);
+        toast({
+          type: "success",
+          content: nextFavorite ? "收藏成功" : "取消收藏成功",
+        });
+      }
+    } catch (error: any) {
+      if (requestId === favoriteRequestIdRef.current) {
+        toast({
+          type: "error",
+          content:
+            (nextFavorite ? "收藏失败: " : "取消收藏失败: ") +
+            (error?.message || error?.toString() || "未知错误"),
+        });
+      }
+    } finally {
+      if (requestId === favoriteRequestIdRef.current) {
+        setIsFavoriteUpdating(false);
+      }
     }
   };
 
@@ -216,10 +282,33 @@ export default function VideoInfo({
           >
             <HandleB fill={coinCount >= 2 ? "#ca8a04" : gray} size={20} theme="outline" />
           </button>
-          <button className="nav-icon-btn" title="浏览器打开" onClick={onShareClick}>
+          <button
+            aria-pressed={isFavorite}
+            className="nav-icon-btn"
+            disabled={!aid || isFavoriteUpdating}
+            title={isFavorite ? "取消收藏" : "收藏"}
+            onClick={handleFavorite}
+          >
+            <Star
+              fill={isFavorite ? "#eab308" : gray}
+              size={20}
+              theme={isFavorite ? "filled" : "outline"}
+            />
+          </button>
+          <button
+            className="nav-icon-btn"
+            disabled={!bvid}
+            title="浏览器打开"
+            onClick={onShareClick}
+          >
             <Browser fill={gray} size={18} theme="outline" />
           </button>
-          <button className="nav-icon-btn" title="视频播放" onClick={onPlayVideoClick}>
+          <button
+            className="nav-icon-btn"
+            disabled={!bvid}
+            title="视频播放"
+            onClick={onPlayVideoClick}
+          >
             <VideoTwo fill={gray} size={18} theme="outline" />
           </button>
           <button

@@ -146,7 +146,7 @@ pub async fn get_reply_list(oid: i64, page: i32) -> Result<bilibili::ReplyList, 
 }
 
 // ---------------------------------------------------------------------------
-// 点赞 / 投币 / 关注 / 播放进度
+// 点赞 / 投币 / 收藏 / 关注 / 播放进度
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
@@ -170,6 +170,21 @@ pub async fn has_coin(bid: String) -> Result<i32, String> {
 }
 
 #[tauri::command]
+pub async fn get_play_progress(aid: i64, cid: i64) -> Result<i32, String> {
+    bilibili::get_play_progress(aid, cid).await
+}
+
+#[tauri::command]
+pub async fn has_favorite(aid: i64) -> Result<bool, String> {
+    bilibili::has_favorite(aid).await
+}
+
+#[tauri::command]
+pub async fn set_favorite(aid: i64, favorite: bool) -> Result<bool, String> {
+    bilibili::set_favorite(aid, favorite).await
+}
+
+#[tauri::command]
 pub async fn follow(mid: i32) -> Result<bool, String> {
     bilibili::follow(mid).await
 }
@@ -185,7 +200,7 @@ pub async fn is_following(mid: i32) -> Result<bilibili::FollowStatus, String> {
 }
 
 #[tauri::command]
-pub async fn report_play_progress(aid: i32, cid: i32, progress: i32) -> Result<bool, String> {
+pub async fn report_play_progress(aid: i64, cid: i64, progress: i32) -> Result<bool, String> {
     bilibili::report_play_progress(aid, cid, progress).await
 }
 

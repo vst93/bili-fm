@@ -74,11 +74,14 @@ pub fn run() {
             // 弹幕 / 评论
             commands::get_danmaku_list,
             commands::get_reply_list,
-            // 点赞 / 投币 / 关注 / 播放进度
+            // 点赞 / 投币 / 收藏 / 关注 / 播放进度
             commands::like_video,
             commands::has_liked,
             commands::coin_video,
             commands::has_coin,
+            commands::get_play_progress,
+            commands::has_favorite,
+            commands::set_favorite,
             commands::follow,
             commands::unfollow,
             commands::is_following,
@@ -141,6 +144,9 @@ pub fn run() {
             }
 
             let window = window_builder.build()?;
+
+            #[cfg(not(target_os = "linux"))]
+            let _ = &window;
 
             // Linux: 通过环境变量 WEBKIT_DEBUG=1 打开 Web Inspector (开发者工具),
             // 用于排查 Linux 白屏/渲染问题。需要启用 tauri 的 `devtools` feature

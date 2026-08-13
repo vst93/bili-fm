@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useMemo, useRef } from "react";
-import { Refresh } from "@icon-park/react";
+import { MaskOne, Refresh } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -8,6 +8,7 @@ import { usePreloadImages } from "../hooks/usePreloadImages";
 import { useDisclosure } from "@heroui/react";
 import {
     Button,
+    Tooltip,
     Drawer,
     DrawerContent,
     DrawerBody,
@@ -29,6 +30,8 @@ interface HistoryListProps {
     setHistoryList: (list: any[]) => void;
     historyCursor: { max: number, view_at: number, business: string };
     setHistoryCursor: (cursor: { max: number, view_at: number, business: string }) => void;
+    isIncognitoMode?: boolean;
+    onIncognitoModeChange?: (enabled: boolean) => void;
 }
 
 const HistoryList: FC<HistoryListProps> = ({
@@ -38,6 +41,8 @@ const HistoryList: FC<HistoryListProps> = ({
     setHistoryList,
     historyCursor,
     setHistoryCursor,
+    isIncognitoMode = false,
+    onIncognitoModeChange,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
@@ -113,17 +118,47 @@ const HistoryList: FC<HistoryListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex items-center gap-2 py-2">
-                            观看历史
-                            <Button
-                                aria-label="刷新历史记录"
-                                isIconOnly
-                                size="sm"
-                                variant="light"
-                                onClick={handleRefresh}
+                        <DrawerHeader className="history-drawer-header py-2">
+                            <div className="history-drawer-title-row">
+                                <span>观看历史</span>
+                                <Button
+                                    aria-label="刷新历史记录"
+                                    isIconOnly
+                                    size="sm"
+                                    variant="light"
+                                    onClick={handleRefresh}
+                                >
+                                    <Refresh theme="outline" size="20" fill="#333" />
+                                </Button>
+                            </div>
+                            <Tooltip
+                                closeDelay={100}
+                                content={isIncognitoMode
+                                    ? "关闭后恢复云端播放记录与进度同步"
+                                    : "开启后不读取或上报云端播放记录与进度"}
+                                delay={350}
+                                placement="bottom-end"
                             >
-                                <Refresh theme="outline" size="20" fill="#333" />
-                            </Button>
+                                <button
+                                    aria-checked={isIncognitoMode}
+                                    aria-label={isIncognitoMode ? "关闭隐身模式" : "开启隐身模式"}
+                                    className="history-incognito-switch"
+                                    data-active={isIncognitoMode || undefined}
+                                    role="switch"
+                                    type="button"
+                                    onClick={() => onIncognitoModeChange?.(!isIncognitoMode)}
+                                >
+                                    <MaskOne
+                                        className="history-incognito-icon"
+                                        size="15"
+                                        theme={isIncognitoMode ? "filled" : "outline"}
+                                    />
+                                    <span className="history-incognito-label">隐身</span>
+                                    <span aria-hidden="true" className="history-incognito-track">
+                                        <span className="history-incognito-thumb" />
+                                    </span>
+                                </button>
+                            </Tooltip>
                         </DrawerHeader>
                         <DrawerBody className="history-drawer-body" onScroll={handleScroll}>
                             <div

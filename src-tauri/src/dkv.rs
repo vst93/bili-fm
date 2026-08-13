@@ -5,7 +5,7 @@
 //! - 每个 key 存为一个文件: `<hex(md5(key) 摘要字节[4..12])>.json`
 //!   (Go: `hex.EncodeToString(h.Sum(nil)[4:12])` — 取 16 字节摘要的
 //!   第 4..12 个**字节** (8 字节) 再 hex 编码，共 16 个 hex 字符。
-//!    例如 "SESSDATA" -> `95a92112f03079db.json`)
+//!   例如 "SESSDATA" -> `95a92112f03079db.json`)
 //! - 文件内容: JSON 数组 `[key, value]`
 //!
 //! 本模块按**完全相同**的格式读写，保证老用户升级后登录态 (SESSDATA、
@@ -145,11 +145,9 @@ impl KVDB {
                 continue;
             }
             if let Ok(data) = fs::read(&path) {
-                if let Ok(v) = serde_json::from_slice::<Value>(&data) {
-                    if let Value::Array(a) = v {
-                        if let (Some(Value::String(k)), Some(val)) = (a.first(), a.get(1)) {
-                            callback(k, val);
-                        }
+                if let Ok(Value::Array(a)) = serde_json::from_slice::<Value>(&data) {
+                    if let (Some(Value::String(k)), Some(val)) = (a.first(), a.get(1)) {
+                        callback(k, val);
                     }
                 }
             }

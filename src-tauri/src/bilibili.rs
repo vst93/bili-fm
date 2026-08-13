@@ -897,6 +897,17 @@ pub async fn get_fav_folder_list() -> Result<Vec<Value>, String> {
     Ok(arr_of(&data, "list"))
 }
 
+async fn get_fav_folders_for_resource(aid: i64, cookie: &str) -> Result<Vec<Value>, String> {
+    let mid = dkv::get_string("mid");
+    let url = format!(
+        "https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid={mid}&type=2&rid={aid}"
+    );
+    let v = get_json(&url, Some(cookie), &[]).await?;
+    let data = check_code(&v, "获取收藏状态失败")?;
+
+    Ok(arr_of(&data, "list"))
+}
+
 /// 对应 Go GetBLFavFolderListDetail
 pub async fn get_fav_folder_detail(fid: i32, page: i32) -> Result<Vec<Value>, String> {
     let cookie = get_sessdata();
@@ -1164,7 +1175,7 @@ pub async fn get_reply_list(oid: i64, page: i32) -> Result<ReplyList, String> {
 }
 
 // ---------------------------------------------------------------------------
-// 点赞 / 投币 / 关注 (需要登录 + csrf)
+// 点赞 / 投币 / 收藏 / 关注 (需要登录 + csrf)
 // ---------------------------------------------------------------------------
 
 /// 对应 Go LikeVideo
@@ -1239,6 +1250,175 @@ pub async fn has_coin(bid: &str) -> Result<i32, String> {
         .get("multiply")
         .and_then(|x| x.as_i64())
         .unwrap_or(0) as i32)
+}
+
+/// 读取当前分集的云端播放断点。
+///
+/// `/x/player/v2` 的 `last_play_time` 是毫秒；当账号最近播放分集不是
+/// 当前 cid 时，该接口会返回另一个 cid 的断点，因此再从历史列表按
+/// aid/cid 匹配 `progress`（秒）作为回退。
+pub async fn get_play_progress(aid: i64, cid: i64) -> Result<i32, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Err("未登录".to_string());
+    }
+    if aid <= 0 || cid <= 0 {
+        return Err("未选择作品".to_string());
+    }
+
+    let player_url = format!("https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}");
+    if let Ok(player_response) = get_json(
+        &player_url,
+        Some(&cookie),
+        &[("Referer", "https://www.bilibili.com/")],
+    )
+    .await
+    {
+        if let Ok(data) = check_code(&player_response, "获取播放进度失败") {
+            let last_play_cid = int_of(&data, "last_play_cid");
+            let player_progress = (int_of(&data, "last_play_time").max(0) / 1000) as i32;
+            if player_progress > 0 && (last_play_cid == 0 || last_play_cid == cid) {
+                #[cfg(debug_assertions)]
+                println!(
+                    "play-progress: aid={aid} cid={cid} source=player progress={player_progress}s"
+                );
+                return Ok(player_progress);
+            }
+        }
+    }
+
+    let mut cursor_max = 0;
+    let mut cursor_view_at = 0;
+    let mut progress = 0;
+
+    // The player endpoint occasionally fails or returns the account's latest
+    // episode instead. Search a few history pages as a fallback; the frontend
+    // has its own short startup budget, so this never blocks playback for a
+    // slow network response.
+    for _ in 0..5 {
+        let history_url = format!(
+            "https://api.bilibili.com/x/web-interface/history/cursor?type=archive&max={cursor_max}&view_at={cursor_view_at}&business=archive&ps=50"
+        );
+        let history = get_json(&history_url, Some(&cookie), &[]).await?;
+        let history_data = check_code(&history, "获取播放历史失败")?;
+        let items = arr_of(&history_data, "list");
+        if let Some(item) = items.iter().find(|item| {
+            let item_aid = item
+                .pointer("/history/oid")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            let item_cid = item
+                .pointer("/history/cid")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            item_aid == aid && item_cid == cid
+        }) {
+            progress = int_of(item, "progress").max(0) as i32;
+            break;
+        }
+
+        let next_max = history_data
+            .pointer("/cursor/max")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        let next_view_at = history_data
+            .pointer("/cursor/view_at")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        if items.is_empty()
+            || (next_max == cursor_max && next_view_at == cursor_view_at)
+            || next_view_at <= 0
+        {
+            break;
+        }
+        cursor_max = next_max;
+        cursor_view_at = next_view_at;
+    }
+
+    #[cfg(debug_assertions)]
+    println!("play-progress: aid={aid} cid={cid} source=history progress={progress}s");
+    Ok(progress)
+}
+
+/// 查询视频是否存在于当前用户的任意收藏夹。
+pub async fn has_favorite(aid: i64) -> Result<bool, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Err("未登录".to_string());
+    }
+    if aid <= 0 {
+        return Err("未选择作品".to_string());
+    }
+
+    let folders = get_fav_folders_for_resource(aid, &cookie).await?;
+
+    Ok(folders
+        .iter()
+        .any(|folder| int_of(folder, "fav_state") == 1))
+}
+
+/// 收藏时加入默认收藏夹；取消时从所有已包含该视频的收藏夹移除。
+pub async fn set_favorite(aid: i64, favorite: bool) -> Result<bool, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Err("未登录".to_string());
+    }
+    if aid <= 0 {
+        return Err("未选择作品".to_string());
+    }
+
+    let folders = get_fav_folders_for_resource(aid, &cookie).await?;
+    let folder_id = |folder: &Value| {
+        let id = int_of(folder, "id");
+
+        if id > 0 {
+            id
+        } else {
+            int_of(folder, "fid")
+        }
+    };
+    let selected_folder_ids: Vec<String> = folders
+        .iter()
+        .filter(|folder| int_of(folder, "fav_state") == 1)
+        .map(folder_id)
+        .filter(|id| *id > 0)
+        .map(|id| id.to_string())
+        .collect();
+
+    let (add_media_ids, del_media_ids) = if favorite {
+        if !selected_folder_ids.is_empty() {
+            return Ok(true);
+        }
+        let default_folder_id = folders
+            .first()
+            .map(folder_id)
+            .filter(|id| *id > 0)
+            .ok_or_else(|| "没有可用的收藏夹".to_string())?;
+
+        (default_folder_id.to_string(), String::new())
+    } else {
+        if selected_folder_ids.is_empty() {
+            return Ok(true);
+        }
+
+        (String::new(), selected_folder_ids.join(","))
+    };
+
+    let csrf = extract_csrf(&cookie)?;
+    let url = format!(
+        "https://api.bilibili.com/x/v3/fav/resource/deal?rid={aid}&type=2&add_media_ids={add_media_ids}&del_media_ids={del_media_ids}&csrf={csrf}"
+    );
+    let v = post_json(&url, Some(&cookie), &[]).await?;
+    check_code(
+        &v,
+        if favorite {
+            "收藏失败"
+        } else {
+            "取消收藏失败"
+        },
+    )?;
+
+    Ok(true)
 }
 
 /// 对应 Go Follow / Unfollow (act: 1 关注, 2 取消关注)
@@ -1353,7 +1533,7 @@ pub async fn is_following(mid: i64) -> Result<FollowStatus, String> {
 }
 
 /// 对应 Go ReportPlayProgress
-pub async fn report_play_progress(aid: i32, cid: i32, progress: i32) -> Result<bool, String> {
+pub async fn report_play_progress(aid: i64, cid: i64, progress: i32) -> Result<bool, String> {
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Err("未登录".to_string());
