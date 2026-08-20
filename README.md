@@ -73,7 +73,17 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 
 #### Windows
 
-从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载 `.exe` 安装文件，双击运行即可。
+##### 微软应用商店（推荐）
+
+现已上架 Microsoft Store，可直接在商店中搜索 **Bili FM** 安装，支持自动更新。
+
+[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3GG)
+
+##### GitHub Release
+
+如果更偏好手动安装包，可前往 GitHub Release 页面下载 `.exe` 安装文件：
+
+[GitHub Releases](https://github.com/vst93/bili-fm/releases)
 
 > 首次安装时 Windows SmartScreen 可能提示"未知发布者"，点击"仍要运行"即可。
 
@@ -268,7 +278,17 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 
 #### Windows
 
-Download the `.exe` installer from [GitHub Releases](https://github.com/vst93/bili-fm/releases) and run it.
+##### Microsoft Store (Recommended)
+
+Bili FM is available on the Microsoft Store. Search for **Bili FM** in the store to install with automatic updates.
+
+[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3GG)
+
+##### GitHub Release
+
+Prefer a manual installer? Download the `.exe` from the GitHub Release page:
+
+[GitHub Releases](https://github.com/vst93/bili-fm/releases)
 
 > On first install, Windows SmartScreen may show "Unknown publisher" - click "Run anyway".
 
