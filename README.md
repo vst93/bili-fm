@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 
 现已上架 Microsoft Store，可直接在商店中搜索 **Bili FM** 安装，支持自动更新。
 
-[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3GG)
+[Microsoft Store → Bili FM](https://apps.microsoft.com/detail/9N0LNL3JM3GG)
 
 ##### GitHub Release
 
@@ -282,7 +282,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 
 Bili FM is available on the Microsoft Store. Search for **Bili FM** in the store to install with automatic updates.
 
-[Microsoft Store → Bili FM](https://apps.microsoft.com/store/detail/bili-fm/9N0LNL3GG)
+[Microsoft Store → Bili FM](https://apps.microsoft.com/detail/9N0LNL3JM3GG)
 
 ##### GitHub Release
 
