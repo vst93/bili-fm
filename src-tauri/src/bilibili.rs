@@ -242,6 +242,29 @@ async fn post_json(
     serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e}, body: {text}"))
 }
 
+/// POST x-www-form-urlencoded 请求并解析 JSON。
+async fn post_form_json(
+    url: &str,
+    cookie: Option<&str>,
+    form: &[(&str, &str)],
+) -> Result<Value, String> {
+    let mut req = client()
+        .post(url)
+        .header("User-Agent", UA_CHROME)
+        .form(form);
+    if let Some(c) = cookie {
+        if !c.is_empty() {
+            req = req.header("Cookie", c);
+        }
+    }
+    let resp = req.send().await.map_err(|e| format!("网络请求失败: {e}"))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e}, body: {text}"))
+}
+
 // ---------------------------------------------------------------------------
 // 登录态 (dkv 兼容存储)
 // ---------------------------------------------------------------------------
@@ -510,6 +533,52 @@ pub struct HistoryList {
     pub list: Vec<Value>,
     #[serde(default)]
     pub cursor: HistoryCursor,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WatchLaterOwner {
+    #[serde(default)]
+    pub mid: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub face: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WatchLaterStat {
+    #[serde(default)]
+    pub view: i64,
+    #[serde(default)]
+    pub danmaku: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WatchLaterItem {
+    #[serde(default)]
+    pub aid: i64,
+    #[serde(default)]
+    pub bvid: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub pic: String,
+    #[serde(default)]
+    pub duration: i64,
+    #[serde(default)]
+    pub owner: WatchLaterOwner,
+    #[serde(default)]
+    pub stat: WatchLaterStat,
+    #[serde(default)]
+    pub progress: i64,
+    #[serde(rename = "view_at", default)]
+    pub view_at: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WatchLaterList {
+    #[serde(default)]
+    pub list: Vec<WatchLaterItem>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -976,6 +1045,58 @@ pub async fn get_history_list(
                 .to_string(),
         },
     })
+}
+
+/// 获取稍后再看列表 (B 站 x/v2/history/toview)
+pub async fn get_watchlater_list() -> Result<WatchLaterList, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Ok(WatchLaterList::default());
+    }
+    let url = "https://api.bilibili.com/x/v2/history/toview?jsonp=jsonp".to_string();
+    let v = get_json(&url, Some(&cookie), &[]).await?;
+    let data = check_code(&v, "获取稍后再看失败")?;
+    let mut list = Vec::new();
+    for item in arr_of(&data, "list") {
+        let item: WatchLaterItem = serde_json::from_value(item)
+            .map_err(|e| format!("解析稍后再看条目失败: {e}"))?;
+        list.push(item);
+    }
+    Ok(WatchLaterList { list })
+}
+
+/// 添加视频到稍后再看 (B 站 x/v2/history/toview/add)
+pub async fn add_to_watchlater(aid: i64) -> Result<bool, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Err("未登录".to_string());
+    }
+    let csrf = extract_csrf(&cookie)?;
+    let v = post_form_json(
+        "https://api.bilibili.com/x/v2/history/toview/add",
+        Some(&cookie),
+        &[("aid", &aid.to_string()), ("csrf", &csrf)],
+    )
+    .await?;
+    check_code(&v, "添加稍后再看失败")?;
+    Ok(true)
+}
+
+/// 从稍后再看移除视频 (B 站 x/v2/history/toview/del)
+pub async fn remove_from_watchlater(aid: i64) -> Result<bool, String> {
+    let cookie = get_sessdata();
+    if cookie.is_empty() {
+        return Err("未登录".to_string());
+    }
+    let csrf = extract_csrf(&cookie)?;
+    let v = post_form_json(
+        "https://api.bilibili.com/x/v2/history/toview/del",
+        Some(&cookie),
+        &[("aid", &aid.to_string()), ("csrf", &csrf)],
+    )
+    .await?;
+    check_code(&v, "移除稍后再看失败")?;
+    Ok(true)
 }
 
 /// 对应 Go GetSeriesList (返回 seasons_list[].meta 原始对象)

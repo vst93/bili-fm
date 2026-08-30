@@ -113,6 +113,21 @@ pub async fn get_history_list(
 }
 
 #[tauri::command]
+pub async fn get_watchlater_list() -> Result<bilibili::WatchLaterList, String> {
+    bilibili::get_watchlater_list().await
+}
+
+#[tauri::command]
+pub async fn add_to_watchlater(aid: i64) -> Result<bool, String> {
+    bilibili::add_to_watchlater(aid).await
+}
+
+#[tauri::command]
+pub async fn remove_from_watchlater(aid: i64) -> Result<bool, String> {
+    bilibili::remove_from_watchlater(aid).await
+}
+
+#[tauri::command]
 pub async fn get_series_list(mid: i32) -> Result<Vec<Value>, String> {
     bilibili::get_series_list(mid).await
 }

@@ -3307,6 +3307,111 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     gap: 8px;
 }
 
+.history-tabs {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 2px;
+    border: 1px solid rgba(100, 116, 139, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.44);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.history-tab {
+    min-width: 68px;
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1;
+    transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.history-tab:hover {
+    color: #475569;
+    background: rgba(255, 255, 255, 0.52);
+}
+
+.history-tab:focus-visible {
+    outline: 2px solid rgba(14, 165, 233, 0.44);
+    outline-offset: 1px;
+}
+
+.history-tab[data-active="true"] {
+    background: #fff;
+    color: #0369a1;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+}
+
+.history-empty-tip {
+    padding: 48px 12px;
+    color: #94a3b8;
+    font-size: 13px;
+    text-align: center;
+}
+
+.history-watchlater-btn,
+.watchlater-remove-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 9001;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.48);
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.56);
+    color: #f8fafc;
+    backdrop-filter: blur(8px);
+    transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.history-watchlater-btn:hover:not(:disabled),
+.watchlater-remove-btn:hover {
+    background: rgba(15, 23, 42, 0.76);
+    color: #fff;
+    transform: scale(1.04);
+}
+
+.history-watchlater-btn:focus-visible,
+.watchlater-remove-btn:focus-visible {
+    outline: 2px solid rgba(14, 165, 233, 0.62);
+    outline-offset: 2px;
+}
+
+.history-watchlater-btn[data-added="true"] {
+    border-color: rgba(6, 182, 212, 0.5);
+    background: rgba(8, 145, 178, 0.82);
+    color: #ecfeff;
+}
+
+.history-watchlater-btn:disabled {
+    cursor: default;
+    transform: none;
+}
+
+.watchlater-duration-badge {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 9000;
+    padding: 2px 5px;
+    border-radius: 5px 0 0 0;
+    background: rgba(15, 23, 42, 0.68);
+    color: #f8fafc;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+
 .history-incognito-switch {
     flex: 0 0 auto;
     min-width: 92px;

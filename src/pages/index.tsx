@@ -116,6 +116,7 @@ export default function IndexPage() {
     view_at: number;
     business: string;
   }>({ max: 0, view_at: 0, business: "" });
+  const [watchLaterList, setWatchLaterList] = useState<BL.WatchLaterItem[]>([]);
   const [seriesList, setSeriesList] = useState<any[]>([]);
   const [currentSeriesId, setCurrentSeriesId] = useState<number>(0);
   const [seriesVideos, setSeriesVideos] = useState<any[]>([]);
@@ -213,6 +214,7 @@ export default function IndexPage() {
     if (!showHistoryList) {
       setHistoryList(undefined);
       setHistoryCursor({ max: 0, view_at: 0, business: "" });
+      setWatchLaterList([]);
     }
     if (!showSeriesList) {
       setSeriesVideos([]);
@@ -1552,6 +1554,47 @@ export default function IndexPage() {
     }
   };
 
+  const fetchWatchLaterList = async () => {
+    try {
+      const data = await invoke<BL.WatchLaterList>("get_watchlater_list");
+      setWatchLaterList(data?.list || []);
+    } catch (error) {
+      console.error("获取稍后再看列表失败:", error);
+      setWatchLaterList([]);
+      toast({ type: "error", content: "获取稍后再看列表失败" });
+    }
+  };
+
+  const handleWatchLaterRefresh = async () => {
+    await fetchWatchLaterList();
+  };
+
+  const handleAddToWatchLater = async (aid: number) => {
+    if (!aid) return;
+
+    try {
+      await invoke<boolean>("add_to_watchlater", { aid });
+      toast({ type: "success", content: "已添加到稍后再看" });
+      await fetchWatchLaterList();
+    } catch (error) {
+      console.error("添加稍后再看失败:", error);
+      toast({ type: "error", content: String(error) });
+    }
+  };
+
+  const handleRemoveFromWatchLater = async (aid: number) => {
+    if (!aid) return;
+
+    try {
+      await invoke<boolean>("remove_from_watchlater", { aid });
+      setWatchLaterList((prev) => prev.filter((item) => item.aid !== aid));
+      toast({ type: "success", content: "已从稍后再看移除" });
+    } catch (error) {
+      console.error("移除稍后再看失败:", error);
+      toast({ type: "error", content: String(error) });
+    }
+  };
+
   /**
    * 处理历史记录按钮点击事件
    * @description 获取并显示用户的观看历史记录
@@ -1567,6 +1610,7 @@ export default function IndexPage() {
         setHistoryList(data?.list || []);
         setHistoryCursor(data.cursor || {});
       });
+      void fetchWatchLaterList();
       setShowHistoryList(true);
       setShowSearchList(false);
       setShowPageList(false);
@@ -1932,6 +1976,28 @@ export default function IndexPage() {
     if (isLinux) return;
     let theIsMiniMode = !isMiniMode;
 
+    // 进入迷你模式时若视频浮窗正在播放，将播放进度交接给音频：
+    // 记录视频当前进度 -> 关闭视频浮窗 -> 音频从该进度继续播放
+    if (theIsMiniMode && isPlayVideo) {
+      const videoEl = document.querySelector<HTMLVideoElement>("#player_video video");
+      const videoProgress =
+        videoEl && Number.isFinite(videoEl.currentTime) && videoEl.currentTime > 0
+          ? videoEl.currentTime
+          : videoInitialTime;
+      setIsPlayVideo(false);
+      setIsPlayVideoStop(true);
+      setVideoInitialTime(videoProgress);
+      const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
+      if (audioEl && videoProgress > 0) {
+        try {
+          audioEl.currentTime = videoProgress;
+        } catch {
+          // 音频尚未就绪时忽略 seek 失败
+        }
+      }
+      setIsPlaying(true);
+    }
+
     document.body.classList.toggle("mini-mode", theIsMiniMode);
     setIsMiniMode(theIsMiniMode);
     if (theIsMiniMode) {
@@ -2185,9 +2251,13 @@ export default function IndexPage() {
               isIncognitoMode={isIncognitoMode}
               setHistoryCursor={setHistoryCursor}
               setHistoryList={setHistoryList}
+              watchLaterList={watchLaterList}
+              onAddToWatchLater={handleAddToWatchLater}
               onIncognitoModeChange={handleIncognitoModeChange}
               onSlideClick={() => setShowHistoryList(false)}
               onVideoSelect={handleSearchVideoSelect}
+              onWatchLaterRefresh={handleWatchLaterRefresh}
+              onWatchLaterRemove={handleRemoveFromWatchLater}
             />
           )}
           {showSeriesList && (

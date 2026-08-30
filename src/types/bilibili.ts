@@ -80,6 +80,33 @@ export interface HistoryList {
   cursor: HistoryCursor;
 }
 
+export interface WatchLaterOwner {
+  mid: number;
+  name: string;
+  face: string;
+}
+
+export interface WatchLaterStat {
+  view: number;
+  danmaku: number;
+}
+
+export interface WatchLaterItem {
+  aid: number;
+  bvid: string;
+  title: string;
+  pic: string;
+  duration: number;
+  owner: WatchLaterOwner;
+  stat: WatchLaterStat;
+  progress: number;
+  view_at: number;
+}
+
+export interface WatchLaterList {
+  list: WatchLaterItem[];
+}
+
 export interface PopularList {
   items: any[];
   has_more: boolean;
