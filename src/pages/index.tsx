@@ -237,26 +237,14 @@ export default function IndexPage() {
   ]);
 
   // 音频/视频互斥：打开视频浮窗时停止音频
-  // 直接操作 DOM <audio> 元素作为双保险，确保音频真的停了
+  // 由 Player 内部的 forcePause / isPlaying 控制播放器暂停，不再直接操作 DOM
   useEffect(() => {
     if (isPlayVideo) {
       setIsPlaying(false);
-      // Force pause the audio element immediately
-      const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-      if (audioEl && !audioEl.paused) {
-        audioEl.pause();
-      }
     }
   }, [isPlayVideo]);
 
-  // 切换播放源时关闭视频浮窗，避免新音频和旧视频同时播放
-  useEffect(() => {
-    if (isPlayVideo && playUrl) {
-      setIsPlayVideo(false);
-      setIsPlayVideoStop(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playUrl]);
+  /**
 
   // 音频开始播放时确保视频浮窗已关闭
   useEffect(() => {
@@ -1751,15 +1739,7 @@ export default function IndexPage() {
       toast({ type: "warning", content: "请先选择一个视频" });
       return;
     }
-    // 先强制暂停音频（双保险：state + DOM）
-    setIsPlaying(false);
-    const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-    setVideoInitialTime(
-      audioEl && Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : 0,
-    );
-    if (audioEl && !audioEl.paused) {
-      audioEl.pause();
-    }
+    // 打开视频浮窗 → Player 内部的 forcePause / isPlaying 会处理音频暂停
     setIsPlayVideo(true); // 打开视频播放浮窗
     setIsPlayVideoStop(false); // 自动开启播放
   };
@@ -1989,10 +1969,17 @@ export default function IndexPage() {
       setVideoInitialTime(videoProgress);
       const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
       if (audioEl && videoProgress > 0) {
-        try {
-          audioEl.currentTime = videoProgress;
-        } catch {
-          // 音频尚未就绪时忽略 seek 失败
+        // 與 Player 裡的 safeSeek 一致：僅在媒體就緒時寫 currentTime，
+        // 避免在某些 WebKit 環境下 seek 阻塞 UI 線程。
+        if (
+          audioEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          audioEl.networkState !== HTMLMediaElement.NETWORK_LOADING
+        ) {
+          try {
+            audioEl.currentTime = videoProgress;
+          } catch {
+            // 音頻尚未就緒時忽略 seek 失敗
+          }
         }
       }
       setIsPlaying(true);

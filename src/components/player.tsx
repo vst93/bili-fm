@@ -171,6 +171,21 @@ const Player = ({
     markCloudProgressReady();
   };
 
+  const safeSeek = (audio: HTMLAudioElement, target: number): boolean => {
+    // Only write currentTime when the media has at least a current data frame.
+    // Writing while still loading or without a playable frame can block
+    // the WebKit media pipeline on some Linux configurations.
+    if (
+      audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      audio.networkState === HTMLMediaElement.NETWORK_LOADING
+    ) {
+      return false;
+    }
+    audio.currentTime = target;
+    currentTimeRef.current = target;
+    return true;
+  };
+
   const applyPendingCloudProgress = (audio: HTMLAudioElement) => {
     const progress = pendingCloudProgressRef.current;
     if (
@@ -189,7 +204,7 @@ const Player = ({
     try {
       const normalizedTarget = Math.max(0, target);
       if (normalizedTarget <= 0.5) {
-        audio.currentTime = 0;
+        safeSeek(audio, 0);
         currentTimeRef.current = 0;
         pendingCloudProgressRef.current = null;
         markCloudProgressReady();
@@ -202,8 +217,10 @@ const Player = ({
       }
 
       cloudSeekInFlightRef.current = true;
-      audio.currentTime = normalizedTarget;
-      currentTimeRef.current = normalizedTarget;
+      if (!safeSeek(audio, normalizedTarget)) {
+        // Media not ready yet — canplay will retry below.
+        return false;
+      }
       if (import.meta.env.DEV) {
         console.debug("[player] requested cloud seek", {
           aid,
@@ -438,15 +455,21 @@ const Player = ({
       !cloudHistoryEnabled || !mediaKey || cloudProgressReadyKey === mediaKey;
 
     if (isPlaying && src && !forcePause && isCloudProgressReady) {
+      // Fire-and-forget the AudioContext resume — it must not block audio.play().
+      // On some WebKit builds (notably under certain Linux WMs) ctx.resume() can
+      // hang or never settle; decoupling it from play prevents the whole UI thread
+      // from freezing when that happens.
       const graph = audioGraphRef.current;
-      void (async () => {
-        if (graph?.ctx.state === "suspended") {
+      if (graph?.ctx.state === "suspended") {
+        void (async () => {
           try {
             await graph.ctx.resume();
           } catch {
-            return;
+            // Ignore failures — audio playback is the priority.
           }
-        }
+        })();
+      }
+      void (async () => {
         if (playAttemptId !== playAttemptIdRef.current) return;
         try {
           await audio.play();
@@ -656,6 +679,13 @@ const Player = ({
   const handleCanPlay = (audio: HTMLAudioElement) => {
     if (!cloudProgressPendingRef.current && pendingCloudProgressRef.current !== null) {
       applyPendingCloudProgress(audio);
+    }
+    // Re-attempt any cloud seek that was deferred because the media was not ready.
+    if (pendingCloudProgressRef.current !== null) {
+      const audio_ = audioRef.current;
+      if (audio_ && applyPendingCloudProgress(audio_)) {
+        return;
+      }
     }
   };
 
