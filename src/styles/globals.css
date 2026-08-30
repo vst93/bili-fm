@@ -2730,9 +2730,9 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 [data-slot="wrapper"] > section {
     position: relative;
     isolation: isolate;
-    height: min(92vh, calc(100vh - 54px)) !important;
+    height: auto;
     max-height: min(92vh, calc(100vh - 54px)) !important;
-    min-height: 560px;
+    min-height: 320px;
     display: flex !important;
     flex-direction: column !important;
     border-top: 1px solid var(--glass-border) !important;
