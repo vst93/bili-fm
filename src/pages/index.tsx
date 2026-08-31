@@ -244,8 +244,6 @@ export default function IndexPage() {
     }
   }, [isPlayVideo]);
 
-  /**
-
   // 音频开始播放时确保视频浮窗已关闭
   useEffect(() => {
     if (isPlaying && isPlayVideo) {

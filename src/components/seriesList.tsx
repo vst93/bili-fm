@@ -116,9 +116,8 @@ const SeriesList: FC<SeriesListProps> = ({
 
     return (
         <Drawer
-            classNames={{
-                base: "h-[92vh] max-h-[calc(100vh-54px)]",
-            }}
+            /* 高度交给 globals.css 的玻璃拟态规则：height auto 自适应内容，
+               max-height min(92vh, calc(100vh - 54px)) 封顶，内容多时 DrawerBody 滚动 */
             isOpen={isOpen}
             placement="bottom"
             onOpenChange={handleOpenChange}
@@ -143,6 +142,11 @@ const SeriesList: FC<SeriesListProps> = ({
                             </Button>
                         </DrawerHeader>
                         <DrawerBody onScroll={handleScroll}>
+                            {seriesVideos.length === 0 ? (
+                                <div className="history-empty-tip" role="status">
+                                    暂无合集视频
+                                </div>
+                            ) : (
                             <div
                                 className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                                 style={{ width: "100%" }}
@@ -181,6 +185,7 @@ const SeriesList: FC<SeriesListProps> = ({
                                     </Card>
                                 ))}
                             </div>
+                            )}
                         </DrawerBody>
                     </>
                 )}

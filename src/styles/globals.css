@@ -4549,6 +4549,164 @@ html:is(
     transform: scale(0.92);
 }
 
+/* ====== Video player custom controls ====== */
+
+.player-video-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 998;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: linear-gradient(
+        180deg,
+        rgba(8, 12, 20, 0) 0%,
+        rgba(8, 12, 20, 0.55) 38%,
+        rgba(8, 12, 20, 0.78) 100%
+    );
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.player-video-ctrl-btn {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.16s ease, transform 0.1s ease;
+}
+
+.player-video-ctrl-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.player-video-ctrl-btn:active {
+    transform: scale(0.9);
+}
+
+.player-video-time {
+    flex: none;
+    min-width: 44px;
+    text-align: center;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(241, 245, 249, 0.92);
+    text-shadow: 0 1px 2px rgba(8, 12, 20, 0.6);
+    user-select: none;
+}
+
+.player-video-timeline-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+}
+
+.player-video-timeline-track {
+    position: absolute;
+    top: 50%;
+    left: 7px;
+    right: 7px;
+    height: 6px;
+    box-sizing: border-box;
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: 999px;
+    pointer-events: none;
+    transform: translateY(-50%);
+    background: linear-gradient(
+        90deg,
+        rgba(45, 212, 191, 0.78) 0,
+        rgba(2, 132, 199, 0.82) var(--pvp-progress, 0%),
+        rgba(255, 255, 255, 0.32) var(--pvp-progress, 0%)
+    );
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.88),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.08);
+}
+
+.player-video-timeline {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 24px;
+    cursor: pointer;
+}
+
+.player-video-timeline::-webkit-slider-runnable-track {
+    height: 6px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.player-video-timeline::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -4px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.98) 0 15%, rgba(255, 255, 255, 0.42) 34%, transparent 58%),
+        rgba(224, 242, 254, 0.62);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.92),
+        0 2px 7px rgba(2, 132, 199, 0.24);
+    transition: transform 100ms ease;
+}
+
+.player-video-timeline:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+}
+
+.player-video-timeline:active::-webkit-slider-thumb {
+    transform: scale(1.12);
+}
+
+.player-video-timeline:disabled {
+    cursor: default;
+}
+
+/* 画中画模式下仅保留的退出按钮 */
+.player-video-pip-exit {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 999;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.45);
+    color: #f1f5f9;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.16s ease, transform 0.1s ease;
+}
+
+.player-video-pip-exit:hover {
+    background: rgba(15, 23, 42, 0.7);
+    transform: scale(1.04);
+}
+
+.player-video-pip-exit:active {
+    transform: scale(0.96);
+}
+
 /* ====== Liquid Glass Dialog ====== */
 @keyframes dialog-spin {
     from { transform: rotate(0deg); }

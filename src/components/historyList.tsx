@@ -26,6 +26,21 @@ const MAX_RETAINED_ITEMS = 240;
 
 type HistoryTab = "history" | "watchlater";
 
+const HISTORY_TAB_STORAGE_KEY = "historyActiveTab";
+
+const isHistoryTab = (value: string | null): value is HistoryTab =>
+    value === "history" || value === "watchlater";
+
+const loadInitialHistoryTab = (): HistoryTab => {
+    try {
+        const stored = window.localStorage.getItem(HISTORY_TAB_STORAGE_KEY);
+        return isHistoryTab(stored) ? stored : "history";
+    } catch {
+        // localStorage 不可用（如隐私模式）时回退到默认 tab
+        return "history";
+    }
+};
+
 interface HistoryListProps {
     onSlideClick?: () => void;
     onVideoSelect?: (bvid: string) => void;
@@ -57,7 +72,17 @@ const HistoryList: FC<HistoryListProps> = ({
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
-    const [activeTab, setActiveTab] = useState<HistoryTab>("history");
+    const [activeTab, setActiveTabState] = useState<HistoryTab>(loadInitialHistoryTab);
+
+    // 切换 tab 时同步持久化，下次打开抽屉时恢复上次选择
+    const setActiveTab = (tab: HistoryTab) => {
+        setActiveTabState(tab);
+        try {
+            window.localStorage.setItem(HISTORY_TAB_STORAGE_KEY, tab);
+        } catch {
+            // 写入失败（如隐私模式）时忽略，仅影响下次恢复
+        }
+    };
 
     // 预加载历史记录封面图
     const coverUrls = useMemo(
