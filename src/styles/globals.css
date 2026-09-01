@@ -1195,7 +1195,11 @@ body.mini-mode #root::before {
     z-index: 2;
     isolation: isolate;
     flex: 0 0 46px;
-    padding: 4px 8px;
+    /* 四边等距 4px：原来是 4px 8px，输入框左边离框 8px 而上下只有 4px，
+       同一个内腔里横向是纵向的两倍，圆角怎么调都对不齐。
+       内腔 = 46 - 2 边框 - 8 padding = 36px。
+       同心链：框 13 →(4px)→ 输入框/按钮槽 9 →(1px)→ 内部按钮 8。 */
+    padding: 4px;
     border: 1px solid var(--glass-border);
     border-radius: 13px;
     background: transparent;
@@ -1318,10 +1322,13 @@ body.mini-mode #root::before {
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    padding: 2px;
+    /* 1px padding：32px 按钮 + 上下 1px padding + 上下 1px 边框 = 36px，
+       正好填满内腔。原来 padding 2px 算出来 38px，比内腔高 2px，是被框挤着的。
+       圆角 9px = 框 13 - 间距 4，与输入框同级同心；原来 12px 只比框小 1。 */
+    padding: 1px;
     position: relative;
     isolation: isolate;
-    border-radius: 12px;
+    border-radius: 9px;
     background: transparent;
     border: 1px solid var(--glass-border);
     box-shadow: var(--liquid-shadow);
@@ -1410,9 +1417,15 @@ body.mini-mode #root::before {
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
 }
 
+/* 高度 36px 正好填满内腔（46 - 2 边框 - 8 padding）。
+   右内边距收到 1px：HeroUI 默认 12px，让 32px 的搜索按钮离右边 12px、
+   离上下各 1px，四周差了一个数量级。1px 之后按钮四周等距。
+   左内边距 10px 是文字的视觉起点，不参与同心计算。 */
 .home-search-input [data-slot="input-wrapper"] {
     min-height: 36px !important;
     height: 36px !important;
+    padding-left: 10px !important;
+    padding-right: 1px !important;
     border: 1px solid rgba(255, 255, 255, 0.35) !important;
     border-radius: 9px !important;
     box-shadow:
