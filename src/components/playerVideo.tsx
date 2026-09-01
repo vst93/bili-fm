@@ -1,9 +1,38 @@
 import { useEffect, useRef, useState } from "react";
-import { Close, PauseOne, Pic, Play } from "@icon-park/react";
+import { Close } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 const PLAY_PROGRESS_REPORT_INTERVAL_MS = 30_000;
 const PLAY_PROGRESS_CRITICAL_INTERVAL_MS = 3_000;
+
+const SEEK_STEP_SECONDS = 10;
+
+/** 老版本 WebKit 只有私有的 presentation mode API，没有标准 PiP API */
+type WebKitVideoElement = HTMLVideoElement & {
+  webkitPresentationMode?: "inline" | "picture-in-picture" | "fullscreen";
+  webkitSetPresentationMode?: (mode: "inline" | "picture-in-picture") => void;
+};
+
+/**
+ * 退出画中画。标准 API 优先，回落到 WebKit 私有 API。
+ * 切换视频源或关闭播放器时必须调用，否则 macOS 的浮窗会残留并继续播放旧内容。
+ */
+const exitPictureInPicture = (video?: HTMLVideoElement | null) => {
+  try {
+    if (document.pictureInPictureElement) {
+      if (!video || document.pictureInPictureElement === video) {
+        void document.exitPictureInPicture().catch(() => {});
+        return;
+      }
+    }
+    const webkitVideo = video as WebKitVideoElement | null | undefined;
+    if (webkitVideo?.webkitPresentationMode === "picture-in-picture") {
+      webkitVideo.webkitSetPresentationMode?.("inline");
+    }
+  } catch {
+    // 平台不支持或状态已变化，忽略
+  }
+};
 
 interface PlayerVideoProps {
   src?: string;
@@ -13,20 +42,14 @@ interface PlayerVideoProps {
   aid?: number;
   cid?: number;
   cloudHistoryEnabled?: boolean;
+  /**
+   * 当前平台的系统画中画浮窗不提供进度条（macOS WebKit）。
+   * 为 true 时隐藏原生控件条上的画中画按钮，避免用户点进去后发现调不了进度。
+   */
+  nativePipUnusable?: boolean;
   setIsplay: (isPlay: boolean) => void;
   setIsPlayVideoStop: (v: boolean) => void;
 }
-
-const formatTime = (seconds: number) => {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const total = Math.floor(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  const ss = String(s).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-};
 
 export default function PlayerVideo({
   src,
@@ -36,6 +59,7 @@ export default function PlayerVideo({
   aid,
   cid,
   cloudHistoryEnabled = true,
+  nativePipUnusable = false,
   setIsplay,
   setIsPlayVideoStop,
 }: PlayerVideoProps) {
@@ -46,14 +70,6 @@ export default function PlayerVideo({
   const cloudHistoryEnabledRef = useRef(cloudHistoryEnabled);
   const lastCloudReportRef = useRef({ mediaKey: "", progress: -1, at: 0 });
   const [visible, setVisible] = useState(false);
-
-  // 自定义控件状态
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isInPiP, setIsInPiP] = useState(false);
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [scrubTime, setScrubTime] = useState(0);
 
   cloudHistoryEnabledRef.current = cloudHistoryEnabled;
   const mediaKey = src && aid && cid ? `${src}:${aid}:${cid}` : "";
@@ -122,6 +138,99 @@ export default function PlayerVideo({
     }
   };
 
+  /**
+   * 把播放位置同步给系统媒体会话。
+   * macOS 画中画浮窗和"正在播放"控制中心的进度条是靠这份 positionState 画出来的，
+   * 不上报就只有播放/暂停按钮，进度条不出现或拖不动。
+   */
+  const publishPositionState = (video: HTMLVideoElement) => {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) return;
+    const duration = video.duration;
+
+    // duration 为 NaN/Infinity（未加载完或直播流）时调用会抛 TypeError
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: video.playbackRate > 0 ? video.playbackRate : 1,
+        position: Math.min(Math.max(0, video.currentTime), duration),
+      });
+    } catch {
+      // 参数越界时静默忽略，不影响播放
+    }
+  };
+
+  /**
+   * 只注册 seek 相关的 handler。
+   * play/pause/previoustrack/nexttrack 归音频播放器所有（见 index.tsx），
+   * 这里不能碰 —— 那边卸载时是置 null 而不是恢复，覆盖了就再也回不来。
+   * 原生控件条本身已经处理了播放/暂停，画中画浮窗的播放键也直接作用于 video 元素。
+   */
+  useEffect(() => {
+    if (!visible || !src) return;
+    if (!("mediaSession" in navigator)) return;
+
+    const seekTo = (time: number) => {
+      const video = videoRef.current;
+
+      if (!video || !Number.isFinite(video.duration)) return;
+      const target = Math.min(Math.max(0, time), video.duration);
+
+      try {
+        // fastSeek 专为拖动进度条设计：跳到最近的关键帧，避免连续 seek 互相取消
+        if (typeof video.fastSeek === "function") {
+          video.fastSeek(target);
+        } else {
+          video.currentTime = target;
+        }
+      } catch {
+        // WebKit 偶发拒绝 seek，忽略
+      }
+      publishPositionState(video);
+    };
+
+    try {
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        if (typeof details.seekTime === "number") seekTo(details.seekTime);
+      });
+      navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+        const video = videoRef.current;
+
+        if (!video) return;
+        seekTo(video.currentTime - (details.seekOffset || SEEK_STEP_SECONDS));
+      });
+      navigator.mediaSession.setActionHandler("seekforward", (details) => {
+        const video = videoRef.current;
+
+        if (!video) return;
+        seekTo(video.currentTime + (details.seekOffset || SEEK_STEP_SECONDS));
+      });
+    } catch {
+      // 平台不支持这些 action，忽略
+    }
+
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler("seekto", null);
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+        // 无参调用即清空，否则关闭视频后音频的"正在播放"会残留视频的时长
+        navigator.mediaSession.setPositionState?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, [visible, src]);
+
+  /**
+   * 收回画中画浮窗。覆盖三种情况：切换视频源、关闭播放器（visible 转 false 时
+   * <video> 会从 DOM 移除，但组件本身仍挂载，所以不能只靠卸载清理）、组件卸载。
+   * 漏掉任何一种，macOS 都会留下一个继续播放旧内容的孤立浮窗。
+   */
+  useEffect(() => {
+    return () => exitPictureInPicture(videoRef.current);
+  }, [visible, src]);
+
   // 控制 mount/unmount + 过渡动画
   useEffect(() => {
     if (isPlay) {
@@ -165,39 +274,12 @@ export default function PlayerVideo({
     }
   }, [isPlay, isPlayVideoStop]);
 
-  // 监听画中画进入/离开事件（React 类型未暴露对应 props，手动挂监听）
-  useEffect(() => {
-    const video = videoRef.current;
-
-    if (!video) return;
-
-    const handleEnterPiP = () => setIsInPiP(true);
-    const handleLeavePiP = () => setIsInPiP(false);
-
-    video.addEventListener("enterpictureinpicture", handleEnterPiP);
-    video.addEventListener("leavepictureinpicture", handleLeavePiP);
-
-    return () => {
-      video.removeEventListener("enterpictureinpicture", handleEnterPiP);
-      video.removeEventListener("leavepictureinpicture", handleLeavePiP);
-    };
-  }, [visible]);
-
-  // 切换视频源时退出画中画，避免浮窗继续展示旧内容
-  useEffect(() => {
-    if (src && document.pictureInPictureElement) {
-      void document.exitPictureInPicture().catch(() => {});
-    }
-  }, [src]);
-
-  // 组件卸载时确保视频停止
+  // 组件卸载时确保视频停止，并收回画中画浮窗
   useEffect(() => {
     return () => {
       const video = videoRef.current;
       if (video) {
-        if (document.pictureInPictureElement === video) {
-          void document.exitPictureInPicture().catch(() => {});
-        }
+        exitPictureInPicture(video);
         video.pause();
         video.src = "";
       }
@@ -208,67 +290,14 @@ export default function PlayerVideo({
 
   if (isPlay === undefined) isPlay = false;
 
-  const pipAvailable =
-    typeof document !== "undefined" && document.pictureInPictureEnabled;
-  const displayTime = isScrubbing ? scrubTime : currentTime;
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  const progressPercent = safeDuration
-    ? Math.min(100, (displayTime / safeDuration) * 100)
-    : 0;
-
-  const closePlayerVideo = async () => {
+  const closePlayerVideo = () => {
     // 关闭视频浮窗：不要在此恢复音频播放（isPlaying 保持 false），
     // 由用户手动点击播放键继续收听，避免 macOS 上音频与视频抢播。
     const video = videoRef.current;
     if (video) reportCloudProgress(video.currentTime, true);
-    // 先退出画中画，再关闭播放器，避免浮窗残留
-    if (document.pictureInPictureElement) {
-      try {
-        await document.exitPictureInPicture();
-      } catch {
-        // ignore
-      }
-    }
+    // 先收回浮窗，否则 macOS 会留下一个孤立的画中画窗口继续播放
+    exitPictureInPicture(video);
     setIsplay(false);
-  };
-
-  const togglePlay = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      void video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
-  };
-
-  const handleSeekInput = (value: number) => {
-    const video = videoRef.current;
-    if (!video || !safeDuration) return;
-    const newTime = Math.min(Math.max(0, value), safeDuration);
-    setIsScrubbing(true);
-    setScrubTime(newTime);
-    try {
-      video.currentTime = newTime;
-    } catch {
-      // WebKit 偶发拒绝 seek，忽略即可
-    }
-  };
-
-  const endScrubbing = () => setIsScrubbing(false);
-
-  const togglePictureInPicture = async () => {
-    const video = videoRef.current;
-    if (!video || !pipAvailable) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await video.requestPictureInPicture();
-      }
-    } catch {
-      // 部分平台（如 macOS WKWebView）可能拒绝进入画中画，静默失败
-    }
   };
 
   return (
@@ -279,6 +308,14 @@ export default function PlayerVideo({
         <video
           ref={videoRef}
           src={src}
+          // 用系统原生控件条而不是自绘：各平台自动适配，进度条行为符合系统习惯。
+          // 注意这解决不了系统画中画的进度问题 —— macOS WebKit 的 PiP 浮窗根本
+          // 没有 scrubber（平台限制，与本页无关），要拖进度请用置顶小窗模式。
+          controls
+          // 防止 iOS/WebKit 把播放劫持进原生全屏
+          playsInline
+          // macOS 上系统画中画浮窗没有进度条，隐藏该按钮引导用户用置顶小窗
+          disablePictureInPicture={nativePipUnusable}
           className="player-video-element"
           onCanPlay={(event) => {
             const video = event.currentTarget;
@@ -301,29 +338,22 @@ export default function PlayerVideo({
           onLoadedMetadata={(event) => {
             const video = event.currentTarget;
 
-            setDuration(video.duration);
             syncInitialTime(video);
+            publishPositionState(video);
             if (isPlay && !isPlayVideoStop) void video.play().catch(() => {});
           }}
-          onDurationChange={(event) => {
-            setDuration(event.currentTarget.duration);
-          }}
-          onEnded={() => {
-            setIsPlaying(false);
-            reportCloudProgress(-1, true);
-          }}
+          onDurationChange={(event) => publishPositionState(event.currentTarget)}
+          onRateChange={(event) => publishPositionState(event.currentTarget)}
+          onEnded={() => reportCloudProgress(-1, true)}
           onPause={(event) => {
-            setIsPlaying(false);
             if (!event.currentTarget.ended) {
               reportCloudProgress(event.currentTarget.currentTime, true);
             }
             setIsPlayVideoStop(true);
           }}
-          onPlay={() => {
-            setIsPlaying(true);
-            setIsPlayVideoStop(false);
-          }}
+          onPlay={() => setIsPlayVideoStop(false)}
           onSeeked={(event) => {
+            publishPositionState(event.currentTarget);
             if (!isInitialSeekPendingRef.current) {
               reportCloudProgress(
                 event.currentTarget.currentTime,
@@ -333,77 +363,10 @@ export default function PlayerVideo({
             }
           }}
           onTimeUpdate={(event) => {
-            setCurrentTime(event.currentTarget.currentTime);
+            publishPositionState(event.currentTarget);
             reportCloudProgress(event.currentTarget.currentTime);
           }}
         />
-        {/* 画中画模式下浮窗只读，隐藏完整控件条，仅保留退出入口 */}
-        {isInPiP ? (
-          <button
-            className="player-video-pip-exit"
-            onClick={togglePictureInPicture}
-            title="退出画中画"
-          >
-            <Pic theme="outline" size="18" fill="#f1f5f9" />
-            退出画中画
-          </button>
-        ) : (
-          <div
-            className="player-video-controls"
-            style={
-              { "--pvp-progress": `${progressPercent}%` } as React.CSSProperties
-            }
-          >
-            <button
-              className="player-video-ctrl-btn"
-              onClick={togglePlay}
-              title={isPlaying ? "暂停" : "播放"}
-            >
-              {isPlaying ? (
-                <PauseOne theme="outline" size="18" fill="#f1f5f9" />
-              ) : (
-                <Play theme="outline" size="18" fill="#f1f5f9" />
-              )}
-            </button>
-            <span className="player-video-time">
-              {formatTime(displayTime)}
-            </span>
-            <div className="player-video-timeline-wrap">
-              <span
-                aria-hidden="true"
-                className="player-video-timeline-track"
-              />
-              <input
-                aria-label="播放进度"
-                aria-valuetext={`${formatTime(displayTime)} / ${formatTime(safeDuration)}`}
-                className="player-video-timeline"
-                disabled={!safeDuration}
-                max={safeDuration}
-                min="0"
-                step="0.1"
-                type="range"
-                value={displayTime}
-                onBlur={endScrubbing}
-                onInput={(event) =>
-                  handleSeekInput(event.currentTarget.valueAsNumber)
-                }
-                onPointerUp={endScrubbing}
-              />
-            </div>
-            <span className="player-video-time">
-              {formatTime(safeDuration)}
-            </span>
-            {pipAvailable && (
-              <button
-                className="player-video-ctrl-btn"
-                onClick={togglePictureInPicture}
-                title="画中画"
-              >
-                <Pic theme="outline" size="18" fill="#f1f5f9" />
-              </button>
-            )}
-          </div>
-        )}
         <button
           className="player-video-close"
           onClick={closePlayerVideo}

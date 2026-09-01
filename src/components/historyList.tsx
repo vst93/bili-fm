@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Close, MaskOne, Refresh, Time } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
@@ -20,7 +20,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import type { WatchLaterItem as BLWatchLaterItem } from "@/types/bilibili";
-import { graftingImage } from "@/utils/string";
+import { convertToDuration, graftingImage } from "@/utils/string";
 
 const MAX_RETAINED_ITEMS = 240;
 
@@ -28,8 +28,21 @@ type HistoryTab = "history" | "watchlater";
 
 const HISTORY_TAB_STORAGE_KEY = "historyActiveTab";
 
+const TAB_ORDER: HistoryTab[] = ["history", "watchlater"];
+
 const isHistoryTab = (value: string | null): value is HistoryTab =>
     value === "history" || value === "watchlater";
+
+/**
+ * 阻止卡片的 press 事件。
+ * HeroUI 的 Card isPressable 走 React Aria usePress，它在 pointerdown/mousedown 阶段
+ * 就开始识别按压，所以只在 onClick 里 stopPropagation 已经太晚 —— 点封面上的
+ * "稍后再看 / 移除" 按钮会连带触发卡片的播放跳转。这里在按下阶段就截断冒泡。
+ */
+const stopCardPress = {
+    onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
+    onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+};
 
 const loadInitialHistoryTab = (): HistoryTab => {
     try {
@@ -51,9 +64,9 @@ interface HistoryListProps {
     isIncognitoMode?: boolean;
     onIncognitoModeChange?: (enabled: boolean) => void;
     watchLaterList?: BLWatchLaterItem[];
-    onWatchLaterRefresh?: () => void;
-    onWatchLaterRemove?: (aid: number) => void;
-    onAddToWatchLater?: (aid: number) => void;
+    onWatchLaterRefresh?: () => void | Promise<void>;
+    onWatchLaterRemove?: (aid: number) => void | Promise<void>;
+    onAddToWatchLater?: (aid: number) => void | Promise<void>;
 }
 
 const HistoryList: FC<HistoryListProps> = ({
@@ -73,6 +86,9 @@ const HistoryList: FC<HistoryListProps> = ({
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
     const [activeTab, setActiveTabState] = useState<HistoryTab>(loadInitialHistoryTab);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    // 正在请求中的 aid，避免连点重复提交
+    const [pendingAids, setPendingAids] = useState<Set<number>>(new Set());
 
     // 切换 tab 时同步持久化，下次打开抽屉时恢复上次选择
     const setActiveTab = (tab: HistoryTab) => {
@@ -114,21 +130,26 @@ const HistoryList: FC<HistoryListProps> = ({
     };
 
     const handleRefresh = async () => {
-        if (activeTab === "watchlater") {
-            onWatchLaterRefresh?.();
-            return;
-        }
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        // 两个 tab 都回到顶部，否则刷新后停在旧的滚动位置上
         const drawerBody = document.querySelector('.history-drawer-body');
         if (drawerBody) {
             drawerBody.scrollTop = 0;
         }
-        setHistoryCursor({max: 0, view_at: 0, business: ''});
         try {
+            if (activeTab === "watchlater") {
+                await onWatchLaterRefresh?.();
+                return;
+            }
+            setHistoryCursor({ max: 0, view_at: 0, business: '' });
             const data = await invoke<BLHistoryList>("get_history_list", { max: 0, viewAt: 0, business: '', ps: 30 });
             setHistoryList(data?.list || []);
             setHistoryCursor(data?.cursor || {});
         } catch (error) {
-            console.error("刷新历史记录失败:", error);
+            console.error("刷新失败:", error);
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -150,20 +171,56 @@ const HistoryList: FC<HistoryListProps> = ({
         }
     };
 
+    // 请求期间把 aid 记进 pendingAids，按钮置灰，避免连点重复请求
+    const runWatchLaterAction = useCallback(
+        async (aid: number, action?: (aid: number) => void | Promise<void>) => {
+            if (!aid || !action) return;
+            let shouldRun = false;
+            setPendingAids((prev) => {
+                if (prev.has(aid)) return prev;
+                shouldRun = true;
+                const next = new Set(prev);
+                next.add(aid);
+                return next;
+            });
+            if (!shouldRun) return;
+            try {
+                await action(aid);
+            } finally {
+                setPendingAids((prev) => {
+                    if (!prev.has(aid)) return prev;
+                    const next = new Set(prev);
+                    next.delete(aid);
+                    return next;
+                });
+            }
+        },
+        [],
+    );
+
     const handleRemoveWatchLater = (aid: number) => {
-        onWatchLaterRemove?.(aid);
+        void runWatchLaterAction(aid, onWatchLaterRemove);
+    };
+
+    const handleAddWatchLater = (aid: number) => {
+        void runWatchLaterAction(aid, onAddToWatchLater);
+    };
+
+    const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const offset = e.key === "ArrowRight" ? 1 : -1;
+        const nextIndex = (TAB_ORDER.indexOf(activeTab) + offset + TAB_ORDER.length) % TAB_ORDER.length;
+        const nextTab = TAB_ORDER[nextIndex];
+        setActiveTab(nextTab);
+        // 焦点跟随选中的 tab，符合 tablist 的键盘交互预期
+        const nextButton = document.querySelector<HTMLButtonElement>(`.history-tab[data-tab="${nextTab}"]`);
+        nextButton?.focus();
     };
 
     const formatTimestamp = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    };
-
-    const formatDuration = (seconds: number) => {
-        const total = Math.max(0, Math.floor(seconds || 0));
-        const minutes = Math.floor(total / 60);
-        const remainder = total % 60;
-        return `${minutes}:${String(remainder).padStart(2, "0")}`;
     };
 
     return (
@@ -180,24 +237,34 @@ const HistoryList: FC<HistoryListProps> = ({
                     <>
                         <DrawerHeader className="history-drawer-header py-2">
                             <div className="history-drawer-title-row">
-                                <div className="history-tabs" role="tablist">
+                                <div aria-label="历史记录分类" className="history-tabs" role="tablist">
                                     <button
+                                        aria-controls="history-panel-history"
                                         aria-selected={activeTab === "history"}
                                         className="history-tab"
                                         data-active={activeTab === "history" || undefined}
+                                        data-tab="history"
+                                        id="history-tab-history"
                                         role="tab"
+                                        tabIndex={activeTab === "history" ? 0 : -1}
                                         type="button"
                                         onClick={() => setActiveTab("history")}
+                                        onKeyDown={handleTabKeyDown}
                                     >
                                         观看历史
                                     </button>
                                     <button
+                                        aria-controls="history-panel-watchlater"
                                         aria-selected={activeTab === "watchlater"}
                                         className="history-tab"
                                         data-active={activeTab === "watchlater" || undefined}
+                                        data-tab="watchlater"
+                                        id="history-tab-watchlater"
                                         role="tab"
+                                        tabIndex={activeTab === "watchlater" ? 0 : -1}
                                         type="button"
                                         onClick={() => setActiveTab("watchlater")}
+                                        onKeyDown={handleTabKeyDown}
                                     >
                                         稍后再看
                                     </button>
@@ -205,11 +272,17 @@ const HistoryList: FC<HistoryListProps> = ({
                                 <Button
                                     aria-label={activeTab === "history" ? "刷新历史记录" : "刷新稍后再看"}
                                     isIconOnly
+                                    isDisabled={isRefreshing}
                                     size="sm"
                                     variant="light"
                                     onClick={handleRefresh}
                                 >
-                                    <Refresh theme="outline" size="20" fill="#333" />
+                                    <Refresh
+                                        className={isRefreshing ? "history-refresh-spinning" : undefined}
+                                        theme="outline"
+                                        size="20"
+                                        fill="#333"
+                                    />
                                 </Button>
                             </div>
                             {activeTab === "history" && (
@@ -244,7 +317,13 @@ const HistoryList: FC<HistoryListProps> = ({
                             )}
                         </DrawerHeader>
                         {activeTab === "history" ? (
-                            <DrawerBody className="history-drawer-body" onScroll={handleScroll}>
+                            <DrawerBody
+                                aria-labelledby="history-tab-history"
+                                className="history-drawer-body"
+                                id="history-panel-history"
+                                role="tabpanel"
+                                onScroll={handleScroll}
+                            >
                                 <div
                                     className="gap-2 grid grid-cols-2 sm:grid-cols-3"
                                     style={{ width: "100%" }}
@@ -276,13 +355,14 @@ const HistoryList: FC<HistoryListProps> = ({
                                                             aria-label={isWatchLater ? "已在稍后再看" : "添加到稍后再看"}
                                                             className="history-watchlater-btn"
                                                             data-added={isWatchLater || undefined}
-                                                            disabled={isWatchLater}
+                                                            disabled={isWatchLater || pendingAids.has(aid)}
                                                             title={isWatchLater ? "已在稍后再看" : "添加到稍后再看"}
                                                             type="button"
+                                                            {...stopCardPress}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 if (!isWatchLater) {
-                                                                    onAddToWatchLater?.(aid);
+                                                                    handleAddWatchLater(aid);
                                                                 }
                                                             }}
                                                         >
@@ -310,7 +390,12 @@ const HistoryList: FC<HistoryListProps> = ({
                                 </div>
                             </DrawerBody>
                         ) : (
-                            <DrawerBody className="history-drawer-body">
+                            <DrawerBody
+                                aria-labelledby="history-tab-watchlater"
+                                className="history-drawer-body"
+                                id="history-panel-watchlater"
+                                role="tabpanel"
+                            >
                                 {(watchLaterList?.length || 0) === 0 ? (
                                     <div className="history-empty-tip" role="status">
                                         暂无稍后再看视频
@@ -321,9 +406,15 @@ const HistoryList: FC<HistoryListProps> = ({
                                         style={{ width: "100%" }}
                                     >
                                         {watchLaterList?.map((item) => {
-                                            const progressRatio = item.duration > 0
-                                                ? Math.min(100, Math.round(((item.progress || 0) / item.duration) * 100))
+                                            // B 站用 progress = -1 表示已看完，直接按比例算会得到负数而丢掉这个状态
+                                            const progress = item.progress ?? 0;
+                                            const ratio = item.duration > 0
+                                                ? Math.min(100, Math.round((progress / item.duration) * 100))
                                                 : 0;
+                                            const progressLabel = progress < 0
+                                                ? " | 已看完"
+                                                : ratio > 0 ? ` | 已看 ${ratio}%` : "";
+                                            const isPending = pendingAids.has(item.aid);
                                             return (
                                                 <Card
                                                     key={`${item?.bvid}-${item?.aid}`}
@@ -344,13 +435,15 @@ const HistoryList: FC<HistoryListProps> = ({
                                                             width="100%"
                                                         />
                                                         <span className="watchlater-duration-badge">
-                                                            {formatDuration(item.duration)}
+                                                            {convertToDuration(item.duration)}
                                                         </span>
                                                         <button
                                                             aria-label="从稍后再看移除"
                                                             className="watchlater-remove-btn"
+                                                            disabled={isPending}
                                                             title="从稍后再看移除"
                                                             type="button"
+                                                            {...stopCardPress}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 handleRemoveWatchLater(item.aid);
@@ -368,7 +461,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         </b>
                                                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                                                             {item.owner?.name}
-                                                            {progressRatio > 0 ? ` | 已看 ${progressRatio}%` : ""}
+                                                            {progressLabel}
                                                         </p>
                                                     </CardFooter>
                                                 </Card>

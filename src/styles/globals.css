@@ -182,6 +182,10 @@ body {
 
 #root {
     --app-window-radius: 12px;
+    /* 标题栏高度。视频满铺时标题栏浮在画面之上，画面里的按钮
+       （关闭 / 小窗操作）靠它下移让开，避免和窗口按钮叠在一起。
+       迷你模式下会被覆盖为 24px。 */
+    --titlebar-height: 36px;
     border-radius: var(--app-window-radius);
     background-color: #fefefe;
     background-clip: border-box;
@@ -261,6 +265,7 @@ img{
 }
 
 .img-container {
+    position: relative;
     width: 100%;
     height: 100px;
 }
@@ -2730,9 +2735,10 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 [data-slot="wrapper"] > section {
     position: relative;
     isolation: isolate;
-    height: auto;
+    /* NOTE: 不要在这里声明 height —— 该选择器特异性 (0,1,1) 高于抽屉自身的
+       .h-[92vh] (0,1,0)，会覆盖掉每个抽屉通过 classNames.base 设置的高度，
+       导致选集等所有抽屉一起变成内容高度。高度由各抽屉自己决定，这里只兜底上限。 */
     max-height: min(92vh, calc(100vh - 54px)) !important;
-    min-height: 320px;
     display: flex !important;
     flex-direction: column !important;
     border-top: 1px solid var(--glass-border) !important;
@@ -3348,8 +3354,13 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
 }
 
+/* 抽屉高度固定，空列表时把提示居中，避免顶部一行文字下面一片空白 */
 .history-empty-tip {
-    padding: 48px 12px;
+    flex: 1 1 auto;
+    display: grid;
+    place-content: center;
+    min-height: 160px;
+    padding: 24px 12px;
     color: #94a3b8;
     font-size: 13px;
     text-align: center;
@@ -3396,6 +3407,27 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 .history-watchlater-btn:disabled {
     cursor: default;
     transform: none;
+}
+
+/* 请求进行中：按钮置灰但保留位置，避免布局跳动 */
+.watchlater-remove-btn:disabled {
+    cursor: default;
+    opacity: 0.55;
+    transform: none;
+}
+
+.history-refresh-spinning {
+    animation: history-refresh-spin 800ms linear infinite;
+}
+
+@keyframes history-refresh-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .history-refresh-spinning {
+        animation: none;
+    }
 }
 
 .watchlater-duration-badge {
@@ -4485,6 +4517,9 @@ html:is(
 
 #player_video {
     position: fixed;
+    /* 满铺整个窗口：顶上不留亮色横条，避免与近黑的画面硬接。
+       标题栏不是被让开的，而是被抬到本层之上浮在画面上（见 body.video-open
+       .app-title-bar），拖动区和窗口按钮照常可点。 */
     inset: 0;
     z-index: 998;
     display: flex;
@@ -4549,162 +4584,75 @@ html:is(
     transform: scale(0.92);
 }
 
-/* ====== Video player custom controls ====== */
 
-.player-video-controls {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 998;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    background: linear-gradient(
-        180deg,
-        rgba(8, 12, 20, 0) 0%,
-        rgba(8, 12, 20, 0.55) 38%,
-        rgba(8, 12, 20, 0.78) 100%
-    );
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+/* 视频打开期间隐藏音频控件条：音频此时已被 forcePause 暂停，
+   而它会从视频遮罩（82% 半透明）后透出来，与视频自己的原生控件条在底部重叠。
+   大窗和视频小窗都适用。 */
+body.video-open #player {
+    display: none;
 }
 
-.player-video-ctrl-btn {
-    flex: none;
-    width: 34px;
-    height: 34px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: 50%;
-    background: transparent;
-    cursor: pointer;
-    transition: background 0.16s ease, transform 0.1s ease;
-}
-
-.player-video-ctrl-btn:hover {
-    background: rgba(255, 255, 255, 0.14);
-}
-
-.player-video-ctrl-btn:active {
-    transform: scale(0.9);
-}
-
-.player-video-time {
-    flex: none;
-    min-width: 44px;
-    text-align: center;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: rgba(241, 245, 249, 0.92);
-    text-shadow: 0 1px 2px rgba(8, 12, 20, 0.6);
-    user-select: none;
-}
-
-.player-video-timeline-wrap {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    height: 24px;
-}
-
-.player-video-timeline-track {
-    position: absolute;
-    top: 50%;
-    left: 7px;
-    right: 7px;
-    height: 6px;
-    box-sizing: border-box;
-    border: 1px solid rgba(255, 255, 255, 0.68);
-    border-radius: 999px;
-    pointer-events: none;
-    transform: translateY(-50%);
-    background: linear-gradient(
-        90deg,
-        rgba(45, 212, 191, 0.78) 0,
-        rgba(2, 132, 199, 0.82) var(--pvp-progress, 0%),
-        rgba(255, 255, 255, 0.32) var(--pvp-progress, 0%)
-    );
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.88),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.08);
-}
-
-.player-video-timeline {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    width: 100%;
-    height: 24px;
-    cursor: pointer;
-}
-
-.player-video-timeline::-webkit-slider-runnable-track {
-    height: 6px;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-}
-
-.player-video-timeline::-webkit-slider-thumb {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    margin-top: -4px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 50%;
-    background:
-        radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.98) 0 15%, rgba(255, 255, 255, 0.42) 34%, transparent 58%),
-        rgba(224, 242, 254, 0.62);
-    box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.92),
-        0 2px 7px rgba(2, 132, 199, 0.24);
-    transition: transform 100ms ease;
-}
-
-.player-video-timeline:hover::-webkit-slider-thumb {
-    transform: scale(1.1);
-}
-
-.player-video-timeline:active::-webkit-slider-thumb {
-    transform: scale(1.12);
-}
-
-.player-video-timeline:disabled {
-    cursor: default;
-}
-
-/* 画中画模式下仅保留的退出按钮 */
-.player-video-pip-exit {
-    position: absolute;
-    top: 10px;
-    left: 10px;
+/* ---- 视频打开时的标题栏：浮在画面上，而不是画面上方的一条亮带 ----
+   画面满铺到窗口顶部，标题栏抬到视频层（998）之上，保留
+   data-tauri-drag-region 的拖动能力和窗口按钮点击。
+   配色转深色，否则墨色文字压在近黑画面上看不见。 */
+body.video-open .app-title-bar {
     z-index: 999;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 38px;
-    padding: 0 14px;
-    border: 0;
-    border-radius: 999px;
-    background: rgba(15, 23, 42, 0.45);
-    color: #f1f5f9;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.16s ease, transform 0.1s ease;
+    color: rgba(241, 245, 249, 0.92);
 }
 
-.player-video-pip-exit:hover {
-    background: rgba(15, 23, 42, 0.7);
-    transform: scale(1.04);
+/* 顶部渐隐压暗：让浅色画面下的文字与按钮仍然可读，
+   同时把标题栏与画面之间的分界抹掉。铺满标题栏并向下多渐隐 140%。 */
+body.video-open .app-title-bar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -40% 0;
+    pointer-events: none;
+    z-index: -1;
+    background: linear-gradient(180deg,
+        rgba(8, 12, 20, 0.72) 0%,
+        rgba(8, 12, 20, 0.42) 55%,
+        transparent 100%);
 }
 
-.player-video-pip-exit:active {
-    transform: scale(0.96);
+/* hover 的白色玻璃洗光在深底上会发灰，换成浅色微亮 */
+body.video-open .app-title-bar::after {
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.12) 0%,
+        rgba(255, 255, 255, 0.06) 45%,
+        transparent 100%);
+}
+
+body.video-open .app-title-bar-btn {
+    color: rgba(241, 245, 249, 0.86);
+}
+
+body.video-open .app-title-bar-btn:hover {
+    color: #7dd3fc;
+}
+
+body.video-open #wds-handle-group {
+    background: rgba(15, 23, 42, 0.42);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* 深底上不要用亮色玻璃底噪，压深即可 */
+body.video-open .app-title-bar button:hover {
+    background-color: rgba(15, 23, 42, 0.55) !important;
+    background-image: none !important;
+}
+
+/* 关窗键保留红色 hover 作为区分（上面那条特异性更高，会盖掉原规则，这里补回深色版） */
+body.video-open .app-title-bar button.app-title-bar-close:hover {
+    color: #fda4af !important;
+    background-color: rgba(225, 29, 72, 0.32) !important;
+    background-image: none !important;
+    box-shadow: none !important;
+}
+
+/* 关闭按钮下移到标题栏之下，否则与右上角窗口按钮（Windows/Linux）叠在一起 */
+body.video-open .player-video-close {
+    top: calc(var(--titlebar-height, 36px) + 8px);
 }
 
 /* ====== Liquid Glass Dialog ====== */

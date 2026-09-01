@@ -85,7 +85,6 @@ export default function IndexPage() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPlayVideo, setIsPlayVideo] = useState(false);
   const [isPlayVideoStop, setIsPlayVideoStop] = useState(true);
-  const [videoInitialTime, setVideoInitialTime] = useState(0);
   const [showLoginPanel, setShowLoginPanel] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [userFace, setUserFace] = useState("");
@@ -124,9 +123,16 @@ export default function IndexPage() {
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
+  // macOS WebKit 的系统画中画浮窗只有播放/暂停，没有进度条，
+  // 所以用应用自己的置顶小窗替代 —— 里面的 <video controls> 原生进度条可正常拖动。
   // Linux 下 webkit2gtk 在 frameless + DisableResize 模式下无法运行时调整窗口大小，
   // 迷你模式会导致内容缩到左上角但窗口不变，因此 Linux 上禁用迷你模式
   const [isLinux, setIsLinux] = useState(false);
+  // macOS 的系统画中画浮窗没有进度条（WebKit 平台限制），点进去就调不了进度，
+  // 因此在 macOS 上隐藏原生 PiP 按钮，引导用户走能拖进度的置顶小窗。
+  // Windows 的 WebView2 (Chromium) 画中画自带进度条，保留不动。
+  const [isMacOS, setIsMacOS] = useState(false);
   const [showDanmakuList, setShowDanmakuList] = useState(false);
   const [danmakuList, setDanmakuList] = useState<BL.DanmakuList>();
   const [isLoadingDanmaku, setIsLoadingDanmaku] = useState(false);
@@ -191,6 +197,16 @@ export default function IndexPage() {
     };
   }, [isMiniMode]);
 
+  // 视频打开期间音频已被 forcePause 暂停，隐藏音频控件条：
+  // 它会从视频遮罩后透出来，和视频自己的原生控件条在底部叠在一起
+  useEffect(() => {
+    document.body.classList.toggle("video-open", !!isPlayVideo);
+
+    return () => {
+      document.body.classList.remove("video-open");
+    };
+  }, [isPlayVideo]);
+
   useEffect(() => {
     if (!showFeedList) {
       setFeedList(undefined);
@@ -244,9 +260,19 @@ export default function IndexPage() {
     }
   }, [isPlayVideo]);
 
-  // 音频开始播放时确保视频浮窗已关闭
+  // 音频「由停转播」时关闭视频浮窗。
+  //
+  // 必须取上升沿，不能直接判断 (isPlaying && isPlayVideo)：音频正在放时点开视频，
+  // 上面那个 effect 的 setIsPlaying(false) 要到下一轮才生效，本轮 isPlaying 仍是
+  // true，于是两个 effect 在同一轮里互相抵消 —— 视频刚打开就被关掉，表现为
+  // 第一次点开闪一下退回去，再点一次才留得住。
+  const wasAudioPlayingRef = useRef(isPlaying);
+
   useEffect(() => {
-    if (isPlaying && isPlayVideo) {
+    const wasPlaying = wasAudioPlayingRef.current;
+
+    wasAudioPlayingRef.current = isPlaying;
+    if (!wasPlaying && isPlaying && isPlayVideo) {
       setIsPlayVideo(false);
       setIsPlayVideoStop(true);
     }
@@ -256,6 +282,7 @@ export default function IndexPage() {
     // 检测平台，Linux 下禁用迷你模式
     invoke<string>("get_platform").then((platform: string) => {
       setIsLinux(platform === "linux");
+      setIsMacOS(platform === "darwin");
       // Linux: 窗口管理器不支持外层圆角，去掉 #root 及所有使用 --app-window-radius 的圆角
       document.body.classList.toggle("platform-linux", platform === "linux");
       document.body.classList.toggle("platform-windows", platform === "windows");
@@ -504,6 +531,7 @@ export default function IndexPage() {
       }
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
+        if (!playUrl) return;
         //如果当前对象为 div id = video-cover ，阻止
         if (
           event.target instanceof HTMLDivElement &&
@@ -1952,36 +1980,8 @@ export default function IndexPage() {
   const switchWindowMode = async () => {
     // Linux 下不支持迷你模式，直接返回
     if (isLinux) return;
-    let theIsMiniMode = !isMiniMode;
-
-    // 进入迷你模式时若视频浮窗正在播放，将播放进度交接给音频：
-    // 记录视频当前进度 -> 关闭视频浮窗 -> 音频从该进度继续播放
-    if (theIsMiniMode && isPlayVideo) {
-      const videoEl = document.querySelector<HTMLVideoElement>("#player_video video");
-      const videoProgress =
-        videoEl && Number.isFinite(videoEl.currentTime) && videoEl.currentTime > 0
-          ? videoEl.currentTime
-          : videoInitialTime;
-      setIsPlayVideo(false);
-      setIsPlayVideoStop(true);
-      setVideoInitialTime(videoProgress);
-      const audioEl = document.querySelector<HTMLAudioElement>("#player audio");
-      if (audioEl && videoProgress > 0) {
-        // 與 Player 裡的 safeSeek 一致：僅在媒體就緒時寫 currentTime，
-        // 避免在某些 WebKit 環境下 seek 阻塞 UI 線程。
-        if (
-          audioEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-          audioEl.networkState !== HTMLMediaElement.NETWORK_LOADING
-        ) {
-          try {
-            audioEl.currentTime = videoProgress;
-          } catch {
-            // 音頻尚未就緒時忽略 seek 失敗
-          }
-        }
-      }
-      setIsPlaying(true);
-    }
+    // 播放视频时不提供迷你模式（标题栏的切换键在 isPlayVideo 时已不渲染）
+    const theIsMiniMode = !isMiniMode;
 
     document.body.classList.toggle("mini-mode", theIsMiniMode);
     setIsMiniMode(theIsMiniMode);
@@ -2056,7 +2056,12 @@ export default function IndexPage() {
 
   return (
     <DefaultLayout>
-      <TitleBar onSwitchMode={switchWindowMode} showSwitchMode={!isMiniMode && !isLinux} />
+      {/* 播放视频时标题栏浮在画面上，迷你模式切换键放这里既多余又干扰画面，
+          入口下移到视频浮层自己的按钮组（见 PlayerVideo onMiniWindow）。 */}
+      <TitleBar
+        onSwitchMode={switchWindowMode}
+        showSwitchMode={!isMiniMode && !isLinux && !isPlayVideo}
+      />
       {isMiniMode ? (
         ""
       ) : (
@@ -2135,21 +2140,27 @@ export default function IndexPage() {
         onPlayStateChange={setIsPlaying}
         onTimeUpdate={showDanmakuList ? handleTimeUpdate : undefined}
       />
+      {/* 视频画面：大窗常规显示，视频小窗模式下铺满小窗。
+          抽屉/弹窗仍只在大窗渲染，小窗里没有空间也没有意义。 */}
+      {isMiniMode ? (
+        ""
+      ) : (
+        <PlayerVideo
+          aid={displayVideoInfo?.aid}
+          cid={displayVideoInfo?.cid}
+          cloudHistoryEnabled={!isIncognitoMode}
+          isPlay={isPlayVideo}
+          isPlayVideoStop={isPlayVideoStop}
+          nativePipUnusable={isMacOS}
+          setIsplay={setIsPlayVideo}
+          setIsPlayVideoStop={setIsPlayVideoStop}
+          src={playUrl}
+        />
+      )}
       {isMiniMode ? (
         ""
       ) : (
         <>
-          <PlayerVideo
-            aid={displayVideoInfo?.aid}
-            cid={displayVideoInfo?.cid}
-            cloudHistoryEnabled={!isIncognitoMode}
-            initialTime={videoInitialTime}
-            isPlay={isPlayVideo}
-            isPlayVideoStop={isPlayVideoStop}
-            setIsplay={setIsPlayVideo}
-            setIsPlayVideoStop={setIsPlayVideoStop}
-            src={playUrl}
-          />
           <Suspense fallback={
             <div className="lazy-drawer-loading" role="status" aria-live="polite">
               <div className="lazy-drawer-loading-card">

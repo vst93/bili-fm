@@ -9,8 +9,10 @@ export const bvidToUrl = (bvid: string) => {
 };
 
 export const convertToDuration = (seconds: number) => {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
+  // 兜底掉 undefined / NaN / 负数，避免渲染出 "NaN:NaN"
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const minutes = Math.floor(total / 60);
+  const remainingSeconds = total % 60;
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 };
 

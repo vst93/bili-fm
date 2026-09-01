@@ -116,8 +116,12 @@ const SeriesList: FC<SeriesListProps> = ({
 
     return (
         <Drawer
-            /* 高度交给 globals.css 的玻璃拟态规则：height auto 自适应内容，
-               max-height min(92vh, calc(100vh - 54px)) 封顶，内容多时 DrawerBody 滚动 */
+            /* 合集列表通常较短，高度自适应内容：min-h 防止塌成一条，
+               max-h 由 globals.css 的 min(92vh, calc(100vh - 54px)) 封顶，内容多时 DrawerBody 滚动。
+               注意必须显式写在这里 —— globals.css 不再统一声明 height，否则会覆盖其它抽屉的固定高度 */
+            classNames={{
+                base: "h-auto min-h-[320px] max-h-[calc(100vh-54px)]",
+            }}
             isOpen={isOpen}
             placement="bottom"
             onOpenChange={handleOpenChange}
