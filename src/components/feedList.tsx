@@ -79,7 +79,7 @@ const FeedList: FC<FeedListProps> = ({
         {() => (
           <>
             <DrawerHeader className="flex items-center gap-2 py-2">
-              动态列表
+              <span className="text-sm flex-none">动态列表</span>
               <Button
                 aria-label="刷新动态列表"
                 isIconOnly

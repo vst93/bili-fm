@@ -1585,7 +1585,8 @@ body.mini-mode #root::before {
     margin: 0;
     float: none;
     display: block;
-    padding: 2px 0;
+    /* 左侧留 3px：头像的聚焦环/hover 缩放需要空间，overflow: hidden 会裁掉溢出部分 */
+    padding: 2px 0 2px 3px;
     overflow: hidden;
 }
 
@@ -1658,6 +1659,17 @@ body.mini-mode #root::before {
         0 0 0 1px rgba(14, 165, 233, 0.3),
         0 8px 18px rgba(14, 165, 233, 0.18);
     transform: scale(1.06);
+    z-index: 10;
+}
+
+/* 聚焦环用 box-shadow 而不是 outline：#video-info 是 overflow: hidden 且左侧无内边距，
+   头像只有 2px margin，outline + offset 画在元素外侧会被容器左边缘裁掉。
+   box-shadow 绘制在元素自身图层内，不受祖先裁剪影响，也天然贴合圆形。 */
+#video-owner-face:focus-visible {
+    outline: none;
+    box-shadow:
+        0 0 0 2px var(--studio-blue),
+        0 4px 12px rgba(15, 23, 42, 0.1);
     z-index: 10;
 }
 
@@ -2582,15 +2594,20 @@ body.mini-mode #root::before {
     z-index: 1;
 }
 
+/* hover / active 全部沿用 .app-title-bar button 的通用玻璃规则，和最小化、关闭
+   保持同一套中性观感，不额外强调；这里只改图标色和不透明度。 */
 #switch-window-mode:hover {
     opacity: 1;
     color: #0284c7;
-    background-color: var(--glass-bg-hover);
+}
+
+#switch-window-mode:focus-visible {
+    outline: 0;
+    opacity: 1;
+    color: #0284c7;
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(15, 23, 42, 0.06);
-    transform: translateY(-1px);
+        0 0 0 2px rgba(2, 132, 199, 0.4);
 }
 
 #switch-window-mode:active,
@@ -2711,54 +2728,77 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 }
 
 /* Drawer header - <header> inside the section */
+/* 所有 drawer header 的分割线都在这里统一定义，组件不要再叠 border-b：
+   纯白半透明在浅玻璃上几乎看不见，所以用「灰蓝暗线 + 下方白高光」两层，
+   模拟玻璃截面的厚度。 */
 [data-slot="wrapper"] > section > header {
     flex: 0 0 auto !important;
-    min-height: 46px;
+    /* height 而非 min-height：组件的 header 都是 py-2 + 32px 控件 = 48px。
+       留成 min-height 时内部任何元素的高度变化都会撑高整行。 */
+    height: 48px !important;
     max-width: 100%;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.28) !important;
+    /* 关闭按钮是 absolute 浮在右上角，不占流内空间，header 末尾的按钮会被它压住，
+       所以右侧预留出它的宽度 + 间距。 */
+    padding-right: 44px !important;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.14) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) !important;
     background: transparent !important;
 }
 
-/* Scroll arrow buttons -- compact glass pills */
+/* header 标题统一字号字重。HeroUI 的 DrawerHeader 默认是 text-large(18px)
+   font-semibold，组件各自写 text-sm 去盖，漏写的就会明显偏大（feedList 曾如此）。
+   在 header 上直接定义，组件不必再关心。Tabs / 按钮内的文字有各自的字号规则，
+   不受这里影响。 */
+[data-slot="wrapper"] > section > header > span:not([class*="text-xs"]) {
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+}
+
+
+/* 左右滚动箭头：无边框，但要有常驻底色和足够深的箭头色，
+   否则在浅玻璃上淡到像被禁用。仍然比胶囊 tab 轻一档。 */
 .collect-scroll-btn {
     flex: 0 0 auto;
-    width: 28px;
+    width: 26px;
     height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    color: #64748b;
-    background-color: rgba(255, 255, 255, 0.3);
-    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%);
-    box-shadow: inset 0 1px 1px var(--glass-highlight);
+    border: 0;
+    border-radius: 7px;
+    color: #475569;
+    background-color: rgba(15, 23, 42, 0.06);
     cursor: pointer;
-    position: relative;
-    isolation: isolate;
-    transition: color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease, transform 0.12s ease;
+    transition: color 0.16s ease, background-color 0.16s ease;
 }
 
 .collect-scroll-btn:hover {
     color: #0284c7;
-    background-color: var(--glass-bg-hover);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        0 2px 8px rgba(15, 23, 42, 0.05);
-    transform: translateY(-1px);
+    background-color: rgba(14, 165, 233, 0.14);
 }
 
 .collect-scroll-btn:active {
-    transform: scale(0.92);
-    background-color: var(--glass-bg-active);
-    box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+    background-color: rgba(15, 23, 42, 0.12);
+}
+
+.collect-scroll-btn:focus-visible {
+    outline: 0;
+    color: #0284c7;
+    box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.4);
 }
 
 /* Horizontal scroll container for tabs */
+/* height 固定：这是 header 里唯一可伸缩的项，高度若由内容决定，
+   任何一处 1px 差异都会顶动整行。32px = 胶囊 tab 的高度。 */
 .collect-tabs-scroll {
     flex: 1 1 auto;
     min-width: 0;
+    height: 32px;
+    display: flex;
+    align-items: center;
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: none;
 }
 
@@ -2851,8 +2891,10 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-top: 1px solid rgba(255, 255, 255, 0.18) !important;
 }
 
-/* Sort/filter buttons - subtle, integrated */
+/* Sort/filter buttons - subtle, integrated.
+   header 是单行 flex，按钮一律不参与收缩，否则图标按钮会被挤成椭圆。 */
 [data-slot="wrapper"] header [data-slot="base"] {
+    flex: 0 0 auto !important;
     border: 0 !important;
     border-radius: 8px !important;
     background: rgba(255, 255, 255, 0.28) !important;
@@ -2915,24 +2957,78 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     height: 32px;
     padding: 0 10px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background-color: rgba(255, 255, 255, 0.3);
-    box-shadow: inset 0 1px 1px var(--glass-highlight);
-    transition: background-color 0.16s ease, border-color 0.16s ease,
-        box-shadow 0.16s ease;
+    position: relative;
+    isolation: isolate;
+    border: 1px solid var(--glass-border);
+    background: transparent;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 和 header 的 tab 胶囊共用同一套玻璃配方：::before 承载模糊 + 填充，
+   ::after 用 mask 裁出 1px 边缘聚光。 */
+[data-slot="wrapper"] header .part-search::before {
+    content: "";
+    position: absolute;
+    /* inset: -1px 抵消 1px 边框，让填充和边框的圆角半径对齐（同 tab 胶囊） */
+    inset: -1px;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur-thin);
+    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    z-index: -1;
+    transition: background-color 0.2s ease;
+}
+
+[data-slot="wrapper"] header .part-search::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.06);
+    opacity: 0.65;
+    transition: opacity 0.2s ease;
+    z-index: 1;
+}
+
+[data-slot="wrapper"] header .part-search > * {
+    position: relative;
+    z-index: 2;
 }
 
 [data-slot="wrapper"] header .part-search:hover {
-    background-color: rgba(255, 255, 255, 0.42);
     border-color: var(--glass-border-bright);
+    box-shadow: var(--liquid-shadow);
 }
 
+[data-slot="wrapper"] header .part-search:hover::before {
+    background-color: var(--liquid-bg-hover);
+}
+
+/* 聚焦态和选中的 tab 同一套语言：玻璃变厚、边缘光拉满，蓝色只在外圈光环 */
 [data-slot="wrapper"] header .part-search:focus-within {
-    background-color: rgba(255, 255, 255, 0.55);
-    border-color: rgba(14, 165, 233, 0.4);
+    border-color: var(--glass-border-bright);
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        0 0 0 3px rgba(14, 165, 233, 0.12);
+        var(--liquid-shadow-lifted),
+        0 0 0 3px rgba(14, 165, 233, 0.14);
+}
+
+[data-slot="wrapper"] header .part-search:focus-within::before {
+    background-color: rgba(255, 255, 255, 0.52);
+}
+
+[data-slot="wrapper"] header .part-search:focus-within::after {
+    opacity: 1;
 }
 
 [data-slot="wrapper"] header .part-search-icon {
@@ -3070,36 +3166,116 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     height: 32px !important;
     padding: 0 14px !important;
     border-radius: 8px !important;
-    background-color: rgba(255, 255, 255, 0.3) !important;
-    border: 1px solid rgba(255, 255, 255, 0.35) !important;
-    box-shadow: inset 0 1px 1px var(--glass-highlight) !important;
+    position: relative !important;
+    isolation: isolate !important;
+    overflow: visible !important;
+    background: transparent !important;
+    border: 1px solid var(--glass-border) !important;
+    box-shadow: none !important;
     color: #475569 !important;
     font-size: 13px !important;
     font-weight: 600 !important;
     white-space: nowrap !important;
-    transition: background-color 0.16s ease, border-color 0.16s ease,
-        box-shadow 0.16s ease, color 0.16s ease !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease,
+        color 0.2s ease !important;
 }
 
-[data-slot="wrapper"] header [data-slot="tab"]:hover {
-    background-color: rgba(255, 255, 255, 0.5) !important;
+/* 玻璃材质本体：模糊的背景 + 半透明白填充，放在 ::before 里，
+   这样文字（z-index 更高）不会被 backdrop-filter 影响。
+   用 --liquid-blur-thin（14px）而不是 20px：小元素用薄玻璃，模糊面积小、开销低。 */
+[data-slot="wrapper"] header [data-slot="tab"]::before {
+    content: "";
+    position: absolute;
+    /* inset: -1px 抵消 1px 边框：绝对定位的 inset: 0 是 padding box（边框内沿），
+       而 border-radius: inherit 继承的是外沿半径 8px，内沿实际只有 7px，
+       四角会露出 1px 缝隙。外扩到边框外沿，两者半径就对齐了。 */
+    inset: -1px;
+    border-radius: inherit;
+    background-color: var(--liquid-bg);
+    background-image: var(--glass-sheen-static);
+    backdrop-filter: var(--liquid-blur-thin);
+    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    z-index: -1;
+    transition: background-color 0.2s ease;
+}
+
+/* 边缘聚光：1px 锥形渐变描边，光在顶部边缘最亮。
+   mask-composite 把渐变裁成一圈细边，不会糊掉里面的半透明填充。 */
+[data-slot="wrapper"] header [data-slot="tab"]::after {
+    content: "";
+    position: absolute;
+    /* 同 ::before：外扩到边框外沿，让边缘光的弧线和 border 的弧线重合，
+       否则四角会看到两条半径不同（7px / 8px）的弧线分离。 */
+    inset: -1px;
+    pointer-events: none;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--liquid-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow:
+        var(--liquid-chromatic),
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.06);
+    opacity: 0.65;
+    transition: opacity 0.2s ease;
+    z-index: 1;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"] > * {
+    position: relative;
+    z-index: 2;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"]:not([data-selected="true"]):hover {
     border-color: var(--glass-border-bright) !important;
+    box-shadow: var(--liquid-shadow) !important;
     color: #334155 !important;
 }
 
+[data-slot="wrapper"] header [data-slot="tab"]:not([data-selected="true"]):hover::before {
+    background-color: var(--liquid-bg-hover);
+}
+
+/* 选中态：更厚的玻璃 —— 填充更实、边缘光拉满、阴影抬起来。
+   不铺均匀蓝底（那是有色玻璃观感），颜色只由文字承载。 */
 [data-slot="wrapper"] header [data-slot="tab"][data-selected="true"] {
-    background-color: rgba(14, 165, 233, 0.14) !important;
-    border-color: rgba(14, 165, 233, 0.4) !important;
+    border-color: var(--glass-border-bright) !important;
+    box-shadow: var(--liquid-shadow-lifted) !important;
     color: #0369a1 !important;
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        0 0 0 1px rgba(14, 165, 233, 0.12) !important;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"][data-selected="true"]::before {
+    background-color: rgba(255, 255, 255, 0.52);
+}
+
+[data-slot="wrapper"] header [data-slot="tab"][data-selected="true"]::after {
+    opacity: 1;
 }
 
 /* Tabs 根元素也不能有底色，否则胶囊之间又连成一条 */
-[data-slot="wrapper"] header [data-slot="tabWrapper"],
-[data-slot="wrapper"] header [data-slot="tabList"] + [data-slot="panel"] {
+[data-slot="wrapper"] header [data-slot="tabWrapper"] {
     background: transparent !important;
+}
+
+/* header 里的 Tab 都不带 children，HeroUI 仍会为选中项渲染一个 panel：
+   空盒子但带 py-3 px-1，以 24px 高参与 header 的 flex 行高计算。切换 tab 时
+   HeroUI 销毁旧 panel、挂载新的，这个空节点就让 header 高度出现细微抖动。
+   这里的 tab 只做切换、不承载内容，直接从布局里移除。 */
+[data-slot="wrapper"] header [data-slot="panel"] {
+    display: none !important;
+}
+
+/* header 是单行 flex：Tabs 不参与收缩，长标题（如 UP 名）才是被截断的一方，
+   否则 tab 会被挤窄、文字折行。收藏夹的横向滚动容器除外，它需要自己伸缩。 */
+[data-slot="wrapper"] header [data-slot="base"]:has([data-slot="tabList"]) {
+    flex: 0 0 auto !important;
+}
+
+[data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"]:has([data-slot="tabList"]) {
+    flex: 1 1 auto !important;
 }
 
 /* Close button */
@@ -3193,7 +3369,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     text-align: center;
 }
 
-.history-watchlater-btn,
 .watchlater-remove-btn {
     position: absolute;
     top: 6px;
@@ -3212,28 +3387,15 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
-.history-watchlater-btn:hover:not(:disabled),
 .watchlater-remove-btn:hover {
     background: rgba(15, 23, 42, 0.76);
     color: #fff;
     transform: scale(1.04);
 }
 
-.history-watchlater-btn:focus-visible,
 .watchlater-remove-btn:focus-visible {
     outline: 2px solid rgba(14, 165, 233, 0.62);
     outline-offset: 2px;
-}
-
-.history-watchlater-btn[data-added="true"] {
-    border-color: rgba(6, 182, 212, 0.5);
-    background: rgba(8, 145, 178, 0.82);
-    color: #ecfeff;
-}
-
-.history-watchlater-btn:disabled {
-    cursor: default;
-    transform: none;
 }
 
 /* 请求进行中：按钮置灰但保留位置，避免布局跳动 */
@@ -3608,8 +3770,9 @@ body.platform-linux .danmaku-message-row {
     color: #334155 !important;
 }
 
-/* Item borders - more visible through glass */
-[data-slot="wrapper"] .border-default-100 {
+/* Item borders - more visible through glass.
+   仅用于列表条目之间的分隔；header 的分割线由 > section > header 统一负责。 */
+[data-slot="wrapper"] .border-default-100:not(header) {
     border-color: rgba(100, 116, 139, 0.14) !important;
 }
 
@@ -3708,10 +3871,7 @@ body.platform-linux .danmaku-message-row {
     color: #64748b !important;
 }
 
-/* Item borders between danmaku/reply entries */
-[data-slot="wrapper"] .border-default-100 {
-    border-color: rgba(100, 116, 139, 0.12) !important;
-}
+/* 条目边框统一在上方 .border-default-100:not(header) 定义，此处不再重复 */
 
 /* Loading text */
 [data-slot="wrapper"] .text-center.text-default-400.py-2 {
@@ -4445,6 +4605,15 @@ body.video-open .app-title-bar button.app-title-bar-close:hover {
     background-color: rgba(225, 29, 72, 0.32) !important;
     background-image: none !important;
     box-shadow: none !important;
+}
+
+/* 视频打开时标题栏转深色，切换按钮的墨色图标压在近黑画面上看不见 */
+body.video-open #switch-window-mode {
+    color: rgba(241, 245, 249, 0.86);
+}
+
+body.video-open #switch-window-mode:hover {
+    color: #7dd3fc;
 }
 
 /* 关闭按钮下移到标题栏之下，否则与右上角窗口按钮（Windows/Linux）叠在一起 */

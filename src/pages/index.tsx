@@ -490,11 +490,17 @@ export default function IndexPage() {
       }
     };
 
-    // 专门拦截按钮空格键的函数，在捕获阶段执行
+    // 专门拦截按钮空格键的函数，在捕获阶段执行。
+    // role="button" 的元素（封面、UP 头像）也要拦：它们的 onKeyDown 会把空格
+    // 当成点击，抢掉播放/暂停。捕获阶段 stopPropagation 能在 React 合成事件之前拦下。
     const handleSpaceKeyIntercept = (event: KeyboardEvent) => {
       if (event.code === "Space") {
         // 只对按钮元素阻止空格键的默认行为，不输入框不拦截
-        if (event.target instanceof HTMLButtonElement) {
+        if (
+          event.target instanceof HTMLButtonElement ||
+          (event.target instanceof HTMLElement &&
+            event.target.getAttribute("role") === "button")
+        ) {
           event.preventDefault();
           event.stopPropagation();
 
@@ -532,14 +538,7 @@ export default function IndexPage() {
       if (event.code === "Space" && !event.repeat) {
         event.preventDefault();
         if (!playUrl) return;
-        //如果当前对象为 div id = video-cover ，阻止
-        if (
-          event.target instanceof HTMLDivElement &&
-          event.target.id === "video-cover"
-        ) {
-        } else {
-          setIsPlaying((prev) => !prev);
-        }
+        setIsPlaying((prev) => !prev);
       } else if (event.code === "ArrowLeft" && !event.repeat) {
         event.preventDefault();
         handlePrevTrack();
@@ -573,12 +572,19 @@ export default function IndexPage() {
     playlistPlayMode,
   ]);
 
-  // 处理按钮焦点问题 - 点击按钮后立即移除焦点
+  // 处理按钮焦点问题 - 点击按钮后立即移除焦点。
+  // 除了原生 <button>，还要覆盖 role="button" 的元素（封面 div、UP 头像 img）：
+  // 它们自带空格键的 onKeyDown，点击后若保留焦点，之后按空格会触发它们的点击逻辑
+  // 而不是播放/暂停。
   useEffect(() => {
     const handleButtonClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
 
-      if (target instanceof HTMLButtonElement) {
+      if (
+        target instanceof HTMLButtonElement ||
+        (target instanceof HTMLElement &&
+          target.getAttribute("role") === "button")
+      ) {
         // 延迟移除焦点，确保按钮的点击事件处理完成
         setTimeout(() => {
           target.blur();
@@ -1583,19 +1589,6 @@ export default function IndexPage() {
     await fetchWatchLaterList();
   };
 
-  const handleAddToWatchLater = async (aid: number) => {
-    if (!aid) return;
-
-    try {
-      await invoke<boolean>("add_to_watchlater", { aid });
-      toast({ type: "success", content: "已添加到稍后再看" });
-      await fetchWatchLaterList();
-    } catch (error) {
-      console.error("添加稍后再看失败:", error);
-      toast({ type: "error", content: String(error) });
-    }
-  };
-
   const handleRemoveFromWatchLater = async (aid: number) => {
     if (!aid) return;
 
@@ -2248,7 +2241,6 @@ export default function IndexPage() {
               setHistoryCursor={setHistoryCursor}
               setHistoryList={setHistoryList}
               watchLaterList={watchLaterList}
-              onAddToWatchLater={handleAddToWatchLater}
               onIncognitoModeChange={handleIncognitoModeChange}
               onSlideClick={() => setShowHistoryList(false)}
               onVideoSelect={handleSearchVideoSelect}

@@ -139,7 +139,7 @@ const PageList: FC<PageListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center gap-2 py-2 border-b border-default-100">
+            <DrawerHeader className="flex items-center gap-2 py-2">
               <span className="text-sm">选集({pageNum})</span>
               <Button
                 isIconOnly

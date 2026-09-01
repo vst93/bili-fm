@@ -111,50 +111,48 @@ const CollectList: FC<CollectListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex flex-col gap-2 py-2 border-b border-default-100">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">收藏列表</span>
-                <Button
-                  aria-label="刷新收藏列表"
-                  isIconOnly
-                  size="sm"
+            <DrawerHeader className="flex items-center gap-2 py-2">
+              <span className="text-sm flex-none">收藏列表</span>
+              <button
+                aria-label="向左滚动收藏夹"
+                className="collect-scroll-btn"
+                title="向左滚动"
+                onClick={() => scrollTabs("left")}
+              >
+                <Left size="16" theme="outline" />
+              </button>
+              <div ref={tabsRef} className="collect-tabs-scroll">
+                <Tabs
+                  aria-label="收藏夹切换"
+                  selectedKey={currentGroupId?.toString()}
                   variant="light"
-                  onClick={handleRefresh}
+                  onSelectionChange={(key) => onGroupSelect?.(Number(key))}
                 >
-                  <Refresh theme="outline" size="20" fill="#333" />
-                </Button>
+                  {collectGroups?.map((group) => (
+                    <Tab
+                      key={group.id}
+                      title={`${group.title} (${group.media_count})`}
+                    />
+                  ))}
+                </Tabs>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  className="collect-scroll-btn"
-                  title="向左滚动"
-                  onClick={() => scrollTabs("left")}
-                >
-                  <Left size="16" theme="outline" />
-                </button>
-                <div ref={tabsRef} className="collect-tabs-scroll">
-                  <Tabs
-                    aria-label="收藏夹切换"
-                    selectedKey={currentGroupId?.toString()}
-                    variant="light"
-                    onSelectionChange={(key) => onGroupSelect?.(Number(key))}
-                  >
-                    {collectGroups?.map((group) => (
-                      <Tab
-                        key={group.id}
-                        title={`${group.title} (${group.media_count})`}
-                      />
-                    ))}
-                  </Tabs>
-                </div>
-                <button
-                  className="collect-scroll-btn"
-                  title="向右滚动"
-                  onClick={() => scrollTabs("right")}
-                >
-                  <Right size="16" theme="outline" />
-                </button>
-              </div>
+              <button
+                aria-label="向右滚动收藏夹"
+                className="collect-scroll-btn"
+                title="向右滚动"
+                onClick={() => scrollTabs("right")}
+              >
+                <Right size="16" theme="outline" />
+              </button>
+              <Button
+                aria-label="刷新收藏列表"
+                isIconOnly
+                size="sm"
+                variant="light"
+                onClick={handleRefresh}
+              >
+                <Refresh theme="outline" size="20" fill="#333" />
+              </Button>
             </DrawerHeader>
             <DrawerBody className="collect-drawer-body" onScroll={handleScroll}>
               <div

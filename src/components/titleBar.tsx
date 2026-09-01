@@ -349,10 +349,11 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   const switchBtn = showSwitchMode && onSwitchMode && (
     <button
       id="switch-window-mode"
+      aria-label="切换到迷你模式"
       title="切换到迷你模式"
       onClick={handleSwitchMode}
     >
-      <ZoomInternal size="14" theme="outline" />
+      <ZoomInternal size="15" theme="outline" />
     </button>
   );
 
@@ -397,16 +398,20 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                 </button>
               </div>
               <div className="flex items-center gap-0" style={{ opacity: 1 }}>
+                <div className="flex items-center pr-1">{switchBtn}</div>
                 <div className="flex items-center gap-1 px-1 py-0.5" id="wds-handle-group">
-                  {switchBtn}
                   <button
+                    aria-label="最小化"
                     className="app-title-bar-btn"
+                    title="最小化"
                     onClick={handleMinimize}
                   >
                     <Minus size="14" theme="outline" />
                   </button>
                   <button
+                    aria-label="隐藏窗口"
                     className="app-title-bar-btn app-title-bar-close"
+                    title="隐藏窗口"
                     onClick={handleClose}
                   >
                     <Close size="14" theme="outline" />

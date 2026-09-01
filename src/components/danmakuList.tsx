@@ -416,7 +416,7 @@ const DanmakuList: FC<DanmakuListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex gap-2 py-2 items-center border-b border-default-100">
+            <DrawerHeader className="flex gap-2 py-2 items-center">
               <Tabs
                 variant="light"
                 aria-label="弹幕/评论切换"

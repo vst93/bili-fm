@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Close, MaskOne, Refresh, Time } from "@icon-park/react";
+import { Close, MaskOne, Refresh } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -66,7 +66,6 @@ interface HistoryListProps {
     watchLaterList?: BLWatchLaterItem[];
     onWatchLaterRefresh?: () => void | Promise<void>;
     onWatchLaterRemove?: (aid: number) => void | Promise<void>;
-    onAddToWatchLater?: (aid: number) => void | Promise<void>;
 }
 
 const HistoryList: FC<HistoryListProps> = ({
@@ -81,7 +80,6 @@ const HistoryList: FC<HistoryListProps> = ({
     watchLaterList = [],
     onWatchLaterRefresh,
     onWatchLaterRemove,
-    onAddToWatchLater,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
@@ -106,12 +104,6 @@ const HistoryList: FC<HistoryListProps> = ({
         [historyList],
     );
     usePreloadImages(coverUrls);
-
-    // 已加入稍后再看的视频 aid 集合，用于历史记录卡片的"稍后再看"按钮状态
-    const watchLaterAids = useMemo(
-        () => new Set((watchLaterList ?? []).map((item) => item.aid)),
-        [watchLaterList],
-    );
 
     const handleOpenChange = (open: boolean) => {
         if (!open) {
@@ -202,10 +194,6 @@ const HistoryList: FC<HistoryListProps> = ({
         void runWatchLaterAction(aid, onWatchLaterRemove);
     };
 
-    const handleAddWatchLater = (aid: number) => {
-        void runWatchLaterAction(aid, onAddToWatchLater);
-    };
-
     const formatTimestamp = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -223,7 +211,7 @@ const HistoryList: FC<HistoryListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex gap-2 py-2 items-center border-b border-default-100">
+                        <DrawerHeader className="flex gap-2 py-2 items-center">
                             <Tabs
                                 aria-label="历史/稍后再看切换"
                                 selectedKey={activeTab}
@@ -289,8 +277,6 @@ const HistoryList: FC<HistoryListProps> = ({
                                     style={{ width: "100%" }}
                                 >
                                     {historyList?.map((item: any) => {
-                                        const aid = Number(item?.history?.oid) || 0;
-                                        const isWatchLater = aid > 0 && watchLaterAids.has(aid);
                                         return (
                                             <Card
                                                 key={`${item?.history?.bvid}-${item?.view_at || item?.progress || 0}`}
@@ -310,28 +296,6 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         src={graftingImage(item.cover)}
                                                         width="100%"
                                                     />
-                                                    {aid > 0 && (
-                                                        <button
-                                                            aria-label={isWatchLater ? "已在稍后再看" : "添加到稍后再看"}
-                                                            className="history-watchlater-btn"
-                                                            data-added={isWatchLater || undefined}
-                                                            disabled={isWatchLater || pendingAids.has(aid)}
-                                                            title={isWatchLater ? "已在稍后再看" : "添加到稍后再看"}
-                                                            type="button"
-                                                            {...stopCardPress}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (!isWatchLater) {
-                                                                    handleAddWatchLater(aid);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <Time
-                                                                size="14"
-                                                                theme={isWatchLater ? "filled" : "outline"}
-                                                            />
-                                                        </button>
-                                                    )}
                                                 </CardBody>
                                                 <CardFooter className="text-small flex-col items-start px-2 py-1">
                                                     <b
