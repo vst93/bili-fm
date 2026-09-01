@@ -134,12 +134,7 @@ const CollectList: FC<CollectListProps> = ({
                 </button>
                 <div ref={tabsRef} className="collect-tabs-scroll">
                   <Tabs
-                    classNames={{
-                      tabList: "gap-2 w-full relative rounded-none p-0 bg-transparent",
-                      cursor: "collect-tab-cursor",
-                      tab: "collect-tab",
-                      tabContent: "group-data-[selected=true]:text-primary",
-                    }}
+                    aria-label="收藏夹切换"
                     selectedKey={currentGroupId?.toString()}
                     variant="light"
                     onSelectionChange={(key) => onGroupSelect?.(Number(key))}

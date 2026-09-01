@@ -294,15 +294,10 @@ const UpVideoList: FC<UpVideoListProps> = ({
                 </Button>
               </div>
               <Tabs
+                aria-label="视频/合集切换"
                 selectedKey={activeTab}
                 onSelectionChange={(key) => handleAciveTabChange(key.toString())}
                 variant="light"
-                classNames={{
-                  tabList: "gap-2",
-                  cursor: "bg-default-100",
-                  tab: "h-8 px-4",
-                  tabContent: "group-data-[selected=true]:text-primary",
-                }}
               >
                 <Tab key="videos" title="视频" />
                 <Tab key="series" title="合集" />

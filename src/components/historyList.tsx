@@ -16,6 +16,8 @@ import {
     Card,
     CardBody,
     CardFooter,
+    Tabs,
+    Tab,
 } from "@heroui/react";
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
@@ -222,24 +224,15 @@ const HistoryList: FC<HistoryListProps> = ({
                 {() => (
                     <>
                         <DrawerHeader className="flex gap-2 py-2 items-center border-b border-default-100">
-                            <div className="flex gap-1">
-                                <Button
-                                    size="sm"
-                                    variant={activeTab === "history" ? "flat" : "light"}
-                                    color={activeTab === "history" ? "primary" : "default"}
-                                    onClick={() => setActiveTab("history")}
-                                >
-                                    观看历史
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant={activeTab === "watchlater" ? "flat" : "light"}
-                                    color={activeTab === "watchlater" ? "primary" : "default"}
-                                    onClick={() => setActiveTab("watchlater")}
-                                >
-                                    稍后再看
-                                </Button>
-                            </div>
+                            <Tabs
+                                aria-label="历史/稍后再看切换"
+                                selectedKey={activeTab}
+                                variant="light"
+                                onSelectionChange={(key) => setActiveTab(key as HistoryTab)}
+                            >
+                                <Tab key="history" title="观看历史" />
+                                <Tab key="watchlater" title="稍后再看" />
+                            </Tabs>
                             <Button
                                 aria-label={activeTab === "history" ? "刷新历史记录" : "刷新稍后再看"}
                                 isIconOnly

@@ -123,17 +123,12 @@ const RecommendList: FC<RecommendListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center gap-2 py-2">
+            <DrawerHeader className="flex items-center gap-2 py-2 border-b border-default-100">
               <Tabs
+                aria-label="热门/推荐切换"
                 selectedKey={activeTab}
                 onSelectionChange={(key) => handleTabChange(key.toString())}
                 variant="light"
-                classNames={{
-                  tabList: "gap-2",
-                  cursor: "bg-default-100",
-                  tab: "h-8 px-4",
-                  tabContent: "group-data-[selected=true]:text-primary",
-                }}
               >
                 <Tab key="hot" title="热门" />
                 <Tab key="recommend" title="推荐" />

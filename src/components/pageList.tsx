@@ -21,6 +21,7 @@ import {
   FocusOne,
   AddOne,
   Check,
+  Search,
 } from "@icon-park/react";
 
 
@@ -149,17 +150,21 @@ const PageList: FC<PageListProps> = ({
               >
                 <FocusOne theme="outline" size="18" />
               </Button>
-              <input
-                type="text"
-                placeholder="搜索"
-                className="part-search-input"
-                onKeyUp={(e) => {
-                  if (e.key === "Enter") {
-                    handleSearchPart()
-                  }
-                }}
-              />
+              <div className="part-search">
+                <Search className="part-search-icon" theme="outline" size="15" />
+                <input
+                  type="text"
+                  placeholder="搜索选集，回车跳转"
+                  className="part-search-input"
+                  onKeyUp={(e) => {
+                    if (e.key === "Enter") {
+                      handleSearchPart()
+                    }
+                  }}
+                />
+              </div>
               <Button
+                className="flex-none"
                 size="sm"
                 title="将全部选集添加到播放列表"
                 variant="flat"

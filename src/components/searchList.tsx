@@ -74,12 +74,6 @@ const SearchList: FC<SearchListProps> = ({
               <span className="text-sm">搜索</span>
               <Tabs
                 aria-label="搜索结果排序"
-                classNames={{
-                  tabList: "gap-2",
-                  cursor: "bg-default-100",
-                  tab: "h-8 px-4",
-                  tabContent: "group-data-[selected=true]:text-primary",
-                }}
                 selectedKey={sortOrder}
                 variant="light"
                 onSelectionChange={handleSortChange}

@@ -422,18 +422,13 @@ const DanmakuList: FC<DanmakuListProps> = ({
                 aria-label="弹幕/评论切换"
                 selectedKey={viewMode}
                 onSelectionChange={(key) => handleViewModeChange(key as string)}
-                classNames={{
-                  tabList: "gap-2",
-                  cursor: "bg-primary-100",
-                  tab: "px-3 h-8",
-                }}
               >
                 <Tab
                   key="danmaku"
                   title={
                     <div className="flex items-center gap-1">
                       <Text size={14} />
-                      <span className="text-xs">
+                      <span>
                         弹幕 ({danmakuList?.items?.length || 0})
                       </span>
                     </div>
@@ -445,15 +440,15 @@ const DanmakuList: FC<DanmakuListProps> = ({
                     <div className="flex items-center gap-1">
                       <Comment size={14} />
                       {replyList?.total_count ? (
-                        <span className="text-xs">
+                        <span>
                           评论 (共{replyList.total_count}条)
                         </span>
                       ) : sortedReplies.length > 0 ? (
-                        <span className="text-xs">
+                        <span>
                           评论 ({sortedReplies.length})
                         </span>
                       ) : (
-                        <span className="text-xs">评论</span>
+                        <span>评论</span>
                       )}
                     </div>
                   }

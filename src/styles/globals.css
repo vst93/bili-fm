@@ -2719,11 +2719,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background: transparent !important;
 }
 
-.collect-tabs-row {
-    width: 100%;
-    gap: 6px;
-}
-
 /* Scroll arrow buttons -- compact glass pills */
 .collect-scroll-btn {
     flex: 0 0 auto;
@@ -2771,64 +2766,9 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     display: none;
 }
 
-/* Each tab is a standalone glass pill, not a connected bar */
-[data-slot="wrapper"] .collect-tabs-row [data-slot="tabList"] {
-    gap: 6px !important;
-    background: transparent !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-}
-
-[data-slot="wrapper"] .collect-tab {
-    height: 32px !important;
-    padding: 0 14px !important;
-    border-radius: 8px !important;
-    background-color: rgba(255, 255, 255, 0.3) !important;
-    background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, transparent 72%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.35) !important;
-    box-shadow: inset 0 1px 1px var(--glass-highlight) !important;
-    color: #475569 !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    white-space: nowrap !important;
-    transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease !important;
-}
-
-[data-slot="wrapper"] .collect-tab:hover {
-    background-color: rgba(255, 255, 255, 0.5) !important;
-    border-color: var(--glass-border-bright) !important;
-    color: #334155 !important;
-}
-
-/* Selected tab: brighter fill + accent border */
-[data-slot="wrapper"] .collect-tab[data-selected="true"] {
-    background-color: rgba(14, 165, 233, 0.14) !important;
-    border-color: rgba(14, 165, 233, 0.4) !important;
-    color: #0369a1 !important;
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        0 0 0 1px rgba(14, 165, 233, 0.12) !important;
-}
-
-/* Cursor highlight (HeroUI's animated indicator) -- hide it, we use border+bg instead */
-[data-slot="wrapper"] header .collect-tab-cursor {
-    background: transparent !important;
-    box-shadow: none !important;
-}
-
-/* Kill the connecting background bar on the Tabs base element --
-   each tab is a standalone pill, not a connected strip */
-[data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"] {
-    background: transparent !important;
-    box-shadow: none !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-}
-
-[data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"]:hover {
-    background: transparent !important;
-    box-shadow: none !important;
+/* 收藏夹的 tab 数量不定，需要横向滚动；胶囊样式走全局 header tab 规则 */
+[data-slot="wrapper"] .collect-tabs-scroll [data-slot="tabList"] {
+    flex-wrap: nowrap !important;
 }
 
 /* Drawer body - <div> inside the section (not the close button) */
@@ -2925,6 +2865,15 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
 }
 
+/* ...但 Tabs 的根元素不算按钮：给它底色会把独立胶囊连成一条 */
+[data-slot="wrapper"] header [data-slot="base"]:has([data-slot="tabList"]),
+[data-slot="wrapper"] header [data-slot="base"]:has([data-slot="tabList"]):hover {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
 /* Refresh / icon buttons - subtle glass */
 [data-slot="wrapper"] header button[class*="variant-light"],
 [data-slot="wrapper"] header button[class*="variant-flat"],
@@ -2953,19 +2902,66 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background: var(--glass-bg-active) !important;
 }
 
-/* Input inside drawer header (page list search) */
-[data-slot="wrapper"] header input.part-search-input {
-    height: 32px !important;
-    line-height: 30px !important;
-    border: 0 !important;
-    border-radius: 9px !important;
-    background: rgba(255, 255, 255, 0.3) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+/* Search box inside drawer header (page list).
+   玻璃胶囊做在外层 wrapper 上，input 本身透明，
+   这样图标能和文字排在同一个胶囊里；尺寸/圆角对齐 header 的按钮与 tab。 */
+[data-slot="wrapper"] header .part-search {
+    flex: 0 1 180px;
+    min-width: 0;
+    max-width: 180px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background-color: rgba(255, 255, 255, 0.3);
+    box-shadow: inset 0 1px 1px var(--glass-highlight);
+    transition: background-color 0.16s ease, border-color 0.16s ease,
+        box-shadow 0.16s ease;
 }
 
-[data-slot="wrapper"] header input.part-search-input:focus {
-    background: rgba(255, 255, 255, 0.48) !important;
-    box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.14) !important;
+[data-slot="wrapper"] header .part-search:hover {
+    background-color: rgba(255, 255, 255, 0.42);
+    border-color: var(--glass-border-bright);
+}
+
+[data-slot="wrapper"] header .part-search:focus-within {
+    background-color: rgba(255, 255, 255, 0.55);
+    border-color: rgba(14, 165, 233, 0.4);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 0 0 3px rgba(14, 165, 233, 0.12);
+}
+
+[data-slot="wrapper"] header .part-search-icon {
+    flex: 0 0 auto;
+    display: inline-flex;
+    color: #94a3b8;
+    transition: color 0.16s ease;
+}
+
+[data-slot="wrapper"] header .part-search:focus-within .part-search-icon {
+    color: #0284c7;
+}
+
+[data-slot="wrapper"] header input.part-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100% !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: #334155 !important;
+    font-size: 13px !important;
+}
+
+[data-slot="wrapper"] header input.part-search-input::placeholder {
+    color: #94a3b8 !important;
 }
 
 /* Playlist items - lightweight, no per-item blur */
@@ -3053,20 +3049,57 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background: rgba(226, 232, 240, 0.6) !important;
 }
 
-/* Tabs inside drawer headers */
+/* Tabs inside drawer headers.
+   每个 tab 都是独立的玻璃胶囊，不做「一整条」的分段控件观感：
+   容器背景/边框全部去掉，选中态用填充 + 描边表达，
+   HeroUI 的滑动 cursor 隐藏（它是分段控件的语言）。 */
 [data-slot="wrapper"] header [data-slot="tabList"] {
-    background: rgba(255, 255, 255, 0.32) !important;
-    border: 1px solid rgba(255, 255, 255, 0.32) !important;
-    border-radius: 10px !important;
-}
-
-[data-slot="wrapper"] header [data-slot="tab"] {
-    border-radius: 8px !important;
+    gap: 6px !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
 }
 
 [data-slot="wrapper"] header [data-slot="cursor"] {
-    background: rgba(255, 255, 255, 0.58) !important;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.55) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"] {
+    height: 32px !important;
+    padding: 0 14px !important;
+    border-radius: 8px !important;
+    background-color: rgba(255, 255, 255, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    box-shadow: inset 0 1px 1px var(--glass-highlight) !important;
+    color: #475569 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    transition: background-color 0.16s ease, border-color 0.16s ease,
+        box-shadow 0.16s ease, color 0.16s ease !important;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"]:hover {
+    background-color: rgba(255, 255, 255, 0.5) !important;
+    border-color: var(--glass-border-bright) !important;
+    color: #334155 !important;
+}
+
+[data-slot="wrapper"] header [data-slot="tab"][data-selected="true"] {
+    background-color: rgba(14, 165, 233, 0.14) !important;
+    border-color: rgba(14, 165, 233, 0.4) !important;
+    color: #0369a1 !important;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 0 0 1px rgba(14, 165, 233, 0.12) !important;
+}
+
+/* Tabs 根元素也不能有底色，否则胶囊之间又连成一条 */
+[data-slot="wrapper"] header [data-slot="tabWrapper"],
+[data-slot="wrapper"] header [data-slot="tabList"] + [data-slot="panel"] {
+    background: transparent !important;
 }
 
 /* Close button */

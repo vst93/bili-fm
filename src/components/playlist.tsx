@@ -1,6 +1,6 @@
 import type { FC } from "react";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useDisclosure } from "@heroui/react";
 import {
   Button,
@@ -8,6 +8,8 @@ import {
   DrawerContent,
   DrawerBody,
   DrawerHeader,
+  Tabs,
+  Tab,
 } from "@heroui/react";
 import { Close, Shuffle, Order, Delete, Play, FocusOne } from "@icon-park/react";
 
@@ -70,6 +72,17 @@ const Playlist: FC<PlaylistProps> = ({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const isSeriesPlaylist = activePlaylistType === "series";
   const activePlaylist = isSeriesPlaylist ? seriesPlaylist : playlist;
+  // 合集列表为空时不显示第二个 tab，只留「我的列表」。
+  const playlistTabs = useMemo(
+    () =>
+      [
+        { key: "user", title: `我的列表(${playlist.length})` },
+        ...(seriesPlaylist.length > 0
+          ? [{ key: "series", title: `合集列表(${seriesPlaylist.length})` }]
+          : []),
+      ],
+    [playlist.length, seriesPlaylist.length],
+  );
   const activePlaylistIndex = isSeriesPlaylist
     ? currentSeriesPlaylistIndex
     : currentPlaylistIndex;
@@ -125,26 +138,17 @@ const Playlist: FC<PlaylistProps> = ({
         {() => (
           <>
             <DrawerHeader className="flex items-center gap-2 py-2">
-              <Button
-                aria-pressed={!isSeriesPlaylist}
-                color={!isSeriesPlaylist ? "primary" : "default"}
-                size="sm"
-                variant={!isSeriesPlaylist ? "flat" : "light"}
-                onClick={() => onSwitchPlaylistType?.("user")}
+              <Tabs
+                aria-label="播放列表来源切换"
+                items={playlistTabs}
+                selectedKey={isSeriesPlaylist ? "series" : "user"}
+                variant="light"
+                onSelectionChange={(key) =>
+                  onSwitchPlaylistType?.(key as "user" | "series")
+                }
               >
-                我的列表({playlist.length})
-              </Button>
-              {seriesPlaylist.length > 0 && (
-                <Button
-                  aria-pressed={isSeriesPlaylist}
-                  color={isSeriesPlaylist ? "primary" : "default"}
-                  size="sm"
-                  variant={isSeriesPlaylist ? "flat" : "light"}
-                  onClick={() => onSwitchPlaylistType?.("series")}
-                >
-                  合集列表({seriesPlaylist.length})
-                </Button>
-              )}
+                {(item) => <Tab key={item.key} title={item.title} />}
+              </Tabs>
               {isPlaylistMode && activePlaylistIndex >= 0 && (
                 <Button
                   isIconOnly
