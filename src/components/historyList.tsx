@@ -28,8 +28,6 @@ type HistoryTab = "history" | "watchlater";
 
 const HISTORY_TAB_STORAGE_KEY = "historyActiveTab";
 
-const TAB_ORDER: HistoryTab[] = ["history", "watchlater"];
-
 const isHistoryTab = (value: string | null): value is HistoryTab =>
     value === "history" || value === "watchlater";
 
@@ -206,18 +204,6 @@ const HistoryList: FC<HistoryListProps> = ({
         void runWatchLaterAction(aid, onAddToWatchLater);
     };
 
-    const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-        e.preventDefault();
-        const offset = e.key === "ArrowRight" ? 1 : -1;
-        const nextIndex = (TAB_ORDER.indexOf(activeTab) + offset + TAB_ORDER.length) % TAB_ORDER.length;
-        const nextTab = TAB_ORDER[nextIndex];
-        setActiveTab(nextTab);
-        // 焦点跟随选中的 tab，符合 tablist 的键盘交互预期
-        const nextButton = document.querySelector<HTMLButtonElement>(`.history-tab[data-tab="${nextTab}"]`);
-        nextButton?.focus();
-    };
-
     const formatTimestamp = (timestamp: number) => {
         const date = new Date(timestamp * 1000);
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -235,56 +221,40 @@ const HistoryList: FC<HistoryListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="history-drawer-header py-2">
-                            <div className="history-drawer-title-row">
-                                <div aria-label="历史记录分类" className="history-tabs" role="tablist">
-                                    <button
-                                        aria-controls="history-panel-history"
-                                        aria-selected={activeTab === "history"}
-                                        className="history-tab"
-                                        data-active={activeTab === "history" || undefined}
-                                        data-tab="history"
-                                        id="history-tab-history"
-                                        role="tab"
-                                        tabIndex={activeTab === "history" ? 0 : -1}
-                                        type="button"
-                                        onClick={() => setActiveTab("history")}
-                                        onKeyDown={handleTabKeyDown}
-                                    >
-                                        观看历史
-                                    </button>
-                                    <button
-                                        aria-controls="history-panel-watchlater"
-                                        aria-selected={activeTab === "watchlater"}
-                                        className="history-tab"
-                                        data-active={activeTab === "watchlater" || undefined}
-                                        data-tab="watchlater"
-                                        id="history-tab-watchlater"
-                                        role="tab"
-                                        tabIndex={activeTab === "watchlater" ? 0 : -1}
-                                        type="button"
-                                        onClick={() => setActiveTab("watchlater")}
-                                        onKeyDown={handleTabKeyDown}
-                                    >
-                                        稍后再看
-                                    </button>
-                                </div>
+                        <DrawerHeader className="flex gap-2 py-2 items-center border-b border-default-100">
+                            <div className="flex gap-1">
                                 <Button
-                                    aria-label={activeTab === "history" ? "刷新历史记录" : "刷新稍后再看"}
-                                    isIconOnly
-                                    isDisabled={isRefreshing}
                                     size="sm"
-                                    variant="light"
-                                    onClick={handleRefresh}
+                                    variant={activeTab === "history" ? "flat" : "light"}
+                                    color={activeTab === "history" ? "primary" : "default"}
+                                    onClick={() => setActiveTab("history")}
                                 >
-                                    <Refresh
-                                        className={isRefreshing ? "history-refresh-spinning" : undefined}
-                                        theme="outline"
-                                        size="20"
-                                        fill="#333"
-                                    />
+                                    观看历史
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant={activeTab === "watchlater" ? "flat" : "light"}
+                                    color={activeTab === "watchlater" ? "primary" : "default"}
+                                    onClick={() => setActiveTab("watchlater")}
+                                >
+                                    稍后再看
                                 </Button>
                             </div>
+                            <Button
+                                aria-label={activeTab === "history" ? "刷新历史记录" : "刷新稍后再看"}
+                                isIconOnly
+                                isDisabled={isRefreshing}
+                                size="sm"
+                                variant="light"
+                                onClick={handleRefresh}
+                            >
+                                <Refresh
+                                    className={isRefreshing ? "history-refresh-spinning" : undefined}
+                                    theme="outline"
+                                    size="20"
+                                    fill="#333"
+                                />
+                            </Button>
                             {activeTab === "history" && (
                                 <Tooltip
                                     closeDelay={100}
@@ -318,10 +288,7 @@ const HistoryList: FC<HistoryListProps> = ({
                         </DrawerHeader>
                         {activeTab === "history" ? (
                             <DrawerBody
-                                aria-labelledby="history-tab-history"
                                 className="history-drawer-body"
-                                id="history-panel-history"
-                                role="tabpanel"
                                 onScroll={handleScroll}
                             >
                                 <div
@@ -391,10 +358,7 @@ const HistoryList: FC<HistoryListProps> = ({
                             </DrawerBody>
                         ) : (
                             <DrawerBody
-                                aria-labelledby="history-tab-watchlater"
                                 className="history-drawer-body"
-                                id="history-panel-watchlater"
-                                role="tabpanel"
                             >
                                 {(watchLaterList?.length || 0) === 0 ? (
                                     <div className="history-empty-tip" role="status">

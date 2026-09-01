@@ -70,8 +70,8 @@ const SearchList: FC<SearchListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="search-drawer-header flex items-center gap-3 py-2">
-              <span className="search-drawer-title">搜索</span>
+            <DrawerHeader className="flex items-center gap-2 py-2 border-b border-default-100">
+              <span className="text-sm">搜索</span>
               <Tabs
                 aria-label="搜索结果排序"
                 classNames={{

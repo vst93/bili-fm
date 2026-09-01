@@ -254,52 +254,51 @@ const UpVideoList: FC<UpVideoListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="drawer-header-responsive up-drawer-header py-2">
-              <div className="up-drawer-title-row">
-              <span className="up-drawer-title text-lg font-medium">「{upName}」的空间</span>
-              {follower > 0 && (
-                <span className="text-sm text-default-500">粉丝 {formatNumber(follower)}</span>
-              )}
-              {currentUpMid > 0 && (
+            <DrawerHeader className="flex flex-col gap-2 py-2 border-b border-default-100">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">「{upName}」的空间</span>
+                {follower > 0 && (
+                  <span className="text-xs text-default-500">粉丝 {formatNumber(follower)}</span>
+                )}
+                {currentUpMid > 0 && (
+                  <Button
+                    size="sm"
+                    variant="light"
+                    isLoading={isFollowingLoading}
+                    isDisabled={isCheckingFollow || isFollowingLoading}
+                    onPress={isFollowing ? handleUnfollow : handleFollow}
+                    className="min-w-[70px]"
+                  >
+                    {isCheckingFollow ? (
+                      <Spinner size="sm" />
+                    ) : isFollowing ? (
+                      <span className="flex items-center gap-1">
+                        <Close fill="#666" size={14} />
+                        已关注
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-primary">
+                        <Add fill="#2563eb" size={14} />
+                        关注
+                      </span>
+                    )}
+                  </Button>
+                )}
                 <Button
-                  aria-label="刷新 UP 主视频"
+                  isIconOnly
                   size="sm"
                   variant="light"
-                  isLoading={isFollowingLoading}
-                  isDisabled={isCheckingFollow || isFollowingLoading}
-                  onPress={isFollowing ? handleUnfollow : handleFollow}
-                  className="min-w-[70px] h-8 text-sm"
+                  onClick={handleRefresh}
                 >
-                  {isCheckingFollow ? (
-                    <Spinner size="sm" />
-                  ) : isFollowing ? (
-                    <span className="flex items-center gap-1">
-                      <Close fill="#666" size={14} />
-                      已关注
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-primary">
-                      <Add fill="#2563eb" size={14} />
-                      关注
-                    </span>
-                  )}
+                  <Refresh fill="#333" size={20} theme="outline" />
                 </Button>
-              )}
-              <Button
-                isIconOnly
-                size="sm"
-                variant="light"
-                onClick={handleRefresh}
-              >
-                <Refresh fill="#333" size={20} theme="outline" />
-              </Button>
-            </div>
-            <Tabs
+              </div>
+              <Tabs
                 selectedKey={activeTab}
                 onSelectionChange={(key) => handleAciveTabChange(key.toString())}
                 variant="light"
                 classNames={{
-                  tabList: "gap-2 mr-4",
+                  tabList: "gap-2",
                   cursor: "bg-default-100",
                   tab: "h-8 px-4",
                   tabContent: "group-data-[selected=true]:text-primary",

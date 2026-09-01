@@ -757,86 +757,6 @@ body {
     border-radius: 11px;
 }
 
-/* ====== Liquid glass icon button ====== */
-/* Compact glass button for toolbar actions (e.g. the part-list "locate" button).
-   Same refraction + rim-light material as the hero surfaces, sized for icons. */
-.liquid-glass-icon-btn {
-    position: relative;
-    isolation: isolate;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--glass-border);
-    border-radius: 9px;
-    background: transparent;
-    box-shadow: var(--liquid-shadow);
-    color: #475569;
-    cursor: pointer;
-    opacity: 0.92;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.16s ease, color 0.16s ease, opacity 0.16s ease;
-}
-
-.liquid-glass-icon-btn::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background-color: var(--liquid-bg);
-    background-image: var(--glass-sheen-static);
-    z-index: -1;
-    transition: background-color 0.2s ease;
-}
-
-.liquid-glass-icon-btn::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    padding: 1px;
-    background: var(--liquid-rim);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    box-shadow:
-        var(--liquid-chromatic),
-        inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
-    z-index: 1;
-}
-
-.liquid-glass-icon-btn > * {
-    position: relative;
-    z-index: 2;
-}
-
-.liquid-glass-icon-btn:hover {
-    border-color: var(--glass-border-bright);
-    box-shadow: var(--liquid-shadow-lifted);
-    color: #0284c7;
-    opacity: 1;
-    transform: translateY(-1px);
-}
-
-.liquid-glass-icon-btn:hover::before {
-    background-color: var(--liquid-bg-hover);
-}
-
-/* Press: surface sinks toward the backdrop -- light contracts, shadow deepens inward */
-.liquid-glass-icon-btn:active {
-    transform: scale(0.94);
-    box-shadow: var(--liquid-shadow-press);
-}
-
-.liquid-glass-icon-btn:active::before {
-    background-color: var(--liquid-bg-active);
-    background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
-}
-
 
 #root {
     position: relative;
@@ -2799,54 +2719,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background: transparent !important;
 }
 
-.drawer-header-responsive {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px 12px;
-    flex-wrap: wrap;
-    padding-right: 54px !important;
-}
-
-.up-drawer-title-row {
-    min-width: 0;
-    flex: 1 1 360px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.up-drawer-title {
-    max-width: min(360px, 52vw);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.up-drawer-header [data-slot="tabList"] {
-    flex: 0 0 auto;
-    margin-right: 0 !important;
-}
-
-.collect-drawer-header {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-right: 42px !important;
-}
-
-.collect-drawer-title-row,
-.collect-tabs-row {
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.collect-drawer-title-row {
-    gap: 8px;
-}
-
 .collect-tabs-row {
     width: 100%;
     gap: 6px;
@@ -2957,16 +2829,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 [data-slot="wrapper"] header .collect-tabs-scroll [data-slot="base"]:hover {
     background: transparent !important;
     box-shadow: none !important;
-}
-
-@media (max-width: 760px) {
-    .up-drawer-title-row {
-        flex-basis: 100%;
-    }
-
-    .up-drawer-title {
-        max-width: 64vw;
-    }
 }
 
 /* Drawer body - <div> inside the section (not the close button) */
@@ -3220,12 +3082,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease !important;
 }
 
-[data-slot="wrapper"] > section:has(header.up-drawer-header) > button[aria-label="Close"],
-[data-slot="wrapper"] > section:has(header.collect-drawer-header) > button[aria-label="Close"] {
-    top: 10px !important;
-    right: 10px !important;
-}
-
 [data-slot="wrapper"] > section > button[aria-label="Close"]:hover {
     background: var(--glass-bg-hover) !important;
     box-shadow:
@@ -3291,68 +3147,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 }
 
 /* ====== Danmaku / Reply list readability ====== */
-
-.search-drawer-header {
-    min-width: 0;
-    padding-right: 48px !important;
-}
-
-.history-drawer-header {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding-right: 52px !important;
-}
-
-.history-drawer-title-row {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 8px;
-}
-
-.history-tabs {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    padding: 2px;
-    border: 1px solid rgba(100, 116, 139, 0.18);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.44);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-
-.history-tab {
-    min-width: 68px;
-    height: 26px;
-    padding: 0 10px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: #64748b;
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1;
-    transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
-}
-
-.history-tab:hover {
-    color: #475569;
-    background: rgba(255, 255, 255, 0.52);
-}
-
-.history-tab:focus-visible {
-    outline: 2px solid rgba(14, 165, 233, 0.44);
-    outline-offset: 1px;
-}
-
-.history-tab[data-active="true"] {
-    background: #fff;
-    color: #0369a1;
-    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
-}
 
 /* 抽屉高度固定，空列表时把提示居中，避免顶部一行文字下面一片空白 */
 .history-empty-tip {
@@ -3532,28 +3326,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     .history-incognito-label {
         display: none;
     }
-}
-
-.search-drawer-title {
-    flex: 0 0 auto;
-    color: #334155;
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 32px;
-}
-
-.search-drawer-header [data-slot="base"] {
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-}
-
-.search-drawer-header [data-slot="base"]::-webkit-scrollbar {
-    display: none;
-}
-
-.search-drawer-header [data-slot="tab"] {
-    min-width: max-content;
 }
 
 .danmaku-follow-btn {
@@ -3769,14 +3541,6 @@ body.platform-linux .danmaku-message-row {
 }
 
 @media (max-width: 420px) {
-    .search-drawer-header {
-        gap: 6px !important;
-    }
-
-    .search-drawer-header [data-slot="tab"] {
-        padding-inline: 10px !important;
-    }
-
     .danmaku-time-group {
         grid-template-columns: 54px minmax(0, 1fr);
         gap: 8px;

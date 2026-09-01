@@ -129,8 +129,8 @@ const SeriesList: FC<SeriesListProps> = ({
             <DrawerContent>
                 {() => (
                     <>
-                        <DrawerHeader className="flex items-center gap-3 py-2 pr-12">
-                            <span className="min-w-0 truncate">{seriesTitle}</span>
+                        <DrawerHeader className="flex items-center gap-2 py-2 border-b border-default-100">
+                            <span className="text-sm min-w-0 truncate">{seriesTitle}</span>
                             <Button
                                 isDisabled={seriesVideos.length === 0}
                                 isLoading={isPlayingAll}

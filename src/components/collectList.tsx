@@ -111,9 +111,9 @@ const CollectList: FC<CollectListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="collect-drawer-header py-2">
-              <div className="collect-drawer-title-row">
-                <span>收藏列表</span>
+            <DrawerHeader className="flex flex-col gap-2 py-2 border-b border-default-100">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">收藏列表</span>
                 <Button
                   aria-label="刷新收藏列表"
                   isIconOnly
@@ -124,7 +124,7 @@ const CollectList: FC<CollectListProps> = ({
                   <Refresh theme="outline" size="20" fill="#333" />
                 </Button>
               </div>
-              <div className="collect-tabs-row">
+              <div className="flex items-center gap-1">
                 <button
                   className="collect-scroll-btn"
                   title="向左滚动"

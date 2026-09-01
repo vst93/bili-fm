@@ -148,7 +148,6 @@ const Playlist: FC<PlaylistProps> = ({
               {isPlaylistMode && activePlaylistIndex >= 0 && (
                 <Button
                   isIconOnly
-                  className="min-w-7 w-7 h-7"
                   size="sm"
                   title="定位到当前播放的记录"
                   variant="light"
@@ -159,7 +158,6 @@ const Playlist: FC<PlaylistProps> = ({
               )}
               <Button
                 isIconOnly
-                className="min-w-7 w-7 h-7"
                 size="sm"
                 title={
                   playMode === "sequence" ? "当前：顺序播放" : "当前：随机播放"
@@ -176,7 +174,6 @@ const Playlist: FC<PlaylistProps> = ({
               {!isSeriesPlaylist && playlist.length > 0 && (
                 <Button
                   isIconOnly
-                  className="min-w-7 w-7 h-7"
                   size="sm"
                   title="清空播放列表"
                   variant="light"

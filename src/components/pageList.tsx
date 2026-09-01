@@ -138,24 +138,23 @@ const PageList: FC<PageListProps> = ({
       <DrawerContent>
         {() => (
           <>
-            <DrawerHeader className="flex items-center gap-3 py-2 pr-12">
-              <span className="up-drawer-title">选集({pageNum})</span>
-              <button
-                type="button"
-                className="liquid-glass-icon-btn"
+            <DrawerHeader className="flex items-center gap-2 py-2 border-b border-default-100">
+              <span className="text-sm">选集({pageNum})</span>
+              <Button
+                isIconOnly
+                size="sm"
                 title="定位到当前播放的位置"
+                variant="light"
                 onClick={handlePositionPart}
               >
                 <FocusOne theme="outline" size="18" />
-              </button>
+              </Button>
               <input
                 type="text"
                 placeholder="搜索"
-                className="w-40 part-search-input focus:outline-none text-sm font-light"
-                style={{ padding: "0 10px" }}
+                className="part-search-input"
                 onKeyUp={(e) => {
                   if (e.key === "Enter") {
-                    // 跳转到搜到的位置
                     handleSearchPart()
                   }
                 }}
@@ -169,7 +168,6 @@ const PageList: FC<PageListProps> = ({
                 <AddOne fill="#666" size="16" theme="outline" />
                 <span className="ml-1 text-xs">全部添加</span>
               </Button>
-
             </DrawerHeader>
             <DrawerBody className="drawer-body">
               <div
