@@ -119,13 +119,17 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const closeDialog = useCallback((id: number, value: string = "ok") => {
-    setDialogs(prev => prev.map(d => d.id === id ? { ...d, visible: false } : d));
+    setDialogs(prev => {
+      const dlg = prev.find(d => d.id === id);
+      setTimeout(() => {
+        dlg?.onClose?.(value);
+      }, 200);
+      return prev.map(d => d.id === id ? { ...d, visible: false } : d);
+    });
     setTimeout(() => {
       setDialogs(prev => prev.filter(d => d.id !== id));
-      const dlg = dialogs.find(d => d.id === id);
-      dlg?.onClose?.(value);
     }, 200);
-  }, [dialogs]);
+  }, []);
 
   // 原地更新对话框内容：保留同一个 dialog 元素，只替换标题/消息/按钮等，
   // 避免 close+reopen 造成的视觉跳动。
@@ -144,8 +148,9 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
           }`}
           style={{ background: "rgba(15, 23, 42, 0.2)", backdropFilter: "blur(6px)" }}
           onClick={(e) => {
-            if (e.target === e.currentTarget && d.buttons && d.buttons.length > 1) {
-              closeDialog(d.id, d.buttons[d.buttons.length - 1].value);
+            if (e.target === e.currentTarget) {
+              const lastButton = d.buttons?.[d.buttons.length - 1] || { value: "ok" };
+              closeDialog(d.id, lastButton.value);
             }
           }}
         >
