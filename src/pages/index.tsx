@@ -2131,7 +2131,7 @@ export default function IndexPage() {
         src={playerSrc}
         onEnded={handleVideoEnded}
         onPlayStateChange={setIsPlaying}
-        onTimeUpdate={showDanmakuList ? handleTimeUpdate : undefined}
+        onTimeUpdate={handleTimeUpdate}
       />
       {/* 视频画面：大窗常规显示，视频小窗模式下铺满小窗。
           抽屉/弹窗仍只在大窗渲染，小窗里没有空间也没有意义。 */}
@@ -2144,6 +2144,7 @@ export default function IndexPage() {
           cloudHistoryEnabled={!isIncognitoMode}
           isPlay={isPlayVideo}
           isPlayVideoStop={isPlayVideoStop}
+          initialTime={currentVideoTime}
           nativePipUnusable={isMacOS}
           setIsplay={setIsPlayVideo}
           setIsPlayVideoStop={setIsPlayVideoStop}
