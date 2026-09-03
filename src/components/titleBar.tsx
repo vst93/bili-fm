@@ -12,6 +12,7 @@ import { useDialog } from "./dialog/DialogProvider";
 interface TitleBarProps {
   onSwitchMode?: () => void;
   showSwitchMode?: boolean;
+  showSettingsButton?: boolean;
 }
 
 /** 下载进度状态 (更新进度浮层) */
@@ -31,7 +32,7 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
 };
 
-const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true }) => {
+const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true, showSettingsButton = true }) => {
   // 版本号在运行时从后端获取 (Cargo.toml / tauri.conf.json)
   const [isMac, setIsMac] = useState(false);
   const [isLinux, setIsLinux] = useState(navigator.userAgent.includes("Linux"));
@@ -386,16 +387,18 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
               >
                 <img alt="logo" className="w-8 h-8" src="/logo-transparent.png" loading="eager" decoding="async" />
                 <span className="text-sm">bili-FM</span>
-                <button
-                  ref={settingsBtnRef}
-                  aria-controls="settings-menu"
-                  aria-expanded={showMenu}
-                  aria-haspopup="menu"
-                  className="hover:bg-gray-200 px-2 py-1 rounded transition-colors text-sm ml-2"
-                  onClick={toggleMenu}
-                >
-                  设置
-                </button>
+                {showSettingsButton && (
+                  <button
+                    ref={settingsBtnRef}
+                    aria-controls="settings-menu"
+                    aria-expanded={showMenu}
+                    aria-haspopup="menu"
+                    className="hover:bg-gray-200 px-2 py-1 rounded transition-colors text-sm ml-2"
+                    onClick={toggleMenu}
+                  >
+                    设置
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-0" style={{ opacity: 1 }}>
                 <div className="flex items-center pr-1">{switchBtn}</div>
