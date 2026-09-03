@@ -252,7 +252,7 @@ export default function PlayerVideo({
       const timer = setTimeout(() => setVisible(false), 300);
       return () => clearTimeout(timer);
     }
-  }, [initialTime, isPlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialTime, isPlay, mediaKey, visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 控制 video 播放/暂停
   useEffect(() => {
