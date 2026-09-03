@@ -80,6 +80,8 @@ license = MIT
 depend = webkit2gtk-4.1
 depend = libayatana-appindicator
 depend = librsvg
+depend = gst-plugins-good
+depend = gst-libav
 EOF
 
 if tar --version 2>/dev/null | grep -q 'GNU tar'; then

@@ -304,6 +304,40 @@ install_linux() {
   else
     error "暂不支持此 Linux 发行版。支持 pacman、apt、dnf、yum 和 zypper。\n可前往 https://github.com/${REPO}/releases 查看可用安装包。"
   fi
+
+  check_gstreamer_plugins
+}
+
+# WebKitGTK 的媒体解码依赖系统 GStreamer 插件；部分最小化安装的发行版默认不带。
+# 缺失时只提示，不代装。
+check_gstreamer_plugins() {
+  local missing=() pkg
+  if command -v pacman >/dev/null 2>&1; then
+    for pkg in gst-plugins-good gst-libav; do
+      pacman -Qq "$pkg" &>/dev/null || missing+=("$pkg")
+    done
+  elif command -v dpkg >/dev/null 2>&1; then
+    for pkg in gstreamer1.0-plugins-good gstreamer1.0-libav; do
+      dpkg -s "$pkg" &>/dev/null || missing+=("$pkg")
+    done
+  elif command -v rpm >/dev/null 2>&1; then
+    for pkg in gstreamer1-plugins-good gstreamer1-libav; do
+      rpm -q "$pkg" &>/dev/null || missing+=("$pkg")
+    done
+  else
+    return 0
+  fi
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    local install_cmd="sudo pacman -S --needed"
+    command -v apt-get >/dev/null 2>&1 && install_cmd="sudo apt-get install"
+    command -v dnf >/dev/null 2>&1 && install_cmd="sudo dnf install"
+    command -v yum >/dev/null 2>&1 && install_cmd="sudo yum install"
+    command -v zypper >/dev/null 2>&1 && install_cmd="sudo zypper install"
+    warn "未检测到 GStreamer 解码插件: ${missing[*]}"
+    warn "缺失时音频/视频可能无法播放（首次播放卡住、界面无响应）。"
+    warn "建议安装: ${install_cmd} ${missing[*]}"
+  fi
 }
 
 main() {

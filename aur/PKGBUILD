@@ -3,7 +3,7 @@
 # Install: makepkg -si
 
 pkgname=bili-fm
-pkgver=2.0.48_preview
+pkgver=2.0.10
 pkgrel=1
 pkgdesc="A Bilibili audio player - listen to B站 content as music or podcasts"
 arch=('x86_64')
@@ -17,6 +17,8 @@ depends=(
     'librsvg'
     'glib2'
     'glibc'
+    'gst-plugins-good'
+    'gst-libav'
 )
 source=(
     "bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst::${url}/releases/download/${pkgver//_/-}/bili-FM-${pkgver//_/-}-linux-x86_64.pkg.tar.zst"
