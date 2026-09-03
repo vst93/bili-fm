@@ -129,11 +129,15 @@ const UpVideoList: FC<UpVideoListProps> = ({
         });
         if (!list) {
           setSeriesList?.([]);
-        } else { 
+        } else {
           setSeriesList?.(list);
         }
       } catch (error) {
         console.error("获取合集列表失败：", error);
+        toast({
+          type: "error",
+          content: "获取合集列表失败"
+        });
       }
     }
   }

@@ -37,6 +37,7 @@ interface PlayerProps {
   onEnded?: () => void;
   onPlayStateChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (time: number) => void;
+  onError?: (error: MediaError | null) => void;
   isPlaying?: boolean;
   aid?: number;
   cid?: number;
@@ -83,6 +84,7 @@ const Player = ({
   onEnded,
   onPlayStateChange,
   onTimeUpdate,
+  onError,
   isPlaying = false,
   aid,
   cid,
@@ -175,12 +177,36 @@ const Player = ({
     // Only write currentTime when the media has at least a current data frame.
     // Writing while still loading or without a playable frame can block
     // the WebKit media pipeline on some Linux configurations.
-    if (
-      audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-      audio.networkState === HTMLMediaElement.NETWORK_LOADING
-    ) {
+    // However, if readyState is HAVE_ENOUGH_DATA, we can safely seek even if
+    // the network is still loading (buffering ahead).
+    if (audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (import.meta.env.DEV) {
+        console.debug("[player] safeSeek blocked: insufficient data", {
+          target,
+          readyState: audio.readyState,
+          HAVE_CURRENT_DATA: HTMLMediaElement.HAVE_CURRENT_DATA,
+        });
+      }
       return false;
     }
+
+    // If we don't have enough data yet, also check networkState
+    if (
+      audio.readyState < HTMLMediaElement.HAVE_ENOUGH_DATA &&
+      audio.networkState === HTMLMediaElement.NETWORK_LOADING
+    ) {
+      if (import.meta.env.DEV) {
+        console.debug("[player] safeSeek blocked: network loading", {
+          target,
+          readyState: audio.readyState,
+          networkState: audio.networkState,
+          HAVE_ENOUGH_DATA: HTMLMediaElement.HAVE_ENOUGH_DATA,
+          NETWORK_LOADING: HTMLMediaElement.NETWORK_LOADING,
+        });
+      }
+      return false;
+    }
+
     audio.currentTime = target;
     currentTimeRef.current = target;
     return true;
@@ -203,11 +229,29 @@ const Player = ({
 
     try {
       const normalizedTarget = Math.max(0, target);
+      // 如果进度小于等于 0.5 秒，从头开始
       if (normalizedTarget <= 0.5) {
         safeSeek(audio, 0);
         currentTimeRef.current = 0;
         pendingCloudProgressRef.current = null;
         markCloudProgressReady();
+        return true;
+      }
+
+      // 如果进度距离结尾小于 5 秒，认为已播放完毕，重置到开头
+      if (Number.isFinite(audio.duration) && audio.duration - normalizedTarget < 5) {
+        safeSeek(audio, 0);
+        currentTimeRef.current = 0;
+        pendingCloudProgressRef.current = null;
+        markCloudProgressReady();
+        if (import.meta.env.DEV) {
+          console.debug("[player] cloud progress near end, reset to start", {
+            aid,
+            cid,
+            progress,
+            duration: audio.duration,
+          });
+        }
         return true;
       }
 
@@ -217,8 +261,10 @@ const Player = ({
       }
 
       cloudSeekInFlightRef.current = true;
-      if (!safeSeek(audio, normalizedTarget)) {
+      const seekSuccess = safeSeek(audio, normalizedTarget);
+      if (!seekSuccess) {
         // Media not ready yet — canplay will retry below.
+        cloudSeekInFlightRef.current = false;
         return false;
       }
       if (import.meta.env.DEV) {
@@ -313,7 +359,19 @@ const Player = ({
       aid,
       cid,
       progress: normalizedProgress,
-    }).catch(() => {});
+    })
+      .then(() => {
+        if (import.meta.env.DEV) {
+          console.debug("[player] progress reported", {
+            aid,
+            cid,
+            progress: normalizedProgress,
+          });
+        }
+      })
+      .catch((error) => {
+        console.error("[player] report progress failed:", error);
+      });
   };
 
   const getOrCreateAudioGraph = (audio: HTMLAudioElement) => {
@@ -420,23 +478,29 @@ const Player = ({
         const normalizedProgress = Math.max(0, progress || 0);
         pendingCloudProgressRef.current = normalizedProgress;
         cloudProgressPendingRef.current = false;
-        if (import.meta.env.DEV) {
-          console.debug("[player] received cloud progress", {
-            aid,
-            cid,
-            progress: normalizedProgress,
-          });
-        }
         const audio = audioRef.current;
         if (!audio) {
           markCloudProgressReady();
         } else {
-          applyPendingCloudProgress(audio);
+          const applied = applyPendingCloudProgress(audio);
+          // 如果无法立即应用进度（通常因为 readyState 不够），
+          // 设置一个超时保护，防止永久阻塞播放
+          if (!applied) {
+            setTimeout(() => {
+              if (requestId !== cloudProgressRequestIdRef.current) return;
+              if (pendingCloudProgressRef.current !== null) {
+                console.warn("[player] cloud progress apply timeout, giving up");
+                pendingCloudProgressRef.current = null;
+                markCloudProgressReady();
+              }
+            }, 3000); // 3 秒超时
+          }
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (requestId !== cloudProgressRequestIdRef.current) return;
 
+        console.error("[player] get cloud progress failed:", error);
         clearCloudProgressStartupTimer();
         cloudProgressPendingRef.current = false;
         markCloudProgressReady();
@@ -455,25 +519,26 @@ const Player = ({
       !cloudHistoryEnabled || !mediaKey || cloudProgressReadyKey === mediaKey;
 
     if (isPlaying && src && !forcePause && isCloudProgressReady) {
-      // Fire-and-forget the AudioContext resume — it must not block audio.play().
-      // On some WebKit builds (notably under certain Linux WMs) ctx.resume() can
-      // hang or never settle; decoupling it from play prevents the whole UI thread
-      // from freezing when that happens.
-      const graph = audioGraphRef.current;
-      if (graph?.ctx.state === "suspended") {
-        void (async () => {
-          try {
-            await graph.ctx.resume();
-          } catch {
-            // Ignore failures — audio playback is the priority.
-          }
-        })();
-      }
       void (async () => {
         if (playAttemptId !== playAttemptIdRef.current) return;
+
+        // 确保 AudioContext 在播放前恢复
+        const graph = audioGraphRef.current;
+        if (graph) {
+          try {
+            if (graph.ctx.state === "suspended") {
+              await graph.ctx.resume();
+            }
+          } catch (error) {
+            console.error("[player] AudioContext resume failed:", error);
+          }
+        }
+
+        // 播放音频
         try {
           await audio.play();
-        } catch {
+        } catch (error) {
+          console.error("[player] audio.play() failed:", error);
           onPlayStateChange?.(false);
         }
       })();
@@ -678,7 +743,19 @@ const Player = ({
 
   const handleCanPlay = (audio: HTMLAudioElement) => {
     if (!cloudProgressPendingRef.current && pendingCloudProgressRef.current !== null) {
-      applyPendingCloudProgress(audio);
+      const applied = applyPendingCloudProgress(audio);
+      // 如果 canplay 时仍然无法应用进度（通常不应该发生），
+      // 放弃云端进度，让播放继续
+      if (!applied && audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        if (import.meta.env.DEV) {
+          console.warn("[player] canplay: giving up on cloud progress", {
+            readyState: audio.readyState,
+            pendingProgress: pendingCloudProgressRef.current,
+          });
+        }
+        pendingCloudProgressRef.current = null;
+        markCloudProgressReady();
+      }
     }
     // Re-attempt any cloud seek that was deferred because the media was not ready.
     if (pendingCloudProgressRef.current !== null) {
@@ -739,9 +816,12 @@ const Player = ({
           suspendAudioGraph();
           onEnded?.();
         }}
-        onError={() => {
+        onError={(event) => {
+          const error = event.currentTarget.error;
+          console.error("音频加载失败:", error);
           suspendAudioGraph();
           onPlayStateChange?.(false);
+          onError?.(error);
         }}
         onLoadedMetadata={(event) => handleLoadedMetadata(event.currentTarget)}
         onPause={(event) => {

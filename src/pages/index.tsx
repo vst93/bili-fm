@@ -621,6 +621,10 @@ export default function IndexPage() {
       loopLoginStatus();
     } catch (error) {
       console.error("登录失败:", error);
+      toast({
+        type: "error",
+        content: "获取登录二维码失败"
+      });
     }
   };
 
@@ -649,6 +653,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("获取登录状态失败:", error);
+      toast({
+        type: "error",
+        content: "检查登录状态失败"
+      });
     }
   };
 
@@ -667,6 +675,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("获取用户信息失败:", error);
+      toast({
+        type: "error",
+        content: "获取用户信息失败"
+      });
     }
   };
 
@@ -699,6 +711,10 @@ export default function IndexPage() {
       setShowPageList(false);
     } catch (error) {
       console.error("获取动态列表失败:", error);
+      toast({
+        type: "error",
+        content: "获取动态列表失败: " + (error?.toString() || "未知错误")
+      });
     }
   };
 
@@ -714,6 +730,10 @@ export default function IndexPage() {
       setFeedList(data);
     } catch (error) {
       console.error("刷新动态列表失败:", error);
+      toast({
+        type: "error",
+        content: "刷新动态列表失败"
+      });
     }
   };
 
@@ -743,6 +763,10 @@ export default function IndexPage() {
       setFeedOffset(data?.offset || "");
     } catch (error) {
       console.error("加载更多动态失败:", error);
+      toast({
+        type: "error",
+        content: "加载更多动态失败"
+      });
     } finally {
       feedLoadMoreRef.current = false;
     }
@@ -847,6 +871,10 @@ export default function IndexPage() {
       setVideoInfo(info);
     } catch (error) {
       console.error("获取视频信息失败:", error);
+      toast({
+        type: "error",
+        content: "获取视频信息失败"
+      });
     }
   };
 
@@ -1215,6 +1243,10 @@ export default function IndexPage() {
               };
             } catch (error) {
               console.error(`获取合集视频信息失败 (${video.bvid}):`, error);
+              toast({
+                type: "warning",
+                content: `视频 ${video.title} 加载失败，已跳过`
+              });
               return null;
             }
           }),
@@ -1561,6 +1593,11 @@ export default function IndexPage() {
         offset: "",
       });
 
+      if (!videoListData || !videoListData.items || videoListData.items.length === 0) {
+        toast({ type: "warning", content: "该UP主暂无视频" });
+        return;
+      }
+
       setUpVideoList(videoListData);
       setShowUpVideoList(true);
       setShowSearchList(false);
@@ -1571,6 +1608,10 @@ export default function IndexPage() {
       setShowHistoryList(false);
     } catch (error) {
       console.error("获取UP主视频列表失败:", error);
+      toast({
+        type: "error",
+        content: "加载UP主空间失败: " + (error?.toString() || "未知错误")
+      });
     }
   };
 
@@ -1616,6 +1657,12 @@ export default function IndexPage() {
       }).then((data) => {
         setHistoryList(data?.list || []);
         setHistoryCursor(data.cursor || {});
+      }).catch((error) => {
+        console.error("获取历史记录失败:", error);
+        toast({
+          type: "error",
+          content: "获取历史记录失败: " + (error?.toString() || "未知错误")
+        });
       });
       void fetchWatchLaterList();
       setShowHistoryList(true);
@@ -1627,6 +1674,10 @@ export default function IndexPage() {
       setShowUpVideoList(false);
     } catch (error) {
       console.error("获取历史记录失败:", error);
+      toast({
+        type: "error",
+        content: "获取历史记录失败"
+      });
     }
   };
 
@@ -1645,6 +1696,10 @@ export default function IndexPage() {
       setUpVideoList(data);
     } catch (error) {
       console.error("刷新UP主视频列表失败:", error);
+      toast({
+        type: "error",
+        content: "刷新失败: " + (error?.toString() || "未知错误")
+      });
     }
   };
 
@@ -1677,6 +1732,10 @@ export default function IndexPage() {
       setUpVideoOffset(data?.offset || "");
     } catch (error) {
       console.error("加载更多UP主视频失败:", error);
+      toast({
+        type: "error",
+        content: "加载更多失败"
+      });
     } finally {
       upVideoLoadMoreRef.current = false;
     }
@@ -1709,6 +1768,10 @@ export default function IndexPage() {
       setShowUpVideoList(false);
     } catch (error) {
       console.error("获取合集视频列表失败:", error);
+      toast({
+        type: "error",
+        content: "加载合集失败: " + (error?.toString() || "未知错误")
+      });
     }
   };
 
@@ -1737,6 +1800,10 @@ export default function IndexPage() {
         setSeriesVideosPage(1);
       } catch (error) {
         console.error("获取合集视频列表失败:", error);
+        toast({
+          type: "error",
+          content: "加载合集视频失败"
+        });
         return;
       }
     }
@@ -1796,6 +1863,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("刷新列表失败:", error);
+      toast({
+        type: "error",
+        content: type === "recommend" ? "刷新推荐列表失败" : "刷新热门列表失败"
+      });
     } finally {
       recommendRequestRef.current.delete(requestKey);
     }
@@ -1851,6 +1922,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("加载更多失败:", error);
+      toast({
+        type: "error",
+        content: type === "recommend" ? "加载更多推荐视频失败" : "加载更多热门视频失败"
+      });
     } finally {
       recommendRequestRef.current.delete(requestKey);
     }
@@ -1876,14 +1951,20 @@ export default function IndexPage() {
 
           setCollectList(data);
         }
-      } else if ((!collectList || collectList.length === 0) && currentGroupId) {
-        const data = await invoke<any[]>("get_fav_folder_detail", {
-          fid: currentGroupId,
-          page: 1,
-        });
-        setCollectList(data);
+      } else if (!collectList || collectList.length === 0) {
+        // 如果列表为空，重新加载第一个收藏夹，而不是尝试加载上次失败的收藏夹
+        if (collectGroups.length > 0) {
+          const firstGroupId = collectGroups[0].id;
+          setCurrentGroupId(firstGroupId);
+          const data = await invoke<any[]>("get_fav_folder_detail", {
+            fid: firstGroupId,
+            page: 1,
+          });
+          setCollectList(data);
+        }
       }
 
+      // 只有成功获取数据后才打开抽屉
       setShowCollectList(true);
       setShowSearchList(false);
       setShowPageList(false);
@@ -1891,6 +1972,11 @@ export default function IndexPage() {
       setShowRecommendList(false);
     } catch (error) {
       console.error("获取收藏列表失败:", error);
+      toast({
+        type: "error",
+        content: "获取收藏列表失败"
+      });
+      // 请求失败时不打开抽屉，避免显示空内容
     }
   };
 
@@ -1911,6 +1997,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("刷新收藏列表失败:", error);
+      toast({
+        type: "error",
+        content: "刷新收藏列表失败"
+      });
     }
   };
 
@@ -1942,6 +2032,10 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("加载更多收藏失败:", error);
+      toast({
+        type: "error",
+        content: "加载更多收藏失败"
+      });
     } finally {
       collectLoadMoreRef.current = false;
     }
@@ -1964,6 +2058,16 @@ export default function IndexPage() {
       setCollectList(data);
     } catch (error) {
       console.error("切换收藏夹失败:", error);
+      toast({
+        type: "error",
+        content: "切换收藏夹失败"
+      });
+      // 切换失败时，清空列表并重置到第一个收藏夹，避免卡在失败的收藏夹上
+      setCollectList(undefined);
+      if (collectGroups.length > 0 && groupId !== collectGroups[0].id) {
+        // 如果当前失败的不是第一个收藏夹，尝试切换回第一个
+        setCurrentGroupId(collectGroups[0].id);
+      }
     }
   };
 
@@ -2131,6 +2235,21 @@ export default function IndexPage() {
         isPlaying={isPlaying}
         src={playerSrc}
         onEnded={handleVideoEnded}
+        onError={(error) => {
+          if (error) {
+            const errorMsg = error.code === 4
+              ? "音频格式不支持或加载失败"
+              : error.code === 3
+              ? "音频解码失败"
+              : error.code === 2
+              ? "网络错误，音频加载失败"
+              : "音频加载出错";
+            toast({
+              type: "error",
+              content: errorMsg
+            });
+          }
+        }}
         onPlayStateChange={setIsPlaying}
         onTimeUpdate={handleTimeUpdate}
       />
@@ -2312,10 +2431,10 @@ export default function IndexPage() {
                   <CloseSmall fill="#475569" size="18" theme="outline" />
                 </button>
                 <div className="relative z-10 p-6 pt-8 text-center">
-                  <h3 className="mb-1 text-lg font-bold text-slate-800">
+                  <h3 className="mb-1 text-lg font-bold text-slate-900">
                     使用 B站 App 扫码登录
                   </h3>
-                  <p className="mb-4 text-sm text-slate-500">打开手机扫一扫</p>
+                  <p className="mb-4 text-sm text-slate-700 font-medium">打开手机扫一扫</p>
                   <div className="relative inline-block">
                     <div className="login-qr-card p-3 rounded-xl shadow-lg">
                       <img

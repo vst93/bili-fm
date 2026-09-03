@@ -1420,18 +1420,19 @@ body.mini-mode #root::before {
 /* 高度 36px 正好填满内腔（46 - 2 边框 - 8 padding）。
    右内边距收到 1px：HeroUI 默认 12px，让 32px 的搜索按钮离右边 12px、
    离上下各 1px，四周差了一个数量级。1px 之后按钮四周等距。
-   左内边距 10px 是文字的视觉起点，不参与同心计算。 */
+   左内边距 10px 是文字的视觉起点，不参与同心计算。
+   内凹效果：顶部深色阴影 + 底部亮色高光 + 较暗背景，模拟向内凹陷的深度。 */
 .home-search-input [data-slot="input-wrapper"] {
     min-height: 36px !important;
     height: 36px !important;
     padding-left: 10px !important;
     padding-right: 1px !important;
-    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    border: 1px solid rgba(100, 116, 139, 0.14) !important;
     border-radius: 9px !important;
     box-shadow:
-        inset 0 1px 1px rgba(255, 255, 255, 0.6),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04) !important;
-    background: rgba(255, 255, 255, 0.12) !important;
+        inset 0 1px 2px rgba(15, 23, 42, 0.06),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.3) !important;
+    background: rgba(15, 23, 42, 0.025) !important;
     transition: background 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
 }
 
@@ -1439,8 +1440,9 @@ body.mini-mode #root::before {
     border-color: rgba(14, 165, 233, 0.4) !important;
     box-shadow:
         0 0 0 2px rgba(14, 165, 233, 0.14),
-        inset 0 1px 1px rgba(255, 255, 255, 0.7) !important;
-    background: rgba(255, 255, 255, 0.22) !important;
+        inset 0 1px 2px rgba(15, 23, 42, 0.04),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.4) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
 }
 
 /* Window control group: switch-mode + minimize + close in a recessed glass tray.
@@ -2972,25 +2974,29 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-radius: 8px;
     position: relative;
     isolation: isolate;
-    border: 1px solid var(--glass-border);
+    border: 1px solid rgba(71, 85, 105, 0.5);
     background: transparent;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 /* 和 header 的 tab 胶囊共用同一套玻璃配方：::before 承载模糊 + 填充，
-   ::after 用 mask 裁出 1px 边缘聚光。 */
+   ::after 用 mask 裁出 1px 边缘聚光。
+   内凹效果：顶部深色阴影 + 底部亮色高光模拟向下凹陷的输入腔。 */
 [data-slot="wrapper"] header .part-search::before {
     content: "";
     position: absolute;
     /* inset: -1px 抵消 1px 边框，让填充和边框的圆角半径对齐（同 tab 胶囊） */
     inset: -1px;
     border-radius: inherit;
-    background-color: var(--liquid-bg);
+    background-color: rgba(15, 23, 42, 0.035);
     background-image: var(--glass-sheen-static);
     backdrop-filter: var(--liquid-blur-thin);
     -webkit-backdrop-filter: var(--liquid-blur-thin);
+    box-shadow:
+        inset 0 1px 2px rgba(15, 23, 42, 0.08),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.35);
     z-index: -1;
-    transition: background-color 0.2s ease;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 [data-slot="wrapper"] header .part-search::after {
@@ -3007,9 +3013,9 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     mask-composite: exclude;
     box-shadow:
         var(--liquid-chromatic),
-        inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.06);
-    opacity: 0.65;
+        inset 0 0.5px 0.5px rgba(255, 255, 255, 0.2),
+        inset 0 -0.5px 0.5px rgba(15, 23, 42, 0.04);
+    opacity: 0.5;
     transition: opacity 0.2s ease;
     z-index: 1;
 }
@@ -3020,7 +3026,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 }
 
 [data-slot="wrapper"] header .part-search:hover {
-    border-color: var(--glass-border-bright);
+    border-color: rgba(71, 85, 105, 0.65);
     box-shadow: var(--liquid-shadow);
 }
 
@@ -3030,14 +3036,17 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 
 /* 聚焦态和选中的 tab 同一套语言：玻璃变厚、边缘光拉满，蓝色只在外圈光环 */
 [data-slot="wrapper"] header .part-search:focus-within {
-    border-color: var(--glass-border-bright);
+    border-color: rgba(14, 165, 233, 0.4);
     box-shadow:
-        var(--liquid-shadow-lifted),
-        0 0 0 3px rgba(14, 165, 233, 0.14);
+        var(--liquid-shadow),
+        0 0 0 2px rgba(14, 165, 233, 0.14);
 }
 
 [data-slot="wrapper"] header .part-search:focus-within::before {
-    background-color: rgba(255, 255, 255, 0.52);
+    background-color: rgba(255, 255, 255, 0.05);
+    box-shadow:
+        inset 0 1px 2px rgba(15, 23, 42, 0.04),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.4);
 }
 
 [data-slot="wrapper"] header .part-search:focus-within::after {
@@ -3047,7 +3056,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
 [data-slot="wrapper"] header .part-search-icon {
     flex: 0 0 auto;
     display: inline-flex;
-    color: #94a3b8;
+    color: #475569;
     transition: color 0.16s ease;
 }
 
@@ -3065,12 +3074,14 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     background: transparent !important;
     box-shadow: none !important;
     outline: none !important;
-    color: #334155 !important;
+    color: #0f172a !important;
     font-size: 13px !important;
+    font-weight: 500 !important;
 }
 
 [data-slot="wrapper"] header input.part-search-input::placeholder {
-    color: #94a3b8 !important;
+    color: #475569 !important;
+    font-weight: 400 !important;
 }
 
 /* Playlist items - lightweight, no per-item blur */
@@ -4432,13 +4443,14 @@ html:is(
 /* ====== Login panel liquid glass ====== */
 .login-glass {
     position: relative;
-    border: 1px solid var(--glass-border-bright);
-    background: var(--glass-bg);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.28);
     box-shadow:
-        var(--glass-specular),
-        var(--glass-shadow-lifted);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
+        0 8px 32px rgba(15, 23, 42, 0.2),
+        0 2px 8px rgba(15, 23, 42, 0.14),
+        inset 0 1px 1px rgba(255, 255, 255, 0.3);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
     /* Performance: limit repaint area to the login panel */
     contain: layout style paint;
 }
@@ -4449,7 +4461,12 @@ html:is(
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background-image: var(--glass-sheen-static);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.2) 0%,
+        rgba(255, 255, 255, 0.08) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
 }
 
 .login-glass > * {
@@ -4459,16 +4476,22 @@ html:is(
 
 .login-close-btn {
     z-index: 20 !important;
-    border: 1px solid var(--glass-border);
-    background: var(--glass-bg);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 6px 16px rgba(15, 23, 42, 0.1);
+        inset 0 1px 1px rgba(255, 255, 255, 0.35),
+        0 4px 12px rgba(15, 23, 42, 0.12);
+    transition: all 0.2s ease;
 }
 
 .login-close-btn:hover {
-    background: var(--glass-bg-hover) !important;
+    background: rgba(255, 255, 255, 0.28) !important;
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.4),
+        0 6px 16px rgba(15, 23, 42, 0.15);
 }
 
 .login-close-btn:active {
@@ -4476,11 +4499,14 @@ html:is(
 }
 
 .login-qr-card {
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.88),
-        0 12px 28px rgba(15, 23, 42, 0.14);
+        inset 0 1px 0 rgba(255, 255, 255, 1),
+        0 8px 24px rgba(15, 23, 42, 0.1),
+        0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 /* ====== Video player overlay ====== */

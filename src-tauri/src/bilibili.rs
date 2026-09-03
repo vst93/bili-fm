@@ -978,7 +978,7 @@ async fn get_fav_folders_for_resource(aid: i64, cookie: &str) -> Result<Vec<Valu
 }
 
 /// 对应 Go GetBLFavFolderListDetail
-pub async fn get_fav_folder_detail(fid: i32, page: i32) -> Result<Vec<Value>, String> {
+pub async fn get_fav_folder_detail(fid: i64, page: i32) -> Result<Vec<Value>, String> {
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Ok(Vec::new());

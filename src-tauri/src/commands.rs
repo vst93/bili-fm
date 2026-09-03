@@ -93,7 +93,7 @@ pub async fn get_fav_folder_list() -> Result<Vec<Value>, String> {
 }
 
 #[tauri::command]
-pub async fn get_fav_folder_detail(fid: i32, page: i32) -> Result<Vec<Value>, String> {
+pub async fn get_fav_folder_detail(fid: i64, page: i32) -> Result<Vec<Value>, String> {
     bilibili::get_fav_folder_detail(fid, page).await
 }
 
