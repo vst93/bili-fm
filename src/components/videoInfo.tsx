@@ -10,7 +10,9 @@ import {
   MusicList,
   Comment,
   Star,
+  Peoples,
 } from "@icon-park/react";
+import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@heroui/dropdown";
 import { invoke } from "@tauri-apps/api/core";
 
 import { toast } from "../utils/toast";
@@ -92,7 +94,7 @@ export default function VideoInfo({
     ];
     const seen = new Set<number>();
     return candidates.filter((creator) => {
-      if (!creator.mid || seen.has(creator.mid)) return false;
+      if (creator.mid <= 0 || seen.has(creator.mid)) return false;
       seen.add(creator.mid);
       return Boolean(creator.name || creator.mid);
     });
@@ -103,7 +105,7 @@ export default function VideoInfo({
     setIsOwnerMenuOpen(false);
   }, [bvid]);
 
-  const displayedOwner = selectedOwner || creators[0];
+  const displayedOwner = creators.find((creator) => creator.mid === selectedOwner?.mid) || creators[0];
 
   const checkLikeStatus = async () => {
     try {
@@ -250,7 +252,7 @@ export default function VideoInfo({
               loading="lazy"
               radius="full"
               src={graftingImage(
-                displayedOwner?.face || ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+                displayedOwner?.face || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
                 96,
               )}
               width={40}
@@ -258,49 +260,63 @@ export default function VideoInfo({
             />
             <div className="min-w-0">
               <span className="video-kicker">UP 主</span>
-              <button
-                id="video-owner-name"
-                className="truncate bg-transparent border-none cursor-pointer p-0"
-                onClick={() => displayedOwner && onOwnerClick?.(displayedOwner.mid, displayedOwner.name)}
-              >
-                {displayedOwner?.name || ownerName || "神秘的UP主"}
-              </button>
-            </div>
-            {creators.length > 1 && (
-              <div className="video-owner-picker">
+              <div className="video-owner-name-row">
                 <button
-                  aria-expanded={isOwnerMenuOpen}
-                  aria-label="选择合作 UP 主"
-                  className="video-owner-picker-button"
-                  title="选择合作 UP 主"
+                  id="video-owner-name"
+                  className="truncate bg-transparent border-none cursor-pointer p-0"
                   type="button"
-                  onClick={() => setIsOwnerMenuOpen((open) => !open)}
+                  onClick={() => displayedOwner && onOwnerClick?.(displayedOwner.mid, displayedOwner.name)}
                 >
-                  +{creators.length - 1}
+                  {displayedOwner?.name || ownerName || "神秘的UP主"}
                 </button>
-                {isOwnerMenuOpen && (
-                  <div className="video-owner-picker-menu" role="menu">
-                    {creators.map((creator) => (
+                {creators.length > 1 && (
+                  <Dropdown
+                    classNames={{ content: "video-owner-picker-menu" }}
+                    isOpen={isOwnerMenuOpen}
+                    placement="bottom-start"
+                    onOpenChange={setIsOwnerMenuOpen}
+                  >
+                    <DropdownTrigger>
                       <button
-                        key={creator.mid}
-                        className={`video-owner-picker-item ${creator.mid === displayedOwner?.mid ? "is-active" : ""}`}
-                        role="menuitem"
-                        title={creator.name || String(creator.mid)}
+                        aria-label="选择合作 UP 主"
+                        className="nav-icon-btn video-owner-picker-button"
+                        title={`选择合作 UP 主 (${creators.length})`}
                         type="button"
-                        onClick={() => {
-                          setSelectedOwner(creator);
-                          setIsOwnerMenuOpen(false);
-                          onOwnerClick?.(creator.mid, creator.name);
-                        }}
                       >
-                        <span>{creator.name || `UP 主 ${creator.mid}`}</span>
-                        {creator.title && <small>{creator.title}</small>}
+                        <Peoples fill="currentColor" size={18} theme="outline" />
                       </button>
-                    ))}
-                  </div>
+                    </DropdownTrigger>
+                    <DropdownMenu
+                      aria-label="合作 UP 主"
+                      itemClasses={{
+                        base: "video-owner-picker-item",
+                        title: "video-owner-picker-name",
+                        description: "video-owner-picker-role",
+                      }}
+                      selectedKeys={new Set(displayedOwner ? [String(displayedOwner.mid)] : [])}
+                      selectionMode="single"
+                      variant="light"
+                      onAction={(key) => {
+                        const creator = creators.find((item) => String(item.mid) === key);
+                        if (!creator) return;
+                        setSelectedOwner(creator);
+                        setIsOwnerMenuOpen(false);
+                        onOwnerClick?.(creator.mid, creator.name);
+                      }}
+                    >
+                      {creators.map((creator) => (
+                        <DropdownItem
+                          key={String(creator.mid)}
+                          description={creator.title || undefined}
+                          textValue={creator.name || `UP 主 ${creator.mid}`}
+                          title={creator.name || `UP 主 ${creator.mid}`}
+                        />
+                      ))}
+                    </DropdownMenu>
+                  </Dropdown>
                 )}
               </div>
-            )}
+            </div>
           </div>
 
         </div>
