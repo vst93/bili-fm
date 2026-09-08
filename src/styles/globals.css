@@ -1632,6 +1632,85 @@ body.mini-mode #root::before {
     position: relative;
 }
 
+.video-owner-picker {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.video-owner-picker-button {
+    min-width: 28px;
+    height: 24px;
+    padding: 0 7px;
+    border: 1px solid rgba(14, 165, 233, 0.24);
+    border-radius: 999px;
+    color: #0284c7;
+    background: rgba(224, 242, 254, 0.72);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.video-owner-picker-button:hover,
+.video-owner-picker-button[aria-expanded="true"] {
+    background: rgba(186, 230, 253, 0.9);
+}
+
+.video-owner-picker-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 30;
+    width: 190px;
+    max-height: 220px;
+    padding: 5px;
+    overflow-y: auto;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+    backdrop-filter: blur(16px);
+}
+
+.video-owner-picker-item {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #334155;
+    text-align: left;
+    cursor: pointer;
+}
+
+.video-owner-picker-item:hover,
+.video-owner-picker-item.is-active {
+    background: rgba(224, 242, 254, 0.85);
+    color: #0369a1;
+}
+
+.video-owner-picker-item span,
+.video-owner-picker-item small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.video-owner-picker-item span {
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.video-owner-picker-item small {
+    color: #94a3b8;
+    font-size: 10px;
+}
+
 /* Glass overlay on the avatar — sits above the image for a frosted glass look */
 .video-owner-wrap::before {
     content: "";
@@ -2034,7 +2113,7 @@ body.mini-mode #root::before {
     height: 56px;
     padding: 0 18px;
     display: grid;
-    grid-template-columns: 42px 46px minmax(0, 1fr) 46px 34px 40px 34px;
+    grid-template-columns: 42px 34px 46px minmax(0, 1fr) 46px 34px 40px 34px;
     align-items: center;
     gap: 8px;
     position: relative;
@@ -4075,6 +4154,39 @@ body.mini-mode #switch-window-mode-mini:hover {
         0 10px 22px rgba(15, 23, 42, 0.1);
 }
 
+body.mini-mode #toggle-mini-always-on-top {
+    position: fixed;
+    top: 34px;
+    right: 48px;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--glass-border);
+    border-radius: 9px;
+    color: #526174;
+    background-color: var(--glass-bg);
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        0 8px 18px rgba(15, 23, 42, 0.08);
+    opacity: 0.88;
+    cursor: pointer;
+    z-index: 9999999;
+    transition: color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease;
+}
+
+body.mini-mode #toggle-mini-always-on-top:hover,
+body.mini-mode #toggle-mini-always-on-top[aria-pressed="true"] {
+    color: #0284c7;
+    opacity: 1;
+    background-color: var(--glass-bg-hover);
+}
+
+body.mini-mode #toggle-mini-always-on-top:active {
+    transform: scale(0.92);
+}
+
 body.mini-mode #switch-window-mode-mini:active {
     transform: scale(0.92);
     background-color: var(--glass-bg-active);
@@ -4103,7 +4215,7 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05)) !important;
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
-    grid-template-columns: 34px 44px minmax(0, 1fr) 44px 30px 36px 30px;
+    grid-template-columns: 34px 30px 44px minmax(0, 1fr) 44px 30px 36px 30px;
     gap: 8px;
 }
 

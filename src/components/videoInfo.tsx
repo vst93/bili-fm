@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Search,
   DoubleUp,
@@ -18,6 +18,7 @@ import { toast } from "../utils/toast";
 import RetryImg from "./retryImg";
 
 import { graftingImage } from "@/utils/string";
+import type { VideoStaff } from "@/types/bilibili";
 
 interface VideoInfoProps {
   title?: string;
@@ -47,6 +48,7 @@ interface VideoInfoProps {
   seriesPlaylistCount?: number;
   playingPlaylistType?: "user" | "series";
   cid?: number;
+  staff?: VideoStaff[];
 }
 
 export default function VideoInfo({
@@ -73,12 +75,35 @@ export default function VideoInfo({
   seriesPlaylistCount = 0,
   playingPlaylistType = "user",
   cid,
+  staff = [],
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isFavoriteUpdating, setIsFavoriteUpdating] = useState(false);
   const favoriteRequestIdRef = useRef(0);
+  const [selectedOwner, setSelectedOwner] = useState<VideoStaff | null>(null);
+  const [isOwnerMenuOpen, setIsOwnerMenuOpen] = useState(false);
+
+  const creators = useMemo(() => {
+    const candidates = [
+      { mid: ownerMid, name: ownerName, face: ownerFace, title: "" },
+      ...staff,
+    ];
+    const seen = new Set<number>();
+    return candidates.filter((creator) => {
+      if (!creator.mid || seen.has(creator.mid)) return false;
+      seen.add(creator.mid);
+      return Boolean(creator.name || creator.mid);
+    });
+  }, [ownerFace, ownerMid, ownerName, staff]);
+
+  useEffect(() => {
+    setSelectedOwner(null);
+    setIsOwnerMenuOpen(false);
+  }, [bvid]);
+
+  const displayedOwner = selectedOwner || creators[0];
 
   const checkLikeStatus = async () => {
     try {
@@ -218,29 +243,64 @@ export default function VideoInfo({
         <div className="video-info-head">
           <div className="video-owner-wrap">
             <RetryImg
-              alt={ownerName}
+              alt={displayedOwner?.name || ownerName}
               className="cursor-pointer transition-transform hover:scale-105 flex-shrink-0"
               height={40}
               id="video-owner-face"
               loading="lazy"
               radius="full"
               src={graftingImage(
-                ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+                displayedOwner?.face || ownerFace || "https://i0.hdslb.com/bfs/face/member/noface.jpg",
                 96,
               )}
               width={40}
-              onClick={() => onOwnerClick?.(ownerMid, ownerName)}
+              onClick={() => displayedOwner && onOwnerClick?.(displayedOwner.mid, displayedOwner.name)}
             />
             <div className="min-w-0">
               <span className="video-kicker">UP 主</span>
               <button
                 id="video-owner-name"
                 className="truncate bg-transparent border-none cursor-pointer p-0"
-                onClick={() => onOwnerClick?.(ownerMid, ownerName)}
+                onClick={() => displayedOwner && onOwnerClick?.(displayedOwner.mid, displayedOwner.name)}
               >
-                {ownerName || "神秘的UP主"}
+                {displayedOwner?.name || ownerName || "神秘的UP主"}
               </button>
             </div>
+            {creators.length > 1 && (
+              <div className="video-owner-picker">
+                <button
+                  aria-expanded={isOwnerMenuOpen}
+                  aria-label="选择合作 UP 主"
+                  className="video-owner-picker-button"
+                  title="选择合作 UP 主"
+                  type="button"
+                  onClick={() => setIsOwnerMenuOpen((open) => !open)}
+                >
+                  +{creators.length - 1}
+                </button>
+                {isOwnerMenuOpen && (
+                  <div className="video-owner-picker-menu" role="menu">
+                    {creators.map((creator) => (
+                      <button
+                        key={creator.mid}
+                        className={`video-owner-picker-item ${creator.mid === displayedOwner?.mid ? "is-active" : ""}`}
+                        role="menuitem"
+                        title={creator.name || String(creator.mid)}
+                        type="button"
+                        onClick={() => {
+                          setSelectedOwner(creator);
+                          setIsOwnerMenuOpen(false);
+                          onOwnerClick?.(creator.mid, creator.name);
+                        }}
+                      >
+                        <span>{creator.name || `UP 主 ${creator.mid}`}</span>
+                        {creator.title && <small>{creator.title}</small>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
         </div>

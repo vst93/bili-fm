@@ -6,6 +6,7 @@ import {
   PlayOne,
   VolumeMute,
   VolumeNotice,
+  Next,
 } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -35,6 +36,8 @@ type AudioGraph = {
 interface PlayerProps {
   src?: string;
   onEnded?: () => void;
+  onNext?: () => void;
+  canNext?: boolean;
   onPlayStateChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (time: number) => void;
   onError?: (error: MediaError | null) => void;
@@ -82,6 +85,8 @@ const updateSeekPreviewUi = (
 const Player = ({
   src,
   onEnded,
+  onNext,
+  canNext = true,
   onPlayStateChange,
   onTimeUpdate,
   onError,
@@ -871,6 +876,17 @@ const Player = ({
           ) : (
             <PlayOne fill="currentColor" size={24} theme="filled" />
           )}
+        </button>
+
+        <button
+          aria-label="下一个视频"
+          className="player-button player-next-button"
+          disabled={!src || !onNext || !canNext}
+          title="下一个视频"
+          type="button"
+          onClick={onNext}
+        >
+          <Next fill="currentColor" size={18} theme="outline" />
         </button>
 
         <time

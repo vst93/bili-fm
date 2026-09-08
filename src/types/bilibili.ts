@@ -33,6 +33,13 @@ export interface Page {
   first_frame: string;
 }
 
+export interface VideoStaff {
+  mid: number;
+  name: string;
+  face: string;
+  title: string;
+}
+
 export interface VideoInfo {
   bvid: string;
   aid: number;
@@ -43,6 +50,7 @@ export interface VideoInfo {
   owner_mid: number;
   owner_name: string;
   owner_face: string;
+  staff: VideoStaff[];
   pages: Page[];
   cid: number;
 }

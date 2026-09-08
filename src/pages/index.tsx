@@ -123,6 +123,8 @@ export default function IndexPage() {
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [isMiniPinned, setIsMiniPinned] = useState(false);
+  const windowModeChangingRef = useRef(false);
   // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
   // macOS WebKit 的系统画中画浮窗只有播放/暂停，没有进度条，
   // 所以用应用自己的置顶小窗替代 —— 里面的 <video controls> 原生进度条可正常拖动。
@@ -893,9 +895,11 @@ export default function IndexPage() {
     part: string,
     index?: number,
     first_frame?: string,
+    sourceInfo?: BL.VideoInfo,
   ) => {
+    const sourceVideoInfo = sourceInfo || videoInfo;
     setIsPlaylistMode(false);
-    setPageFirstFrame(first_frame || videoInfo?.pic || "");
+    setPageFirstFrame(first_frame || sourceVideoInfo?.pic || "");
 
     try {
       const info = await invoke<BL.PlayURLInfo>("get_url_by_cid", { aid, cid });
@@ -910,10 +914,12 @@ export default function IndexPage() {
         setCurrentIndex(index);
       }
       // 更新显示的视频信息（保留视频标题，选集标题通过 currentPart 单独显示）
-      if (videoInfo) {
-        setVideoInfo({ ...videoInfo, cid: cid });
-        setPlayingInfo({ ...videoInfo, cid: cid });
-      }
+      setVideoInfo((current) =>
+        current && current.bvid === sourceVideoInfo?.bvid
+          ? { ...current, cid }
+          : current,
+      );
+      if (sourceVideoInfo) setPlayingInfo({ ...sourceVideoInfo, cid });
     } catch (error: any) {
       console.error("获取播放地址失败:", error);
       toast({
@@ -954,18 +960,20 @@ export default function IndexPage() {
       return;
     }
 
-    if (!videoInfo?.pages || !videoInfo.pages.length) return;
-    if (videoInfo.pages.length <= 1) return;
+    const navigableVideo = playingInfo || videoInfo;
+    if (!navigableVideo?.pages || !navigableVideo.pages.length) return;
+    if (navigableVideo.pages.length <= 1) return;
 
-    const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-    const nextPage = videoInfo.pages[nextIndex];
+    const nextIndex = (currentIndex + 1) % navigableVideo.pages.length;
+    const nextPage = navigableVideo.pages[nextIndex];
 
     await handleVideoSelect(
       nextPage.cid,
-      videoInfo.aid,
+      navigableVideo.aid,
       nextPage.part,
       nextIndex,
       nextPage.first_frame,
+      navigableVideo,
     );
   };
 
@@ -989,19 +997,21 @@ export default function IndexPage() {
           : activePlaylistIndex - 1;
 
       handlePlaylistVideoSelect(prevIndex);
-    } else if (videoInfo?.pages) {
-      if (videoInfo.pages.length <= 1) return;
+    } else {
+      const navigableVideo = playingInfo || videoInfo;
+      if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
 
       const prevIndex =
-        (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
-      const prevPage = videoInfo.pages[prevIndex];
+        (currentIndex - 1 + navigableVideo.pages.length) % navigableVideo.pages.length;
+      const prevPage = navigableVideo.pages[prevIndex];
 
       handleVideoSelect(
         prevPage.cid,
-        videoInfo.aid,
+        navigableVideo.aid,
         prevPage.part,
         prevIndex,
         prevPage.first_frame,
+        navigableVideo,
       );
     }
   };
@@ -1027,18 +1037,20 @@ export default function IndexPage() {
         nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
       handlePlaylistVideoSelect(nextIndex);
-    } else if (videoInfo?.pages) {
-      if (videoInfo.pages.length <= 1) return;
+    } else {
+      const navigableVideo = playingInfo || videoInfo;
+      if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
 
-      const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-      const nextPage = videoInfo.pages[nextIndex];
+      const nextIndex = (currentIndex + 1) % navigableVideo.pages.length;
+      const nextPage = navigableVideo.pages[nextIndex];
 
       handleVideoSelect(
         nextPage.cid,
-        videoInfo.aid,
+        navigableVideo.aid,
         nextPage.part,
         nextIndex,
         nextPage.first_frame,
+        navigableVideo,
       );
     }
   };
@@ -1585,6 +1597,10 @@ export default function IndexPage() {
    * @description 获取并显示UP主的视频列表
    */
   const handleOwnerClick = async (mid: number, name: string) => {
+    if (!mid) {
+      toast({ type: "warning", content: "该视频没有可用的 UP 主空间" });
+      return;
+    }
     try {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
@@ -2078,14 +2094,39 @@ export default function IndexPage() {
     // Linux 下不支持迷你模式，直接返回
     if (isLinux) return;
     // 播放视频时不提供迷你模式（标题栏的切换键在 isPlayVideo 时已不渲染）
+    if (windowModeChangingRef.current) return;
+    windowModeChangingRef.current = true;
     const theIsMiniMode = !isMiniMode;
 
     document.body.classList.toggle("mini-mode", theIsMiniMode);
     setIsMiniMode(theIsMiniMode);
-    if (theIsMiniMode) {
-      invoke("set_window_size", { width: 400, height: 155 });
-    } else {
-      invoke("set_window_size", { width: 800, height: 600 });
+    try {
+      if (theIsMiniMode) {
+        await invoke("set_window_size", { width: 400, height: 155, center: false });
+      } else {
+        await invoke("set_window_always_on_top", { alwaysOnTop: false });
+        await invoke("set_window_size", { width: 800, height: 600, center: true });
+        setIsMiniPinned(false);
+      }
+    } catch (error) {
+      console.error("切换窗口模式失败:", error);
+      setIsMiniMode(!theIsMiniMode);
+      document.body.classList.toggle("mini-mode", !theIsMiniMode);
+      toast({ type: "error", content: "切换窗口模式失败" });
+    } finally {
+      windowModeChangingRef.current = false;
+    }
+  };
+
+  const toggleMiniAlwaysOnTop = async () => {
+    if (!isMiniMode) return;
+    const nextPinned = !isMiniPinned;
+    try {
+      await invoke("set_window_always_on_top", { alwaysOnTop: nextPinned });
+      setIsMiniPinned(nextPinned);
+    } catch (error) {
+      console.error("设置窗口置顶失败:", error);
+      toast({ type: "error", content: "设置窗口置顶失败" });
     }
   };
 
@@ -2151,6 +2192,10 @@ export default function IndexPage() {
     return `http://127.0.0.1:4654/audio-proxy?url=${encodeURIComponent(playUrl)}`;
   }, [playUrl]);
 
+  const canNavigateNext = isPlaylistMode
+    ? (playingPlaylistType === "series" ? seriesPlaylist : playlist).length > 1
+    : (playingInfo?.pages.length || 0) > 1;
+
   return (
     <DefaultLayout>
       {/* 播放视频时标题栏浮在画面上，迷你模式切换键放这里既多余又干扰画面，
@@ -2193,6 +2238,7 @@ export default function IndexPage() {
               ownerFace={displayVideoInfo?.owner_face}
               ownerMid={displayVideoInfo?.owner_mid}
               ownerName={displayVideoInfo?.owner_name}
+              staff={displayVideoInfo?.staff}
               part={currentPart}
               playlistCount={playlist.length}
               seriesPlaylistCount={seriesPlaylist.length}
@@ -2224,6 +2270,8 @@ export default function IndexPage() {
           isPlaylistMode={isPlaylistMode}
           part={currentPart}
           title={displayVideoInfo?.title}
+          isPinned={isMiniPinned}
+          onTogglePin={toggleMiniAlwaysOnTop}
           onSwitchMode={switchWindowMode}
         />
       )}
@@ -2233,6 +2281,8 @@ export default function IndexPage() {
         cloudHistoryEnabled={!isIncognitoMode}
         forcePause={isPlayVideo}
         isPlaying={isPlaying}
+        canNext={canNavigateNext}
+        onNext={handleNextTrack}
         src={playerSrc}
         onEnded={handleVideoEnded}
         onError={(error) => {

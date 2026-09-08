@@ -98,7 +98,7 @@ pub async fn get_fav_folder_detail(fid: i64, page: i32) -> Result<Vec<Value>, St
 }
 
 #[tauri::command]
-pub async fn get_up_video_list(host_mid: i32, offset: String) -> Result<bilibili::FeedList, String> {
+pub async fn get_up_video_list(host_mid: i64, offset: String) -> Result<bilibili::FeedList, String> {
     bilibili::get_up_video_list(host_mid, &offset).await
 }
 
@@ -128,13 +128,13 @@ pub async fn remove_from_watchlater(aid: i64) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn get_series_list(mid: i32) -> Result<Vec<Value>, String> {
+pub async fn get_series_list(mid: i64) -> Result<Vec<Value>, String> {
     bilibili::get_series_list(mid).await
 }
 
 #[tauri::command]
 pub async fn get_series_videos(
-    mid: i32,
+    mid: i64,
     series_id: i32,
     page_num: i32,
 ) -> Result<Vec<bilibili::SeriesArchive>, String> {
@@ -200,18 +200,18 @@ pub async fn set_favorite(aid: i64, favorite: bool) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn follow(mid: i32) -> Result<bool, String> {
+pub async fn follow(mid: i64) -> Result<bool, String> {
     bilibili::follow(mid).await
 }
 
 #[tauri::command]
-pub async fn unfollow(mid: i32) -> Result<bool, String> {
+pub async fn unfollow(mid: i64) -> Result<bool, String> {
     bilibili::unfollow(mid).await
 }
 
 #[tauri::command]
-pub async fn is_following(mid: i32) -> Result<bilibili::FollowStatus, String> {
-    bilibili::is_following(mid as i64).await
+pub async fn is_following(mid: i64) -> Result<bilibili::FollowStatus, String> {
+    bilibili::is_following(mid).await
 }
 
 #[tauri::command]
@@ -395,10 +395,26 @@ pub fn quit_app(app: AppHandle) {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn set_window_size(window: tauri::Window, width: u32, height: u32) -> Result<(), String> {
+pub fn set_window_size(
+    window: tauri::Window,
+    width: u32,
+    height: u32,
+    center: Option<bool>,
+) -> Result<(), String> {
     window
         .set_size(tauri::LogicalSize::new(width as f64, height as f64))
-        .map_err(|e| format!("set_window_size 失败: {e}"))
+        .map_err(|e| format!("set_window_size 失败: {e}"))?;
+    if center.unwrap_or(false) {
+        window.center().map_err(|e| format!("窗口居中失败: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_window_always_on_top(window: tauri::Window, always_on_top: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|e| format!("窗口置顶设置失败: {e}"))
 }
 
 #[tauri::command]
