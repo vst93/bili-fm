@@ -394,6 +394,34 @@ pub fn quit_app(app: AppHandle) {
 // 前端已按平台禁用); 此处仍保留命令, 由前端决定是否调用。
 // ---------------------------------------------------------------------------
 
+/// 以窗口当前所在显示器的可用工作区为基准居中。
+///
+/// 不直接用 `Window::center()`：macOS 的 `NSWindow.center` 与
+/// Windows/Linux 的 work_area 居中规则不一致，而且紧跟 `set_size` 调用时
+/// 部分平台可能仍按旧尺寸计算。前端会先等待原生 resize 完成再调用。
+fn center_window_on_current_monitor(window: &tauri::Window) -> Result<(), String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| format!("获取当前显示器失败: {e}"))?
+        .or(window
+            .primary_monitor()
+            .map_err(|e| format!("获取主显示器失败: {e}"))?);
+
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+    let size = window
+        .outer_size()
+        .map_err(|e| format!("获取窗口尺寸失败: {e}"))?;
+    let area = monitor.work_area();
+    let x = area.position.x + ((area.size.width as i32 - size.width as i32) / 2).max(0);
+    let y = area.position.y + ((area.size.height as i32 - size.height as i32) / 2).max(0);
+
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| format!("窗口居中失败: {e}"))
+}
+
 #[tauri::command]
 pub fn set_window_size(
     window: tauri::Window,
@@ -405,9 +433,14 @@ pub fn set_window_size(
         .set_size(tauri::LogicalSize::new(width as f64, height as f64))
         .map_err(|e| format!("set_window_size 失败: {e}"))?;
     if center.unwrap_or(false) {
-        window.center().map_err(|e| format!("窗口居中失败: {e}"))?;
+        center_window_on_current_monitor(&window)?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn center_window(window: tauri::Window) -> Result<(), String> {
+    center_window_on_current_monitor(&window)
 }
 
 #[tauri::command]

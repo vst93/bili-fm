@@ -60,6 +60,26 @@ const Playlist = lazy(loadPlaylist);
 const MAX_RETAINED_LIST_ITEMS = 240;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 
+/**
+ * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
+ * 各平台处理完尺寸更新的时机不同；先等 resize 事件再到 Rust 侧居中，
+ * 避免 center 按旧窗口尺寸/旧位置计算。
+ */
+const waitForWindowResize = (timeoutMs = 500) =>
+  new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+      resolve();
+    };
+    const onResize = () => finish();
+    window.addEventListener("resize", onResize);
+    const timer = window.setTimeout(finish, timeoutMs);
+  });
+
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [showSearchList, setShowSearchList] = useState(false);
@@ -177,6 +197,9 @@ export default function IndexPage() {
     previous: () => {},
     next: () => {},
   });
+  const playbackRequestIdRef = useRef(0);
+  const playlistsRef = useRef({ user: playlist, series: seriesPlaylist });
+  playlistsRef.current = { user: playlist, series: seriesPlaylist };
 
   useEffect(() => {
     return () => {
@@ -544,10 +567,10 @@ export default function IndexPage() {
         setIsPlaying((prev) => !prev);
       } else if (event.code === "ArrowLeft" && !event.repeat) {
         event.preventDefault();
-        handlePrevTrack();
+        mediaNavigationRef.current.previous();
       } else if (event.code === "ArrowRight" && !event.repeat) {
         event.preventDefault();
-        handleNextTrack();
+        mediaNavigationRef.current.next();
       }
     };
 
@@ -899,9 +922,11 @@ export default function IndexPage() {
     sourceInfo?: BL.VideoInfo,
   ) => {
     const sourceVideoInfo = sourceInfo || videoInfo;
+    const requestId = ++playbackRequestIdRef.current;
 
     try {
       const info = await invoke<BL.PlayURLInfo>("get_url_by_cid", { aid, cid });
+      if (requestId !== playbackRequestIdRef.current) return;
       if (!info?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
@@ -922,6 +947,7 @@ export default function IndexPage() {
       );
       if (sourceVideoInfo) setPlayingInfo({ ...sourceVideoInfo, cid });
     } catch (error: any) {
+      if (requestId !== playbackRequestIdRef.current) return;
       console.error("获取播放地址失败:", error);
       toast({
         type: "error",
@@ -1125,6 +1151,7 @@ export default function IndexPage() {
     const item = selectedPlaylist[index];
 
     if (!item) return;
+    const requestId = ++playbackRequestIdRef.current;
     setShowSearchList(false);
     setShowPageList(false);
     setShowFeedList(false);
@@ -1139,10 +1166,17 @@ export default function IndexPage() {
         : videoInfo?.bvid === item.bvid
           ? videoInfo
           : await invoke<BL.VideoInfo>("get_clist", { bvid: item.bvid });
+      if (requestId !== playbackRequestIdRef.current) return;
       const playInfo = await invoke<BL.PlayURLInfo>("get_url_by_cid", {
         aid: item.aid,
         cid: item.cid,
       });
+      if (requestId !== playbackRequestIdRef.current) return;
+      // 请求期间列表可能被排序、删除或替换，不能写回旧索引。
+      const latestIndex = playlistsRef.current[sourcePlaylistType].findIndex(
+        (entry) => entry.id === item.id,
+      );
+      if (latestIndex < 0) return;
       if (!playInfo?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
@@ -1150,9 +1184,9 @@ export default function IndexPage() {
       setIsPlaylistMode(true);
       setPlayingPlaylistType(sourcePlaylistType);
       if (sourcePlaylistType === "series") {
-        setCurrentSeriesPlaylistIndex(index);
+        setCurrentSeriesPlaylistIndex(latestIndex);
       } else {
-        setCurrentPlaylistIndex(index);
+        setCurrentPlaylistIndex(latestIndex);
       }
       setPlayUrl(playInfo.url);
       setCurrentPart(item.part);
@@ -1164,6 +1198,7 @@ export default function IndexPage() {
       setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
       setPageFirstFrame(item.first_frame || info.pic || "");
     } catch (error: any) {
+      if (requestId !== playbackRequestIdRef.current) return;
       console.error("获取视频信息失败:", error);
       toast({
         type: "error",
@@ -2098,7 +2133,9 @@ export default function IndexPage() {
       } else {
         await invoke("set_window_always_on_top", { alwaysOnTop: false });
         setIsMiniPinned(false);
-        await invoke("set_window_size", { width: 800, height: 600, center: true });
+        await invoke("set_window_size", { width: 800, height: 600, center: false });
+        await waitForWindowResize();
+        await invoke("center_window");
       }
     } catch (error) {
       console.error("切换窗口模式失败:", error);

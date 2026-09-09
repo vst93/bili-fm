@@ -4195,25 +4195,26 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05)) !important;
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
-    grid-template-columns: 68px 40px minmax(0, 1fr) 40px 30px 36px 30px;
-    gap: 6px;
-}
-
-body.mini-mode #player .player-transport-controls {
+    /* 压缩时间和工具按钮的固定列宽，把更多空间留给进度条。 */
+    grid-template-columns: 66px 38px minmax(0, 1fr) 38px 28px 34px 28px;
     gap: 4px;
 }
 
+body.mini-mode #player .player-transport-controls {
+    gap: 3px;
+}
+
 body.mini-mode #player .player-button {
-    width: 30px;
+    width: 28px;
     height: 30px;
-    flex-basis: 30px;
+    flex-basis: 28px;
     border-radius: 50%;
 }
 
 body.mini-mode #player .player-play-button {
-    width: 34px;
-    height: 34px;
-    flex-basis: 34px;
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
     color: #0284c7;
     border-color: rgba(2, 132, 199, 0.2);
     box-shadow:
@@ -4229,15 +4230,23 @@ body.mini-mode #player .player-play-button::before {
         linear-gradient(165deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
 }
 
+body.mini-mode #player .player-time {
+    padding: 0;
+    font-size: 9px;
+    line-height: 18px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
 body.mini-mode #player .player-speed-button {
-    width: 36px;
+    width: 34px;
     height: 30px;
     border-radius: 7px;
     font-size: 10px;
 }
 
 body.mini-mode #player .player-eq-button {
-    width: 30px;
+    width: 28px;
     height: 30px;
     border-radius: 7px;
 }

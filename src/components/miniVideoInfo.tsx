@@ -46,6 +46,19 @@ export default function MiniVideoInfo({
         </div>
       </div>
       <div className="mini-window-controls" role="group" aria-label="窗口控制">
+        {onSwitchMode && (
+          <button
+            id="switch-window-mode-mini"
+            aria-label="切换到窗口模式"
+            className="app-title-bar-btn"
+            disabled={isWindowControlPending}
+            title="切换到窗口模式"
+            type="button"
+            onClick={onSwitchMode}
+          >
+            <ZoomInternal fill="currentColor" theme="outline" size={16} />
+          </button>
+        )}
         {onTogglePin && (
           <button
             id="toggle-mini-always-on-top"
@@ -58,19 +71,6 @@ export default function MiniVideoInfo({
             onClick={onTogglePin}
           >
             <Pushpin fill="currentColor" size={16} theme={isPinned ? "filled" : "outline"} />
-          </button>
-        )}
-        {onSwitchMode && (
-          <button
-            id="switch-window-mode-mini"
-            aria-label="切换到窗口模式"
-            className="app-title-bar-btn"
-            disabled={isWindowControlPending}
-            title="切换到窗口模式"
-            type="button"
-            onClick={onSwitchMode}
-          >
-            <ZoomInternal fill="currentColor" theme="outline" size={16} />
           </button>
         )}
       </div>

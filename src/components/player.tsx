@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Equalizer,
+  GoEnd,
   Pause,
   PlayOne,
   VolumeMute,
   VolumeNotice,
-  Next,
 } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -887,7 +887,7 @@ const Player = ({
             type="button"
             onClick={onNext}
           >
-            <Next fill="currentColor" size={18} theme="outline" />
+            <GoEnd fill="currentColor" size={18} theme="outline" />
           </button>
         </div>
 
