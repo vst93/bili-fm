@@ -373,7 +373,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
               <img alt="logo" className="w-8 h-8" src="/logo-transparent.png" loading="eager" decoding="async" />
               <span className="text-sm">bili-FM</span>
             </div>
-            <div className="flex-1 flex justify-end items-center pr-2" style={{ opacity: 1 }}>
+            <div className="flex-1 flex justify-end items-center pr-2">
               {switchBtn}
             </div>
           </>
@@ -400,7 +400,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-0" style={{ opacity: 1 }}>
+              <div className="flex items-center gap-0">
                 <div className="flex items-center pr-1">{switchBtn}</div>
                 <div className="flex items-center gap-1 px-1 py-0.5" id="wds-handle-group">
                   <button

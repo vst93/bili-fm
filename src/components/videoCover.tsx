@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Refresh } from "@icon-park/react";
+import { BackgroundColor, Refresh } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface VideoCoverProps {
   cover?: string;
   isPlaying?: boolean;
   onPlayStateChange?: (isPlaying: boolean) => void;
+  ambientBackgroundEnabled?: boolean;
+  onAmbientBackgroundToggle?: () => void;
 }
 
 // 视频封面：碟片模式（旋转，默认）/ 封面模式（静态方块，省 GPU）
@@ -13,6 +15,8 @@ export default function VideoCover({
   cover,
   isPlaying = false,
   onPlayStateChange,
+  ambientBackgroundEnabled = true,
+  onAmbientBackgroundToggle,
 }: VideoCoverProps) {
   const coverImage = cover || "/logo.png";
   const [coverMode, setCoverMode] = useState<"disc" | "square">(() => {
@@ -31,6 +35,7 @@ export default function VideoCover({
   const handleClick = () => {
     onPlayStateChange?.(!isPlaying);
   };
+
 
   if (coverMode === "square") {
     return (
@@ -64,6 +69,18 @@ export default function VideoCover({
         >
           <Refresh size="14" theme="outline" />
         </button>
+        <button
+          className={`cover-mode-toggle cover-background-toggle${ambientBackgroundEnabled ? " is-active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAmbientBackgroundToggle?.();
+          }}
+          title={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
+          aria-label={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
+          aria-pressed={ambientBackgroundEnabled}
+        >
+          <BackgroundColor size="14" theme="outline" />
+        </button>
       </div>
     );
   }
@@ -96,9 +113,21 @@ export default function VideoCover({
           toggleCoverMode();
         }}
         title="切换为封面模式"
-      >
-        <Refresh size="14" theme="outline" />
-      </button>
-    </div>
+        >
+          <Refresh size="14" theme="outline" />
+        </button>
+        <button
+          className={`cover-mode-toggle cover-background-toggle${ambientBackgroundEnabled ? " is-active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAmbientBackgroundToggle?.();
+          }}
+          title={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
+          aria-label={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
+          aria-pressed={ambientBackgroundEnabled}
+        >
+          <BackgroundColor size="14" theme="outline" />
+        </button>
+      </div>
   );
 }
