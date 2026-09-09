@@ -51,7 +51,10 @@ function createHarness(overrides = {}) {
     playingPlaylistType: "user", currentPlaylistIndex: 0, currentSeriesPlaylistIndex: -1,
     isPlaylistMode: true, playingInfo: infos.A, videoInfo: infos.A, currentBvid: "A",
     currentIndex: 0, currentPart: "A1", playUrl: "audio-A", playlistPlayMode: "sequence",
-    isPlayVideo: false, isPlayVideoStop: false, ...overrides,
+    isPlayVideo: false, isPlayVideoStop: false,
+    showSearchList: false, showPageList: false, showFeedList: false,
+    showRecommendList: false, showCollectList: false, showUpVideoList: false,
+    showHistoryList: false, showSeriesList: false, pageNum: 3, ...overrides,
   };
   const requests = [];
   const toasts = [];
@@ -188,6 +191,40 @@ test("a newly populated series playlist can start through the explicit source ar
   assert.equal(h.state.currentSeriesPlaylistIndex, 0);
   assert.equal(h.state.playingInfo.bvid, "B");
 });
+
+test("direct playlist selection closes drawers and adopts the browsing video", async () => {
+  const h = createHarness({ showSearchList: true });
+  const pending = h.actions.handlePlaylistVideoSelect(1);
+  await flush();
+  h.requests[0].resolve({ url: "audio-B" });
+  await pending;
+
+  assert.equal(h.state.showSearchList, false);
+  assert.equal(h.state.currentBvid, "B");
+  assert.equal(h.state.pageNum, 3);
+  assert.equal(h.state.videoInfo.bvid, "B");
+  assert.equal(h.state.playingInfo.bvid, "B");
+});
+
+for (const [name, action] of [
+  ["next track", "handleNextTrack"],
+  ["previous track", "handlePrevTrack"],
+]) {
+    test(`${name} navigation preserves an open drawer and browsing video`, async () => {
+      const h = createHarness({ showSearchList: true });
+      await h.actions[action]();
+      await flush();
+      h.requests[0].resolve({ url: `audio-${name === "next track" ? "B" : "C"}` });
+      await flush();
+
+    assert.equal(h.state.showSearchList, true);
+    assert.equal(h.state.currentBvid, "A");
+    assert.equal(h.state.pageNum, 3);
+    assert.equal(h.state.videoInfo.bvid, "A");
+    assert.equal(h.state.playingInfo.bvid, name === "next track" ? "B" : "C");
+    assert.equal(h.state.playUrl, `audio-${name === "next track" ? "B" : "C"}`);
+  });
+}
 
 for (const [key, expectedCid] of [["ArrowRight", 202], ["ArrowLeft", 203]]) {
   test(`${key} uses the newly playing video even when browsing state and episode index do not change`, async () => {

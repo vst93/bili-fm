@@ -1050,12 +1050,35 @@ body.mini-mode #root::before {
     display: none;
 }
 
+body.mini-mode .app-shell::before,
+body.mini-mode .app-shell::after {
+    display: none;
+}
+
 .app-title-bar {
     height: 36px !important;
     background: transparent !important;
     border-bottom: 0 !important;
     color: var(--studio-ink);
     position: relative;
+    z-index: 2;
+}
+
+/* Keep the title bar visually merged with the window while adding a quiet shadow
+   that falls away from the top edge. The brighter drag-region wash remains hover-only. */
+.app-title-bar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -70% 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(15, 23, 42, 0.1) 0%,
+        rgba(15, 23, 42, 0.045) 42%,
+        rgba(15, 23, 42, 0.012) 72%,
+        transparent 100%);
+    opacity: 0.52;
+    transition: opacity 0.24s ease;
+    z-index: 0;
 }
 
 /* Hover: glass wash that fades downward from the top edge */
@@ -1083,6 +1106,11 @@ body.mini-mode #root::before {
 .app-title-bar:hover::after,
 .app-title-bar:focus-within::after {
     opacity: 1;
+}
+
+.app-title-bar:hover::before,
+.app-title-bar:focus-within::before {
+    opacity: 0.78;
 }
 
 .app-title-bar > * {
@@ -1177,12 +1205,57 @@ body.mini-mode #root::before {
     overflow: hidden;
 }
 
+/* The cover light field belongs to the whole window so the title bar and the
+   content below it share one background instead of forming a color seam. */
+.app-shell {
+    position: relative;
+    isolation: isolate;
+}
+
+.app-shell::before {
+    content: "";
+    position: absolute;
+    inset: -8%;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 58%, rgba(255, 255, 255, 0.12)),
+        radial-gradient(ellipse 72% 62% at 50% 46%, transparent 0%, rgba(241, 245, 249, 0.08) 58%, rgba(241, 245, 249, 0.24) 100%),
+        var(--ambient-cover, none);
+    background-size: 100% 100%, 100% 100%, 178% 156%;
+    background-position: center, center, 50% 44%;
+    background-repeat: no-repeat;
+    /* Lower contrast and saturation keep the color field calm. Using a small
+       source at this scale also avoids muddy detail under the playing cover. */
+    filter: blur(20px) saturate(0.78) brightness(1.14) contrast(0.76);
+    opacity: 0.31;
+    transform: scale(1.03);
+    transition: opacity 0.45s ease;
+}
+
+.app-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(248, 251, 255, 0.22), rgba(248, 251, 255, 0.07) 34%, rgba(248, 251, 255, 0.09) 72%, rgba(248, 251, 255, 0.16)),
+        radial-gradient(ellipse 70% 64% at 50% 46%, transparent 0%, rgba(248, 251, 255, 0.05) 66%, rgba(248, 251, 255, 0.14) 100%);
+}
+
+.app-shell > * {
+    position: relative;
+    z-index: 1;
+}
+
 .home-stage {
     height: calc(100% - 56px);
     padding: 20px 28px 0;
     display: flex;
     flex-direction: column;
     gap: 0;
+    position: relative;
 }
 
 .home-searchbar {
@@ -1200,11 +1273,13 @@ body.mini-mode #root::before {
     flex: 0 0 46px;
     /* 四边等距 4px：原来是 4px 8px，输入框左边离框 8px 而上下只有 4px，
        同一个内腔里横向是纵向的两倍，圆角怎么调都对不齐。
-       内腔 = 46 - 2 边框 - 8 padding = 36px。
-       同心链：框 13 →(4px)→ 输入框/按钮槽 9 →(1px)→ 内部按钮 8。 */
+       同心链从外框外边缘算起（含 1px 边框）：
+       框 13 →(5px = 边框1 + padding4)→ 输入槽 8 →(2px = 槽边框1 + 间隙1)→ 槽内按钮 6。
+       工具按钮不套托盘，直接坐内腔：距外缘 1+4+2 = 7px，半径同为 6。 */
+    --search-radius: 13px;
     padding: 4px;
     border: 1px solid var(--glass-border);
-    border-radius: 13px;
+    border-radius: var(--search-radius);
     background: transparent;
     box-shadow: var(--liquid-shadow);
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
@@ -1270,7 +1345,7 @@ body.mini-mode #root::before {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 8px;
+    border-radius: calc(var(--search-radius) - 7px);
     color: #64748b;
     background-color: transparent;
     background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 30%, transparent 72%);
@@ -1320,57 +1395,14 @@ body.mini-mode #root::before {
     box-shadow: 0 12px 28px rgba(14, 165, 233, 0.2);
 }
 
+/* 动态/热门/收藏/历史：无框 ghost 图标按钮，hover 各自浮起玻璃药丸。
+   原来是一个带边框+rim 光的小托盘把 4 颗按钮框在一起，
+   和输入槽的“内凹井”撞了同一种描边语言，多一层盒子且视觉拥挤。 */
 .home-global-actions {
     margin-left: auto;
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    /* 1px padding：32px 按钮 + 上下 1px padding + 上下 1px 边框 = 36px，
-       正好填满内腔。原来 padding 2px 算出来 38px，比内腔高 2px，是被框挤着的。
-       圆角 9px = 框 13 - 间距 4，与输入框同级同心；原来 12px 只比框小 1。 */
-    padding: 1px;
-    position: relative;
-    isolation: isolate;
-    border-radius: 9px;
-    background: transparent;
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--liquid-shadow);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.home-global-actions::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background-color: var(--liquid-bg);
-    background-image: var(--glass-sheen-static);
-    z-index: -1;
-    transition: background-color 0.2s ease;
-}
-
-.home-global-actions::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    padding: 1px;
-    background: var(--liquid-rim);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    box-shadow:
-        var(--liquid-chromatic),
-        inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
-    z-index: 1;
-}
-
-.home-global-actions > * {
-    position: relative;
-    z-index: 2;
+    gap: 4px;
 }
 
 .top-tool-btn {
@@ -1380,7 +1412,7 @@ body.mini-mode #root::before {
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 8px;
+    border-radius: calc(var(--search-radius) - 7px);
     color: #64748b;
     background-color: transparent;
     background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 30%, transparent 72%);
@@ -1401,12 +1433,17 @@ body.mini-mode #root::before {
 .top-tool-btn:hover {
     opacity: 1;
     color: #0284c7;
-    background-color: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.65);
     box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
+        inset 0 1px 0 var(--glass-highlight),
         inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 2px 8px rgba(15, 23, 42, 0.05);
+        0 2px 8px rgba(15, 23, 42, 0.06);
     transform: translateY(-1px);
+}
+
+.top-tool-btn:focus-visible {
+    outline: 2px solid rgba(14, 165, 233, 0.45);
+    outline-offset: 2px;
 }
 
 .top-tool-btn:hover > * {
@@ -1424,6 +1461,7 @@ body.mini-mode #root::before {
    右内边距收到 1px：HeroUI 默认 12px，让 32px 的搜索按钮离右边 12px、
    离上下各 1px，四周差了一个数量级。1px 之后按钮四周等距。
    左内边距 10px 是文字的视觉起点，不参与同心计算。
+   圆角 = 框 13 - 5px（外框边框1 + padding4）= 8，与外弧同心。
    内凹效果：顶部深色阴影 + 底部亮色高光 + 较暗背景，模拟向内凹陷的深度。 */
 .home-search-input [data-slot="input-wrapper"] {
     min-height: 36px !important;
@@ -1431,7 +1469,7 @@ body.mini-mode #root::before {
     padding-left: 10px !important;
     padding-right: 1px !important;
     border: 1px solid rgba(100, 116, 139, 0.14) !important;
-    border-radius: 9px !important;
+    border-radius: calc(var(--search-radius) - 5px) !important;
     box-shadow:
         inset 0 1px 2px rgba(15, 23, 42, 0.06),
         inset 0 -0.5px 0 rgba(255, 255, 255, 0.3) !important;
@@ -1940,6 +1978,7 @@ body.mini-mode #root::before {
     font-weight: 600;
 }
 
+/* 内容操作行：赞/币/藏/打开/播放/评论，裸 ghost 图标。 */
 .video-content-actions {
     align-self: start;
     width: fit-content;
@@ -1957,59 +1996,26 @@ body.mini-mode #root::before {
     box-shadow: none;
 }
 
+/* 播放上下文 dock：改为内凹托盘（与搜索输入槽同一凹陷语言：
+   上缘内侧暗、下缘内侧亮、底色略深），让"导航"组和上面裸图标
+   的"交互"行形成材质区分；原来的凸起玻璃盒子和 rim 光过重。 */
 .video-context-dock {
     align-self: start;
     width: fit-content;
     max-width: 100%;
     margin-top: 12px;
-    padding: 4px;
+    padding: 3px;
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
-    gap: 3px;
-    position: relative;
-    isolation: isolate;
+    gap: 2px;
     border-radius: 10px;
-    background: transparent;
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--liquid-shadow);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.video-context-dock::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background-color: var(--liquid-bg);
-    background-image: var(--glass-sheen-static);
-    z-index: -1;
-    transition: background-color 0.2s ease;
-}
-
-.video-context-dock::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    padding: 1px;
-    background: var(--liquid-rim);
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
+    border: 1px solid rgba(100, 116, 139, 0.14);
+    background: rgba(15, 23, 42, 0.03);
     box-shadow:
-        var(--liquid-chromatic),
-        inset 0 1px 1px 0.5px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05);
-    z-index: 1;
-}
-
-.video-context-dock > * {
-    position: relative;
-    z-index: 2;
+        inset 0 1px 2px rgba(15, 23, 42, 0.05),
+        inset 0 -0.5px 0 rgba(255, 255, 255, 0.35);
 }
 
 .nav-icon-btn {
@@ -2056,31 +2062,19 @@ body.mini-mode #root::before {
     opacity: 0.82;
 }
 
-.video-content-actions .nav-icon-btn:hover {
-    background-color: var(--glass-bg-hover);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(15, 23, 42, 0.06);
-    opacity: 1;
-    transform: translateY(-1px);
+/* 统一图标光学尺寸：源码里混着 18/20 两种规格，同排看有微妙的参差。 */
+.video-content-actions .nav-icon-btn > svg,
+.video-context-dock .nav-icon-btn > svg {
+    width: 20px;
+    height: 20px;
 }
 
 .video-context-dock .nav-icon-btn {
     width: 34px;
     height: 34px;
-    border-radius: 8px;
+    /* 同心：dock 10 - padding 3 = 7 */
+    border-radius: 7px;
     opacity: 0.78;
-}
-
-.video-context-dock .nav-icon-btn:hover {
-    background-color: var(--glass-bg-hover);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.05),
-        0 4px 14px rgba(15, 23, 42, 0.07);
-    opacity: 1;
-    transform: translateY(-1px);
 }
 
 .nav-icon-btn:disabled {
@@ -2267,6 +2261,13 @@ body.mini-mode #root::before {
         0 2px 7px rgba(15, 23, 42, 0.045);
 }
 
+/* Keep next-track as a compact circular control beside the larger play button. */
+#player .player-next-button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
 #player .player-next-button::after,
 #player .player-volume-button::after,
 #player .player-speed-button::after,
@@ -2324,17 +2325,20 @@ body.mini-mode #root::before {
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    color: #0284c7;
-    border-color: rgba(2, 132, 199, 0.2);
+    color: #0369a1;
+    border-color: rgba(2, 132, 199, 0.3);
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.82),
-        0 5px 14px rgba(2, 132, 199, 0.14);
+        inset 0 -2px 4px rgba(2, 132, 199, 0.1),
+        0 4px 12px rgba(2, 132, 199, 0.1);
     background-image: none;
 }
 
 #player .player-play-button[data-playing]::before {
-    background-color: rgba(186, 230, 253, 0.42);
-    background-image: var(--glass-sheen-static);
+    background-color: rgba(125, 211, 252, 0.27);
+    background-image:
+        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.78), transparent 58%),
+        linear-gradient(145deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
 }
 
 #player .player-play-button:not([data-playing]) {
@@ -2401,12 +2405,28 @@ body.mini-mode #root::before {
         box-shadow:
             inset 0 1px 1px rgba(255, 255, 255, 0.9),
             0 6px 16px rgba(2, 132, 199, 0.18);
-        transform: translateY(-1px);
+    }
+
+    #player .player-play-button[data-playing]:hover:not(:disabled) {
+        border-color: rgba(2, 132, 199, 0.4);
+        color: #0369a1;
+        box-shadow:
+            inset 0 1px 1px rgba(255, 255, 255, 0.88),
+            inset 0 -2px 5px rgba(2, 132, 199, 0.12),
+            0 0 0 1px rgba(14, 165, 233, 0.06),
+            0 5px 14px rgba(2, 132, 199, 0.14);
     }
 
     #player .player-play-button:hover:not(:disabled)::before {
         background-color: rgba(186, 230, 253, 0.5);
         background-image: var(--glass-sheen-static);
+    }
+
+    #player .player-play-button[data-playing]:hover:not(:disabled)::before {
+        background-color: rgba(125, 211, 252, 0.34);
+        background-image:
+            radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.86), transparent 58%),
+            linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(125, 211, 252, 0.08));
     }
 
     #player .player-next-button:hover:not(:disabled),
@@ -4039,6 +4059,7 @@ body.mini-mode .app-title-bar {
     height: 24px !important;
     padding: 0 10px;
     border: 0;
+    background: transparent !important;
 }
 
 body.mini-mode .app-title-bar > * {
@@ -4707,6 +4728,7 @@ body.video-open #player {
    配色转深色，否则墨色文字压在近黑画面上看不见。 */
 body.video-open .app-title-bar {
     z-index: 999;
+    background: transparent !important;
     color: rgba(241, 245, 249, 0.92);
 }
 
@@ -4952,4 +4974,13 @@ body.video-open .player-video-close {
 .cover-mode-toggle:hover {
     background: rgba(15, 23, 42, 0.55);
     color: rgba(255, 255, 255, 0.95);
+}
+
+.cover-background-toggle {
+    right: 42px;
+}
+
+.cover-background-toggle.is-active {
+    background: rgba(14, 165, 233, 0.28);
+    border-color: rgba(125, 211, 252, 0.45);
 }

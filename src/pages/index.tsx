@@ -59,6 +59,7 @@ const Playlist = lazy(loadPlaylist);
 
 const MAX_RETAINED_LIST_ITEMS = 240;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
+const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 
 /**
  * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
@@ -145,6 +146,9 @@ export default function IndexPage() {
   const [isMiniMode, setIsMiniMode] = useState(false);
   const [isMiniPinned, setIsMiniPinned] = useState(false);
   const [isWindowControlPending, setIsWindowControlPending] = useState(false);
+  const [isAmbientBackgroundEnabled, setIsAmbientBackgroundEnabled] = useState(
+    () => localStorage.getItem(AMBIENT_BACKGROUND_STORAGE_KEY) !== "false",
+  );
   const windowModeChangingRef = useRef(false);
   // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
   // macOS WebKit 的系统画中画浮窗只有播放/暂停，没有进度条，
@@ -982,7 +986,9 @@ export default function IndexPage() {
       } else {
         nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
-      await handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType);
+      await handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType, {
+        preserveUi: true,
+      });
 
       return;
     }
@@ -1023,7 +1029,9 @@ export default function IndexPage() {
           ? activePlaylist.length - 1
           : activePlaylistIndex - 1;
 
-      handlePlaylistVideoSelect(prevIndex, activePlaylist, playingPlaylistType);
+      handlePlaylistVideoSelect(prevIndex, activePlaylist, playingPlaylistType, {
+        preserveUi: true,
+      });
     } else {
       const navigableVideo = playingInfo || videoInfo;
       if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
@@ -1063,7 +1071,9 @@ export default function IndexPage() {
       } else {
         nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
-      handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType);
+      handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType, {
+        preserveUi: true,
+      });
     } else {
       const navigableVideo = playingInfo || videoInfo;
       if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
@@ -1144,6 +1154,7 @@ export default function IndexPage() {
     index: number,
     sourcePlaylist?: PlaylistItem[],
     sourcePlaylistType: "user" | "series" = activePlaylistType,
+    options?: { preserveUi?: boolean },
   ) => {
     const selectedPlaylist =
       sourcePlaylist ||
@@ -1152,14 +1163,18 @@ export default function IndexPage() {
 
     if (!item) return;
     const requestId = ++playbackRequestIdRef.current;
-    setShowSearchList(false);
-    setShowPageList(false);
-    setShowFeedList(false);
-    setShowRecommendList(false);
-    setShowCollectList(false);
-    setShowUpVideoList(false);
-    setShowHistoryList(false);
-    setShowSeriesList(false);
+    const preserveUi = options?.preserveUi === true;
+
+    if (!preserveUi) {
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+      setShowUpVideoList(false);
+      setShowHistoryList(false);
+      setShowSeriesList(false);
+    }
     try {
       const info = playingInfo?.bvid === item.bvid
         ? playingInfo
@@ -1190,9 +1205,11 @@ export default function IndexPage() {
       }
       setPlayUrl(playInfo.url);
       setCurrentPart(item.part);
-      setCurrentBvid(item.bvid);
-      setPageNum(info.pages?.length || 0);
-      setVideoInfo({ ...info, cid: item.cid });
+      if (!preserveUi) {
+        setCurrentBvid(item.bvid);
+        setPageNum(info.pages?.length || 0);
+        setVideoInfo({ ...info, cid: item.cid });
+      }
       setPlayingInfo({ ...info, cid: item.cid });
       const episodeIndex = info.pages?.findIndex((p) => p.cid === item.cid) ?? -1;
       setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
@@ -1595,6 +1612,16 @@ export default function IndexPage() {
    */
   const handleCoverClick = (playing: boolean) => {
     setIsPlaying(playing);
+  };
+
+  const handleAmbientBackgroundToggle = () => {
+    const enabled = !isAmbientBackgroundEnabled;
+    setIsAmbientBackgroundEnabled(enabled);
+    localStorage.setItem(AMBIENT_BACKGROUND_STORAGE_KEY, String(enabled));
+    void invoke("set_kv", {
+      key: AMBIENT_BACKGROUND_STORAGE_KEY,
+      value: String(enabled),
+    }).catch(() => {});
   };
 
   const handleIncognitoModeChange = (enabled: boolean) => {
@@ -2188,6 +2215,7 @@ export default function IndexPage() {
       if (playingInfo?.bvid === item.bvid) {
         return {
           ...playingInfo,
+          part: item.part,
           aid: item.aid,
           cid: item.cid,
           title: item.title,
@@ -2196,6 +2224,7 @@ export default function IndexPage() {
       }
       return {
         ...playingInfo,
+        part: item.part,
         title: item.title,
         pic: item.pic,
         bvid: item.bvid,
@@ -2210,7 +2239,7 @@ export default function IndexPage() {
         videos: 0,
       };
     }
-    return playingInfo;
+    return { ...playingInfo, part: currentPart };
   }, [
     playingPlaylistType,
     currentPlaylistIndex,
@@ -2232,8 +2261,14 @@ export default function IndexPage() {
     ? (playingPlaylistType === "series" ? seriesPlaylist : playlist).length > 1
     : (playingInfo?.pages.length || 0) > 1;
 
+  const ambientCover = graftingImage(
+    pageFirstFrame || displayVideoInfo?.pic || "",
+    320,
+  );
   return (
-    <DefaultLayout>
+    <DefaultLayout
+      ambientCover={isAmbientBackgroundEnabled ? ambientCover : ""}
+    >
       {/* 播放视频时标题栏浮在画面上，迷你模式切换键放这里既多余又干扰画面，
           入口下移到视频浮层自己的按钮组（见 PlayerVideo onMiniWindow）。 */}
       <TitleBar
@@ -2263,6 +2298,8 @@ export default function IndexPage() {
                 cover={graftingImage(pageFirstFrame, 480)}
                 isPlaying={isPlaying}
                 onPlayStateChange={handleCoverClick}
+                ambientBackgroundEnabled={isAmbientBackgroundEnabled}
+                onAmbientBackgroundToggle={handleAmbientBackgroundToggle}
               />
             </div>
             <VideoInfo
@@ -2275,7 +2312,7 @@ export default function IndexPage() {
               ownerMid={displayVideoInfo?.owner_mid}
               ownerName={displayVideoInfo?.owner_name}
               staff={displayVideoInfo?.staff}
-              part={currentPart}
+              part={displayVideoInfo?.part ?? currentPart}
               playlistCount={playlist.length}
               seriesPlaylistCount={seriesPlaylist.length}
               playingPlaylistType={playingPlaylistType}
@@ -2304,7 +2341,7 @@ export default function IndexPage() {
         <MiniVideoInfo
           cover={graftingImage(pageFirstFrame, 480)}
           isPlaylistMode={isPlaylistMode}
-          part={currentPart}
+          part={displayVideoInfo?.part ?? currentPart}
           title={displayVideoInfo?.title}
           isPinned={isMiniPinned}
           isWindowControlPending={isWindowControlPending}

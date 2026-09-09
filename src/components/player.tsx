@@ -534,6 +534,7 @@ const Player = ({
             if (graph.ctx.state === "suspended") {
               await graph.ctx.resume();
             }
+            if (playAttemptId !== playAttemptIdRef.current) return;
           } catch (error) {
             console.error("[player] AudioContext resume failed:", error);
           }
@@ -542,7 +543,9 @@ const Player = ({
         // 播放音频
         try {
           await audio.play();
+          if (playAttemptId !== playAttemptIdRef.current) return;
         } catch (error) {
+          if (playAttemptId !== playAttemptIdRef.current) return;
           console.error("[player] audio.play() failed:", error);
           onPlayStateChange?.(false);
         }
@@ -552,6 +555,13 @@ const Player = ({
         audio.pause();
       }
     }
+    return () => {
+      // A source switch cannot cancel an in-flight play() promise. Invalidate
+      // the attempt and pause the element so only the newest effect may start
+      // audible playback.
+      playAttemptIdRef.current += 1;
+      if (!audio.paused) audio.pause();
+    };
   }, [cloudHistoryEnabled, cloudProgressReadyKey, forcePause, isPlaying, mediaKey, src]);
 
   useEffect(() => {
@@ -738,7 +748,11 @@ const Player = ({
 
     if (graph) {
       applyLoudnessEq(graph, isLoudnessEq);
-      if (audio.paused && graph.ctx.state === "running") {
+      // During a source switch React still wants playback, but the element has
+      // not entered the playing state yet. Suspending the graph at that point
+      // races with the play effect and leaves currentTime advancing silently.
+      const isPlaybackDesired = Boolean(src) && isPlaying && !forcePause;
+      if (audio.paused && !isPlaybackDesired && graph.ctx.state === "running") {
         void graph.ctx.suspend();
       } else if (!audio.paused && graph.ctx.state === "suspended") {
         void graph.ctx.resume();
