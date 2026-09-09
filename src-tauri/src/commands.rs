@@ -98,7 +98,7 @@ pub async fn get_fav_folder_detail(fid: i64, page: i32) -> Result<Vec<Value>, St
 }
 
 #[tauri::command]
-pub async fn get_up_video_list(host_mid: i32, offset: String) -> Result<bilibili::FeedList, String> {
+pub async fn get_up_video_list(host_mid: i64, offset: String) -> Result<bilibili::FeedList, String> {
     bilibili::get_up_video_list(host_mid, &offset).await
 }
 
@@ -128,13 +128,13 @@ pub async fn remove_from_watchlater(aid: i64) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn get_series_list(mid: i32) -> Result<Vec<Value>, String> {
+pub async fn get_series_list(mid: i64) -> Result<Vec<Value>, String> {
     bilibili::get_series_list(mid).await
 }
 
 #[tauri::command]
 pub async fn get_series_videos(
-    mid: i32,
+    mid: i64,
     series_id: i32,
     page_num: i32,
 ) -> Result<Vec<bilibili::SeriesArchive>, String> {
@@ -200,18 +200,18 @@ pub async fn set_favorite(aid: i64, favorite: bool) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn follow(mid: i32) -> Result<bool, String> {
+pub async fn follow(mid: i64) -> Result<bool, String> {
     bilibili::follow(mid).await
 }
 
 #[tauri::command]
-pub async fn unfollow(mid: i32) -> Result<bool, String> {
+pub async fn unfollow(mid: i64) -> Result<bool, String> {
     bilibili::unfollow(mid).await
 }
 
 #[tauri::command]
-pub async fn is_following(mid: i32) -> Result<bilibili::FollowStatus, String> {
-    bilibili::is_following(mid as i64).await
+pub async fn is_following(mid: i64) -> Result<bilibili::FollowStatus, String> {
+    bilibili::is_following(mid).await
 }
 
 #[tauri::command]
@@ -394,11 +394,60 @@ pub fn quit_app(app: AppHandle) {
 // 前端已按平台禁用); 此处仍保留命令, 由前端决定是否调用。
 // ---------------------------------------------------------------------------
 
+/// 以窗口当前所在显示器的可用工作区为基准居中。
+///
+/// 不直接用 `Window::center()`：macOS 的 `NSWindow.center` 与
+/// Windows/Linux 的 work_area 居中规则不一致，而且紧跟 `set_size` 调用时
+/// 部分平台可能仍按旧尺寸计算。前端会先等待原生 resize 完成再调用。
+fn center_window_on_current_monitor(window: &tauri::Window) -> Result<(), String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| format!("获取当前显示器失败: {e}"))?
+        .or(window
+            .primary_monitor()
+            .map_err(|e| format!("获取主显示器失败: {e}"))?);
+
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+    let size = window
+        .outer_size()
+        .map_err(|e| format!("获取窗口尺寸失败: {e}"))?;
+    let area = monitor.work_area();
+    let x = area.position.x + ((area.size.width as i32 - size.width as i32) / 2).max(0);
+    let y = area.position.y + ((area.size.height as i32 - size.height as i32) / 2).max(0);
+
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| format!("窗口居中失败: {e}"))
+}
+
 #[tauri::command]
-pub fn set_window_size(window: tauri::Window, width: u32, height: u32) -> Result<(), String> {
+pub fn set_window_size(
+    window: tauri::Window,
+    width: u32,
+    height: u32,
+    center: Option<bool>,
+) -> Result<(), String> {
     window
         .set_size(tauri::LogicalSize::new(width as f64, height as f64))
-        .map_err(|e| format!("set_window_size 失败: {e}"))
+        .map_err(|e| format!("set_window_size 失败: {e}"))?;
+    if center.unwrap_or(false) {
+        center_window_on_current_monitor(&window)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn center_window(window: tauri::Window) -> Result<(), String> {
+    center_window_on_current_monitor(&window)
+}
+
+#[tauri::command]
+pub fn set_window_always_on_top(window: tauri::Window, always_on_top: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|e| format!("窗口置顶设置失败: {e}"))
 }
 
 #[tauri::command]

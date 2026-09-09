@@ -111,6 +111,8 @@ pub fn run() {
             commands::get_app_version,
             // 窗口控制 (迷你模式等)
             commands::set_window_size,
+            commands::center_window,
+            commands::set_window_always_on_top,
             commands::hide_window,
             commands::minimize_window,
             commands::show_window,

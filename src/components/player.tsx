@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   Equalizer,
+  GoEnd,
   Pause,
   PlayOne,
   VolumeMute,
@@ -35,6 +36,8 @@ type AudioGraph = {
 interface PlayerProps {
   src?: string;
   onEnded?: () => void;
+  onNext?: () => void;
+  canNext?: boolean;
   onPlayStateChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (time: number) => void;
   onError?: (error: MediaError | null) => void;
@@ -82,6 +85,8 @@ const updateSeekPreviewUi = (
 const Player = ({
   src,
   onEnded,
+  onNext,
+  canNext = true,
   onPlayStateChange,
   onTimeUpdate,
   onError,
@@ -857,21 +862,34 @@ const Player = ({
         onTimeUpdate={handleTimeUpdate}
       />
       <div className="player-controls">
-        <button
-          aria-label={isPlaying ? "暂停" : "播放"}
-          className="player-button player-play-button"
-          data-playing={isPlaying || undefined}
-          disabled={!src}
-          title={isPlaying ? "暂停" : "播放"}
-          type="button"
-          onClick={() => onPlayStateChange?.(!isPlaying)}
-        >
-          {isPlaying ? (
-            <Pause fill="currentColor" size={24} theme="filled" />
-          ) : (
-            <PlayOne fill="currentColor" size={24} theme="filled" />
-          )}
-        </button>
+        <div className="player-transport-controls" role="group" aria-label="播放控制">
+          <button
+            aria-label={isPlaying ? "暂停" : "播放"}
+            className="player-button player-play-button"
+            data-playing={isPlaying || undefined}
+            disabled={!src}
+            title={isPlaying ? "暂停" : "播放"}
+            type="button"
+            onClick={() => onPlayStateChange?.(!isPlaying)}
+          >
+            {isPlaying ? (
+              <Pause fill="currentColor" size={24} theme="filled" />
+            ) : (
+              <PlayOne fill="currentColor" size={24} theme="filled" />
+            )}
+          </button>
+
+          <button
+            aria-label="下一个视频"
+            className="player-button player-next-button"
+            disabled={!src || !onNext || !canNext}
+            title="下一个视频"
+            type="button"
+            onClick={onNext}
+          >
+            <GoEnd fill="currentColor" size={18} theme="outline" />
+          </button>
+        </div>
 
         <time
           ref={currentTimeLabelRef}

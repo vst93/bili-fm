@@ -471,6 +471,15 @@ pub struct Page {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VideoStaff {
+    pub mid: i64,
+    pub name: String,
+    pub face: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VideoInfo {
     pub bvid: String,
     pub aid: i64,
@@ -484,6 +493,8 @@ pub struct VideoInfo {
     pub owner_name: String,
     #[serde(rename = "owner_face")]
     pub owner_face: String,
+    #[serde(default)]
+    pub staff: Vec<VideoStaff>,
     #[serde(default)]
     pub pages: Vec<Page>,
     pub cid: i64,
@@ -807,9 +818,24 @@ pub async fn get_clist(bvid: &str) -> VideoInfo {
     let Some(data) = v.get("data") else {
         return VideoInfo::default();
     };
+    parse_video_info(data)
+}
+
+fn parse_video_info(data: &Value) -> VideoInfo {
     let pages: Vec<Page> = data
         .get("pages")
         .and_then(|p| serde_json::from_value(p.clone()).ok())
+        .unwrap_or_default();
+    let staff: Vec<VideoStaff> = arr_of(data, "staff")
+        .into_iter()
+        .filter_map(|item| serde_json::from_value::<VideoStaff>(item).ok())
+        .filter(|member| member.mid > 0)
+        .collect();
+    let owner = data
+        .get("owner")
+        .and_then(|value| serde_json::from_value::<VideoStaff>(value.clone()).ok())
+        .filter(|owner| owner.mid > 0)
+        .or_else(|| staff.first().cloned())
         .unwrap_or_default();
     VideoInfo {
         bvid: str_of(data, "bvid"),
@@ -818,17 +844,10 @@ pub async fn get_clist(bvid: &str) -> VideoInfo {
         desc: str_of(data, "desc"),
         videos: int_of(data, "videos"),
         pic: str_of(data, "pic"),
-        owner_mid: data.pointer("/owner/mid").and_then(|x| x.as_i64()).unwrap_or(0),
-        owner_name: data
-            .pointer("/owner/name")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string(),
-        owner_face: data
-            .pointer("/owner/face")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string(),
+        owner_mid: owner.mid,
+        owner_name: owner.name,
+        owner_face: owner.face,
+        staff,
         pages,
         cid: 0, // Go 原版从不设置该字段
     }
@@ -992,7 +1011,10 @@ pub async fn get_fav_folder_detail(fid: i64, page: i32) -> Result<Vec<Value>, St
 }
 
 /// 对应 Go GetUpVideoList
-pub async fn get_up_video_list(host_mid: i32, offset: &str) -> Result<FeedList, String> {
+pub async fn get_up_video_list(host_mid: i64, offset: &str) -> Result<FeedList, String> {
+    if host_mid <= 0 {
+        return Err("未指定UP主".to_string());
+    }
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Ok(FeedList::default());
@@ -1100,7 +1122,7 @@ pub async fn remove_from_watchlater(aid: i64) -> Result<bool, String> {
 }
 
 /// 对应 Go GetSeriesList (返回 seasons_list[].meta 原始对象)
-pub async fn get_series_list(mid: i32) -> Result<Vec<Value>, String> {
+pub async fn get_series_list(mid: i64) -> Result<Vec<Value>, String> {
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Ok(Vec::new());
@@ -1125,7 +1147,7 @@ pub async fn get_series_list(mid: i32) -> Result<Vec<Value>, String> {
 }
 
 /// 对应 Go GetSeriesVideos
-pub async fn get_series_videos(mid: i32, series_id: i32, page_num: i32) -> Result<Vec<SeriesArchive>, String> {
+pub async fn get_series_videos(mid: i64, series_id: i32, page_num: i32) -> Result<Vec<SeriesArchive>, String> {
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Ok(Vec::new());
@@ -1543,7 +1565,7 @@ pub async fn set_favorite(aid: i64, favorite: bool) -> Result<bool, String> {
 }
 
 /// 对应 Go Follow / Unfollow (act: 1 关注, 2 取消关注)
-async fn modify_relation(mid: i32, act: i32) -> Result<bool, String> {
+async fn modify_relation(mid: i64, act: i32) -> Result<bool, String> {
     let cookie = get_sessdata();
     if cookie.is_empty() {
         return Err("未登录".to_string());
@@ -1565,11 +1587,11 @@ async fn modify_relation(mid: i32, act: i32) -> Result<bool, String> {
     Ok(true)
 }
 
-pub async fn follow(mid: i32) -> Result<bool, String> {
+pub async fn follow(mid: i64) -> Result<bool, String> {
     modify_relation(mid, 1).await
 }
 
-pub async fn unfollow(mid: i32) -> Result<bool, String> {
+pub async fn unfollow(mid: i64) -> Result<bool, String> {
     modify_relation(mid, 2).await
 }
 
@@ -1781,6 +1803,24 @@ mod tests {
     fn build_number_continues_old_convention() {
         assert_eq!(version_to_build("1.9.5"), 195);
         assert_eq!(version_to_build("2.0.0"), 200);
+    }
+
+    #[test]
+    fn video_info_preserves_collaborators_and_falls_back_to_staff_owner() {
+        let data = serde_json::json!({
+            "bvid": "BV1test",
+            "aid": 123,
+            "title": "合作视频",
+            "staff": [
+                { "mid": 9876543210_i64, "name": "合作 UP", "face": "face-url", "title": "嘉宾" }
+            ],
+            "pages": []
+        });
+
+        let info = parse_video_info(&data);
+        assert_eq!(info.owner_mid, 9876543210_i64);
+        assert_eq!(info.owner_name, "合作 UP");
+        assert_eq!(info.staff[0].title, "嘉宾");
     }
 }
 

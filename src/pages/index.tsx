@@ -60,6 +60,26 @@ const Playlist = lazy(loadPlaylist);
 const MAX_RETAINED_LIST_ITEMS = 240;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 
+/**
+ * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
+ * 各平台处理完尺寸更新的时机不同；先等 resize 事件再到 Rust 侧居中，
+ * 避免 center 按旧窗口尺寸/旧位置计算。
+ */
+const waitForWindowResize = (timeoutMs = 500) =>
+  new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+      resolve();
+    };
+    const onResize = () => finish();
+    window.addEventListener("resize", onResize);
+    const timer = window.setTimeout(finish, timeoutMs);
+  });
+
 export default function IndexPage() {
   const [showPageList, setShowPageList] = useState(false);
   const [showSearchList, setShowSearchList] = useState(false);
@@ -123,6 +143,9 @@ export default function IndexPage() {
   const [currentSeriesTitle, setCurrentSeriesTitle] = useState("");
   const [seriesVideosPage, setSeriesVideosPage] = useState(1);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [isMiniPinned, setIsMiniPinned] = useState(false);
+  const [isWindowControlPending, setIsWindowControlPending] = useState(false);
+  const windowModeChangingRef = useRef(false);
   // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
   // macOS WebKit 的系统画中画浮窗只有播放/暂停，没有进度条，
   // 所以用应用自己的置顶小窗替代 —— 里面的 <video controls> 原生进度条可正常拖动。
@@ -174,6 +197,9 @@ export default function IndexPage() {
     previous: () => {},
     next: () => {},
   });
+  const playbackRequestIdRef = useRef(0);
+  const playlistsRef = useRef({ user: playlist, series: seriesPlaylist });
+  playlistsRef.current = { user: playlist, series: seriesPlaylist };
 
   useEffect(() => {
     return () => {
@@ -541,10 +567,10 @@ export default function IndexPage() {
         setIsPlaying((prev) => !prev);
       } else if (event.code === "ArrowLeft" && !event.repeat) {
         event.preventDefault();
-        handlePrevTrack();
+        mediaNavigationRef.current.previous();
       } else if (event.code === "ArrowRight" && !event.repeat) {
         event.preventDefault();
-        handleNextTrack();
+        mediaNavigationRef.current.next();
       }
     };
 
@@ -893,28 +919,35 @@ export default function IndexPage() {
     part: string,
     index?: number,
     first_frame?: string,
+    sourceInfo?: BL.VideoInfo,
   ) => {
-    setIsPlaylistMode(false);
-    setPageFirstFrame(first_frame || videoInfo?.pic || "");
+    const sourceVideoInfo = sourceInfo || videoInfo;
+    const requestId = ++playbackRequestIdRef.current;
 
     try {
       const info = await invoke<BL.PlayURLInfo>("get_url_by_cid", { aid, cid });
+      if (requestId !== playbackRequestIdRef.current) return;
       if (!info?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
       }
 
+      setIsPlaylistMode(false);
+      setPageFirstFrame(first_frame || sourceVideoInfo?.pic || "");
       setPlayUrl(info.url);
       setCurrentPart(part);
       if (typeof index === "number") {
         setCurrentIndex(index);
       }
       // 更新显示的视频信息（保留视频标题，选集标题通过 currentPart 单独显示）
-      if (videoInfo) {
-        setVideoInfo({ ...videoInfo, cid: cid });
-        setPlayingInfo({ ...videoInfo, cid: cid });
-      }
+      setVideoInfo((current) =>
+        current && current.bvid === sourceVideoInfo?.bvid
+          ? { ...current, cid }
+          : current,
+      );
+      if (sourceVideoInfo) setPlayingInfo({ ...sourceVideoInfo, cid });
     } catch (error: any) {
+      if (requestId !== playbackRequestIdRef.current) return;
       console.error("获取播放地址失败:", error);
       toast({
         type: "error",
@@ -949,23 +982,25 @@ export default function IndexPage() {
       } else {
         nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
-      await handlePlaylistVideoSelect(nextIndex);
+      await handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType);
 
       return;
     }
 
-    if (!videoInfo?.pages || !videoInfo.pages.length) return;
-    if (videoInfo.pages.length <= 1) return;
+    const navigableVideo = playingInfo || videoInfo;
+    if (!navigableVideo?.pages || !navigableVideo.pages.length) return;
+    if (navigableVideo.pages.length <= 1) return;
 
-    const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-    const nextPage = videoInfo.pages[nextIndex];
+    const nextIndex = (currentIndex + 1) % navigableVideo.pages.length;
+    const nextPage = navigableVideo.pages[nextIndex];
 
     await handleVideoSelect(
       nextPage.cid,
-      videoInfo.aid,
+      navigableVideo.aid,
       nextPage.part,
       nextIndex,
       nextPage.first_frame,
+      navigableVideo,
     );
   };
 
@@ -988,20 +1023,22 @@ export default function IndexPage() {
           ? activePlaylist.length - 1
           : activePlaylistIndex - 1;
 
-      handlePlaylistVideoSelect(prevIndex);
-    } else if (videoInfo?.pages) {
-      if (videoInfo.pages.length <= 1) return;
+      handlePlaylistVideoSelect(prevIndex, activePlaylist, playingPlaylistType);
+    } else {
+      const navigableVideo = playingInfo || videoInfo;
+      if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
 
       const prevIndex =
-        (currentIndex - 1 + videoInfo.pages.length) % videoInfo.pages.length;
-      const prevPage = videoInfo.pages[prevIndex];
+        (currentIndex - 1 + navigableVideo.pages.length) % navigableVideo.pages.length;
+      const prevPage = navigableVideo.pages[prevIndex];
 
       handleVideoSelect(
         prevPage.cid,
-        videoInfo.aid,
+        navigableVideo.aid,
         prevPage.part,
         prevIndex,
         prevPage.first_frame,
+        navigableVideo,
       );
     }
   };
@@ -1026,19 +1063,21 @@ export default function IndexPage() {
       } else {
         nextIndex = (activePlaylistIndex + 1) % activePlaylist.length;
       }
-      handlePlaylistVideoSelect(nextIndex);
-    } else if (videoInfo?.pages) {
-      if (videoInfo.pages.length <= 1) return;
+      handlePlaylistVideoSelect(nextIndex, activePlaylist, playingPlaylistType);
+    } else {
+      const navigableVideo = playingInfo || videoInfo;
+      if (!navigableVideo?.pages || navigableVideo.pages.length <= 1) return;
 
-      const nextIndex = (currentIndex + 1) % videoInfo.pages.length;
-      const nextPage = videoInfo.pages[nextIndex];
+      const nextIndex = (currentIndex + 1) % navigableVideo.pages.length;
+      const nextPage = navigableVideo.pages[nextIndex];
 
       handleVideoSelect(
         nextPage.cid,
-        videoInfo.aid,
+        navigableVideo.aid,
         nextPage.part,
         nextIndex,
         nextPage.first_frame,
+        navigableVideo,
       );
     }
   };
@@ -1108,17 +1147,11 @@ export default function IndexPage() {
   ) => {
     const selectedPlaylist =
       sourcePlaylist ||
-      (activePlaylistType === "series" ? seriesPlaylist : playlist);
+      (sourcePlaylistType === "series" ? seriesPlaylist : playlist);
     const item = selectedPlaylist[index];
 
     if (!item) return;
-    setIsPlaylistMode(true);
-    setPlayingPlaylistType(sourcePlaylistType);
-    if (sourcePlaylistType === "series") {
-      setCurrentSeriesPlaylistIndex(index);
-    } else {
-      setCurrentPlaylistIndex(index);
-    }
+    const requestId = ++playbackRequestIdRef.current;
     setShowSearchList(false);
     setShowPageList(false);
     setShowFeedList(false);
@@ -1128,39 +1161,44 @@ export default function IndexPage() {
     setShowHistoryList(false);
     setShowSeriesList(false);
     try {
-      let pages = videoInfo?.pages;
-      let pic = videoInfo?.pic || "";
-      // Only reload video info when switching to a different video
-      if (item.bvid !== currentBvid) {
-        const info = await invoke<BL.VideoInfo>("get_clist", { bvid: item.bvid });
-        setCurrentBvid(item.bvid);
-        setPageNum(info.pages?.length || 0);
-        setVideoInfo(info);
-        setPlayingInfo(info);
-        pages = info.pages;
-        pic = info.pic || "";
-      }
+      const info = playingInfo?.bvid === item.bvid
+        ? playingInfo
+        : videoInfo?.bvid === item.bvid
+          ? videoInfo
+          : await invoke<BL.VideoInfo>("get_clist", { bvid: item.bvid });
+      if (requestId !== playbackRequestIdRef.current) return;
       const playInfo = await invoke<BL.PlayURLInfo>("get_url_by_cid", {
         aid: item.aid,
         cid: item.cid,
       });
+      if (requestId !== playbackRequestIdRef.current) return;
+      // 请求期间列表可能被排序、删除或替换，不能写回旧索引。
+      const latestIndex = playlistsRef.current[sourcePlaylistType].findIndex(
+        (entry) => entry.id === item.id,
+      );
+      if (latestIndex < 0) return;
       if (!playInfo?.url) {
         toast({ type: "warning", content: "该视频暂时无法播放，可能已失效或受限" });
         return;
       }
+      setIsPlaylistMode(true);
+      setPlayingPlaylistType(sourcePlaylistType);
+      if (sourcePlaylistType === "series") {
+        setCurrentSeriesPlaylistIndex(latestIndex);
+      } else {
+        setCurrentPlaylistIndex(latestIndex);
+      }
       setPlayUrl(playInfo.url);
       setCurrentPart(item.part);
-      // 确保弹幕按钮可用：将 cid 同步为当前播放项
-      setVideoInfo((prev) =>
-        prev ? { ...prev, cid: item.cid } : prev,
-      );
-      setPlayingInfo((prev) =>
-        prev ? { ...prev, cid: item.cid } : prev,
-      );
-      const episodeIndex = pages?.findIndex((p) => p.cid === item.cid) ?? -1;
+      setCurrentBvid(item.bvid);
+      setPageNum(info.pages?.length || 0);
+      setVideoInfo({ ...info, cid: item.cid });
+      setPlayingInfo({ ...info, cid: item.cid });
+      const episodeIndex = info.pages?.findIndex((p) => p.cid === item.cid) ?? -1;
       setCurrentIndex(episodeIndex >= 0 ? episodeIndex : 0);
-      setPageFirstFrame(item.first_frame || pic || "");
+      setPageFirstFrame(item.first_frame || info.pic || "");
     } catch (error: any) {
+      if (requestId !== playbackRequestIdRef.current) return;
       console.error("获取视频信息失败:", error);
       toast({
         type: "error",
@@ -1585,6 +1623,10 @@ export default function IndexPage() {
    * @description 获取并显示UP主的视频列表
    */
   const handleOwnerClick = async (mid: number, name: string) => {
+    if (!mid) {
+      toast({ type: "warning", content: "该视频没有可用的 UP 主空间" });
+      return;
+    }
     try {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
@@ -2078,14 +2120,48 @@ export default function IndexPage() {
     // Linux 下不支持迷你模式，直接返回
     if (isLinux) return;
     // 播放视频时不提供迷你模式（标题栏的切换键在 isPlayVideo 时已不渲染）
+    if (windowModeChangingRef.current) return;
+    windowModeChangingRef.current = true;
+    setIsWindowControlPending(true);
     const theIsMiniMode = !isMiniMode;
 
     document.body.classList.toggle("mini-mode", theIsMiniMode);
     setIsMiniMode(theIsMiniMode);
-    if (theIsMiniMode) {
-      invoke("set_window_size", { width: 400, height: 155 });
-    } else {
-      invoke("set_window_size", { width: 800, height: 600 });
+    try {
+      if (theIsMiniMode) {
+        await invoke("set_window_size", { width: 400, height: 155, center: false });
+      } else {
+        await invoke("set_window_always_on_top", { alwaysOnTop: false });
+        setIsMiniPinned(false);
+        await invoke("set_window_size", { width: 800, height: 600, center: false });
+        await waitForWindowResize();
+        await invoke("center_window");
+      }
+    } catch (error) {
+      console.error("切换窗口模式失败:", error);
+      setIsMiniMode(!theIsMiniMode);
+      document.body.classList.toggle("mini-mode", !theIsMiniMode);
+      toast({ type: "error", content: "切换窗口模式失败" });
+    } finally {
+      windowModeChangingRef.current = false;
+      setIsWindowControlPending(false);
+    }
+  };
+
+  const toggleMiniAlwaysOnTop = async () => {
+    if (!isMiniMode || windowModeChangingRef.current) return;
+    windowModeChangingRef.current = true;
+    setIsWindowControlPending(true);
+    const nextPinned = !isMiniPinned;
+    try {
+      await invoke("set_window_always_on_top", { alwaysOnTop: nextPinned });
+      setIsMiniPinned(nextPinned);
+    } catch (error) {
+      console.error("设置窗口置顶失败:", error);
+      toast({ type: "error", content: "设置窗口置顶失败" });
+    } finally {
+      windowModeChangingRef.current = false;
+      setIsWindowControlPending(false);
     }
   };
 
@@ -2129,13 +2205,14 @@ export default function IndexPage() {
         owner_name: "",
         owner_face: "",
         owner_mid: 0,
+        staff: [],
         pages: [],
         videos: 0,
       };
     }
     return playingInfo;
   }, [
-    activePlaylistType,
+    playingPlaylistType,
     currentPlaylistIndex,
     currentSeriesPlaylistIndex,
     isPlaylistMode,
@@ -2150,6 +2227,10 @@ export default function IndexPage() {
     }
     return `http://127.0.0.1:4654/audio-proxy?url=${encodeURIComponent(playUrl)}`;
   }, [playUrl]);
+
+  const canNavigateNext = isPlaylistMode
+    ? (playingPlaylistType === "series" ? seriesPlaylist : playlist).length > 1
+    : (playingInfo?.pages.length || 0) > 1;
 
   return (
     <DefaultLayout>
@@ -2193,6 +2274,7 @@ export default function IndexPage() {
               ownerFace={displayVideoInfo?.owner_face}
               ownerMid={displayVideoInfo?.owner_mid}
               ownerName={displayVideoInfo?.owner_name}
+              staff={displayVideoInfo?.staff}
               part={currentPart}
               playlistCount={playlist.length}
               seriesPlaylistCount={seriesPlaylist.length}
@@ -2224,6 +2306,9 @@ export default function IndexPage() {
           isPlaylistMode={isPlaylistMode}
           part={currentPart}
           title={displayVideoInfo?.title}
+          isPinned={isMiniPinned}
+          isWindowControlPending={isWindowControlPending}
+          onTogglePin={toggleMiniAlwaysOnTop}
           onSwitchMode={switchWindowMode}
         />
       )}
@@ -2233,6 +2318,8 @@ export default function IndexPage() {
         cloudHistoryEnabled={!isIncognitoMode}
         forcePause={isPlayVideo}
         isPlaying={isPlaying}
+        canNext={canNavigateNext}
+        onNext={handleNextTrack}
         src={playerSrc}
         onEnded={handleVideoEnded}
         onError={(error) => {
