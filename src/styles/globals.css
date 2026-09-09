@@ -1146,7 +1146,30 @@ body.mini-mode .app-shell::after {
     widows: 0;
     position: relative;
     isolation: isolate;
-    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+}
+
+.app-title-bar button > *,
+.mini-window-controls button > * {
+    position: relative;
+    z-index: 1;
+}
+
+.app-title-bar button::after,
+.mini-window-controls button::after,
+#switch-window-mode::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.03),
+        0 2px 10px rgba(15, 23, 42, 0.045);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.18s ease;
 }
 
 /* Minimize / close button sizing -- matches #switch-window-mode */
@@ -1163,7 +1186,7 @@ body.mini-mode .app-shell::after {
     color: var(--studio-muted);
     cursor: pointer;
     opacity: 0.72;
-    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
 
 .app-title-bar-btn:hover:not(:disabled) {
@@ -1176,9 +1199,14 @@ body.mini-mode .app-shell::after {
     color: #e11d48 !important;
     background-color: rgba(225, 29, 72, 0.1) !important;
     background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.3) 0%, transparent 72%) !important;
+}
+
+.app-title-bar button.app-title-bar-close:hover::after {
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
-        0 2px 8px rgba(225, 29, 72, 0.12) !important;
+        inset 0 -1px 1px rgba(15, 23, 42, 0.025),
+        0 2px 10px rgba(225, 29, 72, 0.09);
+    opacity: 1;
 }
 
 .app-title-bar-btn:active {
@@ -1189,7 +1217,12 @@ body.mini-mode .app-shell::after {
 .mini-window-controls button:hover:not(:disabled) {
     background-color: var(--glass-bg-hover) !important;
     background-image: radial-gradient(80% 110% at var(--lx, 30%) var(--ly, 8%), rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.12) 30%, rgba(255, 255, 255, 0.02) 58%, transparent 72%) !important;
-    box-shadow: inset 0 1px 1px var(--glass-highlight);
+}
+
+.app-title-bar button:hover::after,
+.mini-window-controls button:hover:not(:disabled)::after,
+#switch-window-mode:hover::after {
+    opacity: 1;
 }
 
 .app-title-bar button:active,
@@ -1197,6 +1230,12 @@ body.mini-mode .app-shell::after {
     transform: scale(0.94);
     background-color: var(--glass-bg-active) !important;
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%) !important;
+}
+
+.app-title-bar button:active::after,
+.mini-window-controls button:active:not(:disabled)::after,
+#switch-window-mode:active::after {
+    opacity: 0;
 }
 
 .app-main {
@@ -1282,6 +1321,7 @@ body.mini-mode .app-shell::after {
     border-radius: var(--search-radius);
     background: transparent;
     box-shadow: var(--liquid-shadow);
+    contain: layout;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
@@ -1354,7 +1394,7 @@ body.mini-mode .app-shell::after {
     position: relative;
     isolation: isolate;
     flex: 0 0 auto;
-    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
 
 .search-submit-btn > * {
@@ -1362,15 +1402,30 @@ body.mini-mode .app-shell::after {
     z-index: 1;
 }
 
+.search-submit-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 1px 1px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.03),
+        0 2px 10px rgba(15, 23, 42, 0.045);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.18s ease;
+}
+
 .search-submit-btn:hover {
     opacity: 1;
     color: #0284c7;
     background-color: rgba(255, 255, 255, 0.5);
-    box-shadow:
-        inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 2px 8px rgba(15, 23, 42, 0.05);
     transform: translateY(-1px);
+}
+
+.search-submit-btn:hover::after {
+    opacity: 1;
 }
 
 .search-submit-btn:active {
@@ -1378,6 +1433,11 @@ body.mini-mode .app-shell::after {
     background-color: var(--glass-bg-active);
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+}
+
+.search-submit-btn:active::after,
+.search-submit-btn:disabled::after {
+    opacity: 0;
 }
 
 .home-user-avatar {
@@ -1399,10 +1459,13 @@ body.mini-mode .app-shell::after {
    原来是一个带边框+rim 光的小托盘把 4 颗按钮框在一起，
    和输入槽的“内凹井”撞了同一种描边语言，多一层盒子且视觉拥挤。 */
 .home-global-actions {
+    position: relative;
+    isolation: isolate;
     margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    contain: layout;
 }
 
 .top-tool-btn {
@@ -1421,24 +1484,38 @@ body.mini-mode .app-shell::after {
     position: relative;
     isolation: isolate;
     flex: 0 0 auto;
-    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
 
 .top-tool-btn > * {
     position: relative;
     z-index: 1;
-    transition: filter 0.16s ease;
+}
+
+.top-tool-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 1px 0 var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.03),
+        0 2px 10px rgba(15, 23, 42, 0.045);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.18s ease;
 }
 
 .top-tool-btn:hover {
     opacity: 1;
     color: #0284c7;
     background-color: rgba(255, 255, 255, 0.65);
-    box-shadow:
-        inset 0 1px 0 var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 2px 8px rgba(15, 23, 42, 0.06);
     transform: translateY(-1px);
+}
+
+.top-tool-btn:hover::after {
+    opacity: 1;
 }
 
 .top-tool-btn:focus-visible {
@@ -1446,15 +1523,16 @@ body.mini-mode .app-shell::after {
     outline-offset: 2px;
 }
 
-.top-tool-btn:hover > * {
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5));
-}
-
 .top-tool-btn:active {
     transform: scale(0.92);
     background-color: var(--glass-bg-active);
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+}
+
+.top-tool-btn:active::after,
+.top-tool-btn:disabled::after {
+    opacity: 0;
 }
 
 /* 高度 36px 正好填满内腔（46 - 2 边框 - 8 padding）。
@@ -1880,9 +1958,15 @@ body.mini-mode .app-shell::after {
 #video-desc {
     margin: 14px 0 0;
     max-height: none;
+    overflow: visible;
     color: var(--studio-muted);
     font-size: 13px;
     line-height: 1.55;
+    /* Blend the clamped final line into the panel instead of leaving a hard edge. */
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
 }
 
 #video-desc p {
@@ -1907,13 +1991,16 @@ body.mini-mode .app-shell::after {
     border: 1px solid var(--glass-border);
     border-radius: 999px;
     background: transparent;
-    box-shadow: var(--liquid-shadow);
     color: #0369a1;
     font-size: 13px;
     font-weight: 700;
-    overflow: hidden;
+    overflow: visible;
+    contain: layout;
     position: relative;
     isolation: isolate;
+    box-shadow:
+        0 3px 16px rgba(15, 23, 42, 0.05),
+        0 1px 3px rgba(15, 23, 42, 0.025);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -1942,7 +2029,8 @@ body.mini-mode .app-shell::after {
     mask-composite: exclude;
     box-shadow:
         var(--liquid-chromatic),
-        inset 0 1px 1px 0.5px var(--glass-highlight);
+        inset 0 1px 1px 0.5px var(--glass-highlight),
+        inset 0 -1px 1px rgba(15, 23, 42, 0.03);
     z-index: 1;
 }
 
@@ -1994,6 +2082,9 @@ body.mini-mode .app-shell::after {
     background: transparent;
     border: 0;
     box-shadow: none;
+    contain: layout;
+    position: relative;
+    isolation: isolate;
 }
 
 /* 播放上下文 dock：改为内凹托盘（与搜索输入槽同一凹陷语言：
@@ -2016,6 +2107,34 @@ body.mini-mode .app-shell::after {
     box-shadow:
         inset 0 1px 2px rgba(15, 23, 42, 0.05),
         inset 0 -0.5px 0 rgba(255, 255, 255, 0.35);
+    contain: layout;
+    position: relative;
+    isolation: isolate;
+}
+
+/* One low-contrast contact fade keeps the action groups grounded on the same
+   surface without introducing another blurred layer. */
+.video-content-actions::before,
+.video-context-dock::before,
+.home-global-actions::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    bottom: -5px;
+    height: 9px;
+    border-radius: 0 0 8px 8px;
+    background: linear-gradient(to bottom, rgba(15, 23, 42, 0.045), transparent);
+    opacity: 0.8;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.video-content-actions > *,
+.video-context-dock > *,
+.home-global-actions > * {
+    position: relative;
+    z-index: 1;
 }
 
 .nav-icon-btn {
@@ -2030,7 +2149,7 @@ body.mini-mode .app-shell::after {
     opacity: 0.92;
     position: relative;
     isolation: isolate;
-    transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.16s ease, opacity 0.16s ease;
+    transition: background-color 0.18s ease, transform 0.16s ease, opacity 0.16s ease;
 }
 
 .nav-icon-btn > * {
@@ -2038,14 +2157,29 @@ body.mini-mode .app-shell::after {
     z-index: 1;
 }
 
-.nav-icon-btn:hover {
-    background-color: var(--glass-bg-hover);
+.nav-icon-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
     box-shadow:
         inset 0 1px 1px var(--glass-highlight),
-        inset 0 -1px 1px rgba(15, 23, 42, 0.04),
-        0 4px 12px rgba(15, 23, 42, 0.06);
+        inset 0 -1px 1px rgba(15, 23, 42, 0.03),
+        0 2px 10px rgba(15, 23, 42, 0.045);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 0.18s ease;
+}
+
+.nav-icon-btn:hover {
+    background-color: var(--glass-bg-hover);
     opacity: 1;
     transform: translateY(-1px);
+}
+
+.nav-icon-btn:hover::after {
+    opacity: 1;
 }
 
 .nav-icon-btn:active {
@@ -2053,6 +2187,11 @@ body.mini-mode .app-shell::after {
     background-color: var(--glass-bg-active);
     background-image: radial-gradient(50% 60% at var(--lx, 50%) var(--ly, 50%), rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 38%, transparent 65%);
     box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08);
+}
+
+.nav-icon-btn:active::after,
+.nav-icon-btn:disabled::after {
+    opacity: 0;
 }
 
 .video-content-actions .nav-icon-btn {
@@ -2736,7 +2875,7 @@ body.mini-mode .app-shell::after {
     position: relative;
     isolation: isolate;
     z-index: 10;
-    transition: color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
+    transition: color 0.18s ease, background-color 0.18s ease, opacity 0.16s ease, transform 0.16s ease;
 }
 
 #switch-window-mode > * {
@@ -3125,8 +3264,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-radius: inherit;
     background-color: rgba(15, 23, 42, 0.035);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: var(--liquid-blur-thin);
-    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    /* The drawer section already blurs its backdrop; keep this inner layer static. */
     box-shadow:
         inset 0 1px 2px rgba(15, 23, 42, 0.08),
         inset 0 -0.5px 0 rgba(255, 255, 255, 0.35);
@@ -3352,8 +3490,7 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     border-radius: inherit;
     background-color: var(--liquid-bg);
     background-image: var(--glass-sheen-static);
-    backdrop-filter: var(--liquid-blur-thin);
-    -webkit-backdrop-filter: var(--liquid-blur-thin);
+    /* The drawer section already blurs its backdrop; keep this inner layer static. */
     z-index: -1;
     transition: background-color 0.2s ease;
 }
@@ -3540,9 +3677,8 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     height: 26px;
     border: 1px solid rgba(255, 255, 255, 0.48);
     border-radius: 7px;
-    background: rgba(15, 23, 42, 0.56);
+    background: rgba(15, 23, 42, 0.62);
     color: #f8fafc;
-    backdrop-filter: blur(8px);
     transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
@@ -4612,8 +4748,7 @@ html:is(
     z-index: 20 !important;
     border: 1px solid rgba(255, 255, 255, 0.3);
     background: rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(12px) saturate(180%);
-    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    /* .login-glass already blurs this surface's backdrop. */
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.35),
         0 4px 12px rgba(15, 23, 42, 0.12);
@@ -4635,8 +4770,7 @@ html:is(
 .login-qr-card {
     background: rgba(255, 255, 255, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    /* Nearly opaque card on the already blurred login panel. */
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 1),
         0 8px 24px rgba(15, 23, 42, 0.1),
@@ -4779,6 +4913,10 @@ body.video-open .app-title-bar button.app-title-bar-close:hover {
     background-color: rgba(225, 29, 72, 0.32) !important;
     background-image: none !important;
     box-shadow: none !important;
+}
+
+body.video-open .app-title-bar button.app-title-bar-close:hover::after {
+    opacity: 0;
 }
 
 /* 视频打开时标题栏转深色，切换按钮的墨色图标压在近黑画面上看不见 */
