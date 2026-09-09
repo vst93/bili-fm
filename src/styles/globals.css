@@ -2267,6 +2267,13 @@ body.mini-mode #root::before {
         0 2px 7px rgba(15, 23, 42, 0.045);
 }
 
+/* Keep next-track as a compact circular control beside the larger play button. */
+#player .player-next-button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
 #player .player-next-button::after,
 #player .player-volume-button::after,
 #player .player-speed-button::after,
@@ -2324,17 +2331,20 @@ body.mini-mode #root::before {
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    color: #0284c7;
-    border-color: rgba(2, 132, 199, 0.2);
+    color: #0369a1;
+    border-color: rgba(2, 132, 199, 0.3);
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.82),
-        0 5px 14px rgba(2, 132, 199, 0.14);
+        inset 0 -2px 4px rgba(2, 132, 199, 0.1),
+        0 4px 12px rgba(2, 132, 199, 0.1);
     background-image: none;
 }
 
 #player .player-play-button[data-playing]::before {
-    background-color: rgba(186, 230, 253, 0.42);
-    background-image: var(--glass-sheen-static);
+    background-color: rgba(125, 211, 252, 0.27);
+    background-image:
+        radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.78), transparent 58%),
+        linear-gradient(145deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
 }
 
 #player .player-play-button:not([data-playing]) {
@@ -2401,12 +2411,28 @@ body.mini-mode #root::before {
         box-shadow:
             inset 0 1px 1px rgba(255, 255, 255, 0.9),
             0 6px 16px rgba(2, 132, 199, 0.18);
-        transform: translateY(-1px);
+    }
+
+    #player .player-play-button[data-playing]:hover:not(:disabled) {
+        border-color: rgba(2, 132, 199, 0.4);
+        color: #0369a1;
+        box-shadow:
+            inset 0 1px 1px rgba(255, 255, 255, 0.88),
+            inset 0 -2px 5px rgba(2, 132, 199, 0.12),
+            0 0 0 1px rgba(14, 165, 233, 0.06),
+            0 5px 14px rgba(2, 132, 199, 0.14);
     }
 
     #player .player-play-button:hover:not(:disabled)::before {
         background-color: rgba(186, 230, 253, 0.5);
         background-image: var(--glass-sheen-static);
+    }
+
+    #player .player-play-button[data-playing]:hover:not(:disabled)::before {
+        background-color: rgba(125, 211, 252, 0.34);
+        background-image:
+            radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.86), transparent 58%),
+            linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(125, 211, 252, 0.08));
     }
 
     #player .player-next-button:hover:not(:disabled),
