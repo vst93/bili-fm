@@ -833,6 +833,9 @@ const Player = ({
         onEnded={() => {
           reportCloudProgress(-1, true);
           suspendAudioGraph();
+          // 注意：这里不能把播放状态置回 false —— 自动连播依赖 isPlaying
+          // 跨切歌保持 true（playUrl 变化后由下方 play effect 拉起下一曲）。
+          // 「没有下一曲时归位」由 handleVideoEnded 的无下一曲分支负责。
           onEnded?.();
         }}
         onError={(event) => {

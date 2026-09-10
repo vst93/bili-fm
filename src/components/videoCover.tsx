@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { BackgroundColor, Refresh } from "@icon-park/react";
+import { useEffect, useState } from "react";
+import { Halo, Refresh } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface VideoCoverProps {
@@ -19,6 +19,21 @@ export default function VideoCover({
   onAmbientBackgroundToggle,
 }: VideoCoverProps) {
   const coverImage = cover || "/logo.png";
+  // 封面「先预载、后换源」：新封面图加载完成前继续显示旧封面，
+  // 与背景光场的换源节奏一致，切换歌曲时不会闪空白。
+  const [shownCover, setShownCover] = useState(coverImage);
+  useEffect(() => {
+    if (!cover || cover === shownCover) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setShownCover(coverImage);
+    };
+    img.src = coverImage;
+    return () => {
+      cancelled = true;
+    };
+  }, [cover, coverImage, shownCover]);
   const [coverMode, setCoverMode] = useState<"disc" | "square">(() => {
     const saved = localStorage.getItem("coverMode");
     return saved === "square" ? "square" : "disc";
@@ -55,7 +70,7 @@ export default function VideoCover({
           <div
             className="cover-art cover-art-square"
             style={{
-              backgroundImage: `url(${coverImage})`,
+              backgroundImage: `url(${shownCover})`,
             }}
           />
         </div>
@@ -79,7 +94,7 @@ export default function VideoCover({
           aria-label={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
           aria-pressed={ambientBackgroundEnabled}
         >
-          <BackgroundColor size="14" theme="outline" />
+          <Halo size="14" theme="outline" />
         </button>
       </div>
     );
@@ -102,7 +117,7 @@ export default function VideoCover({
         <div
           className="cover-art"
           style={{
-            backgroundImage: `url(${coverImage})`,
+            backgroundImage: `url(${shownCover})`,
           }}
         />
       </div>
@@ -126,7 +141,7 @@ export default function VideoCover({
           aria-label={ambientBackgroundEnabled ? "关闭封面背景" : "开启封面背景"}
           aria-pressed={ambientBackgroundEnabled}
         >
-          <BackgroundColor size="14" theme="outline" />
+          <Halo size="14" theme="outline" />
         </button>
       </div>
   );

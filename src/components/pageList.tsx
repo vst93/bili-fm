@@ -43,6 +43,9 @@ interface PageListProps {
   playlistCids?: Set<number>;
   currentBvid?: string;
   currentPart?: string;
+  /** 正在播放的视频 bvid / 分 P cid：与当前浏览的视频一致时才标记播放项 */
+  playingBvid?: string;
+  playingCid?: number;
 }
 
 const PageList: FC<PageListProps> = ({
@@ -54,6 +57,8 @@ const PageList: FC<PageListProps> = ({
   onAddAllToPlaylist,
   playlistCids,
   currentPart,
+  playingBvid,
+  playingCid,
 }) => {
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
 
@@ -116,15 +121,35 @@ const PageList: FC<PageListProps> = ({
     }
   }
 
-  // 定位到当前播放的位置
+  // 定位到当前播放的位置：按稳定的语义类 part-playing 查找（不要按样式类定位，
+  // 样式一改这里就会静默失效）
   const handlePositionPart = () => {
-    // 循环DrawerBody，比对part，找到 class 为 currentPart 的元素，页面滚动到对应的位置
-    const currentPartElement = document.querySelector(
-      `.drawer-body .border-2.border-primary.cursor-pointer`,
-    ) as HTMLElement;
-    if (currentPartElement) {
-      currentPartElement.scrollIntoView({ behavior: "smooth" });
-    }
+    const currentPartElement = document.querySelector<HTMLElement>(
+      ".drawer-body .part-playing",
+    );
+    if (!currentPartElement) return;
+
+    // .c-list-card 的 content-visibility:auto 会让视口外卡片按 180px 占位
+    // 高度参与布局（实际高度更小）。若边滚边实体化，目标位置会不断漂移，
+    // WebKit 上表现为第一次点不准、第二次才到。先全部实体化（卡片高度
+    // 固定，这是一次性的），布局就完全稳定了。
+    document
+      .querySelectorAll<HTMLElement>(".drawer-body .c-list-card")
+      .forEach((card) => {
+        card.style.contentVisibility = "visible";
+      });
+
+    // 不用 scrollIntoView：WebKit 在布局刚变化后由它内部增量重算目的地
+    // 不可靠。这里读 rect（强制同步布局，拿到实体化后的真实位置），
+    // 自己算出目的地一次滚到位。
+    const drawerBody = currentPartElement.closest<HTMLElement>(".drawer-body");
+    if (!drawerBody) return;
+    const top =
+      currentPartElement.getBoundingClientRect().top -
+      drawerBody.getBoundingClientRect().top +
+      drawerBody.scrollTop -
+      8;
+    drawerBody.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   };
 
   return (
@@ -179,12 +204,22 @@ const PageList: FC<PageListProps> = ({
                 className="gap-2 grid grid-cols-2 sm:grid-cols-3 "
                 style={{ width: "100%" }}
               >
-                {videoInfo?.pages?.map((page, index) => (
+                {videoInfo?.pages?.map((page, index) => {
+                  // 播放项标识：只在「正在播放的视频 = 当前浏览的视频」时标记，
+                  // 优先按 cid 精确匹配（从播放列表/合集播入时 part 文本可能
+                  // 与选集名不一致，按名字匹配会漏标）；cid 缺失时回退到 part 名。
+                  const isPlayingPage =
+                    !!playingBvid &&
+                    playingBvid === videoInfo.bvid &&
+                    (playingCid != null
+                      ? playingCid === page.cid
+                      : currentPart === page.part);
+                  return (
                   <Card
                     key={page.cid}
                     isPressable
                     className={`c-list-card ${
-                      currentPart === page.part ? "border-2 border-primary cursor-pointer" : ""
+                      isPlayingPage ? "part-playing border-2 border-[#0284c7] cursor-pointer" : ""
                     }`}
                     shadow="sm"
                     onPress={() =>
@@ -208,6 +243,16 @@ const PageList: FC<PageListProps> = ({
                         src={graftingImage(page.first_frame || videoInfo.pic)}
                         width="100%"
                       />
+                      {isPlayingPage && (
+                        <span className="part-playing-badge">
+                          <span className="part-playing-eq" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                          正在播放
+                        </span>
+                      )}
                       <Button
                         isIconOnly
                         className="absolute top-1 right-1 z-10 min-w-6 w-6 h-6 rounded-full bg-black/30 backdrop-blur-sm border-0"
@@ -239,7 +284,8 @@ const PageList: FC<PageListProps> = ({
                       </p>
                     </CardFooter>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             </DrawerBody>
           </>

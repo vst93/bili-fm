@@ -994,8 +994,16 @@ export default function IndexPage() {
     }
 
     const navigableVideo = playingInfo || videoInfo;
-    if (!navigableVideo?.pages || !navigableVideo.pages.length) return;
-    if (navigableVideo.pages.length <= 1) return;
+    if (!navigableVideo?.pages || !navigableVideo.pages.length) {
+      // 没有下一曲可播：音频已自然播完，把播放状态归位，
+      // 否则播放按钮和旋转封面会一直停留在播放中
+      setIsPlaying(false);
+      return;
+    }
+    if (navigableVideo.pages.length <= 1) {
+      setIsPlaying(false);
+      return;
+    }
 
     const nextIndex = (currentIndex + 1) % navigableVideo.pages.length;
     const nextPage = navigableVideo.pages[nextIndex];
@@ -2422,6 +2430,8 @@ export default function IndexPage() {
             <PageList
               currentBvid={currentBvid}
               currentPart={currentPart}
+              playingBvid={playingInfo?.bvid}
+              playingCid={playingInfo?.cid}
               pageNum={pageNum}
               videoInfo={videoInfo}
               onAddToPlaylist={handleAddToPlaylist}
