@@ -4918,8 +4918,9 @@ body.video-open .app-title-bar {
     color: rgba(241, 245, 249, 0.92);
     opacity: 0;
     pointer-events: none;
-    /* 退场加延迟：鼠标从热区移入标题栏的间隙里不闪断 */
-    transition: opacity 0.22s ease 0.35s;
+    /* 退场短延迟：防止热区边缘抖动闪烁；macOS 上移向右上角音量区时
+       也能较快让位（延迟 + 渐隐 ≈ 0.4s 内可交互） */
+    transition: opacity 0.18s ease 0.2s;
 }
 
 /* 唤出：顶部热区悬浮（PlayerVideo 设置）/ 标题栏自身悬浮 / 键盘聚焦 */
