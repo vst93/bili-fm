@@ -1465,6 +1465,8 @@ body.mini-mode .app-shell::after {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    /* 同 .video-content-actions：换行时高度封顶（两行 32px 按钮 + 间距） */
+    max-height: 72px;
     contain: layout;
 }
 
@@ -1715,7 +1717,9 @@ body.mini-mode .app-shell::after {
     max-width: none;
     min-width: 0;
     min-height: 0;
-    height: 332px;
+    /* 352 = 头部 66 + 标题 52 + 简介(14+60) + 胶囊(12+36) + 操作行(14+34)
+       + dock(12+42) = 342，再留 6px 余量（原 332 实测溢出 14px，dock 被裁） */
+    height: 352px;
     margin: 0;
     float: none;
     display: block;
@@ -1728,7 +1732,12 @@ body.mini-mode .app-shell::after {
     min-width: 0;
     height: 100%;
     display: grid;
-    grid-template-rows: auto auto auto auto 1fr;
+    /* 列宽锁死在容器内：默认的 auto 轨道会被胶囊里 nowrap 的长选集标题
+       撑到 max-content（实测 554px > 容器 393px），标题/简介/胶囊全部
+       横向溢出后被 #video-info 硬裁，表现为「内容被截断/遮挡」。 */
+    grid-template-columns: minmax(0, 1fr);
+    /* 行高交给内容：原先第 5 行是 1fr，内容超高时 fr 退化为 min-content，
+       内容变矮时又把 dock 推到底边，行为不可预期 */
     align-content: start;
     position: relative;
     padding-bottom: 0;
@@ -1957,16 +1966,14 @@ body.mini-mode .app-shell::after {
 
 #video-desc {
     margin: 14px 0 0;
-    max-height: none;
-    overflow: visible;
+    /* 高度上限与内部 p 的 3 行截断一致：超长简介到这里为止，不再把布局撑开。
+     * 不加渐隐遮罩 —— 文字干净利落地断在截断处，由液态玻璃面板自身的
+     * 半透明质感微透出来，而不是把末行文字雾化。 */
+    max-height: 60px;
+    overflow: hidden;
     color: var(--studio-muted);
     font-size: 13px;
     line-height: 1.55;
-    /* Blend the clamped final line into the panel instead of leaving a hard edge. */
-    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 24px), transparent 100%);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
 }
 
 #video-desc p {
@@ -1994,13 +2001,16 @@ body.mini-mode .app-shell::after {
     color: #0369a1;
     font-size: 13px;
     font-weight: 700;
-    overflow: visible;
+    /* 内容过长时由内部 .video-part-title 的省略号规则在胶囊内截断；
+     * overflow: visible 会让长标题溢出胶囊、被 #video-info 硬裁。 */
+    overflow: hidden;
     contain: layout;
     position: relative;
     isolation: isolate;
     box-shadow:
-        0 3px 16px rgba(15, 23, 42, 0.05),
-        0 1px 3px rgba(15, 23, 42, 0.025);
+        0 1px 2px rgba(15, 23, 42, 0.03),
+        0 3px 10px rgba(2, 132, 199, 0.05),
+        0 7px 20px rgba(15, 23, 42, 0.045);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -2009,8 +2019,18 @@ body.mini-mode .app-shell::after {
     position: absolute;
     inset: 0;
     border-radius: inherit;
+    /* 玻璃体分层（全静态图层，无实时模糊）：白底之上依次是
+       1) 常规斜向洗光；2) 上缘聚光；3) 下缘微微变密的蓝调 ——
+       与文字同色系，让胶囊看起来是“一块微微带蓝的厚玻璃”。
+       内阴影模拟玻璃厚度：上缘内凹暗边 + 下缘内侧亮边。 */
     background-color: var(--liquid-bg);
-    background-image: var(--glass-sheen-static);
+    background-image:
+        var(--glass-sheen-static),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, transparent 42%),
+        linear-gradient(180deg, transparent 58%, rgba(2, 132, 199, 0.05) 100%);
+    box-shadow:
+        inset 0 1px 1.5px rgba(15, 23, 42, 0.05),
+        inset 0 -1px 0.5px rgba(255, 255, 255, 0.38);
     z-index: -1;
     transition: background 0.2s ease;
 }
@@ -2071,6 +2091,8 @@ body.mini-mode .app-shell::after {
     align-self: start;
     width: fit-content;
     max-width: 100%;
+    /* 两行按钮的物理上限：flex 换行时高度封顶，不允许无限增长 */
+    max-height: 74px;
     margin-top: 14px;
     padding: 0;
     display: inline-flex;
@@ -2094,6 +2116,8 @@ body.mini-mode .app-shell::after {
     align-self: start;
     width: fit-content;
     max-width: 100%;
+    /* 同 .video-content-actions：换行时高度封顶（两行按钮 + 内边距） */
+    max-height: 82px;
     margin-top: 12px;
     padding: 3px;
     display: inline-flex;
@@ -2112,30 +2136,8 @@ body.mini-mode .app-shell::after {
     isolation: isolate;
 }
 
-/* One low-contrast contact fade keeps the action groups grounded on the same
-   surface without introducing another blurred layer. */
-.video-content-actions::before,
-.video-context-dock::before,
-.home-global-actions::before {
-    content: "";
-    position: absolute;
-    left: 3px;
-    right: 3px;
-    bottom: -5px;
-    height: 9px;
-    border-radius: 0 0 8px 8px;
-    background: linear-gradient(to bottom, rgba(15, 23, 42, 0.045), transparent);
-    opacity: 0.8;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.video-content-actions > *,
-.video-context-dock > *,
-.home-global-actions > * {
-    position: relative;
-    z-index: 1;
-}
+/* 按钮行底部不再加接触淡影：液态玻璃靠面板自身的半透明和内阴影贴面，
+   额外的投影会显得像雾蒙蒙的底部阴影（回退到之前版本的干净贴面）。 */
 
 .nav-icon-btn {
     width: 32px;
@@ -2474,10 +2476,11 @@ body.mini-mode .app-shell::after {
 }
 
 #player .player-play-button[data-playing]::before {
-    background-color: rgba(125, 211, 252, 0.27);
+    /* 播放中：背景只留微微一点蓝调，不再明显变色 */
+    background-color: rgba(125, 211, 252, 0.16);
     background-image:
         radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.78), transparent 58%),
-        linear-gradient(145deg, rgba(14, 165, 233, 0.12), rgba(125, 211, 252, 0.06));
+        linear-gradient(145deg, rgba(14, 165, 233, 0.06), rgba(125, 211, 252, 0.03));
 }
 
 #player .player-play-button:not([data-playing]) {
@@ -2562,10 +2565,10 @@ body.mini-mode .app-shell::after {
     }
 
     #player .player-play-button[data-playing]:hover:not(:disabled)::before {
-        background-color: rgba(125, 211, 252, 0.34);
+        background-color: rgba(125, 211, 252, 0.22);
         background-image:
             radial-gradient(100% 76% at 30% 0%, rgba(255, 255, 255, 0.86), transparent 58%),
-            linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(125, 211, 252, 0.08));
+            linear-gradient(145deg, rgba(14, 165, 233, 0.08), rgba(125, 211, 252, 0.04));
     }
 
     #player .player-next-button:hover:not(:disabled),
@@ -4856,14 +4859,34 @@ body.video-open #player {
     display: none;
 }
 
-/* ---- 视频打开时的标题栏：浮在画面上，而不是画面上方的一条亮带 ----
+/* ---- 视频打开时的标题栏：默认隐去，悬浮视频顶部唤出 ----
    画面满铺到窗口顶部，标题栏抬到视频层（998）之上，保留
    data-tauri-drag-region 的拖动能力和窗口按钮点击。
-   配色转深色，否则墨色文字压在近黑画面上看不见。 */
+   配色转深色，否则墨色文字压在近黑画面上看不见。
+
+   隐藏策略：默认 opacity: 0（不用 display: none，保留元素参与
+   hover/focus 命中测试的通道）。PlayerVideo 会在鼠标进入窗口顶部
+   热区（≤48px）时给 body 挂 titlebar-hover 类唤回标题栏；唤回后
+   标题栏自身的 data-tauri-drag-region 照常拖动窗口。
+   平台限制（macOS）：原生 Overlay 标题栏的红绿灯是系统层，不受前端
+   透明度控制，视频模式下仍显示；要隐藏需走原生 API 改 styleMask。 */
 body.video-open .app-title-bar {
     z-index: 999;
     background: transparent !important;
     color: rgba(241, 245, 249, 0.92);
+    opacity: 0;
+    pointer-events: none;
+    /* 退场加延迟：鼠标从热区移入标题栏的间隙里不闪断 */
+    transition: opacity 0.22s ease 0.35s;
+}
+
+/* 唤出：顶部热区悬浮（PlayerVideo 设置）/ 标题栏自身悬浮 / 键盘聚焦 */
+body.video-open.titlebar-hover .app-title-bar,
+body.video-open .app-title-bar:hover,
+body.video-open .app-title-bar:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.16s ease;
 }
 
 /* 顶部渐隐压暗：让浅色画面下的文字与按钮仍然可读，

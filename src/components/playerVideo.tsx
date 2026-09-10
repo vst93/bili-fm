@@ -7,6 +7,23 @@ const PLAY_PROGRESS_CRITICAL_INTERVAL_MS = 3_000;
 
 const SEEK_STEP_SECONDS = 10;
 
+/** 标题栏唤出热区高度（px）：视频模式下鼠标进入窗口顶部该区域即唤回标题栏。
+ * 覆盖常规标题栏（36px）与迷你模式标题栏（24px）并留少量余量。 */
+const TITLEBAR_HOTZONE_PX = 48;
+
+/**
+ * 悬浮视频顶部时唤回标题栏（body.titlebar-hover，样式见 globals.css 的
+ * body.video-open 块）。唤回后标题栏仍带 data-tauri-drag-region，整块区域
+ * 可以拖动窗口。热区被唤回的标题栏盖住时，标题栏自身的 :hover 接棒维持显示；
+ * 鼠标移出热区后由 CSS 的退场延迟平滑收起。
+ */
+const syncTitlebarHotzone = (open: boolean, clientY: number) => {
+  document.body.classList.toggle(
+    "titlebar-hover",
+    open && clientY <= TITLEBAR_HOTZONE_PX,
+  );
+};
+
 /** 老版本 WebKit 只有私有的 presentation mode API，没有标准 PiP API */
 type WebKitVideoElement = HTMLVideoElement & {
   webkitPresentationMode?: "inline" | "picture-in-picture" | "fullscreen";
@@ -249,6 +266,7 @@ export default function PlayerVideo({
       });
     } else if (visible) {
       containerRef.current?.classList.remove("player-video-open");
+      document.body.classList.remove("titlebar-hover");
       const timer = setTimeout(() => setVisible(false), 300);
       return () => clearTimeout(timer);
     }
@@ -274,7 +292,7 @@ export default function PlayerVideo({
     }
   }, [isPlay, isPlayVideoStop]);
 
-  // 组件卸载时确保视频停止，并收回画中画浮窗
+  // 组件卸载时确保视频停止、收回画中画浮窗，并撤掉标题栏唤出状态
   useEffect(() => {
     return () => {
       const video = videoRef.current;
@@ -283,6 +301,7 @@ export default function PlayerVideo({
         video.pause();
         video.src = "";
       }
+      document.body.classList.remove("titlebar-hover");
     };
   }, []);
 
@@ -301,7 +320,18 @@ export default function PlayerVideo({
   };
 
   return (
-    <div id="player_video" ref={containerRef}>
+    <div
+      id="player_video"
+      ref={containerRef}
+      onMouseMove={(event) => {
+        // 仅在视频浮层展开时响应；标题栏唤回后会盖住热区拦下 mousemove，
+        // 但此时状态已置位，移出热区（y > 48）才撤销，不会闪烁。
+        syncTitlebarHotzone(
+          !!containerRef.current?.classList.contains("player-video-open"),
+          event.clientY,
+        );
+      }}
+    >
       <div className="player-video-panel">
         {/* B 站视频流不提供可挂载到本地媒体元素的字幕轨道。 */}
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
