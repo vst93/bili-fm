@@ -174,6 +174,27 @@ def main():
             gh_release.get("target_commitish", "master"),
         )
 
+    # Keep release name/body/prerelease in sync with GitHub
+    gh_body = gh_release.get("body", "")
+    gh_name = gh_release.get("name", tag)
+    gh_prerelease = "true" if gh_release.get("prerelease") else "false"
+    gitee_body = (gitee_release_info.get("body") or "").replace("\r\n", "\n")
+    if gitee_body != gh_body or gitee_release_info.get("name") != gh_name:
+        print(f"  [{tag}] Updating release name/body on Gitee...")
+        resp = requests.patch(
+            f"{GITEE_API}/{GITEE_OWNER}/{GITEE_REPO}/releases/{gitee_release_info['id']}",
+            data={
+                "access_token": GITEE_TOKEN,
+                "tag_name": tag,
+                "name": gh_name,
+                "body": gh_body or "-",
+                "prerelease": gh_prerelease,
+                "target_commitish": gh_release.get("target_commitish", "master"),
+            },
+        )
+        if resp.status_code >= 300:
+            raise Exception(f"Update release failed: {resp.status_code} {resp.text}")
+
     # Sync assets
     sync_release(gh_release, gitee_release_info)
 
