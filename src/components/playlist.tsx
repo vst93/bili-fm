@@ -11,7 +11,7 @@ import {
   Tabs,
   Tab,
 } from "@heroui/react";
-import { Close, Shuffle, Order, Delete, Play, FocusOne } from "@icon-park/react";
+import { Close, Shuffle, Order, Delete, Play, FocusOne, LoopOnce } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 
@@ -28,7 +28,7 @@ export interface PlaylistItem {
   pic: string;
 }
 
-export type PlaylistPlayMode = "sequence" | "shuffle";
+export type PlaylistPlayMode = "sequence" | "single" | "shuffle";
 
 interface PlaylistProps {
   onSlideClick?: () => void;
@@ -164,13 +164,19 @@ const Playlist: FC<PlaylistProps> = ({
                 isIconOnly
                 size="sm"
                 title={
-                  playMode === "sequence" ? "当前：顺序播放" : "当前：随机播放"
+                  playMode === "sequence"
+                    ? "当前：顺序播放"
+                    : playMode === "single"
+                    ? "当前：单曲循环"
+                    : "当前：随机播放"
                 }
                 variant="light"
                 onClick={onPlayModeToggle}
               >
                 {playMode === "sequence" ? (
                   <Order fill="#888" size="18" theme="outline" />
+                ) : playMode === "single" ? (
+                  <LoopOnce fill="#3b82f6" size="18" theme="outline" />
                 ) : (
                   <Shuffle fill="#3b82f6" size="18" theme="outline" />
                 )}

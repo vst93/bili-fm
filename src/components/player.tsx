@@ -23,6 +23,23 @@ const SEEK_KEYS = new Set([
 ]);
 const EQ_TRANSITION_SECONDS = 0.06;
 const EQ_STORAGE_KEY = "loudnessEqEnabled";
+const PLAYBACK_RATE_STORAGE_KEY = "playbackRate";
+const VOLUME_STORAGE_KEY = "volume";
+
+// 读取倍速偏好：localStorage 为主，非法/越界值回落 1（必须命中 PLAYBACK_RATES 档位）
+const readStoredPlaybackRate = (): number => {
+  const saved = Number(localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY));
+  return (PLAYBACK_RATES as readonly number[]).includes(saved) ? saved : 1;
+};
+
+// 读取音量偏好：clamp 到 0~1，非法值回落 1
+const readStoredVolume = (): number => {
+  const raw = localStorage.getItem(VOLUME_STORAGE_KEY);
+  if (raw === null) return 1;
+  const saved = Number(raw);
+  if (!Number.isFinite(saved) || saved < 0 || saved > 1) return 1;
+  return saved;
+};
 const PLAY_PROGRESS_REPORT_INTERVAL_MS = 30_000;
 const PLAY_PROGRESS_CRITICAL_INTERVAL_MS = 3_000;
 const CLOUD_PROGRESS_STARTUP_BUDGET_MS = 800;
@@ -102,6 +119,8 @@ interface PlayerProps {
   cid?: number;
   forcePause?: boolean;
   cloudHistoryEnabled?: boolean;
+  // 单曲循环重播信号：自增时把音频 seek 回 0 并继续播放（走 safeSeek 保护路径）
+  replaySignal?: number;
 }
 
 const formatTime = (seconds: number) => {
@@ -151,6 +170,7 @@ const Player = ({
   cid,
   forcePause = false,
   cloudHistoryEnabled = true,
+  replaySignal = 0,
 }: PlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const timelineRef = useRef<HTMLInputElement>(null);
@@ -181,13 +201,13 @@ const Player = ({
   const lastLocalResumeWriteRef = useRef(0);
   const [duration, setDuration] = useState(0);
   const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(readStoredVolume);
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [isSpeedOpen, setIsSpeedOpen] = useState(false);
   const [isLoudnessEq, setIsLoudnessEq] = useState(
     () => localStorage.getItem(EQ_STORAGE_KEY) === "true",
   );
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(readStoredPlaybackRate);
 
   onTimeUpdateRef.current = onTimeUpdate;
   cloudHistoryEnabledRef.current = cloudHistoryEnabled;
@@ -664,6 +684,35 @@ const Player = ({
     };
   }, [cloudHistoryEnabled, cloudProgressReadyKey, forcePause, isPlaying, mediaKey, src]);
 
+  // 单曲循环：音频结束后由 replaySignal 触发，seek 回 0 继续播。
+  // 走 safeSeek 保护路径（元数据未就绪时直接 play 当前尾部会被挡）。
+  useEffect(() => {
+    if (replaySignal <= 0) return;
+    const audio = audioRef.current;
+    if (!audio || !src) return;
+
+    const replay = () => {
+      if (safeSeek(audio, 0)) {
+        void audio.play().catch((error) => {
+          console.error("[player] single-loop replay failed:", error);
+        });
+      } else {
+        // 数据暂未就绪：等 canplay 后再重试一次
+        const onReady = () => {
+          audio.removeEventListener("canplay", onReady);
+          if (safeSeek(audio, 0)) {
+            void audio.play().catch(() => {});
+          }
+        };
+        audio.addEventListener("canplay", onReady, { once: true });
+      }
+    };
+
+    replay();
+    // 仅在信号变化时重播，不依赖其它 props
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replaySignal]);
+
   useEffect(() => {
     return () => {
       const graph = audioGraphRef.current;
@@ -828,6 +877,18 @@ const Player = ({
     audio.muted = value === 0;
     if (value > 0) lastVolumeRef.current = value;
     setVolume(value);
+  };
+
+  // 音量偏好持久化：localStorage 为主，dkv 同步备份（跟随 coverMode 双写范式）。
+  // 仅在拖动提交/静音切换时写，不跟随每次 input 事件。
+  const persistVolume = (value: number) => {
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(value));
+    invoke("set_kv", { key: VOLUME_STORAGE_KEY, value: String(value) }).catch(() => {});
+  };
+
+  const persistPlaybackRate = (value: number) => {
+    localStorage.setItem(PLAYBACK_RATE_STORAGE_KEY, String(value));
+    invoke("set_kv", { key: PLAYBACK_RATE_STORAGE_KEY, value: String(value) }).catch(() => {});
   };
 
   const handleLoadedMetadata = (audio: HTMLAudioElement) => {
@@ -1085,7 +1146,14 @@ const Player = ({
             title={volume > 0 ? "音量" : "取消静音"}
             type="button"
             onClick={() => {
-              if (volume === 0) handleVolumeChange(lastVolumeRef.current || 1);
+              if (volume === 0) {
+                const restored = lastVolumeRef.current || 1;
+                handleVolumeChange(restored);
+                persistVolume(restored);
+              } else {
+                handleVolumeChange(0);
+                persistVolume(0);
+              }
               setIsVolumeOpen((open) => !open);
             }}
           >
@@ -1108,6 +1176,12 @@ const Player = ({
                 type="range"
                 value={volume}
                 onChange={(event) => handleVolumeChange(Number(event.currentTarget.value))}
+                onPointerUp={(event) =>
+                  persistVolume(Number(event.currentTarget.value))
+                }
+                onKeyUp={(event) =>
+                  persistVolume(Number(event.currentTarget.value))
+                }
               />
             </div>
           )}
@@ -1139,6 +1213,7 @@ const Player = ({
                   type="button"
                   onClick={() => {
                     setPlaybackRate(rate);
+                    persistPlaybackRate(rate);
                     setIsSpeedOpen(false);
                   }}
                 >

@@ -244,6 +244,8 @@ export default function IndexPage() {
   const [replyOid, setReplyOid] = useState<number>(0);
   const [replyPage, setReplyPage] = useState(1);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  // 单曲循环重播信号：自增触发 Player seek 回 0 继续播放
+  const [replaySignal, setReplaySignal] = useState(0);
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState<number>(-1);
   const [seriesPlaylist, setSeriesPlaylist] = useState<PlaylistItem[]>([]);
@@ -490,7 +492,7 @@ export default function IndexPage() {
     // 初始化时获取用户信息
     refreshUserInfo();
     invoke<string>("get_playlist_play_mode").then((mode) => {
-      if (mode === "shuffle" || mode === "sequence") {
+      if (mode === "shuffle" || mode === "sequence" || mode === "single") {
         setPlaylistPlayMode(mode);
       }
     });
@@ -1086,8 +1088,7 @@ export default function IndexPage() {
    */
   const handleUrlJump = async (url: string) => {
     if (!url) {
-      // TODO: 显示错误提示
-      console.log("请输入B站视频地址");
+      toast({ type: "error", content: "请输入 B 站视频链接" });
 
       return;
     }
@@ -1095,7 +1096,7 @@ export default function IndexPage() {
     const bvid = urlToBVID(url);
 
     if (!bvid) {
-      console.log("无效的视频地址");
+      toast({ type: "error", content: "未识别出有效的 B 站视频地址" });
 
       return;
     }
@@ -1178,6 +1179,13 @@ export default function IndexPage() {
    * @description 播放列表模式下自动播放下一个播放列表项；选集模式下自动播放下一集
    */
   const handleVideoEnded = async () => {
+    // 单曲循环：无视播放列表/选集，直接重播当前曲目（含单集视频），
+    // 通过 replaySignal 让 Player 走 safeSeek 回到 0 后继续播。
+    if (playlistPlayMode === "single") {
+      setReplaySignal((n) => n + 1);
+      return;
+    }
+
     const activePlaylist =
       playingPlaylistType === "series" ? seriesPlaylist : playlist;
     const activePlaylistIndex =
@@ -1599,7 +1607,7 @@ export default function IndexPage() {
 
   const handlePlaylistPlayModeToggle = () => {
     setPlaylistPlayMode((prev) =>
-      prev === "sequence" ? "shuffle" : "sequence",
+      prev === "sequence" ? "single" : prev === "single" ? "shuffle" : "sequence",
     );
   };
 
@@ -2732,6 +2740,7 @@ export default function IndexPage() {
         }}
         onPlayStateChange={setIsPlaying}
         onTimeUpdate={handleTimeUpdate}
+        replaySignal={replaySignal}
       />
       {/* 视频画面：大窗常规显示，视频小窗模式下铺满小窗。
           抽屉/弹窗仍只在大窗渲染，小窗里没有空间也没有意义。 */}
