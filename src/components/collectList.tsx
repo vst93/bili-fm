@@ -1,6 +1,7 @@
 import type { FC } from "react";
 
-import { Refresh, Left, Right, PreviewOpen } from "@icon-park/react";
+import { Refresh, Left, Right } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 import RetryImg from "./retryImg";
 import ListSkeleton from "./listSkeleton";
 
@@ -191,20 +192,13 @@ const CollectList: FC<CollectListProps> = ({
                             {item.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            <span className="card-meta">
-                              <span className="card-meta-field">{item.upper?.name || item.author}</span>
-                              {item.ctime ? (
-                                <span className="card-meta-field is-pubdate">
-                                  {formatRelativeTime(item.ctime)}
-                                </span>
-                              ) : null}
-                              {item?.cnt_info?.play != null ? (
-                                <span className="card-meta-field is-views">
-                                  <PreviewOpen size={12} theme="outline" />
-                                  {formatViewCount(item.cnt_info.play)}
-                                </span>
-                              ) : null}
-                            </span>
+                            <CardMeta
+                            fields={[
+                              { kind: "author", value: item.upper?.name || item.author },
+                              { kind: "views", value: item?.cnt_info?.play != null ? formatViewCount(item.cnt_info.play) : null },
+                              { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
+                            ]}
+                          />
                           </p>
                         </CardFooter>
                       </Card>

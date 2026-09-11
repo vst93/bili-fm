@@ -1,6 +1,7 @@
 import type { FC } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Close, MaskOne, Refresh, PreviewOpen } from "@icon-park/react";
+import { Close, MaskOne, Refresh } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -306,20 +307,13 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         {item.title}
                                                     </b>
                                                     <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                        <span className="card-meta">
-                                                            <span className="card-meta-field">{item.author_name}</span>
-                                                            {item.view_at ? (
-                                                                <span className="card-meta-field is-pubdate">
-                                                                    {formatRelativeTime(item.view_at)}
-                                                                </span>
-                                                            ) : null}
-                                                            {item?.stat?.view != null ? (
-                                                                <span className="card-meta-field is-views">
-                                                                    <PreviewOpen size={12} theme="outline" />
-                                                                    {formatViewCount(item.stat.view)}
-                                                                </span>
-                                                            ) : null}
-                                                        </span>
+                                                        <CardMeta
+                                                            fields={[
+                                                                { kind: "author", value: item.author_name },
+                                                                { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
+                                                                { kind: "pubdate", value: item.view_at ? formatRelativeTime(item.view_at) : null },
+                                                            ]}
+                                                        />
                                                     </p>
                                                 </CardFooter>
                                             </Card>
@@ -406,18 +400,13 @@ const HistoryList: FC<HistoryListProps> = ({
                                                             {item.title}
                                                         </b>
                                                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                            <span className="card-meta">
-                                                                <span className="card-meta-field">{item.owner?.name}</span>
-                                                                {item?.stat?.view != null ? (
-                                                                    <span className="card-meta-field is-views">
-                                                                        <PreviewOpen size={12} theme="outline" />
-                                                                        {formatViewCount(item.stat.view)}
-                                                                    </span>
-                                                                ) : null}
-                                                                {progressLabel ? (
-                                                                    <span className="card-meta-field">{progressLabel}</span>
-                                                                ) : null}
-                                                            </span>
+                                                            <CardMeta
+                                                                fields={[
+                                                                    { kind: "author", value: item.owner?.name },
+                                                                    { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
+                                                                    { kind: "extra", value: progressLabel ? progressLabel.replace(/^\s*\|\s*/, "") : null },
+                                                                ]}
+                                                            />
                                                         </p>
                                                     </CardFooter>
                                                 </Card>

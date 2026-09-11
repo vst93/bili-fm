@@ -3,7 +3,8 @@ import { useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { FeedList, FollowStatus } from "@/types/bilibili";
 
-import { Refresh, Add, Close, PreviewOpen } from "@icon-park/react";
+import { Refresh, Add, Close } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
@@ -327,6 +328,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                         key={info.bvid}
                         isPressable
                         shadow="sm"
+                        className="c-list-card"
                         onPress={() => onVideoSelect?.(info.bvid)}
                       >
                         <CardBody className="overflow-visible p-0 img-container">
@@ -349,17 +351,13 @@ const UpVideoList: FC<UpVideoListProps> = ({
                             {info.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            <span className="card-meta">
-                              {publishTime ? (
-                                <span className="card-meta-field is-pubdate">{publishTime}</span>
-                              ) : null}
-                              {item?.modules?.module_dynamic?.major?.archive?.stat?.play != null ? (
-                                <span className="card-meta-field is-views">
-                                  <PreviewOpen size={12} theme="outline" />
-                                  {formatViewCount(Number(item.modules.module_dynamic.major.archive.stat.play) || 0)}
-                                </span>
-                              ) : null}
-                            </span>
+                            <CardMeta
+                            fields={[
+                              { kind: "views", value: info?.stat?.play != null ? formatViewCount(Number(info.stat.play) || 0) : null },
+                              { kind: "duration", value: info?.duration_text },
+                              { kind: "pubdate", value: publishTime },
+                            ]}
+                          />
                           </p>
                         </CardFooter>
                       </Card>

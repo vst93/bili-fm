@@ -23,6 +23,7 @@ import {
   Check,
   Search,
 } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 
 
 import { convertToDuration, graftingImage } from "@/utils/string";
@@ -280,7 +281,7 @@ const PageList: FC<PageListProps> = ({
                         {page.part || videoInfo.title}
                       </b>
                       <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                        {convertToDuration(page.duration)}
+                        <CardMeta fields={[{ kind: "duration", value: convertToDuration(page.duration) }]} />
                       </p>
                     </CardFooter>
                   </Card>

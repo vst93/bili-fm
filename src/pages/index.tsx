@@ -2700,7 +2700,7 @@ export default function IndexPage() {
       <TitleBar
         onSwitchMode={switchWindowMode}
         showSwitchMode={!isMiniMode && !isLinux && !isPlayVideo}
-        showSettingsButton={!showPlaylist}
+        showSettingsButton={!showPlaylist && !isPlayVideo}
       />
       {isMiniMode ? (
         ""

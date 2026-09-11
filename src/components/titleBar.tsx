@@ -394,6 +394,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                 <span className="text-sm">bili-FM</span>
                 {showSettingsButton && (
                   <button
+                    id="settings-entry"
                     ref={settingsBtnRef}
                     aria-controls="settings-menu"
                     aria-expanded={showMenu}

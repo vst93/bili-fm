@@ -1,5 +1,6 @@
 import type { FC } from "react";
-import { Refresh, PreviewOpen } from "@icon-park/react";
+import { Refresh } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -177,21 +178,14 @@ const RecommendList: FC<RecommendListProps> = ({
                             {item.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            <span className="card-meta">
-                              <span className="card-meta-field">{subStr(item.owner?.name || item.author, 7)}</span>
-                              {item.pubdate ? (
-                                <span className="card-meta-field is-pubdate">
-                                  {formatRelativeTime(item.pubdate)}
-                                </span>
-                              ) : null}
-                              <span className="card-meta-field">{convertToDuration(item.duration)}</span>
-                              {item?.stat?.view != null ? (
-                                <span className="card-meta-field is-views">
-                                  <PreviewOpen size={12} theme="outline" />
-                                  {formatViewCount(item.stat.view)}
-                                </span>
-                              ) : null}
-                            </span>
+                            <CardMeta
+                            fields={[
+                              { kind: "author", value: subStr(item.owner?.name || item.author, 7) },
+                              { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
+                              { kind: "duration", value: item.duration != null ? convertToDuration(item.duration) : null },
+                              { kind: "pubdate", value: item.pubdate ? formatRelativeTime(item.pubdate) : null },
+                            ]}
+                          />
                           </p>
                         </CardFooter>
                       </Card>

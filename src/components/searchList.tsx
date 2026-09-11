@@ -2,7 +2,8 @@ import type { FC, Key } from "react";
 import type { SearchResult } from "@/types/bilibili";
 
 import { useMemo, useState } from "react";
-import { PreviewOpen } from "@icon-park/react";
+import {  } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 import { useDisclosure } from "@heroui/react";
 import {
   Drawer,
@@ -121,16 +122,13 @@ const SearchList: FC<SearchListProps> = ({
                         {video.title}
                       </b>
                       <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                        <span className="card-meta">
-                          <span className="card-meta-field">{video.author}</span>
-                          <span className="card-meta-field is-pubdate">{video.date}</span>
-                          {video.views != null ? (
-                            <span className="card-meta-field is-views">
-                              <PreviewOpen size={12} theme="outline" />
-                              {video.views}
-                            </span>
-                          ) : null}
-                        </span>
+                        <CardMeta
+                          fields={[
+                            { kind: "author", value: video.author },
+                            { kind: "views", value: video.views != null ? String(video.views) : null },
+                            { kind: "pubdate", value: video.date },
+                          ]}
+                        />
                       </p>
                     </CardFooter>
                   </Card>

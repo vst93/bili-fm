@@ -1264,12 +1264,13 @@ const Player = ({
             aria-hidden="true"
             className="player-timeline-sponsor"
             data-available={
-              sponsorSkip && sponsorSegmentsRef.current.length > 0 ? "true" : "false"
+              /* 标记显示只看数据：查到 segments 就画，与「自动跳过」开关无关。 */
+              sponsorSegmentsRef.current.length > 0 ? "true" : "false"
             }
             data-version={sponsorSegmentsVersion}
             ref={sponsorMarkerRef}
           >
-            {sponsorSkip && duration > 0
+            {duration > 0
               ? sponsorSegmentsRef.current.map((seg, index) => {
                   const mediaDuration = duration;
                   if (!Number.isFinite(mediaDuration) || mediaDuration <= 0) return null;

@@ -163,21 +163,37 @@ textarea,
     container-type: inline-size;
 }
 
-/* 卡片 meta 行：图标 + 数值的紧凑字段，间隙收窄。 */
+/* 卡片 meta 行 —— 统一规范（所有列表卡片共用）：
+   1) 永远单行：flex-wrap: nowrap + 行级 overflow: hidden，任何宽度都不换行；
+   2) 字段不压缩、不换行，仅作者名可收缩并以省略号截断；
+   3) 卡片过窄时按「优先级从低到高」逐个隐藏整字段
+      （附加进度 → 发布时间 → 时长 → 播放量），而不是换行或截断数值。
+      优先级：作者 > 播放量 > 时长 > 发布时间 > 附加。 */
 .card-meta {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
     min-width: 0;
-    max-width: 100%;
+    width: 100%;
+    overflow: hidden;
 }
 
 .card-meta-field {
     display: inline-flex;
     align-items: center;
     gap: 2px;
+    flex: 0 0 auto;
     min-width: 0;
+    white-space: nowrap;
+}
+
+/* 唯一的弹性字段：作者名过长时省略号截断，绝不换行。 */
+.card-meta-field.is-author {
+    display: block;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -186,14 +202,26 @@ textarea,
     opacity: 0.72;
 }
 
-/* 窄卡片：先藏发布时间，再藏播放量（隐藏后不占位），标题永不被这些字段挤走。 */
-@container (max-width: 180px) {
+/* 窄卡片：按优先级从末尾隐藏（隐藏后不占位），保证单行且卡片高度一致。 */
+@container (max-width: 260px) {
+    .card-meta-field.is-extra {
+        display: none;
+    }
+}
+
+@container (max-width: 240px) {
     .card-meta-field.is-pubdate {
         display: none;
     }
 }
 
-@container (max-width: 130px) {
+@container (max-width: 200px) {
+    .card-meta-field.is-duration {
+        display: none;
+    }
+}
+
+@container (max-width: 150px) {
     .card-meta-field.is-views {
         display: none;
     }
@@ -5340,6 +5368,12 @@ body.video-open .app-title-bar-btn:hover {
 body.video-open #wds-handle-group {
     background: rgba(15, 23, 42, 0.42);
     border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* 视频浮层内不展示主窗「设置」入口（索引层已用 showSettingsButton 关闭，
+   这里作为兜底：即便被复用/误渲染也不显示、不可点）。 */
+body.video-open #settings-entry {
+    display: none !important;
 }
 
 /* 全宽拖动热区（见 TitleBar 的 .app-title-bar-drag-rail）：

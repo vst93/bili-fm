@@ -106,11 +106,20 @@ export async function fetchSegments(
       )}&cid=${encodeURIComponent(String(cid))}`;
       const res = await fetch(url, { signal: controller.signal });
       // 非 200（含 400/风控）不是有效结论，不缓存，允许重试。
-      if (!res.ok) return { segments: [], cacheable: false };
+      if (!res.ok) {
+        // 失败可见性：此前完全无声，实机无法判断是网络、CSP 还是风控。
+        // 仅 warn，不改变 UI 行为（仍降级为「无片段」）。
+        console.warn(
+          `[sponsor] segment query failed: HTTP ${res.status} for ${bvid}:${cid}`,
+        );
+        return { segments: [], cacheable: false };
+      }
       const json = await res.json();
       return { segments: parseSegments(json), cacheable: true };
-    } catch {
+    } catch (error) {
       // 网络 / 超时 / 中止 / JSON 异常：静默降级为空片段，但不写缓存。
+      // 仍打印一条 warn 便于实机诊断（不影响播放，不抛出）。
+      console.warn(`[sponsor] segment query error for ${bvid}:${cid}`, error);
       return { segments: [], cacheable: false };
     } finally {
       clearTimeout(timer);

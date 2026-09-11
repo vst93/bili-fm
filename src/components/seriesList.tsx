@@ -15,9 +15,10 @@ import {
     CardBody,
     CardFooter,
 } from "@heroui/react";
-import { Play, PreviewOpen } from "@icon-park/react";
+import { Play } from "@icon-park/react";
+import CardMeta from "./cardMeta";
 
-import { graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
+import { graftingImage, formatViewCount, formatRelativeTime, convertToDuration } from "@/utils/string";
 
 const MAX_RETAINED_ITEMS = 240;
 import { invoke } from "@tauri-apps/api/core";
@@ -157,7 +158,7 @@ const SeriesList: FC<SeriesListProps> = ({
                                     <Card
                                         key={video.aid}
                                         isPressable
-                                        className={currentBvid === video.bvid ? "border-2 border-primary" : ""}
+                                        className={`c-list-card${currentBvid === video.bvid ? " border-2 border-primary" : ""}`}
                                         shadow="sm"
                                         onPress={() => onVideoSelect?.(video.bvid)}
                                     >
@@ -181,19 +182,13 @@ const SeriesList: FC<SeriesListProps> = ({
                                                 {video.title}
                                             </b>
                                             <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                <span className="card-meta">
-                                                    {video?.pubdate ? (
-                                                        <span className="card-meta-field is-pubdate">
-                                                            {formatRelativeTime(video.pubdate)}
-                                                        </span>
-                                                    ) : null}
-                                                    {video?.stat?.view != null ? (
-                                                        <span className="card-meta-field is-views">
-                                                            <PreviewOpen size={12} theme="outline" />
-                                                            {formatViewCount(video.stat.view)}
-                                                        </span>
-                                                    ) : null}
-                                                </span>
+                                                <CardMeta
+                                                    fields={[
+                                                      { kind: "views", value: video?.stat?.view != null ? formatViewCount(video.stat.view) : null },
+                                                      { kind: "duration", value: video?.duration != null ? convertToDuration(video.duration) : null },
+                                                      { kind: "pubdate", value: video?.pubdate ? formatRelativeTime(video.pubdate) : null },
+                                                    ]}
+                                                />
                                             </p>
                                         </CardFooter>
                                     </Card>
