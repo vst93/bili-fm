@@ -104,3 +104,181 @@ test("empty arguments never hit the network", async () => {
   assert.equal((await fetchSegments("BVx", 0)).length, 0);
   assert.equal(calls, 0);
 });
+
+// 回归：轮 7 的 aborted 请求会把空结果写进会话缓存，导致该 BV:cid 永远为空
+// （React StrictMode 双挂载 / 换曲中止后同曲重查都会命中空缓存），跳过功能失效。
+test("an aborted request must not poison the session cache (retry can still succeed)", async () => {
+  let calls = 0;
+  const { fetchSegments } = loadModule((url, opts) =>
+    new Promise((resolve, reject) => {
+      calls += 1;
+      const timer = setTimeout(
+        () =>
+          resolve({
+            ok: true,
+            json: async () => [
+              {
+                segment: [84.672, 129.603],
+                category: "sponsor",
+                actionType: "skip",
+                UUID: "u1",
+                videoDuration: 169.866,
+              },
+            ],
+          }),
+        40,
+      );
+      opts?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      });
+    }),
+  );
+
+  const controller = new AbortController();
+  const aborted = fetchSegments("BVpoison", 42, controller.signal);
+  controller.abort();
+  assert.equal((await aborted).length, 0);
+
+  // 中止结果不得被缓存：重查应真正打到网络并拿到片段。
+  const retried = await fetchSegments("BVpoison", 42);
+  assert.equal(retried.length, 1);
+  assert.equal(retried[0].segment[0], 84.672);
+  assert.equal(calls, 2);
+});
+
+// 回归：并发同源请求可去重；但被其他 signal 中止的在途请求不得传染给新调用方。
+test("inflight dedupe is scoped to the caller's own signal", async () => {
+  let calls = 0;
+  const { fetchSegments } = loadModule(
+    () =>
+      new Promise((resolve) => {
+        calls += 1;
+        setTimeout(
+          () =>
+            resolve({
+              ok: true,
+              json: async () => [
+                { segment: [5, 10], category: "sponsor", actionType: "skip" },
+              ],
+            }),
+          30,
+        );
+      }),
+  );
+  const shared = new AbortController();
+  const [a, b] = await Promise.all([
+    fetchSegments("BVdedupe", 7, shared.signal),
+    fetchSegments("BVdedupe", 7, shared.signal),
+  ]);
+  assert.equal(a.length, 1);
+  assert.equal(b.length, 1);
+  assert.equal(calls, 1);
+});
+
+// 触发链回归：直接用 player.tsx 里真实的 safeSeek + maybeSkipSponsor，
+// 断言 currentTime 落入 [start, end) 时会 safeSeek 到 end+pad、fired 首次不拦截、
+// 二次调用因已 fired 而不再跳（防重生效），且中途跳一次会发一次 toast。
+const playerSource = readFileSync(
+  new URL("../src/components/player.tsx", import.meta.url),
+  "utf8",
+);
+const playerAst = ts.createSourceFile(
+  "player.tsx",
+  playerSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX,
+);
+function playerFn(name) {
+  let out = null;
+  (function visit(node) {
+    if (
+      !out &&
+      ts.isVariableDeclaration(node) &&
+      node.initializer &&
+      ts.isArrowFunction(node.initializer) &&
+      node.name.getText(playerAst) === name
+    ) {
+      out = node.initializer.getText(playerAst);
+    }
+    ts.forEachChild(node, visit);
+  })(playerAst);
+  if (!out) throw new Error(`player.tsx: ${name} not found`);
+  return out;
+}
+const stripTypes = (src) =>
+  ts
+    .transpileModule(src, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.None,
+        removeComments: true,
+      },
+    })
+    .outputText.replace(/import\.meta\.env\.DEV/g, "false")
+    .replace(/"use strict";/g, "")
+    .replace(/Object\.defineProperty\(exports[\s\S]*?\}\);/g, "")
+    .replace(/^export.*$/gm, "");
+
+function buildSkipper() {
+  const body = `
+    ${stripTypes(`const safeSeek = ${playerFn("safeSeek")};`)}
+    const sponsorSegmentsRef = { current: segments };
+    const sponsorSkipFiredRef = { current: fired };
+    const sponsorToastAtRef = { current: 0 };
+    const currentTimeRef = { current: 0 };
+    const toast = (o) => toasts.push(o);
+    const SPONSOR_SEGMENT_LEAD_SECONDS = 0.25;
+    const SPONSOR_SEEK_PAD_SECONDS = 0.05;
+    const SPONSOR_DURATION_TOLERANCE_SECONDS = 2;
+    const SPONSOR_TOAST_MIN_INTERVAL_MS = 10000;
+    ${stripTypes(`const maybeSkipSponsor = ${playerFn("maybeSkipSponsor")};`)}
+    return { run: () => maybeSkipSponsor(audio), fired, toasts, currentTimeRef };
+  `;
+  return new Function(
+    "audio",
+    "segments",
+    "fired",
+    "toasts",
+    "HTMLMediaElement",
+    "sponsorSkip",
+    body,
+  );
+}
+
+const SEGMENTS = [
+  { segment: [28.133, 35.5], category: "sponsor", actionType: "skip", UUID: "b", videoDuration: 295.033 },
+];
+const HTML_MEDIA = { HAVE_CURRENT_DATA: 2, HAVE_ENOUGH_DATA: 4, NETWORK_LOADING: 2 };
+const makeAudio = (o = {}) => ({
+  currentTime: 0,
+  duration: 295.033,
+  readyState: 4,
+  networkState: 1,
+  ...o,
+});
+
+test("trigger chain: currentTime inside [start,end) calls safeSeek to end+pad and fires once", () => {
+  const audio = makeAudio({ currentTime: 29 });
+  const fired = new Set();
+  const toasts = [];
+  const h = buildSkipper()(audio, SEGMENTS, fired, toasts, HTML_MEDIA, true);
+  h.run();
+  assert.equal(audio.currentTime, 35.5 + 0.05, "seeks to end + pad");
+  assert.equal(h.currentTimeRef.current, 35.55);
+  assert.deepEqual([...fired], [0], "segment marked fired");
+  assert.equal(toasts.length, 1, "one toast on first skip");
+  // 防重：二次调用不再重复 seek/toast。
+  audio.currentTime = 29; // 模拟手动 seek 回区间
+  h.run();
+  assert.equal(audio.currentTime, 29, "already-fired segment is not re-skipped");
+  assert.equal(toasts.length, 1);
+});
+
+test("trigger chain: currentTime before the segment does not skip", () => {
+  const audio = makeAudio({ currentTime: 10 });
+  const h = buildSkipper()(audio, SEGMENTS, new Set(), [], HTML_MEDIA, true);
+  h.run();
+  assert.equal(audio.currentTime, 10);
+});

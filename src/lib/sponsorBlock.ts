@@ -13,12 +13,21 @@ export type SponsorSegment = {
 const SPONSOR_API = "https://bsbsb.top/api/skipSegments";
 const FETCH_TIMEOUT_MS = 3000;
 
-// 会话级缓存：同一 BV+cid 只拉一次，失败也缓存空数组（无网时每次换歌只尝试一次，不重试）。
+// 会话级缓存：同一 BV+cid 只拉一次；仅缓存「真实服务端结论」（含空数组），
+// 中止/超时/网络失败不缓存，以便换曲中止后同曲还能重新拉取。
 const cache = new Map<string, SponsorSegment[]>();
 // 进行中的请求：并发调用复用同一 promise，避免重复打接口。
-const inflight = new Map<string, Promise<SponsorSegment[]>>();
+// 记录发起该请求的 signal，便于判断能否安全复用（见下方 inflight 复用规则）。
+type InflightEntry = { promise: Promise<FetchOutcome>; signal?: AbortSignal };
+const inflight = new Map<string, InflightEntry>();
 
 const cacheKey = (bvid: string, cid: number) => `${bvid}:${cid}`;
+
+// 一次查询的结果：只有真正拿到服务端响应（含空数组）才算 cacheable。
+// 中止/超时/网络失败必须视为「未得到结论」，绝不能写进会话缓存——
+// 否则一次被 abort 的换曲请求会把该 BV:cid 永久钉死为空，后续同曲查询
+// 直接命中空缓存，segments 永远为空，跳过功能整体失效。
+type FetchOutcome = { segments: SponsorSegment[]; cacheable: boolean };
 
 const parseSegments = (data: unknown): SponsorSegment[] => {
   if (!Array.isArray(data)) return [];
@@ -65,38 +74,62 @@ export async function fetchSegments(
   const cached = cache.get(key);
   if (cached) return cached;
 
+  // inflight 复用规则：仅当调用方与在途请求“同源”且未中止时才复用。
+  // - 调用方没有 signal：可安全复用任意在途请求
+  // - 调用方有 signal：只复用自己的在途请求（同一 signal 引用），
+  //   否则一次被另一个 signal 中止的请求会把 doomed 结果传染给新调用方
+  //   （React StrictMode 双挂载：挂载#1 的请求被 abort，挂载#2 若复用它
+  //   就会永远拿到空 segments，跳过功能整体失效）。
   const pending = inflight.get(key);
-  if (pending) return pending;
+  if (
+    pending &&
+    (!signal || pending.signal === signal) &&
+    !(pending.signal?.aborted)
+  ) {
+    return pending.promise.then((outcome) => outcome.segments);
+  }
 
-  const run = (async (): Promise<SponsorSegment[]> => {
+  // externalAbort 标记调用方信号是否已中止：中止意味着「调用方不再需要本次结果」，
+  // 绝不能把它当作服务端结论缓存下来。
+  let externalAborted = false;
+  const run = (async (): Promise<FetchOutcome> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const onAbort = () => controller.abort();
+    const onAbort = () => {
+      externalAborted = true;
+      controller.abort();
+    };
     signal?.addEventListener("abort", onAbort);
     try {
       const url = `${SPONSOR_API}?videoID=${encodeURIComponent(
         bvid,
       )}&cid=${encodeURIComponent(String(cid))}`;
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) return [];
+      // 非 200（含 400/风控）不是有效结论，不缓存，允许重试。
+      if (!res.ok) return { segments: [], cacheable: false };
       const json = await res.json();
-      return parseSegments(json);
+      return { segments: parseSegments(json), cacheable: true };
     } catch {
-      // 网络 / 超时 / JSON 异常：静默降级为空片段。
-      return [];
+      // 网络 / 超时 / 中止 / JSON 异常：静默降级为空片段，但不写缓存。
+      return { segments: [], cacheable: false };
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
     }
   })();
 
-  inflight.set(key, run);
+  // inflight 只复用「与调用方同源且未中止」的请求；
+  // 中止的请求承诺会很快完成，但复用它会把 doomed 结果传染给并发调用者。
+  inflight.set(key, { promise: run, signal });
   try {
-    const segments = await run;
-    cache.set(key, segments);
-    return segments;
+    const outcome = await run;
+    if (outcome.cacheable && !externalAborted) {
+      cache.set(key, outcome.segments);
+    }
+    return outcome.segments;
   } finally {
-    inflight.delete(key);
+    // 仅当自己仍是在途登记项时清除，避免误删后加入的请求。
+    if (inflight.get(key)?.promise === run) inflight.delete(key);
   }
 }
 

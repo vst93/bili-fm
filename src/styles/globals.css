@@ -4684,17 +4684,18 @@ body.mini-mode #player .player-controls {
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
     /* 压缩时间和工具按钮的固定列宽，把更多空间留给进度条。
-       mini 下 EQ/倍速的**入口**隐藏（低频设置），恰饭跳过入口保留（用户要能点它）。
+       mini 下 EQ/倍速/恰饭跳过的**入口**全部隐藏（低频设置，恰饭入口仅主窗提供）。
        注意：.player-speed 是包裹 div，隐藏它的 .player-speed-button 不够——
        空的 grid item 仍会占位并折到隐式第二行，把整行可见控件整体顶高 4px
        （这正是轮 11「垂直居中修了却仍不齐」的真正原因）。
-       网格只保留 切曲 | 当前时间 | 进度条 | 时长 | 音量 | 恰饭跳过 六列，
+       网格只保留 切曲 | 当前时间 | 进度条 | 时长 | 音量 五列，
        与可见 grid item 数严格 1:1，杜绝隐式行。
+       恰饭跳过入口移除后，跳过功能仍由 Player 内部状态（仅主窗可控）后台照常生效。
        transport 列必须容下暂停 + 下一首两颗按钮：
        mini .player-play-button = 28px（与普通按钮统一），mini .player-button = 28px，
        body.mini-mode .player-transport-controls gap = 3px → 28 + 3 + 28 = 59px（旧值 46px 装不下导致溢出）。
-       时间列 9px tabular-nums，"12:34" ≈ 27px → 44px 足够；音量/恰饭 mini 按钮 28px → 34px。 */
-    grid-template-columns: 59px 44px minmax(0, 1fr) 44px 34px 34px;
+       时间列 9px tabular-nums，"12:34" ≈ 27px → 44px 足够；mini 按钮 28px → 34px。 */
+    grid-template-columns: 59px 44px minmax(0, 1fr) 44px 34px;
     gap: 4px;
 }
 
@@ -4753,8 +4754,8 @@ body.mini-mode #player .player-eq-button {
     border-radius: 7px;
 }
 
-/* 恰饭跳过入口在 mini 下与其它按钮同 28×28 正圆（旧的 30px 高
-   会破坏 79d8639 定下的行高统一，把播放键光学抬升）。 */
+/* 恰饭跳过入口在 mini 下隐藏，其 28×28 正圆尺寸规则保留（一致性，
+   但当前被上方的 display:none 覆盖，不再参与布局）。 */
 body.mini-mode #player .player-sponsor-button {
     width: 28px;
     height: 28px;
@@ -4768,11 +4769,11 @@ body.mini-mode #player .player-speed-button {
     display: none;
 }
 
-/* 恰饭跳过入口在 mini 下必须可见可点：它是可持续偏好开关，
-   轮 8 把它和 EQ/倍速一起 display:none 后，用户在 mini 里点击
-   根本命中不到元素（轮 11 只动了主窗的 disabled/z-index，自然无效）。 */
+/* 恰饭跳过入口仅在主窗提供，mini 下隐藏（对齐用户诉求：mini 不要跳过入口）。
+   注意：隐藏的是**入口**，跳过功能本身由 Player 内部 sponsorSkip 状态驱动，
+   只要开关在主窗开启，后台仍照常自动跳过——与 mini 是否显示按钮无关。 */
 body.mini-mode #player .player-sponsor-button {
-    display: inline-grid;
+    display: none;
 }
 
 body.mini-mode #player .player-volume-popover {
