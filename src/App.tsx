@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import ToastContainer from "./components/toast/ToastContainer";
 import { DialogProvider } from "./components/dialog/DialogProvider";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 import IndexPage from "@/pages/index";
 
@@ -111,9 +112,14 @@ function App() {
     };
   }, []);
 
+  // ErrorBoundary 放在 Provider(main.tsx 的 HeroUIProvider) 之内、页面路由外层：
+  // 兜底的是页面子树，而 fallback 卡片仍能用到 HeroUI 的上下文；
+  // ToastContainer 留在外层，这样页面崩溃时错误提示仍可弹出。
   return (
     <DialogProvider>
-      <IndexPage />
+      <ErrorBoundary>
+        <IndexPage />
+      </ErrorBoundary>
       <ToastContainer />
     </DialogProvider>
   );

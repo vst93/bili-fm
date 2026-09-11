@@ -160,6 +160,39 @@ fn message_of(v: &Value) -> String {
         .unwrap_or("")
         .to_string()
 }
+
+/// 风控/频率限制的统一友好文案。
+const RATE_LIMIT_MSG: &str = "访问过于频繁，请稍后再试";
+/// 网络层错误的统一友好文案。
+const NETWORK_ERR_MSG: &str = "网络异常，请检查连接";
+
+/// 是否为频率限制/风控：HTTP 412、业务码 -352，或 429。
+fn is_rate_limited_status(status: u16) -> bool {
+    status == 412 || status == 429
+}
+
+/// 业务响应是否命中风控（含 v_voucher 校验页）。
+fn is_risk_controlled(v: &Value) -> bool {
+    code_of(v) == -352 || v.pointer("/data/v_voucher").is_some()
+}
+
+/// 把 reqwest 网络错误归一成友好提示；连接/超时映射为网络异常。
+fn friendly_network_error(e: &reqwest::Error) -> String {
+    if e.is_timeout() || e.is_connect() || e.is_request() {
+        NETWORK_ERR_MSG.to_string()
+    } else {
+        format!("网络请求失败: {e}")
+    }
+}
+
+/// 在 HTTP 响应状态处统一拦截风控；其余状态透传原技术信息。
+fn check_http_status(status: reqwest::StatusCode) -> Result<(), String> {
+    if is_rate_limited_status(status.as_u16()) {
+        eprintln!("bilibili: rate limited, status={}", status.as_u16());
+        return Err(RATE_LIMIT_MSG.to_string());
+    }
+    Ok(())
+}
 fn data_of(v: &Value) -> Value {
     v.get("data").cloned().unwrap_or(Value::Null)
 }
@@ -183,6 +216,9 @@ fn int_of(data: &Value, key: &str) -> i64 {
 fn check_code(v: &Value, fallback: &str) -> Result<Value, String> {
     let code = code_of(v);
     if code != 0 {
+        if is_risk_controlled(v) {
+            return Err(RATE_LIMIT_MSG.to_string());
+        }
         let msg = message_of(v);
         if msg.is_empty() {
             return Err(fallback.to_string());
@@ -211,7 +247,8 @@ async fn get_json(
     for (k, v) in headers {
         req = req.header(*k, *v);
     }
-    let resp = req.send().await.map_err(|e| format!("网络请求失败: {e}"))?;
+    let resp = req.send().await.map_err(|e| friendly_network_error(&e))?;
+    check_http_status(resp.status())?;
     let text = resp
         .text()
         .await
@@ -234,7 +271,8 @@ async fn post_json(
     for (k, v) in headers {
         req = req.header(*k, *v);
     }
-    let resp = req.send().await.map_err(|e| format!("网络请求失败: {e}"))?;
+    let resp = req.send().await.map_err(|e| friendly_network_error(&e))?;
+    check_http_status(resp.status())?;
     let text = resp
         .text()
         .await
@@ -257,7 +295,8 @@ async fn post_form_json(
             req = req.header("Cookie", c);
         }
     }
-    let resp = req.send().await.map_err(|e| format!("网络请求失败: {e}"))?;
+    let resp = req.send().await.map_err(|e| friendly_network_error(&e))?;
+    check_http_status(resp.status())?;
     let text = resp
         .text()
         .await
@@ -397,7 +436,8 @@ pub async fn get_bili_ticket(csrf: &str) -> Result<String, String> {
         .header("User-Agent", UA_FIREFOX)
         .send()
         .await
-        .map_err(|e| format!("网络请求失败: {e}"))?;
+        .map_err(|e| friendly_network_error(&e))?;
+    check_http_status(resp.status())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP error! status: {}", resp.status().as_u16()));
     }
@@ -747,15 +787,15 @@ pub async fn search_video(keyword: &str, order: &str) -> Result<Vec<SearchResult
             match response {
                 Ok(v) => {
                     let code = code_of(&v);
-                    if code != 0 {
+                    if is_risk_controlled(&v) {
+                        last_error = RATE_LIMIT_MSG.to_string();
+                    } else if code != 0 {
                         last_error = format!("B 站搜索失败: {} ({code})", message_of(&v));
                     } else if let Some(result) = v
                         .pointer("/data/result")
                         .and_then(|result| result.as_array())
                     {
                         return Ok(parse_search_results(result));
-                    } else if v.pointer("/data/v_voucher").is_some() {
-                        last_error = "B 站搜索触发临时校验".to_string();
                     } else {
                         last_error = "B 站搜索响应缺少结果数据".to_string();
                     }

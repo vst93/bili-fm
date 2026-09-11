@@ -1499,6 +1499,17 @@ body.mini-mode .app-shell::after {
     opacity: 0;
 }
 
+/* 搜索请求中的内联 spinner：复用 dialog-spin 关键帧，小号旋转 */
+.search-submit-spinner {
+    display: block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(14, 165, 233, 0.2);
+    border-top-color: #0ea5e9;
+    border-radius: 50%;
+    animation: dialog-spin 0.7s linear infinite;
+}
+
 .home-user-avatar {
     width: 36px !important;
     height: 36px !important;
@@ -3718,6 +3729,25 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     text-align: center;
 }
 
+/* 加载更多失败后的可重试行 */
+.history-load-more-retry {
+    display: block;
+    width: 100%;
+    margin: 10px 0 4px;
+    padding: 8px 12px;
+    border: 1px solid rgba(244, 63, 94, 0.2);
+    border-radius: 10px;
+    background: rgba(244, 63, 94, 0.06);
+    color: #be123c;
+    font-size: 13px;
+    text-align: center;
+    transition: background 0.15s ease;
+}
+
+.history-load-more-retry:hover {
+    background: rgba(244, 63, 94, 0.12);
+}
+
 .watchlater-remove-btn {
     position: absolute;
     top: 6px;
@@ -5235,4 +5265,97 @@ body.video-open .player-video-close {
 .cover-premium-toggle.is-active {
     background: rgba(14, 165, 233, 0.28);
     border-color: rgba(125, 211, 252, 0.45);
+}
+
+/* ====== 全局错误兜底 (ErrorBoundary) ====== */
+/* 液态玻璃卡片：复用 glass 半透明底色与描边，不新增 blur，避免额外图层开销 */
+.error-boundary-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.18);
+}
+
+.error-boundary-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    min-width: 220px;
+    padding: 28px 32px;
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    background: var(--glass-bg);
+    box-shadow:
+        var(--glass-specular),
+        var(--glass-shadow-lifted);
+    text-align: center;
+}
+
+.error-boundary-title {
+    margin: 0;
+    color: #334155;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.error-boundary-retry {
+    padding: 6px 20px;
+    border: 1px solid rgba(14, 165, 233, 0.35);
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.14);
+    color: #0369a1;
+    font-size: 13px;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.error-boundary-retry:hover {
+    background: rgba(14, 165, 233, 0.24);
+}
+
+/* ====== 抽屉列表加载骨架 (不新增 blur，仅 opacity 脉冲) ====== */
+.list-skeleton-grid {
+    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+}
+
+@media (min-width: 640px) {
+    .list-skeleton-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.list-skeleton-item {
+    padding: 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.4);
+    animation: list-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.list-skeleton-cover {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: 8px;
+    background: rgba(100, 116, 139, 0.16);
+}
+
+.list-skeleton-line {
+    height: 12px;
+    margin-top: 8px;
+    border-radius: 6px;
+    background: rgba(100, 116, 139, 0.16);
+}
+
+.list-skeleton-line.is-short {
+    width: 60%;
+}
+
+@keyframes list-skeleton-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
 }

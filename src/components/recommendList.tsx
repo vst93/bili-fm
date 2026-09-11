@@ -17,6 +17,7 @@ import {
 import React, { useState, useEffect, useMemo } from "react";
 
 import RetryImg from "./retryImg";
+import ListSkeleton from "./listSkeleton";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 import { convertToDuration, graftingImage, formatNumber, subStr } from "@/utils/string";
 
@@ -144,7 +145,9 @@ const RecommendList: FC<RecommendListProps> = ({
               </Button>
             </DrawerHeader>
             <DrawerBody className="recommend-drawer-body" onScroll={handleScroll}>
-              {(!currentList?.items || currentList.items.length === 0) ? (
+              {currentList?.items == null ? (
+                <ListSkeleton />
+              ) : currentList.items.length === 0 ? (
                 <div className="flex items-center justify-center h-40 text-gray-400">
                   {activeTab === "recommend" ? "暂无推荐内容" : "暂无热门内容"}
                 </div>

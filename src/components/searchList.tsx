@@ -18,6 +18,7 @@ import {
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import RetryImg from "./retryImg";
+import ListSkeleton from "./listSkeleton";
 
 import { graftingImage } from "@/utils/string";
 
@@ -30,7 +31,7 @@ interface SearchListProps {
 
 const SearchList: FC<SearchListProps> = ({
   onSlideClick,
-  searchResults = [],
+  searchResults,
   onVideoSelect,
   onSortChange,
 }) => {
@@ -84,11 +85,14 @@ const SearchList: FC<SearchListProps> = ({
               </Tabs>
             </DrawerHeader>
             <DrawerBody>
-              <div
-                className="gap-2 grid grid-cols-2 sm:grid-cols-3"
-                style={{ width: "100%" }}
-              >
-                {searchResults.map((video) => (
+              {searchResults == null ? (
+                <ListSkeleton />
+              ) : (
+                <div
+                  className="gap-2 grid grid-cols-2 sm:grid-cols-3"
+                  style={{ width: "100%" }}
+                >
+                  {searchResults.map((video) => (
                   <Card
                     key={video.url}
                     isPressable
@@ -121,7 +125,8 @@ const SearchList: FC<SearchListProps> = ({
                     </CardFooter>
                   </Card>
                 ))}
-              </div>
+                </div>
+              )}
             </DrawerBody>
           </>
         )}

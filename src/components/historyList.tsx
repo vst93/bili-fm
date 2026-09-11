@@ -23,6 +23,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import type { WatchLaterItem as BLWatchLaterItem } from "@/types/bilibili";
 import { convertToDuration, graftingImage } from "@/utils/string";
+import { toast } from "@/utils/toast";
 
 const MAX_RETAINED_ITEMS = 240;
 
@@ -85,6 +86,8 @@ const HistoryList: FC<HistoryListProps> = ({
     const isLoadingMoreRef = useRef(false);
     const [activeTab, setActiveTabState] = useState<HistoryTab>(loadInitialHistoryTab);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    // 加载更多失败时在列表底部展示可重试行
+    const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
     // 正在请求中的 aid，避免连点重复提交
     const [pendingAids, setPendingAids] = useState<Set<number>>(new Set());
 
@@ -156,8 +159,11 @@ const HistoryList: FC<HistoryListProps> = ({
             if (data?.cursor) { 
                 setHistoryCursor(data?.cursor);
             }
+            setLoadMoreError(null);
         } catch (error) {
             console.error("加载更多历史记录失败:", error);
+            setLoadMoreError(String(error));
+            toast({ type: "error", content: "加载更多历史记录失败，点击重试" });
         } finally {
             isLoadingMoreRef.current = false;
         }
@@ -312,6 +318,17 @@ const HistoryList: FC<HistoryListProps> = ({
                                         );
                                     })}
                                 </div>
+                                {loadMoreError != null && (
+                                    <button
+                                        className="history-load-more-retry"
+                                        type="button"
+                                        onClick={() => {
+                                            void handleLoadMore();
+                                        }}
+                                    >
+                                        加载失败，点击重试
+                                    </button>
+                                )}
                             </DrawerBody>
                         ) : (
                             <DrawerBody

@@ -10,6 +10,7 @@ import {
 
 interface SearchFormProps {
   value?: string;
+  isSearching?: boolean;
   onInputChange?: (value: string) => void;
   onSearch?: (keyword: string) => void;
   onUrlJump?: (url: string) => void;
@@ -23,6 +24,7 @@ interface SearchFormProps {
 
 const SearchForm: FC<SearchFormProps> = ({
   value = "",
+  isSearching = false,
   onInputChange,
   onSearch,
   onUrlJump,
@@ -34,6 +36,7 @@ const SearchForm: FC<SearchFormProps> = ({
   userFace,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isSearching) return;
     if (e.key === "Enter") {
       const inputValue = (e.target as HTMLInputElement).value;
       if (inputValue.includes("bilibili.com/video/")) {
@@ -66,10 +69,18 @@ const SearchForm: FC<SearchFormProps> = ({
             <button
               aria-label="搜索"
               className="search-submit-btn"
+              disabled={isSearching}
               title="搜索"
-              onClick={() => onSearch?.(value)}
+              onClick={() => {
+                if (isSearching) return;
+                onSearch?.(value);
+              }}
             >
-              <Search theme="outline" size={18} />
+              {isSearching ? (
+                <span className="search-submit-spinner" aria-label="搜索中" />
+              ) : (
+                <Search theme="outline" size={18} />
+              )}
             </button>
           }
         />

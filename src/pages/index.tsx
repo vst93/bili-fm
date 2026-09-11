@@ -93,6 +93,7 @@ export default function IndexPage() {
   const [currentBvid, setCurrentBvid] = useState("");
   const [currentKeyword, setCurrentKeyword] = useState("");
   const [searchInputValue, setSearchInputValue] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const searchRequestIdRef = useRef(0);
   const [videoInfo, setVideoInfo] = useState<BL.VideoInfo | undefined>();
   // playingInfo: 正在播放的视频信息 (与 videoInfo 分离)
@@ -852,6 +853,7 @@ export default function IndexPage() {
     }
 
     try {
+      setIsSearching(true);
       setCurrentKeyword(normalizedKeyword);
       const results = await invoke<BL.SearchResult[]>("search_video", {
         keyword: normalizedKeyword,
@@ -868,6 +870,10 @@ export default function IndexPage() {
       console.error("搜索失败:", error);
       if (requestId === searchRequestIdRef.current) {
         toast({ type: "error", content: String(error) });
+      }
+    } finally {
+      if (requestId === searchRequestIdRef.current) {
+        setIsSearching(false);
       }
     }
   };
@@ -2334,6 +2340,7 @@ export default function IndexPage() {
           <SearchForm
             userFace={userFace}
             value={searchInputValue}
+            isSearching={isSearching}
             onCollectClick={handleCollectClick}
             onFeedClick={handleFeedClick}
             onHistoryClick={handleHistoryClick}

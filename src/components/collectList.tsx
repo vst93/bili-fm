@@ -2,6 +2,7 @@ import type { FC } from "react";
 
 import { Refresh, Left, Right } from "@icon-park/react";
 import RetryImg from "./retryImg";
+import ListSkeleton from "./listSkeleton";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -155,12 +156,18 @@ const CollectList: FC<CollectListProps> = ({
               </Button>
             </DrawerHeader>
             <DrawerBody className="collect-drawer-body" onScroll={handleScroll}>
-              <div
-                className="gap-2 grid grid-cols-2 sm:grid-cols-3"
-                style={{ width: "100%" }}
-              >
-                {Array.isArray(collectList) &&
-                  collectList.map((item: any) => {
+              {collectList == null ? (
+                <ListSkeleton />
+              ) : collectList.length === 0 ? (
+                <div className="history-empty-tip" role="status">
+                  暂无收藏内容
+                </div>
+              ) : (
+                <div
+                  className="gap-2 grid grid-cols-2 sm:grid-cols-3"
+                  style={{ width: "100%" }}
+                >
+                  {collectList.map((item: any) => {
                     return (
                       <Card
                         key={item.id || item.bvid}
@@ -196,7 +203,8 @@ const CollectList: FC<CollectListProps> = ({
                       </Card>
                     );
                   })}
-              </div>
+                </div>
+              )}
             </DrawerBody>
           </>
         )}
