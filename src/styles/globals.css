@@ -4672,10 +4672,10 @@ body.mini-mode #player .player-controls {
        EQ/倍速/跳过在 mini 下 display:none，网格只保留
        切曲 | 当前时间 | 进度条 | 时长 | 音量 五组有效列。
        transport 列必须容下暂停 + 下一首两颗按钮：
-       mini .player-play-button = 32px，mini .player-button = 28px，
-       body.mini-mode .player-transport-controls gap = 3px → 32 + 3 + 28 = 63px（旧值 46px 装不下导致溢出）。
+       mini .player-play-button = 28px（与普通按钮统一），mini .player-button = 28px，
+       body.mini-mode .player-transport-controls gap = 3px → 28 + 3 + 28 = 59px（旧值 46px 装不下导致溢出）。
        时间列 9px tabular-nums，"12:34" ≈ 27px → 44px 足够；音量 mini 按钮 28px → 34px。 */
-    grid-template-columns: 63px 44px minmax(0, 1fr) 44px 34px;
+    grid-template-columns: 59px 44px minmax(0, 1fr) 44px 34px;
     gap: 4px;
 }
 
@@ -4691,15 +4691,15 @@ body.mini-mode #player .player-button {
 }
 
 body.mini-mode #player .player-play-button {
-    width: 32px;
-    height: 32px;
-    flex-basis: 32px;
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
     color: #0284c7;
     border-color: rgba(2, 132, 199, 0.2);
     box-shadow:
         inset 0 1px 2px rgba(255, 255, 255, 0.9),
         inset 0 -2px 4px rgba(2, 132, 199, 0.08),
-        0 4px 12px rgba(2, 132, 199, 0.15);
+        0 2px 6px rgba(2, 132, 199, 0.12);
 }
 
 body.mini-mode #player .player-play-button::before {
@@ -4764,6 +4764,12 @@ body.mini-mode #player .player-volume-slider {
 body.mini-mode #player .player-button svg {
     width: 18px !important;
     height: 18px !important;
+}
+
+/* mini 播放键与其他按钮同为 28px 圆，图标 16px 留出呼吸空间（24px 是主窗尺寸）。 */
+body.mini-mode #player .player-play-button svg {
+    width: 16px !important;
+    height: 16px !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
