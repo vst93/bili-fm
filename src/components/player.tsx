@@ -27,6 +27,62 @@ const PLAY_PROGRESS_REPORT_INTERVAL_MS = 30_000;
 const PLAY_PROGRESS_CRITICAL_INTERVAL_MS = 3_000;
 const CLOUD_PROGRESS_STARTUP_BUDGET_MS = 800;
 
+// 本地播放断点（不依赖账号）：登录/离线/风控导致云端进度不可用时兜底续播。
+const LOCAL_RESUME_STORAGE_KEY = "localResumePoints";
+const LOCAL_RESUME_MAX_ENTRIES = 50;
+const LOCAL_RESUME_WRITE_INTERVAL_MS = 5_000;
+const LOCAL_RESUME_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+type LocalResumePoint = { t: number; ts: number };
+type LocalResumeMap = Record<string, LocalResumePoint>;
+
+const readLocalResumeMap = (): LocalResumeMap => {
+  try {
+    const raw = localStorage.getItem(LOCAL_RESUME_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as LocalResumeMap;
+  } catch {
+    return {};
+  }
+};
+
+const readLocalResumePoint = (key: string): number => {
+  const map = readLocalResumeMap();
+  const entry = map[key];
+  if (!entry || typeof entry.t !== "number" || typeof entry.ts !== "number") return -1;
+  if (Date.now() - entry.ts > LOCAL_RESUME_MAX_AGE_MS) return -1;
+  return entry.t;
+};
+
+const writeLocalResumePoint = (key: string, t: number) => {
+  if (!key || !Number.isFinite(t) || t < 0) return;
+  try {
+    const map = readLocalResumeMap();
+    const now = Date.now();
+    // 顺手清理 7 天以上未更新的旧条目，防止无限膨胀。
+    for (const k of Object.keys(map)) {
+      const entry = map[k];
+      if (!entry || typeof entry.ts !== "number" || now - entry.ts > LOCAL_RESUME_MAX_AGE_MS) {
+        delete map[k];
+      }
+    }
+    map[key] = { t: Math.floor(t), ts: now };
+    // 超过上限时淘汰最旧的 50-key 之外条目（LRU by ts）。
+    const keys = Object.keys(map);
+    if (keys.length > LOCAL_RESUME_MAX_ENTRIES) {
+      keys
+        .sort((a, b) => map[a].ts - map[b].ts)
+        .slice(0, keys.length - LOCAL_RESUME_MAX_ENTRIES)
+        .forEach((k) => delete map[k]);
+    }
+    localStorage.setItem(LOCAL_RESUME_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // 隐私模式等场景 localStorage 会抛异常，静默降级为不做本地断点。
+  }
+};
+
 type AudioGraph = {
   ctx: AudioContext;
   source: MediaElementAudioSourceNode;
@@ -122,6 +178,7 @@ const Player = ({
   const cloudProgressStartupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playAttemptIdRef = useRef(0);
   const lastCloudReportRef = useRef({ mediaKey: "", progress: -1, at: 0 });
+  const lastLocalResumeWriteRef = useRef(0);
   const [duration, setDuration] = useState(0);
   const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
   const [volume, setVolume] = useState(1);
@@ -311,11 +368,52 @@ const Player = ({
     }
   };
 
+  // 应用续播进度：最终断点 = max(云端值, 本地值)。
+  // 云端不可用（未登录/风控/离线）时 cloudValue 传 -1，仅依赖本地值。
+  const applyResumeProgress = (cloudValue: number, requestId: number) => {
+    const localValue = mediaKey ? readLocalResumePoint(mediaKey) : -1;
+    const normalizedCloud = Number.isFinite(cloudValue) && cloudValue > 0 ? cloudValue : -1;
+    const effective = Math.max(normalizedCloud, localValue);
+
+    pendingCloudProgressRef.current = effective > 0 ? effective : null;
+    cloudProgressPendingRef.current = false;
+    const audio = audioRef.current;
+    if (!audio) {
+      markCloudProgressReady();
+      return;
+    }
+    const applied = applyPendingCloudProgress(audio);
+    // 如果无法立即应用进度（通常因为 readyState 不够），
+    // 设置一个超时保护，防止永久阻塞播放
+    if (!applied) {
+      setTimeout(() => {
+        if (requestId !== cloudProgressRequestIdRef.current) return;
+        if (pendingCloudProgressRef.current !== null) {
+          console.warn("[player] cloud progress apply timeout, giving up");
+          pendingCloudProgressRef.current = null;
+          markCloudProgressReady();
+        }
+      }, 3000); // 3 秒超时
+    }
+  };
+
   const reportCloudProgress = (
     progress: number,
     force = false,
     allowZero = false,
   ) => {
+    const normalizedProgress = progress < 0 ? -1 : Math.max(0, Math.floor(progress));
+
+    // 本地断点写入：复用同一上报节流点，不依赖云端是否可用。
+    // 每 5 秒最多一次；暂停/切歌/卸载（force=true）时补写。
+    if (normalizedProgress > 0 && mediaKey) {
+      const now = Date.now();
+      if (force || now - lastLocalResumeWriteRef.current >= LOCAL_RESUME_WRITE_INTERVAL_MS) {
+        lastLocalResumeWriteRef.current = now;
+        writeLocalResumePoint(mediaKey, normalizedProgress);
+      }
+    }
+
     if (
       !cloudHistoryEnabledRef.current ||
       !cloudProgressReadyRef.current ||
@@ -324,7 +422,6 @@ const Player = ({
       !mediaKey
     ) return;
 
-    const normalizedProgress = progress < 0 ? -1 : Math.max(0, Math.floor(progress));
     // Startup/pause events at zero must never erase an existing cloud
     // checkpoint. The first regular report is sent after actual playback.
     if (normalizedProgress === 0 && !allowZero) return;
@@ -423,6 +520,24 @@ const Player = ({
     };
   }, [mediaKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 页面卸载 / 切到后台时补写一次本地断点（节流窗口之外的兜底）。
+  useEffect(() => {
+    const flushLocalResume = () => {
+      reportCloudProgress(currentTimeRef.current, true);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flushLocalResume();
+    };
+
+    window.addEventListener("beforeunload", flushLocalResume);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("beforeunload", flushLocalResume);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [mediaKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     setDuration(0);
     isSeekingRef.current = false;
@@ -449,8 +564,15 @@ const Player = ({
     clearCloudSeekTimer();
     clearCloudProgressStartupTimer();
 
-    if (!mediaKey || !cloudHistoryEnabled) {
+    if (!mediaKey) {
       markCloudProgressReady();
+
+      return;
+    }
+
+    // 未登录/云端不可用时，直接回退到本地断点。
+    if (!cloudHistoryEnabled) {
+      applyResumeProgress(-1, requestId);
 
       return;
     }
@@ -463,11 +585,9 @@ const Player = ({
 
       // Keep startup responsive on slow/offline networks. Invalidating the
       // request also prevents a late response from jumping an already-playing
-      // track.
+      // track. Cloud budget exceeded → 仍回退到本地断点。
       cloudProgressRequestIdRef.current += 1;
-      cloudProgressPendingRef.current = false;
-      pendingCloudProgressRef.current = null;
-      markCloudProgressReady();
+      applyResumeProgress(-1, cloudProgressRequestIdRef.current);
       if (import.meta.env.DEV) {
         console.debug("[player] cloud progress startup budget exceeded", {
           aid,
@@ -480,35 +600,15 @@ const Player = ({
         if (requestId !== cloudProgressRequestIdRef.current) return;
 
         clearCloudProgressStartupTimer();
-        const normalizedProgress = Math.max(0, progress || 0);
-        pendingCloudProgressRef.current = normalizedProgress;
-        cloudProgressPendingRef.current = false;
-        const audio = audioRef.current;
-        if (!audio) {
-          markCloudProgressReady();
-        } else {
-          const applied = applyPendingCloudProgress(audio);
-          // 如果无法立即应用进度（通常因为 readyState 不够），
-          // 设置一个超时保护，防止永久阻塞播放
-          if (!applied) {
-            setTimeout(() => {
-              if (requestId !== cloudProgressRequestIdRef.current) return;
-              if (pendingCloudProgressRef.current !== null) {
-                console.warn("[player] cloud progress apply timeout, giving up");
-                pendingCloudProgressRef.current = null;
-                markCloudProgressReady();
-              }
-            }, 3000); // 3 秒超时
-          }
-        }
+        applyResumeProgress(Math.max(0, progress || 0), requestId);
       })
       .catch((error) => {
         if (requestId !== cloudProgressRequestIdRef.current) return;
 
         console.error("[player] get cloud progress failed:", error);
         clearCloudProgressStartupTimer();
-        cloudProgressPendingRef.current = false;
-        markCloudProgressReady();
+        // 云端失败（未登录/风控/离线）也要 fallthrough 到本地断点。
+        applyResumeProgress(-1, requestId);
         if (import.meta.env.DEV) {
           console.debug("[player] cloud progress unavailable", { aid, cid });
         }

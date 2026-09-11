@@ -62,6 +62,76 @@ const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
 
+// 抽屉状态会话级缓存（React 外的普通 Map，不进 state、不落盘）。
+// 关闭抽屉时写入，重开时命中则先水合数据（含已翻页数据），不自动重拉。
+type DrawerCacheEntry = {
+  items: unknown;
+  extra: Record<string, unknown>;
+  scrollTop: number;
+  ts: number;
+};
+const drawerCache = new Map<string, DrawerCacheEntry>();
+const DRAWER_CACHE_LIMIT = 3;
+// 会话内可能实质变化的数据源（如收藏夹用户在别处增删）缓存 15 分钟过期。
+const DRAWER_CACHE_TTL_MS = 15 * 60 * 1000;
+const DRAWER_CACHE_VOLATILE: Record<string, boolean> = {
+  collect: true,
+  history: true,
+  upVideo: true,
+};
+// 缓存键 → 抽屉滚动容器选择器，用于采集/恢复 scrollTop。
+const DRAWER_BODY_SELECTOR: Record<string, string> = {
+  feed: ".feed-drawer-body",
+  recommend: ".recommend-drawer-body",
+  collect: ".collect-drawer-body",
+  upVideo: ".up-video-drawer-body",
+  history: ".history-drawer-body",
+  series: ".series-drawer-body",
+  danmaku: ".danmaku-drawer-body",
+};
+// 记录各抽屉滚动容器的实时 scrollTop（抽屉卸载后 DOM 查不到，只能靠滚动事件采集）。
+const drawerScrollTops: Record<string, number> = {};
+
+const touchDrawerCache = (key: string) => {
+  const entry = drawerCache.get(key);
+  if (!entry) return;
+  // LRU：删除后重新插入，保证 Map 迭代顺序里最新使用的在末尾。
+  drawerCache.delete(key);
+  drawerCache.set(key, entry);
+};
+
+const writeDrawerCache = (
+  key: string,
+  items: unknown,
+  extra: Record<string, unknown> = {},
+) => {
+  if (items === undefined || items === null) return;
+  drawerCache.delete(key);
+  drawerCache.set(key, {
+    items,
+    extra,
+    scrollTop: drawerScrollTops[key] ?? 0,
+    ts: Date.now(),
+  });
+  // 超上限时淘汰最旧（Map 头部）的列表缓存。
+  while (drawerCache.size > DRAWER_CACHE_LIMIT) {
+    const oldestKey = drawerCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    drawerCache.delete(oldestKey);
+  }
+};
+
+const readDrawerCache = (key: string): DrawerCacheEntry | null => {
+  const entry = drawerCache.get(key);
+  if (!entry) return null;
+  if (DRAWER_CACHE_VOLATILE[key] && Date.now() - entry.ts > DRAWER_CACHE_TTL_MS) {
+    drawerCache.delete(key);
+    return null;
+  }
+  touchDrawerCache(key);
+  return entry;
+};
+
 /**
  * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
  * 各平台处理完尺寸更新的时机不同；先等 resize 事件再到 Rust 侧居中，
@@ -207,6 +277,7 @@ export default function IndexPage() {
     next: () => {},
   });
   const playbackRequestIdRef = useRef(0);
+  const pendingScrollRestoreRef = useRef<{ key: string; top: number } | null>(null);
   const playlistsRef = useRef({ user: playlist, series: seriesPlaylist });
   playlistsRef.current = { user: playlist, series: seriesPlaylist };
 
@@ -223,6 +294,53 @@ export default function IndexPage() {
 
     return () => clearTimeout(preloadTimer);
   }, []);
+
+  // 捕获各抽屉滚动容器的 scrollTop。抽屉关闭即卸载 DOM，
+  // 之后无法再查询元素，因此靠捕获阶段的 scroll 事件实时记录。
+  useEffect(() => {
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      for (const [key, sel] of Object.entries(DRAWER_BODY_SELECTOR)) {
+        if (target.matches(sel)) {
+          drawerScrollTops[key] = target.scrollTop;
+          return;
+        }
+      }
+    };
+    document.addEventListener("scroll", handleScroll, true);
+
+    return () => document.removeEventListener("scroll", handleScroll, true);
+  }, []);
+
+  // 水合后在数据渲染完成的 effect 里恢复抽屉 scrollTop。
+  // 等列表 DOM 挂载，用 requestAnimationFrame 等一帧；失败静默（回到顶部可接受）。
+  useEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    if (!pending) return;
+    const selector = DRAWER_BODY_SELECTOR[pending.key];
+    if (!selector) {
+      pendingScrollRestoreRef.current = null;
+      return;
+    }
+    let raf = requestAnimationFrame(() => {
+      const body = document.querySelector(selector);
+      if (body instanceof HTMLElement) {
+        body.scrollTop = pending.top;
+      }
+      pendingScrollRestoreRef.current = null;
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [
+    showFeedList,
+    showRecommendList,
+    showCollectList,
+    showUpVideoList,
+    showHistoryList,
+    showSeriesList,
+    showDanmakuList,
+  ]);
 
   useEffect(() => {
     document.body.classList.toggle("mini-mode", isMiniMode);
@@ -244,34 +362,80 @@ export default function IndexPage() {
 
   useEffect(() => {
     if (!showFeedList) {
+      if (feedList !== undefined) {
+        writeDrawerCache("feed", feedList, { offset: feedOffset });
+      }
       setFeedList(undefined);
       setFeedOffset("");
     }
     if (!showRecommendList) {
+      if (recommendList !== undefined || hotList !== undefined) {
+        writeDrawerCache("recommend", { recommendList, hotList }, {
+          recommendPage,
+          hotPage,
+        });
+      }
       setRecommendList(undefined);
       setHotList(undefined);
       setRecommendPage(1);
       setHotPage(1);
     }
     if (!showCollectList) {
+      if (collectList !== undefined) {
+        writeDrawerCache("collect", collectList, {
+          collectGroups,
+          currentGroupId,
+          collectPage,
+        });
+      }
       setCollectList(undefined);
       setCollectPage(1);
     }
     if (!showUpVideoList) {
+      if (upVideoList !== undefined || seriesList.length > 0) {
+        writeDrawerCache("upVideo", upVideoList, {
+          upVideoOffset,
+          seriesList,
+          currentUpMid,
+          currentUpName,
+        });
+      }
       setUpVideoList(undefined);
       setUpVideoOffset("");
       setSeriesList([]);
     }
     if (!showHistoryList) {
+      if (historyList !== undefined) {
+        writeDrawerCache("history", historyList, {
+          historyCursor,
+          watchLaterList,
+        });
+      }
       setHistoryList(undefined);
       setHistoryCursor({ max: 0, view_at: 0, business: "" });
       setWatchLaterList([]);
     }
     if (!showSeriesList) {
+      if (seriesVideos.length > 0) {
+        writeDrawerCache("series", seriesVideos, {
+          seriesVideosPage,
+          currentSeriesId,
+          currentSeriesTitle,
+          currentUpMid,
+        });
+      }
       setSeriesVideos([]);
       setSeriesVideosPage(1);
     }
     if (!showDanmakuList) {
+      if (danmakuList !== undefined || replyList !== undefined) {
+        writeDrawerCache("danmaku", danmakuList, {
+          replyList,
+          danmakuCid,
+          replyOid,
+          replyPage,
+        });
+      }
       setDanmakuList(undefined);
       setReplyList(undefined);
       setCurrentVideoTime(0);
@@ -763,6 +927,17 @@ export default function IndexPage() {
    * @description 获取并显示用户关注的UP主的动态列表
    */
   const handleFeedClick = async () => {
+    const cached = readDrawerCache("feed");
+    if (cached) {
+      // 缓存命中：直接水合（含已翻页数据），不自动重拉。
+      setFeedList(cached.items as BL.FeedList);
+      setFeedOffset((cached.extra.offset as string) || "");
+      pendingScrollRestoreRef.current = { key: "feed", top: cached.scrollTop };
+      setShowFeedList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      return;
+    }
     try {
       const data = await invoke<BL.FeedList>("get_feed_list", {
         offset: feedOffset,
@@ -1455,7 +1630,23 @@ export default function IndexPage() {
 
       return;
     }
-
+    const cached = readDrawerCache("danmaku");
+    if (cached && cached.extra.danmakuCid === videoInfo.cid) {
+      setDanmakuList(cached.items as BL.DanmakuList);
+      setDanmakuCid(cached.extra.danmakuCid as number);
+      setReplyList(cached.extra.replyList as BL.ReplyList);
+      setReplyOid(cached.extra.replyOid as number);
+      setReplyPage((cached.extra.replyPage as number) || 1);
+      pendingScrollRestoreRef.current = {
+        key: "danmaku",
+        top: cached.scrollTop,
+      };
+      setShowDanmakuList(true);
+      // 命中缓存：已有数据，loadDanmakuList / loadReplyList 内部会跳过重复拉取。
+      await loadDanmakuList(false);
+      await loadReplyList(1, false);
+      return;
+    }
     setShowDanmakuList(true);
     await loadDanmakuList(false);
     await loadReplyList(1, false);
@@ -1710,6 +1901,26 @@ export default function IndexPage() {
       toast({ type: "warning", content: "该视频没有可用的 UP 主空间" });
       return;
     }
+    const cached = readDrawerCache("upVideo");
+    if (cached) {
+      setUpVideoList(cached.items as BL.FeedList);
+      setUpVideoOffset((cached.extra.upVideoOffset as string) || "");
+      setSeriesList((cached.extra.seriesList as any[]) || []);
+      if (cached.extra.currentUpMid) setCurrentUpMid(cached.extra.currentUpMid as number);
+      if (cached.extra.currentUpName) setCurrentUpName(cached.extra.currentUpName as string);
+      pendingScrollRestoreRef.current = {
+        key: "upVideo",
+        top: cached.scrollTop,
+      };
+      setShowUpVideoList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+      setShowHistoryList(false);
+      return;
+    }
     try {
       setCurrentUpMid(mid);
       setCurrentUpName(name);
@@ -1773,6 +1984,30 @@ export default function IndexPage() {
    * @description 获取并显示用户的观看历史记录
    */
   const handleHistoryClick = () => {
+    const cached = readDrawerCache("history");
+    if (cached) {
+      setHistoryList(cached.items);
+      setHistoryCursor(
+        (cached.extra.historyCursor as typeof historyCursor) || {
+          max: 0,
+          view_at: 0,
+          business: "",
+        },
+      );
+      setWatchLaterList((cached.extra.watchLaterList as BL.WatchLaterItem[]) || []);
+      pendingScrollRestoreRef.current = {
+        key: "history",
+        top: cached.scrollTop,
+      };
+      setShowHistoryList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+      setShowUpVideoList(false);
+      return;
+    }
     try {
       invoke<BL.HistoryList>("get_history_list", {
         max: 0,
@@ -1901,6 +2136,14 @@ export default function IndexPage() {
   };
 
   const handleSeriesListClose = () => {
+    if (seriesVideos.length > 0) {
+      writeDrawerCache("series", seriesVideos, {
+        seriesVideosPage,
+        currentSeriesId,
+        currentSeriesTitle,
+        currentUpMid,
+      });
+    }
     setShowSeriesList(false);
     setSeriesVideos([]);
   };
@@ -1912,6 +2155,28 @@ export default function IndexPage() {
         content: "请先点击UP主头像或昵称，选择一个合集",
       });
 
+      return;
+    }
+    const cached = readDrawerCache("series");
+    if (
+      cached &&
+      cached.extra.currentSeriesId === currentSeriesId &&
+      (cached.items as any[]).length > 0
+    ) {
+      setSeriesVideos(cached.items as any[]);
+      setSeriesVideosPage((cached.extra.seriesVideosPage as number) || 1);
+      pendingScrollRestoreRef.current = {
+        key: "series",
+        top: cached.scrollTop,
+      };
+      setShowSeriesList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      setShowCollectList(false);
+      setShowHistoryList(false);
+      setShowUpVideoList(false);
       return;
     }
     if (seriesVideos.length === 0) {
@@ -1960,6 +2225,18 @@ export default function IndexPage() {
    * @description 获取并显示推荐视频列表，如果已有数据则直接显示
    */
   const handleRecommendClick = () => {
+    const cached = readDrawerCache("recommend");
+    if (cached) {
+      const payload = cached.items as { recommendList?: unknown; hotList?: unknown };
+      setRecommendList(payload.recommendList);
+      setHotList(payload.hotList);
+      setRecommendPage((cached.extra.recommendPage as number) || 1);
+      setHotPage((cached.extra.hotPage as number) || 1);
+      pendingScrollRestoreRef.current = {
+        key: "recommend",
+        top: cached.scrollTop,
+      };
+    }
     setShowRecommendList(true);
     setShowSearchList(false);
     setShowPageList(false);
@@ -2061,6 +2338,25 @@ export default function IndexPage() {
    * @description 获取并显示收藏夹列表，如果是首次点击则先获取收藏夹分组
    */
   const handleCollectClick = async () => {
+    const cached = readDrawerCache("collect");
+    if (cached) {
+      setCollectList(cached.items);
+      setCollectGroups((cached.extra.collectGroups as any[]) || []);
+      if (cached.extra.currentGroupId !== undefined) {
+        setCurrentGroupId(cached.extra.currentGroupId as number);
+      }
+      setCollectPage((cached.extra.collectPage as number) || 1);
+      pendingScrollRestoreRef.current = {
+        key: "collect",
+        top: cached.scrollTop,
+      };
+      setShowCollectList(true);
+      setShowSearchList(false);
+      setShowPageList(false);
+      setShowFeedList(false);
+      setShowRecommendList(false);
+      return;
+    }
     try {
       // 如果还没有获取过收藏夹组，先获取
       if (collectGroups.length === 0) {

@@ -143,7 +143,7 @@ const SeriesList: FC<SeriesListProps> = ({
                                 <span className="text-xs">播放全部</span>
                             </Button>
                         </DrawerHeader>
-                        <DrawerBody onScroll={handleScroll}>
+                        <DrawerBody className="series-drawer-body" onScroll={handleScroll}>
                             {seriesVideos.length === 0 ? (
                                 <div className="history-empty-tip" role="status">
                                     暂无合集视频
