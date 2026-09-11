@@ -349,6 +349,9 @@ export default function IndexPage() {
   ]);
 
   useEffect(() => {
+    // body.mini-mode 的唯一写权：以 isMiniMode state 为唯一事实源，
+    // 任何窗口模式切换路径（含 invoke 失败回滚）都只改 state，class 在
+    // 这里被无条件同步，确保 class 与 state 永不脱钩。
     document.body.classList.toggle("mini-mode", isMiniMode);
 
     return () => {
@@ -2572,7 +2575,9 @@ export default function IndexPage() {
     setIsWindowControlPending(true);
     const theIsMiniMode = !isMiniMode;
 
-    document.body.classList.toggle("mini-mode", theIsMiniMode);
+    // body.mini-mode 的唯一写权收敛在 isMiniMode effect（以 state 为唯一事实源）。
+    // 这里只改 state；class 永远跟随 state，避免 invoke 成败路径与
+    // effect 时序交错时 class 与 state 脱钩且无人拉回。
     setIsMiniMode(theIsMiniMode);
     try {
       if (theIsMiniMode) {
@@ -2586,8 +2591,8 @@ export default function IndexPage() {
       }
     } catch (error) {
       console.error("切换窗口模式失败:", error);
+      // 回滚只改 state，class 由 effect 跟随。
       setIsMiniMode(!theIsMiniMode);
-      document.body.classList.toggle("mini-mode", !theIsMiniMode);
       toast({ type: "error", content: "切换窗口模式失败" });
     } finally {
       windowModeChangingRef.current = false;
@@ -2771,7 +2776,7 @@ export default function IndexPage() {
           isPinned={isMiniPinned}
           isWindowControlPending={isWindowControlPending}
           onTogglePin={toggleMiniAlwaysOnTop}
-          onSwitchMode={switchWindowMode}
+          onSwitchMode={isLinux ? undefined : switchWindowMode}
         />
       )}
       <Player

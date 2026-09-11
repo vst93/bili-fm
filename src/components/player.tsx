@@ -1128,11 +1128,22 @@ const Player = ({
   const toggleSponsorSkip = () => {
     const newEnabled = !sponsorSkip;
     setSponsorSkip(newEnabled);
-    localStorage.setItem(SPONSOR_SKIP_STORAGE_KEY, String(newEnabled));
+    // 隐私模式 Safari 等环境下 localStorage.setItem 会抛（QuotaExceededError /
+    // SecurityError），不能让它冒泡打断点击处理。
+    try {
+      localStorage.setItem(SPONSOR_SKIP_STORAGE_KEY, String(newEnabled));
+    } catch (error) {
+      console.error("保存恰饭跳过开关到本地存储失败:", error);
+      toast({ type: "warning", content: "开关状态保存失败" });
+    }
     invoke("set_kv", {
       key: SPONSOR_SKIP_STORAGE_KEY,
       value: String(newEnabled),
-    }).catch(() => {});
+    }).catch((error) => {
+      // 状态写失败必须可见：不再静默吞掉，否则用户会以为按钮没反应。
+      console.error("同步恰饭跳过开关失败:", error);
+      toast({ type: "warning", content: "开关状态保存失败" });
+    });
   };
 
   return (
