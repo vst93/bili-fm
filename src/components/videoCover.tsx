@@ -3,7 +3,7 @@ import { Halo, Refresh } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 
 // 内联 flat Lucide SVG (24x24, stroke-width=2), 与现有开关按钮图标风格一致。
-function LightfieldIcon() {
+function SparklesIcon() {
   return (
     <svg
       width="14"
@@ -31,8 +31,8 @@ interface VideoCoverProps {
   onPlayStateChange?: (isPlaying: boolean) => void;
   ambientBackgroundEnabled?: boolean;
   onAmbientBackgroundToggle?: () => void;
-  lightfieldSimple?: boolean;
-  onLightfieldSimpleToggle?: () => void;
+  premiumTexture?: boolean;
+  onPremiumTextureToggle?: () => void;
 }
 
 // 视频封面：碟片模式（旋转，默认）/ 封面模式（静态方块，省 GPU）
@@ -42,8 +42,8 @@ export default function VideoCover({
   onPlayStateChange,
   ambientBackgroundEnabled = true,
   onAmbientBackgroundToggle,
-  lightfieldSimple = false,
-  onLightfieldSimpleToggle,
+  premiumTexture = true,
+  onPremiumTextureToggle,
 }: VideoCoverProps) {
   const coverImage = cover || "/logo.png";
   // 封面「先预载、后换源」：新封面图加载完成前继续显示旧封面，
@@ -124,16 +124,16 @@ export default function VideoCover({
           <Halo size="14" theme="outline" />
         </button>
         <button
-          className={`cover-mode-toggle cover-lightfield-toggle${lightfieldSimple ? " is-active" : ""}`}
+          className={`cover-mode-toggle cover-premium-toggle${premiumTexture ? " is-active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            onLightfieldSimpleToggle?.();
+            onPremiumTextureToggle?.();
           }}
-          title={lightfieldSimple ? "关闭光场简化" : "开启光场简化"}
-          aria-label={lightfieldSimple ? "关闭光场简化" : "开启光场简化"}
-          aria-pressed={lightfieldSimple}
+          title={premiumTexture ? "关闭高级质感（更省电）" : "开启高级质感"}
+          aria-label={premiumTexture ? "关闭高级质感（更省电）" : "开启高级质感"}
+          aria-pressed={premiumTexture}
         >
-          <LightfieldIcon />
+          <SparklesIcon />
         </button>
       </div>
     );
@@ -183,16 +183,16 @@ export default function VideoCover({
           <Halo size="14" theme="outline" />
         </button>
         <button
-          className={`cover-mode-toggle cover-lightfield-toggle${lightfieldSimple ? " is-active" : ""}`}
+          className={`cover-mode-toggle cover-premium-toggle${premiumTexture ? " is-active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            onLightfieldSimpleToggle?.();
+            onPremiumTextureToggle?.();
           }}
-          title={lightfieldSimple ? "关闭光场简化" : "开启光场简化"}
-          aria-label={lightfieldSimple ? "关闭光场简化" : "开启光场简化"}
-          aria-pressed={lightfieldSimple}
+          title={premiumTexture ? "关闭高级质感（更省电）" : "开启高级质感"}
+          aria-label={premiumTexture ? "关闭高级质感（更省电）" : "开启高级质感"}
+          aria-pressed={premiumTexture}
         >
-          <LightfieldIcon />
+          <SparklesIcon />
         </button>
       </div>
   );

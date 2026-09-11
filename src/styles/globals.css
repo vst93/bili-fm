@@ -1328,16 +1328,16 @@ body.mini-mode .app-shell::after {
         radial-gradient(ellipse 70% 64% at 50% 46%, transparent 0%, rgba(248, 251, 255, 0.05) 66%, rgba(248, 251, 255, 0.14) 100%);
 }
 
-/* 封面背景关闭（或首次开启还在预载）时：整个光场层渐隐/渐显，
-   避免背景图 url 换源瞬间整窗闪白 */
-.app-shell.ambient-off::before {
+/* 氛围光关闭时该层必须完全隐藏——置于 texture-basic 之后并用组合选择器
+   提升特异性，保证任何开关组合下 ambient-off 都赢，两个开关不打架。 */
+.app-shell.ambient-off::before,
+.app-shell.ambient-off.texture-basic::before {
     opacity: 0;
 }
 
-/* 「光场简化」开关：去 filter（全窗 blur 是 GPU 显存最大单项）。
-   背景渐变已预烘焙在 background-image 里，去 filter 后仅微调 opacity
-   让观感平滑。与 ambient-off 独立叠加，不互相干扰。 */
-.app-shell.lightfield-simple::before {
+/* 「高级质感」关闭时的简化渲染：去掉全窗 blur 滤镜（GPU 最大单项），
+   预烘焙渐变保留，仅微调 opacity 补偿观感。 */
+.app-shell.texture-basic::before {
     filter: none;
     opacity: 0.35;
 }
@@ -5228,11 +5228,11 @@ body.video-open .player-video-close {
     border-color: rgba(125, 211, 252, 0.45);
 }
 
-.cover-lightfield-toggle {
+.cover-premium-toggle {
     right: 76px;
 }
 
-.cover-lightfield-toggle.is-active {
+.cover-premium-toggle.is-active {
     background: rgba(14, 165, 233, 0.28);
     border-color: rgba(125, 211, 252, 0.45);
 }

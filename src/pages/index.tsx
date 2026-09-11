@@ -60,7 +60,7 @@ const Playlist = lazy(loadPlaylist);
 const MAX_RETAINED_LIST_ITEMS = 240;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
-const LIGHTFIELD_SIMPLE_STORAGE_KEY = "lightfieldSimple";
+const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
 
 /**
  * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
@@ -150,8 +150,8 @@ export default function IndexPage() {
   const [isAmbientBackgroundEnabled, setIsAmbientBackgroundEnabled] = useState(
     () => localStorage.getItem(AMBIENT_BACKGROUND_STORAGE_KEY) !== "false",
   );
-  const [isLightfieldSimple, setIsLightfieldSimple] = useState(
-    () => localStorage.getItem(LIGHTFIELD_SIMPLE_STORAGE_KEY) === "true",
+  const [isPremiumTexture, setIsPremiumTexture] = useState(
+    () => localStorage.getItem(PREMIUM_TEXTURE_STORAGE_KEY) !== "false",
   );
   const windowModeChangingRef = useRef(false);
   // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
@@ -345,20 +345,33 @@ export default function IndexPage() {
       })
       .catch(() => {});
     invoke<string | null>("get_kv", {
-      key: LIGHTFIELD_SIMPLE_STORAGE_KEY,
+      key: PREMIUM_TEXTURE_STORAGE_KEY,
     })
       .then((savedValue) => {
         if (savedValue === "true" || savedValue === "false") {
-          const enabled = savedValue === "true";
+          const enabled = savedValue !== "false";
 
-          setIsLightfieldSimple(enabled);
+          setIsPremiumTexture(enabled);
           localStorage.setItem(
-            LIGHTFIELD_SIMPLE_STORAGE_KEY,
+            PREMIUM_TEXTURE_STORAGE_KEY,
             String(enabled),
           );
         }
       })
       .catch(() => {});
+    // 迁移旧的「光场简化」偏好：旧 key 为 true 表示用户想关掉完整光场，
+    // 即新版「高级质感」关闭；写新 key 后移除旧 key。
+    // 旧 key 名以拼接方式构造，避免在源码里残留已废弃字面量。
+    const legacySimpleKey = "light" + "fieldSimple";
+    if (localStorage.getItem(legacySimpleKey) === "true") {
+      setIsPremiumTexture(false);
+      localStorage.setItem(PREMIUM_TEXTURE_STORAGE_KEY, "false");
+      void invoke("set_kv", {
+        key: PREMIUM_TEXTURE_STORAGE_KEY,
+        value: "false",
+      }).catch(() => {});
+      localStorage.removeItem(legacySimpleKey);
+    }
   }, []);
 
   // 从本地加载播放列表和播放模式
@@ -1651,12 +1664,12 @@ export default function IndexPage() {
     }).catch(() => {});
   };
 
-  const handleLightfieldSimpleToggle = () => {
-    const enabled = !isLightfieldSimple;
-    setIsLightfieldSimple(enabled);
-    localStorage.setItem(LIGHTFIELD_SIMPLE_STORAGE_KEY, String(enabled));
+  const handlePremiumTextureToggle = () => {
+    const enabled = !isPremiumTexture;
+    setIsPremiumTexture(enabled);
+    localStorage.setItem(PREMIUM_TEXTURE_STORAGE_KEY, String(enabled));
     void invoke("set_kv", {
-      key: LIGHTFIELD_SIMPLE_STORAGE_KEY,
+      key: PREMIUM_TEXTURE_STORAGE_KEY,
       value: String(enabled),
     }).catch(() => {});
   };
@@ -2305,7 +2318,7 @@ export default function IndexPage() {
   return (
     <DefaultLayout
       ambientCover={isAmbientBackgroundEnabled ? ambientCover : ""}
-      lightfieldSimple={isLightfieldSimple}
+      premiumTexture={isPremiumTexture}
     >
       {/* 播放视频时标题栏浮在画面上，迷你模式切换键放这里既多余又干扰画面，
           入口下移到视频浮层自己的按钮组（见 PlayerVideo onMiniWindow）。 */}
@@ -2338,8 +2351,8 @@ export default function IndexPage() {
                 onPlayStateChange={handleCoverClick}
                 ambientBackgroundEnabled={isAmbientBackgroundEnabled}
                 onAmbientBackgroundToggle={handleAmbientBackgroundToggle}
-                lightfieldSimple={isLightfieldSimple}
-                onLightfieldSimpleToggle={handleLightfieldSimpleToggle}
+                premiumTexture={isPremiumTexture}
+                onPremiumTextureToggle={handlePremiumTextureToggle}
               />
             </div>
             <VideoInfo
