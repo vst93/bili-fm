@@ -44,7 +44,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 第二实例启动: 显示并聚焦已运行实例的主窗口
             // (对应旧版 main.go SingleInstanceLock.OnSecondInstanceLaunch)
@@ -111,9 +110,6 @@ pub fn run() {
             commands::is_ms_store_install,
             commands::quit_app,
             commands::get_app_version,
-            // 歌单导入 / 导出 (换机迁移)
-            commands::export_playlist_to_file,
-            commands::import_playlist_from_file,
             // 窗口控制 (迷你模式等)
             commands::set_window_size,
             commands::center_window,

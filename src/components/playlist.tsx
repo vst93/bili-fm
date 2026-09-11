@@ -11,11 +11,10 @@ import {
   Tabs,
   Tab,
 } from "@heroui/react";
-import { Close, Shuffle, Order, Delete, Play, FocusOne, LoopOnce, Download, Upload } from "@icon-park/react";
+import { Close, Shuffle, Order, Delete, Play, FocusOne, LoopOnce } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 
-import { exportPlaylistToFile, importPlaylistFromFile } from "@/lib/playlistBackup";
 import { graftingImage } from "@/utils/string";
 
 export interface PlaylistItem {
@@ -71,8 +70,6 @@ const Playlist: FC<PlaylistProps> = ({
   const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const isSeriesPlaylist = activePlaylistType === "series";
   const activePlaylist = isSeriesPlaylist ? seriesPlaylist : playlist;
   // 合集列表为空时不显示第二个 tab，只留「我的列表」。
@@ -127,24 +124,6 @@ const Playlist: FC<PlaylistProps> = ({
     const el = document.querySelector(".playlist-current") as HTMLElement;
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  };
-
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      await exportPlaylistToFile();
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleImport = async () => {
-    setImporting(true);
-    try {
-      await importPlaylistFromFile();
-    } finally {
-      setImporting(false);
     }
   };
 
@@ -213,26 +192,6 @@ const Playlist: FC<PlaylistProps> = ({
                   <Delete fill="#888" size="18" theme="outline" />
                 </Button>
               )}
-              <Button
-                isIconOnly
-                size="sm"
-                title="导出歌单"
-                variant="light"
-                isLoading={exporting}
-                onClick={handleExport}
-              >
-                <Download fill="#888" size="18" theme="outline" />
-              </Button>
-              <Button
-                isIconOnly
-                size="sm"
-                title="导入歌单"
-                variant="light"
-                isLoading={importing}
-                onClick={handleImport}
-              >
-                <Upload fill="#888" size="18" theme="outline" />
-              </Button>
             </DrawerHeader>
             <DrawerBody>
               {activePlaylist.length === 0 ? (
