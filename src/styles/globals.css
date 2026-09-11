@@ -2332,7 +2332,7 @@ body.mini-mode .app-shell::after {
     height: 56px;
     padding: 0 18px;
     display: grid;
-    grid-template-columns: 80px 46px minmax(0, 1fr) 46px 34px 40px 34px 116px;
+    grid-template-columns: 80px 46px minmax(0, 1fr) 46px 34px 40px 34px 40px;
     align-items: center;
     gap: 8px;
     position: relative;
@@ -4590,8 +4590,10 @@ body.mini-mode #player .player-controls {
         0 -10px 22px rgba(15, 23, 42, 0.05)) !important;
     backdrop-filter: blur(20px) saturate(1.4);
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
-    /* 压缩时间和工具按钮的固定列宽，把更多空间留给进度条。 */
-    grid-template-columns: 66px 38px minmax(0, 1fr) 38px 28px 34px 28px 30px;
+    /* 压缩时间和工具按钮的固定列宽，把更多空间留给进度条。
+       EQ/倍速/跳过在 mini 下 display:none，网格只保留
+       切曲 | 当前时间 | 进度条 | 时长 | 音量 五组有效列。 */
+    grid-template-columns: 46px 44px minmax(0, 1fr) 44px 66px;
     gap: 4px;
 }
 
