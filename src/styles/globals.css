@@ -4911,6 +4911,25 @@ html:is(
         0 2px 9px rgba(2, 132, 199, 0.12);
 }
 
+/* 恰饭开关的深色期激活态：必须与 EQ 同款单独声明。深色期通用
+   `html:is([...]) #player .player-button` 规则（特异度 1,2,1）会盖过
+   基础激活规则 `#player .player-sponsor-button[data-active]`（1,2,0），
+   导致晚间/夜间点击后仍显示为灰色（状态已翻转但视觉不变）。EQ 因有
+   本规则早已修正，恰饭开关此前遗漏。 */
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-sponsor-button[data-active] {
+    border-color: rgba(125, 211, 252, 0.42);
+    color: #0284c7;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.32),
+        0 2px 9px rgba(2, 132, 199, 0.12);
+}
+
 html:is(
     [data-time-of-day="midnight"],
     [data-time-of-day="predawn"],
@@ -4918,6 +4937,13 @@ html:is(
     [data-time-of-day="evening"],
     [data-time-of-day="latenight"]
 ) #player .player-eq-button[data-active]::before,
+html:is(
+    [data-time-of-day="midnight"],
+    [data-time-of-day="predawn"],
+    [data-time-of-day="dusk"],
+    [data-time-of-day="evening"],
+    [data-time-of-day="latenight"]
+) #player .player-sponsor-button[data-active]::before,
 html:is(
     [data-time-of-day="midnight"],
     [data-time-of-day="predawn"],
@@ -5067,6 +5093,13 @@ html:is(
     }
 
     html:root #player .player-controls .player-eq-button[data-active] {
+        border-color: #0369a1;
+        color: #075985;
+    }
+
+    /* 同深色期问题：高对比模式下通用 .player-button 规则会盖过基础激活态，
+       恰饭开关同样需要单独声明，否则激活后仍显示为普通灰色。 */
+    html:root #player .player-controls .player-sponsor-button[data-active] {
         border-color: #0369a1;
         color: #075985;
     }

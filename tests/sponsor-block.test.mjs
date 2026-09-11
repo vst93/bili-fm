@@ -282,3 +282,52 @@ test("trigger chain: currentTime before the segment does not skip", () => {
   h.run();
   assert.equal(audio.currentTime, 10);
 });
+
+// ---------------------------------------------------------------------------
+// 回归：AD 按钮「点击状态已翻转但视觉仍灰」的根因是深色/高对比期 CSS 级联丢失。
+// 深色期的通用 `html:is([...]) #player .player-button` 规则特异度 (1,2,1) 会盖过
+// 基础激活规则 `#player .player-sponsor-button[data-active]` (1,2,0)。EQ 早已有
+// 专属的深色激活规则，恰饭开关此前遗漏 —— 这里以静态契约锁死两者必须成对存在。
+const cssSource = readFileSync(
+  new URL("../src/styles/globals.css", import.meta.url),
+  "utf8",
+);
+
+// 切出深色时段块：从第一个 time-of-day 选择器首次出现处，到 prefers-reduced-transparency。
+const darkRegionStart = cssSource.indexOf('[data-time-of-day="midnight"]');
+assert.ok(darkRegionStart > 0, "expected dark time-of-day selectors");
+const darkRegionEnd = cssSource.indexOf('@media (prefers-reduced-transparency');
+assert.ok(darkRegionEnd > darkRegionStart, "expected prefers-reduced-transparency block");
+const darkRegion = cssSource.slice(darkRegionStart, darkRegionEnd);
+
+test("dark time-of-day block declares an active rule for both EQ and sponsor", () => {
+  assert.ok(darkRegion, "dark time-of-day region must exist");
+  for (const cls of ["player-eq-button", "player-sponsor-button"]) {
+    const re = new RegExp(
+      `\\)\\s*#player\\s*\\.${cls}\\[data-active\\]\\s*\\{`,
+      "u",
+    );
+    assert.match(
+      darkRegion,
+      re,
+      `dark block must declare ${cls}[data-active] or the evening/night ` +
+        `generic .player-button rule (1,2,1) wins over the base active rule (1,2,0)`,
+    );
+  }
+});
+
+test("prefers-contrast: more declares an active rule for both EQ and sponsor", () => {
+  const region = cssSource.slice(cssSource.indexOf("@media (prefers-contrast: more)"));
+  for (const cls of ["player-eq-button", "player-sponsor-button"]) {
+    const re = new RegExp(
+      `#player\\s*\\.player-controls\\s*\\.${cls}\\[data-active\\]\\s*\\{`,
+      "u",
+    );
+    assert.match(
+      region,
+      re,
+      `high-contrast block must declare ${cls}[data-active] to survive the ` +
+        `generic .player-button high-contrast override`,
+    );
+  }
+});
