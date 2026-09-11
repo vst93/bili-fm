@@ -1467,7 +1467,6 @@ const Player = ({
           aria-pressed={sponsorSkip}
           className="player-button player-sponsor-button"
           data-active={sponsorSkip || undefined}
-          disabled={!src}
           title="自动跳过恰饭片段（SponsorBlock）"
           type="button"
           onClick={toggleSponsorSkip}

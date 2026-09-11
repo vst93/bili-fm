@@ -2585,6 +2585,12 @@ body.mini-mode .app-shell::after {
         0 2px 7px rgba(15, 23, 42, 0.045);
     color: #526174;
     border-radius: 8px;
+    /* 显式抬到同排工具层之上：.player-timeline-wrap / 弹层都是绝对定位，
+       防止任何覆盖层（含 #player::before 顶边遮罩、seek bubble、时间轴 hover）
+       吃掉恰饭开关的点击。 */
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
 }
 
 #player .player-sponsor-button::after {
@@ -4657,9 +4663,12 @@ body.mini-mode #player {
     height: 43px;
 }
 
+/* 顶边渐变遮罩：必须完全停在控制栏上沿（height 与 top 等值），
+   任何向栏内渗透的像素都会在栏顶画出一条亮缝，把栏的视觉上沿抬高，
+   使按钮看起来贴着内容区下缘（“顶着头部”）。 */
 body.mini-mode #player::before {
     top: -10px;
-    height: 12px;
+    height: 10px;
     background: linear-gradient(to bottom, transparent, var(--player-edge-fade, rgba(244, 248, 252, 0.52)));
 }
 
@@ -4689,9 +4698,13 @@ body.mini-mode #player .player-transport-controls {
     gap: 3px;
 }
 
+/* mini 下所有工具按钮统一 28×28 正圆：此前 height:30px 与播放键
+   的 28px 不一致，transport 行内较高的邻居把行的光学上沿抬高，
+   造成播放键视觉偏上。统一后 transport 行高 = 28px，43px 栏内
+   上下各留 (43-28)/2 = 7.5px，垂直居中且均衡。 */
 body.mini-mode #player .player-button {
     width: 28px;
-    height: 30px;
+    height: 28px;
     flex-basis: 28px;
     border-radius: 50%;
 }
