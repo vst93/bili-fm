@@ -594,6 +594,17 @@ export default function IndexPage() {
     };
   }, []);
 
+  // 监听歌单导入事件：与存储保持同步，刷新内存态。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<PlaylistItem[]>).detail;
+      if (Array.isArray(detail)) setPlaylist(detail);
+    };
+    window.addEventListener("bili-fm:playlist-updated", handler);
+    return () =>
+      window.removeEventListener("bili-fm:playlist-updated", handler);
+  }, []);
+
   // 播放列表变更时自动持久化（初始加载完成后才生效）
   useEffect(() => {
     const store = playlistStoreRef.current;

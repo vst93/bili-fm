@@ -283,6 +283,87 @@ pub fn set_playlist_play_mode(mode: String) {
 }
 
 // ---------------------------------------------------------------------------
+// 歌单导入 / 导出 (换机迁移)
+//
+// 文件读写统一放在 Rust 侧，前端只负责 JSON 解析 / 校验 / 合并：
+// - 导出: 前端组装好备份 JSON 文本 -> 弹保存对话框 -> 写盘
+// - 导入: 弹打开对话框 -> 读盘 -> 回传文本给前端解析
+// 取消对话框时返回 Ok(None)，前端静默处理。
+// ---------------------------------------------------------------------------
+
+/// 导出歌单：弹出保存对话框并把 `content` 写入用户选择的路径。
+/// 返回保存的文件名（取消时返回 None）。
+#[tauri::command]
+pub async fn export_playlist_to_file(
+    app: AppHandle,
+    content: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let picked = app
+            .dialog()
+            .file()
+            .set_title("导出歌单")
+            .set_file_name("bili-fm-playlist.json")
+            .add_filter("JSON", &["json"])
+            .blocking_save_file();
+
+        let Some(file_path) = picked else {
+            return Ok(None); // 用户取消
+        };
+        let path = file_path
+            .into_path()
+            .map_err(|e| format!("无法解析保存路径: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))?;
+
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        Ok(Some(name))
+    })
+    .await
+    .map_err(|e| format!("后台任务失败: {e}"))?
+}
+
+/// 导入歌单：弹出打开对话框，读取所选文件并回传文本。
+/// 返回文件文本（取消时返回 None）。
+#[tauri::command]
+pub async fn import_playlist_from_file(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let picked = app
+            .dialog()
+            .file()
+            .set_title("导入歌单")
+            .add_filter("JSON", &["json"])
+            .blocking_pick_file();
+
+        let Some(file_path) = picked else {
+            return Ok(None); // 用户取消
+        };
+        let path = file_path
+            .into_path()
+            .map_err(|e| format!("无法解析文件路径: {e}"))?;
+
+        let meta = std::fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+        if meta.len() > IMPORT_MAX_BYTES {
+            return Err("文件过大，已超过 5MB 上限".to_string());
+        }
+
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+        Ok(Some(text))
+    })
+    .await
+    .map_err(|e| format!("后台任务失败: {e}"))?
+}
+
+/// 导入文件大小上限：5MB（防呆）。
+const IMPORT_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
+// ---------------------------------------------------------------------------
 // 应用信息 / 更新 / 退出
 // ---------------------------------------------------------------------------
 
