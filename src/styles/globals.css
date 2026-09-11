@@ -165,8 +165,10 @@ textarea,
 
 /* 卡片 meta 行 —— 统一规范（所有列表卡片共用）：
    1) 永远单行：flex-wrap: nowrap + 行级 overflow: hidden，任何宽度都不换行；
-   2) 字段不压缩、不换行，仅作者名可收缩并以省略号截断；
-   3) 卡片过窄时按「优先级从低到高」逐个隐藏整字段
+   2) 三列固定位置（轮 22，用户反馈“三元素连续展示不像正经 UI”）：
+      作者占固定列（过长 ellipsis）、播放量占固定列右对齐、发布日期占余下并左对齐。
+      因此每一行的三个元素左边缘互相垂直对齐，不再随内容长短漂移。
+   3) 字段永不换行、数值不截断；卡片过窄时按「优先级从低到高」隐藏整列
       （附加进度 → 发布时间 → 时长 → 播放量），而不是换行或截断数值。
       优先级：作者 > 播放量 > 时长 > 发布时间 > 附加。 */
 .card-meta {
@@ -188,13 +190,28 @@ textarea,
     white-space: nowrap;
 }
 
-/* 唯一的弹性字段：作者名过长时省略号截断，绝不换行。 */
+/* 唯一的固定列（轮 22）：作者名占固定 60px（约 5 汉字），过长时省略号截断。
+   固定列宽是让三列左边缘垂直对齐的关键 —— 不再由内容长度决定列宽。 */
 .card-meta-field.is-author {
     display: block;
-    flex: 0 1 auto;
+    flex: 0 0 60px;
+    max-width: 60px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 播放量固定列（58px）并右对齐：图标 + 数值整体靠右，使发布日期列的左边缘恒定。 */
+.card-meta-field.is-views {
+    flex: 0 0 58px;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+/* 发布日期占剩余空间并左对齐：因其左邻两列均定宽，其左边缘位置恒定。 */
+.card-meta-field.is-pubdate {
+    flex: 1 1 auto;
+    justify-content: flex-start;
 }
 
 .card-meta-field svg {

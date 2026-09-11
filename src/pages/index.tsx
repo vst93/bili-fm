@@ -17,6 +17,7 @@ import {
   readDrawerCache,
   writeDrawerCache,
   recordDrawerScroll,
+  retainOnlyDrawerCache,
 } from "@/lib/drawerCache";
 import { appendWithRetention } from "@/lib/listRetention";
 import VideoCover from "@/components/videoCover";
@@ -82,7 +83,9 @@ const DRAWER_BODY_SELECTOR: Record<string, string> = {
   upVideo: ".up-video-drawer-body",
   history: ".history-drawer-body",
   series: ".series-drawer-body",
-  danmaku: ".danmaku-drawer-body",
+  // 弹幕抽屉真正滚动的是内层 .danmaku-scroll-area（DrawerBody 自身 overflow:hidden，
+  // 不产生 scroll 事件），轮 22 之前误登记为外层，导致弹幕抽屉重开永远回到顶部。
+  danmaku: ".danmaku-scroll-area",
 };
 
 /**
@@ -360,6 +363,7 @@ export default function IndexPage() {
     if (!showFeedList) {
       if (feedList !== undefined) {
         writeDrawerCache("feed", feedList, { offset: feedOffset });
+        retainOnlyDrawerCache("feed"); // 轮 22：缓存窗口＝单条目
       }
       setFeedList(undefined);
       setFeedOffset("");
@@ -370,6 +374,7 @@ export default function IndexPage() {
           recommendPage,
           hotPage,
         });
+        retainOnlyDrawerCache("recommend");
       }
       setRecommendList(undefined);
       setHotList(undefined);
@@ -383,6 +388,7 @@ export default function IndexPage() {
           currentGroupId,
           collectPage,
         });
+        retainOnlyDrawerCache("collect");
       }
       setCollectList(undefined);
       setCollectPage(1);
@@ -395,6 +401,7 @@ export default function IndexPage() {
           currentUpMid,
           currentUpName,
         });
+        retainOnlyDrawerCache("upVideo");
       }
       setUpVideoList(undefined);
       setUpVideoOffset("");
@@ -406,6 +413,7 @@ export default function IndexPage() {
           historyCursor,
           watchLaterList,
         });
+        retainOnlyDrawerCache("history");
       }
       setHistoryList(undefined);
       setHistoryCursor({ max: 0, view_at: 0, business: "" });
@@ -419,6 +427,7 @@ export default function IndexPage() {
           currentSeriesTitle,
           currentUpMid,
         });
+        retainOnlyDrawerCache("series");
       }
       setSeriesVideos([]);
       setSeriesVideosPage(1);
@@ -431,6 +440,7 @@ export default function IndexPage() {
           replyOid,
           replyPage,
         });
+        retainOnlyDrawerCache("danmaku");
       }
       setDanmakuList(undefined);
       setReplyList(undefined);

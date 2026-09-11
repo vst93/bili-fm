@@ -70,6 +70,34 @@ export const formatViewCount = (num: number) => {
   return String(value);
 };
 
+/** 把可能为 undefined / null / 非数字的值折成有限数；无效返回 null（区别于真实 0）。 */
+const toFiniteOrNull = (num: unknown): number | null => {
+  if (num === null || num === undefined || num === "") return null;
+  const value = Number(num);
+  return Number.isFinite(value) ? value : null;
+};
+
+/** 卡片 meta「播放量」列的选值（轮 22，问题 1 + 字段盘点）。
+ *
+ * 根因回顾：此前各列表写 `formatViewCount(Number(info.stat.play) || 0)`，
+ * `|| 0` 把「字段缺失」与「真实 0」混为一谈，缺字段的行就渲染成假数据 `0`。
+ *
+ * 新规则：
+ *  1. 播放量字段存在（非 null/undefined/NaN）→ 展示播放量（真实 0 也照实展示 0）；
+ *  2. 播放量缺失 → 若同对象的弹幕数存在，则改展示弹幕数（icon 换成评论图标，语义不串）；
+ *  3. 两者都缺 → value 为 null，CardMeta 整字段不渲染（绝不补 0）。
+ */
+export const viewsMetaField = (
+  play: unknown,
+  danmaku?: unknown,
+): Array<{ kind: "views"; value: string | null; icon: "play" | "danmaku" }> => {
+  const p = toFiniteOrNull(play);
+  if (p !== null) return [{ kind: "views", value: formatViewCount(p), icon: "play" }];
+  const d = toFiniteOrNull(danmaku);
+  if (d !== null) return [{ kind: "views", value: formatViewCount(d), icon: "danmaku" }];
+  return [{ kind: "views", value: null, icon: "play" }];
+};
+
 // 三键数值：≥1亿 → `x.x亿`，≥100万 → 整数万（23w），≥1万 → `x.x w`（1.1w）。
 export const formatCompactCount = (num: number) => {
   const value = Number.isFinite(num) ? Math.max(0, Math.floor(num)) : 0;

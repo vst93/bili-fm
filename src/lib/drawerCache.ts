@@ -23,6 +23,15 @@ export const DRAWER_CACHE_TOTAL_ITEMS = 160;
 /** 弹幕 / 评论在缓存态的独立上限。 */
 export const DANMAKU_CACHE_MAX = 60;
 export const REPLY_CACHE_MAX = 40;
+/**
+ * 轮 22：缓存窗口收紧为「单条目」。
+ * 轮 20/21 只减小了「每条存多少、留几条」，但真正占内存的不是这些轻量 JS
+ * 对象，而是 WebView2 已解码的图像位图 / blob 缓存（它们不随条目数下降）。
+ * 与其保留 LRU-2（同时驻留两份数据 ── 两个满列表的封面 URL 都还在缓存里），
+ * 不如关抽屉后只留最近一份：重开时命中的永远是用户刚看过的那个列表，
+ * 其余整条删除。数值上把「常驻数据包」从 2 降到 1。
+ */
+export const DRAWER_CACHE_SINGLE_ENTRY = 1;
 
 export type DrawerCacheEntry = {
   items: unknown;
@@ -147,6 +156,18 @@ const enforceTotalBudget = () => {
     if (drawerCache.size <= 1 || total() <= DRAWER_CACHE_TOTAL_ITEMS) break;
     drawerCache.delete(key);
   }
+};
+
+/** 只保留指定键（通常为刚关闭列表的键），删除其它所有缓存条目。
+ *
+ * 轮 22 内存策略：抽屉是「一次看一个」的交互，没必要让两个列表的数据 +
+ * 封面一起常驻。关抽屉写入自己的缓存后调用本函数，把缓存窗口收敛为单条目；
+ * 若 keepKey 不存在则直接清空。这样即使 LRU 容量是 2，实际常驻也不会超过 1 条。
+ */
+export const retainOnlyDrawerCache = (keepKey: string) => {
+  const keep = drawerCache.get(keepKey);
+  drawerCache.clear();
+  if (keep) drawerCache.set(keepKey, keep);
 };
 
 export const writeDrawerCache = (

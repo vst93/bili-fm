@@ -22,7 +22,7 @@ import { useRef, useMemo } from "react";
 
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
-import { graftingImage, formatViewCount, formatRelativeTime, convertToDuration } from "@/utils/string";
+import { graftingImage, formatRelativeTime, convertToDuration, viewsMetaField } from "@/utils/string";
 
 interface CollectListProps {
   onSlideClick?: () => void;
@@ -200,7 +200,7 @@ const CollectList: FC<CollectListProps> = ({
                             <CardMeta
                             fields={[
                               { kind: "author", value: item.upper?.name || item.author },
-                              { kind: "views", value: item?.cnt_info?.play != null ? formatViewCount(item.cnt_info.play) : null },
+                              ...viewsMetaField(item?.cnt_info?.play, item?.cnt_info?.danmaku),
                               { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
                             ]}
                           />
