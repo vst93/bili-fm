@@ -4,8 +4,8 @@ import { test } from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 
-// Exercise the SponsorBlock query layer with a mocked fetch: silent degradation
-// (network / timeout / bad JSON) and session caching must never disturb playback.
+// 轮 19：查询层由 WebView `fetch` 改为 Tauri `invoke("get_sponsor_segments")`（Rust 端直连）。
+// 这里的 mock 直接模拟 invoke：返回片段数组或抛错。
 const source = readFileSync(
   new URL("../src/lib/sponsorBlock.ts", import.meta.url),
   "utf8",
@@ -17,7 +17,7 @@ const js = ts.transpile(source, {
   target: ts.ScriptTarget.ES2022,
 });
 
-function loadModule(fetchImpl) {
+function loadModule(invokeImpl) {
   let exports = {};
   const context = vm.createContext({
     module: { exports },
@@ -26,35 +26,37 @@ function loadModule(fetchImpl) {
     setTimeout,
     clearTimeout,
     encodeURIComponent,
-    fetch: fetchImpl,
     Promise,
+    // 模块现在 import { invoke } from "@tauri-apps/api/core"；
+    // 这里用 require shim 把透传的 mock 交给它。
+    require: (name) => {
+      if (name === "@tauri-apps/api/core") return { invoke: invokeImpl };
+      throw new Error(`unexpected require: ${name}`);
+    },
   });
   vm.runInContext(js, context);
   return context.module.exports;
 }
 
 test("maps segment ranges and drops non-skip actions", async () => {
-  const { fetchSegments } = loadModule(async () => ({
-    ok: true,
-    json: async () => [
-      {
-        segment: [84.672, 129.603],
-        category: "sponsor",
-        actionType: "skip",
-        UUID: "u1",
-        videoDuration: 169.866,
-      },
-      {
-        segment: [10, 20],
-        category: "selfpromo",
-        actionType: "mute",
-        UUID: "u2",
-        videoDuration: 169.866,
-      },
-      { segment: [30, 30], category: "sponsor", actionType: "skip" },
-      { bad: true },
-    ],
-  }));
+  const { fetchSegments } = loadModule(async () => [
+    {
+      segment: [84.672, 129.603],
+      category: "sponsor",
+      actionType: "skip",
+      UUID: "u1",
+      videoDuration: 169.866,
+    },
+    {
+      segment: [10, 20],
+      category: "selfpromo",
+      actionType: "mute",
+      UUID: "u2",
+      videoDuration: 169.866,
+    },
+    { segment: [30, 30], category: "sponsor", actionType: "skip" },
+    { bad: true },
+  ]);
   const segs = await fetchSegments("BV1test", 123);
   assert.equal(segs.length, 1);
   assert.equal(segs[0].segment[0], 84.672);
@@ -62,24 +64,18 @@ test("maps segment ranges and drops non-skip actions", async () => {
   assert.equal(segs[0].category, "sponsor");
 });
 
-test("degrades silently to [] on network error, non-200, and bad JSON", async () => {
+test("degrades silently to [] on network error, HTTP error, and bad shape", async () => {
   const throwing = loadModule(async () => {
     throw new Error("offline");
   });
   assert.equal((await throwing.fetchSegments("BV1test", 1)).length, 0);
 
-  const notOk = loadModule(async () => ({ ok: false, json: async () => [] }));
+  const notOk = loadModule(async () => {
+    throw new Error("HTTP 500");
+  });
   assert.equal((await notOk.fetchSegments("BV2test", 2)).length, 0);
 
-  const badJson = loadModule(async () => ({
-    ok: true,
-    json: async () => {
-      throw new SyntaxError("bad json");
-    },
-  }));
-  assert.equal((await badJson.fetchSegments("BV3test", 3)).length, 0);
-
-  const wrongShape = loadModule(async () => ({ ok: true, json: async () => ({}) }));
+  const wrongShape = loadModule(async () => ({}));
   assert.equal((await wrongShape.fetchSegments("BV4test", 4)).length, 0);
 });
 
@@ -87,7 +83,7 @@ test("caches per BV+cid, including empty results, so repeat lookups do not refet
   let calls = 0;
   const { fetchSegments } = loadModule(async () => {
     calls += 1;
-    return { ok: true, json: async () => [] };
+    return [];
   });
   await fetchSegments("BVone", 9);
   await fetchSegments("BVone", 9);
@@ -98,7 +94,7 @@ test("empty arguments never hit the network", async () => {
   let calls = 0;
   const { fetchSegments } = loadModule(async () => {
     calls += 1;
-    return { ok: true, json: async () => [] };
+    return [];
   });
   assert.equal((await fetchSegments("", 5)).length, 0);
   assert.equal((await fetchSegments("BVx", 0)).length, 0);
@@ -109,14 +105,13 @@ test("empty arguments never hit the network", async () => {
 // （React StrictMode 双挂载 / 换曲中止后同曲重查都会命中空缓存），跳过功能失效。
 test("an aborted request must not poison the session cache (retry can still succeed)", async () => {
   let calls = 0;
-  const { fetchSegments } = loadModule((url, opts) =>
-    new Promise((resolve, reject) => {
-      calls += 1;
-      const timer = setTimeout(
-        () =>
-          resolve({
-            ok: true,
-            json: async () => [
+  const { fetchSegments } = loadModule(
+    () =>
+      new Promise((resolve) => {
+        calls += 1;
+        setTimeout(
+          () =>
+            resolve([
               {
                 segment: [84.672, 129.603],
                 category: "sponsor",
@@ -124,15 +119,10 @@ test("an aborted request must not poison the session cache (retry can still succ
                 UUID: "u1",
                 videoDuration: 169.866,
               },
-            ],
-          }),
-        40,
-      );
-      opts?.signal?.addEventListener("abort", () => {
-        clearTimeout(timer);
-        reject(new Error("aborted"));
-      });
-    }),
+            ]),
+          40,
+        );
+      }),
   );
 
   const controller = new AbortController();
@@ -140,7 +130,7 @@ test("an aborted request must not poison the session cache (retry can still succ
   controller.abort();
   assert.equal((await aborted).length, 0);
 
-  // 中止结果不得被缓存：重查应真正打到网络并拿到片段。
+  // 中止结果不得被缓存：重查应真正打到 invoke 并拿到片段。
   const retried = await fetchSegments("BVpoison", 42);
   assert.equal(retried.length, 1);
   assert.equal(retried[0].segment[0], 84.672);
@@ -156,12 +146,9 @@ test("inflight dedupe is scoped to the caller's own signal", async () => {
         calls += 1;
         setTimeout(
           () =>
-            resolve({
-              ok: true,
-              json: async () => [
-                { segment: [5, 10], category: "sponsor", actionType: "skip" },
-              ],
-            }),
+            resolve([
+              { segment: [5, 10], category: "sponsor", actionType: "skip" },
+            ]),
           30,
         );
       }),

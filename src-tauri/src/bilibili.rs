@@ -1240,6 +1240,86 @@ pub async fn get_popular_list(page: i32) -> Result<PopularList, String> {
 }
 
 // ---------------------------------------------------------------------------
+// SponsorBlock（小电视空降助手）片段查询
+// ---------------------------------------------------------------------------
+// 在 Rust 端直连上游，**彻底绕开 WebView 的 CSP / 混合内容 / 网络栈差异**。
+// 轮 18 仅把 https://bsbsb.top 加进 connect-src，但 Windows WebView2 实测仍无标记：
+// Tauri 会把注入脚本的 hash 同时塞进 script-src 与 connect-src（读取 CSP 时做改写），
+// 前端 `fetch` 因此可能被静默拦截，且用户无法开 devtools 查证。Rust 端本就发起全部
+// 网络请求（B 站 API / 图片 / 音频），把片段查询一并下沉即可 100% 绕开该雷区。
+//
+// 失败语义与前端原实现一致：任何失败都返回空数组（不抛错、不打断播放）；
+// 「有/无片段」由数组是否为空表达，前端据此点亮状态指示。
+
+/// 单个跳过片段（字段名对应 bsbsb.top 返回结构，序列化回前端保持 camelCase）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SponsorSegment {
+    pub segment: Vec<f64>,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default, rename = "actionType")]
+    pub action_type: String,
+    #[serde(default, rename = "UUID")]
+    pub uuid: String,
+    #[serde(default, rename = "videoDuration")]
+    pub video_duration: f64,
+}
+
+pub async fn get_sponsor_segments(bvid: &str, cid: i64) -> Vec<SponsorSegment> {
+    if bvid.is_empty() || cid <= 0 {
+        return Vec::new();
+    }
+    let url = format!(
+        "https://bsbsb.top/api/skipSegments?videoID={}&cid={}",
+        urlencode(bvid),
+        cid
+    );
+    // 独立、短超时的 client：SponsorBlock 是可选增强，绝不能让慢接口拖住播放。
+    static SPONSOR_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    let client = SPONSOR_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .connect_timeout(Duration::from_secs(4))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    });
+    let resp = match client.get(&url).header("User-Agent", UA_CHROME).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            // 可见性：实机上这是「状态点变红」的根源，保留一条日志便于排查。
+            println!("[sponsor] query failed for {bvid}:{cid}: network: {e}");
+            return Vec::new();
+        }
+    };
+    if !resp.status().is_success() {
+        println!(
+            "[sponsor] query failed for {bvid}:{cid}: HTTP {}",
+            resp.status().as_u16()
+        );
+        return Vec::new();
+    }
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            println!("[sponsor] query failed for {bvid}:{cid}: read: {e}");
+            return Vec::new();
+        }
+    };
+    // 非 JSON / 非法结构一律降级为空片段。
+    serde_json::from_str::<Vec<SponsorSegment>>(&text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| {
+            s.segment.len() >= 2
+                && s.segment[0].is_finite()
+                && s.segment[1].is_finite()
+                && s.segment[1] > s.segment[0]
+                && (s.action_type.is_empty() || s.action_type == "skip")
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // 弹幕 (XML + gzip/deflate 解压)
 // ---------------------------------------------------------------------------
 

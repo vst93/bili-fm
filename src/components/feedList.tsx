@@ -121,6 +121,9 @@ const FeedList: FC<FeedListProps> = ({
                           src={graftingImage(info.cover)}
                           width="100%"
                         />
+                        {info?.duration_text ? (
+                          <span className="c-cover-duration">{info.duration_text}</span>
+                        ) : null}
                       </CardBody>
                       <CardFooter className="text-small flex-col items-start px-2 py-1">
                         <b
@@ -134,7 +137,6 @@ const FeedList: FC<FeedListProps> = ({
                           fields={[
                             { kind: "author", value: subStr(userName, 7) },
                             { kind: "views", value: info?.stat?.play != null ? formatViewCount(Number(info.stat.play) || 0) : null },
-                            { kind: "duration", value: info?.duration_text },
                             { kind: "pubdate", value: publishTime },
                           ]}
                         />

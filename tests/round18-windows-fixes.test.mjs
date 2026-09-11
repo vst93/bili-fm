@@ -51,10 +51,11 @@ test(".card-meta is a single non-wrapping line with overflow clipping", () => {
   assert.match(field[0], /flex: 0 0 auto/, "fields keep intrinsic width, never squashed");
 });
 
-test("narrow cards hide whole fields in priority order (extra→pubdate→duration→views)", () => {
+test("narrow cards hide whole fields in priority order (extra→duration→pubdate→views)", () => {
   const rules = [...css.matchAll(/@container \(max-width: (\d+)px\) \{\s*\.card-meta-field\.(is-\w+) \{\s*display: none;/g)]
     .map((m) => ({ max: Number(m[1]), cls: m[2] }));
-  const order = ["is-extra", "is-pubdate", "is-duration", "is-views"];
+  // 用户裁决（轮 19）：时长优先隐藏（已挪封面角标），发布时间次之。
+  const order = ["is-extra", "is-duration", "is-pubdate", "is-views"];
   assert.deepEqual(
     rules.map((r) => r.cls),
     order,
@@ -142,10 +143,12 @@ test("sponsor marker renders whenever segments exist, independent of the auto-sk
   assert.match(src, /\{duration > 0\s*\?\s*sponsorSegmentsRef\.current\.map/);
 });
 
-test("sponsor fetch failures are observable (console.warn), not fully silent", () => {
+test("round19: sponsor query is Rust-backed invoke, failures still observable", () => {
   const src = read("../src/lib/sponsorBlock.ts");
   assert.match(src, /console\.warn\(/);
-  assert.match(src, /HTTP \$\{res\.status\}/);
+  // 轮 9：查询下沉到 Rust 端（绕开 WebView2 CSP），前端不再直连 fetch。
+  assert.match(src, /invoke<unknown>\(SPONSOR_API_CMD/);
+  assert.doesNotMatch(src, /await fetch\(/);
 });
 
 test("dist bundle ships the decoupled marker gate (segments only)", () => {

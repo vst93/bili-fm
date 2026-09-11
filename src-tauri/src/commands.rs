@@ -142,6 +142,11 @@ pub async fn get_series_videos(
 }
 
 #[tauri::command]
+pub async fn get_sponsor_segments(bvid: String, cid: i64) -> Vec<bilibili::SponsorSegment> {
+    bilibili::get_sponsor_segments(&bvid, cid).await
+}
+
+#[tauri::command]
 pub async fn get_popular_list(page: i32) -> Result<bilibili::PopularList, String> {
     bilibili::get_popular_list(page).await
 }

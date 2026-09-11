@@ -10,8 +10,8 @@ import {
   VolumeNotice,
 } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
-import { fetchSegments } from "../lib/sponsorBlock";
-import type { SponsorSegment } from "../lib/sponsorBlock";
+import { fetchSegments, onSponsorStatus, SPONSOR_STATUS_LABEL } from "../lib/sponsorBlock";
+import type { SponsorSegment, SponsorStatusInfo } from "../lib/sponsorBlock";
 import { toast } from "../utils/toast";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
@@ -248,6 +248,11 @@ const Player = ({
   // 广告段可视化：segments 变化时递增版本号以驱动进度条标记层重渲染。
   const sponsorMarkerRef = useRef<HTMLSpanElement>(null);
   const [sponsorSegmentsVersion, setSponsorSegmentsVersion] = useState(0);
+  // 诊断状态指示（临时）：让用户截图即可看出跳过功能卡在哪一环。
+  const [sponsorStatus, setSponsorStatus] = useState<SponsorStatusInfo>({
+    state: "disabled",
+    count: 0,
+  });
   const [duration, setDuration] = useState(0);
   const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
   const [volume, setVolume] = useState(readStoredVolume);
@@ -604,6 +609,9 @@ const Player = ({
       controller.abort();
     };
   }, [bvid, cid, mediaKey, sponsorSkip]);
+
+  // 订阅 SponsorBlock 查询状态（绿/黄/红/灰），驱动按钮角状态点。
+  useEffect(() => onSponsorStatus(setSponsorStatus), []);
 
   useEffect(() => {
     return () => {
@@ -1487,6 +1495,16 @@ const Player = ({
           onClick={toggleSponsorSkip}
         >
           <Ad fill="currentColor" size={17} theme="outline" />
+          {/* 临时诊断状态点：绿=已加载 N 段 / 黄=请求中 / 红=失败 / 灰=未启用或空。 */}
+          <span
+            aria-hidden="true"
+            className="player-sponsor-status"
+            data-state={sponsorStatus.state}
+            data-count={sponsorStatus.count}
+            title={`${SPONSOR_STATUS_LABEL[sponsorStatus.state]}${
+              sponsorStatus.state === "ok" ? ` (${sponsorStatus.count} 段)` : ""
+            }${sponsorStatus.reason ? `: ${sponsorStatus.reason}` : ""}`}
+          />
         </button>
       </div>
     </div>

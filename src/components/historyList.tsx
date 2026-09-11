@@ -298,6 +298,9 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         src={graftingImage(item.cover)}
                                                         width="100%"
                                                     />
+                                                    {item.duration > 0 ? (
+                                                        <span className="c-cover-duration">{convertToDuration(item.duration)}</span>
+                                                    ) : null}
                                                 </CardBody>
                                                 <CardFooter className="text-small flex-col items-start px-2 py-1">
                                                     <b

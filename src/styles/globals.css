@@ -202,7 +202,24 @@ textarea,
     opacity: 0.72;
 }
 
-/* 窄卡片：按优先级从末尾隐藏（隐藏后不占位），保证单行且卡片高度一致。 */
+/* 行首小胶囊（合作视频等），与「充电专属」同款蓝胶囊。 */
+.card-meta-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 0 6px;
+    border-radius: 8px;
+    background-color: #60a5fa;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+/* 窄卡片：按优先级从末尾隐藏（隐藏后不占位），保证单行且卡片高度一致。
+   优先级（高→低）：作者 > 播放量 > 发布时间 > 时长 > 附加。
+   时长已优先挪到封面角标，仍留在 meta 的时长最先被隐藏。 */
 @container (max-width: 260px) {
     .card-meta-field.is-extra {
         display: none;
@@ -210,13 +227,13 @@ textarea,
 }
 
 @container (max-width: 240px) {
-    .card-meta-field.is-pubdate {
+    .card-meta-field.is-duration {
         display: none;
     }
 }
 
 @container (max-width: 200px) {
-    .card-meta-field.is-duration {
+    .card-meta-field.is-pubdate {
         display: none;
     }
 }
@@ -396,6 +413,22 @@ img{
     right: 0;
     z-index: 9000;
     overflow: hidden;
+}
+
+/* 时长封面角标（行业惯例：盖在封面右下角）。三字段（作者·播放·时间）因此能宽松共存。 */
+.c-cover-duration {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    padding: 2px 5px;
+    border-radius: 5px 0 0 0;
+    background: rgba(15, 23, 42, 0.68);
+    color: #f8fafc;
+    font-size: 11px;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
 }
 
 .cancel_collect_span{
@@ -2614,8 +2647,34 @@ body.mini-mode .app-shell::after {
     background-image: var(--glass-sheen-static);
 }
 
-/* 恰饭跳过开关：与 EQ 开关同排同款的文字型开关（复用 player-button 玻璃底）。 */
 /* 恰饭跳过开关：图标型开关，与 EQ 开关同排同款（复用 player-button 玻璃底）。 */
+/* 状态点（临时诊断，TODO: 定位后移除）：绿=已加载/黄=请求中/红=失败/灰=未启用。
+   叠在按钮右上角，用户下次截图即可看出跳过功能卡在哪一环。 */
+#player .player-sponsor-status {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    background: #94a3b8;
+    pointer-events: none;
+    z-index: 2;
+}
+#player .player-sponsor-status[data-state="ok"] {
+    background: #22c55e;
+}
+#player .player-sponsor-status[data-state="loading"] {
+    background: #f59e0b;
+}
+#player .player-sponsor-status[data-state="error"] {
+    background: #ef4444;
+}
+#player .player-sponsor-status[data-state="disabled"],
+#player .player-sponsor-status[data-state="empty"] {
+    background: #94a3b8;
+}
 #player .player-sponsor-button {
     width: 34px;
     height: 32px;

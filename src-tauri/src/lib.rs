@@ -75,6 +75,8 @@ pub fn run() {
             commands::get_series_list,
             commands::get_series_videos,
             commands::get_popular_list,
+            // SponsorBlock 广告片段（Rust 端直连，绕开 WebView CSP）
+            commands::get_sponsor_segments,
             // 弹幕 / 评论
             commands::get_danmaku_list,
             commands::get_reply_list,

@@ -173,6 +173,9 @@ const SeriesList: FC<SeriesListProps> = ({
                                                 src={graftingImage(video.pic)}
                                                 width="100%"
                                             />
+                                            {video?.duration ? (
+                                                <span className="c-cover-duration">{convertToDuration(video.duration)}</span>
+                                            ) : null}
                                         </CardBody>
                                         <CardFooter className="text-small flex-col items-start px-2 py-1">
                                             <b
@@ -185,7 +188,6 @@ const SeriesList: FC<SeriesListProps> = ({
                                                 <CardMeta
                                                     fields={[
                                                       { kind: "views", value: video?.stat?.view != null ? formatViewCount(video.stat.view) : null },
-                                                      { kind: "duration", value: video?.duration != null ? convertToDuration(video.duration) : null },
                                                       { kind: "pubdate", value: video?.pubdate ? formatRelativeTime(video.pubdate) : null },
                                                     ]}
                                                 />

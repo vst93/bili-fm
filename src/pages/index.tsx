@@ -13,6 +13,11 @@ import { toast } from "../utils/toast";
 import type * as BL from "@/types/bilibili";
 
 import SearchForm from "@/components/searchForm";
+import {
+  readDrawerCache,
+  writeDrawerCache,
+  recordDrawerScroll,
+} from "@/lib/drawerCache";
 import VideoCover from "@/components/videoCover";
 import VideoInfo from "@/components/videoInfo";
 import Player from "@/components/player";
@@ -66,23 +71,6 @@ const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
 
-// 抽屉状态会话级缓存（React 外的普通 Map，不进 state、不落盘）。
-// 关闭抽屉时写入，重开时命中则先水合数据（含已翻页数据），不自动重拉。
-type DrawerCacheEntry = {
-  items: unknown;
-  extra: Record<string, unknown>;
-  scrollTop: number;
-  ts: number;
-};
-const drawerCache = new Map<string, DrawerCacheEntry>();
-const DRAWER_CACHE_LIMIT = 3;
-// 会话内可能实质变化的数据源（如收藏夹用户在别处增删）缓存 15 分钟过期。
-const DRAWER_CACHE_TTL_MS = 15 * 60 * 1000;
-const DRAWER_CACHE_VOLATILE: Record<string, boolean> = {
-  collect: true,
-  history: true,
-  upVideo: true,
-};
 // 缓存键 → 抽屉滚动容器选择器，用于采集/恢复 scrollTop。
 const DRAWER_BODY_SELECTOR: Record<string, string> = {
   feed: ".feed-drawer-body",
@@ -92,48 +80,6 @@ const DRAWER_BODY_SELECTOR: Record<string, string> = {
   history: ".history-drawer-body",
   series: ".series-drawer-body",
   danmaku: ".danmaku-drawer-body",
-};
-// 记录各抽屉滚动容器的实时 scrollTop（抽屉卸载后 DOM 查不到，只能靠滚动事件采集）。
-const drawerScrollTops: Record<string, number> = {};
-
-const touchDrawerCache = (key: string) => {
-  const entry = drawerCache.get(key);
-  if (!entry) return;
-  // LRU：删除后重新插入，保证 Map 迭代顺序里最新使用的在末尾。
-  drawerCache.delete(key);
-  drawerCache.set(key, entry);
-};
-
-const writeDrawerCache = (
-  key: string,
-  items: unknown,
-  extra: Record<string, unknown> = {},
-) => {
-  if (items === undefined || items === null) return;
-  drawerCache.delete(key);
-  drawerCache.set(key, {
-    items,
-    extra,
-    scrollTop: drawerScrollTops[key] ?? 0,
-    ts: Date.now(),
-  });
-  // 超上限时淘汰最旧（Map 头部）的列表缓存。
-  while (drawerCache.size > DRAWER_CACHE_LIMIT) {
-    const oldestKey = drawerCache.keys().next().value;
-    if (oldestKey === undefined) break;
-    drawerCache.delete(oldestKey);
-  }
-};
-
-const readDrawerCache = (key: string): DrawerCacheEntry | null => {
-  const entry = drawerCache.get(key);
-  if (!entry) return null;
-  if (DRAWER_CACHE_VOLATILE[key] && Date.now() - entry.ts > DRAWER_CACHE_TTL_MS) {
-    drawerCache.delete(key);
-    return null;
-  }
-  touchDrawerCache(key);
-  return entry;
 };
 
 /**
@@ -309,7 +255,7 @@ export default function IndexPage() {
       if (!(target instanceof HTMLElement)) return;
       for (const [key, sel] of Object.entries(DRAWER_BODY_SELECTOR)) {
         if (target.matches(sel)) {
-          drawerScrollTops[key] = target.scrollTop;
+          recordDrawerScroll(key, target.scrollTop);
           return;
         }
       }

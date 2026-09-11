@@ -22,7 +22,7 @@ import { useRef, useMemo } from "react";
 
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
-import { graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
+import { graftingImage, formatViewCount, formatRelativeTime, convertToDuration } from "@/utils/string";
 
 interface CollectListProps {
   onSlideClick?: () => void;
@@ -197,6 +197,7 @@ const CollectList: FC<CollectListProps> = ({
                               { kind: "author", value: item.upper?.name || item.author },
                               { kind: "views", value: item?.cnt_info?.play != null ? formatViewCount(item.cnt_info.play) : null },
                               { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
+                              { kind: "duration", value: item?.duration != null ? convertToDuration(item.duration) : null },
                             ]}
                           />
                           </p>

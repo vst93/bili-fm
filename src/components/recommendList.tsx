@@ -182,8 +182,8 @@ const RecommendList: FC<RecommendListProps> = ({
                             fields={[
                               { kind: "author", value: subStr(item.owner?.name || item.author, 7) },
                               { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
-                              { kind: "duration", value: item.duration != null ? convertToDuration(item.duration) : null },
                               { kind: "pubdate", value: item.pubdate ? formatRelativeTime(item.pubdate) : null },
+                              { kind: "duration", value: item.duration != null ? convertToDuration(item.duration) : null },
                             ]}
                           />
                           </p>

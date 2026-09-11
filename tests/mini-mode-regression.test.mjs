@@ -30,7 +30,8 @@ test("dist bundle: body.mini-mode 只有 effect 一处写权", () => {
 
 test("dist bundle: switchWindowMode / catch 回滚不直接碰 body class", () => {
   // 切换函数体内不得出现 classList（否则又是多入口写 class）。
-  const switchFn = bundle.match(/\w+=async\(\)=>\{if\([^)]*\)return;fn\.current=!0,ql\(!0\);[^}]*set_window_size/);
+  // 标识符用 \w+ 通配：minify 后的变量名会随构建漂移（轮 19 教训）。
+  const switchFn = bundle.match(/\w+=async\(\)=>\{if\([^)]*\)return;\w+\.current=!0,\w+\(!0\);[^}]*set_window_size/);
   assert.ok(switchFn, "switchWindowMode body must be present in bundle");
   assert.ok(
     !switchFn[0].includes("classList"),

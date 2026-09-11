@@ -26,7 +26,7 @@ import {
 import CardMeta from "./cardMeta";
 
 
-import { convertToDuration, graftingImage } from "@/utils/string";
+import { convertToDuration, graftingImage, formatViewCount } from "@/utils/string";
 
 interface PageListProps {
   pageNum?: number;
@@ -244,6 +244,9 @@ const PageList: FC<PageListProps> = ({
                         src={graftingImage(page.first_frame || videoInfo.pic)}
                         width="100%"
                       />
+                      {page.duration > 0 ? (
+                        <span className="c-cover-duration">{convertToDuration(page.duration)}</span>
+                      ) : null}
                       {isPlayingPage && (
                         <span className="part-playing-badge">
                           <span className="part-playing-eq" aria-hidden="true">
@@ -281,7 +284,10 @@ const PageList: FC<PageListProps> = ({
                         {page.part || videoInfo.title}
                       </b>
                       <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                        <CardMeta fields={[{ kind: "duration", value: convertToDuration(page.duration) }]} />
+                        <CardMeta fields={[
+                          { kind: "views", value: videoInfo?.stat?.view != null ? formatViewCount(videoInfo.stat.view) : null },
+                          { kind: "duration", value: convertToDuration(page.duration) },
+                        ]} />
                       </p>
                     </CardFooter>
                   </Card>

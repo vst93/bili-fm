@@ -324,11 +324,6 @@ export default function VideoInfo({
         </div>
 
         <div id="video-title">
-          {staff.length > 0 ? (
-            <span className="video-collab-badge" title="合作视频">
-              合作视频
-            </span>
-          ) : null}
           <h2>{title || "无标题"}</h2>
         </div>
 
