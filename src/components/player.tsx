@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
   Equalizer,
   GoEnd,
@@ -136,6 +136,7 @@ const updateSeekPreviewUi = (
   timeLabel: HTMLTimeElement | null,
   value: number,
   duration: number,
+  bubble?: HTMLDivElement | null,
 ) => {
   const boundedValue = Math.min(Math.max(value, 0), duration || 0);
   const progress = duration > 0 ? (boundedValue / duration) * 100 : 0;
@@ -155,6 +156,30 @@ const updateSeekPreviewUi = (
     timeLabel.dateTime = `PT${Math.floor(boundedValue)}S`;
     timeLabel.textContent = formatTime(boundedValue);
   }
+  // 拖动中若 hover 气泡已存在，复用它跟随拖动预览位置。
+  if (bubble && duration > 0) {
+    bubble.textContent = formatTime(boundedValue);
+    bubble.style.left = `${progress}%`;
+  }
+};
+
+const updateBufferedUi = (
+  bufferedEl: HTMLSpanElement | null,
+  audio: HTMLAudioElement,
+  duration: number,
+) => {
+  if (!bufferedEl) return;
+  const ranges = audio.buffered;
+  const usableDuration = Number.isFinite(duration) && duration > 0;
+  const end = ranges.length > 0 ? ranges.end(ranges.length - 1) : 0;
+  if (!usableDuration || !Number.isFinite(end) || end <= 0) {
+    bufferedEl.style.setProperty("--player-buffered", "0%");
+    bufferedEl.dataset.available = "false";
+    return;
+  }
+  const buffered = Math.min(Math.max(end, 0), duration) / duration;
+  bufferedEl.style.setProperty("--player-buffered", `${buffered * 100}%`);
+  bufferedEl.dataset.available = "true";
 };
 
 const Player = ({
@@ -174,6 +199,8 @@ const Player = ({
 }: PlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const timelineRef = useRef<HTMLInputElement>(null);
+  const bufferedRef = useRef<HTMLSpanElement>(null);
+  const seekBubbleRef = useRef<HTMLDivElement>(null);
   const currentTimeLabelRef = useRef<HTMLTimeElement>(null);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const speedPopoverRef = useRef<HTMLDivElement>(null);
@@ -775,6 +802,7 @@ const Player = ({
         duration,
       );
     }
+    updateBufferedUi(bufferedRef.current, audio, duration);
     const second = Math.floor(audio.currentTime);
     if (second !== lastReportedSecondRef.current) {
       lastReportedSecondRef.current = second;
@@ -819,7 +847,28 @@ const Player = ({
       currentTimeLabelRef.current,
       value,
       duration,
+      seekBubbleRef.current,
     );
+  };
+
+  // hover 时间气泡：鼠标悬停轨道时显示对应时间，coarse pointer 下不启用。
+  const handleTimelineHover = (event: ReactPointerEvent<HTMLInputElement>) => {
+    if (event.pointerType === "touch") return;
+    const bubble = seekBubbleRef.current;
+    if (!bubble || !duration) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
+    const time = ratio * duration;
+    bubble.textContent = formatTime(time);
+    bubble.style.left = `${ratio * 100}%`;
+    bubble.dataset.visible = "true";
+  };
+
+  const hideTimelineHover = () => {
+    const bubble = seekBubbleRef.current;
+    if (!bubble || isSeekingRef.current) return;
+    bubble.dataset.visible = "false";
   };
 
   useEffect(() => {
@@ -827,6 +876,9 @@ const Player = ({
       isSeekingRef.current = false;
       seekPointerIdRef.current = null;
       seekPreviewRef.current = null;
+      if (seekBubbleRef.current) {
+        seekBubbleRef.current.dataset.visible = "false";
+      }
       if (restorePlaybackPosition) {
         updateSeekPreviewUi(
           timelineRef.current,
@@ -896,6 +948,7 @@ const Player = ({
     audio.volume = volume;
     audio.muted = volume === 0;
     audio.playbackRate = playbackRate;
+    updateBufferedUi(bufferedRef.current, audio, audio.duration || 0);
     if (!cloudProgressPendingRef.current) {
       const hasPendingProgress = pendingCloudProgressRef.current !== null;
       applyPendingCloudProgress(audio);
@@ -956,6 +1009,7 @@ const Player = ({
       currentTimeRef.current,
       nextDuration,
     );
+    updateBufferedUi(bufferedRef.current, audio, nextDuration);
   };
 
   const suspendAudioGraph = () => {
@@ -1007,6 +1061,9 @@ const Player = ({
           onError?.(error);
         }}
         onLoadedMetadata={(event) => handleLoadedMetadata(event.currentTarget)}
+        onProgress={(event) =>
+          updateBufferedUi(bufferedRef.current, event.currentTarget, duration)
+        }
         onPause={(event) => {
           // The React state is the source of truth. A native pause event while
           // playback is still desired can only come from source/cloud-sync
@@ -1082,6 +1139,20 @@ const Player = ({
           style={{ "--player-progress": "0%" } as CSSProperties}
         >
           <span aria-hidden="true" className="player-timeline-track" />
+          <span
+            aria-hidden="true"
+            className="player-timeline-buffered"
+            data-available="false"
+            ref={bufferedRef}
+          />
+          <div
+            aria-hidden="true"
+            className="player-seek-bubble"
+            data-visible="false"
+            ref={seekBubbleRef}
+          >
+            0:00
+          </div>
           <input
             ref={timelineRef}
             aria-label="播放进度"
@@ -1099,6 +1170,9 @@ const Player = ({
             onInput={(event) =>
               handleSeekInput(event.currentTarget.valueAsNumber)
             }
+            onPointerEnter={handleTimelineHover}
+            onPointerMove={handleTimelineHover}
+            onPointerLeave={hideTimelineHover}
             onKeyDown={(event) => {
               if (SEEK_KEYS.has(event.key)) {
                 isKeyboardSeekingRef.current = true;
@@ -1128,6 +1202,7 @@ const Player = ({
               isSeekingRef.current = true;
               seekPointerIdRef.current = event.pointerId;
               seekPreviewRef.current = value;
+              handleTimelineHover(event);
             }}
           />
         </div>
