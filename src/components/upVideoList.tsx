@@ -353,7 +353,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                           >
                             {info.title}
                           </b>
-                          <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                          <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                             <CardMeta
                             fields={[
                               { kind: "author", value: item.modules?.module_author?.name ? subStr(item.modules.module_author.name, 7) : null },
@@ -361,7 +361,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                               { kind: "pubdate", value: publishTime },
                             ]}
                           />
-                          </p>
+                          </div>
                         </CardFooter>
                       </Card>
                     );

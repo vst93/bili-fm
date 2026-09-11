@@ -26,7 +26,8 @@ import type { WatchLaterItem as BLWatchLaterItem } from "@/types/bilibili";
 import { convertToDuration, graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
-const MAX_RETAINED_ITEMS = 240;
+const MAX_RETAINED_ITEMS = 160;
+import { appendWithRetention } from "@/lib/listRetention";
 
 type HistoryTab = "history" | "watchlater";
 
@@ -68,6 +69,8 @@ interface HistoryListProps {
     watchLaterList?: BLWatchLaterItem[];
     onWatchLaterRefresh?: () => void | Promise<void>;
     onWatchLaterRemove?: (aid: number) => void | Promise<void>;
+    scrollAnchorSampleRef?: { current: Record<string, { top: number; height: number }> };
+    pendingAnchorAdjustRef?: { current: Record<string, { prevTop: number; prevHeight: number }> };
 }
 
 const HistoryList: FC<HistoryListProps> = ({
@@ -82,6 +85,8 @@ const HistoryList: FC<HistoryListProps> = ({
     watchLaterList = [],
     onWatchLaterRefresh,
     onWatchLaterRemove,
+    scrollAnchorSampleRef,
+    pendingAnchorAdjustRef,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
@@ -150,12 +155,14 @@ const HistoryList: FC<HistoryListProps> = ({
     };
 
     const handleLoadMore = async () => {
-        if (isLoadingMoreRef.current || (historyList?.length || 0) >= MAX_RETAINED_ITEMS) return;
+        if (isLoadingMoreRef.current) return;
         isLoadingMoreRef.current = true;
+        const anchor = scrollAnchorSampleRef?.current.history;
         try {
             const data = await invoke<BLHistoryList>("get_history_list", { max: historyCursor?.max, viewAt: historyCursor?.view_at, business: historyCursor?.business, ps: 30 });
             if (data?.list) {
-                setHistoryList([...historyList, ...data.list].slice(0, MAX_RETAINED_ITEMS));
+                setHistoryList(appendWithRetention(historyList, data.list, MAX_RETAINED_ITEMS));
+                if (anchor && pendingAnchorAdjustRef) pendingAnchorAdjustRef.current.history = { prevTop: anchor.top, prevHeight: anchor.height };
             }
             if (data?.cursor) { 
                 setHistoryCursor(data?.cursor);
@@ -309,7 +316,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                     >
                                                         {item.title}
                                                     </b>
-                                                    <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                                                    <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                                                         <CardMeta
                                                             fields={[
                                                                 { kind: "author", value: item.author_name },
@@ -317,7 +324,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                                 { kind: "pubdate", value: item.view_at ? formatRelativeTime(item.view_at) : null },
                                                             ]}
                                                         />
-                                                    </p>
+                                                    </div>
                                                 </CardFooter>
                                             </Card>
                                         );
@@ -377,7 +384,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                             src={graftingImage(item.pic)}
                                                             width="100%"
                                                         />
-                                                        <span className="watchlater-duration-badge">
+                                                        <span className="c-cover-duration">
                                                             {convertToDuration(item.duration)}
                                                         </span>
                                                         <button
@@ -402,7 +409,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         >
                                                             {item.title}
                                                         </b>
-                                                        <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                                                        <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                                                             <CardMeta
                                                                 fields={[
                                                                     { kind: "author", value: item.owner?.name },
@@ -410,7 +417,7 @@ const HistoryList: FC<HistoryListProps> = ({
                                                                     { kind: "extra", value: progressLabel ? progressLabel.replace(/^\s*\|\s*/, "") : null },
                                                                 ]}
                                                             />
-                                                        </p>
+                                                        </div>
                                                     </CardFooter>
                                                 </Card>
                                             );

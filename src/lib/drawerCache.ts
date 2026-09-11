@@ -3,26 +3,26 @@
  *
  * 关抽屉写入、重开命中即水合（含已翻页数据），DOM 照卸。
  *
- * 内存约束（本轮收紧，针对「滑动几页 + 开卡片」后 WebView 驻留膨胀）：
- *   1. 每个列表条目裁剪到 LIST_CACHE_MAX 条。列表运行态上限是 240
- *      （MAX_RETAINED_LIST_ITEMS），但缓存会在关抽屉后长期驻留，
- *      按「够用即可」取更小的值，避免整份 API 响应（含冗余字段）被钉住。
- *   2. LRU-3 之外再加一道全局条目预算 DRAWER_CACHE_TOTAL_ITEMS：
- *      3 个满条目（3×240 完整 API 行）叠加是峰值主因，预算保证
- *      「约 2 个整列表 + 1 个不满的列表」共存，超出则从最旧整条淘汰。
- *   3. 弹幕 / 评论条目单独裁剪（它们随播放不断累积，条数常远超 240）。
+ * 内存约束（修复轮 21 再收紧）：
+ *   1. 每个列表条目裁剪到 LIST_CACHE_MAX 条（本轮 120 → 80）。运行态上限
+ *      也降到了 160（LIST_RETENTION_CAP），缓存态必须更小：它会在关抽屉后
+ *      长期驻留，且只是「重开时快速水合」用，一两屏足够。
+ *   2. LRU-2 之外再加一道全局条目预算 DRAWER_CACHE_TOTAL_ITEMS（本轮 300 → 160）。
+ *      预算按「条目内所有列表数组」计（含 recommend 的 recommendList/hotList、
+ *      history 的 watchLaterList、danmaku 的 replyList），不再只数顶层 items。
+ *   3. 弹幕 / 评论条目单独裁剪（它们随播放不断累积，条数常远超列表上限）。
  * 条目只保留渲染所需数据的引用，不持有 DOM / 定时器 / 事件监听。
  */
 
-export const DRAWER_CACHE_LIMIT = 3;
+export const DRAWER_CACHE_LIMIT = 2;
 export const DRAWER_CACHE_TTL_MS = 15 * 60 * 1000;
-/** 单个列表缓存条目上限（缓存态，小于运行态 240）。 */
-export const LIST_CACHE_MAX = 120;
-/** 全部 LRU 条目的条目数预算。3 条各 120 = 360 时只保留约 2 条满列表。 */
-export const DRAWER_CACHE_TOTAL_ITEMS = 300;
+/** 单个列表缓存条目上限（缓存态，严格小于运行态 160，只需够重开水合）。 */
+export const LIST_CACHE_MAX = 80;
+/** 全部 LRU 条目的条目数预算。约等于「两个满列表」共存，超出从最旧整条淘汰。 */
+export const DRAWER_CACHE_TOTAL_ITEMS = 160;
 /** 弹幕 / 评论在缓存态的独立上限。 */
-export const DANMAKU_CACHE_MAX = 80;
-export const REPLY_CACHE_MAX = 60;
+export const DANMAKU_CACHE_MAX = 60;
+export const REPLY_CACHE_MAX = 40;
 
 export type DrawerCacheEntry = {
   items: unknown;
@@ -47,14 +47,31 @@ export const recordDrawerScroll = (key: string, top: number) => {
   drawerScrollTops[key] = top;
 };
 
-const entryItemCount = (items: unknown): number => {
-  if (Array.isArray(items)) return items.length;
-  if (items && typeof items === "object") {
-    const inner = (items as { items?: unknown }).items;
-    if (Array.isArray(inner)) return inner.length;
+/**
+ * 统计一个值里「列表形态」的条目总数。
+ * 兼容数组本身、{ items: [...] } 响应，以及 { recommendList: {items}, hotList: {items} }
+ * 这类多子列表负载 —— 旧实现只数顶层 items，导致 recommend 整条不计入预算。
+ */
+const countListItems = (value: unknown): number => {
+  if (Array.isArray(value)) return value.length;
+  if (value && typeof value === "object") {
+    let sum = 0;
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      if (Array.isArray(nested)) {
+        sum += nested.length;
+      } else if (nested && typeof nested === "object") {
+        const inner = (nested as { items?: unknown }).items;
+        if (Array.isArray(inner)) sum += inner.length;
+      }
+    }
+    return sum;
   }
   return 0;
 };
+
+/** 条目总条目数 = 主数据 + extra 里的附属列表（稍后再看 / 评论 / 合集等）。 */
+const entryItemCount = (entry: DrawerCacheEntry): number =>
+  countListItems(entry.items) + countListItems(entry.extra);
 
 // 兼容两种形状：数组本身，或 { items: [...] } 的接口响应。
 const trimListContainer = (items: unknown, max: number): unknown => {
@@ -123,7 +140,7 @@ export const trimDrawerCacheEntry = (
 const enforceTotalBudget = () => {
   const total = () => {
     let sum = 0;
-    for (const entry of drawerCache.values()) sum += entryItemCount(entry.items);
+    for (const entry of drawerCache.values()) sum += entryItemCount(entry);
     return sum;
   };
   for (const key of [...drawerCache.keys()]) {
@@ -179,7 +196,7 @@ export const __drawerCacheStats = () => ({
   size: drawerCache.size,
   keys: [...drawerCache.keys()],
   totalItems: [...drawerCache.values()].reduce(
-    (sum, entry) => sum + entryItemCount(entry.items),
+    (sum, entry) => sum + entryItemCount(entry),
     0,
   ),
 });

@@ -113,6 +113,9 @@ const SearchList: FC<SearchListProps> = ({
                         src={graftingImage(video.picture_url)}
                         width="100%"
                       />
+                      {video.length ? (
+                        <span className="c-cover-duration">{video.length}</span>
+                      ) : null}
                     </CardBody>
                     <CardFooter className="text-small flex-col items-start px-2 py-1">
                       <b
@@ -121,7 +124,7 @@ const SearchList: FC<SearchListProps> = ({
                       >
                         {video.title}
                       </b>
-                      <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                      <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                         <CardMeta
                           fields={[
                             { kind: "author", value: video.author },
@@ -129,7 +132,7 @@ const SearchList: FC<SearchListProps> = ({
                             { kind: "pubdate", value: video.date },
                           ]}
                         />
-                      </p>
+                      </div>
                     </CardFooter>
                   </Card>
                 ))}

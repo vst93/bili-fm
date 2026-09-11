@@ -132,7 +132,7 @@ const FeedList: FC<FeedListProps> = ({
                         >
                           {isCharge ? <span className="bg-red-400 px-1 py-0.5 rounded-lg text-white mr-1">充电专属</span> : '' }{info.title}
                         </b>
-                        <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                        <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                           <CardMeta
                           fields={[
                             { kind: "author", value: subStr(userName, 7) },
@@ -140,7 +140,7 @@ const FeedList: FC<FeedListProps> = ({
                             { kind: "pubdate", value: publishTime },
                           ]}
                         />
-                        </p>
+                        </div>
                       </CardFooter>
                     </Card>
                   );

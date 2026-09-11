@@ -13,6 +13,8 @@ export interface SearchResult {
   danmuCount: number;
   author: string;
   date: string;
+  /** 视频时长文本（B 站搜索返回 "mm:ss"），用于封面右下角角标 */
+  length: string;
 }
 
 export interface Dimension {

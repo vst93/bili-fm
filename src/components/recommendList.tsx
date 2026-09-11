@@ -169,6 +169,11 @@ const RecommendList: FC<RecommendListProps> = ({
                             src={graftingImage(coverUrl)}
                             width="100%"
                           />
+                          {item?.duration != null && item.duration > 0 ? (
+                            <span className="c-cover-duration">
+                              {convertToDuration(item.duration)}
+                            </span>
+                          ) : null}
                         </CardBody>
                         <CardFooter className="text-small flex-col items-start px-2 py-1">
                           <b
@@ -177,16 +182,15 @@ const RecommendList: FC<RecommendListProps> = ({
                           >
                             {item.title}
                           </b>
-                          <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                          <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                             <CardMeta
                             fields={[
                               { kind: "author", value: subStr(item.owner?.name || item.author, 7) },
                               { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
                               { kind: "pubdate", value: item.pubdate ? formatRelativeTime(item.pubdate) : null },
-                              { kind: "duration", value: item.duration != null ? convertToDuration(item.duration) : null },
                             ]}
                           />
-                          </p>
+                          </div>
                         </CardFooter>
                       </Card>
                     );

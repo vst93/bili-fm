@@ -283,12 +283,12 @@ const PageList: FC<PageListProps> = ({
                       >
                         {page.part || videoInfo.title}
                       </b>
-                      <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                      <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                         <CardMeta fields={[
                           { kind: "views", value: videoInfo?.stat?.view != null ? formatViewCount(videoInfo.stat.view) : null },
                           { kind: "duration", value: convertToDuration(page.duration) },
                         ]} />
-                      </p>
+                      </div>
                     </CardFooter>
                   </Card>
                   );

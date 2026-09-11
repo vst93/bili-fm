@@ -20,7 +20,8 @@ import CardMeta from "./cardMeta";
 
 import { graftingImage, formatViewCount, formatRelativeTime, convertToDuration } from "@/utils/string";
 
-const MAX_RETAINED_ITEMS = 240;
+const MAX_RETAINED_ITEMS = 160;
+import { appendWithRetention } from "@/lib/listRetention";
 import { invoke } from "@tauri-apps/api/core";
 import type { SeriesArchive } from "@/types/bilibili";
 
@@ -49,6 +50,8 @@ interface SeriesListProps {
     currentUpMid: number;
     currentSeriesId: number;
     setSeriesVideos: (videos: Array<any>) => void;
+    scrollAnchorSampleRef?: { current: Record<string, { top: number; height: number }> };
+    pendingAnchorAdjustRef?: { current: Record<string, { prevTop: number; prevHeight: number }> };
 }
 
 const SeriesList: FC<SeriesListProps> = ({
@@ -63,6 +66,8 @@ const SeriesList: FC<SeriesListProps> = ({
     currentUpMid = 0,
     currentSeriesId = 0,
     setSeriesVideos,
+    scrollAnchorSampleRef,
+    pendingAnchorAdjustRef,
 }) => {
     const { isOpen, onOpenChange } = useDisclosure({ isOpen: true });
     const isLoadingMoreRef = useRef(false);
@@ -83,18 +88,19 @@ const SeriesList: FC<SeriesListProps> = ({
     };
 
     const handleScroll = async (e: React.UIEvent<HTMLDivElement>) => {
-        if (isLoadingMoreRef.current || seriesVideos.length >= MAX_RETAINED_ITEMS) return;
-        const bottom =
-            e.currentTarget.scrollHeight - e.currentTarget.scrollTop -
-                e.currentTarget.clientHeight <= 80;
+        if (isLoadingMoreRef.current) return;
+        const bottom = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight <= 80;
         if (bottom) {
             isLoadingMoreRef.current = true;
             const thePage = seriesVideosPage + 1;
+            const anchor = scrollAnchorSampleRef?.current.series;
             try {
                 const seriesVideosData = await invoke<SeriesArchive[]>("get_series_videos", { mid: currentUpMid, seriesId: currentSeriesId, pageNum: thePage });
                 if (seriesVideosData.length > 0) {
-                    setSeriesVideos([...seriesVideos, ...seriesVideosData].slice(0, MAX_RETAINED_ITEMS));
+                    const merged = appendWithRetention(seriesVideos, seriesVideosData, MAX_RETAINED_ITEMS);
+                    setSeriesVideos(merged);
                     setSeriesVideosPage(thePage);
+                    if (anchor) pendingAnchorAdjustRef!.current.series = { prevTop: anchor.top, prevHeight: anchor.height };
                 }
             } catch (error) {
                 console.error("加载更多合集视频失败:", error);
@@ -184,14 +190,14 @@ const SeriesList: FC<SeriesListProps> = ({
                                             >
                                                 {video.title}
                                             </b>
-                                            <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                                            <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                                                 <CardMeta
                                                     fields={[
                                                       { kind: "views", value: video?.stat?.view != null ? formatViewCount(video.stat.view) : null },
                                                       { kind: "pubdate", value: video?.pubdate ? formatRelativeTime(video.pubdate) : null },
                                                     ]}
                                                 />
-                                            </p>
+                                            </div>
                                         </CardFooter>
                                     </Card>
                                 ))}

@@ -183,6 +183,11 @@ const CollectList: FC<CollectListProps> = ({
                             src={graftingImage(item.cover)}
                             width="100%"
                           />
+                          {item?.duration != null && item.duration > 0 ? (
+                            <span className="c-cover-duration">
+                              {convertToDuration(item.duration)}
+                            </span>
+                          ) : null}
                         </CardBody>
                         <CardFooter className="text-small flex-col items-start px-2 py-1">
                           <b
@@ -191,16 +196,15 @@ const CollectList: FC<CollectListProps> = ({
                           >
                             {item.title}
                           </b>
-                          <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
+                          <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                             <CardMeta
                             fields={[
                               { kind: "author", value: item.upper?.name || item.author },
                               { kind: "views", value: item?.cnt_info?.play != null ? formatViewCount(item.cnt_info.play) : null },
                               { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
-                              { kind: "duration", value: item?.duration != null ? convertToDuration(item.duration) : null },
                             ]}
                           />
-                          </p>
+                          </div>
                         </CardFooter>
                       </Card>
                     );

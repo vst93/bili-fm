@@ -477,6 +477,9 @@ pub struct SearchResult {
     pub danmu_count: i64,
     pub author: String,
     pub date: String,
+    /// 视频时长（B 站搜索返回 "mm:ss" 文本，列表卡片直接用作封面角标）
+    #[serde(default)]
+    pub length: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -840,6 +843,7 @@ fn parse_search_results(result: &[Value]) -> Vec<SearchResult> {
             danmu_count: int_of(item, "video_review"),
             author: str_of(item, "author"),
             date: unix_to_date(int_of(item, "pubdate")),
+            length: str_of(item, "length"),
         });
     }
     out

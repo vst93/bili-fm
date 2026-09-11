@@ -18,6 +18,7 @@ import {
   writeDrawerCache,
   recordDrawerScroll,
 } from "@/lib/drawerCache";
+import { appendWithRetention } from "@/lib/listRetention";
 import VideoCover from "@/components/videoCover";
 import VideoInfo from "@/components/videoInfo";
 import Player from "@/components/player";
@@ -66,7 +67,9 @@ const SeriesList = lazy(loadSeriesList);
 const DanmakuList = lazy(loadDanmakuList);
 const Playlist = lazy(loadPlaylist);
 
-const MAX_RETAINED_LIST_ITEMS = 240;
+const MAX_RETAINED_LIST_ITEMS = 160; // = LIST_RETENTION_CAP：超出即从头部释放（不封顶分页）
+const MAX_RETAINED_DANMAKU = 400;
+const MAX_RETAINED_REPLIES = 120;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
@@ -224,6 +227,11 @@ export default function IndexPage() {
   const recommendRequestRef = useRef(new Set<string>());
   const collectLoadMoreRef = useRef(false);
   const upVideoLoadMoreRef = useRef(false);
+  // 头部释放锚点补偿：为每个缓存键存「释放前/后的 scrollTop + 内容高度」，
+  // 列表渲染提交后按下式计算新 scrollTop，抵消被移除头部条目造成的高度差，
+  // 避免画面跳动。滚动期间只记录一个挂起值，渲染提交后消费。
+  const pendingAnchorAdjustRef = useRef<Record<string, { prevTop: number; prevHeight: number }>>({});
+  const scrollAnchorSampleRef = useRef<Record<string, { top: number; height: number }>>({});
   const mediaNavigationRef = useRef({
     previous: () => {},
     next: () => {},
@@ -248,14 +256,17 @@ export default function IndexPage() {
   }, []);
 
   // 捕获各抽屉滚动容器的 scrollTop。抽屉关闭即卸载 DOM，
-  // 之后无法再查询元素，因此靠捕获阶段的 scroll 事件实时记录。
+  // 之后无法再查询元素，因此靠捕获阶段的 scroll 事件实时记录；
+  // 同时缓存 scrollHeight，供头部释放后的 scrollTop 补偿使用。
   useEffect(() => {
     const handleScroll = (event: Event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const height = target.scrollHeight;
       for (const [key, sel] of Object.entries(DRAWER_BODY_SELECTOR)) {
         if (target.matches(sel)) {
           recordDrawerScroll(key, target.scrollTop);
+          scrollAnchorSampleRef.current[key] = { top: target.scrollTop, height };
           return;
         }
       }
@@ -264,6 +275,36 @@ export default function IndexPage() {
 
     return () => document.removeEventListener("scroll", handleScroll, true);
   }, []);
+
+  // 列表数据更新后消费挂起的锚点补偿：scrollHeight 减少多少，scrollTop 就减多少。
+  // 各列表 state 在 finally 里同步（同一批次），故这里依赖列表数据本身，
+  // 在其提交后的 effect 里读取 DOM 实测差值（不依赖 render 时序）。
+  useEffect(() => {
+    const pending = pendingAnchorAdjustRef.current;
+    const keys = Object.keys(pending);
+    if (keys.length === 0) return;
+    for (const key of keys) {
+      const selector = DRAWER_BODY_SELECTOR[key];
+      const before = pending[key];
+      delete pending[key];
+      if (!selector) continue;
+      const body = document.querySelector(selector);
+      if (!(body instanceof HTMLElement)) continue;
+      const delta = before.prevHeight - body.scrollHeight;
+      if (delta > 0) {
+        body.scrollTop = Math.max(0, body.scrollTop - delta);
+        recordDrawerScroll(key, body.scrollTop);
+      }
+    }
+  }, [
+    feedList,
+    upVideoList,
+    recommendList,
+    hotList,
+    collectList,
+    historyList,
+    seriesVideos,
+  ]);
 
   // 水合后在数据渲染完成的 effect 里恢复抽屉 scrollTop。
   // 等列表 DOM 挂载，用 requestAnimationFrame 等一帧；失败静默（回到顶部可接受）。
@@ -941,7 +982,15 @@ export default function IndexPage() {
     const cached = readDrawerCache("feed");
     if (cached) {
       // 缓存命中：直接水合（含已翻页数据），不自动重拉。
-      setFeedList(cached.items as BL.FeedList);
+      // 缓存态被裁到 LIST_CACHE_MAX；运行态要重新上界到 LIST_RETENTION_CAP，
+      // 否则下一次「加载更多」会因运行态仍处在上限而再次假死。
+      setFeedList({
+        ...(cached.items as BL.FeedList),
+        items: ((cached.items as BL.FeedList)?.items || []).slice(
+          0,
+          MAX_RETAINED_LIST_ITEMS,
+        ),
+      });
       setFeedOffset((cached.extra.offset as string) || "");
       pendingScrollRestoreRef.current = { key: "feed", top: cached.scrollTop };
       setShowFeedList(true);
@@ -992,22 +1041,22 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多动态内容
    */
   const handleLoadMore = async (offset: string) => {
-    if (
-      feedLoadMoreRef.current ||
-      (feedList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS
-    ) return;
+    if (feedLoadMoreRef.current) return;
     feedLoadMoreRef.current = true;
+    const anchor = scrollAnchorSampleRef.current.feed;
     try {
       const data = await invoke<BL.FeedList>("get_feed_list", { offset });
 
       if (data?.items) {
         setFeedList((current) => ({
           ...data,
-          items: [...(current?.items || []), ...data.items].slice(
-            0,
+          items: appendWithRetention(
+            current?.items,
+            data.items,
             MAX_RETAINED_LIST_ITEMS,
           ),
         }));
+        if (anchor) pendingAnchorAdjustRef.current.feed = { prevTop: anchor.top, prevHeight: anchor.height };
       }
       setFeedOffset(data?.offset || "");
     } catch (error) {
@@ -1649,7 +1698,13 @@ export default function IndexPage() {
     }
     const cached = readDrawerCache("danmaku");
     if (cached && cached.extra.danmakuCid === videoInfo.cid) {
-      setDanmakuList(cached.items as BL.DanmakuList);
+      setDanmakuList({
+        ...(cached.items as BL.DanmakuList),
+        items: ((cached.items as BL.DanmakuList)?.items || []).slice(
+          0,
+          MAX_RETAINED_DANMAKU,
+        ),
+      } as BL.DanmakuList);
       setDanmakuCid(cached.extra.danmakuCid as number);
       setReplyList(cached.extra.replyList as BL.ReplyList);
       setReplyOid(cached.extra.replyOid as number);
@@ -1764,11 +1819,11 @@ export default function IndexPage() {
         // Append new items to existing list - create new object to avoid TypeScript issues
         const newItems = [...(replyList?.items || []), ...(data.items || [])].slice(
           0,
-          MAX_RETAINED_LIST_ITEMS,
+          MAX_RETAINED_REPLIES,
         );
         setReplyList({
           items: newItems,
-          has_more: data.has_more && newItems.length < MAX_RETAINED_LIST_ITEMS,
+          has_more: data.has_more && newItems.length < MAX_RETAINED_REPLIES,
           next: data.next,
           // Preserve total_count from original data or first load
           total_count: replyList?.total_count || data.total_count || 0,
@@ -1920,7 +1975,13 @@ export default function IndexPage() {
     }
     const cached = readDrawerCache("upVideo");
     if (cached) {
-      setUpVideoList(cached.items as BL.FeedList);
+      setUpVideoList({
+        ...(cached.items as BL.FeedList),
+        items: ((cached.items as BL.FeedList)?.items || []).slice(
+          0,
+          MAX_RETAINED_LIST_ITEMS,
+        ),
+      } as BL.FeedList);
       setUpVideoOffset((cached.extra.upVideoOffset as string) || "");
       setSeriesList((cached.extra.seriesList as any[]) || []);
       if (cached.extra.currentUpMid) setCurrentUpMid(cached.extra.currentUpMid as number);
@@ -2086,11 +2147,9 @@ export default function IndexPage() {
    * @description 根据偏移量加载更多UP主视频
    */
   const handleUpVideoLoadMore = async () => {
-    if (
-      upVideoLoadMoreRef.current ||
-      (upVideoList?.items?.length || 0) >= MAX_RETAINED_LIST_ITEMS
-    ) return;
+    if (upVideoLoadMoreRef.current) return;
     upVideoLoadMoreRef.current = true;
+    const anchor = scrollAnchorSampleRef.current.upVideo;
     try {
       const data = await invoke<BL.FeedList>("get_up_video_list", {
         hostMid: currentUpMid,
@@ -2100,11 +2159,13 @@ export default function IndexPage() {
       if (data?.items) {
         setUpVideoList((current) => ({
           ...data,
-          items: [...(current?.items || []), ...data.items].slice(
-            0,
+          items: appendWithRetention(
+            current?.items,
+            data.items,
             MAX_RETAINED_LIST_ITEMS,
           ),
         }));
+        if (anchor) pendingAnchorAdjustRef.current.upVideo = { prevTop: anchor.top, prevHeight: anchor.height };
       }
       setUpVideoOffset(data?.offset || "");
     } catch (error) {
@@ -2296,15 +2357,10 @@ export default function IndexPage() {
    * @description 加载下一页推荐/热门内容
    */
   const handleRecommendLoadMore = async (type: string = "recommend") => {
-    const currentCount = type === "recommend"
-      ? recommendList?.items?.length || 0
-      : hotList?.items?.length || 0;
     const requestKey = type;
-    if (
-      recommendRequestRef.current.has(requestKey) ||
-      currentCount >= MAX_RETAINED_LIST_ITEMS
-    ) return;
+    if (recommendRequestRef.current.has(requestKey)) return;
     recommendRequestRef.current.add(requestKey);
+    const anchor = scrollAnchorSampleRef.current.recommend;
     try {
       if (type === "recommend") {
         const nextPage = recommendPage + 1;
@@ -2315,12 +2371,14 @@ export default function IndexPage() {
         if (data?.items) {
           setRecommendList((current: BL.RCMDList | undefined) => ({
             ...data,
-            items: [...(current?.items || []), ...data.items].slice(
-              0,
+            items: appendWithRetention(
+              current?.items,
+              data.items,
               MAX_RETAINED_LIST_ITEMS,
             ),
           }));
           setRecommendPage(nextPage);
+          if (anchor) pendingAnchorAdjustRef.current.recommend = { prevTop: anchor.top, prevHeight: anchor.height };
         }
       } else {
         const nextPage = hotPage + 1;
@@ -2331,12 +2389,14 @@ export default function IndexPage() {
         if (data?.items) {
           setHotList((current: BL.PopularList | undefined) => ({
             ...data,
-            items: [...(current?.items || []), ...data.items].slice(
-              0,
+            items: appendWithRetention(
+              current?.items,
+              data.items,
               MAX_RETAINED_LIST_ITEMS,
             ),
           }));
           setHotPage(nextPage);
+          if (anchor) pendingAnchorAdjustRef.current.recommend = { prevTop: anchor.top, prevHeight: anchor.height };
         }
       }
     } catch (error) {
@@ -2357,7 +2417,12 @@ export default function IndexPage() {
   const handleCollectClick = async () => {
     const cached = readDrawerCache("collect");
     if (cached) {
-      setCollectList(cached.items);
+      setCollectList(
+        (Array.isArray(cached.items) ? cached.items : []).slice(
+          0,
+          MAX_RETAINED_LIST_ITEMS,
+        ),
+      );
       setCollectGroups((cached.extra.collectGroups as any[]) || []);
       if (cached.extra.currentGroupId !== undefined) {
         setCurrentGroupId(cached.extra.currentGroupId as number);
@@ -2447,11 +2512,9 @@ export default function IndexPage() {
    * @description 加载当前收藏夹的下一页内容
    */
   const handleCollectLoadMore = async () => {
-    if (
-      collectLoadMoreRef.current ||
-      (collectList?.length || 0) >= MAX_RETAINED_LIST_ITEMS
-    ) return;
+    if (collectLoadMoreRef.current) return;
     collectLoadMoreRef.current = true;
+    const anchor = scrollAnchorSampleRef.current.collect;
     try {
       if (currentGroupId) {
         const nextPage = collectPage + 1;
@@ -2461,11 +2524,11 @@ export default function IndexPage() {
         });
 
         if (Array.isArray(data)) {
-          setCollectList((current: any[] | undefined) => [
-            ...(Array.isArray(current) ? current : []),
-            ...data,
-          ].slice(0, MAX_RETAINED_LIST_ITEMS));
+          setCollectList((current: any[] | undefined) =>
+            appendWithRetention(current, data, MAX_RETAINED_LIST_ITEMS),
+          );
           setCollectPage(nextPage);
+          if (anchor) pendingAnchorAdjustRef.current.collect = { prevTop: anchor.top, prevHeight: anchor.height };
         }
       }
     } catch (error) {
@@ -2871,6 +2934,8 @@ export default function IndexPage() {
               onVideoSelect={handleSearchVideoSelect}
               onWatchLaterRefresh={handleWatchLaterRefresh}
               onWatchLaterRemove={handleRemoveFromWatchLater}
+              scrollAnchorSampleRef={scrollAnchorSampleRef}
+              pendingAnchorAdjustRef={pendingAnchorAdjustRef}
             />
           )}
           {showSeriesList && (
@@ -2885,6 +2950,8 @@ export default function IndexPage() {
               onPlayAll={handleSeriesPlayAll}
               onSlideClick={handleSeriesListClose}
               onVideoSelect={handleSearchVideoSelect}
+              scrollAnchorSampleRef={scrollAnchorSampleRef}
+              pendingAnchorAdjustRef={pendingAnchorAdjustRef}
             />
           )}
           {showDanmakuList && (
