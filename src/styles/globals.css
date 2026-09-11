@@ -2491,43 +2491,16 @@ body.mini-mode .app-shell::after {
 }
 
 /* 恰饭跳过开关：与 EQ 开关同排同款的文字型开关（复用 player-button 玻璃底）。 */
+/* 恰饭跳过开关：图标型开关，与 EQ 开关同排同款（复用 player-button 玻璃底）。 */
 #player .player-sponsor-button {
-    width: 116px;
+    width: 34px;
     height: 32px;
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1px;
     border-color: rgba(148, 163, 184, 0.2);
     box-shadow:
         inset 0 1px 1px rgba(255, 255, 255, 0.44),
         0 2px 7px rgba(15, 23, 42, 0.045);
     color: #526174;
     border-radius: 8px;
-    line-height: 1;
-    font-weight: 700;
-}
-
-#player .player-sponsor-label {
-    font-size: 10px;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-}
-
-#player .player-sponsor-sub {
-    font-size: 8px;
-    font-weight: 600;
-    opacity: 0.66;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
-}
-
-/* 小窗模式仅显示短标签，主/副文案隐藏。 */
-#player .player-sponsor-mini {
-    display: none;
-    font-size: 9px;
-    letter-spacing: 0;
 }
 
 #player .player-sponsor-button::after {
@@ -2834,6 +2807,33 @@ body.mini-mode .app-shell::after {
     background: rgba(125, 211, 252, 0.7);
 }
 
+/* 广告段浅红标记：纯视觉覆盖层，位于缓冲层之上、已播放填充之下，不遮 thumb。 */
+#player .player-timeline-sponsor {
+    position: absolute;
+    top: 50%;
+    left: 7px;
+    right: 7px;
+    height: 6px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    pointer-events: none;
+    transform: translateY(-50%);
+    overflow: hidden;
+    z-index: 0;
+}
+
+#player .player-timeline-sponsor[data-available="false"] {
+    display: none;
+}
+
+#player .player-timeline-sponsor-segment {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(248, 113, 113, 0.35);
+    pointer-events: none;
+}
+
 #player .player-seek-bubble {
     position: absolute;
     bottom: calc(100% + 6px);
@@ -2956,11 +2956,13 @@ body.mini-mode .app-shell::after {
     top: 50%;
     right: calc(100% + 10px);
     bottom: auto;
-    width: 152px;
+    width: 184px;
     height: 42px;
     display: grid;
-    place-items: center;
-    padding: 0 14px;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: 8px;
+    padding: 0 10px 0 8px;
     box-sizing: border-box;
     border: 1px solid var(--glass-border);
     border-radius: 14px;
@@ -2987,6 +2989,24 @@ body.mini-mode .app-shell::after {
 #player .player-volume-slider {
     width: 100%;
     height: 24px;
+}
+
+/* 独立静音控件：只有该按钮（或拖动滑块到 0）才会切换静音。 */
+#player .player-volume-mute-button {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 8px;
+    border-color: rgba(148, 163, 184, 0.2);
+    box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, 0.44),
+        0 2px 7px rgba(15, 23, 42, 0.045);
+    color: #526174;
+}
+
+#player .player-volume-mute-button[data-active] {
+    color: var(--studio-blue);
+    border-color: rgba(2, 132, 199, 0.28);
 }
 
 #player .player-speed {
@@ -4632,26 +4652,22 @@ body.mini-mode #player .player-sponsor-button {
     border-radius: 7px;
 }
 
-body.mini-mode #player .player-sponsor-label {
+/* mini 控制栏收纳：低频设置（倍速/音量均衡/恰饭跳过入口）在 mini 下隐藏。
+   开关状态照常生效（SponsorBlock 仍会在后台跳过），仅入口藏起来。 */
+body.mini-mode #player .player-eq-button,
+body.mini-mode #player .player-speed-button,
+body.mini-mode #player .player-sponsor-button {
     display: none;
-}
-
-body.mini-mode #player .player-sponsor-sub {
-    display: none;
-}
-
-body.mini-mode #player .player-sponsor-mini {
-    display: inline;
 }
 
 body.mini-mode #player .player-volume-popover {
-    width: 126px !important;
+    width: 158px !important;
     height: 38px !important;
     top: 50% !important;
     right: calc(100% + 8px) !important;
     left: auto !important;
     bottom: auto !important;
-    padding: 0 12px !important;
+    padding: 0 10px 0 8px !important;
     border-radius: 12px !important;
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import {
+  Ad,
   Equalizer,
   GoEnd,
   Pause,
@@ -244,6 +245,9 @@ const Player = ({
   const sponsorSegmentsRef = useRef<SponsorSegment[]>([]);
   const sponsorSkipFiredRef = useRef<Set<number>>(new Set());
   const sponsorToastAtRef = useRef(0);
+  // 广告段可视化：segments 变化时递增版本号以驱动进度条标记层重渲染。
+  const sponsorMarkerRef = useRef<HTMLSpanElement>(null);
+  const [sponsorSegmentsVersion, setSponsorSegmentsVersion] = useState(0);
   const [duration, setDuration] = useState(0);
   const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
   const [volume, setVolume] = useState(readStoredVolume);
@@ -585,6 +589,7 @@ const Player = ({
   useEffect(() => {
     sponsorSegmentsRef.current = [];
     sponsorSkipFiredRef.current = new Set();
+    setSponsorSegmentsVersion((version) => version + 1);
     if (!sponsorSkip || !bvid || !cid) return;
 
     const controller = new AbortController();
@@ -592,6 +597,7 @@ const Player = ({
     void fetchSegments(bvid, cid, controller.signal).then((segments) => {
       if (cancelled) return;
       sponsorSegmentsRef.current = segments;
+      setSponsorSegmentsVersion((version) => version + 1);
     });
     return () => {
       cancelled = true;
@@ -1240,6 +1246,41 @@ const Player = ({
             data-available="false"
             ref={bufferedRef}
           />
+          <span
+            aria-hidden="true"
+            className="player-timeline-sponsor"
+            data-available={
+              sponsorSkip && sponsorSegmentsRef.current.length > 0 ? "true" : "false"
+            }
+            data-version={sponsorSegmentsVersion}
+            ref={sponsorMarkerRef}
+          >
+            {sponsorSkip && duration > 0
+              ? sponsorSegmentsRef.current.map((seg, index) => {
+                  const mediaDuration = duration;
+                  if (!Number.isFinite(mediaDuration) || mediaDuration <= 0) return null;
+                  if (
+                    seg.videoDuration > 0 &&
+                    Math.abs(mediaDuration - seg.videoDuration) >
+                      SPONSOR_DURATION_TOLERANCE_SECONDS
+                  ) {
+                    return null;
+                  }
+                  const [start, end] = seg.segment;
+                  const left = Math.max(0, Math.min(100, (start / mediaDuration) * 100));
+                  const right = Math.max(0, Math.min(100, (end / mediaDuration) * 100));
+                  if (right <= left) return null;
+                  return (
+                    <i
+                      // 广告段为纯视觉标记，索引即稳定 key（同曲内不变）。
+                      key={index}
+                      className="player-timeline-sponsor-segment"
+                      style={{ left: `${left}%`, width: `${right - left}%` }}
+                    />
+                  );
+                })
+              : null}
+          </span>
           <div
             aria-hidden="true"
             className="player-seek-bubble"
@@ -1309,23 +1350,13 @@ const Player = ({
         <div className="player-volume" ref={volumePopoverRef}>
           <button
             aria-expanded={isVolumeOpen}
-            aria-label={volume > 0 ? "音量" : "取消静音"}
+            aria-label="音量"
             className="player-button player-volume-button"
             data-open={isVolumeOpen || undefined}
             disabled={!src}
-            title={volume > 0 ? "音量" : "取消静音"}
+            title="音量"
             type="button"
-            onClick={() => {
-              if (volume === 0) {
-                const restored = lastVolumeRef.current || 1;
-                handleVolumeChange(restored);
-                persistVolume(restored);
-              } else {
-                handleVolumeChange(0);
-                persistVolume(0);
-              }
-              setIsVolumeOpen((open) => !open);
-            }}
+            onClick={() => setIsVolumeOpen((open) => !open)}
           >
             {volume > 0 ? (
               <VolumeNotice fill="currentColor" size={20} theme="outline" />
@@ -1335,6 +1366,30 @@ const Player = ({
           </button>
           {isVolumeOpen && (
             <div className="player-volume-popover">
+              <button
+                aria-label={volume > 0 ? "静音" : "取消静音"}
+                aria-pressed={volume === 0}
+                className="player-button player-volume-mute-button"
+                data-active={volume === 0 || undefined}
+                title={volume > 0 ? "静音" : "取消静音"}
+                type="button"
+                onClick={() => {
+                  if (volume === 0) {
+                    const restored = lastVolumeRef.current || 1;
+                    handleVolumeChange(restored);
+                    persistVolume(restored);
+                  } else {
+                    handleVolumeChange(0);
+                    persistVolume(0);
+                  }
+                }}
+              >
+                {volume > 0 ? (
+                  <VolumeNotice fill="currentColor" size={16} theme="outline" />
+                ) : (
+                  <VolumeMute fill="currentColor" size={16} theme="outline" />
+                )}
+              </button>
               <input
                 aria-label="音量"
                 aria-valuetext={`${Math.round(volume * 100)}%`}
@@ -1408,22 +1463,16 @@ const Player = ({
         </button>
 
         <button
-          aria-label={sponsorSkip ? "关闭自动跳过恰饭片段" : "开启自动跳过恰饭片段"}
+          aria-label="自动跳过恰饭片段（SponsorBlock）"
           aria-pressed={sponsorSkip}
           className="player-button player-sponsor-button"
           data-active={sponsorSkip || undefined}
           disabled={!src}
-          title={
-            sponsorSkip
-              ? "自动跳过恰饭片段: 开（由 SponsorBlock 社区数据提供）"
-              : "自动跳过恰饭片段: 关"
-          }
+          title="自动跳过恰饭片段（SponsorBlock）"
           type="button"
           onClick={toggleSponsorSkip}
         >
-          <span className="player-sponsor-label">自动跳过恰饭片段</span>
-          <span className="player-sponsor-sub">由 SponsorBlock 社区数据提供</span>
-          <span className="player-sponsor-mini">跳过</span>
+          <Ad fill="currentColor" size={17} theme="outline" />
         </button>
       </div>
     </div>
