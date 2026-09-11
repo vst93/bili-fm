@@ -1126,6 +1126,9 @@ const Player = ({
 
   // 恰饭跳过开关：localStorage 为主，dkv 同步备份（跟随音量/倍速双写范式）。
   const toggleSponsorSkip = () => {
+    // TODO(临时诊断): 用户实机反馈 AD 按钮点击无反应，用于在 devtools 确认
+    // 点击是否到达 handler。定位后删除。
+    console.debug("[sponsor-skip] toggle clicked, current=", sponsorSkip);
     const newEnabled = !sponsorSkip;
     setSponsorSkip(newEnabled);
     // 隐私模式 Safari 等环境下 localStorage.setItem 会抛（QuotaExceededError /

@@ -553,29 +553,40 @@ a,
     background-color: #e8eaed;
 }
 
-/* 三键（赞/币/藏）：图标 + 10px 数值的紧凑纵向列，行高压紧不影响按钮组。 */
+/* 三键（赞/币/藏）：图标 + 9px 数值的紧凑纵向列。
+   数值用 absolute 挂在按钮正下方（不撑高按钮本体），由行容器
+   `.video-content-actions` 的 padding-bottom 预留展示区，
+   这样有数字/没数字的按钮图标都在同一水平中轴线上对齐。 */
 .nav-icon-btn.nav-stat-btn {
     width: 32px;
     height: 32px;
-    /* 数值挂在按钮正下方（absolute，不撑高按钮本体）：与相邻无数字按钮保持图标居中对齐，
-       行容器需留出下方 ~14px 展示区（.video-content-actions 已有 max-height + padding-bottom）。 */
-    margin-bottom: 14px;
 }
 
-.nav-stat-value {
+/* 数值必须绝对定位挂在图标按钮正下方。
+   注意：这里用 `.nav-icon-btn > .nav-stat-value`（等价 0,2,0）而不是裸
+   `.nav-stat-value`（0,1,0）——否则会被后文同特异度的
+   `.nav-icon-btn > * { position: relative }`（源序更靠后）覆盖，
+   span 退回 flex 行内项目，被 34px 按钮挤成 "1..." 且把图标顶偏。 */
+.nav-icon-btn > .nav-stat-value {
     position: absolute;
     top: calc(100% + 1px);
     left: 50%;
     transform: translateX(-50%);
+    display: block;
     font-size: 9px;
     line-height: 12px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     color: #64748b;
-    max-width: 200%;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* 挂靠按钮居中，宽度按内容自适应；不再用 200% 的窄上限去撑，
+       避免 "1.1w"/"23w" 被 ellipsis 截断。 */
+    width: max-content;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
     white-space: nowrap;
+    pointer-events: none;
+    z-index: 1;
 }
 
 .nav-icon-btn.nav-stat-btn:disabled .nav-stat-value {
@@ -1853,9 +1864,10 @@ body.mini-mode .app-shell::after {
     max-width: none;
     min-width: 0;
     min-height: 0;
-    /* 352 = 头部 66 + 标题 52 + 简介(14+60) + 胶囊(12+36) + 操作行(14+34)
-       + dock(12+42) = 342，再留 6px 余量（原 332 实测溢出 14px，dock 被裁） */
-    height: 352px;
+    /* 366 = 头部 66 + 标题 52 + 简介(6+60) + 胶囊(12+36) + 操作行(14+34+14，
+       末项为 stat 数值展示区 padding-bottom) + dock(12+42) = 360，再留 6px 余量。
+       旧值 352 把操作行的 padding-bottom 漏算了 14px，导致最底部 dock 被裁。 */
+    height: 366px;
     margin: 0;
     float: none;
     display: block;
