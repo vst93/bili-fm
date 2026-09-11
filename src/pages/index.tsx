@@ -3,6 +3,10 @@ import { CloseSmall } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { load } from "@tauri-apps/plugin-store";
+import {
+  isRegistered,
+  register,
+} from "@tauri-apps/plugin-global-shortcut";
 import QRCode from "qrcode";
 
 import { toast } from "../utils/toast";
@@ -679,6 +683,51 @@ export default function IndexPage() {
         navigator.mediaSession.setActionHandler("nexttrack", null);
       }
     };
+  }, []);
+
+  /**
+   * 全局媒体键（托盘/后台）
+   * @description 窗口隐藏到托盘后 WebView 收不到 keydown，改用系统级全局快捷键。
+   * 处理逻辑与上面的 keydown 备用方案保持一致：MediaPlayPause 切换播放/暂停，
+   * Next/Prev 走 mediaNavigationRef（无下一首/上一首时静默忽略）。
+   * 卸载时不 unregister —— 全局键随 app 生命周期。
+   */
+  useEffect(() => {
+    const shortcuts = [
+      "MediaPlayPause",
+      "MediaNextTrack",
+      "MediaPreviousTrack",
+    ];
+
+    const handleGlobalShortcut = async () => {
+      try {
+        // 插件 handler 在 Pressed/Released 各触发一次，只处理按下；
+        // 注册前用 isRegistered 规避 StrictMode 双挂载/热重载的 already-registered。
+        const pending: string[] = [];
+
+        for (const shortcut of shortcuts) {
+          if (!(await isRegistered(shortcut))) pending.push(shortcut);
+        }
+        if (pending.length === 0) return;
+
+        await register(pending, (event) => {
+          if (event.state !== "Pressed") return;
+
+          if (event.shortcut === "MediaPlayPause") {
+            setIsPlaying((prev) => !prev);
+          } else if (event.shortcut === "MediaPreviousTrack") {
+            mediaNavigationRef.current.previous();
+          } else if (event.shortcut === "MediaNextTrack") {
+            mediaNavigationRef.current.next();
+          }
+        });
+      } catch (e) {
+        // 其他程序占用媒体键时注册会失败：记录并静默降级，不弹 toast。
+        console.error("[global-shortcut] 注册全局媒体键失败", e);
+      }
+    };
+
+    handleGlobalShortcut();
   }, []);
 
   /**
