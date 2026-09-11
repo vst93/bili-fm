@@ -3,9 +3,11 @@ import { useEffect, useState, type CSSProperties } from "react";
 export default function DefaultLayout({
   children,
   ambientCover,
+  lightfieldSimple = false,
 }: {
   children: React.ReactNode;
   ambientCover?: string;
+  lightfieldSimple?: boolean;
 }) {
   // 封面背景「先预载、后换源」：切歌时旧背景一直画在屏上，新图加载完成
   // 才更新 CSS 变量。否则背景图 URL 立即换掉，新图未就绪时整窗背景会闪一下空白。
@@ -32,7 +34,7 @@ export default function DefaultLayout({
   // 首次开启也是等新图就绪后随渐显出现，两端都不会闪。
   const className = `app-shell relative flex flex-col h-screen bg-transparent${
     appliedCover && ambientCover ? "" : " ambient-off"
-  }`;
+  }${lightfieldSimple ? " lightfield-simple" : ""}`;
 
   return (
     <div className={className} style={style}>

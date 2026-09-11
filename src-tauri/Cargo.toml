@@ -22,8 +22,13 @@ opt-level = "s"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Linux 调试: `cargo tauri dev --features devtools` + WEBKIT_DEBUG=1
+# 可选开启, 不进 default/release, 避免 release 编入 DevTools 通道与资源。
+devtools = ["tauri/devtools"]
+
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"

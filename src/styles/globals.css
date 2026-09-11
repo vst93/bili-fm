@@ -1334,6 +1334,14 @@ body.mini-mode .app-shell::after {
     opacity: 0;
 }
 
+/* 「光场简化」开关：去 filter（全窗 blur 是 GPU 显存最大单项）。
+   背景渐变已预烘焙在 background-image 里，去 filter 后仅微调 opacity
+   让观感平滑。与 ambient-off 独立叠加，不互相干扰。 */
+.app-shell.lightfield-simple::before {
+    filter: none;
+    opacity: 0.35;
+}
+
 .app-shell > * {
     position: relative;
     z-index: 1;
@@ -5216,6 +5224,15 @@ body.video-open .player-video-close {
 }
 
 .cover-background-toggle.is-active {
+    background: rgba(14, 165, 233, 0.28);
+    border-color: rgba(125, 211, 252, 0.45);
+}
+
+.cover-lightfield-toggle {
+    right: 76px;
+}
+
+.cover-lightfield-toggle.is-active {
     background: rgba(14, 165, 233, 0.28);
     border-color: rgba(125, 211, 252, 0.45);
 }

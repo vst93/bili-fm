@@ -35,7 +35,7 @@ pub fn run() {
     #[cfg(target_os = "windows")]
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "--allow-running-insecure-content --disable-features=MixedContentAutoupgrade",
+        "--allow-running-insecure-content --disable-features=MixedContentAutoupgrade --force-gpu-mem-available-mb=512",
     );
 
     tauri::Builder::default()
@@ -150,14 +150,19 @@ pub fn run() {
 
             let window = window_builder.build()?;
 
-            #[cfg(not(target_os = "linux"))]
+            // Linux: 通过环境变量 WEBKIT_DEBUG=1 打开 Web Inspector (开发者工具),
+            // 用于排查 Linux 白屏/渲染问题。open_devtools 仅在可选 feature
+            // `devtools` 下可用, release 默认不开启。需要在 Linux 上调试时:
+            //
+            //     cargo tauri dev --features devtools   (并设置 WEBKIT_DEBUG=1)
+            //
+            // 正常使用不受影响: 未设置该变量时行为与之前完全一致。
+            // 无 devtools 特性的 Linux 构建里 window 未被使用, 用 cfg(any(...))
+            // 统一消除 unused 告警。
+            #[cfg(any(not(target_os = "linux"), not(feature = "devtools")))]
             let _ = &window;
 
-            // Linux: 通过环境变量 WEBKIT_DEBUG=1 打开 Web Inspector (开发者工具),
-            // 用于排查 Linux 白屏/渲染问题。需要启用 tauri 的 `devtools` feature
-            // (release 构建中 open_devtools 仅在该 feature 下可用)。
-            // 正常使用不受影响: 未设置该变量时行为与之前完全一致。
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "devtools"))]
             if std::env::var("WEBKIT_DEBUG").as_deref() == Ok("1") {
                 window.open_devtools();
             }

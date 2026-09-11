@@ -60,6 +60,7 @@ const Playlist = lazy(loadPlaylist);
 const MAX_RETAINED_LIST_ITEMS = 240;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
+const LIGHTFIELD_SIMPLE_STORAGE_KEY = "lightfieldSimple";
 
 /**
  * 等待原生窗口完成 resize。Tauri 的 set_size 只把消息交给事件循环，
@@ -148,6 +149,9 @@ export default function IndexPage() {
   const [isWindowControlPending, setIsWindowControlPending] = useState(false);
   const [isAmbientBackgroundEnabled, setIsAmbientBackgroundEnabled] = useState(
     () => localStorage.getItem(AMBIENT_BACKGROUND_STORAGE_KEY) !== "false",
+  );
+  const [isLightfieldSimple, setIsLightfieldSimple] = useState(
+    () => localStorage.getItem(LIGHTFIELD_SIMPLE_STORAGE_KEY) === "true",
   );
   const windowModeChangingRef = useRef(false);
   // 视频小窗模式：带视频进入迷你模式时保留视频画面并置顶窗口。
@@ -335,6 +339,21 @@ export default function IndexPage() {
           setIsIncognitoMode(enabled);
           localStorage.setItem(
             INCOGNITO_MODE_STORAGE_KEY,
+            String(enabled),
+          );
+        }
+      })
+      .catch(() => {});
+    invoke<string | null>("get_kv", {
+      key: LIGHTFIELD_SIMPLE_STORAGE_KEY,
+    })
+      .then((savedValue) => {
+        if (savedValue === "true" || savedValue === "false") {
+          const enabled = savedValue === "true";
+
+          setIsLightfieldSimple(enabled);
+          localStorage.setItem(
+            LIGHTFIELD_SIMPLE_STORAGE_KEY,
             String(enabled),
           );
         }
@@ -1632,6 +1651,16 @@ export default function IndexPage() {
     }).catch(() => {});
   };
 
+  const handleLightfieldSimpleToggle = () => {
+    const enabled = !isLightfieldSimple;
+    setIsLightfieldSimple(enabled);
+    localStorage.setItem(LIGHTFIELD_SIMPLE_STORAGE_KEY, String(enabled));
+    void invoke("set_kv", {
+      key: LIGHTFIELD_SIMPLE_STORAGE_KEY,
+      value: String(enabled),
+    }).catch(() => {});
+  };
+
   const handleIncognitoModeChange = (enabled: boolean) => {
     setIsIncognitoMode(enabled);
     localStorage.setItem(INCOGNITO_MODE_STORAGE_KEY, String(enabled));
@@ -2276,6 +2305,7 @@ export default function IndexPage() {
   return (
     <DefaultLayout
       ambientCover={isAmbientBackgroundEnabled ? ambientCover : ""}
+      lightfieldSimple={isLightfieldSimple}
     >
       {/* 播放视频时标题栏浮在画面上，迷你模式切换键放这里既多余又干扰画面，
           入口下移到视频浮层自己的按钮组（见 PlayerVideo onMiniWindow）。 */}
@@ -2308,6 +2338,8 @@ export default function IndexPage() {
                 onPlayStateChange={handleCoverClick}
                 ambientBackgroundEnabled={isAmbientBackgroundEnabled}
                 onAmbientBackgroundToggle={handleAmbientBackgroundToggle}
+                lightfieldSimple={isLightfieldSimple}
+                onLightfieldSimpleToggle={handleLightfieldSimpleToggle}
               />
             </div>
             <VideoInfo
