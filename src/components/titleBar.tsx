@@ -361,6 +361,11 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
   return (
     <>
       <div className="app-title-bar h-12 flex items-center relative" data-tauri-drag-region="deep">
+        {/* 全宽拖动热区：hover-to-reveal 唤出标题栏后，鼠标落在标题栏本体下方
+            的热区余量（36~48px）或控件两侧的空白处时，仍能拖动窗口。
+            默认 pointer-events: none（不抢 #player_video 的 mousemove，避免
+            破坏唤出逻辑），仅在 body.video-open.titlebar-hover 时接管指针。 */}
+        <div className="app-title-bar-drag-rail" aria-hidden="true" data-tauri-drag-region="true" />
         {isMac ? (
           <>
             <div className="flex-1" />
@@ -400,7 +405,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onSwitchMode, showSwitchMode = true
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-0">
+              <div className="app-title-bar-actions flex items-center gap-0">
                 <div className="flex items-center pr-1">{switchBtn}</div>
                 <div className="flex items-center gap-1 px-1 py-0.5" id="wds-handle-group">
                   <button

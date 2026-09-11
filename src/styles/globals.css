@@ -1735,8 +1735,8 @@ body.mini-mode .app-shell::after {
 #video-cover.record-disc {
     animation: record-spin 22s linear infinite;
     animation-play-state: paused;
-    /* Performance: promote to compositor layer for GPU-accelerated rotation */
-    will-change: transform;
+    /* 不再常驻 will-change: transform：旋转动画运行中浏览器自会提升为合成层，
+     * 暂停/未播放时保留 will-change 会白白占用一张封面大小的 GPU 纹理。 */
 }
 
 #video-cover.is-playing {
@@ -3893,12 +3893,13 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     min-height: 0 !important;
     max-height: none !important;
     padding: 8px 10px 16px 10px;
-    will-change: scroll-position;
 }
 
+/* 弹幕/评论文本是静态内容，不需要合成层提升。
+   原先的 will-change: transform + translateZ(0) 会给每条可见文本各分配一张
+   GPU 纹理，在 WebView2 上显著抬高 GPU 进程显存；去掉后渲染结果不变。 */
 .danmaku-scroll-area p {
-    will-change: transform;
-    transform: translateZ(0);
+    transform: none;
 }
 
 .danmaku-time-row {
@@ -4031,8 +4032,6 @@ div:has(> [data-slot="wrapper"]) > div:first-child {
     line-height: 18px;
     text-overflow: ellipsis;
     text-shadow: 0 1px 1px rgba(255, 255, 255, 0.68);
-    will-change: transform;
-    transform: translateZ(0);
     white-space: nowrap;
 }
 
@@ -4251,6 +4250,15 @@ body.mini-mode .app-title-bar > * {
 /* Keep the window control buttons interactive in mini mode */
 body.mini-mode .app-title-bar #wds-handle-group,
 body.mini-mode .app-title-bar #wds-handle-group * {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 窗口控件外层容器不能被 mini 模式的 `> *` 规则整体淡出（opacity 会沿树
+   相乘，导致内部 #wds-handle-group 的 opacity:1 失效、控件不可见，顶部
+   只剩一条 24px 空白）。恢复容器本身的不透明度即可让最小化/关闭按钮正常
+   显示。Windows/Linux 走此分支；macOS 用原生红绿灯、结构不同，不受影响。 */
+body.mini-mode .app-title-bar > .app-title-bar-actions {
     opacity: 1;
     pointer-events: auto;
 }
@@ -4965,6 +4973,29 @@ body.video-open .app-title-bar-btn:hover {
 body.video-open #wds-handle-group {
     background: rgba(15, 23, 42, 0.42);
     border-color: rgba(255, 255, 255, 0.16);
+}
+
+/* 全宽拖动热区（见 TitleBar 的 .app-title-bar-drag-rail）：
+   标题栏本体只有 36px，而唤出热区有 48px；左右两端又夹着窗口控件。
+   这块透明层向下补足热区高度并铺满宽度，唤出后落在本体下方余量或控件
+   两侧空白处都能拖动窗口，消除左右两侧与热区底部的触发空缺。
+   默认不接管指针（把 mousemove 留给 #player_video 驱动唤出），
+   仅在标题栏已唤出（titlebar-hover / 自身 hover / 焦点）时启用。
+   height 44px 与右上角「关闭视频」按钮（top: 44px）刚好错开，不遮挡它。 */
+body.video-open .app-title-bar-drag-rail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 44px;
+    z-index: 0;
+    pointer-events: none;
+}
+
+body.video-open.titlebar-hover .app-title-bar-drag-rail,
+body.video-open .app-title-bar:hover .app-title-bar-drag-rail,
+body.video-open .app-title-bar:focus-within .app-title-bar-drag-rail {
+    pointer-events: auto;
 }
 
 /* 深底上不要用亮色玻璃底噪，压深即可 */
