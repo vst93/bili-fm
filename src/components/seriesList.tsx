@@ -15,9 +15,9 @@ import {
     CardBody,
     CardFooter,
 } from "@heroui/react";
-import { Play } from "@icon-park/react";
+import { Play, PreviewOpen } from "@icon-park/react";
 
-import { graftingImage, formatDatetime } from "@/utils/string";
+import { graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
 
 const MAX_RETAINED_ITEMS = 240;
 import { invoke } from "@tauri-apps/api/core";
@@ -181,7 +181,19 @@ const SeriesList: FC<SeriesListProps> = ({
                                                 {video.title}
                                             </b>
                                             <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                {formatDatetime(video?.pubdate)} | {video?.stat?.view}
+                                                <span className="card-meta">
+                                                    {video?.pubdate ? (
+                                                        <span className="card-meta-field is-pubdate">
+                                                            {formatRelativeTime(video.pubdate)}
+                                                        </span>
+                                                    ) : null}
+                                                    {video?.stat?.view != null ? (
+                                                        <span className="card-meta-field is-views">
+                                                            <PreviewOpen size={12} theme="outline" />
+                                                            {formatViewCount(video.stat.view)}
+                                                        </span>
+                                                    ) : null}
+                                                </span>
                                             </p>
                                         </CardFooter>
                                     </Card>

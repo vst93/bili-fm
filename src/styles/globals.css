@@ -160,6 +160,43 @@ textarea,
 .c-list-card {
     content-visibility: auto;
     contain-intrinsic-size: auto 180px;
+    container-type: inline-size;
+}
+
+/* 卡片 meta 行：图标 + 数值的紧凑字段，间隙收窄。 */
+.card-meta {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.card-meta-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.card-meta-field svg {
+    flex-shrink: 0;
+    opacity: 0.72;
+}
+
+/* 窄卡片：先藏发布时间，再藏播放量（隐藏后不占位），标题永不被这些字段挤走。 */
+@container (max-width: 180px) {
+    .card-meta-field.is-pubdate {
+        display: none;
+    }
+}
+
+@container (max-width: 130px) {
+    .card-meta-field.is-views {
+        display: none;
+    }
 }
 
 /* Playlist rows are much shorter than grid cards — use a smaller placeholder */
@@ -514,6 +551,30 @@ a,
 
 .nav-icon-btn:hover {
     background-color: #e8eaed;
+}
+
+/* 三键（赞/币/藏）：图标 + 10px 数值的紧凑纵向列，行高压紧不影响按钮组。 */
+.nav-icon-btn.nav-stat-btn {
+    width: 36px;
+    height: 40px;
+    flex-direction: column;
+    gap: 0;
+    line-height: 1;
+}
+
+.nav-stat-value {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: #64748b;
+    margin-top: 1px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-icon-btn.nav-stat-btn:disabled .nav-stat-value {
+    color: inherit;
 }
 
 .nav-icon-btn:disabled {
@@ -2021,6 +2082,20 @@ body.mini-mode .app-shell::after {
     padding-right: 0;
 }
 
+/* 合作视频标签：与「充电专属」同款胶囊样式，改用蓝色系区分。 */
+.video-collab-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: #60a5fa;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+
 #video-title h2 {
     margin: 0;
     min-height: 52px;
@@ -2332,7 +2407,10 @@ body.mini-mode .app-shell::after {
     height: 56px;
     padding: 0 18px;
     display: grid;
-    grid-template-columns: 80px 46px minmax(0, 1fr) 46px 34px 40px 34px 40px;
+    /* 列宽按各列实际内容推导（.player-button 32px、.player-play-button 42px、transport gap 6px）：
+       transport = 42 + 6 + 32 = 80px；时间列按 h:mm:ss（11px tabular-nums ≈ 47px）+ 8px padding = 55px 预留，
+       保证长视频时长不截断；音量 32px → 34px；倍速 40px；EQ 34px；恰饭跳过 34px → 40px。 */
+    grid-template-columns: 80px 56px minmax(0, 1fr) 56px 34px 40px 34px 40px;
     align-items: center;
     gap: 8px;
     position: relative;
@@ -4592,8 +4670,12 @@ body.mini-mode #player .player-controls {
     -webkit-backdrop-filter: blur(20px) saturate(1.4);
     /* 压缩时间和工具按钮的固定列宽，把更多空间留给进度条。
        EQ/倍速/跳过在 mini 下 display:none，网格只保留
-       切曲 | 当前时间 | 进度条 | 时长 | 音量 五组有效列。 */
-    grid-template-columns: 46px 44px minmax(0, 1fr) 44px 66px;
+       切曲 | 当前时间 | 进度条 | 时长 | 音量 五组有效列。
+       transport 列必须容下暂停 + 下一首两颗按钮：
+       mini .player-play-button = 32px，mini .player-button = 28px，
+       body.mini-mode .player-transport-controls gap = 3px → 32 + 3 + 28 = 63px（旧值 46px 装不下导致溢出）。
+       时间列 9px tabular-nums，"12:34" ≈ 27px → 44px 足够；音量 mini 按钮 28px → 34px。 */
+    grid-template-columns: 63px 44px minmax(0, 1fr) 44px 34px;
     gap: 4px;
 }
 

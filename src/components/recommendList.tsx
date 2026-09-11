@@ -1,5 +1,5 @@
 import type { FC } from "react";
-import { Refresh } from "@icon-park/react";
+import { Refresh, PreviewOpen } from "@icon-park/react";
 
 import { useDisclosure } from "@heroui/react";
 import {
@@ -19,7 +19,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import RetryImg from "./retryImg";
 import ListSkeleton from "./listSkeleton";
 import { usePreloadImages } from "../hooks/usePreloadImages";
-import { convertToDuration, graftingImage, formatNumber, subStr } from "@/utils/string";
+import { convertToDuration, graftingImage, formatViewCount, formatRelativeTime, subStr } from "@/utils/string";
 
 const TAB_STORAGE_KEY = "bili-fm-recommend-tab";
 
@@ -103,15 +103,6 @@ const RecommendList: FC<RecommendListProps> = ({
 
   const currentList = activeTab === "recommend" ? recommendList : hotList;
 
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    if (date.getFullYear() < (new Date().getFullYear())) {
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    } else {
-      return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    }
-  };
-
   return (
     <Drawer
       classNames={{
@@ -186,7 +177,21 @@ const RecommendList: FC<RecommendListProps> = ({
                             {item.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            {subStr(item.owner?.name || item.author,7)} | {formatTimestamp(item.pubdate)} | {convertToDuration(item.duration)} | {formatNumber(item?.stat?.view)}
+                            <span className="card-meta">
+                              <span className="card-meta-field">{subStr(item.owner?.name || item.author, 7)}</span>
+                              {item.pubdate ? (
+                                <span className="card-meta-field is-pubdate">
+                                  {formatRelativeTime(item.pubdate)}
+                                </span>
+                              ) : null}
+                              <span className="card-meta-field">{convertToDuration(item.duration)}</span>
+                              {item?.stat?.view != null ? (
+                                <span className="card-meta-field is-views">
+                                  <PreviewOpen size={12} theme="outline" />
+                                  {formatViewCount(item.stat.view)}
+                                </span>
+                              ) : null}
+                            </span>
                           </p>
                         </CardFooter>
                       </Card>

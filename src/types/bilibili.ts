@@ -40,6 +40,13 @@ export interface VideoStaff {
   title: string;
 }
 
+export interface VideoStat {
+  like: number;
+  coin: number;
+  favorite: number;
+  view: number;
+}
+
 export interface VideoInfo {
   bvid: string;
   aid: number;
@@ -51,6 +58,7 @@ export interface VideoInfo {
   owner_name: string;
   owner_face: string;
   staff: VideoStaff[];
+  stat: VideoStat;
   pages: Page[];
   cid: number;
 }

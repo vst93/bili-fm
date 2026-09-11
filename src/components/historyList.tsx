@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Close, MaskOne, Refresh } from "@icon-park/react";
+import { Close, MaskOne, Refresh, PreviewOpen } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -22,7 +22,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import type { WatchLaterItem as BLWatchLaterItem } from "@/types/bilibili";
-import { convertToDuration, graftingImage } from "@/utils/string";
+import { convertToDuration, graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
 const MAX_RETAINED_ITEMS = 240;
@@ -200,11 +200,6 @@ const HistoryList: FC<HistoryListProps> = ({
         void runWatchLaterAction(aid, onWatchLaterRemove);
     };
 
-    const formatTimestamp = (timestamp: number) => {
-        const date = new Date(timestamp * 1000);
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    };
-
     return (
         <Drawer
             classNames={{
@@ -311,7 +306,20 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         {item.title}
                                                     </b>
                                                     <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                        {item.author_name} | {formatTimestamp(item.view_at)}
+                                                        <span className="card-meta">
+                                                            <span className="card-meta-field">{item.author_name}</span>
+                                                            {item.view_at ? (
+                                                                <span className="card-meta-field is-pubdate">
+                                                                    {formatRelativeTime(item.view_at)}
+                                                                </span>
+                                                            ) : null}
+                                                            {item?.stat?.view != null ? (
+                                                                <span className="card-meta-field is-views">
+                                                                    <PreviewOpen size={12} theme="outline" />
+                                                                    {formatViewCount(item.stat.view)}
+                                                                </span>
+                                                            ) : null}
+                                                        </span>
                                                     </p>
                                                 </CardFooter>
                                             </Card>
@@ -398,8 +406,18 @@ const HistoryList: FC<HistoryListProps> = ({
                                                             {item.title}
                                                         </b>
                                                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                            {item.owner?.name}
-                                                            {progressLabel}
+                                                            <span className="card-meta">
+                                                                <span className="card-meta-field">{item.owner?.name}</span>
+                                                                {item?.stat?.view != null ? (
+                                                                    <span className="card-meta-field is-views">
+                                                                        <PreviewOpen size={12} theme="outline" />
+                                                                        {formatViewCount(item.stat.view)}
+                                                                    </span>
+                                                                ) : null}
+                                                                {progressLabel ? (
+                                                                    <span className="card-meta-field">{progressLabel}</span>
+                                                                ) : null}
+                                                            </span>
                                                         </p>
                                                     </CardFooter>
                                                 </Card>

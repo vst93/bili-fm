@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { FeedList, FollowStatus } from "@/types/bilibili";
 
-import { Refresh, Add, Close } from "@icon-park/react";
+import { Refresh, Add, Close, PreviewOpen } from "@icon-park/react";
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
@@ -23,7 +23,7 @@ import {
 } from "@heroui/react";
 import { useState, useEffect } from "react";
 
-import { graftingImage } from "@/utils/string";
+import { graftingImage, formatViewCount } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
 // interface SeriesItem {
@@ -349,7 +349,17 @@ const UpVideoList: FC<UpVideoListProps> = ({
                             {info.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            {publishTime}
+                            <span className="card-meta">
+                              {publishTime ? (
+                                <span className="card-meta-field is-pubdate">{publishTime}</span>
+                              ) : null}
+                              {item?.modules?.module_dynamic?.major?.archive?.stat?.play != null ? (
+                                <span className="card-meta-field is-views">
+                                  <PreviewOpen size={12} theme="outline" />
+                                  {formatViewCount(Number(item.modules.module_dynamic.major.archive.stat.play) || 0)}
+                                </span>
+                              ) : null}
+                            </span>
                           </p>
                         </CardFooter>
                       </Card>

@@ -61,3 +61,38 @@ export const subStr = (str: string, len: number) => {
     return str;
   }
 }
+
+// 播放量/点赞量等计数：≥1万 → `x.x万`（1.1万），≥100万 → 去小数 `xx万`（112万）。
+export const formatViewCount = (num: number) => {
+  const value = Number.isFinite(num) ? Math.max(0, Math.floor(num)) : 0;
+  if (value >= 1000000) return `${Math.floor(value / 10000)}万`;
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}万`;
+  return String(value);
+};
+
+// 三键数值：≥1亿 → `x.x亿`，≥100万 → 整数万（23w），≥1万 → `x.x w`（1.1w）。
+export const formatCompactCount = (num: number) => {
+  const value = Number.isFinite(num) ? Math.max(0, Math.floor(num)) : 0;
+  if (value >= 100000000) return `${(value / 100000000).toFixed(1)}亿`;
+  if (value >= 1000000) return `${Math.floor(value / 10000)}w`;
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}w`;
+  return String(value);
+};
+
+// 相对时间：今天/昨天/N天前，超过 30 天显示 yyyy-MM-dd。
+export const formatRelativeTime = (timestamp: number) => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  const target = new Date(timestamp * 1000);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(
+    target.getFullYear(),
+    target.getMonth(),
+    target.getDate(),
+  ).getTime();
+  const dayDiff = Math.round((startOfToday - startOfTarget) / 86400000);
+  if (dayDiff <= 0) return "今天";
+  if (dayDiff === 1) return "昨天";
+  if (dayDiff <= 30) return `${dayDiff}天前`;
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+};

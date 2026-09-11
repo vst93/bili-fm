@@ -535,9 +535,22 @@ pub struct VideoInfo {
     pub owner_face: String,
     #[serde(default)]
     pub staff: Vec<VideoStaff>,
+    /// 视频统计数据（来自同一 /x/web-interface/view 返回的 data.stat，不额外发请求）。
+    #[serde(default)]
+    pub stat: VideoStat,
     #[serde(default)]
     pub pages: Vec<Page>,
     pub cid: i64,
+}
+
+/// 视频统计：总量点赞/投币/收藏（用于 UI 展示，区别于“我是否投过”）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VideoStat {
+    pub like: i64,
+    pub coin: i64,
+    pub favorite: i64,
+    pub view: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -871,6 +884,11 @@ fn parse_video_info(data: &Value) -> VideoInfo {
         .filter_map(|item| serde_json::from_value::<VideoStaff>(item).ok())
         .filter(|member| member.mid > 0)
         .collect();
+    // data.stat 已在同一响应中，直接解析，不新增网络请求。
+    let stat: VideoStat = data
+        .get("stat")
+        .and_then(|value| serde_json::from_value::<VideoStat>(value.clone()).ok())
+        .unwrap_or_default();
     let owner = data
         .get("owner")
         .and_then(|value| serde_json::from_value::<VideoStaff>(value.clone()).ok())
@@ -888,6 +906,7 @@ fn parse_video_info(data: &Value) -> VideoInfo {
         owner_name: owner.name,
         owner_face: owner.face,
         staff,
+        stat,
         pages,
         cid: 0, // Go 原版从不设置该字段
     }

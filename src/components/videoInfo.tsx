@@ -19,8 +19,8 @@ import { toast } from "../utils/toast";
 
 import RetryImg from "./retryImg";
 
-import { graftingImage } from "@/utils/string";
-import type { VideoStaff } from "@/types/bilibili";
+import { graftingImage, formatCompactCount } from "@/utils/string";
+import type { VideoStaff, VideoStat } from "@/types/bilibili";
 
 interface VideoInfoProps {
   title?: string;
@@ -51,6 +51,7 @@ interface VideoInfoProps {
   playingPlaylistType?: "user" | "series";
   cid?: number;
   staff?: VideoStaff[];
+  stat?: VideoStat;
 }
 
 export default function VideoInfo({
@@ -78,6 +79,7 @@ export default function VideoInfo({
   playingPlaylistType = "user",
   cid,
   staff = [],
+  stat,
 }: VideoInfoProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [coinCount, setCoinCount] = useState(0);
@@ -322,6 +324,11 @@ export default function VideoInfo({
         </div>
 
         <div id="video-title">
+          {staff.length > 0 ? (
+            <span className="video-collab-badge" title="合作视频">
+              合作视频
+            </span>
+          ) : null}
           <h2>{title || "无标题"}</h2>
         </div>
 
@@ -343,24 +350,26 @@ export default function VideoInfo({
 
         <div className="video-content-actions" aria-label="内容操作">
           <button
-            className="nav-icon-btn"
+            className="nav-icon-btn nav-stat-btn"
             disabled={!bvid}
             title={isLiked ? "取消点赞" : "点赞"}
             onClick={handleLike}
           >
             <ThumbsUp fill={isLiked ? "#e11d48" : gray} size={20} theme="outline" />
+            <span className="nav-stat-value">{formatCompactCount(stat?.like ?? 0)}</span>
           </button>
           <button
-            className="nav-icon-btn"
+            className="nav-icon-btn nav-stat-btn"
             disabled={!bvid}
             title={coinCount >= 2 ? "已投币" : "投币(2个)"}
             onClick={handleCoin}
           >
             <HandleB fill={coinCount >= 2 ? "#ca8a04" : gray} size={20} theme="outline" />
+            <span className="nav-stat-value">{formatCompactCount(stat?.coin ?? 0)}</span>
           </button>
           <button
             aria-pressed={isFavorite}
-            className="nav-icon-btn"
+            className="nav-icon-btn nav-stat-btn"
             disabled={!aid || isFavoriteUpdating}
             title={isFavorite ? "取消收藏" : "收藏"}
             onClick={handleFavorite}
@@ -370,6 +379,7 @@ export default function VideoInfo({
               size={20}
               theme={isFavorite ? "filled" : "outline"}
             />
+            <span className="nav-stat-value">{formatCompactCount(stat?.favorite ?? 0)}</span>
           </button>
           <button
             className="nav-icon-btn"

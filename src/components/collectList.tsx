@@ -1,6 +1,6 @@
 import type { FC } from "react";
 
-import { Refresh, Left, Right } from "@icon-park/react";
+import { Refresh, Left, Right, PreviewOpen } from "@icon-park/react";
 import RetryImg from "./retryImg";
 import ListSkeleton from "./listSkeleton";
 
@@ -21,7 +21,7 @@ import { useRef, useMemo } from "react";
 
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
-import { graftingImage } from "@/utils/string";
+import { graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
 
 interface CollectListProps {
   onSlideClick?: () => void;
@@ -78,11 +78,6 @@ const CollectList: FC<CollectListProps> = ({
       drawerBody.scrollTop = 0;
     }
     onRefresh?.();
-  };
-
-  const formatTimestamp = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   };
 
   const scrollTabs = (direction: "left" | "right") => {
@@ -196,8 +191,20 @@ const CollectList: FC<CollectListProps> = ({
                             {item.title}
                           </b>
                           <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            {item.upper?.name || item.author} |{" "}
-                            {formatTimestamp(item.ctime)}
+                            <span className="card-meta">
+                              <span className="card-meta-field">{item.upper?.name || item.author}</span>
+                              {item.ctime ? (
+                                <span className="card-meta-field is-pubdate">
+                                  {formatRelativeTime(item.ctime)}
+                                </span>
+                              ) : null}
+                              {item?.cnt_info?.play != null ? (
+                                <span className="card-meta-field is-views">
+                                  <PreviewOpen size={12} theme="outline" />
+                                  {formatViewCount(item.cnt_info.play)}
+                                </span>
+                              ) : null}
+                            </span>
                           </p>
                         </CardFooter>
                       </Card>

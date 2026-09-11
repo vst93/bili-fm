@@ -1,7 +1,7 @@
 import type { FC } from "react";
 import { useMemo } from "react";
 import type { FeedList } from "@/types/bilibili";
-import { Refresh } from "@icon-park/react";
+import { Refresh, PreviewOpen } from "@icon-park/react";
 
 import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
@@ -18,7 +18,7 @@ import {
   CardFooter,
 } from "@heroui/react";
 
-import { graftingImage, subStr } from "@/utils/string";
+import { graftingImage, subStr, formatViewCount } from "@/utils/string";
 
 interface FeedListProps {
   feedList?: FeedList;
@@ -129,7 +129,17 @@ const FeedList: FC<FeedListProps> = ({
                           {isCharge ? <span className="bg-red-400 px-1 py-0.5 rounded-lg text-white mr-1">充电专属</span> : '' }{info.title}
                         </b>
                         <p className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          {subStr(userName, 7)} | {publishTime} | {item?.modules?.module_dynamic?.major?.archive?.duration_text || '未知时长'} | {item?.modules?.module_dynamic?.major?.archive?.stat?.play || '未知'}
+                          <span className="card-meta">
+                            <span className="card-meta-field">{subStr(userName, 7)}</span>
+                            <span className="card-meta-field is-pubdate">{publishTime}</span>
+                            <span className="card-meta-field">{item?.modules?.module_dynamic?.major?.archive?.duration_text || '未知时长'}</span>
+                            {item?.modules?.module_dynamic?.major?.archive?.stat?.play != null ? (
+                              <span className="card-meta-field is-views">
+                                <PreviewOpen size={12} theme="outline" />
+                                {formatViewCount(Number(item.modules.module_dynamic.major.archive.stat.play) || 0)}
+                              </span>
+                            ) : null}
+                          </span>
                         </p>
                       </CardFooter>
                     </Card>

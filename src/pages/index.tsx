@@ -2736,6 +2736,7 @@ export default function IndexPage() {
               ownerMid={displayVideoInfo?.owner_mid}
               ownerName={displayVideoInfo?.owner_name}
               staff={displayVideoInfo?.staff}
+              stat={displayVideoInfo?.stat}
               part={displayVideoInfo?.part ?? currentPart}
               playlistCount={playlist.length}
               seriesPlaylistCount={seriesPlaylist.length}
