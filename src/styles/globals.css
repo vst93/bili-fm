@@ -555,19 +555,24 @@ a,
 
 /* 三键（赞/币/藏）：图标 + 10px 数值的紧凑纵向列，行高压紧不影响按钮组。 */
 .nav-icon-btn.nav-stat-btn {
-    width: 36px;
-    height: 40px;
-    flex-direction: column;
-    gap: 0;
-    line-height: 1;
+    width: 32px;
+    height: 32px;
+    /* 数值挂在按钮正下方（absolute，不撑高按钮本体）：与相邻无数字按钮保持图标居中对齐，
+       行容器需留出下方 ~14px 展示区（.video-content-actions 已有 max-height + padding-bottom）。 */
+    margin-bottom: 14px;
 }
 
 .nav-stat-value {
-    font-size: 10px;
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    line-height: 12px;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     color: #64748b;
-    margin-top: 1px;
-    max-width: 100%;
+    max-width: 200%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2227,10 +2232,11 @@ body.mini-mode .app-shell::after {
     align-self: start;
     width: fit-content;
     max-width: 100%;
-    /* 两行按钮的物理上限：flex 换行时高度封顶，不允许无限增长 */
-    max-height: 74px;
+    /* 两行按钮的物理上限：flex 换行时高度封顶，不允许无限增长。
+       底部 14px 留给 stat 数值展示区（nav-stat-value absolute 挂在按钮下）。 */
+    max-height: 88px;
     margin-top: 14px;
-    padding: 0;
+    padding: 0 0 14px;
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
