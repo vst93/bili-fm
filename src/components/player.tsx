@@ -9,6 +9,9 @@ import {
   VolumeNotice,
 } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
+import { fetchSegments } from "../lib/sponsorBlock";
+import type { SponsorSegment } from "../lib/sponsorBlock";
+import { toast } from "../utils/toast";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 3] as const;
 const SEEK_KEYS = new Set([
@@ -23,8 +26,17 @@ const SEEK_KEYS = new Set([
 ]);
 const EQ_TRANSITION_SECONDS = 0.06;
 const EQ_STORAGE_KEY = "loudnessEqEnabled";
+const SPONSOR_SKIP_STORAGE_KEY = "sponsorSkip";
 const PLAYBACK_RATE_STORAGE_KEY = "playbackRate";
 const VOLUME_STORAGE_KEY = "volume";
+// 进度条容差：currentTime 落入 [start - LEAD, end) 即视为跨入该片段。
+const SPONSOR_SEGMENT_LEAD_SECONDS = 0.25;
+// 跳过后落到 end + PAD，确保不再落回同一区间（避免死循环）。
+const SPONSOR_SEEK_PAD_SECONDS = 0.05;
+// 过期校验容差：与提交时 videoDuration 相差超过该值则丢弃片段。
+const SPONSOR_DURATION_TOLERANCE_SECONDS = 2;
+// Toast 频控：10 秒内多条合并为一次。
+const SPONSOR_TOAST_MIN_INTERVAL_MS = 10_000;
 
 // 读取倍速偏好：localStorage 为主，非法/越界值回落 1（必须命中 PLAYBACK_RATES 档位）
 const readStoredPlaybackRate = (): number => {
@@ -116,6 +128,7 @@ interface PlayerProps {
   onError?: (error: MediaError | null) => void;
   isPlaying?: boolean;
   aid?: number;
+  bvid?: string;
   cid?: number;
   forcePause?: boolean;
   cloudHistoryEnabled?: boolean;
@@ -192,6 +205,7 @@ const Player = ({
   onError,
   isPlaying = false,
   aid,
+  bvid,
   cid,
   forcePause = false,
   cloudHistoryEnabled = true,
@@ -226,6 +240,10 @@ const Player = ({
   const playAttemptIdRef = useRef(0);
   const lastCloudReportRef = useRef({ mediaKey: "", progress: -1, at: 0 });
   const lastLocalResumeWriteRef = useRef(0);
+  // SponsorBlock 跳过：当前曲目的片段、已跳过索引集合、Toast 频控时间戳。
+  const sponsorSegmentsRef = useRef<SponsorSegment[]>([]);
+  const sponsorSkipFiredRef = useRef<Set<number>>(new Set());
+  const sponsorToastAtRef = useRef(0);
   const [duration, setDuration] = useState(0);
   const [cloudProgressReadyKey, setCloudProgressReadyKey] = useState("");
   const [volume, setVolume] = useState(readStoredVolume);
@@ -235,6 +253,9 @@ const Player = ({
     () => localStorage.getItem(EQ_STORAGE_KEY) === "true",
   );
   const [playbackRate, setPlaybackRate] = useState(readStoredPlaybackRate);
+  const [sponsorSkip, setSponsorSkip] = useState(
+    () => localStorage.getItem(SPONSOR_SKIP_STORAGE_KEY) === "true",
+  );
 
   onTimeUpdateRef.current = onTimeUpdate;
   cloudHistoryEnabledRef.current = cloudHistoryEnabled;
@@ -559,6 +580,25 @@ const Player = ({
     }
   };
 
+  // SponsorBlock 拉取：仅在开关开启且存在 bvid/cid 时发起；关闭时零请求。
+  // 换曲（mediaKey 变化）时中止上一个请求并重置已跳过状态。
+  useEffect(() => {
+    sponsorSegmentsRef.current = [];
+    sponsorSkipFiredRef.current = new Set();
+    if (!sponsorSkip || !bvid || !cid) return;
+
+    const controller = new AbortController();
+    let cancelled = false;
+    void fetchSegments(bvid, cid, controller.signal).then((segments) => {
+      if (cancelled) return;
+      sponsorSegmentsRef.current = segments;
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [bvid, cid, mediaKey, sponsorSkip]);
+
   useEffect(() => {
     return () => {
       clearCloudSeekTimer();
@@ -787,6 +827,49 @@ const Player = ({
     };
   }, [isSpeedOpen]);
 
+  // SponsorBlock 跳过判定：仅在开关开启、有片段、且当前自然播放跨入时跳一次。
+  // 每个 segment 只跳一次（记录索引）；用户手动 seek 回该区间不重复自动跳，
+  // 避免「跳不出」死循环。换曲时由拉取 effect 重置已跳过集合。
+  const maybeSkipSponsor = (audio: HTMLAudioElement) => {
+    if (!sponsorSkip) return;
+    const segments = sponsorSegmentsRef.current;
+    if (segments.length === 0) return;
+
+    const current = audio.currentTime;
+    const mediaDuration = audio.duration;
+    const hasDuration = Number.isFinite(mediaDuration) && mediaDuration > 0;
+
+    for (let i = 0; i < segments.length; i += 1) {
+      if (sponsorSkipFiredRef.current.has(i)) continue;
+      const seg = segments[i];
+      const [start, end] = seg.segment;
+      // 过期校验：时长就绪且与提交时长偏差过大则丢弃，防止时间线错位误跳。
+      if (
+        hasDuration &&
+        seg.videoDuration > 0 &&
+        Math.abs(mediaDuration - seg.videoDuration) >
+          SPONSOR_DURATION_TOLERANCE_SECONDS
+      ) {
+        sponsorSkipFiredRef.current.add(i);
+        continue;
+      }
+      if (start >= mediaDuration && hasDuration) continue;
+      if (current >= start - SPONSOR_SEGMENT_LEAD_SECONDS && current < end) {
+        const target = end + SPONSOR_SEEK_PAD_SECONDS;
+        if (safeSeek(audio, target)) {
+          sponsorSkipFiredRef.current.add(i);
+          currentTimeRef.current = target;
+          const now = Date.now();
+          if (now - sponsorToastAtRef.current >= SPONSOR_TOAST_MIN_INTERVAL_MS) {
+            sponsorToastAtRef.current = now;
+            toast({ type: "info", content: "已跳过恰饭片段" });
+          }
+        }
+        return;
+      }
+    }
+  };
+
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -794,6 +877,7 @@ const Player = ({
     if (pendingCloudProgressRef.current !== null) return;
 
     currentTimeRef.current = audio.currentTime;
+    maybeSkipSponsor(audio);
     if (!isSeekingRef.current) {
       updateSeekPreviewUi(
         timelineRef.current,
@@ -1032,6 +1116,17 @@ const Player = ({
     }
     setIsLoudnessEq(newEnabled);
     localStorage.setItem(EQ_STORAGE_KEY, String(newEnabled));
+  };
+
+  // 恰饭跳过开关：localStorage 为主，dkv 同步备份（跟随音量/倍速双写范式）。
+  const toggleSponsorSkip = () => {
+    const newEnabled = !sponsorSkip;
+    setSponsorSkip(newEnabled);
+    localStorage.setItem(SPONSOR_SKIP_STORAGE_KEY, String(newEnabled));
+    invoke("set_kv", {
+      key: SPONSOR_SKIP_STORAGE_KEY,
+      value: String(newEnabled),
+    }).catch(() => {});
   };
 
   return (
@@ -1310,6 +1405,25 @@ const Player = ({
           onClick={toggleLoudnessEq}
         >
           <Equalizer fill="currentColor" size={17} theme="outline" />
+        </button>
+
+        <button
+          aria-label={sponsorSkip ? "关闭自动跳过恰饭片段" : "开启自动跳过恰饭片段"}
+          aria-pressed={sponsorSkip}
+          className="player-button player-sponsor-button"
+          data-active={sponsorSkip || undefined}
+          disabled={!src}
+          title={
+            sponsorSkip
+              ? "自动跳过恰饭片段: 开（由 SponsorBlock 社区数据提供）"
+              : "自动跳过恰饭片段: 关"
+          }
+          type="button"
+          onClick={toggleSponsorSkip}
+        >
+          <span className="player-sponsor-label">自动跳过恰饭片段</span>
+          <span className="player-sponsor-sub">由 SponsorBlock 社区数据提供</span>
+          <span className="player-sponsor-mini">跳过</span>
         </button>
       </div>
     </div>

@@ -2775,6 +2775,7 @@ export default function IndexPage() {
       )}
       <Player
         aid={displayVideoInfo?.aid}
+        bvid={displayVideoInfo?.bvid}
         cid={displayVideoInfo?.cid}
         cloudHistoryEnabled={!isIncognitoMode}
         forcePause={isPlayVideo}
