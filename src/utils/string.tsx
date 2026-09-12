@@ -120,21 +120,53 @@ export const formatCompactCount = (num: number) => {
   return String(value);
 };
 
-// 相对时间（轮 28 修订）：今天/昨天/N天前/N个月前，满一年后显示 yyyy-MM。
+// 相对时间（轮 30 修订）：发布形态回调 —— 恢复「具体日期优先」。
 //
-// 背景（用户实测截图）：此前阈值是 30 天，超过即回退到 10 字符的 `yyyy-MM-dd`。
-// 卡片 meta 的发布时间列只占 30%（约 55px），`yyyy-MM-dd` 必然被省略号截成
-// `2025-09-…` —— 既挤占昵称宽度、又几乎没有信息量。新策略让任何长度下日期列
-// 都「要么短到放得下，要么信息完整」：
-//   ≤ 30 天   → 今天 / 昨天 / N天前
-//   31 天–1 年 → N个月前（最长「11个月前」= 5 字 ≈ 40px，30% 列宽可完整显示）
-//   ≥ 1 年    → yyyy-MM（7 字符，比 yyyy-MM-dd 短 3 字符，同样能完整显示）
-// 这样 8 个列表的日期列都不会再出现「被截断且无信息」的形态，也不再需要
-// 为了放下完整年月日而挤压作者列。
-export const formatRelativeTime = (timestamp: number) => {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+// 背景：轮 28 为了迁就 30%（约 55px）的窄列，把日期一律压到 ≤7 字符
+// （N个月前 / yyyy-MM）。但用户复测后指出：这样反而丢掉了「具体是哪天」的信息，
+// 而卡片 meta 列的宽度其实有冗余（其余列内容常常很短）。
+//
+// 轮 30 的新策略：**能放多具体就放多具体**，放不下再由渲染层按真实宽度降级：
+//   ≤ 0 天   → 今天
+//   1 天     → 昨天
+//   2–7 天   → N天前（相对时间对「新鲜」内容最直观，保留）
+//   > 7 天，当年   → MM-DD（5 字符，最常见形态，30% 列宽必定放得下）
+//   > 7 天，跨年   → yyyy-MM-DD（10 字符，尽量完整展示；放不下再降级）
+// 降级不是按「字符数硬猜」，而是由上文的 dateFormLadder 给出「具体 → 抽象」
+// 的候选阶梯，再由 cardMeta 的 PubDateField 实测每个候选的像素宽度，挑第一个
+// 目测放得下的形态（详见 pickDateForm / pubdateCandidates）。
+//
+// 因此本函数返回**最具体**的形态；列表调用方照常渲染即可，真正「放不下就降级」
+// 发生在卡片 meta 渲染层，绝不会渲染出「2025-09-…」这类被截断的半截日期。
+export type DateFormKind =
+  | "today"
+  | "yesterday"
+  | "days"
+  | "md"
+  | "ymd"
+  | "ym"
+  | "months"
+  | "years"
+  | "raw";
+
+export interface DateFormCandidate {
+  kind: DateFormKind;
+  text: string;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * 「具体 → 抽象」的日期形态阶梯（轮 30 的核心）。
+ *
+ * 返回按信息量从高到低排列的候选数组；调用方（或渲染层）取第一个「放得下」
+ * 的候选即可。最后一个候选是「必定放得下」的兜底。
+ *
+ * 传入 `now` 便于测试构造确定性的相对时间（生产环境省略即取当前时刻）。
+ */
+export const dateFormLadder = (timestamp: number, now: Date = new Date()): DateFormCandidate[] => {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return [];
   const target = new Date(timestamp * 1000);
-  const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfTarget = new Date(
     target.getFullYear(),
@@ -142,30 +174,84 @@ export const formatRelativeTime = (timestamp: number) => {
     target.getDate(),
   ).getTime();
   const dayDiff = Math.round((startOfToday - startOfTarget) / 86400000);
-  if (dayDiff <= 0) return "今天";
-  if (dayDiff === 1) return "昨天";
-  if (dayDiff <= 30) return `${dayDiff}天前`;
-  // 自然月差（按「当月同日」对齐：还没到当月同一天就少算一个月）。
+  if (dayDiff <= 0) return [{ kind: "today", text: "今天" }];
+  if (dayDiff === 1) return [{ kind: "yesterday", text: "昨天" }];
+  if (dayDiff <= 7) return [{ kind: "days", text: `${dayDiff}天前` }];
+
+  // 自然月差（按「当月同日」对齐：还没到当月同一天就少算一个月），夹到 ≥1
+  // 避免出现「0个月前」。
   let monthDiff =
     (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth());
   if (now.getDate() < target.getDate()) monthDiff -= 1;
-  if (monthDiff < 12) {
-    // dayDiff ≥ 30 但月差算成 0 的边界（如 1/1 → 1/31）夹到 1，避免「0个月前」。
-    return `${Math.max(1, monthDiff)}个月前`;
+  monthDiff = Math.max(1, monthDiff);
+
+  // 年内（含跨年但不足一年）：兜底是 `N个月前`（1..11 个月 → ≤5 字符）。
+  // ≥ 1 年：额外补一档 `N年前` 作为**必定放得下**的最终兜底（`N个月前` 在
+  // 很老的日期上也会长到 6–7 字符）。
+  const yearDiff = now.getFullYear() - target.getFullYear();
+  const floor: DateFormCandidate[] = [{ kind: "months", text: `${monthDiff}个月前` }];
+  if (yearDiff >= 1) floor.push({ kind: "years", text: `${yearDiff}年前` });
+
+  const mmdd = `${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
+  const yyyymmdd = `${target.getFullYear()}-${mmdd}`;
+  const sameYear = target.getFullYear() === now.getFullYear();
+
+  if (sameYear) {
+    // 当年：MM-DD 已经比任何相对形态都具体，且列宽必定放得下。
+    return [{ kind: "md", text: mmdd }, ...floor];
   }
-  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
+  // 跨年：优先完整年月日；放不下才退回 yyyy-MM / N个月前 / N年前。
+  return [
+    { kind: "ymd", text: yyyymmdd },
+    { kind: "ym", text: `${target.getFullYear()}-${pad2(target.getMonth() + 1)}` },
+    ...floor,
+  ];
 };
 
 /**
- * 卡片 meta「发布时间」列的统一入口（轮 28）。
+ * 从候选阶梯里挑第一个「放得下」的形态（轮 30）。
+ *
+ * `fits(text)` 由渲染层提供（按真实像素宽度判断）；若一个都不满足，则返回
+ * 阶梯的最后一档（兜底，保证绝不返回空）。纯函数，便于单测。
+ */
+export const pickDateForm = <T extends { text: string }>(
+  candidates: T[],
+  fits: (text: string) => boolean,
+): T => candidates.find((candidate) => fits(candidate.text)) ?? candidates[candidates.length - 1];
+
+/**
+ * 把「已经格式化的发布日期字符串」还原成候选阶梯（轮 30，供渲染层降级用）。
+ *
+ * 只有「完整 yyyy-MM-DD」这类可能放不下的形态需要降级；其余形态
+ * （今天 / 昨天 / N天前 / MM-DD / N个月前 / yyyy-MM / 无法识别的原串）都足够短，
+ * 直接作为唯一候选原样显示。
+ */
+export const pubdateCandidates = (value: string): DateFormCandidate[] => {
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return [{ kind: "raw", text: raw }];
+  const ts = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+  if (!Number.isFinite(ts)) return [{ kind: "raw", text: raw }];
+  const ladder = dateFormLadder(ts / 1000);
+  return ladder.length > 0 ? ladder : [{ kind: "raw", text: raw }];
+};
+
+/** 最具体的发布日期形态（生产环境默认入口）。 */
+export const formatRelativeTime = (timestamp: number, now: Date = new Date()): string => {
+  const ladder = dateFormLadder(timestamp, now);
+  return ladder.length > 0 ? ladder[0].text : "";
+};
+
+/**
+ * 卡片 meta「发布时间」列的统一入口（轮 30）。
  *
  * 把后端可能给出的「绝对日期字符串」（`yyyy-MM-dd` / `yyyy-MM-dd HH:mm:ss`，
  * 如 feedList / upVideoList 的 `pub_time`、searchList 的 `video.date`）折算成
- * formatRelativeTime 的短形态（N个月前 / yyyy-MM）；已是相对时间或无法识别的
- * 字符串原样返回（不丢信息）。与各列表已用的 formatRelativeTime 走同一套
- * 长度保证，因此日期列在任何卡片宽度下都不会被截断成无信息的 `2025-09-…`。
+ * formatRelativeTime 的**最具体**形态（跨年 yyyy-MM-DD / 当年 MM-DD / 相对时间）；
+ * 已是相对时间或无法识别的字符串原样返回（不丢信息）。
+ * 真正的「放不下就降级」由 cardMeta 的 PubDateField 按实测像素宽度完成。
  */
-export const formatMetaDate = (value?: string | null): string | null => {
+export const formatMetaDate = (value?: string | null, now: Date = new Date()): string | null => {
   if (value === undefined || value === null || value === "") return null;
   const raw = String(value).trim();
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
@@ -174,5 +260,5 @@ export const formatMetaDate = (value?: string | null): string | null => {
     `${m[1]}-${m[2]}-${m[3]}T${m[4] ?? "00"}:${m[5] ?? "00"}:${m[6] ?? "00"}`,
   );
   if (!Number.isFinite(ts)) return raw;
-  return formatRelativeTime(ts / 1000);
+  return formatRelativeTime(ts / 1000, now);
 };

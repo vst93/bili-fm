@@ -24,6 +24,11 @@ import ts from "typescript";
 //   C. 播放量列补 overflow: hidden（列自身硬裁剪，不只靠父级兜底）。
 //   D. 绝对日期字符串（feed/upVideo 的 pub_time、search 的 date）统一折算成
 //      短形态 formatMetaDate，不再直出 10 字符。
+//
+// 轮 30 演进（用户复测）：「具体日期优先」回归 —— 日期不再一律压到 7 字符，
+//   跨年显示完整 yyyy-MM-DD、当年显示 MM-DD；放不下时由渲染层按**实测像素
+//   宽度**逐档降级（N个月前 / yyyy-MM）。B/C 的 4:3:3 与列宽契约**完全未变**，
+//   仍由本文件的 CSS 断言锁定；A/D 的断言随之改写为「最具体形态优先」。
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const css = read("../src/styles/globals.css");
@@ -42,57 +47,57 @@ function loadStringModule() {
 const S = loadStringModule();
 
 // ---------------------------------------------------------------------------
-// A. 日期长度上界：任何时间戳都 ≤ 7 字符（且不出现半截「yyyy-MM-…」）
+// A. 日期形态阶梯（轮 30）：**具体优先**，今天/昨天/N天前 → MM-DD → yyyy-MM-DD
+//    → 兜底（N个月前 / N天前），由渲染层按实测像素宽度逐档降级。
 // ---------------------------------------------------------------------------
-test("formatRelativeTime stays ≤ 7 chars for every age bucket", () => {
-  const now = new Date();
-  const days = (n) => (now.getTime() / 1000) - n * 86400;
-  const samples = [
-    [0, "今天"],
-    [1, "昨天"],
-    [2, "2天前"],
-    [15, "15天前"],
-    [30, "30天前"],
-  ];
-  for (const [d, expected] of samples) {
-    assert.equal(S.formatRelativeTime(days(d)), expected);
-  }
-  // 31 天 → 1个月前；满一年前后 → N个月前 / yyyy-MM。
-  assert.equal(S.formatRelativeTime(days(31)), "1个月前");
-  assert.equal(S.formatRelativeTime(days(200)), "6个月前");
-  assert.equal(S.formatRelativeTime(days(364)), "11个月前");
-  const overYear = S.formatRelativeTime(days(400));
-  assert.match(overYear, /^\d{4}-\d{2}$/, `≥1 年应为 yyyy-MM，得 ${overYear}`);
-  assert.ok(overYear.length <= 7, "yyyy-MM 恰好 7 字符");
-  // 任意采样都不能出现「2025-09-…」这类被截的 10 字符形态。
-  for (const n of [0, 1, 5, 30, 31, 60, 100, 300, 364, 365, 400, 3000]) {
-    const v = S.formatRelativeTime(days(n));
-    assert.ok(v.length <= 7, `${n}天 → 「${v}」应 ≤ 7 字符`);
-    assert.doesNotMatch(v, /^\d{4}-\d{2}-\d{2}$/, "不应再返回 10 字符的 yyyy-MM-dd");
+const NOW = new Date(2025, 5, 15, 12, 0, 0);
+const at = (y, mo, d) => new Date(y, mo - 1, d, 12, 0, 0);
+const tsOf = (date) => date.getTime() / 1000;
+
+test("formatRelativeTime returns the most specific form first (round 30)", () => {
+  // ≤ 7 天：相对时间最直观，保留。
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 6, 15)), NOW), "今天");
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 6, 14)), NOW), "昨天");
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 6, 13)), NOW), "2天前");
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 6, 8)), NOW), "7天前");
+  // > 7 天、当年：MM-DD（5 字符，具体到日，30% 列宽必放得下）。
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 6, 7)), NOW), "06-07");
+  assert.match(S.formatRelativeTime(tsOf(at(2025, 5, 16)), NOW), /^\d{2}-\d{2}$/);
+  assert.equal(S.formatRelativeTime(tsOf(at(2025, 5, 16)), NOW), "05-16");
+  // > 7 天、跨年：优先完整 yyyy-MM-DD（10 字符）。
+  const crossYear = S.formatRelativeTime(tsOf(at(2024, 11, 27)), NOW);
+  assert.match(crossYear, /^\d{4}-\d{2}-\d{2}$/, `跨年应为 yyyy-MM-DD，得 ${crossYear}`);
+  assert.equal(crossYear, "2024-11-27");
+  // 任何形态都不得是被截断的半截日期（不以连字符/省略号收尾）。
+  for (const n of [0, 1, 3, 7, 8, 30, 60, 100, 200, 365, 3000]) {
+    const v = S.formatRelativeTime(tsOf(new Date(NOW.getTime() - n * 86400000)), NOW);
+    assert.ok(v.length > 0 && v.length <= 10, `${n}天 → 「${v}」应在 1..10 字符`);
+    assert.doesNotMatch(v, /[-…]$/, `「${v}」不得以连字符/省略号结尾（半截形态）`);
   }
 });
 
-test("formatRelativeTime month boundary never yields '0个月前'", () => {
-  // 30/31 天且跨月但未满一个月历月 → 夹到 1个月前。
-  const now = new Date();
-  const ts = (now.getTime() - 31 * 86400 * 1000) / 1000;
-  const v = S.formatRelativeTime(ts);
-  assert.match(v, /^([1-9]|1[01])个月前$/, `得 ${v}`);
+test("date ladder's month fallback never yields '0个月前'", () => {
+  // 30/31 天且跨月但未满一个月历月 → 兜底夹到 1个月前（顶层形态此时是 MM-DD）。
+  const ladder = S.dateFormLadder(tsOf(at(2025, 5, 15)), NOW);
+  const months = ladder.find((c) => c.kind === "months");
+  assert.ok(months, "阶梯必须含 N个月前 兜底");
+  assert.match(months.text, /^([1-9]|1[01])个月前$/, `得 ${months && months.text}`);
+  // 极端：同类但 monthDiff 算成 0 的边界（1/31 往前 30 天到 1/1）也夹到 1。
+  const edge = S.dateFormLadder(tsOf(at(2025, 1, 1)), new Date(2025, 0, 31, 12, 0, 0));
+  const edgeMonths = edge.find((c) => c.kind === "months");
+  assert.equal(edgeMonths.text, "1个月前");
 });
 
 // ---------------------------------------------------------------------------
 // D. 绝对日期字符串折算（feed/upVideo 的 pub_time、search 的 date）
 // ---------------------------------------------------------------------------
-test("formatMetaDate folds absolute yyyy-MM-dd strings into short forms", () => {
-  // 过去一年以上 → yyyy-MM（7 字符）。
-  assert.match(S.formatMetaDate("2022-06-30"), /^2022-06$/);
-  // 近一年 → N个月前（≤7 字符）。
-  const d = new Date();
-  d.setMonth(d.getMonth() - 2);
-  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  assert.match(S.formatMetaDate(iso), /^[12]个月前$/);
-  // 带时分秒的 pub_time 也认。
-  assert.match(S.formatMetaDate("2021-01-02 08:09:10"), /^2021-01$/);
+test("formatMetaDate returns the most specific foldable form (round 30)", () => {
+  // 跨年 → 完整 yyyy-MM-DD（交给渲染层按列宽决定是否降级）。
+  assert.equal(S.formatMetaDate("2022-06-30", NOW), "2022-06-30");
+  // 当年 → MM-DD（具体到日）。
+  assert.equal(S.formatMetaDate("2025-04-15", NOW), "04-15");
+  // 带时分秒的 pub_time 也认（只取日期）。
+  assert.equal(S.formatMetaDate("2021-01-02 08:09:10", NOW), "2021-01-02");
   // 已是相对时间 / 无法识别 → 原样返回（不丢信息）。
   assert.equal(S.formatMetaDate("11天前"), "11天前");
   assert.equal(S.formatMetaDate("刚刚"), "刚刚");

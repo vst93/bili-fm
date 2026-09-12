@@ -261,18 +261,40 @@ textarea,
 /* 发布时间列：占 30%，靠右贴行尾 —— 末列右边缘恒定，整行不左右抖动。
    用 display:block + text-align:right（与作者列同理）：text-overflow: ellipsis
    只在块级盒上生效，inline-flex 包裹的纯文本无法省略号。
-   轮 28：配合 formatRelativeTime/formatMetaDate 把日期最长压到 7 字符
-   （yyyy-MM / N个月前），30% 列宽在任何卡片宽度下都能完整显示，不再出现
-   用户截图里的「2025-09-…」半截日期。 */
+   轮 30：发布形态回调「具体日期优先」。日期本身（cross-year yyyy-MM-DD / 当年
+   MM-DD）可能比 30% 列宽长，因此这里做两件事：
+   ① 列基准仍是 30%（flex-basis: 30% 不动，保证 r28 的 4:3:3 与作者 40% 不回归）；
+   ② 追加 flex-grow: 4 —— 当同行其它列内容短、整行出现富余空间时，发布时间列
+      可以从 30% 基准「借」到更宽（借 slack），从而完整容下 10 字符的年月日。
+      三列（作者 40 + 播放 30 + 发布 30）基准之和恰为 100% → 无富余空间，
+      grow 不生效，列宽仍是精确的 30%，因此 r22–r28 的 4:3:3 与对齐契约
+      完全不受影响；只有两列行（如 seriesList 的「播放量 + 发布时间」）里才会
+      借到富余宽度。放不下时由 PubDateField 按实测像素宽度逐档降级
+      （见 cardMeta.tsx），绝不会渲染出被截断的半截日期。
+   position: relative 供隐藏测量槽（.card-meta-pubdate-measure）绝对定位。 */
 .card-meta-field.is-pubdate {
     display: block;
     flex: 3 1 0;
     flex-basis: 30%;
+    flex-grow: 4;
+    position: relative;
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+}
+
+/* 轮 30：发布时间列的隐藏测量槽 —— 用真实渲染宽度判定「具体日期形态」是否
+   放得下（见 cardMeta.tsx 的 PubDateField）。绝对定位、visibility:hidden，
+   不参与布局、不换行、不可被读屏读到；继承列的字体/字号以保证量得准。 */
+.card-meta-pubdate-measure {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    visibility: hidden;
+    white-space: nowrap;
+    pointer-events: none;
 }
 
 /* 时长列（轮 26）：与其它比例列同权重（flex: 3 1 0），使「播放量+时长」
