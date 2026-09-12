@@ -165,12 +165,17 @@ textarea,
 
 /* 卡片 meta 行 —— 统一规范（所有列表卡片共用，轮 25 依用户反馈重调）：
    1) 永远单行：flex-wrap: nowrap + 行级 overflow: hidden，任何宽度都不换行；
-   2) 三列**按比例**分配剩余空间（用户参考：作者 ≈40%、播放量 ≈30%、发布时间
-      ≈30%），使不同卡片的信息行宽度统一 —— 不再出现「有的列定宽、有的列
-      吃余量」导致的各卡片列宽不一、数字与日期粘在一起：
-        .is-author   flex: 4 1 0 —— 约 40%
-        .is-views    flex: 3 1 0 —— 约 30%
-        .is-pubdate  flex: 3 1 0 —— 约 30%
+   2) **所有列**都按比例分配剩余空间，基准比例 4:3:3（作者 : 播放量 : 发布时间）：
+        .is-author   flex: 4 1 0 —— 40%
+        .is-views    flex: 3 1 0 —— 30%
+        .is-pubdate  flex: 3 1 0 —— 30%
+        .is-duration flex: 3 1 0 —— 30%（与其它列同权重，不再用 40px 小档位）
+        .is-extra    flex: 3 1 0 —— 30%（同上）
+      轮 26：时长 / 附加列此前是固定小档位（40px / 64px）。当某列表的主字段
+      不齐时（seriesList 只有 播放量+发布时间、pageList 只有 播放量+时长、
+      稍后再看 只有 作者+播放量+进度），固定的窄档位会让同一行里唯一的比例列
+      独吞剩余空间，用户看到「昵称就占了 50% 以上」。改成与其它列同权重后，
+      任意字段组合都按 4:3:3 家族的比例分配，列宽只随卡片容器宽度变化。
       flex-basis 0 + min-width 0 让三列各自「按其 flex-grow 比例」分配，列宽只
       随卡片容器宽度变化，与数值/日期的字符数无关 —— 同一卡片栅格下，每张
       卡片的作者/播放/日期起点都对齐。
@@ -209,6 +214,11 @@ textarea,
 .card-meta-field.is-author {
     display: block;
     flex: 4 1 0;
+    /* 轮 26：硬上限 40%。CardMeta 会丢弃空值字段，若某行只剩「作者 + 播放量」
+       （如发布时间缺失），纯 flex-grow 会把作者拉到 4/7 ≈ 57%，正是用户看到的
+       「昵称占 50%+」。加上 40% 上限后，无论同行还有哪些字段，作者列永不超过
+       四成，多出的空间由其余比例列吸收。 */
+    max-width: 40%;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -238,20 +248,21 @@ textarea,
     min-width: 0;
 }
 
-/* 时长档位（轮 25）：无作者行时按 40px 起步；一旦有比例列参与分配，
-   flex-basis:0 也让它按比例参与，保持与其它字段一致的缩放行为。 */
+/* 时长列（轮 26）：与其它比例列同权重（flex: 3 1 0），使「播放量+时长」
+   这类两字段列表也按 3:3 均分，而不是让播放量独吞剩余空间。内容整体靠右。 */
 .card-meta-field.is-duration {
-    flex: 0 1 40px;
+    flex: 3 1 0;
     justify-content: flex-end;
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
 }
 
-/* 附加字段（稍后再看进度「已看 45%」等）：右对齐、超限省略号截断。 */
+/* 附加列（轮 26：稍后再看进度「已看 45%」等）：与其它比例列同权重，右对齐、
+   超限省略号截断。此前是 64px 固定档位，使「作者+播放量+进度」行里作者独大。 */
 .card-meta-field.is-extra {
     display: block;
-    flex: 0 1 64px;
+    flex: 3 1 0;
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
