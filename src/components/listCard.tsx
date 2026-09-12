@@ -1,9 +1,15 @@
 import type { FC, ReactNode } from "react";
+
 import { Card, CardBody, CardFooter } from "@heroui/react";
 
 import CardMeta, { type CardMetaField } from "./cardMeta";
 import RetryImg from "./retryImg";
+
 import { graftingImage } from "@/utils/string";
+import {
+  UNLOAD_PLACEHOLDER,
+  useViewportImageUnload,
+} from "@/hooks/useViewportImageUnload";
 
 /**
  * 统一的列表卡片组件（轮 25 组件化）。
@@ -59,11 +65,18 @@ const ListCard: FC<ListCardProps> = ({
   cardClassName = "c-list-card",
   bodyClassName = "overflow-visible p-0 img-container",
 }) => {
+  // 轮 29（任务 B）：滚出视口 ≥2 屏后把封面换成 1px 占位（主动让引擎丢弃解码
+  // 位图），进入 1 屏缓冲立即还原。`ref` 挂在卡片根（HeroUI Card 的 DOM 节点），
+  // 不改动卡片结构、类名与 DOM 钩子（content-visibility / 定位 / 选择器均不依赖 ref）。
+  const { ref: cardRef, unloaded } = useViewportImageUnload<HTMLDivElement>();
+  const coverSrc = graftingImage(cover ?? "");
+
   return (
     <Card
+      ref={cardRef}
       isPressable
-      shadow="sm"
       className={cardClassName}
+      shadow="sm"
       onPress={onPress}
     >
       <CardBody className={bodyClassName}>
@@ -74,7 +87,7 @@ const ListCard: FC<ListCardProps> = ({
           loading="lazy"
           radius="sm"
           shadow="sm"
-          src={graftingImage(cover ?? "")}
+          src={unloaded ? UNLOAD_PLACEHOLDER : coverSrc}
           width="100%"
         />
         {duration !== undefined && duration !== null && duration !== "" ? (

@@ -30,12 +30,47 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 /// 应用入口。
 pub fn run() {
-    // Windows: 允许 WebView2 加载 HTTP 混合内容 (图片代理 127.0.0.1:4654),
-    // 与旧版 main.go 一致。
+    // Windows: WebView2 启动参数（唯一的 Chromium 参数入口；本应用单窗口）。
+    //
+    // 轮 29（任务 A，低风险全局内存收益）—— 两点必须讲清：
+    //
+    // 1. 窗口创建点在 Rust（下方 `WebviewWindowBuilder::new`），而 `tauri.conf.json`
+    //    的 `app.windows` 为空数组，所以参数只能写在这一侧（builder / 环境变量）。
+    //    这里沿用旧版 main.go 的 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 环境变量：
+    //    WebView2 加载器会自动把它的值并入 `CoreWebView2EnvironmentOptions`。
+    //    注意：本变量是**整体覆盖**该进程的环境选项，不会与 wry 注入的
+    //    `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection` **合并**。
+    //
+    // 2. 因此自定义参数时**必须自带 wry 的默认三项**（msWebOOUI=去掉迷你菜单、
+    //    msPdfOOUI=去掉 PDF 浮层 UI、msSmartScreenProtection=关闭 SmartScreen
+    //    下载保护）。漏掉会导致 UI 组件/下载保护行为回归（wry 文档明确警告）。
+    //    参见 wry-0.55.1/src/webview2/mod.rs：`additional_browser_args` 为 `Some`
+    //    时该默认项即失效。
+    //
+    // 参数清单：
+    //   --allow-running-insecure-content        允许加载 HTTP 混合内容（图片代理）
+    //   --disable-features=...                  上列 3 项默认 + MixedContentAutoupgrade
+    //   --force-gpu-mem-available-mb=512         GPU/显存可用量上限（原有）
+    //   --js-flags=...scavenger...=8             压低 V8 新生代上限 → minor GC 更频繁，
+    //                                            JS 堆峰值更低（V8 默认 32MB）
+    //
+    // 磁盘缓存限制参数评估：**不加**。列表封面已走 `@240w.webp` 服务端下采样，
+    // 单张仅数 KB；HTTP 缓存是「还原 src 后能秒回」的关键（见列表主动卸载机制），
+    // 加 `--disk-cache-size` / `--disable-application-cache` 反而会让滚动回滚时
+    // 重新发起网络请求、重新解码，得不偿失。本轮只做内存侧的确定收益。
+    //
+    // 一致性地雷：Windows 同一 data-directory 下的所有 webview，其
+    // additionalBrowserArgs 等设置必须一致。本应用只创建一个主窗口（下方唯一
+    // `WebviewWindowBuilder`），因此天然一致；将来若新增窗口，必须复用本组参数。
     #[cfg(target_os = "windows")]
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "--allow-running-insecure-content --disable-features=MixedContentAutoupgrade --force-gpu-mem-available-mb=512",
+        concat!(
+            "--allow-running-insecure-content ",
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,MixedContentAutoupgrade ",
+            "--force-gpu-mem-available-mb=512 ",
+            "--js-flags=--scavenger_max_new_space_capacity_mb=8",
+        ),
     );
 
     tauri::Builder::default()
