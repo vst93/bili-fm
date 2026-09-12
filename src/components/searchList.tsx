@@ -18,7 +18,7 @@ import { usePreloadImages } from "../hooks/usePreloadImages";
 import ListCard from "./listCard";
 import ListSkeleton from "./listSkeleton";
 
-import { graftingImage } from "@/utils/string";
+import { formatMetaDate, graftingImage } from "@/utils/string";
 
 interface SearchListProps {
   onSlideClick?: () => void;
@@ -99,7 +99,7 @@ const SearchList: FC<SearchListProps> = ({
                     fields={[
                       { kind: "author", value: video.author },
                       { kind: "views", value: video.views != null ? String(video.views) : null },
-                      { kind: "pubdate", value: video.date },
+                      { kind: "pubdate", value: formatMetaDate(video.date) },
                     ]}
                     onPress={() => onVideoSelect?.(video.url)}
                     title={video.title}

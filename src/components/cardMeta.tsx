@@ -57,10 +57,13 @@ const CardMeta: FC<CardMetaProps> = ({ fields, badge, className }) => {
           title={
             field.title ??
             // 作者名在窄卡片会被 ellipsis 截断，用 title 补全（轮 22）；
-            // 其余字段（数值/日期）不再无意义地把值塞进 tooltip。
+            // 发布时间同理（轮 28）：日期若真的被截，悬浮仍可看完整值。
+            // 其余字段（播放量等）不再无意义地把值塞进 tooltip。
             (field.kind === "author" && typeof field.value === "string"
               ? field.value
-              : undefined)
+              : field.kind === "pubdate" && typeof field.value === "string"
+                ? field.value
+                : undefined)
           }
         >
           {field.kind === "views" && (field.icon ?? "play") === "play" ? (

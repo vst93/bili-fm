@@ -22,7 +22,7 @@ import {
 } from "@heroui/react";
 import { useState, useEffect } from "react";
 
-import { graftingImage, viewsMetaField } from "@/utils/string";
+import { formatMetaDate, graftingImage, viewsMetaField } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
 // interface SeriesItem {
@@ -330,7 +330,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                         fields={[
                           { kind: "author", value: item.modules?.module_author?.name || null },
                           ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
-                          { kind: "pubdate", value: publishTime },
+                          { kind: "pubdate", value: formatMetaDate(publishTime) },
                         ]}
                         onPress={() => onVideoSelect?.(info.bvid)}
                         title={info.title}

@@ -109,10 +109,14 @@ test("card meta columns are proportional 40% / 30% / 30% (uniform across cards)"
 });
 
 test("card meta keeps an 8px gap so numbers and dates cannot stick together", () => {
+  // 轮 28：列距从行级 gap 改为列自带 padding-left（让 4:3:3 精确落在整行）。
   const row = css.match(/\.card-meta \{[\s\S]*?\}/)[0];
-  assert.match(row, /gap: 8px/, "field gap widened to 8px (collision safety)");
+  assert.match(row, /gap: 0/, "no row-level gap (it distorted the 4:3:3 ratio)");
   assert.match(row, /flex-wrap: nowrap/, "still a single non-wrapping line");
   assert.match(row, /overflow: hidden/, "still clipped, never wrapped");
+  const adjacent = css.match(/\.card-meta-field \+ \.card-meta-field \{[\s\S]*?\}/);
+  assert.ok(adjacent, "adjacent columns must declare a separation rule");
+  assert.match(adjacent[0], /padding-left: 8px/, "columns keep an 8px collision-safety pad");
 });
 
 test("proportional columns actually settle near 40/30/30 for a realistic width", () => {

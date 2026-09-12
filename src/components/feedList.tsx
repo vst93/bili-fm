@@ -14,7 +14,7 @@ import {
   DrawerHeader,
 } from "@heroui/react";
 
-import { graftingImage, viewsMetaField } from "@/utils/string";
+import { formatMetaDate, graftingImage, viewsMetaField } from "@/utils/string";
 
 interface FeedListProps {
   feedList?: FeedList;
@@ -106,7 +106,7 @@ const FeedList: FC<FeedListProps> = ({
                       fields={[
                         { kind: "author", value: userName },
                         ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
-                        { kind: "pubdate", value: publishTime },
+                        { kind: "pubdate", value: formatMetaDate(publishTime) },
                       ]}
                       onPress={() => onVideoSelect?.(info.bvid)}
                       title={info.title}

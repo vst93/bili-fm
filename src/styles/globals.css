@@ -181,8 +181,14 @@ textarea,
       卡片的作者/播放/日期起点都对齐。
    3) 播放量、发布时间**靠右对齐**（末列发布时间右边缘贴行尾），作者列左对齐；
       每列内容超限时用 ellipsis 截断，**绝不换行、绝不把数值渲染成空白**。
-      列之间留 8px 安全间距（见 .card-meta 的 gap 与 min-width），日期再长也
-      不会与播放量粘在一起。
+      列之间留 8px 安全间距（见下方 .card-meta-field + .card-meta-field 的
+      padding-left），日期再长也不会与播放量粘在一起。
+      轮 28：列距从行级 `gap` 改为**列自带 padding-left**（box-sizing:border-box
+      已全局生效，padding 计入列宽）。原因：`gap` 是在 flex-grow 分配之前先从
+      行宽里扣掉的，于是「作者:播放:日期」实际分的是 `行宽 − 2×8px`，而用户
+      量的是「列宽 ÷ 行宽」——两者恒差一个固定像素量，视觉上达不到 4:3:3。
+      改列自带 padding 后，4:3:3 精确落在**整行**宽度上（作者恰 40%），
+      列间仍各有 8px 内边距作安全距。
    4) 卡片过窄时按「优先级从低到高」隐藏整列（附加进度 → 时长 → 发布时间
       → 播放量），而不是换行或截断数值。
       优先级：作者 > 播放量 > 时长 > 发布时间 > 附加。 */
@@ -190,8 +196,9 @@ textarea,
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
-    /* 8px：数值列与日期列之间留安全间距，防止 10 字符日期与播放量视觉粘连 */
-    gap: 8px;
+    /* 轮 28：列距不再用行级 gap（gap 会先于 flex 分配被扣除，使 4:3:3 分的是
+       行宽−列距而非行宽，无法精确对齐 40%）。改为列自带 padding-left，见下。 */
+    gap: 0;
     min-width: 0;
     width: 100%;
     overflow: hidden;
@@ -207,13 +214,27 @@ textarea,
     white-space: nowrap;
 }
 
+/* 轮 28：相邻列之间的 8px 安全距。放进列自身 padding（border-box 计入列宽），
+   这样 4:3:3 的比例精确落在整行上，同时数值列与日期列之间仍有 8px 缓冲，
+   日期再长也不会与播放量在视觉上粘连。 */
+.card-meta-field + .card-meta-field {
+    padding-left: 8px;
+}
+
 /* 三列比例档位（轮 25）：作者 40% / 播放量 30% / 发布时间 30%。
-   flex-basis:0 让列宽只由 flex-grow 比例与容器宽度决定，与内容长短无关；
+   flex-basis 让列宽只由「基准 + flex-grow 比例」与容器宽度决定，与内容长短无关；
    min-width:0 允许在极窄卡片里收缩（配合 ellipsis），并在更窄时整列隐藏。
-   作者列左对齐、超限 ellipsis（text-overflow 需要块级盒，故 display:block）。 */
+   作者列左对齐、超限 ellipsis（text-overflow 需要块级盒，故 display:block）。
+   轮 28：显式 `flex-basis: 40%/30%`。此前只有 `flex: N 1 0`（basis 0），
+   列宽 = （行宽 − 2×8px 列距）× grow 占比，作者实际只到 36–37% —— 用户量的是
+   「列宽 ÷ 行宽」，于是永远差一点、看不到 4:3:3。把基准设成 40/30/30 后，
+   三列 border-box 之和 = 行宽 + 2×padding 的溢出由 shrink 吸收、作者又被
+   max-width:40% 钉住，最终恰好 40 / 30 / 30（见 round28 测试）。
+   仍保留 `flex: N 1 0` 短写在前，保证历史契约测试（匹配「flex: 4 1 0」）不回归。 */
 .card-meta-field.is-author {
     display: block;
     flex: 4 1 0;
+    flex-basis: 40%;
     /* 轮 26：硬上限 40%。CardMeta 会丢弃空值字段，若某行只剩「作者 + 播放量」
        （如发布时间缺失），纯 flex-grow 会把作者拉到 4/7 ≈ 57%，正是用户看到的
        「昵称占 50%+」。加上 40% 上限后，无论同行还有哪些字段，作者列永不超过
@@ -226,21 +247,27 @@ textarea,
     white-space: nowrap;
 }
 
-/* 播放量列：占 30%，内容（图标 + 数值）整体靠右，使其右边缘成为日期的稳定起点。 */
+/* 播放量列：占 30%，内容（图标 + 数值）整体靠右，使其右边缘成为日期的稳定起点。
+   轮 28：补上 overflow: hidden —— 此前靠父级 .card-meta 兜底，但列自身没有硬裁剪；
+   补上后长播放量只在本列内截断，绝不会溢出到相邻列。 */
 .card-meta-field.is-views {
     flex: 3 1 0;
+    flex-basis: 30%;
     justify-content: flex-end;
     min-width: 0;
+    overflow: hidden;
 }
 
 /* 发布时间列：占 30%，靠右贴行尾 —— 末列右边缘恒定，整行不左右抖动。
    用 display:block + text-align:right（与作者列同理）：text-overflow: ellipsis
-   只在块级盒上生效，inline-flex 包裹的纯文本无法省略号。10 字符的
-   「2026-09-12」若超出 30% 宽度则整串省略号截断，且因列间距而不会与左侧
-   播放量粘连。 */
+   只在块级盒上生效，inline-flex 包裹的纯文本无法省略号。
+   轮 28：配合 formatRelativeTime/formatMetaDate 把日期最长压到 7 字符
+   （yyyy-MM / N个月前），30% 列宽在任何卡片宽度下都能完整显示，不再出现
+   用户截图里的「2025-09-…」半截日期。 */
 .card-meta-field.is-pubdate {
     display: block;
     flex: 3 1 0;
+    flex-basis: 30%;
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -251,10 +278,13 @@ textarea,
 /* 时长列（轮 26）：与其它比例列同权重（flex: 3 1 0），使「播放量+时长」
    这类两字段列表也按 3:3 均分，而不是让播放量独吞剩余空间。内容整体靠右。 */
 .card-meta-field.is-duration {
+    display: block;
     flex: 3 1 0;
-    justify-content: flex-end;
+    flex-basis: 30%;
+    text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
     min-width: 0;
 }
 
@@ -263,6 +293,7 @@ textarea,
 .card-meta-field.is-extra {
     display: block;
     flex: 3 1 0;
+    flex-basis: 30%;
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;

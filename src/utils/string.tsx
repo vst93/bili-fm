@@ -120,7 +120,17 @@ export const formatCompactCount = (num: number) => {
   return String(value);
 };
 
-// 相对时间：今天/昨天/N天前，超过 30 天显示 yyyy-MM-dd。
+// 相对时间（轮 28 修订）：今天/昨天/N天前/N个月前，满一年后显示 yyyy-MM。
+//
+// 背景（用户实测截图）：此前阈值是 30 天，超过即回退到 10 字符的 `yyyy-MM-dd`。
+// 卡片 meta 的发布时间列只占 30%（约 55px），`yyyy-MM-dd` 必然被省略号截成
+// `2025-09-…` —— 既挤占昵称宽度、又几乎没有信息量。新策略让任何长度下日期列
+// 都「要么短到放得下，要么信息完整」：
+//   ≤ 30 天   → 今天 / 昨天 / N天前
+//   31 天–1 年 → N个月前（最长「11个月前」= 5 字 ≈ 40px，30% 列宽可完整显示）
+//   ≥ 1 年    → yyyy-MM（7 字符，比 yyyy-MM-dd 短 3 字符，同样能完整显示）
+// 这样 8 个列表的日期列都不会再出现「被截断且无信息」的形态，也不再需要
+// 为了放下完整年月日而挤压作者列。
 export const formatRelativeTime = (timestamp: number) => {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
   const target = new Date(timestamp * 1000);
@@ -135,5 +145,34 @@ export const formatRelativeTime = (timestamp: number) => {
   if (dayDiff <= 0) return "今天";
   if (dayDiff === 1) return "昨天";
   if (dayDiff <= 30) return `${dayDiff}天前`;
-  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+  // 自然月差（按「当月同日」对齐：还没到当月同一天就少算一个月）。
+  let monthDiff =
+    (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth());
+  if (now.getDate() < target.getDate()) monthDiff -= 1;
+  if (monthDiff < 12) {
+    // dayDiff ≥ 30 但月差算成 0 的边界（如 1/1 → 1/31）夹到 1，避免「0个月前」。
+    return `${Math.max(1, monthDiff)}个月前`;
+  }
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
+};
+
+/**
+ * 卡片 meta「发布时间」列的统一入口（轮 28）。
+ *
+ * 把后端可能给出的「绝对日期字符串」（`yyyy-MM-dd` / `yyyy-MM-dd HH:mm:ss`，
+ * 如 feedList / upVideoList 的 `pub_time`、searchList 的 `video.date`）折算成
+ * formatRelativeTime 的短形态（N个月前 / yyyy-MM）；已是相对时间或无法识别的
+ * 字符串原样返回（不丢信息）。与各列表已用的 formatRelativeTime 走同一套
+ * 长度保证，因此日期列在任何卡片宽度下都不会被截断成无信息的 `2025-09-…`。
+ */
+export const formatMetaDate = (value?: string | null): string | null => {
+  if (value === undefined || value === null || value === "") return null;
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return raw;
+  const ts = Date.parse(
+    `${m[1]}-${m[2]}-${m[3]}T${m[4] ?? "00"}:${m[5] ?? "00"}:${m[6] ?? "00"}`,
+  );
+  if (!Number.isFinite(ts)) return raw;
+  return formatRelativeTime(ts / 1000);
 };
