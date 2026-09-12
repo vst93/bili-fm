@@ -20,7 +20,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import RetryImg from "./retryImg";
 import ListSkeleton from "./listSkeleton";
 import { usePreloadImages } from "../hooks/usePreloadImages";
-import { convertToDuration, graftingImage, formatRelativeTime, subStr, viewsMetaField } from "@/utils/string";
+import { convertToDuration, graftingImage, formatRelativeTime, viewsMetaField } from "@/utils/string";
 
 const TAB_STORAGE_KEY = "bili-fm-recommend-tab";
 
@@ -185,7 +185,7 @@ const RecommendList: FC<RecommendListProps> = ({
                           <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                             <CardMeta
                             fields={[
-                              { kind: "author", value: subStr(item.owner?.name || item.author, 7) },
+                              { kind: "author", value: item.owner?.name || item.author },
                               ...viewsMetaField(item?.stat?.view, item?.stat?.danmaku),
                               { kind: "pubdate", value: item.pubdate ? formatRelativeTime(item.pubdate) : null },
                             ]}

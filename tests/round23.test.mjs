@@ -32,7 +32,9 @@ test("graftingImage's default width is lowered (list covers are downsampled hard
   const url = "https://i0.hdslb.com/bfs/archive/abc123.jpg";
   const out = graftingImage(url);
   const decoded = decodeURIComponent(out);
-  assert.match(decoded, /@300w\.webp/, "default list cover must request the 300w variant");
+  // 轮 24：默认宽度由 300w 再降到 240w（用户：「一排 3 卡，封面不用特别大」）。
+  assert.match(decoded, /@240w\.webp/, "default list cover must request the 240w variant");
+  assert.doesNotMatch(decoded, /@300w\.webp/, "the old 300w default must be gone");
   assert.doesNotMatch(decoded, /@400w\.webp/, "the old 400w default must be gone");
 });
 
@@ -47,11 +49,11 @@ test("already-sized hdslb URLs are left untouched (no double @suffix)", () => {
   const { graftingImage } = loadModule("../src/utils/string.tsx");
   const sized = "https://i0.hdslb.com/bfs/archive/abc.jpg@480w.webp";
   assert.match(decodeURIComponent(graftingImage(sized)), /abc\.jpg@480w\.webp/);
-  assert.doesNotMatch(decodeURIComponent(graftingImage(sized)), /@300w/);
+  assert.doesNotMatch(decodeURIComponent(graftingImage(sized)), /@240w/);
 });
 
 test("every list card cover flows through graftingImage with the default width", () => {
-  // 至少这些列表卡片的 <RetryImg src> 不再传显式宽度（吃默认 300w）。
+  // 至少这些列表卡片的 <RetryImg src> 不再传显式宽度（吃默认 240w）。
   const LIST = ["feedList", "recommendList", "seriesList", "upVideoList", "collectList", "searchList", "historyList"];
   for (const name of LIST) {
     const src = read(`../src/components/${name}.tsx`);
@@ -62,17 +64,29 @@ test("every list card cover flows through graftingImage with the default width",
 // ---------------------------------------------------------------------------
 // 问题 3：三列固定长度 + 发布时间持续靠右对齐
 // ---------------------------------------------------------------------------
-test("pubdate column is a fixed length, right-aligned, and pinned to the line end", () => {
+test("pubdate column is a fixed tier, right-aligned, and pinned to the line end", () => {
   const author = css.match(/\.card-meta-field\.is-author \{[\s\S]*?\}/)[0];
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/)[0];
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/)[0];
-  // 三元素各自固定列宽（不再有 flex: 1 1 auto 的「吸收剩余」列）。
-  assert.match(author, /flex: 0 0 \d+px/);
-  assert.match(views, /flex: 0 0 \d+px/);
+  // 轮 24：作者列改为可伸缩的「占余」列（不再是定宽 60px，也不再留中间空白）。
+  assert.doesNotMatch(author, /flex: 0 0 \d+px/, "author must not stay a narrow fixed column");
+  assert.match(author, /flex: 1 1 auto/, "author absorbs the leftover width");
+  assert.match(views, /flex: 0 0 \d+px/, "views is a fixed tier");
   assert.match(pubdate, /flex: 0 0 \d+px/, "pubdate must be a fixed-length column");
-  // 播放列 margin-left:auto 把右侧两列推到底部 → 发布时间右边缘恒定贴行尾。
-  assert.match(views, /margin-left: auto/);
+  // 发布时间右对齐贴行尾。
   assert.match(pubdate, /justify-content: flex-end/, "pubdate content hugs the right edge");
+});
+
+test("author names are no longer pre-truncated in the app layer (subStr removed)", () => {
+  // 轮 24：feedList/recommendList/upVideoList 不再用 subStr(name, 7) 把中文名提前砍短。
+  for (const name of ["feedList", "recommendList", "upVideoList"]) {
+    const src = read(`../src/components/${name}.tsx`);
+    assert.doesNotMatch(src, /subStr\(/, `${name} must not pre-truncate the author name`);
+    assert.doesNotMatch(src, /subStr/, `${name} must not import subStr either`);
+  }
+  // 工具函数也已移除（截断改由 CSS ellipsis 按真实像素宽度决定）。
+  const util = read("../src/utils/string.tsx");
+  assert.doesNotMatch(util, /export const subStr/, "subStr export must be removed");
 });
 
 test("meta row still never wraps and still hides fields by priority when narrow", () => {
@@ -89,9 +103,9 @@ test("meta row still never wraps and still hides fields by priority when narrow"
 });
 
 test("no card meta field can introduce a line break or an unsized gap column", () => {
-  // 行内不再有 flex-grow（会随卡片宽度变化，导致右对齐失效）。
-  const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/)[0];
-  assert.doesNotMatch(pubdate, /flex:\s*1\s+1/, "pubdate must not absorb slack (kills right alignment)");
+  // 右侧定宽组必须仍靠右（末列右边缘贴行尾）；作者列不得引入换行。
+  const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/)[0];
+  assert.match(views, /flex: 0 0 \d+px/, "views must stay a fixed-size column for stable right alignment");
   assert.match(css.match(/\.card-meta-field \{[\s\S]*?\}/)[0], /white-space: nowrap/);
 });
 

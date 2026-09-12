@@ -24,7 +24,7 @@ import {
 } from "@heroui/react";
 import { useState, useEffect } from "react";
 
-import { graftingImage, viewsMetaField, subStr } from "@/utils/string";
+import { graftingImage, viewsMetaField } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
 // interface SeriesItem {
@@ -356,7 +356,7 @@ const UpVideoList: FC<UpVideoListProps> = ({
                           <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                             <CardMeta
                             fields={[
-                              { kind: "author", value: item.modules?.module_author?.name ? subStr(item.modules.module_author.name, 7) : null },
+                              { kind: "author", value: item.modules?.module_author?.name || null },
                               ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
                               { kind: "pubdate", value: publishTime },
                             ]}

@@ -78,19 +78,22 @@ test("no dynamic list keeps the `Number(...) || 0` play-count bug", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 问题 2：三元素固定长度 + 发布时间恒定居右（轮 23 依用户反馈修订）
+// 问题 2：三元素定宽布局 + 发布时间恒定居右
+// （轮 23 引入三列定宽；轮 24 依用户反馈改为「作者可变宽 + 右侧两列定宽靠右」，
+//   本节随实现更新为新契约 —— 保留「各字段有明确宽度档位、末列靠右」的覆盖意图）
 // ---------------------------------------------------------------------------
-test("card meta renders three fixed-length columns with pubdate pinned right", () => {
+test("card meta renders tiered columns with pubdate pinned right", () => {
   const author = css.match(/\.card-meta-field\.is-author \{[\s\S]*?\}/);
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/);
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/);
   assert.ok(author && views && pubdate, "all three column rules must exist");
-  // 三列各自定宽（flex: 0 0 Npx），长度由列决定，不随内容漂移。
-  assert.match(author[0], /flex: 0 0 60px/, "author is a fixed column");
+  // 作者列是可伸缩的「占余」列（轮 24）：吃掉右侧定宽组以外的空间，超限才省略。
+  assert.match(author[0], /flex: 1 1 auto/, "author fills the leftover space (no wasted gap)");
+  assert.match(author[0], /text-overflow: ellipsis/, "author truncates only when it truly overflows");
+  // 播放量 / 发布时间是固定宽度档位。
   assert.match(views[0], /flex: 0 0 \d+px/, "views is a fixed column");
   assert.match(pubdate[0], /flex: 0 0 \d+px/, "pubdate is a fixed-length column too");
-  // 播放列以 margin-left:auto 把右侧两列推到底；发布时间列右对齐且右边缘贴行尾。
-  assert.match(views[0], /margin-left: auto/, "views pushes the right group to the line end");
+  // 末列（发布时间）右对齐贴行尾。
   assert.match(pubdate[0], /justify-content: flex-end/, "pubdate is right-aligned");
   // 行仍是单行不换行（旧契约保留）。
   assert.match(css.match(/\.card-meta \{[\s\S]*?\}/)[0], /flex-wrap: nowrap/);

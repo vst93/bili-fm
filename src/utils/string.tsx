@@ -22,10 +22,18 @@ export const convertToDuration = (seconds: number) => {
 //   B 站 CDN 支持在路径后追加 `@<n>w.webp` 让服务端下采样。列表卡片的封面
 //   展示宽度通常只有 ~130–200 CSS px（抽屉 2/3 列网格），此前默认 400w 属于
 //   过采样 —— 解码后的位图是 WebView2 内存里真正的大头（每张 400w 封面约
-//   0.3MB 解码内存，一整屏列表可积到几十 MB）。降到 300w 后单张位图像素少
-//   约 44%，观感在列表缩略图上几乎无差别。主播放器封面/头像等仍按各自调用
-//   传显式宽度，不受此默认值影响。
-export const graftingImage = (img: string, width = 300) => {
+//   0.3MB 解码内存，一整屏列表可积到几十 MB）。
+//
+// 修复轮 24（用户复测：「一排放 3 个卡片，封面需要的尺寸应该不用特别大」）：
+//   主窗口固定 800×600，抽屉内 3 列网格的卡片宽 ≈ (800 − 2*24(mx-6) − 2*24(px-6)
+//   − 2*8(gap))/3 ≈ 229 CSS px（封面盒高 100px，object-fit:cover 按宽度填充）。
+//   300w 对 100% 缩放已偏过采样，对用户“不用特别大”的诉求也偏大。默认值由
+//   300w 降到 240w：单张位图解码像素少 36%（240²/300² = 0.64），列表缩略图
+//   观感几乎无差别；240 ≥ 229，在 100% 缩放下仍不欠采样（>125% 缩放会略软，
+//   属可接受的缩略图代价，用户已授权降分辨率优先保内存）。
+//   —— 主播放器封面（480）、背景光场（320）、歌单缩略图（192）、各类头像（96）
+//   均按各自调用传显式宽度，**不受此默认值影响**。
+export const graftingImage = (img: string, width = 240) => {
   if (!img) return img;
 
   let source = img.startsWith("//") ? `https:${img}` : img;
@@ -63,13 +71,9 @@ export const formatNumber = (num: number) => {
   }
 }
 
-export const subStr = (str: string, len: number) => {
-  if (str.length > len) {
-    return str.slice(0, len) + '..';
-  } else {
-    return str;
-  }
-}
+// 轮 24 起移除 `subStr`：作者名不再按「字符数」在应用层提前截断（7 个字符
+// 会先把 4 字左右的中文名砍成省略号，而此时列宽往往还有富余）。截断统一交给
+// CSS 的 text-overflow: ellipsis —— 按真实像素宽度决定，只有真正超出列宽才省略。
 
 // 播放量/点赞量等计数：≥1万 → `x.x万`（1.1万），≥100万 → 去小数 `xx万`（112万）。
 export const formatViewCount = (num: number) => {

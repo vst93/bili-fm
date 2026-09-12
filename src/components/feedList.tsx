@@ -19,7 +19,7 @@ import {
   CardFooter,
 } from "@heroui/react";
 
-import { graftingImage, subStr, viewsMetaField } from "@/utils/string";
+import { graftingImage, viewsMetaField } from "@/utils/string";
 
 interface FeedListProps {
   feedList?: FeedList;
@@ -135,7 +135,7 @@ const FeedList: FC<FeedListProps> = ({
                         <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
                           <CardMeta
                           fields={[
-                            { kind: "author", value: subStr(userName, 7) },
+                            { kind: "author", value: userName },
                             ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
                             { kind: "pubdate", value: publishTime },
                           ]}

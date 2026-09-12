@@ -1107,7 +1107,10 @@ export default function IndexPage() {
 
       if (requestId !== searchRequestIdRef.current) return;
 
-      setSearchResults(results);
+      // 轮 24 内存防御：搜索结果运行态无上限（B 站单页 page_size=50，但万一接口
+      // 变更返回全量会无界驻留）。与其它列表保持同一运行态上限；因 160 ≫ 50，
+      // 正常情况完全不会截断，不改变搜索首屏的显示效果。
+      setSearchResults(results.slice(0, MAX_RETAINED_LIST_ITEMS));
       setShowSearchList(true);
       setShowPageList(false);
       setShowFeedList(false);
@@ -1140,7 +1143,7 @@ export default function IndexPage() {
 
       if (requestId !== searchRequestIdRef.current) return;
 
-      setSearchResults(results);
+      setSearchResults(results.slice(0, MAX_RETAINED_LIST_ITEMS));
     } catch (error) {
       console.error("搜索失败:", error);
       if (requestId === searchRequestIdRef.current) {
