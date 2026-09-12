@@ -16,7 +16,16 @@ export const convertToDuration = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 };
 
-export const graftingImage = (img: string, width = 400) => {
+// 列表封面统一走本函数拼接图片代理 URL。
+//
+// 修复轮 23（内存 + 用户诉求「列表页封面分辨率再降一些」）：
+//   B 站 CDN 支持在路径后追加 `@<n>w.webp` 让服务端下采样。列表卡片的封面
+//   展示宽度通常只有 ~130–200 CSS px（抽屉 2/3 列网格），此前默认 400w 属于
+//   过采样 —— 解码后的位图是 WebView2 内存里真正的大头（每张 400w 封面约
+//   0.3MB 解码内存，一整屏列表可积到几十 MB）。降到 300w 后单张位图像素少
+//   约 44%，观感在列表缩略图上几乎无差别。主播放器封面/头像等仍按各自调用
+//   传显式宽度，不受此默认值影响。
+export const graftingImage = (img: string, width = 300) => {
   if (!img) return img;
 
   let source = img.startsWith("//") ? `https:${img}` : img;

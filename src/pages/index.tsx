@@ -1764,7 +1764,14 @@ export default function IndexPage() {
       });
 
       console.log("弹幕数据:", data);
-      setDanmakuList(data);
+      // 轮 23 内存修复：新拉取也必须上界。人气视频的弹幕 XML 解析后可达成千上万条
+      // 对象（热门视频轻松数 MB），此前只有「缓存水合」路径 slice 到 MAX_RETAINED_DANMAKU，
+      // 全新拉取路径直接把整份 data 塞进 state —— 这是运行态随时间持续膨胀的一个来源。
+      // 与缓存水合、评论追加保持同一上限，语义一致（展示前 N 条）。
+      setDanmakuList({
+        ...data,
+        items: (data?.items || []).slice(0, MAX_RETAINED_DANMAKU),
+      } as BL.DanmakuList);
       setDanmakuCid(videoInfo.cid);
     } catch (error: any) {
       console.error("获取弹幕列表失败:", error);

@@ -72,7 +72,13 @@ const FETCH_TIMEOUT_MS = 5000;
 
 // 会话级缓存：同一 BV+cid 只拉一次；仅缓存「真实服务端结论」（含空数组），
 // 中止/超时/网络失败不缓存，以便换曲中止后同曲还能重新拉取。
+//
+// 内存上界（修复轮 23）：本模块在 React 之外、生命周期等于整个会话，
+// 用户一路听下去会不断塞入新的 BV:cid 结论。单条很小，但无上界会随会话时长
+// 单调增长（“还是会膨胀”）。只保留最近 SPONSOR_CACHE_MAX 条（LRU），
+// 超出淘汰最旧 —— 去重命中率几乎不变，但内存不再无界。
 const cache = new Map<string, SponsorSegment[]>();
+const SPONSOR_CACHE_MAX = 64;
 // 进行中的请求：并发调用复用同一 promise，避免重复打接口。
 type InflightEntry = { promise: Promise<FetchOutcome>; signal?: AbortSignal };
 const inflight = new Map<string, InflightEntry>();
@@ -190,7 +196,14 @@ export async function fetchSegments(
   try {
     const outcome = await run;
     if (outcome.cacheable && !externalAborted) {
+      cache.delete(key);
       cache.set(key, outcome.segments);
+      // LRU 上界：超出即淘汰最旧（Map 头部）。只影响缓存命中，不影响正确性。
+      while (cache.size > SPONSOR_CACHE_MAX) {
+        const oldest = cache.keys().next().value;
+        if (oldest === undefined) break;
+        cache.delete(oldest);
+      }
     }
     return outcome.segments;
   } finally {

@@ -78,20 +78,20 @@ test("no dynamic list keeps the `Number(...) || 0` play-count bug", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 问题 2：三元素固定位置（列宽不随内容漂移）
+// 问题 2：三元素固定长度 + 发布时间恒定居右（轮 23 依用户反馈修订）
 // ---------------------------------------------------------------------------
-test("card meta renders as three fixed columns, not free-flowing text", () => {
+test("card meta renders three fixed-length columns with pubdate pinned right", () => {
   const author = css.match(/\.card-meta-field\.is-author \{[\s\S]*?\}/);
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/);
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/);
   assert.ok(author && views && pubdate, "all three column rules must exist");
-  // 作者列与播放列都定为固定宽度（flex: 0 0 Npx），不受内容长短影响。
+  // 三列各自定宽（flex: 0 0 Npx），长度由列决定，不随内容漂移。
   assert.match(author[0], /flex: 0 0 60px/, "author is a fixed column");
   assert.match(views[0], /flex: 0 0 \d+px/, "views is a fixed column");
-  assert.match(views[0], /justify-content: flex-end/, "views is right-aligned in its column");
-  // 发布日期占剩余空间并左对齐：因左邻两列定宽，其左边缘恒定。
-  assert.match(pubdate[0], /flex: 1 1 auto/);
-  assert.match(pubdate[0], /justify-content: flex-start/);
+  assert.match(pubdate[0], /flex: 0 0 \d+px/, "pubdate is a fixed-length column too");
+  // 播放列以 margin-left:auto 把右侧两列推到底；发布时间列右对齐且右边缘贴行尾。
+  assert.match(views[0], /margin-left: auto/, "views pushes the right group to the line end");
+  assert.match(pubdate[0], /justify-content: flex-end/, "pubdate is right-aligned");
   // 行仍是单行不换行（旧契约保留）。
   assert.match(css.match(/\.card-meta \{[\s\S]*?\}/)[0], /flex-wrap: nowrap/);
 });
