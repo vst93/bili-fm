@@ -1,7 +1,6 @@
 import type { FC } from "react";
 import { useMemo, useRef, useState } from "react";
 
-import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
@@ -11,16 +10,13 @@ import {
     DrawerContent,
     DrawerBody,
     DrawerHeader,
-    Card,
-    CardBody,
-    CardFooter,
 } from "@heroui/react";
 import { Play } from "@icon-park/react";
-import CardMeta from "./cardMeta";
+import ListCard from "./listCard";
 
 import { graftingImage, formatViewCount, formatRelativeTime, convertToDuration } from "@/utils/string";
 
-const MAX_RETAINED_ITEMS = 160;
+const MAX_RETAINED_ITEMS = 128;
 import { appendWithRetention } from "@/lib/listRetention";
 import { invoke } from "@tauri-apps/api/core";
 import type { SeriesArchive } from "@/types/bilibili";
@@ -161,45 +157,19 @@ const SeriesList: FC<SeriesListProps> = ({
                                 style={{ width: "100%" }}
                             >
                                 {seriesVideos.map((video) => (
-                                    <Card
+                                    <ListCard
                                         key={video.aid}
-                                        isPressable
-                                        className={`c-list-card${currentBvid === video.bvid ? " border-2 border-primary" : ""}`}
-                                        shadow="sm"
+                                        cardClassName={`c-list-card${currentBvid === video.bvid ? " border-2 border-primary" : ""}`}
+                                        cover={video.pic}
+                                        coverAlt={video.title}
+                                        duration={video?.duration ? convertToDuration(video.duration) : null}
+                                        fields={[
+                                            { kind: "views", value: video?.stat?.view != null ? formatViewCount(video.stat.view) : null },
+                                            { kind: "pubdate", value: video?.pubdate ? formatRelativeTime(video.pubdate) : null },
+                                        ]}
                                         onPress={() => onVideoSelect?.(video.bvid)}
-                                    >
-                                        <CardBody className="overflow-visible p-0 img-container">
-                                            <RetryImg
-                                                alt={video.title}
-                                                className="c-cover"
-                                                fallbackSrc="/cover.png"
-                                                loading="lazy"
-                                                radius="sm"
-                                                shadow="sm"
-                                                src={graftingImage(video.pic)}
-                                                width="100%"
-                                            />
-                                            {video?.duration ? (
-                                                <span className="c-cover-duration">{convertToDuration(video.duration)}</span>
-                                            ) : null}
-                                        </CardBody>
-                                        <CardFooter className="text-small flex-col items-start px-2 py-1">
-                                            <b
-                                                className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                                                title={video.title}
-                                            >
-                                                {video.title}
-                                            </b>
-                                            <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                <CardMeta
-                                                    fields={[
-                                                      { kind: "views", value: video?.stat?.view != null ? formatViewCount(video.stat.view) : null },
-                                                      { kind: "pubdate", value: video?.pubdate ? formatRelativeTime(video.pubdate) : null },
-                                                    ]}
-                                                />
-                                            </div>
-                                        </CardFooter>
-                                    </Card>
+                                        title={video.title}
+                                    />
                                 ))}
                             </div>
                             )}

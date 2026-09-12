@@ -44,12 +44,14 @@ const LIST_COMPONENTS = [
 // 问题 1：时长角标覆盖全部列表
 // ---------------------------------------------------------------------------
 test("every list card (incl. collect / recommend / search) shows the cover duration badge", () => {
+  // 轮 25：角标由共享 ListCard 渲染；各列表通过 <ListCard ... /> 接入。
+  assert.match(read("../src/components/listCard.tsx"), /c-cover-duration/);
   for (const name of [...LIST_COMPONENTS]) {
     const src = read(`../src/components/${name}.tsx`);
     assert.match(
       src,
-      /c-cover-duration/,
-      `${name} must render the cover corner duration badge`,
+      /<ListCard\b/,
+      `${name} must render the cover corner duration badge through ListCard`,
     );
   }
 });
@@ -62,14 +64,17 @@ test("collectList & recommendList moved duration off the meta row to the cover",
       /kind: "duration"/,
       `${name} must not keep duration in the meta row anymore`,
     );
-    assert.match(src, /<span className="c-cover-duration">/);
+    // 轮 25：时长改经 ListCard 的 duration 属性渲染为封面角标。
+    assert.match(src, /<ListCard\b/);
+    assert.match(src, /duration=\{/);
   }
 });
 
 test("searchList badge uses the new length field, not views/date", () => {
   const src = read("../src/components/searchList.tsx");
   assert.match(src, /video\.length/);
-  assert.match(src, /<span className="c-cover-duration">/);
+  assert.match(src, /<ListCard\b/);
+  assert.match(src, /duration=\{video\.length\}/);
 });
 
 test("Rust search result carries the length field end-to-end", () => {

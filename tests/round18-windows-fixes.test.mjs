@@ -23,15 +23,22 @@ const LIST_COMPONENTS = [
   "collectList", "searchList", "historyList", "pageList",
 ];
 
-test("every list component renders meta through the shared CardMeta", () => {
+test("every list component renders its card through the shared ListCard", () => {
+  // 轮 25 组件化：8 个列表不再各自手写 HeroUI 卡片，统一走 ListCard；
+  // 而 ListCard 内部仍走 CardMeta，因此“meta 统一”的契约保持。
+  assert.match(
+    read("../src/components/listCard.tsx"),
+    /<CardMeta\b/,
+    "ListCard must render the shared CardMeta",
+  );
   for (const name of LIST_COMPONENTS) {
     const src = read(`../src/components/${name}.tsx`);
     assert.match(
       src,
-      /import CardMeta from "\.\/cardMeta"/,
-      `${name} must import the shared CardMeta`,
+      /import ListCard from "\.\/listCard"/,
+      `${name} must import the shared ListCard`,
     );
-    assert.match(src, /<CardMeta\b/, `${name} must render <CardMeta>`);
+    assert.match(src, /<ListCard\b/, `${name} must render <ListCard>`);
     assert.doesNotMatch(
       src,
       /className="card-meta"/,
@@ -48,6 +55,7 @@ test(".card-meta is a single non-wrapping line with overflow clipping", () => {
   // 每个字段自身也不换行（作者名单独走 ellipsis 截断规则）。
   const field = css.match(/\.card-meta-field \{[\s\S]*?\}/);
   assert.match(field[0], /white-space: nowrap/);
+  // 基态固有宽度；比例档位（轮 25）在 is-author/is-views/is-pubdate 上另行覆盖。
   assert.match(field[0], /flex: 0 0 auto/, "fields keep intrinsic width, never squashed");
 });
 

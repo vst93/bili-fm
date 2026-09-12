@@ -3,23 +3,19 @@ import type { SearchResult } from "@/types/bilibili";
 
 import { useMemo, useState } from "react";
 import {  } from "@icon-park/react";
-import CardMeta from "./cardMeta";
 import { useDisclosure } from "@heroui/react";
 import {
   Drawer,
   DrawerContent,
   DrawerBody,
   DrawerHeader,
-  Card,
-  CardBody,
-  CardFooter,
   Tab,
   Tabs,
 } from "@heroui/react";
 
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
-import RetryImg from "./retryImg";
+import ListCard from "./listCard";
 import ListSkeleton from "./listSkeleton";
 
 import { graftingImage } from "@/utils/string";
@@ -95,46 +91,19 @@ const SearchList: FC<SearchListProps> = ({
                   style={{ width: "100%" }}
                 >
                   {searchResults.map((video) => (
-                  <Card
+                  <ListCard
                     key={video.url}
-                    isPressable
-                    shadow="sm"
-                    className="c-list-card"
+                    cover={video.picture_url}
+                    coverAlt={video.title}
+                    duration={video.length}
+                    fields={[
+                      { kind: "author", value: video.author },
+                      { kind: "views", value: video.views != null ? String(video.views) : null },
+                      { kind: "pubdate", value: video.date },
+                    ]}
                     onPress={() => onVideoSelect?.(video.url)}
-                  >
-                    <CardBody className="overflow-visible p-0 img-container">
-                      <RetryImg
-                        alt={video.title}
-                        className="c-cover"
-                        fallbackSrc="/cover.png"
-                        loading="lazy"
-                        radius="sm"
-                        shadow="sm"
-                        src={graftingImage(video.picture_url)}
-                        width="100%"
-                      />
-                      {video.length ? (
-                        <span className="c-cover-duration">{video.length}</span>
-                      ) : null}
-                    </CardBody>
-                    <CardFooter className="text-small flex-col items-start px-2 py-1">
-                      <b
-                        className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                        title={video.title}
-                      >
-                        {video.title}
-                      </b>
-                      <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                        <CardMeta
-                          fields={[
-                            { kind: "author", value: video.author },
-                            { kind: "views", value: video.views != null ? String(video.views) : null },
-                            { kind: "pubdate", value: video.date },
-                          ]}
-                        />
-                      </div>
-                    </CardFooter>
-                  </Card>
+                    title={video.title}
+                  />
                 ))}
                 </div>
               )}

@@ -71,12 +71,18 @@ test("explicit widths (player/ambient/playlist/avatar) are unaffected by the new
 });
 
 test("all list-card covers still use the (new) default width", () => {
+  // 轮 25：ListCard 统一用默认 240w；列表不再各自拼图片代理。
+  assert.match(
+    read("../src/components/listCard.tsx"),
+    /graftingImage\(cover \?\? ""\)/,
+    "ListCard cover must flow through the default graftingImage width",
+  );
   for (const name of LIST_COMPONENTS) {
     const src = read(`../src/components/${name}.tsx`);
     assert.match(
       src,
-      /src=\{graftingImage\([^)]*\)\}/,
-      `${name} cover must flow through the default graftingImage width`,
+      /<ListCard\b/,
+      `${name} must render covers through ListCard's default width`,
     );
   }
 });
@@ -98,19 +104,19 @@ test("author is a flexible column that absorbs leftover width and ellipsizes onl
   const author = css.match(/\.card-meta-field\.is-author \{[\s\S]*?\}/)[0];
   // 不再是被钉死的窄定宽列（那就是「中间留白 + 名字被提前缩写」的根因）。
   assert.doesNotMatch(author, /flex: 0 0 \d+px/, "author must not stay a narrow fixed column");
-  assert.match(author, /flex: 1 1 auto/, "author must absorb the leftover width");
+  assert.match(author, /flex: 4 1 0/, "author gets a proportional share (40%)");
   assert.match(author, /overflow: hidden/, "author overflows are clipped");
   assert.match(author, /text-overflow: ellipsis/, "author truncates only when it truly overflows");
-  // 作者列吃满剩余空间：有作者的行不再有中间空白（margin-left:auto 仅在无作者行生效）。
+  // 比例分配：同一栅格下每张卡片的列起点一致，不再有中间空白。
 });
 
 test("views/pubdate are fixed-size tiers and the last column (pubdate) hugs the line end", () => {
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/)[0];
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/)[0];
-  assert.match(views, /flex: 0 0 56px/, "views is a fixed 56px tier");
+  assert.match(views, /flex: 3 1 0/, "views gets the 30% share");
   assert.match(views, /justify-content: flex-end/, "views content is right-aligned in its tier");
-  assert.match(pubdate, /flex: 0 0 62px/, "pubdate is a fixed 62px tier");
-  assert.match(pubdate, /justify-content: flex-end/, "pubdate content hugs the right edge (line end)");
+  assert.match(pubdate, /flex: 3 1 0/, "pubdate gets the 30% share");
+  assert.match(pubdate, /text-align: right/, "pubdate content hugs the right edge (line end)");
 });
 
 test("meta row remains a single non-wrapping line with priority-based hiding", () => {
@@ -133,9 +139,11 @@ test("meta row remains a single non-wrapping line with priority-based hiding", (
 });
 
 test("every list still renders meta through the shared CardMeta (no hand-rolled row)", () => {
+  // 轮 25：列表卡统一走 ListCard，ListCard 内部再走 CardMeta。
+  assert.match(read("../src/components/listCard.tsx"), /<CardMeta\b/);
   for (const name of LIST_COMPONENTS) {
     const src = read(`../src/components/${name}.tsx`);
-    assert.match(src, /<CardMeta\b/, `${name} must render <CardMeta>`);
+    assert.match(src, /<ListCard\b/, `${name} must render <ListCard>`);
     assert.doesNotMatch(src, /className="card-meta"/, `${name} must not hand-roll the meta row`);
   }
 });

@@ -53,11 +53,14 @@ test("already-sized hdslb URLs are left untouched (no double @suffix)", () => {
 });
 
 test("every list card cover flows through graftingImage with the default width", () => {
-  // 至少这些列表卡片的 <RetryImg src> 不再传显式宽度（吃默认 240w）。
+  // 轮 25：封面统一由 ListCard 用默认宽度（240w）走 graftingImage；
+  // 各列表只传原始 URL，不再自行拼图片代理。
+  const card = read("../src/components/listCard.tsx");
+  assert.match(card, /graftingImage\(cover \?\? ""\)/, "ListCard must use the default graftingImage width");
   const LIST = ["feedList", "recommendList", "seriesList", "upVideoList", "collectList", "searchList", "historyList"];
   for (const name of LIST) {
     const src = read(`../src/components/${name}.tsx`);
-    assert.match(src, /src=\{graftingImage\([^)]*\)\}/, `${name} cover must use the default graftingImage width`);
+    assert.match(src, /<ListCard\b/, `${name} cover must flow through ListCard's default width`);
   }
 });
 
@@ -68,13 +71,14 @@ test("pubdate column is a fixed tier, right-aligned, and pinned to the line end"
   const author = css.match(/\.card-meta-field\.is-author \{[\s\S]*?\}/)[0];
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/)[0];
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/)[0];
-  // 轮 24：作者列改为可伸缩的「占余」列（不再是定宽 60px，也不再留中间空白）。
+  // 轮 25：三列改为按比例分配（作者 4 / 播放量 3 / 发布时间 3），
+  // 列宽只随卡片容器宽度分配，不再钉固定 px，也不再留中间空白。
   assert.doesNotMatch(author, /flex: 0 0 \d+px/, "author must not stay a narrow fixed column");
-  assert.match(author, /flex: 1 1 auto/, "author absorbs the leftover width");
-  assert.match(views, /flex: 0 0 \d+px/, "views is a fixed tier");
-  assert.match(pubdate, /flex: 0 0 \d+px/, "pubdate must be a fixed-length column");
+  assert.match(author, /flex: 4 1 0/, "author gets the 40% share");
+  assert.match(views, /flex: 3 1 0/, "views gets the 30% share");
+  assert.match(pubdate, /flex: 3 1 0/, "pubdate gets the 30% share");
   // 发布时间右对齐贴行尾。
-  assert.match(pubdate, /justify-content: flex-end/, "pubdate content hugs the right edge");
+  assert.match(pubdate, /text-align: right/, "pubdate content hugs the right edge");
 });
 
 test("author names are no longer pre-truncated in the app layer (subStr removed)", () => {
@@ -103,9 +107,9 @@ test("meta row still never wraps and still hides fields by priority when narrow"
 });
 
 test("no card meta field can introduce a line break or an unsized gap column", () => {
-  // 右侧定宽组必须仍靠右（末列右边缘贴行尾）；作者列不得引入换行。
+  // 右侧比例列必须仍靠右（末列右边缘贴行尾）；作者列不得引入换行。
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/)[0];
-  assert.match(views, /flex: 0 0 \d+px/, "views must stay a fixed-size column for stable right alignment");
+  assert.match(views, /flex: 3 1 0/, "views must stay a sized column for stable right alignment");
   assert.match(css.match(/\.card-meta-field \{[\s\S]*?\}/)[0], /white-space: nowrap/);
 });
 

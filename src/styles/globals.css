@@ -163,25 +163,30 @@ textarea,
     container-type: inline-size;
 }
 
-/* 卡片 meta 行 —— 统一规范（所有列表卡片共用）：
+/* 卡片 meta 行 —— 统一规范（所有列表卡片共用，轮 25 依用户反馈重调）：
    1) 永远单行：flex-wrap: nowrap + 行级 overflow: hidden，任何宽度都不换行；
-   2) 字段按「档位」布局（轮 24 依用户反馈重调）：
-      - 作者名是**可变宽列**，占满右侧定宽组之外的全部剩余空间（而不是像轮 23
-        那样被钉在固定 60px，再把多余空间变成中间的一段空白）—— 因此名字只有
-        在确实超出可用宽度时才省略（text-overflow: ellipsis），不再提前被砍。
-      - 播放量列、发布时间列各自是**固定宽度档位**（不随内容长短漂移）：
-        播放量档位 56px（容下「12.3万」+ 16px 播放图标），发布时间档位 62px
-        （容下「2026-09-12」10 字符 / 「今天」「昨天」「N天前」）。
-      - **最后一个字段（发布时间）靠右对齐**，右边缘贴行尾；其左邻两列也因
-        定宽而位置恒定 —— 整行不留大片空白，也不左右抖动。
-   3) 字段永不换行、数值不截断；卡片过窄时按「优先级从低到高」隐藏整列
-      （附加进度 → 时长 → 发布时间 → 播放量），而不是换行或截断数值。
+   2) 三列**按比例**分配剩余空间（用户参考：作者 ≈40%、播放量 ≈30%、发布时间
+      ≈30%），使不同卡片的信息行宽度统一 —— 不再出现「有的列定宽、有的列
+      吃余量」导致的各卡片列宽不一、数字与日期粘在一起：
+        .is-author   flex: 4 1 0 —— 约 40%
+        .is-views    flex: 3 1 0 —— 约 30%
+        .is-pubdate  flex: 3 1 0 —— 约 30%
+      flex-basis 0 + min-width 0 让三列各自「按其 flex-grow 比例」分配，列宽只
+      随卡片容器宽度变化，与数值/日期的字符数无关 —— 同一卡片栅格下，每张
+      卡片的作者/播放/日期起点都对齐。
+   3) 播放量、发布时间**靠右对齐**（末列发布时间右边缘贴行尾），作者列左对齐；
+      每列内容超限时用 ellipsis 截断，**绝不换行、绝不把数值渲染成空白**。
+      列之间留 8px 安全间距（见 .card-meta 的 gap 与 min-width），日期再长也
+      不会与播放量粘在一起。
+   4) 卡片过窄时按「优先级从低到高」隐藏整列（附加进度 → 时长 → 发布时间
+      → 播放量），而不是换行或截断数值。
       优先级：作者 > 播放量 > 时长 > 发布时间 > 附加。 */
 .card-meta {
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
-    gap: 6px;
+    /* 8px：数值列与日期列之间留安全间距，防止 10 字符日期与播放量视觉粘连 */
+    gap: 8px;
     min-width: 0;
     width: 100%;
     overflow: hidden;
@@ -191,59 +196,62 @@ textarea,
     display: inline-flex;
     align-items: center;
     gap: 2px;
+    /* 基态保持固有宽度（不被无差别压扁）；比例列在下方各自覆盖为 flex: N 1 0。 */
     flex: 0 0 auto;
     min-width: 0;
     white-space: nowrap;
 }
 
-/* 可变宽列（轮 24）：作者名占满右侧定宽组以外的所有剩余空间。
-   flex: 1 1 auto 让它「吃」掉轮 23 里被 margin-left:auto 浪费掉的中间空白 ——
-   中长的名字因此能完整显示；只有真正超过可用宽度时才 ellipsis 截断。
-   text-overflow 需要块级盒，故 display: block。 */
+/* 三列比例档位（轮 25）：作者 40% / 播放量 30% / 发布时间 30%。
+   flex-basis:0 让列宽只由 flex-grow 比例与容器宽度决定，与内容长短无关；
+   min-width:0 允许在极窄卡片里收缩（配合 ellipsis），并在更窄时整列隐藏。
+   作者列左对齐、超限 ellipsis（text-overflow 需要块级盒，故 display:block）。 */
 .card-meta-field.is-author {
     display: block;
-    flex: 1 1 auto;
+    flex: 4 1 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-align: left;
     white-space: nowrap;
 }
 
-/* 固定档位 1（轮 24）：播放量列定宽 56px 并右对齐，图标 + 数值整体靠右，
-   使发布时间列的左边缘在每张卡片上恒定。
-   margin-left: auto 只在「本行没有作者列」时起作用（如 seriesList 的
-   views+pubdate、pageList 的 views+duration）：此时它吸收作者列本该占的
-   剩余空间，把右侧字段推到行尾，保证末字段仍靠右对齐。有作者列时，作者列
-   的 flex-grow 已吃光剩余空间，这个 auto 外边距自动为 0，不会造成中间留白。 */
+/* 播放量列：占 30%，内容（图标 + 数值）整体靠右，使其右边缘成为日期的稳定起点。 */
 .card-meta-field.is-views {
-    flex: 0 0 56px;
+    flex: 3 1 0;
     justify-content: flex-end;
-    margin-left: auto;
     min-width: 0;
 }
 
-/* 固定档位 2（轮 24）：发布时间列定宽 62px 并右对齐，右边缘紧贴行尾。
-   定宽保证不同长度的相对时间不会把列撑宽而左右抖动。 */
+/* 发布时间列：占 30%，靠右贴行尾 —— 末列右边缘恒定，整行不左右抖动。
+   用 display:block + text-align:right（与作者列同理）：text-overflow: ellipsis
+   只在块级盒上生效，inline-flex 包裹的纯文本无法省略号。10 字符的
+   「2026-09-12」若超出 30% 宽度则整串省略号截断，且因列间距而不会与左侧
+   播放量粘连。 */
 .card-meta-field.is-pubdate {
-    flex: 0 0 62px;
-    justify-content: flex-end;
+    display: block;
+    flex: 3 1 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     min-width: 0;
 }
 
-/* 固定档位（轮 24）：时长占 40px（容下「M:SS」/「99:59」）并右对齐。
-   实际卡片宽度下时长已在封面角标（见 .c-cover-duration），本行内时长通常
-   最先被隐藏；保留档位是为了与其它字段统一、并在更宽卡片上仍居右对齐。 */
+/* 时长档位（轮 25）：无作者行时按 40px 起步；一旦有比例列参与分配，
+   flex-basis:0 也让它按比例参与，保持与其它字段一致的缩放行为。 */
 .card-meta-field.is-duration {
-    flex: 0 0 40px;
+    flex: 0 1 40px;
     justify-content: flex-end;
+    overflow: hidden;
+    text-overflow: ellipsis;
     min-width: 0;
 }
 
-/* 固定档位（轮 24）：附加字段（稍后再看进度「已看 45%」等）占 64px，
-   右对齐、超限省略号截断。 */
+/* 附加字段（稍后再看进度「已看 45%」等）：右对齐、超限省略号截断。 */
 .card-meta-field.is-extra {
     display: block;
-    flex: 0 0 64px;
+    flex: 0 1 64px;
     text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -285,11 +293,10 @@ textarea,
     }
 }
 
-/* 三列档位：作者（可变，最小可缩到 0，超限省略）+ 播放量 56 + 发布时间 62
-   + 2*6(gap)。要「三列都体面地放下」（作者至少留 ~5 汉字 60px）约需
-   60+56+62+12 = 190，加卡片内边距/边框后容器约 210px。发布时间是「稳定居右」
-   的那一列，一旦容器低于此值先整列隐藏（否则作者会被压得过窄）。 */
-@container (max-width: 210px) {
+/* 三列比例档位下，三列都体面放下（作者 ≥ ~5 汉字≈60px）约需容器 200px
+   （作者 40% 时 ≈80px；播放量 30% ≈60px；发布时间 30% ≈60px）。发布时间
+   是「稳定居右」的那一列，容器低于此值先整列隐藏（否则作者会被压得过窄）。 */
+@container (max-width: 200px) {
     .card-meta-field.is-pubdate {
         display: none;
     }

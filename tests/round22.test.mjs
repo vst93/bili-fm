@@ -87,14 +87,14 @@ test("card meta renders tiered columns with pubdate pinned right", () => {
   const views = css.match(/\.card-meta-field\.is-views \{[\s\S]*?\}/);
   const pubdate = css.match(/\.card-meta-field\.is-pubdate \{[\s\S]*?\}/);
   assert.ok(author && views && pubdate, "all three column rules must exist");
-  // 作者列是可伸缩的「占余」列（轮 24）：吃掉右侧定宽组以外的空间，超限才省略。
-  assert.match(author[0], /flex: 1 1 auto/, "author fills the leftover space (no wasted gap)");
-  assert.match(author[0], /text-overflow: ellipsis/, "author truncates only when it truly overflows");
-  // 播放量 / 发布时间是固定宽度档位。
-  assert.match(views[0], /flex: 0 0 \d+px/, "views is a fixed column");
-  assert.match(pubdate[0], /flex: 0 0 \d+px/, "pubdate is a fixed-length column too");
+  // 三列改为按比例分配（轮 25）：作者 4 / 播放量 3 / 发布时间 3。
+  // 列宽只随卡片容器宽度分配、与内容长短无关，从而统一各卡片的信息行宽度。
+  assert.match(author[0], /flex: 4 1 0/, "author is a proportional column (40%)");
+  assert.match(author[0], /text-overflow: ellipsis/, "author truncates when it overflows its share");
+  assert.match(views[0], /flex: 3 1 0/, "views is a proportional column (30%)");
+  assert.match(pubdate[0], /flex: 3 1 0/, "pubdate is a proportional column (30%)");
   // 末列（发布时间）右对齐贴行尾。
-  assert.match(pubdate[0], /justify-content: flex-end/, "pubdate is right-aligned");
+  assert.match(pubdate[0], /text-align: right/, "pubdate is right-aligned");
   // 行仍是单行不换行（旧契约保留）。
   assert.match(css.match(/\.card-meta \{[\s\S]*?\}/)[0], /flex-wrap: nowrap/);
 });
@@ -162,9 +162,12 @@ test("CardMeta shows a danmaku icon variant and keeps the author tooltip", () =>
 // 静态契约：所有列表仍走共享 CardMeta（不回归排版）
 // ---------------------------------------------------------------------------
 test("every list still renders meta through the shared CardMeta", () => {
+  // 轮 25：列表卡片统一走 ListCard，ListCard 内部再走 CardMeta。
+  assert.match(read("../src/components/listCard.tsx"), /<CardMeta\b/);
   for (const name of LIST_COMPONENTS) {
     const src = read(`../src/components/${name}.tsx`);
-    assert.match(src, /<CardMeta\b/, `${name} must render <CardMeta>`);
+    assert.match(src, /<ListCard\b/, `${name} must render <ListCard>`);
+    assert.match(src, /fields=\{/, `${name} must pass meta fields to ListCard`);
     assert.doesNotMatch(src, /className="card-meta"/, `${name} must not hand-roll the row`);
   }
 });

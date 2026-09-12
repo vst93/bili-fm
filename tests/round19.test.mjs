@@ -33,9 +33,10 @@ test("no list keeps duration ahead of pubdate in the meta row", () => {
 test("video-duration moved to a cover corner badge (industry convention)", () => {
   assert.match(css, /\.c-cover-duration \{/);
   assert.match(css, /\.c-cover-duration \{[\s\S]*?position: absolute/);
-  // 至少 feedList / upVideoList / seriesList / pageList / historyList 采用角标
+  // 轮 25：角标统一由共享 ListCard 渲染，各列表传入 duration 即可（不再手写 span）。
+  assert.match(read("../src/components/listCard.tsx"), /className="c-cover-duration"/);
   for (const name of ["feedList", "upVideoList", "seriesList", "pageList", "historyList"]) {
-    assert.match(read(`../src/components/${name}.tsx`), /className="c-cover-duration"/, `${name} must use cover corner duration`);
+    assert.match(read(`../src/components/${name}.tsx`), /<ListCard\b/, `${name} must render the cover corner duration through ListCard`);
   }
 });
 
@@ -46,12 +47,10 @@ test("every list card keeps at least two informative fields", () => {
     ).length;
   for (const name of LIST_COMPONENTS) {
     const src = read(`../src/components/${name}.tsx`);
-    const i = src.indexOf("<CardMeta");
-    assert.ok(i !== -1, `${name} must render CardMeta`);
-    const block = src.slice(i, src.indexOf("/>", i));
+    assert.match(src, /<ListCard\b/, `${name} must render ListCard`);
     assert.ok(
-      informative(block) >= 2,
-      `${name} must show at least 2 informative fields (was: ${block})`,
+      informative(src) >= 2,
+      `${name} must supply at least 2 informative fields to ListCard`,
     );
   }
 });
@@ -64,7 +63,9 @@ test("upVideoList gained the author field (was views/duration/pubdate only)", ()
 test("seriesList gained views (meta) + duration (cover badge), was a lone pubdate", () => {
   const src = read("../src/components/seriesList.tsx");
   assert.match(src, /kind: "views"/);
-  assert.match(src, /className="c-cover-duration"/);
+  // 轮 25：时长经 ListCard 的 duration 属性渲染为封面角标。
+  assert.match(src, /<ListCard\b/);
+  assert.match(src, /duration=\{/);
 });
 
 // ---------------------------------------------------------------------------

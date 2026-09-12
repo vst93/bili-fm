@@ -1,9 +1,7 @@
 import type { FC } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Close, MaskOne, Refresh } from "@icon-park/react";
-import CardMeta from "./cardMeta";
 
-import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
@@ -14,19 +12,17 @@ import {
     DrawerContent,
     DrawerBody,
     DrawerHeader,
-    Card,
-    CardBody,
-    CardFooter,
     Tabs,
     Tab,
 } from "@heroui/react";
+import ListCard from "./listCard";
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryList as BLHistoryList } from "@/types/bilibili";
 import type { WatchLaterItem as BLWatchLaterItem } from "@/types/bilibili";
 import { convertToDuration, graftingImage, formatViewCount, formatRelativeTime } from "@/utils/string";
 import { toast } from "@/utils/toast";
 
-const MAX_RETAINED_ITEMS = 160;
+const MAX_RETAINED_ITEMS = 128;
 import { appendWithRetention } from "@/lib/listRetention";
 
 type HistoryTab = "history" | "watchlater";
@@ -287,46 +283,19 @@ const HistoryList: FC<HistoryListProps> = ({
                                 >
                                     {historyList?.map((item: any) => {
                                         return (
-                                            <Card
+                                            <ListCard
                                                 key={`${item?.history?.bvid}-${item?.view_at || item?.progress || 0}`}
-                                                isPressable
-                                                shadow="sm"
-                                                className="c-list-card"
+                                                cover={item.cover}
+                                                coverAlt={item.title}
+                                                duration={item.duration > 0 ? convertToDuration(item.duration) : null}
+                                                fields={[
+                                                    { kind: "author", value: item.author_name },
+                                                    { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
+                                                    { kind: "pubdate", value: item.view_at ? formatRelativeTime(item.view_at) : null },
+                                                ]}
                                                 onPress={() => onVideoSelect?.(item?.history?.bvid)}
-                                            >
-                                                <CardBody className="overflow-visible p-0 img-container">
-                                                    <RetryImg
-                                                        alt={item.title}
-                                                        className="c-cover"
-                                                        fallbackSrc="/cover.png"
-                                                        loading="lazy"
-                                                        radius="sm"
-                                                        shadow="sm"
-                                                        src={graftingImage(item.cover)}
-                                                        width="100%"
-                                                    />
-                                                    {item.duration > 0 ? (
-                                                        <span className="c-cover-duration">{convertToDuration(item.duration)}</span>
-                                                    ) : null}
-                                                </CardBody>
-                                                <CardFooter className="text-small flex-col items-start px-2 py-1">
-                                                    <b
-                                                        className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                                                        title={item.title}
-                                                    >
-                                                        {item.title}
-                                                    </b>
-                                                    <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                        <CardMeta
-                                                            fields={[
-                                                                { kind: "author", value: item.author_name },
-                                                                { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
-                                                                { kind: "pubdate", value: item.view_at ? formatRelativeTime(item.view_at) : null },
-                                                            ]}
-                                                        />
-                                                    </div>
-                                                </CardFooter>
-                                            </Card>
+                                                title={item.title}
+                                            />
                                         );
                                     })}
                                 </div>
@@ -366,27 +335,12 @@ const HistoryList: FC<HistoryListProps> = ({
                                                 : ratio > 0 ? ` | 已看 ${ratio}%` : "";
                                             const isPending = pendingAids.has(item.aid);
                                             return (
-                                                <Card
+                                                <ListCard
                                                     key={`${item?.bvid}-${item?.aid}`}
-                                                    isPressable
-                                                    shadow="sm"
-                                                    className="c-list-card"
-                                                    onPress={() => onVideoSelect?.(item?.bvid)}
-                                                >
-                                                    <CardBody className="overflow-visible p-0 img-container">
-                                                        <RetryImg
-                                                            alt={item.title}
-                                                            className="c-cover"
-                                                            fallbackSrc="/cover.png"
-                                                            loading="lazy"
-                                                            radius="sm"
-                                                            shadow="sm"
-                                                            src={graftingImage(item.pic)}
-                                                            width="100%"
-                                                        />
-                                                        <span className="c-cover-duration">
-                                                            {convertToDuration(item.duration)}
-                                                        </span>
+                                                    cover={item.pic}
+                                                    coverAlt={item.title}
+                                                    duration={convertToDuration(item.duration)}
+                                                    coverChildren={
                                                         <button
                                                             aria-label="从稍后再看移除"
                                                             className="watchlater-remove-btn"
@@ -401,25 +355,15 @@ const HistoryList: FC<HistoryListProps> = ({
                                                         >
                                                             <Close size="12" theme="outline" />
                                                         </button>
-                                                    </CardBody>
-                                                    <CardFooter className="text-small flex-col items-start px-2 py-1">
-                                                        <b
-                                                            className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                                                            title={item.title}
-                                                        >
-                                                            {item.title}
-                                                        </b>
-                                                        <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                                                            <CardMeta
-                                                                fields={[
-                                                                    { kind: "author", value: item.owner?.name },
-                                                                    { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
-                                                                    { kind: "extra", value: progressLabel ? progressLabel.replace(/^\s*\|\s*/, "") : null },
-                                                                ]}
-                                                            />
-                                                        </div>
-                                                    </CardFooter>
-                                                </Card>
+                                                    }
+                                                    fields={[
+                                                        { kind: "author", value: item.owner?.name },
+                                                        { kind: "views", value: item?.stat?.view != null ? formatViewCount(item.stat.view) : null },
+                                                        { kind: "extra", value: progressLabel ? progressLabel.replace(/^\s*\|\s*/, "") : null },
+                                                    ]}
+                                                    onPress={() => onVideoSelect?.(item?.bvid)}
+                                                    title={item.title}
+                                                />
                                             );
                                         })}
                                     </div>

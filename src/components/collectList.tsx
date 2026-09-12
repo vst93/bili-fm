@@ -1,8 +1,7 @@
 import type { FC } from "react";
 
 import { Refresh, Left, Right } from "@icon-park/react";
-import CardMeta from "./cardMeta";
-import RetryImg from "./retryImg";
+import ListCard from "./listCard";
 import ListSkeleton from "./listSkeleton";
 
 import { useDisclosure } from "@heroui/react";
@@ -12,9 +11,6 @@ import {
   DrawerContent,
   DrawerBody,
   DrawerHeader,
-  Card,
-  CardBody,
-  CardFooter,
   Tabs,
   Tab,
 } from "@heroui/react";
@@ -165,48 +161,23 @@ const CollectList: FC<CollectListProps> = ({
                 >
                   {collectList.map((item: any) => {
                     return (
-                      <Card
+                      <ListCard
                         key={item.id || item.bvid}
-                        isPressable
-                        shadow="sm"
-                        className="c-list-card"
+                        cover={item.cover}
+                        coverAlt={item.title}
+                        duration={
+                          item?.duration != null && item.duration > 0
+                            ? convertToDuration(item.duration)
+                            : null
+                        }
+                        fields={[
+                          { kind: "author", value: item.upper?.name || item.author },
+                          ...viewsMetaField(item?.cnt_info?.play, item?.cnt_info?.danmaku),
+                          { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
+                        ]}
                         onPress={() => onVideoSelect?.(item.bvid)}
-                      >
-                        <CardBody className="overflow-visible p-0 img-container">
-                          <RetryImg
-                            alt={item.title}
-                            className="c-cover"
-                            fallbackSrc="/cover.png"
-                            loading="lazy"
-                            radius="sm"
-                            shadow="sm"
-                            src={graftingImage(item.cover)}
-                            width="100%"
-                          />
-                          {item?.duration != null && item.duration > 0 ? (
-                            <span className="c-cover-duration">
-                              {convertToDuration(item.duration)}
-                            </span>
-                          ) : null}
-                        </CardBody>
-                        <CardFooter className="text-small flex-col items-start px-2 py-1">
-                          <b
-                            className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                            title={item.title}
-                          >
-                            {item.title}
-                          </b>
-                          <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                            <CardMeta
-                            fields={[
-                              { kind: "author", value: item.upper?.name || item.author },
-                              ...viewsMetaField(item?.cnt_info?.play, item?.cnt_info?.danmaku),
-                              { kind: "pubdate", value: item.ctime ? formatRelativeTime(item.ctime) : null },
-                            ]}
-                          />
-                          </div>
-                        </CardFooter>
-                      </Card>
+                        title={item.title}
+                      />
                     );
                   })}
                 </div>

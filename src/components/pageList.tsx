@@ -2,7 +2,6 @@ import type { FC } from "react";
 import { useMemo } from "react";
 import type { Page, VideoInfo } from "@/types/bilibili";
 
-import RetryImg from "./retryImg";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
@@ -12,9 +11,6 @@ import {
   DrawerContent,
   DrawerBody,
   DrawerHeader,
-  Card,
-  CardBody,
-  CardFooter,
 } from "@heroui/react";
 
 import {
@@ -23,7 +19,7 @@ import {
   Check,
   Search,
 } from "@icon-park/react";
-import CardMeta from "./cardMeta";
+import ListCard from "./listCard";
 
 
 import { convertToDuration, graftingImage, formatViewCount } from "@/utils/string";
@@ -216,13 +212,51 @@ const PageList: FC<PageListProps> = ({
                       ? playingCid === page.cid
                       : currentPart === page.part);
                   return (
-                  <Card
+                  <ListCard
                     key={page.cid}
-                    isPressable
-                    className={`c-list-card ${
+                    bodyClassName="overflow-visible p-0 img-container relative"
+                    cardClassName={`c-list-card ${
                       isPlayingPage ? "part-playing border-2 border-[#0284c7] cursor-pointer" : ""
                     }`}
-                    shadow="sm"
+                    cover={page.first_frame || videoInfo.pic}
+                    coverAlt={page.part || videoInfo.title}
+                    duration={page.duration > 0 ? convertToDuration(page.duration) : null}
+                    coverChildren={
+                      <>
+                        {isPlayingPage && (
+                          <span className="part-playing-badge">
+                            <span className="part-playing-eq" aria-hidden="true">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                            正在播放
+                          </span>
+                        )}
+                        <Button
+                          isIconOnly
+                          className="absolute top-1 right-1 z-10 min-w-6 w-6 h-6 rounded-full bg-black/30 backdrop-blur-sm border-0"
+                          size="sm"
+                          title={
+                            playlistCids?.has(page.cid)
+                              ? "已在播放列表中"
+                              : "添加到播放列表"
+                          }
+                          variant="flat"
+                          onPress={() => onAddToPlaylist?.(page)}
+                        >
+                          {playlistCids?.has(page.cid) ? (
+                            <Check fill="#4ade80" size="14" theme="outline" />
+                          ) : (
+                            <AddOne fill="#fff" size="14" theme="outline" />
+                          )}
+                        </Button>
+                      </>
+                    }
+                    fields={[
+                      { kind: "views", value: videoInfo?.stat?.view != null ? formatViewCount(videoInfo.stat.view) : null },
+                      { kind: "duration", value: convertToDuration(page.duration) },
+                    ]}
                     onPress={() =>
                       handleVideoSelect(
                         page.cid,
@@ -232,65 +266,9 @@ const PageList: FC<PageListProps> = ({
                         page.first_frame,
                       )
                     }
-                  >
-                    <CardBody className="overflow-visible p-0 img-container relative">
-                      <RetryImg
-                        alt={page.part || videoInfo.title}
-                        className="c-cover"
-                        fallbackSrc="/cover.png"
-                        loading="lazy"
-                        radius="sm"
-                        shadow="sm"
-                        src={graftingImage(page.first_frame || videoInfo.pic)}
-                        width="100%"
-                      />
-                      {page.duration > 0 ? (
-                        <span className="c-cover-duration">{convertToDuration(page.duration)}</span>
-                      ) : null}
-                      {isPlayingPage && (
-                        <span className="part-playing-badge">
-                          <span className="part-playing-eq" aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                          正在播放
-                        </span>
-                      )}
-                      <Button
-                        isIconOnly
-                        className="absolute top-1 right-1 z-10 min-w-6 w-6 h-6 rounded-full bg-black/30 backdrop-blur-sm border-0"
-                        size="sm"
-                        title={
-                          playlistCids?.has(page.cid)
-                            ? "已在播放列表中"
-                            : "添加到播放列表"
-                        }
-                        variant="flat"
-                        onPress={() => onAddToPlaylist?.(page)}
-                      >
-                        {playlistCids?.has(page.cid) ? (
-                          <Check fill="#4ade80" size="14" theme="outline" />
-                        ) : (
-                          <AddOne fill="#fff" size="14" theme="outline" />
-                        )}
-                      </Button>
-                    </CardBody>
-                    <CardFooter className="text-small flex-col items-start px-2 py-1">
-                      <b
-                        className="line-clamp-1 text-left w-full max-h-12 overflow-hidden part-title"
-                        title={page.part || videoInfo.title}
-                      >
-                        {page.part || videoInfo.title}
-                      </b>
-                      <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                        <CardMeta fields={[
-                          { kind: "views", value: videoInfo?.stat?.view != null ? formatViewCount(videoInfo.stat.view) : null },
-                          { kind: "duration", value: convertToDuration(page.duration) },
-                        ]} />
-                      </div>
-                    </CardFooter>
-                  </Card>
+                    title={page.part || videoInfo.title}
+                    titleClassName="line-clamp-1 text-left w-full max-h-12 overflow-hidden part-title"
+                  />
                   );
                 })}
               </div>

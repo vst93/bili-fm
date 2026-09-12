@@ -2,9 +2,7 @@ import type { FC } from "react";
 import { useMemo } from "react";
 import type { FeedList } from "@/types/bilibili";
 import { Refresh } from "@icon-park/react";
-import CardMeta from "./cardMeta";
-
-import RetryImg from "./retryImg";
+import ListCard from "./listCard";
 import { usePreloadImages } from "../hooks/usePreloadImages";
 
 import { useDisclosure } from "@heroui/react";
@@ -14,9 +12,6 @@ import {
   DrawerContent,
   DrawerBody,
   DrawerHeader,
-  Card,
-  CardBody,
-  CardFooter,
 } from "@heroui/react";
 
 import { graftingImage, viewsMetaField } from "@/utils/string";
@@ -103,46 +98,26 @@ const FeedList: FC<FeedListProps> = ({
                   const isCharge = item?.modules?.module_dynamic?.major?.archive?.badge?.text === '充电专属';
 
                   return (
-                    <Card
+                    <ListCard
                       key={info.bvid}
-                      isPressable
-                      shadow="sm"
-                      className="c-list-card"
+                      cover={info.cover}
+                      coverAlt={info.title || "视频封面"}
+                      duration={info?.duration_text}
+                      fields={[
+                        { kind: "author", value: userName },
+                        ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
+                        { kind: "pubdate", value: publishTime },
+                      ]}
                       onPress={() => onVideoSelect?.(info.bvid)}
-                    >
-                      <CardBody className="overflow-visible p-0 img-container">
-                        <RetryImg
-                          alt={info.title || "视频封面"}
-                          className="c-cover"
-                          fallbackSrc="/cover.png"
-                          loading="lazy"
-                          radius="sm"
-                          shadow="sm"
-                          src={graftingImage(info.cover)}
-                          width="100%"
-                        />
-                        {info?.duration_text ? (
-                          <span className="c-cover-duration">{info.duration_text}</span>
-                        ) : null}
-                      </CardBody>
-                      <CardFooter className="text-small flex-col items-start px-2 py-1">
-                        <b
-                          className="line-clamp-1 text-left w-full max-h-12 overflow-hidden"
-                          title={info.title}
-                        >
-                          {isCharge ? <span className="bg-red-400 px-1 py-0.5 rounded-lg text-white mr-1">充电专属</span> : '' }{info.title}
-                        </b>
-                        <div className="text-default-500 text-left w-full text-xs mt-1 line-clamp-1 max-h-10">
-                          <CardMeta
-                          fields={[
-                            { kind: "author", value: userName },
-                            ...viewsMetaField(info?.stat?.play, info?.stat?.danmaku),
-                            { kind: "pubdate", value: publishTime },
-                          ]}
-                        />
-                        </div>
-                      </CardFooter>
-                    </Card>
+                      title={info.title}
+                      titlePrefix={
+                        isCharge ? (
+                          <span className="bg-red-400 px-1 py-0.5 rounded-lg text-white mr-1">
+                            充电专属
+                          </span>
+                        ) : undefined
+                      }
+                    />
                   );
                 })}
               </div>

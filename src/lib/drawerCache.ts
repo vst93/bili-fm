@@ -3,11 +3,12 @@
  *
  * 关抽屉写入、重开命中即水合（含已翻页数据），DOM 照卸。
  *
- * 内存约束（修复轮 21 再收紧）：
- *   1. 每个列表条目裁剪到 LIST_CACHE_MAX 条（本轮 120 → 80）。运行态上限
- *      也降到了 160（LIST_RETENTION_CAP），缓存态必须更小：它会在关抽屉后
- *      长期驻留，且只是「重开时快速水合」用，一两屏足够。
- *   2. LRU-2 之外再加一道全局条目预算 DRAWER_CACHE_TOTAL_ITEMS（本轮 300 → 160）。
+ * 内存约束（修复轮 21 引入、轮 25 再收紧）：
+ *   1. 每个列表条目裁剪到 LIST_CACHE_MAX 条（轮 21 120 → 80，轮 25 → 64）。
+ *      运行态上限也降到 128（LIST_RETENTION_CAP），缓存态必须更小：它会在
+ *      关抽屉后长期驻留，且只是「重开时快速水合」用，一两屏足够。
+ *   2. LRU-2 之外再加一道全局条目预算 DRAWER_CACHE_TOTAL_ITEMS
+ *      （轮 21 300 → 160，轮 25 → 128）。
  *      预算按「条目内所有列表数组」计（含 recommend 的 recommendList/hotList、
  *      history 的 watchLaterList、danmaku 的 replyList），不再只数顶层 items。
  *   3. 弹幕 / 评论条目单独裁剪（它们随播放不断累积，条数常远超列表上限）。
@@ -16,13 +17,13 @@
 
 export const DRAWER_CACHE_LIMIT = 2;
 export const DRAWER_CACHE_TTL_MS = 15 * 60 * 1000;
-/** 单个列表缓存条目上限（缓存态，严格小于运行态 160，只需够重开水合）。 */
-export const LIST_CACHE_MAX = 80;
+/** 单个列表缓存条目上限（缓存态，严格小于运行态 128，只需够重开水合）。 */
+export const LIST_CACHE_MAX = 64;
 /** 全部 LRU 条目的条目数预算。约等于「两个满列表」共存，超出从最旧整条淘汰。 */
-export const DRAWER_CACHE_TOTAL_ITEMS = 160;
+export const DRAWER_CACHE_TOTAL_ITEMS = 128;
 /** 弹幕 / 评论在缓存态的独立上限。 */
-export const DANMAKU_CACHE_MAX = 60;
-export const REPLY_CACHE_MAX = 40;
+export const DANMAKU_CACHE_MAX = 48;
+export const REPLY_CACHE_MAX = 32;
 /**
  * 轮 22：缓存窗口收紧为「单条目」。
  * 轮 20/21 只减小了「每条存多少、留几条」，但真正占内存的不是这些轻量 JS

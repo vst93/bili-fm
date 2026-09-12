@@ -68,9 +68,9 @@ const SeriesList = lazy(loadSeriesList);
 const DanmakuList = lazy(loadDanmakuList);
 const Playlist = lazy(loadPlaylist);
 
-const MAX_RETAINED_LIST_ITEMS = 160; // = LIST_RETENTION_CAP：超出即从头部释放（不封顶分页）
-const MAX_RETAINED_DANMAKU = 400;
-const MAX_RETAINED_REPLIES = 120;
+const MAX_RETAINED_LIST_ITEMS = 128; // = LIST_RETENTION_CAP：超出即从头部释放（不封顶分页）
+const MAX_RETAINED_DANMAKU = 320;
+const MAX_RETAINED_REPLIES = 96;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
