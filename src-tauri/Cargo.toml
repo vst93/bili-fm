@@ -50,3 +50,9 @@ roxmltree = "0.20"
 dirs = "6"
 percent-encoding = "2"
 chrono = "0.4"
+
+# 轮 31（方向③）：Windows 下窗口失焦 / 关闭到托盘时调用 WebView2 的
+# MemoryUsageTargetLevel（ICoreWebView2_19）。这些 crate 仅在 Windows 目标编译。
+[target."cfg(windows)".dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"

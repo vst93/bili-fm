@@ -20,8 +20,18 @@ import { useEffect, useRef } from "react";
  *     使用一次，不再随滚动反复驱逐位图 —— 否则会让仍在视口内的卡片被
  *     反复重新解码，反而放大滚动时的解码抖动。
  *
+ * 轮 31（用户方向②：限制并发加载、优先可见区域）：预热对象虽已压到前几张，
+ * 但旧实现是「一次性把这几张全部置 src」—— 它们会在同一瞬间并行解码，短暂叠加
+ * 几张解码位图。改为 **最多 `PRELOAD_CONCURRENCY` 张在途**、完成一张再补一张，
+ * 进一步压低切歌 / 首次滚动瞬间的解码位图峰值。预热顺序仍从列表头部开始，
+ * 而列表头部正是首屏可见区域 → 天然「优先可见区域」。
+ *
  * 这样第一屏的用户体验不变，但「不停翻滚」不再产生叠加的预载对象。
  */
+
+/** 预热并发上限（轮 31）：同一时刻在途的解码位图数量以此封顶。 */
+export const PRELOAD_CONCURRENCY = 2;
+
 export function usePreloadImages(urls: (string | undefined)[]) {
   // 每个组件实例只预热一次（抽屉关闭即卸载 → 重开时新实例再预热一次）。
   const preloadedRef = useRef(false);
@@ -32,21 +42,50 @@ export function usePreloadImages(urls: (string | undefined)[]) {
     preloadedRef.current = true;
 
     const PRELOAD_LIMIT = navigator.userAgent.includes("Windows") ? 3 : 2;
+    // 只取首屏前几张（= 列表头部的可见区域），其余交给卡片自身的 loading="lazy"。
+    const limited = urls.slice(0, PRELOAD_LIMIT);
+    const queue = limited.filter((url): url is string => !!url);
+
     const imgs: HTMLImageElement[] = [];
-    for (const url of urls.slice(0, PRELOAD_LIMIT)) {
-      if (!url) continue;
-      const img = new Image();
-      img.loading = "eager";
-      img.decoding = "async";
-      img.fetchPriority = "low";
-      img.src = url;
-      imgs.push(img);
-    }
+    let cursor = 0;
+    let active = 0;
+    let cancelled = false;
+
+    // 有界并发：同一时刻最多 PRELOAD_CONCURRENCY 张在途，完成一张再补一张。
+    const pump = () => {
+      while (
+        !cancelled &&
+        active < PRELOAD_CONCURRENCY &&
+        cursor < queue.length
+      ) {
+        const img = new Image();
+
+        img.loading = "eager";
+        img.decoding = "async";
+        img.fetchPriority = "low";
+        const release = () => {
+          img.onload = null;
+          img.onerror = null;
+          active -= 1;
+          pump();
+        };
+
+        img.onload = release;
+        img.onerror = release;
+        img.src = queue[cursor];
+        cursor += 1;
+        active += 1;
+        imgs.push(img);
+      }
+    };
+
+    pump();
 
     return () => {
       // 断掉引用并中断在途请求；置 1px 占位促使浏览器丢弃已解码位图。
       // 有了上面的 preloadedRef 守卫，本 cleanup 只在卸载时跑一次，
       // 不会在滚动翻页过程中反复驱逐仍在视口内的封面。
+      cancelled = true;
       imgs.forEach((img) => {
         img.onload = null;
         img.onerror = null;

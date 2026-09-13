@@ -25,8 +25,53 @@ pub mod tray;
 
 use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
+// 轮 31（用户方向③）：Windows 下窗口失焦 / 关闭到托盘时把 WebView2 的内存目标
+// 等级降到 Low（该目标等级要求 WebView2 释放可回收的内存并抑制缓存增长，重新
+// 聚焦时恢复 Normal）。API 在 ICoreWebView2_19 上；窗口创建于 Rust，参数入口
+// 也是 Rust（tauri.conf 的 app.windows 为空）。runtime 不支持时静默跳过。
+#[cfg(target_os = "windows")]
+use tauri::Manager;
+
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+/// 轮 31（方向③）：设置主 WebView2 的内存目标等级。
+///
+/// - `low = true`：窗口失焦 / 关闭到托盘时降到 `LOW` —— 要求 WebView2 回收可
+///   释放的内存并暂停缓存增长（后台节流），是用户建议里「窗口失焦或最小化时降低
+///   内存目标等级」的直接落点；
+/// - `low = false`：重新聚焦时恢复 `NORMAL`，保证前台性能不受影响。
+///
+/// 用 `with_webview` 在主线程上下发；`ICoreWebView2_19`（较新 Runtime 才有
+/// MemoryUsageTargetLevel）取不到时直接跳过（老版本 WebView2 Runtime 静默降级，
+/// 不做任何破坏性操作）。这也是「保持 WebView2 Runtime 更新」之外的运行时兜底。
+#[cfg(target_os = "windows")]
+fn set_webview_memory_usage_target(app: &AppHandle, low: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    };
+    use windows_core::Interface;
+
+    let Some(webview) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = webview.with_webview(move |platform| {
+        let Ok(core) = (unsafe { platform.controller().CoreWebView2() }) else {
+            return;
+        };
+        let Ok(webview2) = core.cast::<ICoreWebView2_19>() else {
+            return;
+        };
+        let level: COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL = if low {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+        } else {
+            COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+        };
+        let _ = unsafe { webview2.SetMemoryUsageTargetLevel(level) };
+    });
+}
 
 /// 应用入口。
 pub fn run() {
@@ -248,6 +293,19 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+
+            // 轮 31（方向③）：Windows 下失焦 / 关闭到托盘时降低 WebView2 内存
+            // 目标等级（后台节流 + 回收可释放内存），重新聚焦时恢复。
+            #[cfg(target_os = "windows")]
+            match event {
+                WindowEvent::Focused(false) | WindowEvent::CloseRequested { .. } => {
+                    set_webview_memory_usage_target(window.app_handle(), true);
+                }
+                WindowEvent::Focused(true) => {
+                    set_webview_memory_usage_target(window.app_handle(), false);
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())
