@@ -12,20 +12,13 @@ Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，
 
 ### 功能特性
 
-- 采用液态玻璃风格 UI，半透明毛玻璃效果适配亮暗环境
-- 支持关键词搜索 B 站视频，并可按时间、热度等条件排序
-- 登录后可查看订阅、收藏、推荐等个人内容
-- 支持播放、暂停、上一集、下一集、播放列表等常用播放控制
-- 支持 0.5x ~ 3.0x 倍速播放（0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0 / 3.0）
-- 支持音量均衡（EQ），压缩动态范围，使不同视频的响度更一致
-- 支持弹幕列表展示，方便在听音频时快速浏览视频互动内容
-- 视频播放浮窗全屏铺满，带模糊遮罩与过渡动画
-- 点击 UP 主名称或头像，可打开 UP 主作品列表
-- 支持播放 UP 主合集全部视频，合集播放列表与个人播放列表独立切换
-- 播放列表自动保存，重启应用后恢复
-- 支持点赞、投币等常用互动操作
-- 支持 Windows、macOS 和 Linux 多平台使用
-- 应用内自动更新（Gitee 优先，GitHub 兜底）
+- 通过音频收听 B 站视频：搜索、订阅、收藏、推荐一站式浏览
+- 社区广告分段自动跳过（基于 SponsorBlock，可选开启）
+- 0.5x ~ 3.0x 倍速、音量均衡（EQ）、弹幕列表
+- UP 主合集与个人播放列表独立管理，自动保存恢复
+- 点赞、投币等常用互动，全局媒体键随时控制播放
+- 液态玻璃风格 UI，适配亮暗环境
+- Windows、macOS、Linux 多平台，应用内自动更新（Gitee 优先，GitHub 兜底）
 
 ### 音量均衡（EQ）
 
@@ -206,6 +199,7 @@ Bili FM 内置自动更新功能：
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
+- [SponsorBlock](https://github.com/ajayyy/SponsorBlock)（跳过广告功能使用的社区分段数据）
 
 ---
 
@@ -217,20 +211,13 @@ Bili FM is a cross-platform desktop application that lets you listen to Bilibili
 
 ### Features
 
-- Liquid glass UI design with translucent frosted glass effect that adapts to light/dark environments
-- Search Bilibili videos by keyword, with sorting by time, popularity, etc.
-- After login, access subscriptions, favorites, recommendations, and more
-- Playback controls: play, pause, previous, next, playlist management
-- Playback speed control from 0.5x to 3.0x
-- Loudness equalizer (EQ) with dynamic range compression for consistent volume across videos
-- Danmaku (bullet comments) list display for browsing interactions while listening
-- Full-screen video player overlay with blur backdrop and smooth transitions
-- Click a creator's name or avatar to open their video list
-- Play an entire creator's series sequentially, with series playlist separate from your personal playlist
-- Playlist is automatically saved and restored after app restart
-- Like, coin, and other common interactions supported
-- Cross-platform: Windows, macOS, and Linux
-- In-app auto-update (Gitee-first, GitHub fallback)
+- Listen to Bilibili videos as audio: search, subscriptions, favorites, and recommendations in one place
+- Community-powered sponsor segment auto-skip (based on SponsorBlock, opt-in)
+- 0.5x–3.0x playback speed, loudness equalizer (EQ), danmaku list
+- Creator series and personal playlists managed separately, auto-saved and restored
+- Like, coin, and other interactions; global media keys control playback anytime
+- Liquid glass UI that adapts to light/dark environments
+- Cross-platform: Windows, macOS, and Linux, with in-app auto-update (Gitee-first, GitHub fallback)
 
 ### Loudness Equalizer (EQ)
 
@@ -411,3 +398,4 @@ This project is for development and learning purposes only. The original goal is
 - [HeroUI](https://github.com/heroui-inc/heroui)
 - [IconPark](https://github.com/bytedance/iconpark)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
+- [SponsorBlock](https://github.com/ajayyy/SponsorBlock) (community sponsor-segment data powering the ad-skip feature)
