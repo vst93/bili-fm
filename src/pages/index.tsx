@@ -1,6 +1,8 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { CloseSmall } from "@icon-park/react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-shell";
 import { load } from "@tauri-apps/plugin-store";
 import {
@@ -74,6 +76,42 @@ const MAX_RETAINED_REPLIES = 96;
 const INCOGNITO_MODE_STORAGE_KEY = "incognitoMode";
 const AMBIENT_BACKGROUND_STORAGE_KEY = "ambientBackgroundEnabled";
 const PREMIUM_TEXTURE_STORAGE_KEY = "premiumTexture";
+// 迷你模式窗口位置（物理像素坐标）。迷你窗尺寸是唯一的 400×155，
+// 恢复与落盘都围绕这两个常量推导。
+const MINI_WINDOW_POSITION_STORAGE_KEY = "miniWindowPosition";
+const MINI_WINDOW_WIDTH = 400;
+const MINI_WINDOW_HEIGHT = 155;
+// 只有迷你窗才允许写入位置：出迷你模式时的「先 resize 再居中」也会触发
+// tauri://move，用尺寸守卫把它排除（400×155 逻辑像素 → innerWidth/Height 同值，
+// 留 20px 余量兼容取整/滚动条差异）。
+const MINI_POSITION_MAX_WIDTH = MINI_WINDOW_WIDTH + 20;
+const MINI_POSITION_MAX_HEIGHT = MINI_WINDOW_HEIGHT + 20;
+// 拖拽会连续触发 move，防抖后再落盘。
+const MINI_POSITION_SAVE_DEBOUNCE_MS = 300;
+// 任务栏缩略图工具栏按钮点击事件（与 src-tauri/src/taskbar.rs 的
+// TASKBAR_MEDIA_EVENT 对应，payload 为 "prev" | "playpause" | "next"）。
+const TASKBAR_MEDIA_EVENT = "taskbar-media";
+
+/** 读取上次迷你窗位置（物理像素）。无记录/损坏时返回 null。 */
+const readMiniWindowPosition = (): { x: number; y: number } | null => {
+  try {
+    const raw = localStorage.getItem(MINI_WINDOW_POSITION_STORAGE_KEY);
+
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+
+    if (typeof parsed?.x !== "number" || typeof parsed?.y !== "number") {
+      return null;
+    }
+
+    if (!Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return null;
+
+    return { x: Math.round(parsed.x), y: Math.round(parsed.y) };
+  } catch {
+    return null;
+  }
+};
 
 // 缓存键 → 抽屉滚动容器选择器，用于采集/恢复 scrollTop。
 const DRAWER_BODY_SELECTOR: Record<string, string> = {
@@ -348,6 +386,62 @@ export default function IndexPage() {
       document.body.classList.remove("mini-mode");
     };
   }, [isMiniMode]);
+
+  /**
+   * 记忆迷你窗位置。
+   *
+   * 只在窗口确实是迷你尺寸时落盘（尺寸守卫），因此出迷你模式时的
+   * 「先 resize 到 800×600 再居中」不会把主窗位置写成迷你窗位置；
+   * 模式切换进行中（windowModeChangingRef）也一律跳过，
+   * 避免进迷你模式那一次 resize 把旧坐标写脏。
+   *
+   * 恢复方向在 switchWindowMode 里做（Rust set_window_position 负责按
+   * 显示器 work_area 夹取）。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let timer: number | undefined;
+    let disposed = false;
+
+    getCurrentWindow()
+      .onMoved(({ payload }) => {
+        if (windowModeChangingRef.current) return;
+        if (
+          window.innerWidth > MINI_POSITION_MAX_WIDTH ||
+          window.innerHeight > MINI_POSITION_MAX_HEIGHT
+        ) {
+          return;
+        }
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          try {
+            localStorage.setItem(
+              MINI_WINDOW_POSITION_STORAGE_KEY,
+              JSON.stringify({
+                x: Math.round(payload.x),
+                y: Math.round(payload.y),
+              }),
+            );
+          } catch {
+            // 存储不可用（隐私模式/配额）时静默降级：位置记忆是锦上添花，不打扰用户
+          }
+        }, MINI_POSITION_SAVE_DEBOUNCE_MS);
+      })
+      .then((fn) => {
+        // StrictMode 双挂载：卸载早于 Promise 落地时立刻注销，避免残留监听
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch((error) => {
+        console.error("[mini-position] 监听窗口移动失败", error);
+      });
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      unlisten?.();
+    };
+  }, []);
 
   // 视频打开期间音频已被 forcePause 暂停，隐藏音频控件条：
   // 它会从视频遮罩后透出来，和视频自己的原生控件条在底部叠在一起
@@ -693,6 +787,42 @@ export default function IndexPage() {
         navigator.mediaSession.setActionHandler("previoustrack", null);
         navigator.mediaSession.setActionHandler("nexttrack", null);
       }
+    };
+  }, []);
+
+  /**
+   * Windows 任务栏缩略图工具栏（悬停任务栏图标时的媒体控制按钮）。
+   *
+   * 后端（src-tauri/src/taskbar.rs）负责原生那一半：按钮图标/禁用态、WM_COMMAND。
+   * 这里只做两件事：把点击事件翻译回已有的播放逻辑，非 Windows 平台命令是 no-op。
+   * 注意：按钮点击会复用 mediaNavigationRef，所以本 effect 必须早于
+   * `mediaNavigationRef.current.previous/next` 的赋值注册（同 mediaSession 的处理）。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    listen<string>(TASKBAR_MEDIA_EVENT, ({ payload }) => {
+      if (payload === "playpause") {
+        setIsPlaying((prev) => !prev);
+      } else if (payload === "prev") {
+        mediaNavigationRef.current.previous();
+      } else if (payload === "next") {
+        mediaNavigationRef.current.next();
+      }
+    })
+      .then((fn) => {
+        // StrictMode 双挂载：卸载早于 Promise 落地时立刻注销
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch((error) => {
+        console.error("[taskbar] 监听媒体按钮事件失败", error);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
     };
   }, []);
 
@@ -2610,7 +2740,18 @@ export default function IndexPage() {
     setIsMiniMode(theIsMiniMode);
     try {
       if (theIsMiniMode) {
-        await invoke("set_window_size", { width: 400, height: 155, center: false });
+        await invoke("set_window_size", {
+          width: MINI_WINDOW_WIDTH,
+          height: MINI_WINDOW_HEIGHT,
+          center: false,
+        });
+        // 恢复上次迷你窗位置；Rust 侧按显示器可用工作区夹取，
+        // 多屏拔插后旧坐标不会把窗口丢到屏幕外。
+        const savedPosition = readMiniWindowPosition();
+
+        if (savedPosition) {
+          await invoke("set_window_position", savedPosition);
+        }
       } else {
         await invoke("set_window_always_on_top", { alwaysOnTop: false });
         setIsMiniPinned(false);
@@ -2714,6 +2855,19 @@ export default function IndexPage() {
   const canNavigateNext = isPlaylistMode
     ? (playingPlaylistType === "series" ? seriesPlaylist : playlist).length > 1
     : (playingInfo?.pages.length || 0) > 1;
+
+  // Windows 任务栏缩略图工具栏：把播放状态与上下曲可用性同步给原生按钮。
+  // 上一首/下一首的可用条件完全对称（列表/选集长度 > 1），所以两者共用同一个值。
+  // 非 Windows 平台命令直接返回 Ok，无需平台分支。
+  useEffect(() => {
+    invoke("set_taskbar_media_state", {
+      playing: isPlaying,
+      canPrev: canNavigateNext,
+      canNext: canNavigateNext,
+    }).catch((error) => {
+      console.error("[taskbar] 同步媒体按钮状态失败", error);
+    });
+  }, [canNavigateNext, isPlaying]);
 
   const ambientCover = graftingImage(
     pageFirstFrame || displayVideoInfo?.pic || "",

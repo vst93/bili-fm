@@ -375,7 +375,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bili-fm"
-version = "2.0.23"
+version = "2.0.26"
 dependencies = [
  "axum",
  "chrono",
@@ -401,6 +401,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "webview2-com",
+ "windows",
  "windows-core 0.61.2",
 ]
 

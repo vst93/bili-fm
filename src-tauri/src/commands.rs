@@ -443,6 +443,86 @@ pub fn set_window_size(
     Ok(())
 }
 
+/// 把窗口左上角移动到指定**物理坐标**（多屏语义见下）。
+///
+/// 迷你模式窗口位置记忆用：前端持久化的是上次迷你窗的物理坐标。
+///
+/// 多屏语义（三条）：
+/// 1. 目标点本来就在某块屏的 **work_area** 内 → **原样恢复**。这就是用户上次亲手
+///    放的位置（可能刻意悬挂在屏幕边缘、或跨两块屏），不要自作主张挪动；左上角在
+///    可用区内 ⇒ 标题栏一定抓得到，不会出现「窗口不见了」。用 work_area 而不是屏幕
+///    bounds 判定，是为了把「停在任务栏那一条上」归入需要救援的情况。
+/// 2. 目标点不在任何 work_area 内（副屏被拔、分辨率变小、停在任务栏条/屏幕间隙）
+///    → 夹到**最近**那块屏的可用区内，保证整个窗口都在屏内。
+/// 3. 夹取用的**物理**尺寸按目标屏缩放换算：跨屏移动时同一个逻辑尺寸在不同 DPI 屏
+///    上的物理像素数不同（400 逻辑在 100% 屏是 400px、在 150% 屏是 600px），
+///    拿当前屏的 outer_size 直接夹取会在混合 DPI 双屏下溢出
+///    `(target_scale - current_scale) × 逻辑宽` 那么多。
+///
+/// 为什么不用前端 `getCurrentWindow().setPosition`：JS 的 `Monitor` 只有
+/// `position` / `size`，不暴露 `workArea`，按屏幕尺寸夹取会把迷你窗塞到任务栏底下。
+/// Rust 的 `tauri::Monitor::work_area()` 才是可用区域。
+#[tauri::command]
+pub fn set_window_position(window: tauri::Window, x: i32, y: i32) -> Result<(), String> {
+    let monitors = window
+        .available_monitors()
+        .map_err(|e| format!("获取显示器列表失败: {e}"))?;
+
+    let containing = monitors.iter().find(|m| {
+        let a = m.work_area();
+        x >= a.position.x
+            && x < a.position.x + a.size.width as i32
+            && y >= a.position.y
+            && y < a.position.y + a.size.height as i32
+    });
+
+    // 情况 1：用户上次放的位置还在某块屏上 → 原样恢复。
+    if containing.is_some() {
+        return window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| format!("设置窗口位置失败: {e}"));
+    }
+
+    // 情况 2：离目标点最近的屏（点到 work_area 的钳位距离平方最小）。
+    let nearest = monitors.iter().min_by_key(|m| {
+        let a = m.work_area();
+        let cx = x.clamp(a.position.x, a.position.x + a.size.width as i32);
+        let cy = y.clamp(a.position.y, a.position.y + a.size.height as i32);
+        let dx = (x - cx) as i64;
+        let dy = (y - cy) as i64;
+        dx * dx + dy * dy
+    });
+
+    // 拿不到显示器信息时（极少数无头/远程会话）直接按原坐标落位，不阻断功能。
+    let Some(monitor) = nearest else {
+        return window
+            .set_position(tauri::PhysicalPosition::new(x, y))
+            .map_err(|e| format!("设置窗口位置失败: {e}"));
+    };
+
+    // 情况 3：逻辑尺寸 = 当前屏物理尺寸 / 当前屏缩放；落地物理尺寸 = 逻辑尺寸 × 目标屏缩放。
+    let current_scale = window
+        .scale_factor()
+        .map_err(|e| format!("获取当前缩放比失败: {e}"))?;
+    let landed_size = window
+        .outer_size()
+        .map_err(|e| format!("获取窗口尺寸失败: {e}"))?
+        .to_logical::<f64>(current_scale)
+        .to_physical::<i32>(monitor.scale_factor());
+
+    let area = monitor.work_area();
+    let max_x = (area.position.x + area.size.width as i32 - landed_size.width).max(area.position.x);
+    let max_y =
+        (area.position.y + area.size.height as i32 - landed_size.height).max(area.position.y);
+
+    window
+        .set_position(tauri::PhysicalPosition::new(
+            x.clamp(area.position.x, max_x),
+            y.clamp(area.position.y, max_y),
+        ))
+        .map_err(|e| format!("设置窗口位置失败: {e}"))
+}
+
 #[tauri::command]
 pub fn center_window(window: tauri::Window) -> Result<(), String> {
     center_window_on_current_monitor(&window)

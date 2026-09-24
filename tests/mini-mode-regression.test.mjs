@@ -11,9 +11,16 @@ import { test } from "node:test";
 //      body.mini-mode 类与 state 恒等，且主窗下按钮 elementFromPoint 命中。
 
 const distDir = new URL("../dist/assets/", import.meta.url);
-const bundleName = readdirSync(distDir).find((name) => /^index-.*\.js$/.test(name));
-assert.ok(bundleName, "dist bundle index-*.js must exist (run npm run build first)");
-const bundle = readFileSync(new URL(bundleName, distDir), "utf8");
+// 入口会被 rollup 拆成多个 index-*.js（主 chunk + 若干 re-export 壳），而
+// readdirSync 的顺序跟着文件名哈希漂移 —— 只取 find() 的第一个会时对时错，
+// 因此按文件名排序后全部拼接（内容不丢，结果稳定）。
+const bundleNames = readdirSync(distDir)
+  .filter((name) => /^index-.*\.js$/.test(name))
+  .sort();
+assert.ok(bundleNames.length > 0, "dist bundle index-*.js must exist (run npm run build first)");
+const bundle = bundleNames
+  .map((name) => readFileSync(new URL(name, distDir), "utf8"))
+  .join("\n");
 
 // --- dist bundle 契约 -----------------------------------------------------
 

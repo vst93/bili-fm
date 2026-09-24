@@ -21,6 +21,7 @@ pub mod commands;
 pub mod dkv;
 pub mod proxy;
 pub mod stats;
+pub mod taskbar;
 pub mod tray;
 
 use tauri::{AppHandle, Emitter, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -192,8 +193,11 @@ pub fn run() {
             commands::is_ms_store_install,
             commands::quit_app,
             commands::get_app_version,
+            // Windows 任务栏缩略图工具栏（媒体控制按钮；非 Windows 为 no-op）
+            taskbar::set_taskbar_media_state,
             // 窗口控制 (迷你模式等)
             commands::set_window_size,
+            commands::set_window_position,
             commands::center_window,
             commands::set_window_always_on_top,
             commands::hide_window,
@@ -268,6 +272,10 @@ pub fn run() {
 
             // 系统托盘 (跨平台; 对应旧版 tray_windows.go / tray_linux.go)
             tray::init(app.handle())?;
+
+            // Windows 任务栏缩略图工具栏（悬停任务栏图标时的媒体控制按钮）。
+            // 必须在窗口创建之后、主线程上执行；非 Windows 为 no-op。
+            taskbar::init(&window);
 
             Ok(())
         })

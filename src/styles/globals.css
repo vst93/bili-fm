@@ -864,13 +864,19 @@ a,
     background-position: center !important;
 }
 
-/* Title and description: no text selection — behave like a native macOS app */
+/* 标题 / 简介：允许选中复制（用户要求，且明确不要独立的复制按钮）。
+   html 上的全局 user-select: none 会沿树继承，而这里的 id 选择器（1,0,0）特异度
+   高于 .selectable-text（0,1,0），所以必须在 id 规则上显式打开，加 class 没用。
+   cursor: text 是唯一可发现性提示（右击菜单在 main.tsx 被全局 preventDefault 掉，
+   复制入口只有「选中 + Ctrl/Cmd+C」）。
+   已知取舍：标题 -webkit-line-clamp: 2、简介 3 行，选中只能拿到可见部分。 */
 #video-title,
 #video-desc {
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    cursor: text;
 }
 
 .search-line-border-color{

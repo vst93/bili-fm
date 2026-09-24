@@ -53,6 +53,19 @@ chrono = "0.4"
 
 # 轮 31（方向③）：Windows 下窗口失焦 / 关闭到托盘时调用 WebView2 的
 # MemoryUsageTargetLevel（ICoreWebView2_19）。这些 crate 仅在 Windows 目标编译。
+#
+# 轮 32（用户建议①）：任务栏缩略图工具栏（ITaskbarList3 / ThumbBarAddButtons）。
+# `windows 0.61` 与 tauri 2.11 / webview2-com 0.38 用的是同一版本（已在 Cargo.lock 里），
+# 这里只是多开几个 feature，不引入新的依赖树。
 [target."cfg(windows)".dependencies]
 webview2-com = "0.38"
 windows-core = "0.61"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -10,9 +10,13 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const css = read("../src/styles/globals.css");
 const distJs = (() => {
   const dir = new URL("../dist/assets/", import.meta.url);
-  const name = readdirSync(dir).find((n) => /^index-.*\.js$/.test(n));
-  assert.ok(name, "dist bundle index-*.js must exist (run npm run build first)");
-  return readFileSync(new URL(name, dir), "utf8");
+  // 入口会被 rollup 拆成多个 index-*.js，readdirSync 顺序跟文件名哈希漂移：
+  // 按文件名排序后全部拼接，避免「取到 99 字节的 re-export 壳」这种随机失败。
+  const names = readdirSync(dir)
+    .filter((n) => /^index-.*\.js$/.test(n))
+    .sort();
+  assert.ok(names.length > 0, "dist bundle index-*.js must exist (run npm run build first)");
+  return names.map((n) => readFileSync(new URL(n, dir), "utf8")).join("\n");
 })();
 
 // ---------------------------------------------------------------------------
