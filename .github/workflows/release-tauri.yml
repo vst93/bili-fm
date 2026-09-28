@@ -119,11 +119,21 @@ jobs:
           if [ "$PRERELEASE" = "true" ]; then
             EXTRA_ARGS="--prerelease"
           fi
-          gh release create "$VERSION" \
-            --title "bili-FM $VERSION" \
-            --notes "$NOTES" \
-            --target main \
-            $EXTRA_ARGS
+          # Idempotent: on re-run with the same version the release already
+          # exists (created by the previous failed run); update it instead.
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, updating notes"
+            gh release edit "$VERSION" \
+              --title "bili-FM $VERSION" \
+              --notes "$NOTES" \
+              $EXTRA_ARGS
+          else
+            gh release create "$VERSION" \
+              --title "bili-FM $VERSION" \
+              --notes "$NOTES" \
+              --target main \
+              $EXTRA_ARGS
+          fi
 
   # ── Build for each platform ──────────────────────────────────────────────
   build:
