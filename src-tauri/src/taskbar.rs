@@ -65,7 +65,7 @@ pub fn set_taskbar_media_state(
 mod imp {
     use std::sync::{Mutex, OnceLock};
 
-    use tauri::{AppHandle, Emitter};
+    use tauri::{AppHandle, Emitter, Manager};
     use windows::core::{w, BOOL};
     use windows::Win32::Foundation::{ERROR_SUCCESS, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
