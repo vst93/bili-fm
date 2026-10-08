@@ -89,8 +89,7 @@
   现在系统「正在播放」卡片里看不到曲目信息。
 - **播放进度上报**：没有调 `ReportPlayProgress`，所以 B 站网页端的观看进度不会同步。
 - **macOS 全局媒体键**：mygo 的 Carbon 热键没有媒体键码，注册会失败（已静默降级）。
-- **应用内更新**：mygo 用自己的签名格式（`mygo keygen`），与 Tauri 的 minisign
-  不兼容，所以从旧版升级要手动装一次。新 workflow 目前也还没配 `updates`。
+- ~~应用内更新~~：**已接**（3.0.0-preview.4）。见下面的「应用内更新」一节。
 - **MS Store(MSIX)**：mygo 不产出，应用商店那条链路要单独做。
 - **首页/推荐未登录是空的**：B 站接口如此，原版也一样。
 - **评论只有第一页**、**收藏只取第一个收藏夹**。
@@ -191,3 +190,48 @@ Debian / rpm 那种 `~` 预发布约定。改用 `.`（`3.0.0.preview.2-1`）后
 
 顺带记录：deb 用 `~`（mygo 自己处理的），rpm 用 `~`（nfpm 自动把 `-preview`
 规范成 `~preview`），pacman 用 `.` —— 三家的预发布约定各不相同。
+
+
+## 应用内更新（3.0.0-preview.4 起可用）
+
+### 密钥
+
+- **算法**：Ed25519（`mygo keygen` 生成）。公钥 `ziZNrW3/2vAI+e+geB6RTlQ/dYvBgEiqdWAbu0cwJjY=`，
+  写在 `mygo.json` 的 `updates.publicKey`，**可以公开**（它本来就编译进应用）。
+- **私钥**：只在本机 `~/.config/mygo/update-keys/mygo-update.key`（权限 600）
+  和 CI secret `MYGO_UPDATER_PRIVATE_KEY` 里。**绝不能进仓库**（已核对全历史无泄漏）。
+- **丢了会怎样**：存量用户再也收不到更新（应用只认这把公钥签的包）。
+
+为什么不用 SSH 密钥：`~/.ssh/id_rsa` 是 **RSA 3072**，两个更新器都只支持
+Ed25519，算法都不同；而且 SSH 私钥是身份凭证（能推代码、登服务器），把它放进
+构建环境风险太大，轮换 SSH 密钥还会直接断掉更新通道。
+
+为什么不用 Tauri 那把：都是 Ed25519，技术上能转换，但清单格式不同（Tauri 是
+`latest.json`，mygo 是 `update-<target>.json`），复用省不了任何事，反而一旦
+转换出错两条通道一起坏。
+
+### 更新源
+
+`updates.github: vst93/bili-fm` + `tagPrefix: mygo-v`。tagPrefix 是必须的 ——
+仓库里还有 Tauri 版的 release（tag 形如 `2.0.37`，而且是最新 release），
+不加前缀 mygo 会去找错 release。
+
+### 哪些安装方式能自更新
+
+| 安装方式 | 装到哪 | 自更新 |
+|---|---|---|
+| macOS dmg | `/Applications` | ✅ |
+| Windows NSIS setup | `%LOCALAPPDATA%\Programs` | ✅ |
+| Linux tar.gz + install.sh | `~/.local/bili-fm.app` | ✅ |
+| Linux deb / rpm / pacman | `/opt/bili-fm` | ❌ 由包管理器负责 |
+
+不能自更新时 `Updater.Enabled()` 返回 false，用户点「检查更新」会看到原因。
+
+### 验证
+
+发布流程里加了自动校验：逐个读 `update-*.json` 的 url，确认对应文件真的在
+release 里，不在就直接让 workflow 失败。
+
+加这道校验是因为踩过一次：第一版把 Linux 归档改名、又漏传了 darwin/windows
+的归档，结果 **6 个清单全部指向不存在的文件**，应用内更新会在所有平台 404，
+而且只有用户点了更新才会发现。
