@@ -72,7 +72,30 @@
       Linux(deb + tar.gz + install.sh)，另用 nfpm 补 rpm、手工 tar 补 pacman
 - [x] 本地验证：`go tool mygo build` 四平台全部通过
       （linux deb 5.8MB / windows exe 14.3MB / darwin universal app 27.7MB）
-- [ ] 发预览版
+- [x] 发预览版：`mygo-v3.0.0-preview.1`
+      https://github.com/vst93/bili-fm/releases/tag/mygo-v3.0.0-preview.1
+
+      | 平台 | 产物 |
+      |---|---|
+      | macOS | dmg 8.8MB、app.zip 11.2MB（universal） |
+      | Windows | setup.exe 4.5/3.8MB、免安装 exe 14.3/13.0MB |
+      | Linux | deb 5.2/5.8MB、rpm 5.2/5.7MB、pkg.tar.zst 5.7MB、tar.gz 5.2/5.7MB、install.sh |
+
+      比 Tauri 版（2.8~4.6MB）大，是 Go 运行时的体积代价。
+
+## 还没做的（已知缺口）
+
+- **系统媒体中心**：macOS Now Playing / Windows SMTC / Linux MPRIS 都没接。
+  现在系统「正在播放」卡片里看不到曲目信息。
+- **播放进度上报**：没有调 `ReportPlayProgress`，所以 B 站网页端的观看进度不会同步。
+- **macOS 全局媒体键**：mygo 的 Carbon 热键没有媒体键码，注册会失败（已静默降级）。
+- **应用内更新**：mygo 用自己的签名格式（`mygo keygen`），与 Tauri 的 minisign
+  不兼容，所以从旧版升级要手动装一次。新 workflow 目前也还没配 `updates`。
+- **MS Store(MSIX)**：mygo 不产出，应用商店那条链路要单独做。
+- **首页/推荐未登录是空的**：B 站接口如此，原版也一样。
+- **评论只有第一页**、**收藏只取第一个收藏夹**。
+- **`PageOptions.Autoplay` 依赖 fork**：mygo PR #167 合入后，把 go.mod 里的
+  `replace` 删掉即可。
 
 ## 发版：需要新 workflow
 
