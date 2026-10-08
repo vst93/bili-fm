@@ -1,7 +1,7 @@
 {
   "name": "bili-FM",
   "identifier": "com.bili-fm.app",
-  "version": "3.0.0",
+  "version": "3.0.0-preview.1",
   "copyright": "© 2026 vst93",
   "main": ".",
   "icon": "resources/icon.png",
