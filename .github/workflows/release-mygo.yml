@@ -148,10 +148,14 @@ jobs:
         run: go mod download
 
       - name: 写入版本号并构建
+        shell: bash
         working-directory: ${{ env.APP_DIR }}
         run: |
           # 版本号只写进这次构建的工作区，不提交回分支。
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${{ needs.prepare.outputs.version }}\"/" mygo.json
+          # 用 -i.bak 是为了同时兼容 GNU sed（Linux）和 BSD sed（macOS）。
+          VERSION="${{ needs.prepare.outputs.version }}"
+          sed -i.bak -E 's/("version"[[:space:]]*:[[:space:]]*")[^"]*/\1'"$VERSION"'/' mygo.json
+          rm -f mygo.json.bak
           grep '"version"' mygo.json
           go tool mygo build -platform ${{ matrix.platform }}
 
