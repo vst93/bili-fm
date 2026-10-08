@@ -163,3 +163,31 @@
 Defender 等会误报，而且启动要解压。对一个已经上架应用商店的产品不划算。
 
 **结论**：1.2~1.5x 是这个技术栈的合理区间；macOS 已经和 Tauri 持平。
+
+
+## Linux 包格式验证（3.0.0-preview.2 实测）
+
+mygo 原生只出 **deb**（`cmd/mygo/deb.go` 是唯一的 Linux 打包器），rpm 和
+pacman 是 workflow 里自己补的。三种格式逐个验证过：
+
+| 格式 | 来源 | 验证方式 | 结果 |
+|---|---|---|---|
+| `.deb` | mygo 原生 | `dpkg-deb -I` / `-c` | ✅ 依赖 `libgtk-3-0 \| libgtk-3-0t64, libwebkit2gtk-4.1-0`，装到 `/opt/bili-fm` |
+| `.rpm` | nfpm | `bsdtar -tvf` + 手工解析 header | ✅ magic/版本/架构/header 结构合法，文件清单正确 |
+| `.pkg.tar.zst` | 手工 tar | `pacman -Qip` / `-Qlp` | **❌→✅ 一开始是无效的**，见下 |
+| `.tar.gz` + `install.sh` | mygo 原生 | 假 HOME 沙箱实装 | ✅ 装到 `~/.local/bili-fm.app`，命令与桌面项都建好 |
+
+### 踩到的坑：pacman 版本号不能含 `-`
+
+第一次生成的包 pacman 直接拒绝：
+
+```
+错误：软件包 bili-fm-3.0.0-preview.2-1 的元数据无效（软件包版本包含无效字符）
+```
+
+pacman 的版本格式是 `pkgver-pkgrel`，**pkgver 里不允许 `-`**；Arch 也没有
+Debian / rpm 那种 `~` 预发布约定。改用 `.`（`3.0.0.preview.2-1`）后正常。
+顺带补了 `.MTREE`（pacman 的文件完整性清单，缺了会警告）。
+
+顺带记录：deb 用 `~`（mygo 自己处理的），rpm 用 `~`（nfpm 自动把 `-preview`
+规范成 `~preview`），pacman 用 `.` —— 三家的预发布约定各不相同。

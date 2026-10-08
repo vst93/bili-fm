@@ -248,9 +248,13 @@ jobs:
             install -Dm644 "$SRC/icon.png" "$ROOT/usr/share/icons/hicolor/128x128/apps/bili-fm.png"
             install -Dm644 "$SRC/bili-fm.desktop" "$ROOT/usr/share/applications/bili-fm.desktop"
             SIZE=$(du -sb "$ROOT" | cut -f1)
+            # pacman 的版本格式是 pkgver-pkgrel，**pkgver 里不能有 `-`**；
+            # Arch 也没有 Debian/rpm 那种 `~` 预发布约定，惯例是改用 `.`。
+            # 直接用 "3.0.0-preview.2-1" 会被 pacman 判为「版本包含无效字符」。
+            PKGVER="${VERSION//-/.}-1"
             {
               echo "pkgname = bili-fm"
-              echo "pkgver = $VERSION-1"
+              echo "pkgver = $PKGVER"
               echo "pkgdesc = 用音频收听 B 站内容"
               echo "url = https://github.com/vst93/bili-fm"
               echo "builddate = $(date +%s)"
@@ -261,7 +265,12 @@ jobs:
               echo "depend = webkit2gtk-4.1"
               echo "depend = gtk3"
             } > "$ROOT/.PKGINFO"
-            ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO opt usr )
+            # .MTREE 是 pacman 用来校验文件完整性的清单，缺了会警告。
+            # 参数照 makepkg 的用法。
+            ( cd "$ROOT" && LANG=C bsdtar -czf .MTREE --format=mtree \
+                --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' \
+                .PKGINFO opt usr )
+            ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO .MTREE opt usr )
             rm -rf "$ROOT"
           done
 
