@@ -122,7 +122,7 @@ jobs:
           | \`bili-FM-$VERSION-linux-arm64.deb\` | Debian/Ubuntu (ARM64) |
           | \`bili-FM-$VERSION-linux-x86_64.rpm\` | Fedora/RHEL/openSUSE (x86_64) |
           | \`bili-FM-$VERSION-linux-x86_64.pkg.tar.zst\` | Arch Linux (x86_64) |
-          | \`bili-FM-$VERSION-linux-x86_64.tar.gz\` | 任意 Linux（含 install.sh） |
+          | \`bili-fm-$VERSION-linux-amd64.tar.gz\` | 任意 Linux（配 install.sh） |
 
           > **这是 mygo 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要
           > webview），只有打开视频时才临时起一个 webview 窗口。
@@ -299,6 +299,7 @@ jobs:
                 fi
                 DMG=$(ls "$D"/*.dmg 2>/dev/null | head -1 || true)
                 [ -n "$DMG" ] && cp "$DMG" "../out/bili-FM-$VERSION-macos-$NAME.dmg"
+                cp "$D"/bili-fm-*-darwin-$A.tar.gz "../out/" 2>/dev/null || true
                 cp "$D"/update-darwin-$A.json "../out/" 2>/dev/null || true
                 cp "$D"/*.delta "../out/" 2>/dev/null || true
               done
@@ -309,13 +310,13 @@ jobs:
               cp build/linux-amd64/*.rpm "../out/bili-FM-$VERSION-linux-x86_64.rpm" 2>/dev/null || true
               cp build/linux-arm64/*.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm" 2>/dev/null || true
               cp build/linux-amd64/*.pkg.tar.zst "../out/bili-FM-$VERSION-linux-x86_64.pkg.tar.zst" 2>/dev/null || true
-              cp build/linux-amd64/*.tar.gz "../out/bili-FM-$VERSION-linux-x86_64.tar.gz"
-              cp build/linux-arm64/*.tar.gz "../out/bili-FM-$VERSION-linux-arm64.tar.gz"
               cp build/linux-amd64/install.sh ../out/install.sh
-              # 更新文件：清单与签名归档（install.sh 从这些取最新版）
+              # 更新归档必须用**原名**：update-<target>.json 里的 url 指的就是
+              # 这个名字，install.sh 也按 <name>-<version>-<target>.tar.gz 找同
+              # 目录的归档。改名会让应用内更新 404、install.sh 找不到包。
               for A in amd64 arm64; do
+                cp build/linux-$A/bili-fm-*-linux-$A.tar.gz "../out/" 2>/dev/null || true
                 cp build/linux-$A/update-linux-$A.json "../out/" 2>/dev/null || true
-                cp build/linux-$A/*-linux-$A.tar.gz "../out/bili-FM-$VERSION-linux-$A-update.tar.gz" 2>/dev/null || true
                 cp build/linux-$A/*.delta "../out/" 2>/dev/null || true
               done
               ;;
@@ -326,6 +327,7 @@ jobs:
                 cp "$EXE" "../out/bili-FM-$VERSION-windows-$A.exe"
                 SETUP=$(ls build/windows-$A/*Setup*.exe 2>/dev/null | head -1 || true)
                 [ -n "$SETUP" ] && cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
+                cp build/windows-$A/bili-fm-*-windows-$A.tar.gz "../out/" 2>/dev/null || true
                 cp "build/windows-$A/update-windows-$A.json" "../out/" 2>/dev/null || true
                 cp build/windows-$A/*.delta "../out/" 2>/dev/null || true
               done
@@ -360,4 +362,32 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           ls -la artifacts
           gh release upload "mygo-v$VERSION" artifacts/* --clobber --repo "${{ github.repository }}"
-          echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v$VERSION"
+
+      # 更新清单里的 url 必须指向真的传上去的文件。漏传或改名过一次，
+      # 应用内更新会在所有平台 404，而且只有用户点了更新才会发现 ——
+      # 所以这里在发布时直接卡住。
+      - name: 校验更新清单指向的文件都在
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REPO="${{ github.repository }}"
+          gh release view "mygo-v$VERSION" --repo "$REPO" --json assets \
+            -q '.assets[].name' > /tmp/published.txt
+          FAIL=0
+          for f in artifacts/update-*.json; do
+            [ -f "$f" ] || continue
+            NAME=$(python3 -c "import json,sys,os;print(os.path.basename(json.load(open(sys.argv[1]))['url']))" "$f")
+            if grep -qx "$NAME" /tmp/published.txt; then
+              echo "  ok   $(basename "$f") -> $NAME"
+            else
+              echo "::error::$(basename "$f") 指向的 $NAME 不在 release 里，应用内更新会 404"
+              FAIL=1
+            fi
+          done
+          [ "$FAIL" = "0" ] || exit 1
+          echo "更新清单校验通过"
+
+      - name: 完成
+        run: |
+          echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v${{ needs.prepare.outputs.version }}"
