@@ -13,12 +13,19 @@ name: Release (mygo)
 # mygo 不产出 rpm / pacman / MSIX，这里用 nfpm 和手工打包补上 rpm 与 pacman。
 
 on:
-  # 发版方式：把 tag 推到 mygo 分支即可，例如
-  #   git tag mygo-v3.0.0-preview.2 && git push origin mygo-v3.0.0-preview.2
+  # 发版方式（两种都行）：
   #
-  # 为什么不用 workflow_dispatch：GitHub 要求 workflow_dispatch 的 workflow
-  # 存在于**默认分支**上才会被列出和触发，而这个 workflow 只放在 mygo 分支
-  # （main 保持 Tauri 版）。tag 推送没有这个限制。
+  #   1) 直接触发（推荐，版本号自己给）：
+  #        gh workflow run release-mygo.yml --ref mygo -f version=3.0.0-preview.2
+  #      注意 **必须带 --ref mygo**：不带时 gh 只在默认分支上找这个 workflow，
+  #      而 main 保持 Tauri 版，找不到就会 404。
+  #
+  #   2) 推 tag：
+  #        git tag mygo-v3.0.0-preview.2 && git push origin mygo-v3.0.0-preview.2
+  #
+  # 为什么保留 tag 触发：GitHub 的 Actions 界面只列默认分支上的 workflow，
+  # 所以这个 workflow 不会出现在网页的「Run workflow」按钮里；tag 推送是
+  # 不需要网页入口也能发起的方式，也顺带把版本号固定在 tag 上。
   push:
     tags:
       - 'mygo-v*'
@@ -71,8 +78,15 @@ jobs:
         run: |
           PRE="${{ inputs.prerelease }}"
           VERSION="${{ steps.version.outputs.version }}"
-          if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then PRE="true"; fi
+          # tag 触发时没有 inputs.prerelease，所以按版本号自动判断；
+          # 带 -preview/-rc/-beta/-alpha 的算预览版。
+          if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then
+            PRE="true"
+          elif [ -z "$PRE" ]; then
+            PRE="false"
+          fi
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          echo "预览版: $PRE"
 
       - name: 生成更新说明
         id: notes
