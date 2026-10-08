@@ -188,7 +188,10 @@ jobs:
               dst: /usr/share/applications/bili-fm.desktop
           YAML
             "$(go env GOPATH)/bin/nfpm" package -f "/tmp/nfpm-$GOARCH.yaml" -p rpm -t /tmp/
-            mv "/tmp/bili-fm-$VERSION-1.$PKGARCH.rpm" "$SRC/bili-FM-$VERSION-linux-$PKGARCH.rpm"
+            # nfpm 会把版本号里的 "-preview.1" 规范化成 "~preview.1"（rpm 的
+            # 版本语义），所以按通配取实际文件名，不要拼死。
+            RPM=$(ls -t /tmp/bili-fm-*.rpm | head -1)
+            mv "$RPM" "$SRC/bili-FM-$VERSION-linux-$PKGARCH.rpm"
 
             # --- pacman（手工 tar，格式就是 .PKGINFO + 文件树）---
             ROOT=$(mktemp -d)
