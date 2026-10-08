@@ -13,14 +13,22 @@ name: Release (mygo)
 # mygo 不产出 rpm / pacman / MSIX，这里用 nfpm 和手工打包补上 rpm 与 pacman。
 
 on:
+  # 发版方式：把 tag 推到 mygo 分支即可，例如
+  #   git tag mygo-v3.0.0-preview.2 && git push origin mygo-v3.0.0-preview.2
+  #
+  # 为什么不用 workflow_dispatch：GitHub 要求 workflow_dispatch 的 workflow
+  # 存在于**默认分支**上才会被列出和触发，而这个 workflow 只放在 mygo 分支
+  # （main 保持 Tauri 版）。tag 推送没有这个限制。
+  push:
+    tags:
+      - 'mygo-v*'
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（如 3.0.0-preview.1）。留空则按 mygo.json 的 patch +1'
-        required: false
-        default: ''
+        description: '版本号（如 3.0.0-preview.1）。仅在 workflow 位于默认分支时可用'
+        required: true
       notes:
-        description: '更新说明。留空则按 commit 自动生成'
+        description: '更新说明'
         required: false
         default: ''
       prerelease:
@@ -50,20 +58,13 @@ jobs:
       - name: 计算版本号
         id: version
         run: |
-          CURRENT=$(grep -oP '"version":\s*"\K[^"]+' "$APP_DIR/mygo.json")
-          INPUT="${{ inputs.version }}"
-          if [ -n "$INPUT" ]; then
-            VERSION="$INPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#mygo-v}"
           else
-            BASE="${CURRENT%%-*}"
-            MAJOR=$(echo "$BASE" | cut -d. -f1)
-            MINOR=$(echo "$BASE" | cut -d. -f2)
-            PATCH=$(echo "$BASE" | cut -d. -f3)
-            PATCH=$((10#$PATCH + 1))
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            VERSION="${{ inputs.version }}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "当前 $CURRENT → 新 $VERSION"
+          echo "版本号 $VERSION（来自 $GITHUB_REF_TYPE $GITHUB_REF_NAME）"
 
       - name: 判断是否预览版
         id: prerelease
@@ -72,16 +73,6 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then PRE="true"; fi
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
-
-      - name: 写回版本号并提交
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$APP_DIR/mygo.json"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$APP_DIR/mygo.json"
-          git diff --cached --quiet || git commit -m "release(mygo): $VERSION"
-          git push origin HEAD:main
 
       - name: 生成更新说明
         id: notes
@@ -106,13 +97,15 @@ jobs:
             echo "MYGO_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: 建 tag 与 release
+      - name: 建 release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           PRE="${{ steps.prerelease.outputs.prerelease }}"
-          git tag -f "mygo-v$VERSION" && git push -f origin "mygo-v$VERSION"
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            git tag -f "mygo-v$VERSION" && git push -f origin "mygo-v$VERSION"
+          fi
           if gh release view "mygo-v$VERSION" >/dev/null 2>&1; then
             echo "release 已存在，跳过创建"
           else
@@ -142,7 +135,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: mygo
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -153,9 +147,13 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: go mod download
 
-      - name: 构建
+      - name: 写入版本号并构建
         working-directory: ${{ env.APP_DIR }}
-        run: go tool mygo build -platform ${{ matrix.platform }}
+        run: |
+          # 版本号只写进这次构建的工作区，不提交回分支。
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${{ needs.prepare.outputs.version }}\"/" mygo.json
+          grep '"version"' mygo.json
+          go tool mygo build -platform ${{ matrix.platform }}
 
       # ── Linux：补 rpm 与 pacman（mygo 不产出）──────────────────────
       - name: 生成 rpm 与 pacman 包
@@ -263,6 +261,10 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mygo
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
