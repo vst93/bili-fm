@@ -197,6 +197,10 @@ jobs:
           # 去掉 net/http 的 HTTP/2 实现：B 站 API 与 CDN 用 HTTP/1.1 完全够，
           # 旧版 Tauri 的 reqwest 也特意 ForceAttemptHTTP2=false。省约 1MB 二进制。
           GOFLAGS: "-mod=mod -tags=nethttpomithttp2"
+          # 更新签名私钥。用它给每个平台的归档签名并写 update-<target>.json；
+          # 应用内置的是对应公钥（mygo.json 的 updates.publicKey）。
+          # 没配这个 secret 时构建照常，只是不产出更新文件（应用内更新不可用）。
+          MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: |
           # 版本号只写进这次构建的工作区，不提交回分支。
           # 用 -i.bak 是为了同时兼容 GNU sed（Linux）和 BSD sed（macOS）。
@@ -213,6 +217,8 @@ jobs:
         run: |
           set -e
           VERSION="${{ needs.prepare.outputs.version }}"
+          # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 .MTREE
+          sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           for PAIR in "amd64:x86_64" "arm64:aarch64"; do
             GOARCH="${PAIR%%:*}"
@@ -293,6 +299,8 @@ jobs:
                 fi
                 DMG=$(ls "$D"/*.dmg 2>/dev/null | head -1 || true)
                 [ -n "$DMG" ] && cp "$DMG" "../out/bili-FM-$VERSION-macos-$NAME.dmg"
+                cp "$D"/update-darwin-$A.json "../out/" 2>/dev/null || true
+                cp "$D"/*.delta "../out/" 2>/dev/null || true
               done
               ;;
             linux)
@@ -304,6 +312,12 @@ jobs:
               cp build/linux-amd64/*.tar.gz "../out/bili-FM-$VERSION-linux-x86_64.tar.gz"
               cp build/linux-arm64/*.tar.gz "../out/bili-FM-$VERSION-linux-arm64.tar.gz"
               cp build/linux-amd64/install.sh ../out/install.sh
+              # 更新文件：清单与签名归档（install.sh 从这些取最新版）
+              for A in amd64 arm64; do
+                cp build/linux-$A/update-linux-$A.json "../out/" 2>/dev/null || true
+                cp build/linux-$A/*-linux-$A.tar.gz "../out/bili-FM-$VERSION-linux-$A-update.tar.gz" 2>/dev/null || true
+                cp build/linux-$A/*.delta "../out/" 2>/dev/null || true
+              done
               ;;
             windows)
               for A in amd64 arm64; do
@@ -312,6 +326,8 @@ jobs:
                 cp "$EXE" "../out/bili-FM-$VERSION-windows-$A.exe"
                 SETUP=$(ls build/windows-$A/*Setup*.exe 2>/dev/null | head -1 || true)
                 [ -n "$SETUP" ] && cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
+                cp "build/windows-$A/update-windows-$A.json" "../out/" 2>/dev/null || true
+                cp build/windows-$A/*.delta "../out/" 2>/dev/null || true
               done
               ;;
           esac

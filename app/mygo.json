@@ -10,7 +10,16 @@
   "linux": {
     "maintainer": "vst93 <vst93@users.noreply.github.com>",
     "comment": "用音频收听 B 站内容",
-    "categories": ["AudioVideo", "Audio", "Player"],
+    "categories": [
+      "AudioVideo",
+      "Audio",
+      "Player"
+    ],
     "command": "bili-fm"
+  },
+  "updates": {
+    "publicKey": "ziZNrW3/2vAI+e+geB6RTlQ/dYvBgEiqdWAbu0cwJjY=",
+    "github": "vst93/bili-fm",
+    "tagPrefix": "mygo-v"
   }
 }

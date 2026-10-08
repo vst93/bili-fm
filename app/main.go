@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
@@ -77,6 +78,15 @@ func main() {
 	}
 	log.Printf("%s", kv.Describe())
 	bilibili.UseStore(kv)
+
+	// 应用内更新：mygo build 用 mygo.json 里 updates 的私钥给每个平台的归档
+	// 签名并写 update-<target>.json；应用用内置的公钥验签。
+	//
+	// 注意哪些安装方式能自更新：macOS 的 /Applications、Windows 的
+	// %LOCALAPPDATA%\Programs、Linux 的 ~/.local/<app>.app 可以；
+	// 由包管理器装的（deb/rpm/pacman 装到 /opt）不行 —— Updater.Enabled()
+	// 会返回 false，用户点检查更新时会看到原因。
+	mygo.Use(updater.Plugin)
 
 	c := &controller{
 		bl:      bilibili.NewBL(),

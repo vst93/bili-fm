@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
 )
 
 //go:embed resources/tray.png
@@ -26,6 +27,10 @@ func (c *controller) setupTray() {
 			{Label: "播放 / 暂停", Click: func(*mygo.MenuItem, *mygo.Window) { c.togglePlay() }},
 			{Label: "上一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.step(-1) }},
 			{Label: "下一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.step(1) }},
+			mygo.Separator(),
+			// 更新插件的菜单项：点开是 Sparkle 风格的更新窗口。
+			// 它自己也做每日后台检查，这里只是给用户一个手动入口。
+			updater.MenuItem(),
 			mygo.Separator(),
 			{Role: mygo.RoleQuit},
 		}),
