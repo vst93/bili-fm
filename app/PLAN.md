@@ -122,3 +122,44 @@
 - mygo 目前 **v0.3.4**，仓库很新，API 会变。`v0.3.0` 对 `ui` 包是破坏性更新。
 - 原生 UI 画不了 `backdrop-filter`：液态玻璃靠「半透明填充 + 1px 亮边 + 阴影」
   近似，窗口材质用 mygo 的 `Vibrancy`（Windows 11 / macOS 支持）。
+
+
+## 安装包体积分析（3.0.0-preview.2 实测）
+
+### 与 Tauri 版对比
+
+| 平台 | Tauri 2.0.37 | mygo 3.0.0-preview.2 | 倍数 |
+|---|---|---|---|
+| macOS Apple Silicon dmg | 4.05 MB | **4.01 MB** | **0.99x** |
+| macOS Intel dmg | 4.30 MB | 4.83 MB | 1.12x |
+| Windows x86_64 setup | 3.07 MB | 4.36 MB | 1.42x |
+| Windows ARM64 setup | 2.81 MB | 3.66 MB | 1.30x |
+| Linux x86_64 deb | 4.61 MB | 5.55 MB | 1.20x |
+| Arch pkg.tar.zst | 3.62 MB | 5.43 MB | 1.50x |
+
+### 已经做的优化
+
+1. **macOS 按架构分开出包**（最大的一笔）。原来出 universal 单包 8.77MB，
+   里面塞了两个架构的二进制；改成 amd64 / arm64 两个 dmg 后各 4.01 / 4.83MB，
+   用户只下自己架构那个。Tauri 版也是分开出的。
+2. **`-tags=nethttpomithttp2`**：去掉 net/http 的 HTTP/2 实现。B 站 API 与
+   CDN 用 HTTP/1.1 完全够（旧版 Tauri 的 reqwest 也特意 `ForceAttemptHTTP2=false`）。
+   每个安装包省约 0.2MB。
+3. `-s -w` 已经是 mygo build 的默认行为。
+
+### 剩下的差距来自 Go 本身，不建议再压
+
+按包拆解未 strip 的二进制（21MB → strip 后 14MB）：
+
+| 大小 | 内容 | 能不能省 |
+|---|---|---|
+| 8.13 MB | `go:func.*` 函数元数据（GC 栈扫描/反射/panic 恢复用） | **不能**。`-s -w` 只删符号表，删不掉元数据 |
+| 4.32 MB | mygo 框架（UI 工具包 + 文字排版 + 几百个 purego FFI 绑定） | 不能，都是用到的 |
+| 2.59 MB | `crypto`（TLS） | 不能，HTTPS 必需 |
+| 1.12 MB | `net` | 不能 |
+| 0.61 MB | 我们自己的代码 | — |
+
+**UPX 能做到 2MB 级安装包，但不建议**：UPX 是恶意软件常用的壳，Windows
+Defender 等会误报，而且启动要解压。对一个已经上架应用商店的产品不划算。
+
+**结论**：1.2~1.5x 是这个技术栈的合理区间；macOS 已经和 Tauri 持平。
