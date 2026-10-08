@@ -202,6 +202,24 @@ fn arr_of(data: &Value, key: &str) -> Vec<Value> {
         .cloned()
         .unwrap_or_default()
 }
+/// 把 B 站返回的图片地址补全。
+///
+/// `pic` 有时是协议相对的（`//i0.hdslb.com/...`），有时已经是完整 URL
+/// （`https://archive.biliimg.com/...`）。无脑拼 `https:` 会得到
+/// `https:https://...`，那张封面必然加载失败。
+fn absolute_url(u: &str) -> String {
+    if u.is_empty() {
+        return String::new();
+    }
+    if u.starts_with("http://") || u.starts_with("https://") {
+        return u.to_string();
+    }
+    if let Some(rest) = u.strip_prefix("//") {
+        return format!("https://{rest}");
+    }
+    format!("https://{}", u.trim_start_matches('/'))
+}
+
 fn str_of(data: &Value, key: &str) -> String {
     data.get(key)
         .and_then(|x| x.as_str())
@@ -836,14 +854,19 @@ fn parse_search_results(result: &[Value]) -> Vec<SearchResult> {
         let title = html_escape::decode_html_entities(&title).to_string();
         let play = int_of(item, "play");
         out.push(SearchResult {
-            picture_url: format!("https:{}", str_of(item, "pic")),
+            picture_url: absolute_url(&str_of(item, "pic")),
             url: format!("https://www.bilibili.com/video/{}", str_of(item, "bvid")),
             title,
             views: format_views(play),
             danmu_count: int_of(item, "video_review"),
             author: str_of(item, "author"),
             date: unix_to_date(int_of(item, "pubdate")),
-            length: str_of(item, "length"),
+            // B 站现在把时长放在 duration（"mm:ss"）；length 是旧字段，
+            // 多数返回里已经不存在，只读它会得到空角标。
+            length: {
+                let d = str_of(item, "duration");
+                if d.is_empty() { str_of(item, "length") } else { d }
+            },
         });
     }
     out
