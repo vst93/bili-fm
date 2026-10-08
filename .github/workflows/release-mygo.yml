@@ -103,7 +103,34 @@ jobs:
             else
               COMMITS=$(git log --pretty=format:"- %s" -20)
             fi
-            NOTES=$(printf '## 更新内容\n\n%s\n\n---\n\n## 下载安装\n\n| 文件 | 平台 |\n|------|------|\n| `bili-FM-%s-macos-universal.dmg` | macOS（Intel + Apple Silicon） |\n| `bili-FM-%s-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-%s-windows-arm64-setup.exe` | Windows (ARM64) |\n| `bili-FM-%s-linux-x86_64.deb` | Debian/Ubuntu (x86_64) |\n| `bili-FM-%s-linux-arm64.deb` | Debian/Ubuntu (ARM64) |\n| `bili-FM-%s-linux-x86_64.rpm` | Fedora/RHEL/openSUSE (x86_64) |\n| `bili-FM-%s-linux-x86_64.pkg.tar.zst` | Arch Linux (x86_64) |\n| `bili-FM-%s-linux-x86_64.tar.gz` | 任意 Linux（含 install.sh） |\n\n> **这是 mygo 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要 webview），\n> 只有打开视频时才临时起一个 webview 窗口。\n>\n> **应用内更新不跨版本**：原生版与 Tauri 版的更新签名不兼容，从旧版升级需要手动安装一次。\n' "$COMMITS" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION")
+            NOTES=$(cat <<EOF
+          ## 更新内容
+
+          $COMMITS
+
+          ---
+
+          ## 下载安装
+
+          | 文件 | 平台 |
+          |------|------|
+          | \`bili-FM-$VERSION-macos-apple-silicon.dmg\` | macOS（Apple Silicon） |
+          | \`bili-FM-$VERSION-macos-intel.dmg\` | macOS（Intel） |
+          | \`bili-FM-$VERSION-windows-x86_64-setup.exe\` | Windows (x86_64) |
+          | \`bili-FM-$VERSION-windows-arm64-setup.exe\` | Windows (ARM64) |
+          | \`bili-FM-$VERSION-linux-x86_64.deb\` | Debian/Ubuntu (x86_64) |
+          | \`bili-FM-$VERSION-linux-arm64.deb\` | Debian/Ubuntu (ARM64) |
+          | \`bili-FM-$VERSION-linux-x86_64.rpm\` | Fedora/RHEL/openSUSE (x86_64) |
+          | \`bili-FM-$VERSION-linux-x86_64.pkg.tar.zst\` | Arch Linux (x86_64) |
+          | \`bili-FM-$VERSION-linux-x86_64.tar.gz\` | 任意 Linux（含 install.sh） |
+
+          > **这是 mygo 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要
+          > webview），只有打开视频时才临时起一个 webview 窗口。
+          >
+          > **应用内更新不跨版本**：原生版与 Tauri 版的更新签名不兼容，从旧版升级
+          > 需要手动安装一次。
+          EOF
+          )
           fi
           {
             echo "notes<<MYGO_EOF"
@@ -136,9 +163,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # 按架构分开出包：universal 会把两个架构的二进制都塞进同一个 dmg，
+          # 体积翻倍，而用户只需要自己架构那一个。Tauri 版也是分开出的。
           - os: macos-latest
-            platform: darwin/universal
-            label: macos-universal
+            platform: darwin/amd64,darwin/arm64
+            label: macos
           - os: ubuntu-22.04
             platform: linux/amd64,linux/arm64
             label: linux
@@ -164,6 +193,10 @@ jobs:
       - name: 写入版本号并构建
         shell: bash
         working-directory: ${{ env.APP_DIR }}
+        env:
+          # 去掉 net/http 的 HTTP/2 实现：B 站 API 与 CDN 用 HTTP/1.1 完全够，
+          # 旧版 Tauri 的 reqwest 也特意 ForceAttemptHTTP2=false。省约 1MB 二进制。
+          GOFLAGS: "-mod=mod -tags=nethttpomithttp2"
         run: |
           # 版本号只写进这次构建的工作区，不提交回分支。
           # 用 -i.bak 是为了同时兼容 GNU sed（Linux）和 BSD sed（macOS）。
@@ -241,10 +274,17 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p ../out
           case "${{ matrix.label }}" in
-            macos-universal)
-              [ -f "build/darwin-universal/bili-FM.app/Contents/MacOS/bili-FM" ] && \
-                (cd build/darwin-universal && zip -qry "../../../out/bili-FM-$VERSION-macos-universal.app.zip" "bili-FM.app")
-              cp build/darwin-universal/*.dmg "../out/bili-FM-$VERSION-macos-universal.dmg" 2>/dev/null || true
+            macos)
+              for PAIR in "arm64:apple-silicon" "amd64:intel"; do
+                A="${PAIR%%:*}"; NAME="${PAIR##*:}"
+                D="build/darwin-$A"
+                [ -d "$D" ] || continue
+                if [ -d "$D/bili-FM.app" ]; then
+                  (cd "$D" && zip -qry "$OLDPWD/../out/bili-FM-$VERSION-macos-$NAME.app.zip" "bili-FM.app")
+                fi
+                DMG=$(ls "$D"/*.dmg 2>/dev/null | head -1 || true)
+                [ -n "$DMG" ] && cp "$DMG" "../out/bili-FM-$VERSION-macos-$NAME.dmg"
+              done
               ;;
             linux)
               cp build/linux-amd64/*.deb "../out/bili-FM-$VERSION-linux-x86_64.deb"
