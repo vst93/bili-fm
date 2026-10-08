@@ -1,0 +1,16 @@
+{
+  "name": "bili-FM",
+  "identifier": "com.bili-fm.app",
+  "version": "3.0.0",
+  "copyright": "© 2026 vst93",
+  "main": ".",
+  "icon": "resources/icon.png",
+  "frontendDist": "frontend",
+  "out": "build",
+  "linux": {
+    "maintainer": "vst93 <vst93@users.noreply.github.com>",
+    "comment": "用音频收听 B 站内容",
+    "categories": ["AudioVideo", "Audio", "Player"],
+    "command": "bili-fm"
+  }
+}

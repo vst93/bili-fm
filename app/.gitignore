@@ -1,0 +1,5 @@
+# mygo build 产物
+build/
+# mygo generate 写出的 TypeScript 客户端（由 Go 代码生成）
+frontend/src/
+blprobe

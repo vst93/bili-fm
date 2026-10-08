@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>视频</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #wrap { position: absolute; inset: 0; }
+  video { width: 100%; height: 100%; background: #000; display: block; }
+  /* 顶部自绘标题栏：无边框窗口下用来拖动和关闭。鼠标移入才显示。 */
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 32px;
+    display: flex; align-items: center; gap: 10px; padding: 0 10px;
+    background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,0));
+    color: #e8eef7; font: 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    opacity: 0; transition: opacity .2s ease;
+    --app-region: drag;
+  }
+  #wrap:hover #bar, #bar.pinned { opacity: 1; }
+  #title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #close {
+    --app-region: no-drag;
+    width: 26px; height: 22px; border: 0; border-radius: 6px; cursor: pointer;
+    background: rgba(255,255,255,.14); color: #e8eef7; font-size: 13px; line-height: 1;
+  }
+  #close:hover { background: rgba(251,113,133,.55); }
+  #state {
+    position: absolute; left: 10px; bottom: 10px;
+    color: #cbd5e1; font: 11px/1.5 ui-monospace, Consolas, monospace;
+    background: rgba(0,0,0,.45); padding: 3px 7px; border-radius: 6px;
+    pointer-events: none;
+  }
+  #err { color: #fca5a5; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <video id="v" controls playsinline preload="auto"></video>
+  <div id="bar"><span id="title"></span><button id="close" title="关闭">✕</button></div>
+  <div id="state">准备中…</div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+const src = q.get('src') || '';
+const title = q.get('title') || '';
+const poster = q.get('poster') || '';
+const startAt = parseFloat(q.get('t') || '0');
+const speed = parseFloat(q.get('speed') || '1');
+const muted = q.get('muted') === '1';
+
+const v = document.getElementById('v');
+const state = document.getElementById('state');
+document.getElementById('title').textContent = title;
+
+const call = (m, ...a) =>
+  (window.mygo ? window.mygo.call(m, ...a).catch(() => {}) : Promise.resolve());
+
+let lastErr = '';
+if (src) { v.src = src; }
+if (poster) { v.poster = poster; }
+if (speed > 0) { v.playbackRate = speed; }
+v.muted = muted;
+
+v.addEventListener('error', () => {
+  const e = v.error;
+  lastErr = e ? `code=${e.code} ${e.message || ''}` : 'unknown';
+  document.getElementById('err').textContent = lastErr;
+  state.innerHTML = '播放失败 <span id="err">' + lastErr + '</span>';
+  call('Video.Log', 'error: ' + lastErr);
+});
+
+// 从主窗带来的播放位置续播。
+v.addEventListener('loadedmetadata', () => {
+  if (startAt > 0 && isFinite(startAt) && Math.abs(v.currentTime - startAt) > 0.5) {
+    try { v.currentTime = startAt; } catch (_) {}
+  }
+  call('Video.Log', `metadata dur=${v.duration.toFixed(1)} size=${v.videoWidth}x${v.videoHeight}`);
+}, { once: true });
+
+// 起播：先试未静音自动播放；被策略拦下就静音起播再取消静音。
+(async () => {
+  let how = 'ok-unmuted';
+  try {
+    v.muted = muted;
+    await v.play();
+  } catch (e) {
+    try {
+      v.muted = true;
+      await v.play();
+      how = 'ok-muted-only';
+      if (!muted) setTimeout(() => { v.muted = false; }, 900);
+    } catch (e2) {
+      how = 'blocked:' + e2.name;
+      lastErr = 'play() rejected: ' + e2.name;
+    }
+  }
+  call('Video.Log', `autoplay=${how}`);
+})();
+
+// 每秒把状态回传给主窗，用于同步进度与播放状态。
+setInterval(() => {
+  call('Video.Report',
+    v.currentTime || 0, v.duration || 0,
+    !!v.paused, !!v.muted, v.playbackRate || 1, v.readyState || 0,
+    lastErr);
+  state.textContent =
+    `t=${(v.currentTime || 0).toFixed(1)}/${(v.duration || 0).toFixed(0)}s ` +
+    `paused=${v.paused} muted=${v.muted} rate=${v.playbackRate} rs=${v.readyState}`;
+}, 1000);
+
+document.getElementById('close').addEventListener('click', () => call('Video.Close'));
+v.addEventListener('ended', () => call('Video.Ended'));
+</script>
+</body>
+</html>

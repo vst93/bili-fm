@@ -1,0 +1,275 @@
+name: Release (mygo)
+
+# 构建并发布 mygo 原生版。
+#
+# 与 release-tauri.yml 的分工：那个构建 Tauri 版，这个构建原生版。
+# 两个版本的应用内更新**互不兼容**（签名格式不同），所以原生版是独立发布
+# 的，老用户需要手动安装一次。
+#
+# 产物（mygo 直接产出的）：
+#   macOS    bili-FM.app + .dmg
+#   Windows  bili-FM.exe + NSIS 安装包
+#   Linux    .deb + .tar.gz + install.sh
+# mygo 不产出 rpm / pacman / MSIX，这里用 nfpm 和手工打包补上 rpm 与 pacman。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 3.0.0-preview.1）。留空则按 mygo.json 的 patch +1'
+        required: false
+        default: ''
+      notes:
+        description: '更新说明。留空则按 commit 自动生成'
+        required: false
+        default: ''
+      prerelease:
+        description: '标记为预览版 (true/false)'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: write
+
+env:
+  APP_DIR: app
+
+jobs:
+  # ── 版本号、tag、release ─────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.notes.outputs.notes }}
+      prerelease: ${{ steps.prerelease.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 计算版本号
+        id: version
+        run: |
+          CURRENT=$(grep -oP '"version":\s*"\K[^"]+' "$APP_DIR/mygo.json")
+          INPUT="${{ inputs.version }}"
+          if [ -n "$INPUT" ]; then
+            VERSION="$INPUT"
+          else
+            BASE="${CURRENT%%-*}"
+            MAJOR=$(echo "$BASE" | cut -d. -f1)
+            MINOR=$(echo "$BASE" | cut -d. -f2)
+            PATCH=$(echo "$BASE" | cut -d. -f3)
+            PATCH=$((10#$PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "当前 $CURRENT → 新 $VERSION"
+
+      - name: 判断是否预览版
+        id: prerelease
+        run: |
+          PRE="${{ inputs.prerelease }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then PRE="true"; fi
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+
+      - name: 写回版本号并提交
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$APP_DIR/mygo.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$APP_DIR/mygo.json"
+          git diff --cached --quiet || git commit -m "release(mygo): $VERSION"
+          git push origin HEAD:main
+
+      - name: 生成更新说明
+        id: notes
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -n "$INPUT_NOTES" ]; then
+            NOTES="$INPUT_NOTES"
+          else
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+              COMMITS=$(git log --pretty=format:"- %s" "$LAST_TAG"..HEAD | head -40)
+            else
+              COMMITS=$(git log --pretty=format:"- %s" -20)
+            fi
+            NOTES=$(printf '## 更新内容\n\n%s\n\n---\n\n## 下载安装\n\n| 文件 | 平台 |\n|------|------|\n| `bili-FM-%s-macos-universal.dmg` | macOS（Intel + Apple Silicon） |\n| `bili-FM-%s-windows-x86_64-setup.exe` | Windows (x86_64) |\n| `bili-FM-%s-windows-arm64-setup.exe` | Windows (ARM64) |\n| `bili-FM-%s-linux-x86_64.deb` | Debian/Ubuntu (x86_64) |\n| `bili-FM-%s-linux-arm64.deb` | Debian/Ubuntu (ARM64) |\n| `bili-FM-%s-linux-x86_64.rpm` | Fedora/RHEL/openSUSE (x86_64) |\n| `bili-FM-%s-linux-x86_64.pkg.tar.zst` | Arch Linux (x86_64) |\n| `bili-FM-%s-linux-x86_64.tar.gz` | 任意 Linux（含 install.sh） |\n\n> **这是 mygo 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要 webview），\n> 只有打开视频时才临时起一个 webview 窗口。\n>\n> **应用内更新不跨版本**：原生版与 Tauri 版的更新签名不兼容，从旧版升级需要手动安装一次。\n' "$COMMITS" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION" "$VERSION")
+          fi
+          {
+            echo "notes<<MYGO_EOF"
+            echo "$NOTES"
+            echo "MYGO_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 建 tag 与 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PRE="${{ steps.prerelease.outputs.prerelease }}"
+          git tag -f "mygo-v$VERSION" && git push -f origin "mygo-v$VERSION"
+          if gh release view "mygo-v$VERSION" >/dev/null 2>&1; then
+            echo "release 已存在，跳过创建"
+          else
+            gh release create "mygo-v$VERSION" \
+              --title "bili-FM (原生版) $VERSION" \
+              --notes-file - \
+              $([ "$PRE" = "true" ] && echo "--prerelease") <<< "${{ steps.notes.outputs.notes }}"
+          fi
+
+  # ── 各平台构建 ──────────────────────────────────────────────────────
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+            label: macos-universal
+          - os: ubuntu-22.04
+            platform: linux/amd64,linux/arm64
+            label: linux
+          - os: windows-latest
+            platform: windows/amd64,windows/arm64
+            label: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache-dependency-path: ${{ env.APP_DIR }}/go.sum
+
+      - name: 拉依赖
+        working-directory: ${{ env.APP_DIR }}
+        run: go mod download
+
+      - name: 构建
+        working-directory: ${{ env.APP_DIR }}
+        run: go tool mygo build -platform ${{ matrix.platform }}
+
+      # ── Linux：补 rpm 与 pacman（mygo 不产出）──────────────────────
+      - name: 生成 rpm 与 pacman 包
+        if: matrix.label == 'linux'
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+          VERSION="${{ needs.prepare.outputs.version }}"
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          for PAIR in "amd64:x86_64" "arm64:aarch64"; do
+            GOARCH="${PAIR%%:*}"
+            PKGARCH="${PAIR##*:}"
+            SRC="build/linux-$GOARCH"
+
+            # --- rpm（nfpm）---
+            cat > "/tmp/nfpm-$GOARCH.yaml" <<YAML
+          name: bili-fm
+          arch: $PKGARCH
+          platform: linux
+          version: $VERSION
+          maintainer: vst93 <vst93@users.noreply.github.com>
+          description: 用音频收听 B 站内容
+          license: MIT
+          contents:
+            - src: $SRC/bili-fm
+              dst: /opt/bili-fm/bili-fm
+            - src: $SRC/icon.png
+              dst: /usr/share/icons/hicolor/128x128/apps/bili-fm.png
+            - src: $SRC/bili-fm.desktop
+              dst: /usr/share/applications/bili-fm.desktop
+          YAML
+            "$(go env GOPATH)/bin/nfpm" package -f "/tmp/nfpm-$GOARCH.yaml" -p rpm -t /tmp/
+            mv "/tmp/bili-fm-$VERSION-1.$PKGARCH.rpm" "$SRC/bili-FM-$VERSION-linux-$PKGARCH.rpm"
+
+            # --- pacman（手工 tar，格式就是 .PKGINFO + 文件树）---
+            ROOT=$(mktemp -d)
+            install -Dm755 "$SRC/bili-fm" "$ROOT/opt/bili-fm/bili-fm"
+            install -Dm644 "$SRC/icon.png" "$ROOT/usr/share/icons/hicolor/128x128/apps/bili-fm.png"
+            install -Dm644 "$SRC/bili-fm.desktop" "$ROOT/usr/share/applications/bili-fm.desktop"
+            SIZE=$(du -sb "$ROOT" | cut -f1)
+            {
+              echo "pkgname = bili-fm"
+              echo "pkgver = $VERSION-1"
+              echo "pkgdesc = 用音频收听 B 站内容"
+              echo "url = https://github.com/vst93/bili-fm"
+              echo "builddate = $(date +%s)"
+              echo "packager = vst93"
+              echo "size = $SIZE"
+              echo "arch = $PKGARCH"
+              echo "license = MIT"
+              echo "depend = webkit2gtk-4.1"
+              echo "depend = gtk3"
+            } > "$ROOT/.PKGINFO"
+            ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO opt usr )
+            rm -rf "$ROOT"
+          done
+
+      # ── 重命名并上传 ───────────────────────────────────────────────
+      - name: 收集产物
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -e
+          VERSION="${{ needs.prepare.outputs.version }}"
+          mkdir -p ../out
+          case "${{ matrix.label }}" in
+            macos-universal)
+              [ -f "build/darwin-universal/bili-FM.app/Contents/MacOS/bili-FM" ] && \
+                (cd build/darwin-universal && zip -qry "../../../out/bili-FM-$VERSION-macos-universal.app.zip" "bili-FM.app")
+              cp build/darwin-universal/*.dmg "../out/bili-FM-$VERSION-macos-universal.dmg" 2>/dev/null || true
+              ;;
+            linux)
+              cp build/linux-amd64/*.deb "../out/bili-FM-$VERSION-linux-x86_64.deb"
+              cp build/linux-arm64/*.deb "../out/bili-FM-$VERSION-linux-arm64.deb"
+              cp build/linux-amd64/*.rpm "../out/bili-FM-$VERSION-linux-x86_64.rpm" 2>/dev/null || true
+              cp build/linux-arm64/*.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm" 2>/dev/null || true
+              cp build/linux-amd64/*.pkg.tar.zst "../out/bili-FM-$VERSION-linux-x86_64.pkg.tar.zst" 2>/dev/null || true
+              cp build/linux-amd64/*.tar.gz "../out/bili-FM-$VERSION-linux-x86_64.tar.gz"
+              cp build/linux-arm64/*.tar.gz "../out/bili-FM-$VERSION-linux-arm64.tar.gz"
+              cp build/linux-amd64/install.sh ../out/install.sh
+              ;;
+            windows)
+              for A in amd64 arm64; do
+                EXE="build/windows-$A/bili-FM.exe"
+                [ -f "$EXE" ] || continue
+                cp "$EXE" "../out/bili-FM-$VERSION-windows-$A.exe"
+                SETUP=$(ls build/windows-$A/*Setup*.exe 2>/dev/null | head -1 || true)
+                [ -n "$SETUP" ] && cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
+              done
+              ;;
+          esac
+          ls -la ../out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mygo-${{ matrix.label }}
+          path: out/*
+          if-no-files-found: error
+
+  # ── 发布 ────────────────────────────────────────────────────────────
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 上传到 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          ls -la artifacts
+          gh release upload "mygo-v$VERSION" artifacts/* --clobber --repo "${{ github.repository }}"
+          echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v$VERSION"
