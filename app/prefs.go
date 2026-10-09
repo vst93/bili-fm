@@ -116,9 +116,11 @@ func (c *controller) showAbout() {
 		v = c.bl.GetAppVersion().Version
 	}
 	c.app.Modal = &view.Modal{
-		Kind:    "message",
-		Title:   "关于 bili-FM",
-		Message: fmt.Sprintf("用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v%s\n项目地址：github.com/vst93/bili-fm", v),
+		Kind:      "message",
+		Title:     "关于 bili-FM",
+		Message:   fmt.Sprintf("用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v%s", v),
+		LinkLabel: "项目地址：github.com/vst93/bili-fm",
+		LinkURL:   "https://github.com/vst93/bili-fm",
 	}
 	c.app.Win.Update(func() {})
 }

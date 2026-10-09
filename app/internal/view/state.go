@@ -226,6 +226,8 @@ type Modal struct {
 	Message string
 	// QR 是登录二维码的位图（Kind == "login"）。
 	QR *ui.Bitmap
+	// Link 是正文下方的可点链接（文案 + 地址）；空则不画。
+	LinkLabel, LinkURL string
 }
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。

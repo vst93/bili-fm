@@ -95,6 +95,11 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 			}
 		})
 	}
+	if m.LinkURL != "" {
+		ui.Row(c).FillWidth().Margin(10, 0, 0, 0).Children(func() {
+			ui.Link(c, m.LinkLabel, m.LinkURL)
+		})
+	}
 	ui.Row(c).FillWidth().Justify(ui.End).Margin(16, 0, 0, 0).Children(func() {
 		a.modalButton(c, "好的", true, func() {
 			if a.Act.CloseModal != nil {
