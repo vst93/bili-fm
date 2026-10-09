@@ -213,6 +213,28 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
   列表有界滑动窗口（上限 160）。
 - **测试**：`internal/view` 与 `main` 包新增 Go 单测。
 
+### 本轮修的 bug（都是实测/审码发现的）
+
+- `GetLoginQRCodeStatus` 用 `LoginStatus` 当守卫，而 `LoginStatus` 只在登录
+  成功后为真 —— 轮询永远返回 false（二维码扫了也登不上）；另去掉了阻塞 sleep。
+- 视频弹窗的 IPC 服务名错了：mygo 按**类型名**绑定，`video.Service` 绑成
+  `Service`，而页面调 `Video.Log/Report/Close/Ended` → 全部静默失败（弹窗状态
+  回不来、关不掉、播完不续）。改 `BindAs("Video", …)`。
+- 从选集抽屉点分集播不动：`playIndex` 只认列表卡片，而选集不在卡片列表里；
+  现在以 `a.Info` 的分集为准建队列。
+- 互动状态（点赞/投币/收藏/关注）从未被加载；且关注判断用的是**自己**的 mid
+  （等于关注自己）。
+- 普通队列只有一条（单集视频）时「下一集」会自我重播 → 现在无下一首就停/
+  禁用按钮。
+- 动态（feed）列表用 `toCards` 解析，而接口返的是动态卡片 → 登录下也是空的；
+  改用 `toUpCards`，且翻页改用 offset 游标（之前用页码会重复追加第一页）。
+- 收藏夹「加载更多」永远为真 → 不足一页时停止。
+- 本地存储写入非原子（并发/崩溃可能读到半个文件）→ 临时文件 + 改名，读加锁。
+- WSOLA / 均衡器与播放器回调的**数据竞争**（oto 取数、上报、界面三条 goroutine）；
+  `-race` 下全链路无竞争。
+- 「浏览器打开」是空实现；URL 链接不会直开；迷你音量键点了没反应。
+- 视频弹窗页面错误处理里先取不存在的 `#err` 元素会抛异常。
+
 ### 还没做（下一批）
 
 - **玻璃材质**：mygo 有 `plugins/glass`（真 Liquid Glass），现在还是「半透明
@@ -224,7 +246,11 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 
 `-shot` 截图、`-load-info` 拉当前队列第一条的详情填右栏、`-drawer <key>` 直接
 打开某个抽屉、`-modal about|shortcuts|login`、`-toast <文本>`、`-play <n>`、
-`-addall`。都只在开发时用。
+`-addall`、`-video`、`-window-pos X,Y`、`-series <id>`。都只在开发时用。
+
+注意：视频弹窗的页面是 `mygo build` 时才内嵌的；普通 `go build` 出的二进制
+没有前端资源，弹窗会加载不出来（只有原生 UI 能跑）。要测弹窗用
+`go tool mygo build` 或 `go tool mygo dev`。
 
 ## 还没做的（已知缺口）
 

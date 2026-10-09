@@ -3,8 +3,8 @@ package bilibili
 // 应用常量（对应旧版 service/config.go）。名字带 Version 前缀是为了避开
 // api.go 里已有的 type AppVersion。
 const (
-	Version   = "2.1.0"
-	VersionNo = 210
+	Version   = "3.0.0"
+	VersionNo = 300
 	AppName   = "bili-FM"
 )
 
