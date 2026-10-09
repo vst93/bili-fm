@@ -212,6 +212,9 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - **其他**：骨架屏、卡片 meta 按宽度隐藏字段、tab 记忆、标题/简介可选中、
   列表有界滑动窗口（上限 160）。
 - **测试**：`internal/view` 与 `main` 包新增 Go 单测。
+- **系统媒体中心（Linux）**：`internal/mediactl` 用 MPRIS 暴露曲目/状态/位置，
+  桌面环境与媒体键可以直接控制；实测 Play/Pause/Next 与元数据都对。
+  非 Linux 是 no-op。
 
 ### 本轮修的 bug（都是实测/审码发现的）
 
@@ -254,8 +257,9 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 
 ## 还没做的（已知缺口）
 
-- **系统媒体中心**：macOS Now Playing / Windows SMTC / Linux MPRIS 都没接。
-  mygo 目前没有对应 API，要做需要平台 FFI。
+- **系统媒体中心**：**Linux 已接**（`internal/mediactl`，MPRIS：桌面「正在播放」卡片、
+  媒体键、锁屏控件，用 `godbus/dbus`）。macOS Now Playing / Windows SMTC 还是
+  no-op（mygo 没有对应绑定），接口已留好，接上层不用改。
 - **macOS 全局媒体键**：mygo 的 Carbon 热键没有媒体键码，注册会失败（已静默降级）。
 - ~~应用内更新~~：**已接**（3.0.0-preview.4）。见下面的「应用内更新」一节。
 - ~~评论只有第一页~~：**已修**（弹幕/评论抽屉支持加载更多）。

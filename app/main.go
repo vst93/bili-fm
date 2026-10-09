@@ -32,6 +32,7 @@ import (
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/media"
+	"github.com/vst93/bili-fm/app/internal/mediactl"
 	"github.com/vst93/bili-fm/app/internal/proxy"
 	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/video"
@@ -59,6 +60,8 @@ type controller struct {
 	mp  *media.Player
 	vid *video.Manager
 	pxy *proxy.Server
+	// media 是系统媒体中心（Linux MPRIS；其他平台 no-op）。
+	media mediactl.Controller
 
 	// 当前曲目的跳过分段
 	sponsor   []bilibili.SponsorSegment
@@ -172,6 +175,7 @@ func main() {
 	c.wirePlayer()
 	c.wireVideo()
 	c.restoreQueue()
+	c.setupMediaCenter()
 
 	// 视频弹窗页面用 Video.* 调这些方法，所以要显式绑定成 Video（类型名默认是 Service）。
 	mygo.BindAs("Video", video.NewService(c.vid))
@@ -448,6 +452,7 @@ func (c *controller) wirePlayer() {
 	c.mp.OnProgress(func(pos, dur float64) {
 		c.app.Win.Update(func() {
 			c.app.Pos, c.app.Dur = pos, dur
+			c.syncMediaPosition(pos)
 			c.maybeSkipSponsor(pos)
 			c.trackResume(pos) // 本地断点 5s 落盘 + 云端 30s 上报
 		})
@@ -483,6 +488,7 @@ func (c *controller) handleEnded() {
 	}
 	c.app.Playing = false
 	c.app.Buffering = false
+	c.syncMediaTrack()
 }
 
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
@@ -490,6 +496,9 @@ func (c *controller) quit() {
 	c.quitting = true
 	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
 	c.saveQueue()
+	if c.media != nil {
+		c.media.Close()
+	}
 	c.vid.Close()
 	c.mp.Close()
 	mygo.App.Quit()
@@ -1506,6 +1515,7 @@ func (c *controller) startCurrent() {
 	}
 	// 在主线程先把队列写盘（写盘要读 Queue/Index，不能在网络 goroutine 里读）。
 	c.saveQueue()
+	c.syncMediaTrack()
 
 	go func() {
 		cid := t.Cid
@@ -1514,7 +1524,10 @@ func (c *controller) startCurrent() {
 			if cid == 0 {
 				cid = info.Cid
 			}
-			c.app.Win.Update(func() { c.app.Info = info })
+			c.app.Win.Update(func() {
+				c.app.Info = info
+				c.syncMediaTrack()
+			})
 			// 互动状态（点赞/投币/收藏/关注）异步拉一次，填主区按钮的激活态。
 			c.loadInteractionState(info)
 		}
@@ -1561,6 +1574,7 @@ func (c *controller) startCurrent() {
 			c.app.Playing = true
 			c.app.Dur = c.mp.Duration()
 			c.app.Status = ""
+			c.syncMediaTrack()
 		})
 
 		// 续播：本地/云端断点比 5 秒靠后才跳。
@@ -1626,6 +1640,7 @@ func (c *controller) togglePlay() {
 		c.mp.Resume()
 		c.app.Playing = true
 	}
+	c.syncMediaTrack()
 	c.app.Win.Update(func() {})
 }
 
@@ -1677,6 +1692,7 @@ func (c *controller) step(delta int) {
 func (c *controller) seek(seconds float64) {
 	// 跳转等于改了断点，立刻补写 + 补报（原版把 seek 当关键事件）。
 	c.flushProgress(seconds)
+	c.syncMediaPosition(seconds)
 	go func() {
 		if err := c.mp.Seek(seconds); err != nil {
 			log.Printf("跳转失败: %v", err)

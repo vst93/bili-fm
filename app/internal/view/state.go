@@ -547,6 +547,9 @@ func (a *App) canNavigate() bool {
 	return len(a.Queue) > 1
 }
 
+// CanNavigate 报告上一首/下一首是否有意义（供系统媒体中心推送 CanGoNext）。
+func (a *App) CanNavigate() bool { return a.canNavigate() }
+
 // Current 返回正在播放的曲目（可能为 nil）。
 func (a *App) Current() *Track {
 	if a.Index < 0 || a.Index >= len(a.Queue) {

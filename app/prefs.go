@@ -79,6 +79,9 @@ func (c *controller) setSpeed(v float64) {
 func (c *controller) setVolume(v float64) {
 	c.app.Volume = v
 	c.mp.SetVolume(v)
+	if c.media != nil {
+		c.media.SetVolume(v)
+	}
 	_ = c.kv.SetString(prefVolume, strconv.FormatFloat(v, 'f', -1, 64))
 }
 
