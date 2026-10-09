@@ -1,6 +1,9 @@
 package media
 
-import "math"
+import (
+	"math"
+	"sync"
+)
 
 // Compressor 是前馈动态范围压缩器，对应旧版音量均衡用的 Web Audio
 // DynamicsCompressorNode（player.tsx 的 getOrCreateAudioGraph）。
@@ -14,6 +17,9 @@ import "math"
 // 不同 B 站视频的默认音量差异很大，开启后安静的和响亮的视频能落在更接近
 // 的响度上。
 type Compressor struct {
+	// mu 保护下面这些控制字段：SetEnabled 在界面线程调，Process 在 oto
+	// 取数据 goroutine 上调。
+	mu       sync.Mutex
 	channels int
 	rate     int
 
@@ -49,6 +55,8 @@ func NewCompressor(channels, rate int) *Compressor {
 // SetEnabled 打开或关闭均衡，参数按 eqTransitionSeconds 线性过渡，
 // 避免切换时出现咔哒声。
 func (c *Compressor) SetEnabled(on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if on {
 		c.tThreshold, c.tKnee, c.tRatio = -50, 40, 12
 	} else {
@@ -59,13 +67,19 @@ func (c *Compressor) SetEnabled(on bool) {
 }
 
 // Enabled 报告当前是否朝「开启」过渡。
-func (c *Compressor) Enabled() bool { return c.tRatio > 1 }
+func (c *Compressor) Enabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tRatio > 1
+}
 
 // Process 原地处理一段交错 float32 PCM。
 func (c *Compressor) Process(buf []float32) {
 	if len(buf) == 0 {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	ch := c.channels
 	frames := len(buf) / ch
 

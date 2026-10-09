@@ -6,6 +6,38 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+func TestPeriodAt(t *testing.T) {
+	cases := map[int]string{
+		0:  "midnight",
+		2:  "midnight",
+		3:  "predawn",
+		6:  "dawn",
+		12: "noon",
+		23: "latenight",
+		24: "midnight", // 超出的小时按取模处理
+		-1: "latenight",
+	}
+	for h, want := range cases {
+		if got := PeriodAt(h).Name; got != want {
+			t.Errorf("PeriodAt(%d) = %q, want %q", h, got, want)
+		}
+	}
+}
+
+func TestBackdropBands(t *testing.T) {
+	p := PeriodAt(12)
+	bands := p.BackdropBands(12)
+	if len(bands) != 12 {
+		t.Fatalf("bands = %d, want 12", len(bands))
+	}
+	// 相邻带的接缝颜色应一致（否则背景会有可见拼接）。
+	for i := 1; i < len(bands); i++ {
+		if bands[i][0] != bands[i-1][1] {
+			t.Errorf("band %d seam mismatch", i)
+		}
+	}
+}
+
 func TestFmtTime(t *testing.T) {
 	cases := []struct {
 		in   float64

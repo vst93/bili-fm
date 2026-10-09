@@ -179,7 +179,7 @@ func (p *Player) SetEQ(on bool) {
 	cur := p.cur
 	p.mu.Unlock()
 	if cur != nil {
-		cur.eq.SetEnabled(on)
+		cur.setEQ(on)
 	}
 }
 
@@ -353,6 +353,14 @@ func (p *pipeline) state() (ended bool, err error) {
 
 // seek 跳到指定秒数：重建解封装器，用 ReadFrame 跳过前面若干帧
 // （只定位不decoding，比解码丢弃快得多），再重建解码器。
+// setEQ 在流水线锁内切换均衡，避免与 Read（oto goroutine）里的
+// eq.Process 并发写同一个压缩器的控制状态。
+func (p *pipeline) setEQ(on bool) {
+	p.mu.Lock()
+	p.eq.SetEnabled(on)
+	p.mu.Unlock()
+}
+
 func (p *pipeline) seek(seconds float64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
