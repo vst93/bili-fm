@@ -30,10 +30,7 @@ const (
 	Stopped Status = "Stopped"
 )
 
-// Callbacks 是系统媒体中心发过来的控制请求。
-//
-// 有些桌面环境还能通过媒体控件直接拖音量/改倍速（对应 MPRIS 的 Volume 与
-// Rate 可写属性），这里一并暴露。
+// Callbacks 是系统媒体中心发过来的控制请求（对应 MPRIS 的可写属性）。
 type Callbacks struct {
 	Play      func()
 	Pause     func()
@@ -45,8 +42,12 @@ type Callbacks struct {
 	Seek func(us int64)
 	// SetVolume 是外部（媒体控件）改了音量，v 为 0..1。
 	SetVolume func(v float64)
-	// SetRate 是外部改了倍速。
+	// SetRate 是外部改了倍速（0.5~3.0）。
 	SetRate func(v float64)
+	// SetLoop 是外部改了循环模式（MPRIS LoopStatus："None"/"Track"/"Playlist"）。
+	SetLoop func(loop string)
+	// SetShuffle 是外部开了随机播放。
+	SetShuffle func(on bool)
 }
 
 // Controller 是系统媒体中心连接。方法都应当可以被任意 goroutine 调用。
@@ -61,16 +62,19 @@ type Controller interface {
 	SetRate(v float64)
 	// SetNavigable 上报「有下一首/上一首」，系统据此禁用按钮。
 	SetNavigable(next, prev bool)
+	// SetLoopMode 上报循环模式与随机播放。
+	SetLoopMode(loop string, shuffle bool)
 	Close()
 }
 
 // noop 是不支持或连不上系统媒体中心时的空实现。
 type noop struct{}
 
-func (noop) SetTrack(Track)               {}
-func (noop) SetStatus(Status)             {}
-func (noop) SetPosition(int64)            {}
-func (noop) SetVolume(float64)            {}
-func (noop) SetRate(float64)              {}
-func (noop) SetNavigable(next, prev bool) {}
-func (noop) Close()                       {}
+func (noop) SetTrack(Track)                        {}
+func (noop) SetStatus(Status)                      {}
+func (noop) SetPosition(int64)                     {}
+func (noop) SetVolume(float64)                     {}
+func (noop) SetRate(float64)                       {}
+func (noop) SetNavigable(next, prev bool)          {}
+func (noop) SetLoopMode(loop string, shuffle bool) {}
+func (noop) Close()                                {}

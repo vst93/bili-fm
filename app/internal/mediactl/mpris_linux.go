@@ -58,14 +58,30 @@ func New(cb Callbacks) Controller {
 		},
 		mprisPlayer: {
 			"PlaybackStatus": {Value: string(Stopped), Writable: false, Emit: prop.EmitTrue},
-			"LoopStatus":     {Value: "None", Writable: false, Emit: prop.EmitFalse},
+			"LoopStatus": {
+				Value: "None", Writable: true, Emit: prop.EmitTrue,
+				Callback: func(ch *prop.Change) *dbus.Error {
+					if v, ok := ch.Value.(string); ok && m.cb.SetLoop != nil {
+						m.cb.SetLoop(v)
+					}
+					return nil
+				},
+			},
 			"Rate": {Value: 1.0, Writable: true, Emit: prop.EmitFalse, Callback: func(ch *prop.Change) *dbus.Error {
 				if v, ok := ch.Value.(float64); ok && m.cb.SetRate != nil {
 					m.cb.SetRate(v)
 				}
 				return nil
 			}},
-			"Shuffle":  {Value: false, Writable: false, Emit: prop.EmitFalse},
+			"Shuffle": {
+				Value: false, Writable: true, Emit: prop.EmitTrue,
+				Callback: func(ch *prop.Change) *dbus.Error {
+					if v, ok := ch.Value.(bool); ok && m.cb.SetShuffle != nil {
+						m.cb.SetShuffle(v)
+					}
+					return nil
+				},
+			},
 			"Metadata": {Value: map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue},
 			"Volume": {Value: 1.0, Writable: true, Emit: prop.EmitFalse, Callback: func(ch *prop.Change) *dbus.Error {
 				if v, ok := ch.Value.(float64); ok && m.cb.SetVolume != nil {
@@ -149,6 +165,12 @@ func (m *mpris) SetPosition(us int64) {
 }
 
 func (m *mpris) SetVolume(v float64) {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
 	m.props.SetMust(mprisPlayer, "Volume", v)
 }
 
@@ -159,6 +181,12 @@ func (m *mpris) SetRate(v float64) {
 func (m *mpris) SetNavigable(next, prev bool) {
 	m.props.SetMust(mprisPlayer, "CanGoNext", next)
 	m.props.SetMust(mprisPlayer, "CanGoPrevious", prev)
+}
+
+// SetLoopMode 把播放模式映射到 MPRIS 的 LoopStatus 与 Shuffle。
+func (m *mpris) SetLoopMode(loop string, shuffle bool) {
+	m.props.SetMust(mprisPlayer, "LoopStatus", loop)
+	m.props.SetMust(mprisPlayer, "Shuffle", shuffle)
 }
 
 func (m *mpris) Close() {

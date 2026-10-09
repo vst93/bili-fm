@@ -1,6 +1,9 @@
 package main
 
-import "github.com/vst93/bili-fm/app/internal/mediactl"
+import (
+	"github.com/vst93/bili-fm/app/internal/mediactl"
+	"github.com/vst93/bili-fm/app/internal/view"
+)
 
 // setupMediaCenter 连接系统媒体中心（Linux MPRIS；其他平台 no-op）。
 //
@@ -38,7 +41,44 @@ func (c *controller) setupMediaCenter() {
 		SetRate: func(v float64) {
 			c.mediaOnMain(func() { c.setSpeed(v) })
 		},
+		SetLoop: func(loop string) {
+			c.mediaOnMain(func() { c.setMediaLoop(loop) })
+		},
+		SetShuffle: func(on bool) {
+			c.mediaOnMain(func() { c.setMediaShuffle(on) })
+		},
 	})
+}
+
+// setMediaLoop 把系统媒体中心发来的 LoopStatus 映射到播放模式。
+func (c *controller) setMediaLoop(loop string) {
+	a := c.app
+	switch loop {
+	case "Track":
+		a.PlayMode = view.PlayModeSingle
+	case "Playlist":
+		a.PlayMode = view.PlayModeSequence
+	default:
+		// None = 顺序播完不循环；没有对应的第三态，归为顺序。
+		a.PlayMode = view.PlayModeSequence
+		if a.PlayingPlaylist == "" {
+			a.PlayMode = view.PlayModeSequence
+		}
+	}
+	_ = c.kv.SetString("playlistPlayMode", a.PlayMode)
+	a.Win.Update(func() {})
+}
+
+// setMediaShuffle 把系统媒体中心发来的 Shuffle 应用到播放模式。
+func (c *controller) setMediaShuffle(on bool) {
+	a := c.app
+	if on {
+		a.PlayMode = view.PlayModeShuffle
+	} else {
+		a.PlayMode = view.PlayModeSequence
+	}
+	_ = c.kv.SetString("playlistPlayMode", a.PlayMode)
+	a.Win.Update(func() {})
 }
 
 // clamp01 把音量夹到 0..1。
@@ -99,6 +139,16 @@ func (c *controller) syncMediaTrack() {
 	c.media.SetRate(a.Speed)
 	nav := a.CanNavigate()
 	c.media.SetNavigable(nav, nav)
+	loop, shuffle := "None", false
+	switch a.PlayMode {
+	case view.PlayModeSingle:
+		loop = "Track"
+	case view.PlayModeShuffle:
+		shuffle = true
+	default:
+		loop = "Playlist"
+	}
+	c.media.SetLoopMode(loop, shuffle)
 }
 
 // syncMediaPosition 只更新位置（MPRIS 的 Position 不发信号，随便刷）。

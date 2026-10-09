@@ -222,6 +222,9 @@ func (c *controller) cyclePlayMode() {
 		a.PlayMode = view.PlayModeSequence
 	}
 	_ = c.kv.SetString(kvPlayMode, a.PlayMode)
+	if c.media != nil {
+		c.syncMediaTrack()
+	}
 	a.Win.Update(func() {})
 }
 
