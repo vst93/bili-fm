@@ -1451,6 +1451,8 @@ func (c *controller) startCurrent() {
 		Aid: t.Aid, Bvid: t.Bvid, Cid: t.Cid,
 		Title: t.Title, Pic: t.Cover, OwnerName: t.Up,
 	}
+	// 在主线程先把队列写盘（写盘要读 Queue/Index，不能在网络 goroutine 里读）。
+	c.saveQueue()
 
 	go func() {
 		cid := t.Cid
@@ -1482,7 +1484,6 @@ func (c *controller) startCurrent() {
 			})
 			return
 		}
-		c.saveQueue()
 
 		// 回填 cid 与分集标题
 		c.app.Win.Update(func() {
@@ -1723,43 +1724,42 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 //   - 弹窗关掉后把音频接回来（跳到弹窗停下的位置继续听）；
 //   - 弹窗自然播完按播放模式续播。
 func (c *controller) wireVideo() {
+	// 弹窗回调跑在窗口事件 goroutine 上，而它们读写界面状态，所以统一
+	// 丢到 Win.Update（主线程）执行。
 	c.vid.OnState(func(st video.State) {
 		c.app.Win.Update(func() {
-			if !c.app.VideoOpen {
-				return
+			if c.app.VideoOpen {
+				if st.Duration > 0 {
+					c.app.Dur = st.Duration
+				}
+				c.app.Pos = st.Time
 			}
-			if st.Duration > 0 {
-				c.app.Dur = st.Duration
-			}
-			c.app.Pos = st.Time
+			c.trackResume(st.Time)
 		})
-		c.trackResume(st.Time)
 	})
 	c.vid.OnClose(func(st video.State) {
-		c.app.Win.Update(func() { c.app.VideoOpen = false })
-		if c.quitting || c.videoSilent {
-			c.videoSilent = false
-			return
-		}
-		if c.app.Current() == nil {
-			return
-		}
-		// 音视接力：跳到弹窗停下的位置继续听。
-		c.flushProgress(st.Time)
-		if st.Time > 0 {
-			c.seek(st.Time)
-		}
-		if !st.Paused {
-			c.mp.Resume()
-			c.app.Win.Update(func() { c.app.Playing = true })
-		}
+		c.app.Win.Update(func() {
+			c.app.VideoOpen = false
+			if c.quitting || c.videoSilent {
+				c.videoSilent = false
+				return
+			}
+			if c.app.Current() == nil {
+				return
+			}
+			// 音视接力：跳到弹窗停下的位置继续听。
+			c.flushProgress(st.Time)
+			if st.Time > 0 {
+				c.seek(st.Time)
+			}
+			if !st.Paused {
+				c.mp.Resume()
+				c.app.Playing = true
+			}
+		})
 	})
 	c.vid.OnEnded(func() {
-		if c.app.PlayMode == view.PlayModeSingle {
-			c.startCurrent()
-			return
-		}
-		c.step(1)
+		c.app.Win.Update(func() { c.handleEnded() })
 	})
 }
 

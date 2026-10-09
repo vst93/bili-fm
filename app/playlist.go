@@ -327,8 +327,9 @@ func (c *controller) seriesPlayAll() {
 			a.SeriesName = name
 			c.savePlaylists()
 			a.NotifyType("success", fmt.Sprintf("已加载 %d 集到播放列表", len(out)))
+			// 起播要在主线程做（它会改界面状态）。
+			c.playPlaylist(view.ListSeries, 0)
 		})
-		c.playPlaylist(view.ListSeries, 0)
 	}()
 }
 
