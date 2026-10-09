@@ -324,6 +324,7 @@ func (a *App) openUp() {
 		mid = a.Info.OwnerMid
 	}
 	if mid == 0 || a.Act.OpenUp == nil {
+		a.NotifyType("warning", "该视频没有可用的 UP 主空间")
 		return
 	}
 	a.Act.OpenUp(mid, a.ownerName())
