@@ -53,7 +53,10 @@ func (a *App) drawerHeader(c *ui.Context) {
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 16).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		a.drawerTabs(c)
-		ui.Box(c).Grow(1)
+		// 收藏抽屉的收藏夹 tab 自己占满剩余宽度（可横向滚动），不再放弹性占位。
+		if a.Drawer != "favorite" {
+			ui.Box(c).Grow(1)
+		}
 		// 原版只有搜索抽屉不显示条数（排序 tab 占满了表头）。
 		if a.Drawer == DrawerSearch {
 			ui.Text(c, fmt.Sprintf("%d 条", len(a.list().Cards))).FontSize(11).TextColor(t.Faint)
@@ -118,10 +121,19 @@ func (a *App) drawerTabs(c *ui.Context) {
 			a.incognitoSwitch(c)
 		}
 	case "favorite":
-		ui.Text(c, "收藏列表").FontSize(14).Bold().TextColor(ui.Hex("#334155")).Shrink(0)
-		for _, f := range a.Folders {
-			a.folderTab(c, f)
+		ui.Text(c, "收藏").FontSize(14).Bold().TextColor(ui.Hex("#334155")).Shrink(0)
+		if len(a.Folders) == 0 {
+			ui.Text(c, "还没有收藏夹").FontSize(12).TextColor(t.Faint)
+			break
 		}
+		// 收藏夹可能很多：横向滚动，不把后面的挤掉。
+		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(32).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				for _, f := range a.Folders {
+					a.folderTab(c, f)
+				}
+			})
+		})
 	case "feed":
 		ui.Text(c, "动态列表").FontSize(14).Bold().TextColor(ui.Hex("#334155"))
 	case DrawerUp:

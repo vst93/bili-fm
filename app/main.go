@@ -106,6 +106,7 @@ func main() {
 	playOnStart := flag.Int("play", -1, "列表加载后自动播放第 N 条（调试用）")
 	addAllOnStart := flag.Bool("addall", false, "加载详情后把全部分集加入播放列表（调试用）")
 	videoOnStart := flag.Bool("video", false, "起播后自动打开视频弹窗（调试用）")
+	foldersOnStart := flag.Int("folders", 0, "注入 N 个假收藏夹并打开收藏抽屉（调试用）")
 	flag.Parse()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
@@ -235,6 +236,19 @@ func main() {
 			c.loadFolders()
 		} else {
 			c.loadSection(start, 1)
+		}
+
+		// 调试用：注入假收藏夹，检查收藏抽屉表头的横向滚动。
+		if *foldersOnStart > 0 {
+			list := make([]view.Folder, *foldersOnStart)
+			for i := range list {
+				list[i] = view.Folder{ID: int64(i + 1), Title: fmt.Sprintf("收藏夹 %d", i+1), Count: int64(i*7 + 3)}
+			}
+			app.Folders = list
+			app.FolderID = list[0].ID
+			app.Section = sectionIndex("favorite")
+			app.Drawer = "favorite"
+			app.Win.Update(func() {})
 		}
 
 		// 调试用：把队列第一条的详情拉下来填主区右栏（不真的播放）。
