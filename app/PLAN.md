@@ -214,6 +214,8 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - **测试**：`internal/view` 与 `main` 包新增 Go 单测。
 - **系统媒体中心（Linux）**：`internal/mediactl` 用 MPRIS 暴露曲目/状态/位置，
   桌面环境与媒体键可以直接控制；实测 Play/Pause/Next 与元数据都对。
+  Volume / Rate / LoopStatus / Shuffle 还是**可写属性**，系统媒体控件可以直接
+  调音量、倍速、切循环/随机（introspection 声明 readwrite，gdbus 实测生效）。
   非 Linux 是 no-op。
 
 ### 本轮修的 bug（都是实测/审码发现的）
