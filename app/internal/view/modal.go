@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -22,7 +23,7 @@ func (a *App) modal(c *ui.Context) {
 		ui.Column(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).
 			Center().Children(func() {
 			panel := ui.Column(c).Width(320).Padding(20).
-				Radius(16).Background(ui.Hex("#ffffff").Alpha(0.94)).
+				Radius(16).Material(glass.Glass{}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.70)).
 				Shadow(0, 24, 60, 0, shadowInk.Alpha(0.20))
 			if m.Kind == "login" {

@@ -1,6 +1,9 @@
 package view
 
-import "github.com/egoist/mygo/ui"
+import (
+	"github.com/egoist/mygo/plugins/glass"
+	"github.com/egoist/mygo/ui"
+)
 
 // toastViewport 是自定义的 toast 外观（原版 .toast-glass）：白色玻璃卡片 +
 // 左侧类型色条 + 关闭键，悬在播放栏上方居中。mygo 默认的 toast 太淡，这里
@@ -13,7 +16,7 @@ func (a *App) toastViewport(c *ui.Context, bottom float32) {
 			accent := toastAccent(t.Type)
 			root := p.Root
 			root.Row().Gap(10).Padding(9, 14).Radius(10).
-				Background(ui.Hex("#ffffff").Alpha(0.95)).
+				Material(glass.Glass{}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.8)).
 				Shadow(0, 10, 30, 0, shadowInk.Alpha(0.16)).
 				AlignItems(ui.Center)
