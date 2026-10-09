@@ -68,6 +68,10 @@ func parseFloat(s string) float64 {
 func (c *controller) setSpeed(v float64) {
 	c.app.Speed = v
 	c.mp.SetSpeed(v)
+	// 视频弹窗开着时同步倍速。
+	if c.app.VideoOpen {
+		c.vid.SetSpeed(v)
+	}
 	_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
 }
 

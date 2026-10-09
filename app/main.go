@@ -1551,6 +1551,16 @@ func (c *controller) startCurrent() {
 }
 
 func (c *controller) togglePlay() {
+	// 视频弹窗开着时，空格控制的是弹窗里的视频（音频引擎此刻是暂停的，
+	// 否则会双声）。
+	if c.app.VideoOpen {
+		if c.vid.State().Paused {
+			c.vid.Resume()
+		} else {
+			c.vid.Pause()
+		}
+		return
+	}
 	if c.app.Current() == nil {
 		return
 	}
