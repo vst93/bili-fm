@@ -542,6 +542,15 @@ func (a *App) CurrentSection() Section {
 	return Sections[a.Section]
 }
 
+// canNavigate 报告上一集/下一集是否有意义（原版 canNavigateNext）：
+// 播放列表模式看来源列表长度，否则看当前队列长度。
+func (a *App) canNavigate() bool {
+	if a.PlayingPlaylist != "" {
+		return len(a.playlistActive(a.PlayingPlaylist)) > 1
+	}
+	return len(a.Queue) > 1
+}
+
 // Current 返回正在播放的曲目（可能为 nil）。
 func (a *App) Current() *Track {
 	if a.Index < 0 || a.Index >= len(a.Queue) {

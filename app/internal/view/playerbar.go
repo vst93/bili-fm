@@ -64,6 +64,7 @@ func (a *App) transport(c *ui.Context) {
 
 		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
 			Label("下一集").Tooltip("下一集")
+		next.Disabled(!a.canNavigate())
 		if next.Hovered() {
 			next.Background(t.GlassHover)
 		} else {

@@ -65,7 +65,6 @@ v.muted = muted;
 v.addEventListener('error', () => {
   const e = v.error;
   lastErr = e ? `code=${e.code} ${e.message || ''}` : 'unknown';
-  document.getElementById('err').textContent = lastErr;
   state.innerHTML = '播放失败 <span id="err">' + lastErr + '</span>';
   call('Video.Log', 'error: ' + lastErr);
 });
@@ -99,14 +98,18 @@ v.addEventListener('loadedmetadata', () => {
 })();
 
 // 每秒把状态回传给主窗，用于同步进度与播放状态。
+// 正常情况下不显示调试信息，只在出错时显出来。
 setInterval(() => {
   call('Video.Report',
     v.currentTime || 0, v.duration || 0,
     !!v.paused, !!v.muted, v.playbackRate || 1, v.readyState || 0,
     lastErr);
-  state.textContent =
-    `t=${(v.currentTime || 0).toFixed(1)}/${(v.duration || 0).toFixed(0)}s ` +
-    `paused=${v.paused} muted=${v.muted} rate=${v.playbackRate} rs=${v.readyState}`;
+  if (lastErr) {
+    state.style.display = 'block';
+    state.textContent = '播放失败 ' + lastErr;
+  } else {
+    state.style.display = 'none';
+  }
 }, 1000);
 
 document.getElementById('close').addEventListener('click', () => call('Video.Close'));

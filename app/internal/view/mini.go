@@ -112,6 +112,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 
 				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(Radius).Center().
 					Label("下一集")
+				next.Disabled(!a.canNavigate())
 				if next.Hovered() {
 					next.Background(t.GlassHover)
 				} else {
