@@ -41,7 +41,9 @@
 ## 硬性约束（每份 spec 都带）
 
 - 禁止启动应用、禁止 GUI 自动化（研究靠读代码 + 无头 `-shot` 截图）。
-- 不新增依赖需克制；验证 = `cd app && go build ./... && go test ./...`，改动 `internal/view` 用 `-shot` 截图对照。
+- 不新增依赖需克制；验证 = 仓库根的 **`./check.sh`**（vet + 全包测试 +
+  linux/windows/darwin × amd64/arm64 六平台编译，与 CI 门禁同口径；`./check.sh fast`
+  只跑 vet+test）。改动 `internal/view` 另用 `-shot` 截图对照。
 
 ## 用户裁决记录
 
