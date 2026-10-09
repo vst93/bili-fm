@@ -363,14 +363,18 @@ func (a *App) drawerTitle() string {
 }
 
 // drawerBody 按抽屉类型画内容。
+//
+// 弹幕抽屉自己用虚拟化列表当滚动容器（行数可能上千），所以不走外层的
+// ui.Scroll；其余抽屉内容不多，统一套一层滚动。
 func (a *App) drawerBody(c *ui.Context) {
-	t := a.Theme
+	if a.Drawer == DrawerDanmaku {
+		a.danmakuBody(c)
+		return
+	}
 	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
 		switch a.Drawer {
 		case DrawerParts:
 			a.partsBody(c)
-		case DrawerDanmaku:
-			a.danmakuBody(c)
 		case DrawerUp:
 			// UP 空间有两个 tab：视频是卡片列表，合集是一排可选的胶囊。
 			if a.UpTab == UpTabSeries {
@@ -384,7 +388,6 @@ func (a *App) drawerBody(c *ui.Context) {
 			a.listBody(c)
 		}
 	})
-	_ = t
 }
 
 // seriesListBody 是 UP 空间的「合集」tab（原版 upVideoList.tsx 的合集列表）：
@@ -849,16 +852,27 @@ func (a *App) danmakuTabs(c *ui.Context) {
 // danmakuBody 画弹幕或评论列表。
 func (a *App) danmakuBody(c *ui.Context) {
 	if a.DanmakuTab == TabReply {
-		a.repliesBody(c)
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
+			a.repliesBody(c)
+		})
 		return
 	}
 	t := a.Theme
 	if len(a.Danmaku) == 0 {
-		ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
+		ui.Box(c).FillWidth().Padding(12, 24).Children(func() {
+			ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
+		})
 		return
 	}
 
-	// 自动跟随：把当前时间所在的弹幕滚进视野（只在下标变化时滚，不干扰手滑）。
+	// 换集时重置列表的滚动位置。
+	if a.Track != nil && a.Track.Cid != a.danmakuCid {
+		a.danmakuList = ui.ListState{}
+		a.danmakuCid = a.Track.Cid
+		a.danmakuScrollIdx = -1
+	}
+
+	// 自动跟随：当前时间所在的弹幕下标（只在下标变化时滚，不干扰手滑）。
 	cur := -1
 	if a.DanmakuAutoScroll && a.Pos > 0 {
 		for i, d := range a.Danmaku {
@@ -870,30 +884,31 @@ func (a *App) danmakuBody(c *ui.Context) {
 		}
 	}
 
-	ui.Column(c).Gap(2).Children(func() {
-		for i, d := range a.Danmaku {
-			row := ui.Row(c).Key(fmt.Sprintf("dm-%d", i)).FillWidth().
-				Padding(4, 8).Radius(RadiusSmall).Gap(8).AlignItems(ui.Center).
-				Cursor(ui.CursorPointer)
-			switch {
-			case i == cur:
-				row.Background(t.Blue.Alpha(0.14))
-			case row.Hovered():
-				row.Background(t.GlassHover)
-			}
-			if i == cur && a.danmakuScrollIdx != cur {
-				row.ScrollIntoView()
-			}
-			row.Children(func() {
-				ui.Text(c, fmtTime(d.Time)).FontSize(10).TextColor(t.Faint).Width(44)
-				ui.Text(c, d.Text).FontSize(12).TextColor(danmakuInk(d.Color)).Grow(1).SingleLine()
-			})
-			if row.Clicked() && a.Act.Seek != nil {
-				a.Act.Seek(d.Time)
-			}
+	// 虚拟化：上千条弹幕也只构建可见的那几十行。
+	ui.List(c, &a.danmakuList, len(a.Danmaku), func(i int) {
+		d := a.Danmaku[i]
+		row := ui.Row(c).Key(fmt.Sprintf("dm-%d", i)).FillWidth().
+			Padding(4, 8).Radius(RadiusSmall).Gap(8).AlignItems(ui.Center).
+			Cursor(ui.CursorPointer)
+		switch {
+		case i == cur:
+			row.Background(t.Blue.Alpha(0.14))
+		case row.Hovered():
+			row.Background(t.GlassHover)
 		}
-	})
-	a.danmakuScrollIdx = cur
+		row.Children(func() {
+			ui.Text(c, fmtTime(d.Time)).FontSize(10).TextColor(t.Faint).Width(44)
+			ui.Text(c, d.Text).FontSize(12).TextColor(danmakuInk(d.Color)).Grow(1).SingleLine()
+		})
+		if row.Clicked() && a.Act.Seek != nil {
+			a.Act.Seek(d.Time)
+		}
+	}).FillWidth().Grow(1).Padding(8, 24)
+
+	if cur >= 0 && a.danmakuScrollIdx != cur {
+		a.danmakuList.ScrollIntoView(cur)
+		a.danmakuScrollIdx = cur
+	}
 }
 
 // danmakuInk 把 B 站弹幕颜色转成在浅色背景上可读的墨色（原版 danmakuList 的

@@ -444,6 +444,11 @@ type App struct {
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
 	toastMu sync.Mutex
 	toasts  []ui.Toast
+
+	// danmakuList 是弹幕列表的虚拟化状态（mygo 的 ui.List 只构建可见行）；
+	// danmakuCid 用于换集时重置它。
+	danmakuList ui.ListState
+	danmakuCid  int64
 }
 
 // NewApp 建一个用当前时段主题的应用。

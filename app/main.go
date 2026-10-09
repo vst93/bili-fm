@@ -108,6 +108,7 @@ func main() {
 	videoOnStart := flag.Bool("video", false, "起播后自动打开视频弹窗（调试用）")
 	foldersOnStart := flag.Int("folders", 0, "注入 N 个假收藏夹并打开收藏抽屉（调试用）")
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
+	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
 	flag.Parse()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
@@ -266,6 +267,18 @@ func main() {
 			app.Playlist = items
 			app.PlaylistTab = view.ListUser
 			app.Drawer = view.DrawerPlaylist
+			app.Win.Update(func() {})
+		}
+
+		// 调试用：注入假弹幕，检查虚拟化列表。
+		if *danmakuOnStart > 0 {
+			dms := make([]view.Danmaku, *danmakuOnStart)
+			for i := range dms {
+				dms[i] = view.Danmaku{Time: float64(i) * 1.5, Text: fmt.Sprintf("这是一条弹幕 %d", i+1), Color: 0xff0000}
+			}
+			app.Danmaku = dms
+			app.DanmakuTab = view.TabDanmaku
+			app.Drawer = view.DrawerDanmaku
 			app.Win.Update(func() {})
 		}
 
