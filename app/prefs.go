@@ -147,9 +147,9 @@ func (c *controller) closeModal() {
 // checkUpdate 检查更新：mygo 的 updater 插件自己会开一个更新窗口，显示
 // 新版本说明、下载进度和重启按钮（相当于原版「检查更新」对话框的完整流程）。
 func (c *controller) checkUpdate() {
-	if !updater.AutomaticChecks() {
-		// 用户手动检查时先报告「不可更新」的情况（包管理器装的、开发构建）。
-	}
+	// mygo 的 updater 自己会开窗口：能更新时给版本说明/下载进度/重启按钮；
+	// 不能自更新（deb/rpm/pacman 装的、开发构建）时也会说明原因，
+	// 所以这里只需要触发。
 	updater.CheckForUpdates()
 }
 
