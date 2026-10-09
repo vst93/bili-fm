@@ -1570,6 +1570,8 @@ func (c *controller) startCurrent() {
 	// 在主线程先把队列写盘（写盘要读 Queue/Index，不能在网络 goroutine 里读）。
 	c.saveQueue()
 	c.syncMediaTrack()
+	// 倍速/均衡/音量也在主线程取好，goroutine 里不读界面状态。
+	speed, eq, vol := c.app.Speed, c.app.EQ, c.app.Volume
 
 	go func() {
 		cid := t.Cid
@@ -1619,9 +1621,9 @@ func (c *controller) startCurrent() {
 			})
 			return
 		}
-		c.mp.SetSpeed(c.app.Speed)
-		c.mp.SetEQ(c.app.EQ)
-		c.mp.SetVolume(c.app.Volume)
+		c.mp.SetSpeed(speed)
+		c.mp.SetEQ(eq)
+		c.mp.SetVolume(vol)
 
 		c.app.Win.Update(func() {
 			c.app.Buffering = false
