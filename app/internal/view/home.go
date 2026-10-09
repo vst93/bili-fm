@@ -341,22 +341,32 @@ func (a *App) videoInfoHead(c *ui.Context) {
 	})
 }
 
-// collabBadge 是合作视频角标：显示人数，悬停列出参与 UP 主。
+// collabBadge 是合作视频角标：点击展开参与 UP 主列表，选一个进 TA 的空间
+// （原版 videoInfo 的选择合作 UP 主菜单）。
 func (a *App) collabBadge(c *ui.Context) {
-	var names strings.Builder
-	for i, st := range a.Info.Staff {
-		if i > 0 {
-			names.WriteString("、")
-		}
-		names.WriteString(st.Name)
-	}
-	b := ui.Box(c).Height(16).Padding(0, 6).Radius(4).Center().
+	b := ui.Box(c).Height(20).Padding(0, 7).Radius(4).Center().
 		Background(ui.Hex("#0284c7").Alpha(0.14)).
 		Border(1, ui.Hex("#0284c7").Alpha(0.30)).
-		Tooltip("合作视频：" + names.String())
+		Cursor(ui.CursorPointer).
+		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", len(a.Info.Staff)))
+	if hover := b.Hovered(); hover {
+		b.Background(ui.Hex("#0284c7").Alpha(0.24))
+	}
 	b.Children(func() {
 		ui.Text(c, fmt.Sprintf("合作 %d 人", len(a.Info.Staff))).FontSize(10).Bold().
 			TextColor(ui.Hex("#0369a1"))
+	})
+	b.Menu(func(m *ui.Menu) {
+		for _, st := range a.Info.Staff {
+			st := st
+			label := st.Name
+			if st.Title != "" {
+				label = st.Title + " · " + st.Name
+			}
+			if m.Item(label).Chosen() && a.Act.OpenUp != nil {
+				a.Act.OpenUp(st.Mid, st.Name)
+			}
+		}
 	})
 }
 
