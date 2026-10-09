@@ -52,7 +52,18 @@ func (a *App) searchField(c *ui.Context) {
 		} else {
 			submit.Background(ui.Transparent)
 		}
-		submit.Children(func() { ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(t.Muted) })
+		searching := a.list().Loading
+		submit.Disabled(searching)
+		submit.Children(func() {
+			if searching {
+				// 搜索中的小旋转（原版 .search-submit-spinner）。
+				spin := ui.Icon(c, iconPopular).Size(15, 15).TextColor(t.Blue)
+				spin.Loop("search-spin", time.Second, ui.Linear)
+				spin.Rotate(searchSpinDeg())
+			} else {
+				ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(t.Muted)
+			}
+		})
 		if submit.Clicked() {
 			a.runSearch()
 		}
@@ -268,6 +279,12 @@ func (a *App) spinDisc(e ui.Element) {
 	}
 	a.discAt = now
 	e.Rotate(a.discDeg)
+}
+
+// searchSpinDeg 是搜索按钮小旋转的角度（每秒一圈）。
+func searchSpinDeg() float32 {
+	ns := time.Now().UnixNano()
+	return float32(ns%int64(time.Second)) / float32(time.Second) * 360
 }
 
 // videoInfo 是右栏（原版 #video-info，固定 366 高）：
