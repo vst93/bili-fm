@@ -470,6 +470,7 @@ func (c *controller) handleEnded() {
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
 func (c *controller) quit() {
 	c.quitting = true
+	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
 	c.saveQueue()
 	c.vid.Close()
 	c.mp.Close()
@@ -1007,7 +1008,8 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		if err != nil {
 			return nil, false, err
 		}
-		return toCardsFromRaw(items), true, nil
+		// 收藏夹接口每页 21 条；不足一页说明到底了。
+		return toCardsFromRaw(items), len(items) >= 21, nil
 	case "history":
 		if histTab == view.HistWatchLater {
 			l, err := c.bl.GetWatchLaterList()
@@ -1133,7 +1135,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 			}
 			setCards(list, toCardsFromRaw(items), page <= 1)
 			list.Page = page
-			list.HasMore = true
+			list.HasMore = len(items) >= 21
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
