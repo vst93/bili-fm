@@ -57,13 +57,19 @@ type Danmaku struct {
 	Text string
 }
 
-// Comment 是一条评论。
+// Segment 是一个跳过分段（SponsorBlock），用于进度条上的广告段标记。
+type Segment struct {
+	Start, End float64
+}
+
+// Comment 是一条评论（Replies 是楼中楼预览，原版只取前几条）。
 type Comment struct {
 	User    string
 	Avatar  string
 	Content string
 	Likes   int64
 	Time    string
+	Replies []Comment
 }
 
 // PlayItem 是播放列表里的一条记录（原版 PlaylistItem）。
@@ -158,6 +164,12 @@ const (
 const (
 	ListUser   = "user"
 	ListSeries = "series"
+)
+
+// 弹幕/评论抽屉的两个 tab。
+const (
+	TabDanmaku = "danmaku"
+	TabReply   = "reply"
 )
 
 // UP 空间抽屉的两个 tab（原版 upVideoList.tsx 的「视频 / 合集」）。
@@ -268,7 +280,10 @@ type Actions struct {
 	AddToPlaylist      func(part Part)
 	AddAllToPlaylist   func()
 	SeriesPlayAll      func()
-	SaveQueue          func()
+	// 弹幕/评论
+	SwitchDanmakuTab func(tab string)
+	LoadComments     func(page int)
+	SaveQueue        func()
 }
 
 // App 是主窗口的全部状态。
@@ -320,6 +335,11 @@ type App struct {
 	EQ      bool
 	Sponsor bool
 	Volume  float64
+	// SponsorStatus 是 SponsorBlock 查询状态：off/loading/ok/empty/error，
+	// 用于播放栏按钮上的状态点（原版解 SponsorStatusInfo）。
+	SponsorStatus string
+	// SponsorSegments 是当前曲目的跳过分段（进度条上的广告段标记）。
+	SponsorSegments []Segment
 	// Buffering 表示正在起播（网络 + 解码初始化）。
 	Buffering bool
 
@@ -327,6 +347,16 @@ type App struct {
 	Info     *Info
 	Danmaku  []Danmaku
 	Comments []Comment
+
+	// 弹幕/评论抽屉：DanmakuTab 是当前 tab；DanmakuAutoScroll 是自动跟随
+	// 当前播放时间；Reply* 是评论分页状态。
+	DanmakuTab        string
+	DanmakuAutoScroll bool
+	RepliesLoading    bool
+	RepliesHasMore    bool
+	ReplyPage         int
+	ReplyTotal        int
+	danmakuScrollIdx  int
 
 	// 播放列表（原版 playlist / seriesPlaylist）。
 	//
@@ -414,6 +444,9 @@ func NewApp(repaint func()) *App {
 		// 播放列表默认：顺序播放、我的列表页签。
 		PlayMode:    PlayModeSequence,
 		PlaylistTab: ListUser,
+		// 弹幕/评论抽屉默认弹幕 tab、自动跟随。
+		DanmakuTab:        TabDanmaku,
+		DanmakuAutoScroll: true,
 	}
 	a.discAt = time.Now()
 	return a

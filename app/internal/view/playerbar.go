@@ -83,7 +83,7 @@ func (a *App) timeText(c *ui.Context, sec float64) {
 		Width(56).Shrink(0).Center()
 }
 
-// progress 是第 3 列（1fr）的可拖动进度条。
+// progress 是第 3 列（1fr）的可拖动进度条，上面叠广告段标记。
 func (a *App) progress(c *ui.Context) {
 	hi := a.Dur
 	if hi <= 0 {
@@ -92,18 +92,40 @@ func (a *App) progress(c *ui.Context) {
 	if !a.seeking {
 		a.SeekValue = a.Pos
 	}
-	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-	if s.Changed() {
-		a.seeking = true
-	}
-	if s.Submitted() || (a.seeking && !s.Dragging()) {
-		if a.seeking {
-			a.seeking = false
-			if a.Act.Seek != nil {
-				a.Act.Seek(a.SeekValue)
+	wrap := ui.Box(c).Grow(1).MinWidth(0)
+	wrap.Children(func() {
+		s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+		if s.Changed() {
+			a.seeking = true
+		}
+		if s.Submitted() || (a.seeking && !s.Dragging()) {
+			if a.seeking {
+				a.seeking = false
+				if a.Act.Seek != nil {
+					a.Act.Seek(a.SeekValue)
+				}
 			}
 		}
-	}
+		// 广告段标记：纯视觉，与「自动跳过」开关无关（原版 player-timeline-sponsor）。
+		if a.Dur > 0 {
+			for _, seg := range a.SponsorSegments {
+				start := float32(seg.Start / a.Dur)
+				end := float32(seg.End / a.Dur)
+				if start < 0 {
+					start = 0
+				}
+				if end > 1 {
+					end = 1
+				}
+				if end <= start {
+					continue
+				}
+				ui.Box(c).Absolute().BottomPercent(45).LeftPercent(start * 100).
+					WidthPercent((end - start) * 100).Height(3).Radius(2).
+					Background(ui.Hex("#ef4444").Alpha(0.55)).PassThrough()
+			}
+		}
+	})
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -183,9 +205,28 @@ func (a *App) sponsorButton(c *ui.Context) {
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
+		// 状态点（原版按钮右上角的小圆）：绿=有分段，黄=查询中，红=失败，灰=无/未启用。
+		if a.Sponsor {
+			ui.Box(c).Size(6, 6).Radius(RadiusPill).Absolute().Right(4).Top(4).
+				Background(sponsorDotColor(a.SponsorStatus))
+		}
 	})
 	if b.Clicked() && a.Act.ToggleSponsor != nil {
 		a.Act.ToggleSponsor()
+	}
+}
+
+// sponsorDotColor 把 SponsorBlock 状态映射成状态点颜色。
+func sponsorDotColor(status string) ui.Color {
+	switch status {
+	case "loading":
+		return ui.Hex("#f59e0b")
+	case "ok":
+		return ui.Hex("#22c55e")
+	case "error":
+		return ui.Hex("#ef4444")
+	default:
+		return ui.Hex("#94a3b8")
 	}
 }
 
@@ -226,9 +267,14 @@ func (a *App) speedPopover(c *ui.Context) {
 
 // volumePopover 是音量滑块，从播放栏第 5 列上方弹出。
 func (a *App) volumePopover(c *ui.Context) {
+	a.volumePopoverAt(c, 190, 60)
+}
+
+// volumePopoverAt 同上，可指定右下角偏移（迷你模式的播放栏更矮）。
+func (a *App) volumePopoverAt(c *ui.Context, right, bottom float32) {
 	t := a.Theme
 	ui.Box(c).Absolute().Fill().Children(func() {
-		ui.Column(c).Absolute().Right(190).Bottom(60).Width(200).Padding(10).
+		ui.Column(c).Absolute().Right(right).Bottom(bottom).Width(200).Padding(10).
 			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
 			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {

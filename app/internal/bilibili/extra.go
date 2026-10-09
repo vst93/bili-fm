@@ -360,26 +360,33 @@ var sponsorClient = &http.Client{Timeout: 5 * time.Second}
 // GetSponsorSegments 取该视频的社区标记跳过分段。失败一律返回空切片：
 // 这是可选功能，不该因为网络问题影响播放。
 func (bl *BL) GetSponsorSegments(bvid string, cid int64) []SponsorSegment {
+	out, _ := bl.FetchSponsorSegments(bvid, cid)
+	return out
+}
+
+// FetchSponsorSegments 与 GetSponsorSegments 相同，但把错误回给调用方，
+// 以便界面区分「查询失败」和「确实没有分段」（原版的绿/黄/红状态点）。
+func (bl *BL) FetchSponsorSegments(bvid string, cid int64) ([]SponsorSegment, error) {
 	if bvid == "" || cid <= 0 {
-		return nil
+		return nil, nil
 	}
 	u := fmt.Sprintf("https://bsbsb.top/api/skipSegments?videoID=%s&cid=%d", url.QueryEscape(bvid), cid)
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	req.Header.Set("User-Agent", chromeUA)
 	resp, err := sponsorClient.Do(req)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil
+		return nil, fmt.Errorf("sponsorblock 返回 %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	// 服务端可能返回对象数组或分段数组，两种都试。
 	var raw []struct {
@@ -389,7 +396,7 @@ func (bl *BL) GetSponsorSegments(bvid string, cid int64) []SponsorSegment {
 		Segments [][]interface{} `json:"segments"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil
+		return nil, err
 	}
 	var out []SponsorSegment
 	for _, r := range raw {
@@ -409,5 +416,5 @@ func (bl *BL) GetSponsorSegments(bvid string, cid int64) []SponsorSegment {
 			}
 		}
 	}
-	return out
+	return out, nil
 }

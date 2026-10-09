@@ -267,9 +267,9 @@ func (a *App) videoInfo(c *ui.Context) {
 	ui.Column(c).Grow(1).MinWidth(0).AlignItems(ui.Start).Children(func() {
 		a.videoInfoHead(c)
 		ui.Text(c, a.infoTitle()).FontSize(22).Bold().TextColor(t.Ink).
-			MaxLines(2).Margin(8, 0, 0, 0)
+			MaxLines(2).Margin(8, 0, 0, 0).Selectable()
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(t.Muted).
-			MaxLines(3).Margin(14, 0, 0, 0)
+			MaxLines(3).Margin(14, 0, 0, 0).Selectable()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
@@ -321,13 +321,18 @@ func (a *App) openUp() {
 }
 
 // partPill 是选集胶囊（.video-part-pill）：小圆点 + 来源 + 分集标题。
+// 从播放列表播入时前缀显示「播放列表」（原版 isPlaylistMode）。
 func (a *App) partPill(c *ui.Context) {
 	blue := ui.Hex("#0369a1")
+	source := "当前选集"
+	if a.PlayingPlaylist != "" {
+		source = "播放列表"
+	}
 	ui.Row(c).MaxWidth(430).Height(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).Border(1, ui.Hex("#ffffff").Alpha(0.38)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(ui.Hex("#0284c7"))
-		ui.Text(c, "当前选集").FontSize(13).Bold().TextColor(blue).Shrink(0)
+		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
 		ui.Text(c, a.partTitle()).FontSize(13).Bold().TextColor(blue).SingleLine()
 	})
 }

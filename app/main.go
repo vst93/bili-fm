@@ -75,6 +75,9 @@ type controller struct {
 	resumeWroteAt time.Time
 	reportedKey   string
 	reportedAt    time.Time
+
+	// lastSponsorToast 是「已跳过恰饭片段」toast 的频控时间点。
+	lastSponsorToast time.Time
 }
 
 func main() {
@@ -91,6 +94,8 @@ func main() {
 	seriesOnStart := flag.Int64("series", 0, "启动后直接打开这个合集 id（调试用）")
 	modalOnStart := flag.String("modal", "", "启动后直接打开某个对话框（调试用：about/shortcuts/login）")
 	toastOnStart := flag.String("toast", "", "启动后弹一个 toast（调试用）")
+	playOnStart := flag.Int("play", -1, "列表加载后自动播放第 N 条（调试用）")
+	addAllOnStart := flag.Bool("addall", false, "加载详情后把全部分集加入播放列表（调试用）")
 	flag.Parse()
 
 	kv, err := store.OpenDefault()
@@ -138,6 +143,11 @@ func main() {
 	app.Volume = 1
 	app.Sponsor = kv.String("sponsor_skip") == "1"
 	c.sponsorOn = app.Sponsor
+	if app.Sponsor {
+		app.SponsorStatus = "loading"
+	} else {
+		app.SponsorStatus = "off"
+	}
 	// 隐身模式（原版 localStorage 的 incognitoMode）：不读也不写云端进度。
 	app.Incognito = kv.String("incognito") == "true"
 	// 显示偏好（倍速/音量/均衡/封面模式/氛围光/高级质感）。
@@ -216,6 +226,9 @@ func main() {
 				// 主线程执行的，放在同一个回调里才有顺序保证）。
 				app.Win.Update(func() {
 					app.Info = info
+					if *addAllOnStart {
+						c.addAllToPlaylist()
+					}
 					if *drawerOnStart != "" {
 						c.debugOpenDrawer(*drawerOnStart, *seriesOnStart)
 					}
@@ -238,6 +251,23 @@ func main() {
 		}
 		if *toastOnStart != "" {
 			app.Notify(*toastOnStart)
+		}
+
+		// 调试用：列表加载后自动播放第 N 条（等列表就绪）。
+		if *playOnStart >= 0 {
+			go func() {
+				for i := 0; i < 60; i++ {
+					time.Sleep(200 * time.Millisecond)
+					key := app.Drawer
+					if key == "" {
+						key = app.CurrentSection().Key
+					}
+					if len(app.ListFor(key).Cards) > *playOnStart {
+						app.Win.Update(func() { c.playIndex(*playOnStart) })
+						return
+					}
+				}
+			}()
 		}
 
 		// 关闭窗口 = 隐藏到托盘（与旧版一致），从托盘或 Dock 恢复。
@@ -361,6 +391,8 @@ func (c *controller) wireActions() {
 		AddToPlaylist:      c.addToPlaylist,
 		AddAllToPlaylist:   c.addAllToPlaylist,
 		SeriesPlayAll:      c.seriesPlayAll,
+		SwitchDanmakuTab:   c.switchDanmakuTab,
+		LoadComments:       c.loadComments,
 		SetMini:            c.setMini,
 		TogglePin:          c.togglePin,
 		Quit:               func() { mygo.App.Quit() },
@@ -412,49 +444,102 @@ func (c *controller) quit() {
 	mygo.App.Quit()
 }
 
-// openInfo 打开「详情」抽屉：视频信息、互动状态、评论。
-// 抽屉的开合由界面负责（点开才调这里），这里只拉互动状态和评论。
-func (c *controller) openInfo() {
-	a := c.app
-	t := a.Current()
-	if t == nil {
-		a.Win.Update(func() {})
+// loadInteractionState 拉当前视频的互动状态（点赞 / 投币 / 收藏 / 关注）。
+// 起播时调一次，让主区的按钮显示正确的激活态。
+func (c *controller) loadInteractionState(info *view.Info) {
+	if info == nil || info.Bvid == "" {
 		return
 	}
-	a.Win.Update(func() {})
-
+	bvid, aid, upMid := info.Bvid, info.Aid, info.OwnerMid
 	go func() {
-		liked, _ := c.bl.HasLiked(t.Bvid)
+		liked, _ := c.bl.HasLiked(bvid)
 		coined := false
-		if n, err := c.bl.HasCoin(t.Bvid); err == nil && n > 0 {
+		if n, err := c.bl.HasCoin(bvid); err == nil && n > 0 {
 			coined = true
 		}
-		faved, _ := c.bl.HasFavorite(t.Aid)
+		faved, _ := c.bl.HasFavorite(aid)
 		followed := false
-		if fs, err := c.bl.IsFollowing(int(midOf(c))); err == nil && fs != nil {
-			followed = fs.IsFollowing
+		// 注意是视频的 UP 主（不是登录用户自己）。
+		if upMid != 0 {
+			if fs, err := c.bl.IsFollowing(int(upMid)); err == nil && fs != nil {
+				followed = fs.IsFollowing
+			}
 		}
 		c.app.Win.Update(func() {
 			c.app.Liked, c.app.Coined, c.app.Faved, c.app.Followed = liked, coined, faved, followed
 		})
+	}()
+}
 
-		if r, err := c.bl.GetReplyList(t.Aid, 1); err == nil && r != nil {
+// loadComments 拉一页评论追加到列表（原版回复分页）。page 从 1 开始。
+func (c *controller) loadComments(page int) {
+	a := c.app
+	t := a.Current()
+	if t == nil {
+		return
+	}
+	a.RepliesLoading = true
+	a.Win.Update(func() {})
+	aid := t.Aid
+	go func() {
+		r, err := c.bl.GetReplyList(aid, page)
+		a.Win.Update(func() {
+			a.RepliesLoading = false
+			if err != nil || r == nil {
+				return
+			}
 			list := make([]view.Comment, 0, len(r.Items))
 			for _, it := range r.Items {
-				user := ""
-				if m := toMap(it.Member); m != nil {
-					user = pickStr(m, "uname")
-				}
-				list = append(list, view.Comment{
-					User:    user,
+				cm := view.Comment{
 					Content: it.Content.Message,
 					Likes:   int64(it.Like),
 					Time:    time.Unix(it.SendTime, 0).Format("2006-01-02"),
-				})
+				}
+				if m := toMap(it.Member); m != nil {
+					cm.User = pickStr(m, "uname")
+					cm.Avatar = pickStr(m, "avatar")
+				}
+				for _, rp := range it.Replies {
+					user := ""
+					if m := toMap(rp.Member); m != nil {
+						user = pickStr(m, "uname")
+					}
+					cm.Replies = append(cm.Replies, view.Comment{User: user, Content: rp.Content.Message})
+				}
+				list = append(list, cm)
 			}
-			c.app.Win.Update(func() { c.app.Comments = list })
-		}
+			if page <= 1 {
+				a.Comments = list
+			} else {
+				a.Comments = append(a.Comments, list...)
+			}
+			a.ReplyPage = page
+			a.RepliesHasMore = r.HasMore
+			a.ReplyTotal = r.TotalCount
+		})
 	}()
+}
+
+// switchDanmakuTab 切换「弹幕/评论」tab；切到评论时按需拉第一页。
+func (c *controller) switchDanmakuTab(tab string) {
+	a := c.app
+	if tab == view.TabReply && len(a.Comments) == 0 && !a.RepliesLoading {
+		c.loadComments(1)
+	}
+	// 切回弹幕：重新跟随当前时间。
+	if tab == view.TabDanmaku {
+		a.DanmakuAutoScroll = true
+		a.Win.Update(func() {})
+	}
+}
+
+// toViewSegments 把 bilibili 的跳过分段转成视图用的标记。
+func toViewSegments(segs []bilibili.SponsorSegment) []view.Segment {
+	out := make([]view.Segment, 0, len(segs))
+	for _, s := range segs {
+		out = append(out, view.Segment{Start: s.Start, End: s.End})
+	}
+	return out
 }
 
 // midOf 返回当前登录用户的 mid（用于判断是否已关注）。
@@ -1137,6 +1222,7 @@ func (c *controller) startCurrent() {
 	}
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
+	c.app.SponsorSegments = nil
 	c.app.Win.Update(func() {})
 
 	// 主区右栅要立刻换成这条视频的信息，所以先把列表卡片里的字段填上，
@@ -1154,6 +1240,8 @@ func (c *controller) startCurrent() {
 				cid = info.Cid
 			}
 			c.app.Win.Update(func() { c.app.Info = info })
+			// 互动状态（点赞/投币/收藏/关注）异步拉一次，填主区按钮的激活态。
+			c.loadInteractionState(info)
 		}
 		if cid == 0 {
 			c.app.Win.Update(func() {
@@ -1223,8 +1311,20 @@ func (c *controller) startCurrent() {
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}
 		if c.sponsorOn {
-			segs := c.bl.GetSponsorSegments(t.Bvid, cid)
-			c.app.Win.Update(func() { c.sponsor = segs })
+			c.app.Win.Update(func() { c.app.SponsorStatus = "loading" })
+			segs, err := c.bl.FetchSponsorSegments(t.Bvid, cid)
+			status := "empty"
+			switch {
+			case err != nil:
+				status = "error"
+			case len(segs) > 0:
+				status = "ok"
+			}
+			c.app.Win.Update(func() {
+				c.sponsor = segs
+				c.app.SponsorSegments = toViewSegments(segs)
+				c.app.SponsorStatus = status
+			})
 		}
 	}()
 }
@@ -1309,25 +1409,52 @@ func (c *controller) toggleEQ() {
 }
 
 func (c *controller) toggleSponsor() {
-	c.app.Sponsor = !c.app.Sponsor
-	c.sponsorOn = c.app.Sponsor
-	if c.app.Sponsor {
+	a := c.app
+	a.Sponsor = !a.Sponsor
+	c.sponsorOn = a.Sponsor
+	if a.Sponsor {
 		_ = c.kv.SetString("sponsor_skip", "1")
-		if t := c.app.Current(); t != nil && t.Cid != 0 {
-			segs := c.bl.GetSponsorSegments(t.Bvid, t.Cid)
-			c.app.Win.Update(func() { c.sponsor = segs })
+		a.SponsorStatus = "loading"
+		if t := a.Current(); t != nil && t.Cid != 0 {
+			bvid, cid := t.Bvid, t.Cid
+			go func() {
+				segs, err := c.bl.FetchSponsorSegments(bvid, cid)
+				status := "empty"
+				switch {
+				case err != nil:
+					status = "error"
+				case len(segs) > 0:
+					status = "ok"
+				}
+				a.Win.Update(func() {
+					c.sponsor = segs
+					a.SponsorSegments = toViewSegments(segs)
+					a.SponsorStatus = status
+				})
+			}()
 		}
 	} else {
 		_ = c.kv.SetString("sponsor_skip", "0")
+		a.SponsorStatus = "off"
 	}
-	c.app.Win.Update(func() {})
+	a.Win.Update(func() {})
 }
 
 func (c *controller) toggleDanmaku() {
-	if c.app.Drawer != view.DrawerDanmaku || len(c.app.Danmaku) > 0 {
+	a := c.app
+	if a.Drawer != view.DrawerDanmaku {
 		return
 	}
-	if t := c.app.Current(); t != nil && t.Cid != 0 {
+	if a.DanmakuTab == view.TabReply {
+		if len(a.Comments) == 0 && !a.RepliesLoading {
+			c.loadComments(1)
+		}
+		return
+	}
+	if len(a.Danmaku) > 0 {
+		return
+	}
+	if t := a.Current(); t != nil && t.Cid != 0 {
 		go func() {
 			d, err := c.bl.GetDanmakuList(int(t.Cid))
 			if err != nil || d == nil {
@@ -1354,6 +1481,11 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 		if pos >= s.Start && pos < s.End {
 			c.skipped[i] = true
 			log.Printf("跳过赞助分段 %.1f-%.1f (%s)", s.Start, s.End, s.Category)
+			// 与原版一致：跳过时弹一条 toast，但频控（同一段只弹一次）。
+			if time.Since(c.lastSponsorToast) > 5*time.Second {
+				c.lastSponsorToast = time.Now()
+				c.app.Notify("已跳过恰饭片段")
+			}
 			c.seek(s.End)
 			return
 		}

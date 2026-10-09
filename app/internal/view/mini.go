@@ -81,6 +81,11 @@ func (a *App) MiniShell(c *ui.Context) {
 
 		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
 		a.miniPlayerBar(c)
+
+		// 音量弹层（迷你窗里也要能弹出来，否则音量键点了没反应）。
+		if a.ShowVolume {
+			a.volumePopoverAt(c, 8, 44)
+		}
 	})
 }
 

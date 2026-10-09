@@ -128,6 +128,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 		a.upHeader(c)
 	case DrawerParts:
 		a.partsHeader(c)
+	case DrawerDanmaku:
+		a.danmakuTabs(c)
 	case DrawerPlaylist:
 		a.playlistTabs(c)
 	case DrawerSeries:
@@ -759,21 +761,77 @@ func (a *App) playlistHas(cid int64) bool {
 	return false
 }
 
-// ---------------------------------------------------------------- 弹幕抽屉
+// ---------------------------------------------------------------- 弹幕 / 评论抽屉
 
+// danmakuTabs 是表头（原版 danmakuList.tsx）：弹幕(N) / 评论(total) 两个 tab，
+// 后面是「定位当前」（弹幕）与刷新。
+func (a *App) danmakuTabs(c *ui.Context) {
+	tabs := []tabItem{{
+		Key:   TabDanmaku,
+		Label: fmt.Sprintf("弹幕 (%d)", len(a.Danmaku)),
+	}}
+	replyLabel := "评论"
+	if a.ReplyTotal > 0 {
+		replyLabel = fmt.Sprintf("评论 (%d)", a.ReplyTotal)
+	} else if len(a.Comments) > 0 {
+		replyLabel = fmt.Sprintf("评论 (%d)", len(a.Comments))
+	}
+	tabs = append(tabs, tabItem{Key: TabReply, Label: replyLabel})
+
+	a.tabs(c, "dm", tabs, a.DanmakuTab, func(k string) {
+		a.DanmakuTab = k
+		a.danmakuScrollIdx = -1
+		if a.Act.SwitchDanmakuTab != nil {
+			a.Act.SwitchDanmakuTab(k)
+		}
+	})
+
+	if a.DanmakuTab == TabDanmaku {
+		a.headerButton(c, "dm-autoscroll", pick(a.DanmakuAutoScroll, "关闭自动跟随", "开启自动跟随"),
+			iconLocate, func() {
+				a.DanmakuAutoScroll = !a.DanmakuAutoScroll
+				a.danmakuScrollIdx = -1
+			})
+	}
+}
+
+// danmakuBody 画弹幕或评论列表。
 func (a *App) danmakuBody(c *ui.Context) {
+	if a.DanmakuTab == TabReply {
+		a.repliesBody(c)
+		return
+	}
 	t := a.Theme
 	if len(a.Danmaku) == 0 {
 		ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
 		return
 	}
+
+	// 自动跟随：把当前时间所在的弹幕滚进视野（只在下标变化时滚，不干扰手滑）。
+	cur := -1
+	if a.DanmakuAutoScroll && a.Pos > 0 {
+		for i, d := range a.Danmaku {
+			if d.Time <= a.Pos {
+				cur = i
+			} else {
+				break
+			}
+		}
+	}
+
 	ui.Column(c).Gap(2).Children(func() {
 		for i, d := range a.Danmaku {
 			row := ui.Row(c).Key(fmt.Sprintf("dm-%d", i)).FillWidth().
 				Padding(4, 8).Radius(RadiusSmall).Gap(8).AlignItems(ui.Center).
 				Cursor(ui.CursorPointer)
-			if row.Hovered() {
+			switch {
+			case i == cur:
+				row.Background(t.Blue.Alpha(0.14))
+			case row.Hovered():
 				row.Background(t.GlassHover)
+			}
+			if i == cur && a.danmakuScrollIdx != cur {
+				row.ScrollIntoView()
 			}
 			row.Children(func() {
 				ui.Text(c, fmtTime(d.Time)).FontSize(10).TextColor(t.Faint).Width(44)
@@ -781,6 +839,58 @@ func (a *App) danmakuBody(c *ui.Context) {
 			})
 			if row.Clicked() && a.Act.Seek != nil {
 				a.Act.Seek(d.Time)
+			}
+		}
+	})
+	a.danmakuScrollIdx = cur
+}
+
+// repliesBody 画评论列表（原版 danmakuList 的评论 tab）：热评 + 楼中楼预览 +
+// 加载更多。
+func (a *App) repliesBody(c *ui.Context) {
+	t := a.Theme
+	if len(a.Comments) == 0 {
+		if a.RepliesLoading {
+			ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
+		} else {
+			ui.Text(c, "还没有评论").FontSize(12).TextColor(t.Faint)
+		}
+		return
+	}
+	ui.Column(c).Gap(12).Children(func() {
+		for i, cm := range a.Comments {
+			ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Gap(4).Children(func() {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, cm.User).FontSize(12).Bold().TextColor(t.Blue).SingleLine()
+					ui.Text(c, cm.Time).FontSize(10).TextColor(t.Faint)
+					if cm.Likes > 0 {
+						ui.Text(c, fmt.Sprintf("赞 %d", cm.Likes)).FontSize(10).TextColor(t.Faint)
+					}
+				})
+				ui.Text(c, cm.Content).FontSize(12).TextColor(t.Ink).MaxLines(8)
+				for j, rp := range cm.Replies {
+					ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).FillWidth().
+						Padding(4, 8).Radius(RadiusSmall).
+						Background(t.LiquidBg).Gap(6).Children(func() {
+						ui.Text(c, rp.User+"：").FontSize(11).TextColor(t.Blue).Shrink(0)
+						ui.Text(c, rp.Content).FontSize(11).TextColor(t.Muted).Grow(1).MaxLines(3)
+					})
+				}
+			})
+		}
+		if a.RepliesHasMore {
+			more := ui.ButtonBase(c.Key("reply-more")).FillWidth().Height(32).Radius(Radius).
+				Center().Label("加载更多评论")
+			if more.Hovered() {
+				more.Background(t.GlassHover)
+			} else {
+				more.Background(t.Glass)
+			}
+			more.Children(func() {
+				ui.Text(c, pick(a.RepliesLoading, "加载中…", "加载更多评论")).FontSize(12).TextColor(t.Muted)
+			})
+			if more.Clicked() && !a.RepliesLoading && a.Act.LoadComments != nil {
+				a.Act.LoadComments(a.ReplyPage + 1)
 			}
 		}
 	})
