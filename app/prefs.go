@@ -78,14 +78,33 @@ func (c *controller) setSpeed(v float64) {
 	_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
 }
 
-// setVolume 设置音量并落盘。
+// setVolume 设置音量并落盘（静音时先解除静音，否则听不出变化）。
 func (c *controller) setVolume(v float64) {
 	c.app.Volume = v
-	c.mp.SetVolume(v)
+	if v > 0 {
+		c.app.Muted = false
+	}
+	c.applyVolume()
 	if c.media != nil {
 		c.media.SetVolume(v)
 	}
 	_ = c.kv.SetString(prefVolume, strconv.FormatFloat(v, 'f', -1, 64))
+}
+
+// toggleMute 切换静音（原版音量弹层的静音键；主窗/mini 的音量键也走这里）。
+func (c *controller) toggleMute() {
+	c.app.Muted = !c.app.Muted
+	c.applyVolume()
+	c.app.Win.Update(func() {})
+}
+
+// applyVolume 把当前音量/静音真正下发到引擎。
+func (c *controller) applyVolume() {
+	v := c.app.Volume
+	if c.app.Muted {
+		v = 0
+	}
+	c.mp.SetVolume(v)
 }
 
 // setCoverMode 切换碟片/封面模式并落盘。

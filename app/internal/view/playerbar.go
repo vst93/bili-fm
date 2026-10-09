@@ -140,7 +140,12 @@ func (a *App) volumeButton(c *ui.Context) {
 		b.Background(ui.Transparent)
 	}
 	b.Border(1, t.GlassBorder)
-	b.Children(func() { ui.Icon(c, iconVolume).Size(15, 15).TextColor(ui.Hex("#334155")) })
+	// 原版：音量键图标随音量变化（0 视为静音）。
+	muted := a.Muted || a.Volume <= 0
+	b.Children(func() {
+		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(15, 15).
+			TextColor(pick(muted, t.Rose, ui.Hex("#334155")))
+	})
 	if b.Clicked() {
 		a.ShowVolume = !a.ShowVolume
 		a.ShowSpeed = false
@@ -279,7 +284,24 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom float32) {
 			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
 			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).Children(func() {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconVolume).Size(14, 14).TextColor(t.Muted)
+				// 静音键：独立的切换（原版 player-volume-mute-button）。
+				mute := ui.ButtonBase(c.Key("volume-mute")).Size(26, 26).Radius(RadiusSmall).
+					Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
+				if a.Muted {
+					mute.Background(t.Rose.Alpha(0.18))
+				} else if mute.Hovered() {
+					mute.Background(t.GlassHover)
+				} else {
+					mute.Background(ui.Transparent)
+				}
+				mute.Children(func() {
+					ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(14, 14).
+						TextColor(pick(a.Muted, t.Rose, t.Muted))
+				})
+				if mute.Clicked() && a.Act.ToggleMute != nil {
+					a.Act.ToggleMute()
+				}
+
 				v := a.Volume
 				s := ui.Slider(c, &v, 0, 1).Grow(1).Label("音量")
 				if s.Changed() {

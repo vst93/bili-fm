@@ -171,6 +171,7 @@ func main() {
 	app.Incognito = kv.String("incognito") == "true"
 	// 显示偏好（倍速/音量/均衡/封面模式/氛围光/高级质感）。
 	c.loadPrefs()
+	c.applyVolume()
 	// 播放列表与播放模式。
 	c.loadPlaylists()
 
@@ -459,6 +460,7 @@ func (c *controller) wireActions() {
 		ToggleEQ:           c.toggleEQ,
 		ToggleSponsor:      c.toggleSponsor,
 		SetVolume:          c.setVolume,
+		ToggleMute:         c.toggleMute,
 		OpenVideo:          c.openVideo,
 		CloseVideo:         c.closeVideo,
 		OpenParts:          c.openParts,

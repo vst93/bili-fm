@@ -264,6 +264,7 @@ type Actions struct {
 	ToggleEQ      func()
 	ToggleSponsor func()
 	SetVolume     func(v float64)
+	ToggleMute    func()
 	OpenVideo     func()
 	CloseVideo    func()
 	OpenParts     func(t Track)
@@ -358,6 +359,9 @@ type App struct {
 	EQ      bool
 	Sponsor bool
 	Volume  float64
+	// Muted 是静音状态（原版音量弹层里的独立静音键）。
+	Muted bool
+
 	// SponsorStatus 是 SponsorBlock 查询状态：off/loading/ok/empty/error，
 	// 用于播放栏按钮上的状态点（原版解 SponsorStatusInfo）。
 	SponsorStatus string
@@ -605,6 +609,8 @@ var (
 	iconSpeed   = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 8l3-2.2"/>`)
 	iconEQ      = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
 	iconVolume  = icon(`<path d="M3 6.2h2.2L8.2 3.5v9L5.2 9.8H3z"/><path d="M10.6 6.2a2.6 2.6 0 0 1 0 3.6"/>`)
+	// 静音（音量图标 + 斜线）。
+	iconMute    = icon(`<path d="M3 6.2h2.2L8.2 3.5v9L5.2 9.8H3z"/><path d="M3 13L13 3"/>`)
 	iconSponsor = icon(`<path d="M2 4.5h12v7H2z"/><path d="M5 7.5h6"/>`)
 
 	// 搜索栏右侧的四个内容入口（对应原版 home-global-actions 里的

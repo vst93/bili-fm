@@ -585,7 +585,8 @@ func (a *App) card(c *ui.Context, index int) {
 				}
 			}
 		})
-		ui.Text(c, card.Title).FontSize(14).TextColor(t.Ink).MaxLines(2)
+		// 原版 ListCard 的标题是单行截断（line-clamp-1）。
+		ui.Text(c, card.Title).FontSize(14).TextColor(t.Ink).SingleLine()
 		a.metaRow(c, card)
 	})
 	if box.Clicked() {
