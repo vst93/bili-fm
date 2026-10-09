@@ -42,6 +42,8 @@ type entry struct {
 	bitmap  *ui.Bitmap
 	failed  bool
 	pending bool
+	// failedAt 是上次失败的时间，用于冷却后再试（原版 RetryImg 会重试）。
+	failedAt time.Time
 }
 
 // New 建一个缓存。notify 会在某张图就绪时被调用，用来触发重绘；
@@ -55,6 +57,9 @@ func New(notify func()) *Cache {
 	}
 }
 
+// 失败重试的冷却时间：太短会在每帧重发请求，太长则封面一直空着。
+const retryFailedAfter = 15 * time.Second
+
 // Bitmap 立即返回缓存的位图；未命中时返回 nil，并在后台抓取，就绪后调用
 // notify。视图每帧都会调用它，所以这里绝不能阻塞。
 func (c *Cache) Bitmap(rawURL string) *ui.Bitmap {
@@ -64,6 +69,14 @@ func (c *Cache) Bitmap(rawURL string) *ui.Bitmap {
 	c.mu.Lock()
 	e := c.items[rawURL]
 	if e != nil {
+		// 之前失败过，过了冷却期就重新抓（原版 RetryImg 的重试）。
+		if e.failed && !e.pending && time.Since(e.failedAt) > retryFailedAfter {
+			e.failed, e.pending = false, true
+			c.touchLocked(rawURL)
+			c.mu.Unlock()
+			go c.fetch(rawURL)
+			return nil
+		}
 		c.touchLocked(rawURL)
 		b := e.bitmap
 		c.mu.Unlock()
@@ -120,6 +133,9 @@ func (c *Cache) finish(rawURL string, bmp *ui.Bitmap, failed bool) {
 	c.mu.Lock()
 	if e := c.items[rawURL]; e != nil {
 		e.bitmap, e.failed, e.pending = bmp, failed, false
+		if failed {
+			e.failedAt = time.Now()
+		}
 	}
 	c.evictLocked()
 	notify := c.notify
