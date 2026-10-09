@@ -104,6 +104,12 @@ func main() {
 	addAllOnStart := flag.Bool("addall", false, "加载详情后把全部分集加入播放列表（调试用）")
 	flag.Parse()
 
+	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
+	// 与旧版（Tauri 的 single-instance 插件）一致。
+	if !mygo.App.RequestSingleInstanceLock() {
+		return
+	}
+
 	kv, err := store.OpenDefault()
 	if err != nil {
 		log.Fatalf("打开本地存储失败: %v", err)
@@ -194,6 +200,12 @@ func main() {
 			}
 		}
 		app.Win = mygo.NewWindow(opts)
+
+		// 第二个实例启动时把主窗显示并聚焦。
+		mygo.App.OnSecondInstance(func(args []string, workingDir string) {
+			app.Win.Show()
+			app.Win.Focus()
+		})
 
 		// 默认进「热门与推荐」的热门 tab：未登录时推荐/动态/收藏/历史都是空的。
 		// 旧版的「推荐」「稍后再看」现在是抽屉里的 tab，这里保留旧写法做兼容。
