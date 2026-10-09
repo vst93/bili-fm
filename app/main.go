@@ -102,6 +102,7 @@ func main() {
 	toastOnStart := flag.String("toast", "", "启动后弹一个 toast（调试用）")
 	playOnStart := flag.Int("play", -1, "列表加载后自动播放第 N 条（调试用）")
 	addAllOnStart := flag.Bool("addall", false, "加载详情后把全部分集加入播放列表（调试用）")
+	videoOnStart := flag.Bool("video", false, "起播后自动打开视频弹窗（调试用）")
 	flag.Parse()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
@@ -172,8 +173,8 @@ func main() {
 	c.wireVideo()
 	c.restoreQueue()
 
-	mygo.Bind(video.NewService(c.vid))
-	mygo.Bind(&uiService{c: c})
+	// 视频弹窗页面用 Video.* 调这些方法，所以要显式绑定成 Video（类型名默认是 Service）。
+	mygo.BindAs("Video", video.NewService(c.vid))
 
 	mygo.App.WhenReady(func() {
 		opts := mygo.WindowOptions{
@@ -287,6 +288,11 @@ func main() {
 						}
 						if len(app.ListFor(key).Cards) > *playOnStart {
 							c.playIndex(*playOnStart)
+							if *videoOnStart {
+								time.AfterFunc(6*time.Second, func() {
+									app.Win.Update(func() { c.openVideo() })
+								})
+							}
 							select {
 							case done <- struct{}{}:
 							default:
@@ -1856,11 +1862,6 @@ func parseCountText(s string) int64 {
 	}
 	return int64(f * float64(mult))
 }
-
-// uiService 是暴露给页面的杂项服务（目前只有平台信息与版本）。
-type uiService struct{ c *controller }
-
-func (s *uiService) Log(msg string) { log.Print("页面 | " + msg) }
 
 // sectionIndex 返回分区在导航里的下标。
 func sectionIndex(key string) int {

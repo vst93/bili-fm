@@ -511,6 +511,9 @@ func (a *App) needsLogin() bool {
 	case "popular":
 		// 热门不需要登录；推荐接口未登录时返回空。
 		return a.RecTab == RecRecommend
+	case DrawerUp:
+		// UP 主的视频列表走动态接口，未登录时拿不到；合集 tab 不需要。
+		return a.UpTab == UpTabVideos
 	}
 	return a.CurrentSection().NeedLogin
 }
