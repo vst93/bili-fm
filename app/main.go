@@ -1467,6 +1467,11 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 			Duration: int64(p.Duration), FirstFrame: p.FirstFrame,
 		})
 	}
+	for _, st := range vi.Staff {
+		info.Staff = append(info.Staff, view.Collaborator{
+			Mid: int64(st.Mid), Name: st.Name, Title: st.Title,
+		})
+	}
 	if len(vi.Pages) > 0 {
 		info.Cid = int64(vi.Pages[0].Cid)
 	}

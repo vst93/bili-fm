@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -303,17 +304,42 @@ func (a *App) videoInfoHead(c *ui.Context) {
 
 		ui.Column(c).MinWidth(0).Children(func() {
 			ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6"))
-			name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
-			name.Background(ui.Transparent)
-			name.Children(func() {
-				ui.Text(c, a.ownerName()).FontSize(15).Bold().
-					TextColor(pick(name.Hovered(), t.Blue, ui.Hex("#334155"))).
-					SingleLine().MaxWidth(240)
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
+				name.Background(ui.Transparent)
+				name.Children(func() {
+					ui.Text(c, a.ownerName()).FontSize(15).Bold().
+						TextColor(pick(name.Hovered(), t.Blue, ui.Hex("#334155"))).
+						SingleLine().MaxWidth(240)
+				})
+				if name.Clicked() {
+					a.openUp()
+				}
+				// 合作视频角标（原版只在详情页有 staff 字段时显示）。
+				if a.Info != nil && len(a.Info.Staff) > 1 {
+					a.collabBadge(c)
+				}
 			})
-			if name.Clicked() {
-				a.openUp()
-			}
 		})
+	})
+}
+
+// collabBadge 是合作视频角标：显示人数，悬停列出参与 UP 主。
+func (a *App) collabBadge(c *ui.Context) {
+	var names strings.Builder
+	for i, st := range a.Info.Staff {
+		if i > 0 {
+			names.WriteString("、")
+		}
+		names.WriteString(st.Name)
+	}
+	b := ui.Box(c).Height(16).Padding(0, 6).Radius(4).Center().
+		Background(ui.Hex("#0284c7").Alpha(0.14)).
+		Border(1, ui.Hex("#0284c7").Alpha(0.30)).
+		Tooltip("合作视频：" + names.String())
+	b.Children(func() {
+		ui.Text(c, fmt.Sprintf("合作 %d 人", len(a.Info.Staff))).FontSize(10).Bold().
+			TextColor(ui.Hex("#0369a1"))
 	})
 }
 

@@ -137,6 +137,15 @@ type Info struct {
 	Coin      int64
 	Favorite  int64
 	View      int64
+	// Staff 是合作视频的参与 UP 主（只有详情页有可靠字段）；单 UP 视频为空。
+	Staff []Collaborator
+}
+
+// Collaborator 是合作视频的一位参与 UP 主。
+type Collaborator struct {
+	Mid   int64
+	Name  string
+	Title string
 }
 
 // 抽屉的 key。Drawer 为空表示没有抽屉打开；分区抽屉直接用分区的 key。

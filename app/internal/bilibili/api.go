@@ -329,6 +329,16 @@ type VideoInfo struct {
 	Pages     []Page    `json:"pages"`
 	Cid       int       `json:"cid"`
 	Stat      VideoStat `json:"stat"`
+	// Staff 是合作视频的参与 UP 主（单 UP 视频为空）。
+	Staff []StaffMember `json:"staff"`
+}
+
+// StaffMember 是合作视频的一位参与 UP 主。
+type StaffMember struct {
+	Mid   int    `json:"mid"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	Face  string `json:"face"`
 }
 
 // VideoStat 是视频的互动数，主区操作行下面显示（对应原版的 stat）。
@@ -390,7 +400,14 @@ func (bl *BL) GetCList(bvid string) (videoInfo VideoInfo) {
 				Face string `json:"face"`
 			} `json:"owner"`
 			Pages []Page `json:"pages"`
-			Stat  struct {
+			// Staff 是合作视频的参与 UP 主（含主 UP）；单 UP 视频为空。
+			Staff []struct {
+				Mid   int    `json:"mid"`
+				Name  string `json:"name"`
+				Title string `json:"title"`
+				Face  string `json:"face"`
+			} `json:"staff"`
+			Stat struct {
 				Like     int64 `json:"like"`
 				Coin     int64 `json:"coin"`
 				Favorite int64 `json:"favorite"`
@@ -427,6 +444,11 @@ func (bl *BL) GetCList(bvid string) (videoInfo VideoInfo) {
 			Favorite: result.Data.Stat.Favorite,
 			View:     result.Data.Stat.View,
 		},
+	}
+	for _, st := range result.Data.Staff {
+		videoInfo.Staff = append(videoInfo.Staff, StaffMember{
+			Mid: st.Mid, Name: st.Name, Title: st.Title, Face: st.Face,
+		})
 	}
 
 	return videoInfo
