@@ -865,6 +865,8 @@ func (c *controller) setMini(on bool) {
 	} else {
 		c.stopMiniPosPoll()
 		a.Win.SetSize(mainWidth, mainHeight)
+		// 与旧版一致：退出迷你模式先改回尺寸再居中。
+		a.Win.Center()
 		a.Win.SetAlwaysOnTop(false)
 		a.Pinned = false
 	}

@@ -215,11 +215,6 @@ type Modal struct {
 	Message string
 	// QR 是登录二维码的位图（Kind == "login"）。
 	QR *ui.Bitmap
-	// 更新相关（Kind == "update"）：目标版本号与下载进度（Total 为 0 表示不确定）。
-	Version    string
-	Downloaded int64
-	Total      int64
-	Busy       bool
 }
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。

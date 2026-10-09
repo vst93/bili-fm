@@ -33,8 +33,6 @@ func (a *App) modal(c *ui.Context) {
 				switch m.Kind {
 				case "login":
 					a.modalLogin(c, m, t)
-				case "update":
-					a.modalUpdate(c, m, t)
 				default:
 					a.modalMessage(c, m, t)
 				}
@@ -99,56 +97,6 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 	}
 	ui.Row(c).FillWidth().Justify(ui.End).Margin(16, 0, 0, 0).Children(func() {
 		a.modalButton(c, "好的", true, func() {
-			if a.Act.CloseModal != nil {
-				a.Act.CloseModal()
-			}
-		})
-	})
-}
-
-// modalUpdate 是更新进度面板（原版「正在下载更新」浮层）。
-func (a *App) modalUpdate(c *ui.Context, m *Modal, t Theme) {
-	title := "检查更新"
-	if m.Version != "" {
-		title = "正在下载更新"
-	}
-	ui.Text(c, title).FontSize(16).Bold().TextColor(ui.Hex("#0f172a"))
-	if m.Version != "" {
-		ui.Text(c, "v"+m.Version).FontSize(13).TextColor(t.Muted).Margin(4, 0, 0, 0)
-	}
-	if m.Message != "" {
-		ui.Text(c, m.Message).FontSize(12).TextColor(t.Muted).Margin(4, 0, 0, 0)
-	}
-	if m.Version != "" {
-		// 进度条：轨道 + 填充（Total 未知时给 4% 的确定感）。
-		ratio := float32(0.04)
-		if m.Total > 0 {
-			ratio = float32(m.Downloaded) / float32(m.Total)
-			if ratio > 1 {
-				ratio = 1
-			}
-		}
-		ui.Box(c).FillWidth().Height(8).Radius(RadiusPill).Margin(12, 0, 0, 0).
-			Background(ui.Hex("#e2e8f0")).Children(func() {
-			ui.Box(c).Height(8).Radius(RadiusPill).
-				Width(float32(292) * ratio).
-				Background(t.Blue)
-		})
-		if m.Total > 0 {
-			ui.Box(c).FillWidth().AlignItems(ui.End).Margin(6, 0, 0, 0).Children(func() {
-				ui.Text(c, fmt.Sprintf("%s / %s", fmtBytes(m.Downloaded), fmtBytes(m.Total))).
-					FontSize(11).TextColor(t.Faint)
-			})
-		}
-	}
-	if m.Busy {
-		ui.Row(c).FillWidth().Justify(ui.End).Margin(16, 0, 0, 0).Children(func() {
-			ui.Text(c, "检查中…").FontSize(12).TextColor(t.Faint)
-		})
-		return
-	}
-	ui.Row(c).FillWidth().Justify(ui.End).Margin(16, 0, 0, 0).Children(func() {
-		a.modalButton(c, "关闭", true, func() {
 			if a.Act.CloseModal != nil {
 				a.Act.CloseModal()
 			}
