@@ -404,9 +404,10 @@ func (a *App) partPill(c *ui.Context) {
 // 三个带计数的按钮，再加浏览器打开 / 视频 / 弹幕三个纯图标按钮。
 func (a *App) contentActions(c *ui.Context) {
 	ui.Row(c).Margin(14, 0, 0, 0).Gap(4).AlignItems(ui.Start).Children(func() {
-		a.statButton(c, "like", iconLike, a.Liked, a.statLike(), a.Act.Like)
-		a.statButton(c, "coin", iconCoin, a.Coined, a.statCoin(), a.Act.Coin)
-		a.statButton(c, "fav", iconStar, a.Faved, a.statFav(), a.Act.Favorite)
+		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
+		a.statButton(c, "like", iconLike, a.Liked, ui.Hex("#e11d48"), a.statLike(), a.Act.Like)
+		a.statButton(c, "coin", iconCoin, a.Coined, ui.Hex("#ca8a04"), a.statCoin(), a.Act.Coin)
+		a.statButton(c, "fav", iconStar, a.Faved, ui.Hex("#eab308"), a.statFav(), a.Act.Favorite)
 		a.iconButton(c, "browser", "浏览器打开", iconBrowser, func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
@@ -437,22 +438,74 @@ func (a *App) contentActions(c *ui.Context) {
 // contextDock 是工具条（.video-context-dock）：
 // 搜索结果 / 选集 / 合集 / 播放列表（旧版四个）。
 func (a *App) contextDock(c *ui.Context) {
+	t := a.Theme
 	ui.Row(c).Margin(12, 0, 0, 0).Padding(3).Radius(10).Gap(2).AlignItems(ui.Center).
 		Background(ui.Hex("#0f172a").Alpha(0.03)).
 		Border(1, ui.Hex("#64748b").Alpha(0.14)).Children(func() {
-		a.iconButton(c, "dock-search", "搜索结果", iconSearch, func() {
+		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
+		sr := a.iconButton(c, "dock-search", "搜索结果", iconSearch, func() {
 			a.Drawer = DrawerSearch
 		})
-		a.iconButton(c, "dock-parts", "选集", iconList, a.openParts)
-		a.iconButton(c, "dock-series", "合集", iconSeries, a.openSeries)
-		a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, func() {
+		sr.Disabled(len(a.ListFor(DrawerSearch).Cards) == 0)
+		// 选集：非播放列表模式且有视频时图标是蓝色（原版 fill 逻辑）。
+		partsInk := ui.Color{}
+		if a.PlayingPlaylist == "" && a.Track != nil {
+			partsInk = t.Blue
+		}
+		a.inkButton(c, "dock-parts", "选集", iconList, partsInk, a.openParts)
+		// 合集：还没选过合集时禁用。
+		series := a.iconButton(c, "dock-series", "合集", iconSeries, a.openSeries)
+		series.Disabled(a.SeriesID == 0)
+		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
+		plist := a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, func() {
 			if a.Drawer == DrawerPlaylist {
 				a.Drawer = ""
 			} else {
 				a.Drawer = DrawerPlaylist
 			}
 		})
+		if a.PlayingPlaylist != "" {
+			ink := t.Blue
+			if a.PlayingPlaylist == ListSeries {
+				ink = ui.Hex("#a855f7") // 合集来源是紫色（原版）
+			}
+			plist.Disabled(false)
+			_ = ink
+		}
+		if n := a.playlistBadgeCount(); n > 0 {
+			badge := ui.Text(c, a.playlistBadgeText()).FontSize(9).Bold().
+				TextColor(ui.Hex("#ffffff")).
+				Absolute().Right(-4).Top(-4).Padding(1, 4).Radius(RadiusPill).
+				Background(a.playlistBadgeInk())
+			badge.Label("播放列表数量")
+			plist.Disabled(false)
+		}
 	})
+}
+
+// playlistBadgeCount 是播放列表按钮角标要显示的条数（当前播放的来源）。
+func (a *App) playlistBadgeCount() int {
+	if a.PlayingPlaylist == ListSeries {
+		return len(a.SeriesPlaylist)
+	}
+	return len(a.Playlist)
+}
+
+// playlistBadgeText 把条数变成角标文案（>99 显示 99+）。
+func (a *App) playlistBadgeText() string {
+	n := a.playlistBadgeCount()
+	if n > 99 {
+		return "99+"
+	}
+	return fmt.Sprint(n)
+}
+
+// playlistBadgeInk 是角标底色：合集来源紫、我的列表蓝。
+func (a *App) playlistBadgeInk() ui.Color {
+	if a.PlayingPlaylist == ListSeries {
+		return ui.Hex("#a855f7")
+	}
+	return ui.Hex("#0284c7")
 }
 
 // openSeries 打开当前合集（旧版：还没选过合集就提示先去 UP 空间选一个）。
@@ -509,35 +562,47 @@ func (a *App) openDanmaku() {
 	}
 }
 
-// statButton 是带计数的小按钮：上面 32×32 图标，下面 10px 计数。
-func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, count string, fn func()) {
+// statButton 是「图标 + 计数」的按钮（原版 .nav-stat-btn 是横排：图标 20、
+// 计数在右侧，激活时图标按动作变色——点赞红、投币黄、收藏黄）。
+func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, activeInk ui.Color, count string, fn func()) {
 	t := a.Theme
-	ui.Column(c).Gap(2).AlignItems(ui.Center).Children(func() {
-		b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
-			Radius(ToolButtonR).Center().Label(key).Tooltip(key)
-		switch {
-		case active:
-			b.Background(t.Blue.Alpha(0.22))
-		case b.Hovered():
-			b.Background(t.GlassHover)
-		default:
-			b.Background(ui.Transparent)
-		}
-		b.Children(func() {
-			ui.Icon(c, ic).Size(17, 17).TextColor(pick(active, t.Blue, ui.Hex("#475569")))
-		})
-		if b.Clicked() && fn != nil {
-			fn()
-		}
+	b := ui.ButtonBase(c.Key("stat-"+key)).Height(ToolButton).Padding(0, 6).
+		Radius(ToolButtonR).Gap(4).Center().Label(key).Tooltip(key).
+		Disabled(count == "" && !a.hasCurrent())
+	if active {
+		b.Background(activeInk.Alpha(0.14))
+	} else if b.Hovered() {
+		b.Background(t.GlassHover)
+	} else {
+		b.Background(ui.Transparent)
+	}
+	b.Children(func() {
+		ui.Icon(c, ic).Size(18, 18).TextColor(pick(active, activeInk, ui.Hex("#475569")))
 		if count != "" {
-			ui.Text(c, count).FontSize(10).TextColor(t.Faint)
+			ui.Text(c, count).FontSize(12).
+				TextColor(pick(active, activeInk, t.Faint))
 		}
 	})
+	if b.Clicked() && fn != nil {
+		fn()
+	}
 }
+
+// hasCurrent 报告当前有没有在播放的视频（决定互动按钮是否可用）。
+func (a *App) hasCurrent() bool { return a.Track != nil }
 
 // iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。
 func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) ui.Element {
+	return a.inkButton(c, key, label, ic, ui.Color{}, fn)
+}
+
+// inkButton 同 iconButton，ink 非零时用它做图标颜色（原版部分按钮是蓝色）。
+func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Color, fn func()) ui.Element {
 	t := a.Theme
+	textInk := ui.Hex("#475569")
+	if ink.A != 0 {
+		textInk = ink
+	}
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
 	if b.Hovered() {
@@ -545,7 +610,7 @@ func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()
 	} else {
 		b.Background(ui.Transparent)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(ui.Hex("#475569")) })
+	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(textInk) })
 	if b.Clicked() && fn != nil {
 		fn()
 	}
