@@ -91,11 +91,18 @@ func (k *KV) Set(key string, value any) error {
 	if err := os.MkdirAll(k.dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(k.path(key), data, 0o644)
+	// 先写临时文件再改名：改名是原子的，读到半个文件的情况就不会发生。
+	tmp := k.path(key) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, k.path(key))
 }
 
 // Get 读取一个键，不存在时返回 nil。
 func (k *KV) Get(key string) any {
+	k.mu.Lock()
+	defer k.mu.Unlock()
 	data, err := os.ReadFile(k.path(key))
 	if err != nil {
 		return nil

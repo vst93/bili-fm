@@ -41,8 +41,15 @@ func (a *App) modal(c *ui.Context) {
 			})
 		})
 	})
-	if overlay.Clicked() && a.Act.CloseModal != nil {
-		a.Act.CloseModal()
+	if overlay.Clicked() {
+		// 登录框要停掉轮询（closeLogin 会换代），其他框直接关。
+		if m.Kind == "login" {
+			if a.Act.CloseLogin != nil {
+				a.Act.CloseLogin()
+			}
+		} else if a.Act.CloseModal != nil {
+			a.Act.CloseModal()
+		}
 	}
 }
 
