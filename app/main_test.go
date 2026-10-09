@@ -142,6 +142,36 @@ func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 	}
 }
 
+func TestClampToAreas(t *testing.T) {
+	primary := screenArea{0, 0, 1920, 1080}
+	right := screenArea{1920, 0, 1920, 1080}
+
+	// 点在屏内：原样保留。
+	if x, y := clampToAreas(100, 100, 400, 155, []screenArea{primary}); x != 100 || y != 100 {
+		t.Errorf("inside = (%d,%d)", x, y)
+	}
+	// 刻意挂在右下角（左上角仍在可用区内）：原样保留。
+	if x, y := clampToAreas(1910, 1070, 400, 155, []screenArea{primary}); x != 1910 || y != 1070 {
+		t.Errorf("hanging = (%d,%d)", x, y)
+	}
+	// 点在第二块屏里：原样保留。
+	if x, y := clampToAreas(2500, 500, 400, 155, []screenArea{primary, right}); x != 2500 || y != 500 {
+		t.Errorf("second display = (%d,%d)", x, y)
+	}
+	// 副屏被拔掉：夹回主屏右边缘内。
+	if x, y := clampToAreas(2500, 500, 400, 155, []screenArea{primary}); x != 1520 || y != 500 {
+		t.Errorf("rescued = (%d,%d), want (1520,500)", x, y)
+	}
+	// 负坐标（屏幕左边）：夹到 (0,0)。
+	if x, y := clampToAreas(-800, -100, 400, 155, []screenArea{primary}); x != 0 || y != 0 {
+		t.Errorf("negative = (%d,%d)", x, y)
+	}
+	// 没有屏幕信息：不动。
+	if x, y := clampToAreas(123, 456, 400, 155, nil); x != 123 || y != 456 {
+		t.Errorf("no areas = (%d,%d)", x, y)
+	}
+}
+
 func TestSetCardsRetention(t *testing.T) {
 	list := &view.List{}
 	first := make([]view.Card, 100)

@@ -851,11 +851,12 @@ func (c *controller) setMini(on bool) {
 	if on {
 		w, h := view.MiniSize()
 		a.Win.SetSize(w, h)
-		// 恢复上次的迷你窗位置（原版 miniWindowPosition）。
+		// 恢复上次的迷你窗位置（原版 miniWindowPosition）；不在任何屏幕里就夹回来。
 		if p := c.kv.String(prefMiniPos); p != "" {
 			if x, y, ok := strings.Cut(p, ","); ok {
 				xi, _ := strconv.Atoi(x)
 				yi, _ := strconv.Atoi(y)
+				xi, yi = clampToDisplays(xi, yi, w, h)
 				a.Win.SetPosition(xi, yi)
 			}
 		}
@@ -871,6 +872,57 @@ func (c *controller) setMini(on bool) {
 		a.Pinned = false
 	}
 	a.Win.Update(func() {})
+}
+
+// clampToDisplays 把窗口位置夹到连接的屏幕里（原版多屏救援逻辑的简化版）：
+// 目标点还在某块屏的可用区里就原样保留（含用户刻意放在边上的情况），
+// 否则夹到最近那块屏，并保证整个 w×h 窗口在屏内。
+func clampToDisplays(x, y, w, h int) (int, int) {
+	displays := mygo.Screen.Displays()
+	areas := make([]screenArea, 0, len(displays))
+	for _, d := range displays {
+		areas = append(areas, screenArea{d.WorkArea.X, d.WorkArea.Y, d.WorkArea.Width, d.WorkArea.Height})
+	}
+	return clampToAreas(x, y, w, h, areas)
+}
+
+// screenArea 是一块屏幕的可用区（抽出来是为了能单测夹取逻辑）。
+type screenArea struct{ X, Y, W, H int }
+
+// clampToAreas 是 clampToDisplays 的纯逻辑版。
+func clampToAreas(x, y, w, h int, areas []screenArea) (int, int) {
+	if len(areas) == 0 {
+		return x, y
+	}
+	clamp := func(v, lo, hi int) int {
+		if hi < lo {
+			hi = lo
+		}
+		if v < lo {
+			return lo
+		}
+		if v > hi {
+			return hi
+		}
+		return v
+	}
+	for _, a := range areas {
+		// 左上角在可用区内就原样恢复（保留用户刻意挂在屏幕边缘的姿势）。
+		if x >= a.X && x < a.X+a.W && y >= a.Y && y < a.Y+a.H {
+			return x, y
+		}
+	}
+	best := areas[0]
+	bestDist := int(^uint(0) >> 1)
+	for _, a := range areas {
+		cx := clamp(x, a.X, a.X+a.W)
+		cy := clamp(y, a.Y, a.Y+a.H)
+		dx, dy := x-cx, y-cy
+		if dist := dx*dx + dy*dy; dist < bestDist {
+			bestDist, best = dist, a
+		}
+	}
+	return clamp(x, best.X, best.X+max(0, best.W-w)), clamp(y, best.Y, best.Y+max(0, best.H-h))
 }
 
 // startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 没有 window move
