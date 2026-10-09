@@ -1,8 +1,6 @@
 package view
 
 import (
-	"fmt"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -185,6 +183,3 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, fn func(
 
 // MiniSize 返回迷你模式的窗口尺寸，供装配层调整窗口用。
 func MiniSize() (int, int) { return miniWidth, miniHeight }
-
-// miniHint 用于日志：迷你模式的尺寸。
-func miniHint() string { return fmt.Sprintf("%dx%d", miniWidth, miniHeight) }

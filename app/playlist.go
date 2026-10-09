@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"sync"
 
@@ -350,9 +349,4 @@ func randomOtherIndex(n, current int) int {
 		next = rand.Intn(n)
 	}
 	return next
-}
-
-// logPlaylist 只用于调试输出。
-func logPlaylist(a *view.App) {
-	log.Printf("playlist user=%d series=%d mode=%s playing=%s", len(a.Playlist), len(a.SeriesPlaylist), a.PlayMode, a.PlayingPlaylist)
 }

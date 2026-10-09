@@ -181,11 +181,24 @@ Bili FM 内置自动更新功能：
 
 ### 开发说明
 
-- 项目使用 **Tauri v2**（Rust + React）开发
-- 前端使用 React + HeroUI + TailwindCSS
-- 后端使用 Rust，内嵌 HTTP 图片代理
-- 登录态兼容旧版 Wails 的 dkv 存储格式，升级无需重新登录
+- 项目使用 **[mygo](https://github.com/egoist/mygo)**（Go 原生 UI 框架）开发，界面由 Go 直接绘制（不依赖 webview）
+- 音频是纯 Go 引擎：AAC 解码 + WSOLA 变速不变调 + 均衡 + oto 输出
+- 视频播放单独开一个临时 webview 弹窗（H.264 没有可用的纯 Go 解码器）
+- 登录态兼容旧版 Wails / Tauri 的 dkv 存储格式，升级无需重新登录
 - 项目开源，欢迎提出 Issue、建议或 Pull Request
+
+#### 从源码构建
+
+需要 Go 1.27+（`go.mod` 里的 `tool` 指令会带上 mygo 的 CLI，无需全局安装）：
+
+```sh
+cd app
+go tool mygo dev     # 开发运行（热重载）
+go build ./... && go test ./...   # 编译 + 测试
+go tool mygo build   # 出本机安装包到 app/build/
+```
+
+代码结构、计划与已知缺口见 [`app/PLAN.md`](app/PLAN.md)。
 
 项目地址：[https://github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)
 
@@ -195,9 +208,9 @@ Bili FM 内置自动更新功能：
 
 ### 感谢以下项目
 
-- [Tauri](https://github.com/tauri-apps/tauri)
-- [HeroUI](https://github.com/heroui-inc/heroui)
-- [IconPark](https://github.com/bytedance/iconpark)
+- [mygo](https://github.com/egoist/mygo)（原生 UI 框架）
+- [oto](https://github.com/ebitengine/oto)（音频输出）
+- [go-m4a](https://github.com/tphakala/go-m4a) / [go-aac](https://github.com/tphakala/go-aac)（MP4 解封装与 AAC 解码）
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [SponsorBlock](https://github.com/ajayyy/SponsorBlock)（跳过广告功能使用的社区分段数据）
 
@@ -380,11 +393,24 @@ Bili FM includes built-in auto-update:
 
 ### Development
 
-- Built with **Tauri v2** (Rust + React)
-- Frontend: React + HeroUI + TailwindCSS
-- Backend: Rust with embedded HTTP image proxy
-- Login state is compatible with the legacy Wails dkv storage format
+- Built with **[mygo](https://github.com/egoist/mygo)**, a native Go UI framework — the interface is drawn by Go directly, with no webview
+- Audio is a pure-Go engine: AAC decode + WSOLA time-stretch + equalizer + oto output
+- Video playback opens a temporary webview popup (there is no usable pure-Go H.264 decoder)
+- Login state is compatible with the legacy Wails / Tauri dkv storage format
 - Open source — issues, suggestions, and pull requests welcome
+
+#### Building from source
+
+Go 1.27+ is required (the `tool` directive in `go.mod` provides the mygo CLI; no global install needed):
+
+```sh
+cd app
+go tool mygo dev     # development run (live reload)
+go build ./... && go test ./...   # build + test
+go tool mygo build   # produce a local installer in app/build/
+```
+
+See [`app/PLAN.md`](app/PLAN.md) for the code layout, plan, and known gaps.
 
 Repository: [https://github.com/vst93/bili-fm](https://github.com/vst93/bili-fm)
 
@@ -394,8 +420,8 @@ This project is for development and learning purposes only. The original goal is
 
 ### Acknowledgements
 
-- [Tauri](https://github.com/tauri-apps/tauri)
-- [HeroUI](https://github.com/heroui-inc/heroui)
-- [IconPark](https://github.com/bytedance/iconpark)
+- [mygo](https://github.com/egoist/mygo) (native UI framework)
+- [oto](https://github.com/ebitengine/oto) (audio output)
+- [go-m4a](https://github.com/tphakala/go-m4a) / [go-aac](https://github.com/tphakala/go-aac) (MP4 demux and AAC decode)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [SponsorBlock](https://github.com/ajayyy/SponsorBlock) (community sponsor-segment data powering the ad-skip feature)

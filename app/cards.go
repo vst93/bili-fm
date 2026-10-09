@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/vst93/bili-fm/app/internal/view"
@@ -266,10 +265,4 @@ func fmtViews(n int64) string {
 	default:
 		return fmt.Sprint(n)
 	}
-}
-
-// stripHTML 去掉搜索结果标题里的 <em> 高亮（api.go 已处理，这里兜底）。
-func stripHTML(s string) string {
-	s = strings.ReplaceAll(s, "<em class=\"keyword\">", "")
-	return strings.ReplaceAll(s, "</em>", "")
 }

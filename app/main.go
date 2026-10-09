@@ -574,16 +574,21 @@ func toViewSegments(segs []bilibili.SponsorSegment) []view.Segment {
 	return out
 }
 
-// midOf 返回当前登录用户的 mid（用于判断是否已关注）。
-func midOf(c *controller) int64 {
-	var mid int64
-	fmt.Sscanf(c.kv.String("mid"), "%d", &mid)
-	return mid
+// currentMedia 返回互动操作的目标：优先用主区正在展示的视频（a.Info，和原版
+// videoInfo 的 bvid/aid 一致），没有就退回正在播放的那条。
+func (c *controller) currentMedia() (bvid string, aid int64) {
+	if a := c.app.Info; a != nil && a.Bvid != "" {
+		return a.Bvid, a.Aid
+	}
+	if t := c.app.Current(); t != nil {
+		return t.Bvid, t.Aid
+	}
+	return "", 0
 }
 
 func (c *controller) like() {
-	t := c.app.Current()
-	if t == nil {
+	bvid, _ := c.currentMedia()
+	if bvid == "" {
 		return
 	}
 	want := 1
@@ -591,8 +596,8 @@ func (c *controller) like() {
 		want = 2 // 2 表示取消点赞
 	}
 	go func() {
-		if _, err := c.bl.LikeVideo(t.Bvid, want); err != nil {
-			log.Printf("点赞失败: %v", err)
+		if _, err := c.bl.LikeVideo(bvid, want); err != nil {
+			c.app.NotifyType("error", "点赞失败："+err.Error())
 			return
 		}
 		c.app.Win.Update(func() { c.app.Liked = !c.app.Liked })
@@ -600,13 +605,13 @@ func (c *controller) like() {
 }
 
 func (c *controller) coin() {
-	t := c.app.Current()
-	if t == nil || c.app.Coined {
+	bvid, _ := c.currentMedia()
+	if bvid == "" || c.app.Coined {
 		return
 	}
 	go func() {
-		if _, err := c.bl.CoinVideo(t.Bvid, 1); err != nil {
-			log.Printf("投币失败: %v", err)
+		if _, err := c.bl.CoinVideo(bvid, 1); err != nil {
+			c.app.NotifyType("error", "投币失败："+err.Error())
 			return
 		}
 		c.app.Win.Update(func() { c.app.Coined = true })
@@ -614,14 +619,14 @@ func (c *controller) coin() {
 }
 
 func (c *controller) favorite() {
-	t := c.app.Current()
-	if t == nil {
+	_, aid := c.currentMedia()
+	if aid == 0 {
 		return
 	}
 	want := !c.app.Faved
 	go func() {
-		if err := c.bl.SetFavorite(t.Aid, want); err != nil {
-			log.Printf("收藏失败: %v", err)
+		if err := c.bl.SetFavorite(aid, want); err != nil {
+			c.app.NotifyType("error", "收藏失败："+err.Error())
 			return
 		}
 		c.app.Win.Update(func() { c.app.Faved = want })
