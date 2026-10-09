@@ -31,6 +31,9 @@ const (
 )
 
 // Callbacks 是系统媒体中心发过来的控制请求。
+//
+// 有些桌面环境还能通过媒体控件直接拖音量/改倍速（对应 MPRIS 的 Volume 与
+// Rate 可写属性），这里一并暴露。
 type Callbacks struct {
 	Play      func()
 	Pause     func()
@@ -40,6 +43,10 @@ type Callbacks struct {
 	Stop      func()
 	// Seek 是绝对定位（微秒），对应 MPRIS 的 SetPosition / Seek(相对)。
 	Seek func(us int64)
+	// SetVolume 是外部（媒体控件）改了音量，v 为 0..1。
+	SetVolume func(v float64)
+	// SetRate 是外部改了倍速。
+	SetRate func(v float64)
 }
 
 // Controller 是系统媒体中心连接。方法都应当可以被任意 goroutine 调用。
@@ -50,6 +57,8 @@ type Controller interface {
 	SetPosition(us int64)
 	// SetVolume 上报音量 0..1。
 	SetVolume(v float64)
+	// SetRate 上报倍速。
+	SetRate(v float64)
 	// SetNavigable 上报「有下一首/上一首」，系统据此禁用按钮。
 	SetNavigable(next, prev bool)
 	Close()
@@ -62,5 +71,6 @@ func (noop) SetTrack(Track)               {}
 func (noop) SetStatus(Status)             {}
 func (noop) SetPosition(int64)            {}
 func (noop) SetVolume(float64)            {}
+func (noop) SetRate(float64)              {}
 func (noop) SetNavigable(next, prev bool) {}
 func (noop) Close()                       {}

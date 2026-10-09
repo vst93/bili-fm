@@ -59,10 +59,20 @@ func New(cb Callbacks) Controller {
 		mprisPlayer: {
 			"PlaybackStatus": {Value: string(Stopped), Writable: false, Emit: prop.EmitTrue},
 			"LoopStatus":     {Value: "None", Writable: false, Emit: prop.EmitFalse},
-			"Rate":           {Value: 1.0, Writable: false, Emit: prop.EmitFalse},
-			"Shuffle":        {Value: false, Writable: false, Emit: prop.EmitFalse},
-			"Metadata":       {Value: map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue},
-			"Volume":         {Value: 1.0, Writable: false, Emit: prop.EmitFalse},
+			"Rate": {Value: 1.0, Writable: true, Emit: prop.EmitFalse, Callback: func(ch *prop.Change) *dbus.Error {
+				if v, ok := ch.Value.(float64); ok && m.cb.SetRate != nil {
+					m.cb.SetRate(v)
+				}
+				return nil
+			}},
+			"Shuffle":  {Value: false, Writable: false, Emit: prop.EmitFalse},
+			"Metadata": {Value: map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue},
+			"Volume": {Value: 1.0, Writable: true, Emit: prop.EmitFalse, Callback: func(ch *prop.Change) *dbus.Error {
+				if v, ok := ch.Value.(float64); ok && m.cb.SetVolume != nil {
+					m.cb.SetVolume(v)
+				}
+				return nil
+			}},
 			// Position 按规范不发 PropertiesChanged，客户端自己轮询。
 			"Position":      {Value: int64(0), Writable: false, Emit: prop.EmitFalse},
 			"MinimumRate":   {Value: 0.5, Writable: false, Emit: prop.EmitFalse},
@@ -140,6 +150,10 @@ func (m *mpris) SetPosition(us int64) {
 
 func (m *mpris) SetVolume(v float64) {
 	m.props.SetMust(mprisPlayer, "Volume", v)
+}
+
+func (m *mpris) SetRate(v float64) {
+	m.props.SetMust(mprisPlayer, "Rate", v)
 }
 
 func (m *mpris) SetNavigable(next, prev bool) {
@@ -259,10 +273,10 @@ func introspectNode(player *playerIface, root *rootIface) *introspect.Node {
 				Properties: []introspect.Property{
 					{Name: "PlaybackStatus", Type: "s", Access: "read"},
 					{Name: "LoopStatus", Type: "s", Access: "read"},
-					{Name: "Rate", Type: "d", Access: "read"},
+					{Name: "Rate", Type: "d", Access: "readwrite"},
 					{Name: "Shuffle", Type: "b", Access: "read"},
 					{Name: "Metadata", Type: "a{sv}", Access: "read"},
-					{Name: "Volume", Type: "d", Access: "read"},
+					{Name: "Volume", Type: "d", Access: "readwrite"},
 					{Name: "Position", Type: "x", Access: "read"},
 					{Name: "MinimumRate", Type: "d", Access: "read"},
 					{Name: "MaximumRate", Type: "d", Access: "read"},

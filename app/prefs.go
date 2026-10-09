@@ -72,6 +72,9 @@ func (c *controller) setSpeed(v float64) {
 	if c.app.VideoOpen {
 		c.vid.SetSpeed(v)
 	}
+	if c.media != nil {
+		c.media.SetRate(v)
+	}
 	_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
 }
 

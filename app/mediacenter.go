@@ -32,7 +32,24 @@ func (c *controller) setupMediaCenter() {
 			})
 		},
 		Seek: func(us int64) { c.mediaOnMain(func() { c.seek(float64(us) / 1e6) }) },
+		SetVolume: func(v float64) {
+			c.mediaOnMain(func() { c.setVolume(clamp01(v)) })
+		},
+		SetRate: func(v float64) {
+			c.mediaOnMain(func() { c.setSpeed(v) })
+		},
 	})
+}
+
+// clamp01 把音量夹到 0..1。
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 // mediaOnMain 在界面线程执行系统媒体中心的控制请求。
@@ -78,6 +95,8 @@ func (c *controller) syncMediaTrack() {
 	}
 	c.media.SetTrack(mediactl.Track{Title: title, Artist: artist, ArtURL: art, LengthUs: length})
 	c.media.SetStatus(status)
+	c.media.SetVolume(a.Volume)
+	c.media.SetRate(a.Speed)
 	nav := a.CanNavigate()
 	c.media.SetNavigable(nav, nav)
 }
