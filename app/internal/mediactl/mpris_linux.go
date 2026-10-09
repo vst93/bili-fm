@@ -110,7 +110,9 @@ func New(cb Callbacks) Controller {
 
 	player := &playerIface{m: m}
 	root := &rootIface{m: m}
-	if err := conn.Export(player, mprisPath, mprisPlayer); err != nil {
+	// Seek 的 Go 方法名与 io.Seeker 撞签名，go vet 会报；用 ExportWithMap
+	// 把 Go 名映射回 MPRIS 规定的 Seek。
+	if err := conn.ExportWithMap(player, map[string]string{"seekDBus": "Seek"}, mprisPath, mprisPlayer); err != nil {
 		_, _ = conn.ReleaseName(mprisBusName)
 		return noop{}
 	}
@@ -248,8 +250,8 @@ func (p *playerIface) Previous() *dbus.Error {
 	return nil
 }
 
-// Seek 是相对跳转（微秒）。
-func (p *playerIface) Seek(offset int64) *dbus.Error {
+// seekDBus 是相对跳转（微秒）；在 D-Bus 上导出为 Seek（见 ExportWithMap）。
+func (p *playerIface) seekDBus(offset int64) *dbus.Error {
 	p.m.relativeSeek(offset)
 	return nil
 }
