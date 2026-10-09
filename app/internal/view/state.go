@@ -449,6 +449,11 @@ type App struct {
 	// danmakuCid 用于换集时重置它。
 	danmakuList ui.ListState
 	danmakuCid  int64
+
+	// grids 是每个抽屉的卡片网格状态（ui.GridView 要一个稳定的 GridState，
+	// 按抽屉分开存才能各自保留滚动位置）。
+	gridsMu sync.Mutex
+	grids   map[string]*ui.GridState
 }
 
 // NewApp 建一个用当前时段主题的应用。
