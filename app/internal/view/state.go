@@ -55,6 +55,8 @@ type Part struct {
 type Danmaku struct {
 	Time float64
 	Text string
+	// Color 是弹幕颜色（B 站整数 RGB）；0 表示默认色。
+	Color int
 }
 
 // Segment 是一个跳过分段（SponsorBlock），用于进度条上的广告段标记。

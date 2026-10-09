@@ -1599,7 +1599,7 @@ func (c *controller) startCurrent() {
 		if d, err := c.bl.GetDanmakuList(int(cid)); err == nil && d != nil {
 			list := make([]view.Danmaku, 0, len(d.Items))
 			for _, it := range d.Items {
-				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content})
+				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
 			}
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}
@@ -1771,7 +1771,7 @@ func (c *controller) toggleDanmaku() {
 			}
 			list := make([]view.Danmaku, 0, len(d.Items))
 			for _, it := range d.Items {
-				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content})
+				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
 			}
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}()

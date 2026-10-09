@@ -874,7 +874,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 			}
 			row.Children(func() {
 				ui.Text(c, fmtTime(d.Time)).FontSize(10).TextColor(t.Faint).Width(44)
-				ui.Text(c, d.Text).FontSize(12).TextColor(t.Ink).Grow(1).SingleLine()
+				ui.Text(c, d.Text).FontSize(12).TextColor(danmakuInk(d.Color)).Grow(1).SingleLine()
 			})
 			if row.Clicked() && a.Act.Seek != nil {
 				a.Act.Seek(d.Time)
@@ -882,6 +882,26 @@ func (a *App) danmakuBody(c *ui.Context) {
 		}
 	})
 	a.danmakuScrollIdx = cur
+}
+
+// danmakuInk 把 B 站弹幕颜色转成在浅色背景上可读的墨色（原版 danmakuList 的
+// 亮度判断）：太亮的颜色（白/黄）回落到深灰，否则用原色。
+func danmakuInk(color int) ui.Color {
+	if color == 0 {
+		return ui.Hex("#1e293b")
+	}
+	r := (color >> 16) & 0xff
+	g := (color >> 8) & 0xff
+	b := color & 0xff
+	brightness := (r*299 + g*587 + b*114) / 1000
+	switch {
+	case brightness > 200:
+		return ui.Hex("#1a1a1a")
+	case brightness > 160:
+		return ui.Hex("#333333")
+	default:
+		return ui.RGB(uint8(r), uint8(g), uint8(b))
+	}
 }
 
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：热评 + 楼中楼预览 +
