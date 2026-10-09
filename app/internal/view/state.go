@@ -250,7 +250,9 @@ type Actions struct {
 	// / handleUrlJump 一致，不直接起播）。
 	OpenCard func(index int)
 	// OpenBrowser 用系统浏览器打开当前视频。
-	OpenBrowser   func()
+	OpenBrowser func()
+	// CopyLink 复制当前视频链接到剪贴板。
+	CopyLink      func()
 	Play          func(index int)
 	TogglePlay    func()
 	Next          func()

@@ -411,6 +411,15 @@ func (a *App) contentActions(c *ui.Context) {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
+		}).ContextMenu(func(m *ui.Menu) {
+			// 右键还能复制链接（原版分享按钮的等价物）。
+			if m.Item("复制链接").Chosen() && a.Act.CopyLink != nil {
+				a.Act.CopyLink()
+			}
+			m.Separator()
+			if m.Item("浏览器打开").Chosen() && a.Act.OpenBrowser != nil {
+				a.Act.OpenBrowser()
+			}
 		})
 		a.iconButton(c, "video", "视频播放", iconVideo, func() {
 			if a.VideoOpen {
@@ -527,7 +536,7 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, cou
 }
 
 // iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。
-func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
+func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) ui.Element {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
@@ -540,6 +549,7 @@ func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()
 	if b.Clicked() && fn != nil {
 		fn()
 	}
+	return b
 }
 
 // ---------------------------------------------------------------- 文案取值

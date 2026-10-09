@@ -449,6 +449,7 @@ func (c *controller) wireActions() {
 		UrlJump:            c.urlJump,
 		OpenCard:           c.openCard,
 		OpenBrowser:        c.openBrowser,
+		CopyLink:           c.copyLink,
 		Play:               c.playIndex,
 		TogglePlay:         c.togglePlay,
 		Next:               func() { c.step(1) },
@@ -1313,6 +1314,24 @@ func (c *controller) loadMore() {
 		key := a.CurrentSection().Key
 		c.loadSection(key, a.ListFor(key).Page+1)
 	}
+}
+
+// copyLink 复制当前视频的 B 站链接到剪贴板。
+func (c *controller) copyLink() {
+	bvid := ""
+	if c.app.Info != nil {
+		bvid = c.app.Info.Bvid
+	}
+	if bvid == "" && c.app.Track != nil {
+		bvid = c.app.Track.Bvid
+	}
+	if bvid == "" {
+		c.app.NotifyType("warning", "还没有在播放的视频")
+		return
+	}
+	url := "https://www.bilibili.com/video/" + bvid
+	mygo.Clipboard.WriteText(url)
+	c.app.Notify("链接已复制：" + url)
 }
 
 // urlJump 直接打开一个 B 站视频链接：拉详情、填主区、打开选集抽屉。
