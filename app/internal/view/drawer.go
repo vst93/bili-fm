@@ -435,7 +435,7 @@ func (a *App) listBody(c *ui.Context) {
 	t := a.Theme
 	switch {
 	case a.list().Loading && len(a.list().Cards) == 0:
-		ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
+		a.skeletonGrid(c)
 		return
 	case len(a.list().Cards) == 0:
 		ui.Text(c, a.emptyHint()).FontSize(12).TextColor(t.Faint)
@@ -469,6 +469,28 @@ func (a *App) listBody(c *ui.Context) {
 			if more.Clicked() && !a.list().Loading && a.Act.LoadMore != nil {
 				a.Act.LoadMore()
 			}
+		}
+	})
+}
+
+// skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
+func (a *App) skeletonGrid(c *ui.Context) {
+	t := a.Theme
+	placeholder := ui.Hex("#0f172a").Alpha(0.06)
+	const cols = 3
+	ui.Column(c).Gap(8).Children(func() {
+		for row := 0; row < 3; row++ {
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
+				for j := 0; j < cols; j++ {
+					ui.Column(c).Grow(1).Basis(0).Padding(6).Radius(Radius).
+						Background(t.Glass).Gap(8).Children(func() {
+						ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
+							Background(placeholder)
+						ui.Box(c).FillWidth().Height(14).Radius(4).Background(placeholder)
+						ui.Box(c).WidthPercent(60).Height(10).Radius(4).Background(placeholder)
+					})
+				}
+			})
 		}
 	})
 }

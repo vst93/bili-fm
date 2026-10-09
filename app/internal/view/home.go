@@ -1,6 +1,7 @@
 package view
 
 import (
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
@@ -62,7 +63,15 @@ func (a *App) searchField(c *ui.Context) {
 }
 
 func (a *App) runSearch() {
-	if a.Query == "" || a.Act.Search == nil {
+	if a.Query == "" {
+		return
+	}
+	// 粘贴的是 B 站视频链接就直接打开它，不走搜索。
+	if strings.Contains(a.Query, "bilibili.com/video/") && a.Act.UrlJump != nil {
+		a.Act.UrlJump(a.Query)
+		return
+	}
+	if a.Act.Search == nil {
 		return
 	}
 	a.Drawer = DrawerSearch
@@ -344,7 +353,11 @@ func (a *App) contentActions(c *ui.Context) {
 		a.statButton(c, "like", iconLike, a.Liked, a.statLike(), a.Act.Like)
 		a.statButton(c, "coin", iconCoin, a.Coined, a.statCoin(), a.Act.Coin)
 		a.statButton(c, "fav", iconStar, a.Faved, a.statFav(), a.Act.Favorite)
-		a.iconButton(c, "browser", "浏览器打开", iconBrowser, func() {})
+		a.iconButton(c, "browser", "浏览器打开", iconBrowser, func() {
+			if a.Act.OpenBrowser != nil {
+				a.Act.OpenBrowser()
+			}
+		})
 		a.iconButton(c, "video", "视频播放", iconVideo, func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {

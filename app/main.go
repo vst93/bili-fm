@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,9 @@ type controller struct {
 
 	// lastSponsorToast 是「已跳过恰饭片段」toast 的频控时间点。
 	lastSponsorToast time.Time
+
+	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
+	miniPoll chan struct{}
 }
 
 func main() {
@@ -359,6 +363,8 @@ func (c *controller) wireActions() {
 		ToggleFollow:       c.follow,
 		ToggleIncognito:    c.toggleIncognito,
 		Search:             c.search,
+		UrlJump:            c.urlJump,
+		OpenBrowser:        c.openBrowser,
 		Play:               c.playIndex,
 		TogglePlay:         c.togglePlay,
 		Next:               func() { c.step(1) },
@@ -784,21 +790,64 @@ func (c *controller) toggleIncognito() {
 	c.app.Win.Update(func() {})
 }
 
-// setMini 切换迷你模式：换界面 + 调整窗口尺寸与置顶。
+// setMini 切换迷你模式：换界面 + 调整窗口尺寸与置顶，并记忆迷你窗位置。
 func (c *controller) setMini(on bool) {
 	a := c.app
 	a.Mini = on
 	if on {
 		w, h := view.MiniSize()
 		a.Win.SetSize(w, h)
+		// 恢复上次的迷你窗位置（原版 miniWindowPosition）。
+		if p := c.kv.String(prefMiniPos); p != "" {
+			if x, y, ok := strings.Cut(p, ","); ok {
+				xi, _ := strconv.Atoi(x)
+				yi, _ := strconv.Atoi(y)
+				a.Win.SetPosition(xi, yi)
+			}
+		}
 		a.Win.SetAlwaysOnTop(true)
 		a.Pinned = true
+		c.startMiniPosPoll()
 	} else {
+		c.stopMiniPosPoll()
 		a.Win.SetSize(mainWidth, mainHeight)
 		a.Win.SetAlwaysOnTop(false)
 		a.Pinned = false
 	}
 	a.Win.Update(func() {})
+}
+
+// startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 没有 window move
+// 事件，所以只能轮询；只在迷你模式期间跑。
+func (c *controller) startMiniPosPoll() {
+	c.stopMiniPosPoll()
+	stop := make(chan struct{})
+	c.miniPoll = stop
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		last := c.kv.String(prefMiniPos)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+			}
+			x, y := c.app.Win.Position()
+			p := fmt.Sprintf("%d,%d", x, y)
+			if p != last {
+				last = p
+				_ = c.kv.SetString(prefMiniPos, p)
+			}
+		}
+	}()
+}
+
+func (c *controller) stopMiniPosPoll() {
+	if c.miniPoll != nil {
+		close(c.miniPoll)
+		c.miniPoll = nil
+	}
 }
 
 // togglePin 切换迷你窗的置顶。
@@ -940,6 +989,9 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 // reload 是抽屉表头的刷新键、切 tab、切收藏夹的统一入口：重拉第一页。
 func (c *controller) reload() {
 	a := c.app
+	// 顺手记住表头的 tab（原版把这两个 tab 存在 localStorage）。
+	_ = c.kv.SetString("recommendTab", a.RecTab)
+	_ = c.kv.SetString("historyTab", a.HistTab)
 	switch a.Drawer {
 	case view.DrawerSearch:
 		c.search(a.Query)
@@ -1057,6 +1109,54 @@ func (c *controller) loadMore() {
 		c.loadSection(key, a.ListFor(key).Page+1)
 	}
 }
+
+// urlJump 直接打开一个 B 站视频链接：拉详情、填主区、打开选集抽屉。
+// （原版 handleUrlJump：不自动播放，让用户自己在选集里选。）
+func (c *controller) urlJump(url string) {
+	a := c.app
+	bvid := bvidFromURL(url)
+	if bvid == "" {
+		a.NotifyType("error", "未识别出有效的 B 站视频地址")
+		return
+	}
+	go func() {
+		info := c.videoInfoOf(bvid, nil)
+		if info == nil || info.Bvid == "" {
+			a.NotifyType("error", "获取视频信息失败")
+			return
+		}
+		a.Win.Update(func() {
+			a.Info = info
+			a.Drawer = view.DrawerParts
+		})
+		c.loadInteractionState(info)
+	}()
+}
+
+// openBrowser 用系统浏览器打开当前视频。
+func (c *controller) openBrowser() {
+	bvid := ""
+	if c.app.Info != nil {
+		bvid = c.app.Info.Bvid
+	}
+	if bvid == "" && c.app.Track != nil {
+		bvid = c.app.Track.Bvid
+	}
+	if bvid == "" {
+		return
+	}
+	if err := mygo.Shell.OpenExternal("https://www.bilibili.com/video/" + bvid); err != nil {
+		log.Printf("打开浏览器失败: %v", err)
+	}
+}
+
+// bvidFromURL 从一段文本里取 BV 号（原版 urlToBVID）。
+func bvidFromURL(s string) string {
+	m := bvRe.FindString(s)
+	return m
+}
+
+var bvRe = regexp.MustCompile(`BV[a-zA-Z0-9]+`)
 
 func (c *controller) search(query string) {
 	list := c.app.ListFor(view.DrawerSearch)

@@ -22,6 +22,9 @@ const (
 	prefCover   = "coverMode"
 	prefAmbient = "ambientBackgroundEnabled"
 	prefPremium = "premiumTexture"
+	prefRecTab  = "recommendTab"
+	prefHistTab = "historyTab"
+	prefMiniPos = "miniWindowPosition"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -43,6 +46,13 @@ func (c *controller) loadPrefs() {
 	}
 	if c.kv.String(prefPremium) == "false" {
 		a.Premium = false
+	}
+	// 抽屉表头的 tab 记忆（原版 recommendList / historyList 各自持久化）。
+	if v := c.kv.String(prefRecTab); v == view.RecRecommend {
+		a.RecTab = v
+	}
+	if v := c.kv.String(prefHistTab); v == view.HistWatchLater {
+		a.HistTab = v
 	}
 }
 
