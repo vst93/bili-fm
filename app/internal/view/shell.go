@@ -39,6 +39,7 @@ func (a *App) Shell(c *ui.Context) {
 		a.playerBar(c)
 		a.drawer(c)
 		a.modal(c)
+		a.toastViewport(c, 66)
 	})
 }
 
@@ -142,11 +143,7 @@ func (a *App) ambient(c *ui.Context) {
 	if !a.Ambient {
 		return
 	}
-	uri := a.coverURL()
-	if uri == "" {
-		return
-	}
-	bmp := a.Images.Bitmap(uri)
+	bmp := a.coverBitmap()
 	if bmp == nil {
 		return
 	}

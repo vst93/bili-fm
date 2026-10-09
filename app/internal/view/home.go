@@ -177,7 +177,7 @@ func (a *App) coverDisc(c *ui.Context) {
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Label(pick(a.Playing, "暂停", "播放"))
 				sq.Children(func() {
-					if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+					if bmp := a.coverBitmap(); bmp != nil {
 						ui.Image(c, bmp).Fill().Fit(ui.Cover)
 					}
 				})
@@ -194,7 +194,7 @@ func (a *App) coverDisc(c *ui.Context) {
 						Label(pick(a.Playing, "暂停", "播放"))
 					a.spinDisc(disc)
 					disc.Children(func() {
-						if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+						if bmp := a.coverBitmap(); bmp != nil {
 							ui.Image(c, bmp).Fill().Fit(ui.Cover)
 						}
 					})
@@ -529,6 +529,18 @@ func (a *App) partTitle() string {
 		return a.Track.Part
 	}
 	return "无选集标题"
+}
+
+// coverBitmap 返回当前要显示的封面位图。新封面还没抓回来时沿用上一张
+// （原版「先预载、后换源」），没旧图时返回 nil。
+func (a *App) coverBitmap() *ui.Bitmap {
+	if uri := a.coverURL(); uri != "" {
+		if b := a.Images.Bitmap(uri); b != nil {
+			a.shownCoverBmp = b
+			return b
+		}
+	}
+	return a.shownCoverBmp
 }
 
 // coverURL 是圆盘上显示的封面：优先详情里的首帧，退回列表卡片封面

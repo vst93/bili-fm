@@ -259,16 +259,29 @@ func main() {
 
 		// 调试用：列表加载后自动播放第 N 条（等列表就绪）。
 		if *playOnStart >= 0 {
+			done := make(chan struct{}, 1)
 			go func() {
+				t := time.NewTicker(200 * time.Millisecond)
+				defer t.Stop()
 				for i := 0; i < 60; i++ {
-					time.Sleep(200 * time.Millisecond)
-					key := app.Drawer
-					if key == "" {
-						key = app.CurrentSection().Key
-					}
-					if len(app.ListFor(key).Cards) > *playOnStart {
-						app.Win.Update(func() { c.playIndex(*playOnStart) })
+					<-t.C
+					app.Win.Update(func() {
+						key := app.Drawer
+						if key == "" {
+							key = app.CurrentSection().Key
+						}
+						if len(app.ListFor(key).Cards) > *playOnStart {
+							c.playIndex(*playOnStart)
+							select {
+							case done <- struct{}{}:
+							default:
+							}
+						}
+					})
+					select {
+					case <-done:
 						return
+					default:
 					}
 				}
 			}()
@@ -364,6 +377,7 @@ func (c *controller) wireActions() {
 		ToggleIncognito:    c.toggleIncognito,
 		Search:             c.search,
 		UrlJump:            c.urlJump,
+		OpenCard:           c.openCard,
 		OpenBrowser:        c.openBrowser,
 		Play:               c.playIndex,
 		TogglePlay:         c.togglePlay,
@@ -683,8 +697,7 @@ func (c *controller) openUp(mid int64, name string) {
 // loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
 func (c *controller) loadUpVideos(offset string) {
 	list := c.app.ListFor(view.DrawerUp)
-	list.Loading = true
-	c.app.Win.Update(func() {})
+	c.app.Win.Update(func() { list.Loading = true })
 
 	mid := c.app.UpMid
 	go func() {
@@ -696,11 +709,7 @@ func (c *controller) loadUpVideos(offset string) {
 				return
 			}
 			cards := toUpCards(l.Items)
-			if offset == "" {
-				list.Cards = cards
-			} else {
-				list.Cards = append(list.Cards, cards...)
-			}
+			setCards(list, cards, offset == "")
 			c.app.UpOffset = l.Offset
 			list.HasMore = l.HasMore
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -711,8 +720,7 @@ func (c *controller) loadUpVideos(offset string) {
 // loadUpSeries 拉 UP 主的合集列表（UP 空间的「合集」tab）。
 func (c *controller) loadUpSeries() {
 	list := c.app.ListFor(view.DrawerUp)
-	list.Loading = true
-	c.app.Win.Update(func() {})
+	c.app.Win.Update(func() { list.Loading = true })
 
 	mid := c.app.UpMid
 	go func() {
@@ -744,8 +752,7 @@ func (c *controller) selectSeries(id int64) {
 // Win.Update 是排队到主线程执行的，在它之后立刻读会读到旧值。
 func (c *controller) loadSeriesVideos(id int64, page int) {
 	list := c.app.ListFor(view.DrawerSeries)
-	list.Loading = true
-	c.app.Win.Update(func() {})
+	c.app.Win.Update(func() { list.Loading = true })
 
 	mid := c.app.UpMid
 	go func() {
@@ -770,11 +777,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 					},
 				})
 			}
-			if page <= 1 {
-				list.Cards = cards
-			} else {
-				list.Cards = append(list.Cards, cards...)
-			}
+			setCards(list, cards, page <= 1)
 			list.Page = page
 			list.HasMore = len(archives) > 0
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -893,12 +896,26 @@ func (c *controller) restoreQueue() {
 
 // ---------------------------------------------------------------- 列表
 
+// maxRetainedCards 是单个列表在内存里保留的卡片上限：超出后从头部释放
+// （有界滑动窗口），避免长列表无限增长（原版 listRetention.ts 的同名上限）。
+const maxRetainedCards = 160
+
+// setCards 写入列表卡片：replace 为真时替换，否则追加；无论哪种都保持上限。
+func setCards(list *view.List, cards []view.Card, replace bool) {
+	if replace {
+		list.Cards = cards
+	} else {
+		list.Cards = append(list.Cards, cards...)
+	}
+	if len(list.Cards) > maxRetainedCards {
+		list.Cards = list.Cards[len(list.Cards)-maxRetainedCards:]
+	}
+}
+
 func (c *controller) loadSection(section string, page int) {
 	a := c.app
 	list := a.ListFor(section)
-	list.Loading = true
-	a.Status = "加载中…"
-	a.Win.Update(func() {})
+	a.Win.Update(func() { list.Loading = true; a.Status = "加载中…" })
 
 	// 在起 goroutine 之前把这一帧的取值固定下来，避免和界面线程争。
 	folderID, recTab, histTab := a.FolderID, a.RecTab, a.HistTab
@@ -911,11 +928,7 @@ func (c *controller) loadSection(section string, page int) {
 				a.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
-			if page <= 1 {
-				list.Cards = cards
-			} else {
-				list.Cards = append(list.Cards, cards...)
-			}
+			setCards(list, cards, page <= 1)
 			list.Page = page
 			list.HasMore = more
 			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -1065,8 +1078,7 @@ func (c *controller) loadFolders() {
 // loadFolderDetail 拉某个收藏夹的内容。fid 显式传入，不读 app.FolderID。
 func (c *controller) loadFolderDetail(fid int64, page int) {
 	list := c.app.ListFor("favorite")
-	list.Loading = true
-	c.app.Win.Update(func() {})
+	c.app.Win.Update(func() { list.Loading = true })
 
 	go func() {
 		items, err := c.bl.GetBLFavFolderListDetail(int(fid), page)
@@ -1076,11 +1088,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
-			if page <= 1 {
-				list.Cards = toCardsFromRaw(items)
-			} else {
-				list.Cards = append(list.Cards, toCardsFromRaw(items)...)
-			}
+			setCards(list, toCardsFromRaw(items), page <= 1)
 			list.Page = page
 			list.HasMore = true
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -1129,8 +1137,21 @@ func (c *controller) urlJump(url string) {
 			a.Info = info
 			a.Drawer = view.DrawerParts
 		})
+		// 预先把这一视频的分集建成播放队列，这样点分集时能直接播。
 		c.loadInteractionState(info)
 	}()
+}
+
+// openCard 点列表卡片：取这条的 bvid 走 urlJump（打开选集面板）。
+func (c *controller) openCard(index int) {
+	a := c.app
+	cards := a.ListFor(a.Drawer).Cards
+	if index < 0 || index >= len(cards) {
+		return
+	}
+	if bvid := cards[index].Bvid; bvid != "" {
+		c.urlJump("https://www.bilibili.com/video/" + bvid)
+	}
 }
 
 // openBrowser 用系统浏览器打开当前视频。
@@ -1198,8 +1219,15 @@ func (c *controller) search(query string) {
 
 // playIndex 播放当前列表里的第 index 条。
 func (c *controller) playIndex(index int) {
-	// 选集抽屉：队列已经由 openParts 建好了（就是这集的所有分 P）。
+	// 选集抽屉：队列就是当前浏览视频的分集（以 a.Info 为准，而不是可能过期的
+	// 旧队列）；点哪个分集就播哪个。
 	if c.app.Drawer == view.DrawerParts {
+		info := c.app.Info
+		if info == nil || index < 0 || index >= len(info.Parts) {
+			return
+		}
+		part := info.Parts[index]
+		c.buildPartsQueue(info, part.Cid)
 		c.app.Index = index
 		c.startCurrent()
 		return
@@ -1447,6 +1475,10 @@ func (c *controller) togglePlay() {
 
 func (c *controller) step(delta int) {
 	if len(c.app.Queue) == 0 {
+		return
+	}
+	// 普通队列只有一条（单集视频）时，上一首/下一首无意义（原版 pages<=1 直接返回）。
+	if c.app.PlayingPlaylist == "" && len(c.app.Queue) <= 1 {
 		return
 	}
 	// 切歌前把当前这条的断点补写 / 补报（原版在切歌时 force 上报）。

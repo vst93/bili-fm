@@ -190,9 +190,28 @@ func (c *controller) login() {
 						_ = c.kv.SetString("face", info.Face)
 						_ = c.kv.SetString("mid", strconv.Itoa(info.Mid))
 					}
+					c.bl.SetLoginStatus(true)
 					a.Modal = nil
 					a.Notify("登录成功")
 				})
+				// 登录后重拉当前抽屉（收藏/历史/动态这些需要登录的内容）。
+				go func() {
+					time.Sleep(300 * time.Millisecond)
+					if c.loginGen != gen {
+						return
+					}
+					if c.app.Drawer == "favorite" {
+						c.loadFolders()
+						return
+					}
+					key := c.app.CurrentSection().Key
+					if c.app.Drawer != "" {
+						key = c.app.Drawer
+					}
+					if key != "" && key != view.DrawerPlaylist {
+						a.Win.Update(func() { c.loadSection(key, 1) })
+					}
+				}()
 				return
 			}
 		}

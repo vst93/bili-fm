@@ -241,6 +241,9 @@ type Actions struct {
 	Search          func(query string)
 	// UrlJump 直接打开一个 B 站视频链接（搜索框里粘链接时走它）。
 	UrlJump func(url string)
+	// OpenCard 点击列表卡片：拉详情并打开选集面板（与原版 handleSearchVideoSelect
+	// / handleUrlJump 一致，不直接起播）。
+	OpenCard func(index int)
 	// OpenBrowser 用系统浏览器打开当前视频。
 	OpenBrowser   func()
 	Play          func(index int)
@@ -300,7 +303,10 @@ type App struct {
 	// 导航
 	Section int
 	// Lists 按抽屉 key（分区 key 或 DrawerSearch）存各自的列表。
-	Lists    map[string]*List
+	Lists map[string]*List
+	// listsMu 保护 Lists 这个 map：网络 goroutine 与界面线程都会调 ListFor，
+	// 而 Go 的 map 并发读写会直接 panic。
+	listsMu  sync.Mutex
 	Status   string
 	LoggedIn bool
 	UName    string
@@ -387,6 +393,9 @@ type App struct {
 	// （原版是 #video-cover.record-disc 的 22s CSS 动画）。
 	discDeg float32
 	discAt  time.Time
+	// shownCoverBmp 是当前正在显示的封面位图。新封面未加载完时先沿用旧的
+	// （原版「先预载、后换源」），避免切歌闪一下空白。
+	shownCoverBmp *ui.Bitmap
 
 	// 互动状态
 	Liked    bool
@@ -491,8 +500,11 @@ func (a *App) drainToasts(c *ui.Context) {
 }
 
 // ListFor 返回某个抽屉的列表状态，没有就建一个。
-// 只在界面线程调用（视图每帧、以及 Win.Update 回调里）。
+// 会在界面线程与网络 goroutine 里同时调用，所以对 map 加锁；返回的 *List 字段
+// 仍约定只在 Win.Update 回调和界面线程里改。
 func (a *App) ListFor(key string) *List {
+	a.listsMu.Lock()
+	defer a.listsMu.Unlock()
 	if a.Lists == nil {
 		a.Lists = map[string]*List{}
 	}

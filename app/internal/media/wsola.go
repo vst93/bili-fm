@@ -12,7 +12,10 @@
 // 不变调。
 package media
 
-import "math"
+import (
+	"math"
+	"sync"
+)
 
 // WSOLA 是流式的波形相似叠加变速器：按 speed 改变播放速度而不改变音高。
 //
@@ -26,6 +29,9 @@ import "math"
 // 帧长取 N、合成跳距取 N/2 且窗取 Hann 时，窗函数的叠加和恒为 1，所以
 // 不需要额外归一化。
 type WSOLA struct {
+	// mu 保护全部可变字段：Push/Flush 跑在 oto 的取数据 goroutine 上，
+	// SourcePosition/SetSpeed/Speed 跑在播放器的上报 goroutine 上，两者并发。
+	mu     sync.Mutex
 	ch     int
 	n      int // 帧长（单声道采样数）
 	hop    int // 合成跳距
@@ -77,15 +83,23 @@ func (w *WSOLA) SetSpeed(speed float64) {
 	if speed <= 0 {
 		return
 	}
+	w.mu.Lock()
 	w.speed = speed
+	w.mu.Unlock()
 }
 
 // Speed 返回当前速度。
-func (w *WSOLA) Speed() float64 { return w.speed }
+func (w *WSOLA) Speed() float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.speed
+}
 
 // SourcePosition 返回当前分析位置（相对流起点的采样帧数），
 // 也就是「已经消费到源音频的哪里」。播放器用它换算播放进度。
 func (w *WSOLA) SourcePosition() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if !w.hasPrev {
 		return 0
 	}
@@ -95,6 +109,8 @@ func (w *WSOLA) SourcePosition() int {
 // Push 送进一段交错 PCM（float32，-1..1），返回目前能产出的输出。
 // 返回值是内部缓冲的切片，调用方应尽快消费或拷贝。
 func (w *WSOLA) Push(pcm []float32) []float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.closed || len(pcm) == 0 {
 		return nil
 	}
@@ -107,6 +123,8 @@ func (w *WSOLA) Push(pcm []float32) []float32 {
 
 // Flush 结束输入，把缓冲里剩下的内容补零产出，返回尾部输出。
 func (w *WSOLA) Flush() []float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.closed {
 		return nil
 	}

@@ -557,9 +557,9 @@ func (a *App) card(c *ui.Context, index int) {
 		a.metaRow(c, card)
 	})
 	if box.Clicked() {
-		a.Index = index
-		if a.Act.Play != nil {
-			a.Act.Play(index)
+		// 与原版一致：点卡片只是打开选集面板，不直接起播。
+		if a.Act.OpenCard != nil {
+			a.Act.OpenCard(index)
 		}
 	}
 }

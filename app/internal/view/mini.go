@@ -49,7 +49,7 @@ func (a *App) MiniShell(c *ui.Context) {
 			Gap(11).AlignItems(ui.Center).Children(func() {
 			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
 				Background(ui.Hex("#ffffff").Alpha(0.58)).Clip().Children(func() {
-				if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
 				}
 			})
@@ -86,6 +86,7 @@ func (a *App) MiniShell(c *ui.Context) {
 		if a.ShowVolume {
 			a.volumePopoverAt(c, 8, 44)
 		}
+		a.toastViewport(c, 50)
 	})
 }
 

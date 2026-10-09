@@ -91,6 +91,26 @@ func TestRandOtherIndex(t *testing.T) {
 	}
 }
 
+func TestSetCardsRetention(t *testing.T) {
+	list := &view.List{}
+	first := make([]view.Card, 100)
+	setCards(list, first, true)
+	if len(list.Cards) != 100 {
+		t.Fatalf("replace len = %d", len(list.Cards))
+	}
+	more := make([]view.Card, 100)
+	setCards(list, more, false)
+	if len(list.Cards) != maxRetainedCards {
+		t.Fatalf("retention len = %d, want %d", len(list.Cards), maxRetainedCards)
+	}
+	// 超上限时从头部释放，保留尾部。
+	list2 := &view.List{}
+	setCards(list2, make([]view.Card, maxRetainedCards+30), true)
+	if len(list2.Cards) != maxRetainedCards {
+		t.Fatalf("cap len = %d", len(list2.Cards))
+	}
+}
+
 func TestToCards(t *testing.T) {
 	items := []any{
 		map[string]any{
