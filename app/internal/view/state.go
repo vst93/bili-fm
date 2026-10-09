@@ -144,7 +144,6 @@ const (
 	DrawerSearch  = "search"
 	DrawerParts   = "parts"
 	DrawerDanmaku = "danmaku"
-	DrawerInfo    = "info"
 	// DrawerUp 是「UP 主的空间」（视频 / 合集两个 tab），点主区的 UP 头像进。
 	DrawerUp = "up"
 	// DrawerSeries 是一个合集的视频列表，从 UP 空间里选一个合集进。
@@ -387,7 +386,7 @@ type App struct {
 	locateNow bool
 
 	// Drawer 是当前打开的抽屉："" 表示没有，否则是分区 key 或
-	// DrawerSearch / DrawerParts / DrawerDanmaku / DrawerInfo。
+	// DrawerSearch / DrawerParts / DrawerDanmaku。
 	// 原版同一时刻只有一个抽屉（HeroUI Drawer 的 isOpen）。
 	Drawer string
 

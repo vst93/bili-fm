@@ -244,7 +244,7 @@ func (a *App) seriesLabel() string {
 // refreshable 返回这个抽屉的表头有没有刷新键（原版每个列表抽屉都有）。
 func (a *App) refreshable() bool {
 	switch a.Drawer {
-	case DrawerParts, DrawerInfo, DrawerPlaylist:
+	case DrawerParts, DrawerPlaylist:
 		return false
 	}
 	return a.Drawer != ""
@@ -343,8 +343,6 @@ func (a *App) drawerTitle() string {
 		return "选集"
 	case DrawerDanmaku:
 		return "弹幕"
-	case DrawerInfo:
-		return "详情"
 	}
 	if s := a.CurrentSection(); s.Key == a.Drawer {
 		return s.Label
@@ -361,8 +359,6 @@ func (a *App) drawerBody(c *ui.Context) {
 			a.partsBody(c)
 		case DrawerDanmaku:
 			a.danmakuBody(c)
-		case DrawerInfo:
-			a.infoBody(c)
 		case DrawerUp:
 			// UP 空间有两个 tab：视频是卡片列表，合集是一排可选的胶囊。
 			if a.UpTab == UpTabSeries {
@@ -934,71 +930,4 @@ func (a *App) repliesBody(c *ui.Context) {
 			}
 		}
 	})
-}
-
-// ---------------------------------------------------------------- 详情抽屉
-
-// infoBody 是「详情」抽屉：视频信息 + 互动 + 评论。
-func (a *App) infoBody(c *ui.Context) {
-	t := a.Theme
-	if a.Track == nil {
-		ui.Text(c, "还没有在播放的视频").FontSize(12).TextColor(t.Faint)
-		return
-	}
-
-	ui.Text(c, a.infoTitle()).FontSize(13).Bold().TextColor(t.Ink).MaxLines(3)
-	ui.Text(c, a.ownerName()).FontSize(11).TextColor(t.Muted).SingleLine().Margin(4, 0, 0, 0)
-
-	ui.Row(c).FillWidth().Gap(6).Margin(10, 0, 0, 0).Children(func() {
-		a.actionChip(c, "like", "点赞", iconLike, a.Liked, a.Act.Like)
-		a.actionChip(c, "coin", "投币", iconCoin, a.Coined, a.Act.Coin)
-		a.actionChip(c, "fav", "收藏", iconStar, a.Faved, a.Act.Favorite)
-		a.actionChip(c, "follow", "关注", iconLike, a.Followed, a.Act.Follow)
-	})
-
-	ui.Box(c).FillWidth().Height(1).Margin(12, 0, 12, 0).Background(t.Line)
-
-	ui.Text(c, fmt.Sprintf("评论 %d 条", len(a.Comments))).FontSize(12).Bold().TextColor(t.Ink)
-	if len(a.Comments) == 0 {
-		ui.Text(c, "还没有加载评论").FontSize(11).TextColor(t.Faint).Margin(6, 0, 0, 0)
-		return
-	}
-	ui.Column(c).Gap(10).Margin(8, 0, 0, 0).Children(func() {
-		for i, cm := range a.Comments {
-			ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Gap(3).Children(func() {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, cm.User).FontSize(11).TextColor(t.Blue).SingleLine()
-					ui.Text(c, cm.Time).FontSize(10).TextColor(t.Faint)
-					if cm.Likes > 0 {
-						ui.Text(c, fmt.Sprintf("赞 %d", cm.Likes)).FontSize(10).TextColor(t.Faint)
-					}
-				})
-				ui.Text(c, cm.Content).FontSize(11).TextColor(t.Muted).MaxLines(6)
-			})
-		}
-	})
-}
-
-// actionChip 是互动按钮，激活时高亮。
-func (a *App) actionChip(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
-	t := a.Theme
-	b := ui.ButtonBase(c.Key("act-" + key)).Grow(1).Height(30).Radius(RadiusSmall).
-		Center().Label(label).Tooltip(label)
-	switch {
-	case active:
-		b.Background(t.Blue.Alpha(0.30)).Border(1, t.Blue.Alpha(0.50))
-	case b.Hovered():
-		b.Background(t.GlassHover)
-	default:
-		b.Background(t.Glass)
-	}
-	b.Children(func() {
-		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, ic).Size(12, 12).TextColor(pick(active, t.Ink, t.Muted))
-			ui.Text(c, label).FontSize(11).TextColor(pick(active, t.Ink, t.Muted))
-		})
-	})
-	if b.Clicked() && fn != nil {
-		fn()
-	}
 }
