@@ -262,7 +262,11 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 
 - **系统媒体中心**：**Linux 已接**（`internal/mediactl`，MPRIS：桌面「正在播放」卡片、
   媒体键、锁屏控件，用 `godbus/dbus`）。macOS Now Playing / Windows SMTC 还是
-  no-op（mygo 没有对应绑定），接口已留好，接上层不用改。
+  no-op，接口已留好（`Callbacks`/`Controller`），接上层不用改。
+  **为什么没直接写**：两块都是几百行平台 FFI（WinRT COM / ObjC runtime），
+  这台机器上既编译不了也跑不了，盲写上去出问题没法定位 —— 要做需要能起
+  Windows/macOS 环境的人配合验证；状态帧等纯逻辑已抽出来可以单测
+  （`smtcState.same`）。
 - **macOS 全局媒体键**：mygo 的 Carbon 热键没有媒体键码，注册会失败（已静默降级）。
 - ~~应用内更新~~：**已接**（3.0.0-preview.4）。见下面的「应用内更新」一节。
 - ~~评论只有第一页~~：**已修**（弹幕/评论抽屉支持加载更多）。
