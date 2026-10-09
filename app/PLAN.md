@@ -251,7 +251,8 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 
 `-shot` 截图、`-load-info` 拉当前队列第一条的详情填右栏、`-drawer <key>` 直接
 打开某个抽屉、`-modal about|shortcuts|login`、`-toast <文本>`、`-play <n>`、
-`-addall`、`-video`、`-window-pos X,Y`、`-series <id>`。都只在开发时用。
+`-addall`、`-video`、`-playlist`（预填播放列表）、`-danmaku N`（注入假弹幕）、
+`-window-pos X,Y`、`-series <id>`。都只在开发时用。
 
 注意：视频弹窗的页面是 `mygo build` 时才内嵌的；普通 `go build` 出的二进制
 没有前端资源，弹窗会加载不出来（只有原生 UI 能跑）。要测弹窗用
