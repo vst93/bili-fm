@@ -815,7 +815,8 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			}
 			setCards(list, cards, page <= 1)
 			list.Page = page
-			list.HasMore = len(archives) > 0
+			// 合集接口每页 30 条；不足一页就到到底了。
+			list.HasMore = len(archives) >= 30
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
