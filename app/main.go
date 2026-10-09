@@ -965,6 +965,30 @@ func (c *controller) loadSection(section string, page int) {
 	// 在起 goroutine 之前把这一帧的取值固定下来，避免和界面线程争。
 	folderID, recTab, histTab := a.FolderID, a.RecTab, a.HistTab
 
+	// 动态用 offset 游标翻页（不是页码）。
+	if section == "feed" {
+		offset := ""
+		if page > 1 {
+			offset = a.FeedOffset
+		}
+		go func() {
+			l, err := c.bl.GetBLFeedList(offset)
+			a.Win.Update(func() {
+				list.Loading = false
+				if err != nil {
+					a.NotifyType("error", "加载失败："+err.Error())
+					return
+				}
+				setCards(list, toUpCards(l.Items), page <= 1)
+				list.Page = page
+				list.HasMore = l.HasMore
+				a.FeedOffset = l.Offset
+				a.Status = fmt.Sprintf("%d 条", len(list.Cards))
+			})
+		}()
+		return
+	}
+
 	go func() {
 		cards, more, err := c.fetchSection(section, page, folderID, recTab, histTab)
 		a.Win.Update(func() {
@@ -1007,11 +1031,8 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		}
 		return toCardsFromRaw(l.Items), l.HasMore, nil
 	case "feed":
-		l, err := c.bl.GetBLFeedList("")
-		if err != nil {
-			return nil, false, err
-		}
-		return toCardsFromRaw(l.Items), l.HasMore, nil
+		// 动态走 loadSection 的 offset 分支，这里不会走到。
+		return nil, false, fmt.Errorf("feed 请用 loadSection")
 	case "favorite":
 		if folderID == 0 {
 			return nil, false, nil

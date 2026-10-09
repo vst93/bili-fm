@@ -334,6 +334,8 @@ type App struct {
 
 	// UpOffset 是 UP 视频列表的翻页游标（旧版是 offset 而不是页码）。
 	UpOffset string
+	// FeedOffset 是「动态」列表的翻页游标（同样是 offset）。
+	FeedOffset string
 
 	// 播放
 	Queue   []Track

@@ -193,6 +193,8 @@ type WatchLaterItem struct {
 	Stat struct {
 		View int64 `json:"view"`
 	} `json:"stat"`
+	// Progress 是观看进度（秒），-1 表示已看完。
+	Progress int64 `json:"progress"`
 }
 
 // WatchLaterList 是稍后再看列表。
