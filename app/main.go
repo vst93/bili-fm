@@ -413,6 +413,7 @@ func (c *controller) wireActions() {
 		SeriesPlayAll:      c.seriesPlayAll,
 		SwitchDanmakuTab:   c.switchDanmakuTab,
 		LoadComments:       c.loadComments,
+		RemoveWatchLater:   c.removeWatchLater,
 		SetMini:            c.setMini,
 		TogglePin:          c.togglePin,
 		Quit:               func() { mygo.App.Quit() },
@@ -782,6 +783,21 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			list.HasMore = len(archives) > 0
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
+	}()
+}
+
+// removeWatchLater 把一条从「稍后再看」移除，然后刷新列表。
+func (c *controller) removeWatchLater(aid int64) {
+	if aid == 0 {
+		return
+	}
+	go func() {
+		if err := c.bl.RemoveFromWatchLater(aid); err != nil {
+			c.app.NotifyType("error", "移除失败："+err.Error())
+			return
+		}
+		c.app.Notify("已从稍后再看移除")
+		c.app.Win.Update(func() { c.reload() })
 	}()
 }
 

@@ -290,6 +290,8 @@ type Actions struct {
 	// 弹幕/评论
 	SwitchDanmakuTab func(tab string)
 	LoadComments     func(page int)
+	// RemoveWatchLater 把一条从「稍后再看」移除（原版 historyList 的移除键）。
+	RemoveWatchLater func(aid int64)
 	SaveQueue        func()
 }
 

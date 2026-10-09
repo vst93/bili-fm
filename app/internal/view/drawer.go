@@ -552,6 +552,24 @@ func (a *App) card(c *ui.Context, index int) {
 					Absolute().Left(4).Top(4).
 					Padding(1, 5).Radius(3).Background(t.Blue.Alpha(0.85))
 			}
+			// 「稍后再看」列表的移除键（原版 historyList）。
+			if a.Drawer == "history" && a.HistTab == HistWatchLater && card.Track.Aid != 0 {
+				aid := card.Track.Aid
+				b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).Size(22, 22).Radius(4).
+					Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
+				b.Absolute().Right(4).Top(4)
+				if b.Hovered() {
+					b.Background(ui.Hex("#0f172a").Alpha(0.62))
+				} else {
+					b.Background(ui.Hex("#0f172a").Alpha(0.42))
+				}
+				b.Children(func() {
+					ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
+				})
+				if b.Clicked() && a.Act.RemoveWatchLater != nil {
+					a.Act.RemoveWatchLater(aid)
+				}
+			}
 		})
 		ui.Text(c, card.Title).FontSize(14).TextColor(t.Ink).MaxLines(2)
 		a.metaRow(c, card)
