@@ -11,11 +11,37 @@
 ## 第 3 条的前置问题
 
 现有的 `release-tauri.yml` 是**构建 Tauri 版**的（tauri-action + Rust 工具链），
-构建不了 mygo 版。发 mygo 预览版需要新 workflow，见下面的「发版」一节。
+构建不了 mygo 版。发 mygo 预览版需要新 workflow —— 已建好
+（`.github/workflows/release-mygo.yml`），见下面的「发版」一节。
+
+## 接手快照（2026-10-09，换机用）
+
+```sh
+cd app
+go tool mygo dev                      # 开发运行（CLI 由 go.mod 的 tool 指令带，不用全局装）
+go build ./... && go test ./...        # 编译 + 跑 internal/media 的测试
+go tool mygo build                     # 出本机安装包到 build/（正式构建加 -tags=nethttpomithttp2）
+```
+
+- **分支模型**：原生版全在 `mygo` 分支的 `app/` 里（Go + mygo，不用 webview）；
+  同一分支的 `src/`、`src-tauri/` 还是 Tauri 版，没动过，可以随时对照/回退。
+  `main` 保持 Tauri 版。
+- **进度与计划就是这个文件**，代码注释也按「为什么这么做」写。三个参照系：
+  `src/`（旧版前端，界面还原的参照）、`src-tauri/src/bilibili.rs`（旧版接口）、
+  `main` 分支（当前线上版）。
+- **已发预览版**：`mygo-v3.0.0-preview.{1,2,3,4}`（preview.4 起带应用内更新）。
+  这批界面还原**还没发**，下一个 tag 是 `mygo-v3.0.0-preview.5`。
+- **更新签名私钥不在仓库里**：只在 GitHub secret `MYGO_UPDATER_PRIVATE_KEY`
+  （本机 `~/.config/mygo/update-keys/` 已经没有了）。**不要重新 keygen** ——
+  换密钥对等于断掉存量用户的更新通道。
+- **无头调试开关**：`-shot <png>` 截图、`-load-info` 拉队列首条详情填右栏、
+  `-drawer <key>` 直接开某个抽屉、`-no-tray -no-keys` 免托盘/免全局热键。
+  禁止 GUI 自动化，验证靠截图 + 代码推导。
+- **下一步优先级**见「还没做（下一批）」（界面）和「还没做的（已知缺口）」（功能）。
 
 ## 里程碑
 
-### M1 骨架（进行中）
+### M1 骨架（已完成）
 - [x] 分支 `mygo`
 - [x] `internal/bilibili`：B 站 API 客户端，自 Wails 版 `service/bl.go` 移植（2136 行，零外部依赖）
 - [x] `internal/store`：本地键值存储，与旧版 dkv 同格式（老用户登录态无缝迁移）
@@ -27,12 +53,13 @@
 - [x] 封面图片：`internal/imagecache` 抓取 + `@240w.webp` 服务端下采样 + LRU 缓存
 - [x] 截图验证完整布局（标题栏 / 3 行卡片 / 播放栏）
 
-### 移植时发现的两个 bug（Tauri 版同样存在）
-- [ ] **搜索时长角标不显示**：B 站现在把时长放在 `duration` 字段（"32:25"），
+### 移植时发现的两个 bug（两个版本都有，都已修）
+- [x] **搜索时长角标不显示**：B 站现在把时长放在 `duration` 字段（"32:25"），
       `length` 已不存在。Tauri 版 `bilibili.rs:846` 只读 `length`，所以搜索卡片
-      的时长角标一直是空的。Go 版已修（`duration` 优先、`length` 兜底）。
-- [ ] **部分封面 URL 拼错**：`pic` 有时是完整 URL（`https://archive.biliimg.com/...`），
-      直接拼 `https:` 会得到 `https:https://...`。Tauri 版同样拼错。Go 版已修。
+      的时长角标一直是空的。Go 版已修（`duration` 优先、`length` 兜底）；
+      Tauri 版在 main 上单独修（39168ee）。
+- [x] **部分封面 URL 拼错**：`pic` 有时是完整 URL（`https://archive.biliimg.com/...`），
+      直接拼 `https:` 会得到 `https:https://...`。同样两边都已修（Tauri 版 39168ee）。
 
 ### M2 播放（核心已完成）
 - [x] `internal/media/wsola.go`：**WSOLA 变速不变调**，自写。
@@ -50,6 +77,7 @@
 
 ### M3 功能对齐
 - [x] 六个分区：推荐 / 热门 / 动态 / 收藏 / 历史 / 稍后再看
+      （界面还原时改成旧版的 4 个入口抽屉，见「界面还原」一节的第二批）
 - [x] 卡片网格 + 封面（`@240w.webp` 服务端下采样 + LRU 缓存）
 - [x] 播放栏：封面 / 标题 / 上一集 / 播放暂停 / 下一集 / 可拖动进度 / 倍速档位 /
       均衡 / 跳过赞助 / 弹幕 / 分集 / 详情 / 小窗 / 音量
@@ -64,7 +92,7 @@
 - [x] 全局媒体键（macOS 上 mygo 的 Carbon 热键没有媒体键码，静默降级）
 - [x] 播放队列持久化（`mygo_queue` / `mygo_index`）
 - [ ] 系统媒体中心（macOS Now Playing / Windows SMTC / Linux MPRIS）
-- [ ] 播放进度上报到 B 站
+- [x] 播放进度上报到 B 站（见「界面还原」一节的第三批 / `app/progress.go`）
 
 ### M4 发版
 - [x] `app/mygo.json`（mygo 构建配置）
@@ -83,23 +111,117 @@
 
       比 Tauri 版（2.8~4.6MB）大，是 Go 运行时的体积代价。
 
+## 界面还原：布局与交互（进行中）
+
+用户反馈：mygo 版的界面和旧版「完全是两个应用」。根因是原生重写只搬了颜色令牌
+（theme.go / backdrop.go），布局和组件结构是另起一套（分区药丸行 + 卡片网格 +
+两行播放栏），而旧版是「居中搜索药丸 + 封面圆盘 + 视频信息两栏 + 单行播放栏 +
+底部抽屉」。下面按旧版的结构重排。
+
+### 已完成
+
+- **窗口**：改回旧版的 800×600（`src-tauri/src/lib.rs` 的 `inner_size`）、固定
+  尺寸（`resizable(false)` → `DisableResize`）、居中。窗口控件改用 mygo 的
+  `TitleBarHidden`：macOS 是原生红绿灯、Windows/Linux 是原生标题栏按钮 ——
+  旧版在 macOS 上就是 `decorations + TitleBarStyle::Overlay`。
+- **标题栏**（36px，`.app-title-bar`）：品牌居中（logo 24×24 + 文字），
+  左右按 `ui.Context.TitleBar()` 留出原生控件的宽度。
+- **搜索药丸**（`.home-searchbar`）：max-width 520 / 高 46 / 圆角 13 / 内边距 4，
+  内容是「白底输入内腔（含放大镜提交键）+ 四个内容入口图标 + 头像」。
+  分区不再是单独一行药丸，而是回到搜索栏里的四个入口。
+- **主区**（`.home-stage` + `.home-now-playing`）：两栏 grid 304px + 1fr、间距 28，
+  左栏是 292px 封面圆盘（播放时 22s 转一圈，点一下暂停/播放），右栏是
+  「UP 主行 / 标题 22px / 简介 3 行 / 选集胶囊 / 操作行（含计数）/ 工具条」。
+- **播放栏**（`#player`）：改成单行 56px，列宽 80 / 56 / 1fr / 56 / 34 / 40 / 34 / 40，
+  依次是 切曲 / 当前时间 / 进度 / 时长 / 音量 / 倍速 / 均衡 / 跳过赞助。
+  旧版的播放栏里没有封面和标题，那些在主区。
+- **抽屉**（HeroUI Drawer）：底部对齐、上圆角 18、高 min(92vh, 100vh-54px)、
+  头部 48px，列表是 3 列卡片网格。搜索结果 / 四个分区 / 选集 / 弹幕 / 详情
+  都走同一个抽屉组件，同一时刻只开一个。
+- **迷你模式**：按 `body.mini-mode` 重排为 24（标题栏）+ 88（封面 64 + 标题 +
+  右侧窗口控制）+ 43（播放栏）。补齐入口和出口：标题栏右侧的「切换到迷你模式」
+  （旧版 `#switch-window-mode`，Linux 上不显示）、迷你窗里的「还原大窗」和「置顶」
+  —— 之前这三处一个都没有（`Act.SetMini` 根本没接线，只有 `-mini` 启动参数能进，
+  进去也出不来）。
+- **数据**：`VideoInfo` 补上 `stat`（点赞/投币/收藏/播放数），主区右栏才有计数；
+  详情（简介 / UP 主头像 / 分集）在起播时一次拉回来，右栏不用等选集抽屉。
+
+### 第二批：抽屉表头 tab、UP 空间 / 合集
+
+参照系：**main 分支**（不是 wails —— wails 的前端少 17849 行，是旧版）。
+工作区的 `src/` 与 main 完全一致。
+
+- **分区模型改成 4 个入口抽屉**（旧版就是 4 个，不是 6 个分区）：
+  动态 / 热门与推荐（内含 热门·推荐 两个 tab）/ 收藏 / 历史（内含 观看历史·稍后再看）。
+- **抽屉表头 tab**（`[data-slot="wrapper"] header [data-slot="tab"]`：高 32、
+  内边距 0 14、圆角 8、字号 13/600，选中填充 rgba(255,255,255,0.52) + 文字 #0369a1）：
+  - 搜索：综合 / 最多播放 / 最新发布（排序参数真的传给 SearchVideo）
+  - 热门与推荐：热门（GetBLPopularList）/ 推荐（GetBLRCMDList）
+  - 历史：观看历史 / 稍后再看 + **隐身开关**（原版 `.history-incognito-switch`）
+  - 收藏：收藏夹胶囊「名字 (条数)」
+  - 每个列表抽屉表头都有刷新键。
+- **列表按抽屉各存一份**（`App.Lists`）。之前所有抽屉共用 `a.Cards`，切抽屉会
+  互相覆盖、还会闪上一个抽屉的内容 —— 旧版每个抽屉有自己的 state。
+- **UP 空间抽屉**（点主区 UP 头像/名字进）：`「名字」的空间` + 粉丝数 + 关注/已关注
+  + 视频/合集两个 tab。空间接口返回的是**动态卡片**，视频在
+  `modules.module_dynamic.major.archive`（播放量是已经格式化好的字符串），
+  所以单写了 `toUpCards`。
+- **合集抽屉**：从 UP 空间的「合集」tab 选一个进（胶囊「名字 (条数)」），
+  表头有「播放全部」；主区工具条补上了「合集」键（旧版四个键齐了）。
+- 顺带修了 `follow()`：原来用的是本地存的 mid —— 那是**登录用户自己**，
+  等于在关注自己。改成当前视频的 UP（或 UP 空间里那个）。
+
+### 第三批：对齐 main 的进度同步
+
+`internal/bilibili` 的接口面本来就覆盖了 main 的 Rust（只差 `get_play_progress`），
+但**行为**缺了进度同步。按 `src/components/player.tsx` 移植（`app/progress.go`）：
+
+- **云端进度读取**：`x/player/v2` 的 `last_play_time`（先认 `last_play_cid`），
+  失败再翻最多 5 页观看历史找 aid+cid 匹配的那条（`GetPlayProgress`）。
+- **本地断点**（不依赖账号）：每 5 秒落盘，暂停/切歌/跳转时补写，7 天过期，
+  最多 50 条。
+- **续播点取 max(云端, 本地)**：本地可能比云端新。云端最多等 800ms
+  （`CLOUD_PROGRESS_STARTUP_BUDGET_MS`），超时就用本地断点，晚到的响应丢掉，
+  免得把已经在播的曲目跳走。跳转放在**起播之前** —— `media.Player.Seek` 会重建
+  解码器，起播后再跳会卡一下。
+- **上报**：播放中每 30 秒一次（`PLAY_PROGRESS_REPORT_INTERVAL_MS`），
+  暂停/跳转/切歌立刻补报。
+- **隐身模式**：读和写都不碰云端，只用本地断点。
+
+### 还没做（下一批）
+
+- **卡片 meta 的容器查询**：旧版按实测宽度从末尾隐藏字段（`pickDateForm` 那套），
+  现在 meta 是固定顺序全部显示，窄卡片会被挤。
+- **氛围光**（`.app-shell::before` 用当前封面铺满整窗 + 模糊）和**玻璃材质**：
+  mygo 有 `plugins/glass`（真 Liquid Glass：折射 + 边缘光 + 可选 tint/按压动画），
+  还有 `glass.ScrollEdge`（播放栏上缘的渐隐/磨砂）和 `glass.Blur`（带 mask 的
+  渐进模糊）。现在还是「半透明填充 + 1px 亮边」的近似，下一步换成真的。
+- **播放列表**：main 有 playlist / 播放模式（用户列表、合集列表），
+  现在的「播放列表」键指向详情抽屉，只是占位。
+
+### 调试开关（为了截图对照）
+
+`-shot` 截图、`-load-info` 拉当前队列第一条的详情填右栏、`-drawer <key>` 直接
+打开某个抽屉。都只在开发时用。
+
 ## 还没做的（已知缺口）
 
 - **系统媒体中心**：macOS Now Playing / Windows SMTC / Linux MPRIS 都没接。
   现在系统「正在播放」卡片里看不到曲目信息。
-- **播放进度上报**：没有调 `ReportPlayProgress`，所以 B 站网页端的观看进度不会同步。
 - **macOS 全局媒体键**：mygo 的 Carbon 热键没有媒体键码，注册会失败（已静默降级）。
 - ~~应用内更新~~：**已接**（3.0.0-preview.4）。见下面的「应用内更新」一节。
 - **MS Store(MSIX)**：mygo 不产出，应用商店那条链路要单独做。
 - **首页/推荐未登录是空的**：B 站接口如此，原版也一样。
-- **评论只有第一页**、**收藏只取第一个收藏夹**。
+- **评论只有第一页**（`GetReplyList` 只取 page 1；收藏夹已经能选，见第二批）。
 - **`PageOptions.Autoplay` 依赖 fork**：mygo PR #167 合入后，把 go.mod 里的
   `replace` 删掉即可。
 
-## 发版：需要新 workflow
+## 发版：`release-mygo.yml`（已建好）
 
-`release-tauri.yml` 用 tauri-action 构建 Rust 版，mygo 版走不通。需要新增
-`.github/workflows/release-mygo.yml`：
+`release-tauri.yml` 用 tauri-action 构建 Rust 版，mygo 版走不通，所以另建了
+`.github/workflows/release-mygo.yml`（推 `mygo-v*` tag 或
+`gh workflow run release-mygo.yml --ref mygo -f version=...`；**必须带 `--ref mygo`**）。
+各平台产出对比：
 
 | 平台 | mygo `build` 直接产出 | 现有 Tauri 版产出 | 缺口 |
 |---|---|---|---|
@@ -109,7 +231,7 @@
 
 - 需要 Go 1.27+（`GOTOOLCHAIN=go1.27.1` 或 setup-go）
 - 需要 `mygo` CLI（`go tool mygo build`）或直接 `go build` + 手工打包
-- 现有 workflow 里 pacman 包是手工打的，可以照搬
+- rpm / pacman 是 workflow 里补的（nfpm + 手工 tar），deb 由 mygo 原生产出
 - **应用内更新不兼容**：mygo 用自己的签名格式（`mygo keygen`），与 Tauri 的
   minisign 不同 → 存量用户**无法应用内升级到 mygo 版**，必须手动重装。
   预览版正好可以先验证这一点。

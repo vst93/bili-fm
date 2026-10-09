@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,13 @@ import (
 )
 
 const audioUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+// 主窗口尺寸。旧版默认就是 800×600（src-tauri/src/lib.rs 的 inner_size），
+// 整套布局（搜索药丸 520、封面圆盘 304、播放栏 56）都是按这个宽度调的。
+const (
+	mainWidth  = 800
+	mainHeight = 600
+)
 
 var audioHeaders = map[string]string{
 	"User-Agent": audioUA,
@@ -58,18 +66,26 @@ type controller struct {
 	lastPos   float64
 
 	// quitting 为真表示真的在退出（而不是关窗到托盘）。
-	quitting  bool
-	incognito bool
+	quitting bool
+
+	// 进度同步的节流时间点（见 progress.go）。
+	resumeWroteAt time.Time
+	reportedKey   string
+	reportedAt    time.Time
 }
 
 func main() {
 	shot := flag.String("shot", "", "启动后截图到该路径并退出")
 	shotDelay := flag.Duration("shot-delay", 3*time.Second, "截图前的等待时间")
 	searchOnStart := flag.String("search", "", "启动后立刻搜索该关键词")
-	sectionOnStart := flag.String("section", "popular", "启动后加载的分区")
+	sectionOnStart := flag.String("section", "popular", "启动后加载的抽屉（feed/popular/favorite/history，旧名 recommend/watchlater 仍可用）")
 	noTray := flag.Bool("no-tray", false, "不装系统托盘（无头调试用）")
 	noKeys := flag.Bool("no-keys", false, "不注册全局媒体键（无头调试用）")
 	startMini := flag.Bool("mini", false, "以迷你模式启动（无头调试用）")
+	loadInfo := flag.Bool("load-info", false, "启动后拉取当前队列第一条的详情（调试主区右栅用）")
+	drawerOnStart := flag.String("drawer", "", "启动后直接打开某个抽屉（调试用）")
+	winPos := flag.String("window-pos", "", "窗口位置 X,Y（调试用；不填则居中）")
+	seriesOnStart := flag.Int64("series", 0, "启动后直接打开这个合集 id（调试用）")
 	flag.Parse()
 
 	kv, err := store.OpenDefault()
@@ -111,11 +127,14 @@ func main() {
 	})
 	c.app = app
 	app.UName = kv.String("uname")
+	app.Face = kv.String("face")
 	app.LoggedIn = bilibili.LoginStatus || app.UName != ""
 	app.Speed = 1
 	app.Volume = 1
 	app.Sponsor = kv.String("sponsor_skip") == "1"
 	c.sponsorOn = app.Sponsor
+	// 隐身模式（原版 localStorage 的 incognitoMode）：不读也不写云端进度。
+	app.Incognito = kv.String("incognito") == "true"
 
 	c.wireActions()
 	c.wirePlayer()
@@ -125,20 +144,41 @@ func main() {
 	mygo.Bind(&uiService{c: c})
 
 	mygo.App.WhenReady(func() {
-		app.Win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     "bili-FM",
-			Width:     1000,
-			Height:    660,
+		opts := mygo.WindowOptions{
+			Title: "bili-FM",
+			// 旧版默认窗口就是 800×600（src-tauri/src/lib.rs 的 inner_size）。
+			Width:     mainWidth,
+			Height:    mainHeight,
 			MinWidth:  400,
 			MinHeight: 155,
-			Frameless: true,
-			Content:   ui.View(app.Shell),
-		})
+			// 旧版是固定窗口（resizable(false)），布局就是按 800×600 调的；
+			// 迷你模式是自己改尺寸，不受这个限制。
+			DisableResize: true,
+			// 保留原生窗口控件（macOS 的红绿灯、Windows/Linux 的标题栏按钮），
+			// 页面自己画标题栏 —— 旧版在 macOS 上用的就是这种（Overlay）。
+			TitleBarStyle: mygo.TitleBarHidden,
+			Content:       ui.View(app.Shell),
+		}
+		// 调试用：把窗口摆到指定位置，避免它刚好落在鼠标下面（截图时
+		// 会偶发误触，让抽屉自己开合）。
+		if *winPos != "" {
+			if x, y, ok := strings.Cut(*winPos, ","); ok {
+				opts.X, _ = strconv.Atoi(x)
+				opts.Y, _ = strconv.Atoi(y)
+			}
+		}
+		app.Win = mygo.NewWindow(opts)
 
-		// 默认进第一个能用的分区：未登录时推荐/动态/收藏/历史都是空的。
+		// 默认进「热门与推荐」的热门 tab：未登录时推荐/动态/收藏/历史都是空的。
+		// 旧版的「推荐」「稍后再看」现在是抽屉里的 tab，这里保留旧写法做兼容。
 		start := *sectionOnStart
-		if start == "recommend" && !app.LoggedIn {
+		switch start {
+		case "recommend":
 			start = "popular"
+			app.RecTab = view.RecRecommend
+		case "watchlater":
+			start = "history"
+			app.HistTab = view.HistWatchLater
 		}
 		app.Section = sectionIndex(start)
 		if *startMini {
@@ -147,8 +187,33 @@ func main() {
 		if *searchOnStart != "" {
 			app.Query = *searchOnStart
 			c.search(*searchOnStart)
+		} else if start == "favorite" {
+			// 收藏要先拉收藏夹列表，再拉第一个收藏夹的内容。
+			c.loadFolders()
 		} else {
 			c.loadSection(start, 1)
+		}
+
+		// 调试用：把队列第一条的详情拉下来填主区右栏（不真的播放）。
+		// 打开抽屉要等详情回来（要知道 UP 的 mid），所以放在一起。
+		if *loadInfo && app.Track != nil {
+			t := *app.Track
+			go func() {
+				info := c.videoInfoOf(t.Bvid, &t)
+				if info == nil {
+					return
+				}
+				// 抽屉要在 Info 已经写进去之后再开（Win.Update 是排队到
+				// 主线程执行的，放在同一个回调里才有顺序保证）。
+				app.Win.Update(func() {
+					app.Info = info
+					if *drawerOnStart != "" {
+						c.debugOpenDrawer(*drawerOnStart, *seriesOnStart)
+					}
+				})
+			}()
+		} else if *drawerOnStart != "" {
+			c.debugOpenDrawer(*drawerOnStart, *seriesOnStart)
 		}
 
 		// 关闭窗口 = 隐藏到托盘（与旧版一致），从托盘或 Dock 恢复。
@@ -200,30 +265,65 @@ func main() {
 	}
 }
 
+// debugOpenDrawer 打开一个抽屉（只给 -drawer / -series 用）。
+func (c *controller) debugOpenDrawer(kind string, seriesID int64) {
+	a := c.app
+	switch {
+	case kind == view.DrawerUp, kind == view.DrawerSeries:
+		if a.Info == nil || a.Info.OwnerMid == 0 {
+			log.Printf("调试：没有 UP mid，打不开 %q", kind)
+			return
+		}
+		if kind == view.DrawerSeries {
+			a.UpTab = view.UpTabSeries
+		}
+		c.openUp(a.Info.OwnerMid, a.Info.OwnerName)
+		if seriesID != 0 {
+			a.Drawer = view.DrawerSeries
+			c.selectSeries(seriesID)
+		}
+	case func() bool { i := view.SectionIndex(kind); return view.Sections[i].Key == kind }():
+		a.Section = view.SectionIndex(kind)
+		a.Drawer = kind
+		c.reload()
+	default:
+		a.Drawer = kind
+	}
+	a.Win.Update(func() {})
+}
+
 // ---------------------------------------------------------------- 界面动作
 
 func (c *controller) wireActions() {
 	a := c.app
 	a.Act = view.Actions{
-		LoadSection:   c.loadSection,
-		Search:        c.search,
-		Play:          c.playIndex,
-		TogglePlay:    c.togglePlay,
-		Next:          func() { c.step(1) },
-		Prev:          func() { c.step(-1) },
-		Seek:          c.seek,
-		SetSpeed:      func(v float64) { c.mp.SetSpeed(v) },
-		ToggleEQ:      c.toggleEQ,
-		ToggleSponsor: c.toggleSponsor,
-		SetVolume:     func(v float64) { c.mp.SetVolume(v) },
-		OpenVideo:     c.openVideo,
-		CloseVideo:    c.closeVideo,
-		OpenParts:     c.openParts,
-		ToggleDanmaku: c.toggleDanmaku,
-		LoadMore:      c.loadMore,
-		Login:         c.login,
-		Quit:          func() { mygo.App.Quit() },
-		Minimize:      func() { a.Win.Minimize() },
+		LoadSection:     c.loadSection,
+		Reload:          c.reload,
+		SelectFolder:    c.selectFolder,
+		OpenUp:          c.openUp,
+		SelectSeries:    c.selectSeries,
+		ToggleFollow:    c.follow,
+		ToggleIncognito: c.toggleIncognito,
+		Search:          c.search,
+		Play:            c.playIndex,
+		TogglePlay:      c.togglePlay,
+		Next:            func() { c.step(1) },
+		Prev:            func() { c.step(-1) },
+		Seek:            c.seek,
+		SetSpeed:        func(v float64) { c.mp.SetSpeed(v) },
+		ToggleEQ:        c.toggleEQ,
+		ToggleSponsor:   c.toggleSponsor,
+		SetVolume:       func(v float64) { c.mp.SetVolume(v) },
+		OpenVideo:       c.openVideo,
+		CloseVideo:      c.closeVideo,
+		OpenParts:       c.openParts,
+		ToggleDanmaku:   c.toggleDanmaku,
+		LoadMore:        c.loadMore,
+		Login:           c.login,
+		SetMini:         c.setMini,
+		TogglePin:       c.togglePin,
+		Quit:            func() { mygo.App.Quit() },
+		Minimize:        func() { a.Win.Minimize() },
 	}
 }
 
@@ -231,6 +331,7 @@ func (c *controller) wirePlayer() {
 	c.mp.OnProgress(func(pos, dur float64) {
 		c.app.Pos, c.app.Dur = pos, dur
 		c.maybeSkipSponsor(pos)
+		c.trackResume(pos) // 本地断点 5s 落盘 + 云端 30s 上报
 		c.app.Win.Update(func() {})
 	})
 	c.mp.OnEnded(func() {
@@ -254,14 +355,10 @@ func (c *controller) quit() {
 	mygo.App.Quit()
 }
 
-// openInfo 打开「详情」面板：视频信息、互动状态、评论。
+// openInfo 打开「详情」抽屉：视频信息、互动状态、评论。
+// 抽屉的开合由界面负责（点开才调这里），这里只拉互动状态和评论。
 func (c *controller) openInfo() {
 	a := c.app
-	a.ShowInfo = !a.ShowInfo
-	if !a.ShowInfo {
-		a.Win.Update(func() {})
-		return
-	}
 	t := a.Current()
 	if t == nil {
 		a.Win.Update(func() {})
@@ -357,16 +454,27 @@ func (c *controller) favorite() {
 	}()
 }
 
+// follow 关注 / 取关。
+//
+// 注意 mid 是**被关注的人**：UP 空间抽屉里是那个 UP 主，否则是当前视频的
+// UP 主（a.Info.OwnerMid）。原来这里读的是本地存的 mid —— 那是我自己的
+// mid，等于在关注自己。
 func (c *controller) follow() {
-	t := c.app.Current()
-	if t == nil {
-		return
+	a := c.app
+	var mid int64
+	up := false
+	if a.Drawer == view.DrawerUp && a.UpMid != 0 {
+		mid, up = a.UpMid, true
+	} else if a.Info != nil {
+		mid = a.Info.OwnerMid
 	}
-	mid := midOf(c)
 	if mid == 0 {
 		return
 	}
-	want := !c.app.Followed
+	want := !a.Followed
+	if up {
+		want = !a.UpFollowed
+	}
 	go func() {
 		var err error
 		if want {
@@ -378,8 +486,160 @@ func (c *controller) follow() {
 			log.Printf("关注操作失败: %v", err)
 			return
 		}
-		c.app.Win.Update(func() { c.app.Followed = want })
+		c.app.Win.Update(func() {
+			c.app.Followed = want
+			c.app.UpFollowed = want
+		})
 	}()
+}
+
+// ---------------------------------------------------------------- UP 空间 / 合集
+
+// openUp 打开某个 UP 主的空间：拉视频列表、合集列表和关注状态。
+func (c *controller) openUp(mid int64, name string) {
+	a := c.app
+	a.UpMid, a.UpName = mid, name
+	a.Drawer = view.DrawerUp
+	a.UpOffset = ""
+	a.ListFor(view.DrawerUp).Cards = nil
+	a.ListFor(view.DrawerUp).Loading = true
+	a.SeriesList = nil
+	a.Win.Update(func() {})
+
+	go func() {
+		if st, err := c.bl.IsFollowing(int(mid)); err == nil && st != nil {
+			a.Win.Update(func() {
+				a.UpFollowed = st.IsFollowing
+				a.UpFans = st.Follower
+			})
+		}
+		series, _ := c.bl.GetSeriesList(int(mid))
+		list := make([]view.Series, 0, len(series))
+		for _, it := range series {
+			m := toMap(it)
+			list = append(list, view.Series{
+				ID:    pickInt(m, "season_id", "id"),
+				Title: pickStr(m, "name", "title"),
+				Count: pickInt(m, "total"),
+			})
+		}
+		a.Win.Update(func() { a.SeriesList = list })
+		if a.UpTab == view.UpTabSeries {
+			a.Win.Update(func() { a.ListFor(view.DrawerUp).Loading = false })
+			return
+		}
+		c.loadUpVideos("")
+	}()
+}
+
+// loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
+func (c *controller) loadUpVideos(offset string) {
+	list := c.app.ListFor(view.DrawerUp)
+	list.Loading = true
+	c.app.Win.Update(func() {})
+
+	mid := c.app.UpMid
+	go func() {
+		l, err := c.bl.GetUpVideoList(int(mid), offset)
+		c.app.Win.Update(func() {
+			list.Loading = false
+			if err != nil {
+				c.app.Status = "加载失败：" + err.Error()
+				return
+			}
+			cards := toUpCards(l.Items)
+			if offset == "" {
+				list.Cards = cards
+			} else {
+				list.Cards = append(list.Cards, cards...)
+			}
+			c.app.UpOffset = l.Offset
+			list.HasMore = l.HasMore
+			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+		})
+	}()
+}
+
+// loadUpSeries 拉 UP 主的合集列表（UP 空间的「合集」tab）。
+func (c *controller) loadUpSeries() {
+	list := c.app.ListFor(view.DrawerUp)
+	list.Loading = true
+	c.app.Win.Update(func() {})
+
+	mid := c.app.UpMid
+	go func() {
+		series, _ := c.bl.GetSeriesList(int(mid))
+		out := make([]view.Series, 0, len(series))
+		for _, it := range series {
+			m := toMap(it)
+			out = append(out, view.Series{
+				ID:    pickInt(m, "season_id", "id"),
+				Title: pickStr(m, "name", "title"),
+				Count: pickInt(m, "total"),
+			})
+		}
+		c.app.Win.Update(func() {
+			list.Loading = false
+			c.app.SeriesList = out
+		})
+	}()
+}
+
+// selectSeries 选一个合集：拉它的视频列表（旧版 selectSeries 走的就是这个）。
+func (c *controller) selectSeries(id int64) {
+	c.app.SeriesID = id
+	c.app.ListFor(view.DrawerSeries).Cards = nil
+	c.loadSeriesVideos(id, 1)
+}
+
+// loadSeriesVideos 拉某个合集的视频列表。id 显式传入，不读 app.SeriesID ——
+// Win.Update 是排队到主线程执行的，在它之后立刻读会读到旧值。
+func (c *controller) loadSeriesVideos(id int64, page int) {
+	list := c.app.ListFor(view.DrawerSeries)
+	list.Loading = true
+	c.app.Win.Update(func() {})
+
+	mid := c.app.UpMid
+	go func() {
+		archives, err := c.bl.GetSeriesVideos(int(mid), int(id), page)
+		c.app.Win.Update(func() {
+			list.Loading = false
+			if err != nil {
+				c.app.Status = "加载失败：" + err.Error()
+				return
+			}
+			cards := make([]view.Card, 0, len(archives))
+			for _, ar := range archives {
+				cards = append(cards, view.Card{
+					Bvid:     ar.Bvid,
+					Cover:    ar.Pic,
+					Title:    ar.Title,
+					Duration: fmtDur(int64(ar.Duration)),
+					Views:    fmtViews(int64(ar.Stat.View)),
+					Track: view.Track{
+						Aid: int64(ar.Aid), Bvid: ar.Bvid, Title: ar.Title,
+						Up: c.app.UpName, Cover: ar.Pic, Duration: int64(ar.Duration),
+					},
+				})
+			}
+			if page <= 1 {
+				list.Cards = cards
+			} else {
+				list.Cards = append(list.Cards, cards...)
+			}
+			list.Page = page
+			list.HasMore = len(archives) > 0
+			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+		})
+	}()
+}
+
+// toggleIncognito 切换隐身模式并落盘（原版 localStorage 的 incognitoMode）。
+// 打开后不读也不写云端播放记录与进度，只用本地断点。
+func (c *controller) toggleIncognito() {
+	c.app.Incognito = !c.app.Incognito
+	_ = c.kv.SetString("incognito", map[bool]string{true: "true", false: "false"}[c.app.Incognito])
+	c.app.Win.Update(func() {})
 }
 
 // setMini 切换迷你模式：换界面 + 调整窗口尺寸与置顶。
@@ -390,11 +650,20 @@ func (c *controller) setMini(on bool) {
 		w, h := view.MiniSize()
 		a.Win.SetSize(w, h)
 		a.Win.SetAlwaysOnTop(true)
+		a.Pinned = true
 	} else {
-		a.Win.SetSize(1000, 660)
+		a.Win.SetSize(mainWidth, mainHeight)
 		a.Win.SetAlwaysOnTop(false)
+		a.Pinned = false
 	}
 	a.Win.Update(func() {})
+}
+
+// togglePin 切换迷你窗的置顶。
+func (c *controller) togglePin() {
+	c.app.Pinned = !c.app.Pinned
+	c.app.Win.SetAlwaysOnTop(c.app.Pinned)
+	c.app.Win.Update(func() {})
 }
 
 // saveQueue 把播放队列与当前位置写进本地存储（键名带 mygo_ 前缀，
@@ -434,39 +703,55 @@ func (c *controller) restoreQueue() {
 // ---------------------------------------------------------------- 列表
 
 func (c *controller) loadSection(section string, page int) {
-	c.app.Loading = true
-	c.app.Status = "加载中…"
-	c.app.Win.Update(func() {})
+	a := c.app
+	list := a.ListFor(section)
+	list.Loading = true
+	a.Status = "加载中…"
+	a.Win.Update(func() {})
+
+	// 在起 goroutine 之前把这一帧的取值固定下来，避免和界面线程争。
+	folderID, recTab, histTab := a.FolderID, a.RecTab, a.HistTab
 
 	go func() {
-		cards, more, err := c.fetchSection(section, page)
-		c.app.Win.Update(func() {
-			c.app.Loading = false
+		cards, more, err := c.fetchSection(section, page, folderID, recTab, histTab)
+		a.Win.Update(func() {
+			list.Loading = false
 			if err != nil {
-				c.app.Status = "加载失败：" + err.Error()
+				a.Status = "加载失败：" + err.Error()
 				return
 			}
 			if page <= 1 {
-				c.app.Cards = cards
+				list.Cards = cards
 			} else {
-				c.app.Cards = append(c.app.Cards, cards...)
+				list.Cards = append(list.Cards, cards...)
 			}
-			c.app.Page = page
-			c.app.HasMore = more
-			c.app.Status = fmt.Sprintf("%d 条", len(c.app.Cards))
+			list.Page = page
+			list.HasMore = more
+			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
 }
 
-func (c *controller) fetchSection(section string, page int) ([]view.Card, bool, error) {
+// fetchSection 拉一个抽屉的第一页/下一页。
+//
+// 旧版把「热门与推荐」「历史」做成一个抽屉里两个 tab，所以这里要按 tab
+// （recTab / histTab）选数据源，不能只看抽屉 key。
+func (c *controller) fetchSection(section string, page int, folderID int64, recTab, histTab string) ([]view.Card, bool, error) {
 	switch section {
-	case "recommend":
+	case "recommend": // 旧 key，等价于「热门与推荐」抽屉的推荐 tab
 		l, err := c.bl.GetBLRCMDList(page)
 		if err != nil {
 			return nil, false, err
 		}
 		return toCardsFromRaw(l.Items), true, nil
 	case "popular":
+		if recTab == view.RecRecommend {
+			l, err := c.bl.GetBLRCMDList(page)
+			if err != nil {
+				return nil, false, err
+			}
+			return toCardsFromRaw(l.Items), true, nil
+		}
 		l, err := c.bl.GetBLPopularList(page)
 		if err != nil {
 			return nil, false, err
@@ -479,27 +764,28 @@ func (c *controller) fetchSection(section string, page int) ([]view.Card, bool, 
 		}
 		return toCardsFromRaw(l.Items), l.HasMore, nil
 	case "favorite":
-		folders, err := c.bl.GetBLFavFolderList()
-		if err != nil {
-			return nil, false, err
-		}
-		if len(folders) == 0 {
+		if folderID == 0 {
 			return nil, false, nil
 		}
-		// 取第一个收藏夹（默认收藏夹在最前）。
-		fid := pickInt(toMap(folders[0]), "id", "fid", "media_id")
-		items, err := c.bl.GetBLFavFolderListDetail(int(fid), page)
+		items, err := c.bl.GetBLFavFolderListDetail(int(folderID), page)
 		if err != nil {
 			return nil, false, err
 		}
 		return toCardsFromRaw(items), true, nil
 	case "history":
+		if histTab == view.HistWatchLater {
+			l, err := c.bl.GetWatchLaterList()
+			if err != nil {
+				return nil, false, err
+			}
+			return toCards(jsonToAny(l.List)), false, nil
+		}
 		l, err := c.bl.GetBLHistoryList(0, 0, "", 30)
 		if err != nil {
 			return nil, false, err
 		}
 		return toCards(jsonToAny(l.List)), false, nil
-	case "watchlater":
+	case "watchlater": // 旧 key，等价于「历史」抽屉的稍后再看 tab
 		l, err := c.bl.GetWatchLaterList()
 		if err != nil {
 			return nil, false, err
@@ -509,16 +795,142 @@ func (c *controller) fetchSection(section string, page int) ([]view.Card, bool, 
 	return nil, false, fmt.Errorf("未知分区 %s", section)
 }
 
+// reload 是抽屉表头的刷新键、切 tab、切收藏夹的统一入口：重拉第一页。
+func (c *controller) reload() {
+	a := c.app
+	switch a.Drawer {
+	case view.DrawerSearch:
+		c.search(a.Query)
+	case view.DrawerUp:
+		a.ListFor(view.DrawerUp).Cards = nil
+		a.UpOffset = ""
+		if a.UpTab == view.UpTabSeries {
+			c.loadUpSeries()
+		} else {
+			c.loadUpVideos("")
+		}
+	case view.DrawerSeries:
+		a.ListFor(view.DrawerSeries).Cards = nil
+		c.loadSeriesVideos(a.SeriesID, 1)
+	case "favorite":
+		// 收藏夹列表还没拉过（或换账号了）就先拉它，再拉内容。
+		if len(a.Folders) == 0 {
+			a.ListFor("favorite").Loading = true
+			a.Win.Update(func() {})
+			c.loadFolders()
+			return
+		}
+		a.ListFor("favorite").Cards = nil
+		c.loadFolderDetail(a.FolderID, 1)
+	default:
+		key := a.CurrentSection().Key
+		a.ListFor(key).Cards = nil
+		c.loadSection(key, 1)
+	}
+}
+
+// loadFolders 拉收藏夹列表（收藏抽屉的表头 tab），并选中第一个。
+// 旧版也是默认取第一个收藏夹（默认收藏夹在最前）。
+func (c *controller) loadFolders() {
+	go func() {
+		folders, err := c.bl.GetBLFavFolderList()
+		if err != nil {
+			c.app.Win.Update(func() {
+				c.app.ListFor("favorite").Loading = false
+				c.app.Status = "收藏夹加载失败：" + err.Error()
+			})
+			return
+		}
+		list := make([]view.Folder, 0, len(folders))
+		for _, f := range folders {
+			m := toMap(f)
+			list = append(list, view.Folder{
+				ID:    pickInt(m, "id", "fid", "media_id"),
+				Title: pickStr(m, "title", "name"),
+				Count: pickInt(m, "media_count"),
+			})
+		}
+		var fid int64
+		if len(list) > 0 {
+			fid = list[0].ID
+		}
+		c.app.Win.Update(func() {
+			c.app.Folders = list
+			c.app.FolderID = fid
+		})
+		if fid == 0 {
+			c.app.Win.Update(func() { c.app.ListFor("favorite").Loading = false })
+			return
+		}
+		// 注意：不能在这里调 loadSection 让它去读 app.FolderID —— Win.Update 是
+		// 排队到主线程执行的，这一行读到的还是旧值。收藏夹 id 显式传下去。
+		c.loadFolderDetail(fid, 1)
+	}()
+}
+
+// loadFolderDetail 拉某个收藏夹的内容。fid 显式传入，不读 app.FolderID。
+func (c *controller) loadFolderDetail(fid int64, page int) {
+	list := c.app.ListFor("favorite")
+	list.Loading = true
+	c.app.Win.Update(func() {})
+
+	go func() {
+		items, err := c.bl.GetBLFavFolderListDetail(int(fid), page)
+		c.app.Win.Update(func() {
+			list.Loading = false
+			if err != nil {
+				c.app.Status = "加载失败：" + err.Error()
+				return
+			}
+			if page <= 1 {
+				list.Cards = toCardsFromRaw(items)
+			} else {
+				list.Cards = append(list.Cards, toCardsFromRaw(items)...)
+			}
+			list.Page = page
+			list.HasMore = true
+			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+		})
+	}()
+}
+
+// selectFolder 切收藏夹：只重拉列表，不重新拉收藏夹列表。
+func (c *controller) selectFolder(id int64) {
+	c.app.FolderID = id
+	c.reload()
+}
+
 func (c *controller) loadMore() {
-	c.loadSection(c.app.CurrentSection().Key, c.app.Page+1)
+	a := c.app
+	switch a.Drawer {
+	case view.DrawerUp:
+		if a.UpTab == view.UpTabSeries {
+			return
+		}
+		c.loadUpVideos(a.UpOffset)
+	case view.DrawerSeries:
+		c.loadSeriesVideos(a.SeriesID, a.ListFor(view.DrawerSeries).Page+1)
+	default:
+		key := a.CurrentSection().Key
+		c.loadSection(key, a.ListFor(key).Page+1)
+	}
 }
 
 func (c *controller) search(query string) {
-	c.app.Loading = true
+	list := c.app.ListFor(view.DrawerSearch)
+	list.Loading = true
 	c.app.Status = "搜索中…"
+	c.app.Drawer = view.DrawerSearch
 	c.app.Win.Update(func() {})
+
+	// 搜索排序（表头的「综合 / 最多播放 / 最新发布」）。
+	order := c.app.SortOrder
+	if order == "" {
+		order = view.SortTotal
+	}
+
 	go func() {
-		results := c.bl.SearchVideo(query, "totalrank")
+		results := c.bl.SearchVideo(query, order)
 		items := make([]any, 0, len(results))
 		for _, r := range results {
 			items = append(items, map[string]any{
@@ -532,10 +944,10 @@ func (c *controller) search(query string) {
 			})
 		}
 		c.app.Win.Update(func() {
-			c.app.Loading = false
-			c.app.Cards = toCards(items)
-			c.app.HasMore = false
-			c.app.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(c.app.Cards))
+			list.Loading = false
+			list.Cards = toCards(items)
+			list.HasMore = false
+			c.app.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(list.Cards))
 		})
 	}()
 }
@@ -544,12 +956,13 @@ func (c *controller) search(query string) {
 
 // playIndex 播放当前列表里的第 index 条。
 func (c *controller) playIndex(index int) {
-	if index < 0 || index >= len(c.app.Cards) {
+	cards := c.app.ListFor(c.app.Drawer).Cards
+	if index < 0 || index >= len(cards) {
 		return
 	}
 	// 把整个列表作为播放队列，这样上一首/下一首能连续播放。
-	queue := make([]view.Track, 0, len(c.app.Cards))
-	for _, card := range c.app.Cards {
+	queue := make([]view.Track, 0, len(cards))
+	for _, card := range cards {
 		queue = append(queue, card.Track)
 	}
 	c.app.Queue = queue
@@ -559,24 +972,24 @@ func (c *controller) playIndex(index int) {
 
 // openParts 时把分集当作队列。
 func (c *controller) openParts(t view.Track) {
-	c.app.ShowParts = !c.app.ShowParts
-	if !c.app.ShowParts || t.Bvid == "" {
+	if c.app.Drawer != view.DrawerParts || t.Bvid == "" {
 		return
 	}
 	go func() {
-		info := c.bl.GetCList(t.Bvid)
-		parts := make([]view.Part, 0, len(info.Pages))
-		queue := make([]view.Track, 0, len(info.Pages))
-		for _, p := range info.Pages {
-			parts = append(parts, view.Part{Cid: int64(p.Cid), Page: p.Page, Part: p.Part})
+		info := c.videoInfoOf(t.Bvid, &t)
+		if info == nil || len(info.Parts) == 0 {
+			return
+		}
+		queue := make([]view.Track, 0, len(info.Parts))
+		for _, p := range info.Parts {
 			queue = append(queue, view.Track{
-				Aid: int64(info.Aid), Bvid: t.Bvid, Cid: int64(p.Cid),
-				Title: t.Title, Up: t.Up, Cover: t.Cover,
+				Aid: info.Aid, Bvid: t.Bvid, Cid: p.Cid,
+				Title: info.Title, Up: info.OwnerName, Cover: info.Pic,
 				Duration: t.Duration, Part: p.Part,
 			})
 		}
 		c.app.Win.Update(func() {
-			c.app.Parts = parts
+			c.app.Info = info
 			c.app.Queue = queue
 			for i, q := range queue {
 				if q.Cid == t.Cid {
@@ -587,6 +1000,47 @@ func (c *controller) openParts(t view.Track) {
 	}()
 }
 
+// videoInfoOf 拉取视频详情（标题 / 简介 / UP 主 / 分集 / 互动数）。
+// 主区右栏和「详情」抽屉都用它，所以拿不到时用列表卡片的字段兜底。
+func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
+	vi := c.bl.GetCList(bvid)
+	if vi.Bvid == "" && fallback == nil {
+		return nil
+	}
+	info := &view.Info{
+		Aid:       int64(vi.Aid),
+		Bvid:      vi.Bvid,
+		Title:     vi.Title,
+		Desc:      vi.Desc,
+		Pic:       vi.Pic,
+		OwnerMid:  int64(vi.OwnerMid),
+		OwnerName: vi.OwnerName,
+		OwnerFace: vi.OwnerFace,
+		Like:      vi.Stat.Like,
+		Coin:      vi.Stat.Coin,
+		Favorite:  vi.Stat.Favorite,
+		View:      vi.Stat.View,
+	}
+	for _, p := range vi.Pages {
+		info.Parts = append(info.Parts, view.Part{Cid: int64(p.Cid), Page: p.Page, Part: p.Part})
+	}
+	if len(vi.Pages) > 0 {
+		info.Cid = int64(vi.Pages[0].Cid)
+	}
+	if fallback != nil {
+		if info.Title == "" {
+			info.Title = fallback.Title
+		}
+		if info.Pic == "" {
+			info.Pic = fallback.Cover
+		}
+		if info.OwnerName == "" {
+			info.OwnerName = fallback.Up
+		}
+	}
+	return info
+}
+
 // startCurrent 起播当前队列项：取播放地址 → 起播 → 拉弹幕与跳过分段。
 func (c *controller) startCurrent() {
 	t := c.app.Current()
@@ -595,18 +1049,26 @@ func (c *controller) startCurrent() {
 	}
 	c.app.Buffering = true
 	c.app.Status = "起播中…"
-	c.app.ShowParts = false
+	c.app.Drawer = ""
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
 	c.app.Win.Update(func() {})
 
+	// 主区右栅要立刻换成这条视频的信息，所以先把列表卡片里的字段填上，
+	// 等 GetCList 回来再补简介、UP 主头像和分集。
+	c.app.Info = &view.Info{
+		Aid: t.Aid, Bvid: t.Bvid, Cid: t.Cid,
+		Title: t.Title, Pic: t.Cover, OwnerName: t.Up,
+	}
+
 	go func() {
 		cid := t.Cid
-		if cid == 0 {
-			info := c.bl.GetCList(t.Bvid)
-			if len(info.Pages) > 0 {
-				cid = int64(info.Pages[0].Cid)
+		info := c.videoInfoOf(t.Bvid, t)
+		if info != nil {
+			if cid == 0 {
+				cid = info.Cid
 			}
+			c.app.Win.Update(func() { c.app.Info = info })
 		}
 		if cid == 0 {
 			c.app.Win.Update(func() {
@@ -615,6 +1077,10 @@ func (c *controller) startCurrent() {
 			})
 			return
 		}
+		// 续播点要在起播前定好：media.Player.Seek 会重建解码器，起播后再跳
+		// 会卡一下。云端最多等 800ms，超时用本地断点。
+		resume := c.resolveResume(t.Aid, cid)
+
 		u := c.bl.GetUrlByCid(int(t.Aid), int(cid))
 		if u.URL == "" {
 			c.app.Win.Update(func() {
@@ -650,6 +1116,19 @@ func (c *controller) startCurrent() {
 			c.app.Status = ""
 		})
 
+		// 续播：本地/云端断点比 5 秒靠后才跳。
+		if resume >= resumeMinSeconds {
+			if err := c.mp.Seek(resume); err != nil {
+				log.Printf("续播跳转失败: %v", err)
+			} else {
+				c.app.Win.Update(func() {
+					c.app.Pos, c.app.SeekValue = resume, resume
+				})
+			}
+		}
+		// 换集后第一笔上报要立刻发（不要等 30 秒的节流窗口）。
+		c.reportedKey, c.reportedAt = "", time.Time{}
+
 		// 弹幕与跳过分段：可选增强，失败不影响播放。
 		if d, err := c.bl.GetDanmakuList(int(cid)); err == nil && d != nil {
 			list := make([]view.Danmaku, 0, len(d.Items))
@@ -672,6 +1151,8 @@ func (c *controller) togglePlay() {
 	if c.mp.Playing() {
 		c.mp.Pause()
 		c.app.Playing = false
+		// 暂停时立刻补写本地断点并补报云端（原版 force=true）。
+		c.flushProgress(c.app.Pos)
 	} else {
 		c.mp.Resume()
 		c.app.Playing = true
@@ -683,6 +1164,8 @@ func (c *controller) step(delta int) {
 	if len(c.app.Queue) == 0 {
 		return
 	}
+	// 切歌前把当前这条的断点补写 / 补报（原版在切歌时 force 上报）。
+	c.flushProgress(c.app.Pos)
 	next := c.app.Index + delta
 	if next < 0 {
 		next = len(c.app.Queue) - 1
@@ -695,6 +1178,8 @@ func (c *controller) step(delta int) {
 }
 
 func (c *controller) seek(seconds float64) {
+	// 跳转等于改了断点，立刻补写 + 补报（原版把 seek 当关键事件）。
+	c.flushProgress(seconds)
 	go func() {
 		if err := c.mp.Seek(seconds); err != nil {
 			log.Printf("跳转失败: %v", err)
@@ -729,23 +1214,22 @@ func (c *controller) toggleSponsor() {
 }
 
 func (c *controller) toggleDanmaku() {
-	c.app.ShowDanmaku = !c.app.ShowDanmaku
-	if c.app.ShowDanmaku && len(c.app.Danmaku) == 0 {
-		if t := c.app.Current(); t != nil && t.Cid != 0 {
-			go func() {
-				d, err := c.bl.GetDanmakuList(int(t.Cid))
-				if err != nil || d == nil {
-					return
-				}
-				list := make([]view.Danmaku, 0, len(d.Items))
-				for _, it := range d.Items {
-					list = append(list, view.Danmaku{Time: it.Time, Text: it.Content})
-				}
-				c.app.Win.Update(func() { c.app.Danmaku = list })
-			}()
-		}
+	if c.app.Drawer != view.DrawerDanmaku || len(c.app.Danmaku) > 0 {
+		return
 	}
-	c.app.Win.Update(func() {})
+	if t := c.app.Current(); t != nil && t.Cid != 0 {
+		go func() {
+			d, err := c.bl.GetDanmakuList(int(t.Cid))
+			if err != nil || d == nil {
+				return
+			}
+			list := make([]view.Danmaku, 0, len(d.Items))
+			for _, it := range d.Items {
+				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content})
+			}
+			c.app.Win.Update(func() { c.app.Danmaku = list })
+		}()
+	}
 }
 
 // maybeSkipSponsor 在播放到跳过分段时自动跳过去。

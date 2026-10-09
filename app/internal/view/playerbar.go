@@ -2,204 +2,215 @@ package view
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// speedOptions 是倍速可选项，与旧版的档位一致。
-var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0}
-
-// playerBar 是底部播放栏：烟熏玻璃条，深色时段自动换令牌。
+// 播放栏（原版 #player）：固定底部、高 56、单行。
+//
+//	#player .player-controls {
+//	    height: 56px; padding: 0 18px;
+//	    grid-template-columns: 80px 56px minmax(0,1fr) 56px 34px 40px 34px 40px;
+//	    gap: 8px; border-top: 1px solid var(--player-border);
+//	    background-color: var(--player-surface);
+//	}
+//
+// 列依次是：传输键（播放 42 + 下一集 32）/ 当前时间 / 进度 / 总时长 /
+// 音量 / 倍速 / 均衡 / 跳过赞助。原版没有封面和标题 —— 那些在主区。
 func (a *App) playerBar(c *ui.Context) {
 	t := a.Theme
-	ui.Column(c).FillWidth().Shrink(0).Padding(PlayerBarPad, 14, PlayerBarPad, 14).Children(func() {
-		bar := ui.Column(c).FillWidth().Radius(Radius).Gap(6).Padding(8, 10).
-			Background(t.PlayerSurface).Border(1, t.PlayerBorder)
-		bar.Children(func() {
-			a.playerTopRow(c)
-			a.playerBottomRow(c)
+	ui.Column(c).FillWidth().Height(56).Shrink(0).
+		Background(t.PlayerSurface).Children(func() {
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
+		ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
+			AlignItems(ui.Center).Children(func() {
+			a.transport(c)
+			a.timeText(c, a.Pos)
+			a.progress(c)
+			a.timeText(c, a.Dur)
+			a.volumeButton(c)
+			a.speedButton(c)
+			a.eqButton(c)
+			a.sponsorButton(c)
 		})
 	})
+
+	// 倍速 / 音量弹层：从播放栏上方向上弹。
+	if a.ShowSpeed {
+		a.speedPopover(c)
+	}
+	if a.ShowVolume {
+		a.volumePopover(c)
+	}
 }
 
-// playerTopRow：封面、标题、上一首/播放/下一首、进度、时间。
-func (a *App) playerTopRow(c *ui.Context) {
+// transport 是第 1 列（80px）：播放/暂停（42） + 下一集（32）。
+func (a *App) transport(c *ui.Context) {
 	t := a.Theme
-	ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
-		// 封面
-		ui.Box(c).Size(40, 40).Shrink(0).Radius(RadiusSmall).
-			Background(t.CoverPlaceholder()).Clip().Children(func() {
-			if a.Track != nil {
-				if bmp := a.Images.Bitmap(a.Track.Cover); bmp != nil {
-					ui.Image(c, bmp).Fill().Fit(ui.Cover)
-				}
-			}
-		})
-
-		// 标题 / UP 主
-		ui.Column(c).Width(190).Shrink(0).Gap(2).Children(func() {
-			title := "未在播放"
-			if a.Track != nil {
-				title = a.Track.Title
-			}
-			ui.Text(c, title).FontSize(12).TextColor(t.Ink).SingleLine()
-			sub := "空格 暂停 / 播放　← → 上一集 / 下一集"
-			if a.Track != nil && a.Track.Up != "" {
-				sub = a.Track.Up
-				if a.Track.Part != "" {
-					sub += " · " + a.Track.Part
-				}
-			}
-			ui.Text(c, sub).FontSize(10).TextColor(t.Faint).SingleLine()
-		})
-
-		a.transportButtons(c)
-
-		// 进度
-		ui.Row(c).Grow(1).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, fmtTime(a.Pos)).FontSize(10).TextColor(t.Faint)
-			hi := a.Dur
-			if hi <= 0 {
-				hi = 1
-			}
-			if !a.seeking {
-				a.SeekValue = a.Pos
-			}
-			s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-			if s.Changed() {
-				a.seeking = true
-			}
-			if s.Submitted() || (a.seeking && !s.Dragging()) {
-				if a.seeking {
-					a.seeking = false
-					if a.Act.Seek != nil {
-						a.Act.Seek(a.SeekValue)
-					}
-				}
-			}
-			ui.Text(c, fmtTime(a.Dur)).FontSize(10).TextColor(t.Faint)
-		})
-	})
-}
-
-// transportButtons 是上一首 / 播放暂停 / 下一首。
-func (a *App) transportButtons(c *ui.Context) {
-	t := a.Theme
-	ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).Children(func() {
-		prev := ui.ButtonBase(c.Key("prev")).Size(30, 28).Radius(RadiusSmall).Center().
-			Label("上一集").Tooltip("上一集")
-		if prev.Hovered() {
-			prev.Background(t.GlassHover)
-		} else {
-			prev.Background(t.Glass)
-		}
-		prev.Children(func() { ui.Icon(c, iconPrev).Size(14, 14).TextColor(t.Muted) })
-		if prev.Clicked() && a.Act.Prev != nil {
-			a.Act.Prev()
-		}
-
-		play := ui.ButtonBase(c.Key("play")).Size(40, 28).Radius(RadiusSmall).Center().
+	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
+		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(Radius).Center().
 			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
-		play.Background(t.Blue.Alpha(0.28)).Border(1, t.Blue.Alpha(0.45))
+		play.Background(t.Blue.Alpha(0.18)).Border(1, t.Blue.Alpha(0.35))
 		play.Children(func() {
 			if a.Playing {
-				ui.Icon(c, iconPause).Size(14, 14).TextColor(t.Ink)
+				ui.Icon(c, iconPause).Size(17, 17).TextColor(ui.Hex("#0369a1"))
 			} else {
-				ui.Icon(c, iconPlay).Size(14, 14).TextColor(t.Ink)
+				ui.Icon(c, iconPlay).Size(17, 17).TextColor(ui.Hex("#0369a1"))
 			}
 		})
 		if play.Clicked() && a.Act.TogglePlay != nil {
 			a.Act.TogglePlay()
 		}
 
-		next := ui.ButtonBase(c.Key("next")).Size(30, 28).Radius(RadiusSmall).Center().
+		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
 			Label("下一集").Tooltip("下一集")
 		if next.Hovered() {
 			next.Background(t.GlassHover)
 		} else {
-			next.Background(t.Glass)
+			next.Background(ui.Transparent)
 		}
-		next.Children(func() { ui.Icon(c, iconNext).Size(14, 14).TextColor(t.Muted) })
+		next.Border(1, t.GlassBorder)
+		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
 		}
 	})
 }
 
-// playerBottomRow：倍速、均衡、跳过赞助、弹幕、分集、视频、音量。
-func (a *App) playerBottomRow(c *ui.Context) {
+// timeText 是第 2 / 第 4 列（56px）的时间文本。
+func (a *App) timeText(c *ui.Context, sec float64) {
+	ui.Text(c, fmtTime(sec)).FontSize(11).TextColor(ui.Hex("#334155").Alpha(0.72)).
+		Width(56).Shrink(0).Center()
+}
+
+// progress 是第 3 列（1fr）的可拖动进度条。
+func (a *App) progress(c *ui.Context) {
+	hi := a.Dur
+	if hi <= 0 {
+		hi = 1
+	}
+	if !a.seeking {
+		a.SeekValue = a.Pos
+	}
+	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
+	if s.Changed() {
+		a.seeking = true
+	}
+	if s.Submitted() || (a.seeking && !s.Dragging()) {
+		if a.seeking {
+			a.seeking = false
+			if a.Act.Seek != nil {
+				a.Act.Seek(a.SeekValue)
+			}
+		}
+	}
+}
+
+// volumeButton 是第 5 列（34px）：点开音量弹层。
+func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
-	ui.Row(c).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Width(40).Shrink(0) // 与上一行的封面左对齐
-		a.chip(c, "speed", fmt.Sprintf("%.2gx", a.Speed), iconSpeed, a.ShowSpeed, func() {
-			a.ShowSpeed = !a.ShowSpeed
-		})
-		a.chip(c, "eq", "均衡", iconEQ, a.EQ, func() {
-			if a.Act.ToggleEQ != nil {
-				a.Act.ToggleEQ()
-			}
-		})
-		a.chip(c, "sponsor", "跳过", iconSponsor, a.Sponsor, func() {
-			if a.Act.ToggleSponsor != nil {
-				a.Act.ToggleSponsor()
-			}
-		})
-		a.chip(c, "danmaku", "弹幕", iconDanmaku, a.ShowDanmaku, func() {
-			if a.Act.ToggleDanmaku != nil {
-				a.Act.ToggleDanmaku()
-			}
-		})
-		a.chip(c, "parts", "分集", iconList, a.ShowParts, func() {
-			if a.Act.OpenParts != nil && a.Track != nil {
-				a.Act.OpenParts(*a.Track)
-			}
-		})
-		a.chip(c, "video", "视频", iconVideo, a.VideoOpen, func() {
-			if a.VideoOpen {
-				if a.Act.CloseVideo != nil {
-					a.Act.CloseVideo()
-				}
-			} else if a.Act.OpenVideo != nil {
-				a.Act.OpenVideo()
-			}
-		})
+	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
+		Label("音量").Tooltip("音量")
+	if a.ShowVolume || b.Hovered() {
+		b.Background(t.GlassHover)
+	} else {
+		b.Background(ui.Transparent)
+	}
+	b.Border(1, t.GlassBorder)
+	b.Children(func() { ui.Icon(c, iconVolume).Size(15, 15).TextColor(ui.Hex("#334155")) })
+	if b.Clicked() {
+		a.ShowVolume = !a.ShowVolume
+		a.ShowSpeed = false
+	}
+}
 
-		ui.Box(c).Grow(1)
-
-		// 音量
-		ui.Row(c).Width(140).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconVolume).Size(13, 13).TextColor(t.Faint)
-			v := a.Volume
-			s := ui.Slider(c, &v, 0, 1).Grow(1).Label("音量")
-			if s.Changed() {
-				a.Volume = v
-				if a.Act.SetVolume != nil {
-					a.Act.SetVolume(v)
-				}
-			}
-		})
+// speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
+func (a *App) speedButton(c *ui.Context) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
+		Label("倍速").Tooltip("倍速")
+	if a.ShowSpeed || b.Hovered() {
+		b.Background(t.GlassHover)
+	} else {
+		b.Background(ui.Transparent)
+	}
+	b.Border(1, t.GlassBorder)
+	b.Children(func() {
+		ui.Text(c, fmt.Sprintf("%.1fx", a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
 	})
+	if b.Clicked() {
+		a.ShowSpeed = !a.ShowSpeed
+		a.ShowVolume = false
+	}
+}
 
-	// 倍速菜单：点「倍速」展开一排档位。
-	if a.ShowSpeed {
-		ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Width(40).Shrink(0)
+// eqButton 是第 7 列（34px）：均衡开关。
+func (a *App) eqButton(c *ui.Context) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("eq")).Size(32, 32).Radius(Radius).Center().
+		Label("均衡").Tooltip("均衡")
+	switch {
+	case a.EQ:
+		b.Background(t.Blue.Alpha(0.28))
+	case b.Hovered():
+		b.Background(t.GlassHover)
+	default:
+		b.Background(ui.Transparent)
+	}
+	b.Border(1, t.GlassBorder)
+	b.Children(func() {
+		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
+	})
+	if b.Clicked() && a.Act.ToggleEQ != nil {
+		a.Act.ToggleEQ()
+	}
+}
+
+// sponsorButton 是第 8 列（40px）：跳过赞助片段开关。
+func (a *App) sponsorButton(c *ui.Context) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("sponsor")).Size(32, 32).Radius(Radius).Center().
+		Label("跳过赞助").Tooltip("跳过赞助片段")
+	switch {
+	case a.Sponsor:
+		b.Background(t.Blue.Alpha(0.28))
+	case b.Hovered():
+		b.Background(t.GlassHover)
+	default:
+		b.Background(ui.Transparent)
+	}
+	b.Border(1, t.GlassBorder)
+	b.Children(func() {
+		ui.Icon(c, iconSponsor).Size(15, 15).
+			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
+	})
+	if b.Clicked() && a.Act.ToggleSponsor != nil {
+		a.Act.ToggleSponsor()
+	}
+}
+
+// ---------------------------------------------------------------- 弹层
+
+// speedPopover 是倍速档位菜单，从播放栏第 6 列上方弹出。
+func (a *App) speedPopover(c *ui.Context) {
+	t := a.Theme
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).Children(func() {
+		ui.Column(c).Absolute().Right(150).Bottom(60).Width(96).Padding(4).
+			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
+			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Children(func() {
 			for _, opt := range speedOptions {
 				active := abs(opt-a.Speed) < 0.001
-				b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).Height(22).Padding(0, 10).
-					Radius(RadiusSmall).Center().Label(fmt.Sprintf("%.2gx", opt))
+				b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).FillWidth().Height(26).
+					Padding(0, 8).Radius(RadiusSmall).Label(fmt.Sprintf("%.1fx", opt))
 				switch {
 				case active:
-					b.Background(t.Blue.Alpha(0.35)).Border(1, t.Blue.Alpha(0.55))
+					b.Background(t.Blue.Alpha(0.22))
 				case b.Hovered():
 					b.Background(t.GlassHover)
-				default:
-					b.Background(t.Glass)
 				}
 				b.Children(func() {
-					ui.Text(c, fmt.Sprintf("%.2gx", opt)).FontSize(10).
-						TextColor(pick(active, t.Ink, t.Muted))
+					ui.Text(c, fmt.Sprintf("%.1fx", opt)).FontSize(11).
+						TextColor(pick(active, t.Blue, t.Ink))
 				})
 				if b.Clicked() {
 					a.Speed = opt
@@ -210,31 +221,30 @@ func (a *App) playerBottomRow(c *ui.Context) {
 				}
 			}
 		})
-	}
+	})
 }
 
-// chip 是一个可切换的小按钮（图标 + 文字），激活时高亮。
-func (a *App) chip(c *ui.Context, key, label string, ic *ui.SVG, active bool, onClick func()) {
+// volumePopover 是音量滑块，从播放栏第 5 列上方弹出。
+func (a *App) volumePopover(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("chip-"+key)).Height(24).Padding(0, 9).Radius(RadiusSmall).
-		Center().Label(label).Tooltip(label)
-	switch {
-	case active:
-		b.Background(t.Blue.Alpha(0.30)).Border(1, t.Blue.Alpha(0.50))
-	case b.Hovered():
-		b.Background(t.GlassHover)
-	default:
-		b.Background(t.Glass)
-	}
-	b.Children(func() {
-		ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, ic).Size(12, 12).TextColor(pick(active, t.Ink, t.Muted))
-			ui.Text(c, label).FontSize(11).TextColor(pick(active, t.Ink, t.Muted))
+	ui.Box(c).Absolute().Fill().Children(func() {
+		ui.Column(c).Absolute().Right(190).Bottom(60).Width(200).Padding(10).
+			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
+			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).Children(func() {
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconVolume).Size(14, 14).TextColor(t.Muted)
+				v := a.Volume
+				s := ui.Slider(c, &v, 0, 1).Grow(1).Label("音量")
+				if s.Changed() {
+					a.Volume = v
+					if a.Act.SetVolume != nil {
+						a.Act.SetVolume(v)
+					}
+				}
+				ui.Text(c, fmt.Sprintf("%d%%", int(a.Volume*100))).FontSize(10).TextColor(t.Faint)
+			})
 		})
 	})
-	if b.Clicked() {
-		onClick()
-	}
 }
 
 // fmtTime 把秒格式化成 m:ss / h:mm:ss。
@@ -257,4 +267,5 @@ func abs(v float64) float64 {
 	return v
 }
 
-var _ = time.Second
+// speedOptions 是倍速可选项，与旧版的档位一致。
+var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0}

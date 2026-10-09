@@ -102,6 +102,82 @@ func intAt(m map[string]any, key string) int64 {
 	return 0
 }
 
+// ---------------------------------------------------------------- 播放进度
+
+// 与 src-tauri/src/bilibili.rs 的 get_play_progress 对齐。
+const (
+	// 回退翻历史的页数上限（player/v2 偶尔失败，或返回的是账号最近看的
+	// **别的**分集）。
+	progressHistoryPages = 5
+)
+
+// GetPlayProgress 读取这个视频在云端的上次观看位置（秒），用于续播。
+//
+// 先问 x/player/v2 的 last_play_time（毫秒）/ last_play_cid —— 只有 cid 对得上
+// （或没记录过 cid）才认；再翻最多 5 页观看历史，找 aid+cid 都匹配的那条取
+// progress。调用方自己有 800ms 起播预算，所以这里不该慢。
+func (bl *BL) GetPlayProgress(aid, cid int64) (int, error) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return 0, errors.New("未登录")
+	}
+	if aid <= 0 || cid <= 0 {
+		return 0, errors.New("未选择作品")
+	}
+
+	playerURL := fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
+	if v, err := doJSON("GET", playerURL, cookie); err == nil {
+		d := dataOf(v)
+		lastCid := intAt(d, "last_play_cid")
+		progress := intAt(d, "last_play_time") / 1000
+		if progress > 0 && (lastCid == 0 || lastCid == cid) {
+			return int(progress), nil
+		}
+	}
+
+	var cursorMax, cursorViewAt int64
+	for i := 0; i < progressHistoryPages; i++ {
+		historyURL := fmt.Sprintf(
+			"https://api.bilibili.com/x/web-interface/history/cursor"+
+				"?type=archive&max=%d&view_at=%d&business=archive&ps=50",
+			cursorMax, cursorViewAt)
+		v, err := doJSON("GET", historyURL, cookie)
+		if err != nil {
+			return 0, err
+		}
+		d := dataOf(v)
+		items := arrOf(d, "list")
+		for _, it := range items {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			h, _ := m["history"].(map[string]any)
+			if h == nil {
+				continue
+			}
+			if intAt(h, "oid") != aid || intAt(h, "cid") != cid {
+				continue
+			}
+			if p := intAt(m, "progress"); p > 0 {
+				return int(p), nil
+			}
+			return 0, nil
+		}
+
+		nextMax, nextViewAt := int64(0), int64(0)
+		if c, ok := d["cursor"].(map[string]any); ok {
+			nextMax, nextViewAt = intAt(c, "max"), intAt(c, "view_at")
+		}
+		// 没更多了，或者游标没动（防死循环）。
+		if len(items) == 0 || (nextMax == cursorMax && nextViewAt == cursorViewAt) || nextViewAt <= 0 {
+			break
+		}
+		cursorMax, cursorViewAt = nextMax, nextViewAt
+	}
+	return 0, nil
+}
+
 // ---------------------------------------------------------------- 稍后再看
 
 // WatchLaterItem 是稍后再看里的一条。

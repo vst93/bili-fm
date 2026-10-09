@@ -317,17 +317,26 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 
 // ----------- begin - getCList -----------
 type VideoInfo struct {
-	Bvid      string `json:"bvid"`
-	Aid       int    `json:"aid"`
-	Title     string `json:"title"`
-	Desc      string `json:"desc"`
-	Videos    int    `json:"videos"`
-	Pic       string `json:"pic"`
-	OwnerMid  int    `json:"owner_mid"`
-	OwnerName string `json:"owner_name"`
-	OwnerFace string `json:"owner_face"`
-	Pages     []Page `json:"pages"`
-	Cid       int    `json:"cid"`
+	Bvid      string    `json:"bvid"`
+	Aid       int       `json:"aid"`
+	Title     string    `json:"title"`
+	Desc      string    `json:"desc"`
+	Videos    int       `json:"videos"`
+	Pic       string    `json:"pic"`
+	OwnerMid  int       `json:"owner_mid"`
+	OwnerName string    `json:"owner_name"`
+	OwnerFace string    `json:"owner_face"`
+	Pages     []Page    `json:"pages"`
+	Cid       int       `json:"cid"`
+	Stat      VideoStat `json:"stat"`
+}
+
+// VideoStat 是视频的互动数，主区操作行下面显示（对应原版的 stat）。
+type VideoStat struct {
+	Like     int64 `json:"like"`
+	Coin     int64 `json:"coin"`
+	Favorite int64 `json:"favorite"`
+	View     int64 `json:"view"`
 }
 
 type Page struct {
@@ -381,6 +390,12 @@ func (bl *BL) GetCList(bvid string) (videoInfo VideoInfo) {
 				Face string `json:"face"`
 			} `json:"owner"`
 			Pages []Page `json:"pages"`
+			Stat  struct {
+				Like     int64 `json:"like"`
+				Coin     int64 `json:"coin"`
+				Favorite int64 `json:"favorite"`
+				View     int64 `json:"view"`
+			} `json:"stat"`
 		} `json:"data"`
 	}
 
@@ -406,6 +421,12 @@ func (bl *BL) GetCList(bvid string) (videoInfo VideoInfo) {
 		OwnerName: result.Data.Owner.Name,
 		OwnerFace: result.Data.Owner.Face,
 		Pages:     result.Data.Pages,
+		Stat: VideoStat{
+			Like:     result.Data.Stat.Like,
+			Coin:     result.Data.Stat.Coin,
+			Favorite: result.Data.Stat.Favorite,
+			View:     result.Data.Stat.View,
+		},
 	}
 
 	return videoInfo

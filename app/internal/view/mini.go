@@ -12,92 +12,116 @@ import (
 const (
 	miniWidth  = 400
 	miniHeight = 155
+
+	// miniTitleBar 是迷你模式的标题栏高度；整窗 = 24 + 88 + 43 = 155。
+	miniTitleBar = 24
+	miniInfoH    = 88
+	miniPlayerH  = 43
+	miniCover    = 64
 )
 
-// MiniShell 是迷你模式的界面：封面、标题、进度、一排紧凑控制。
+// MiniShell 是迷你模式的界面（原版 body.mini-mode）：
+//
+//	24px  标题栏（macOS 是原生红绿灯；Windows/Linux 是原生窗口按钮）
+//	88px  #min-video-info：64px 封面 + 标题/选集 + 右侧窗口控制
+//	43px  #player：切曲 / 当前时间 / 进度 / 时长 / 音量
+//
+// 迷你模式的背景是固定的浅色渐变，不跟时段（body.mini-mode #root）。
 func (a *App) MiniShell(c *ui.Context) {
 	t := a.Theme
-	c.Root().Background(t.Period.Sample(0.5))
-	ui.Column(c).Fill().Children(func() { a.backdrop(c) })
+	c.SetTheme(t.uiTheme())
+	a.shortcuts(c)
+	c.Root().Background(ui.Hex("#f7fafd"))
 
-	ui.Column(c).Absolute().Fill().Padding(8, 10).Gap(6).Children(func() {
-		// 标题栏：可拖动 + 还原 / 关闭
-		ui.Row(c).FillWidth().Height(MiniTitleBar).Shrink(0).AlignItems(ui.Center).
-			Gap(6).DragWindow().Children(func() {
-			ui.Text(c, "bili-FM").FontSize(11).Bold().TextColor(t.Ink)
-			ui.Box(c).Grow(1)
-			restore := ui.ButtonBase(c.Key("mini-restore")).Size(22, 18).Radius(4).Center().
-				Label("还原").Tooltip("还原窗口")
-			if restore.Hovered() {
-				restore.Background(t.GlassHover)
-			} else {
-				restore.Background(t.Glass)
-			}
-			if restore.Clicked() && a.Act.SetMini != nil {
-				a.Act.SetMini(false)
-			}
-
-			closeB := ui.ButtonBase(c.Key("mini-close")).Size(22, 18).Radius(4).Center().
-				Label("关闭").Tooltip("关闭")
-			if closeB.Hovered() {
-				closeB.Background(t.Rose.Alpha(0.28))
-			} else {
-				closeB.Background(t.Glass)
-			}
-			if closeB.Clicked() && a.Act.Quit != nil {
-				a.Act.Quit()
-			}
+	ui.Column(c).Fill().Children(func() {
+		ui.Box(c).FillWidth().Grow(1).LinearGradient(ui.LinearGradient{
+			From: ui.Hex("#fbfdff"), To: ui.Hex("#f3f8fb"), Angle: 145,
 		})
+	})
 
-		// 主体：封面 + 标题 + UP 主
-		ui.Row(c).FillWidth().Grow(1).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Box(c).Size(72, 72).Shrink(0).Radius(RadiusSmall).
-				Background(t.CoverPlaceholder()).Clip().Children(func() {
-				if a.Track != nil {
-					if bmp := a.Images.Bitmap(a.Track.Cover); bmp != nil {
-						ui.Image(c, bmp).Fill().Fit(ui.Cover)
-					}
+	ui.Column(c).Absolute().Fill().Children(func() {
+		// 标题栏：只用来拖动窗口（原版 mini 下把内容整体淡出，只留窗口按钮）。
+		ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()
+
+		// 主体：封面 + 标题 + 选集 + 窗口控制。
+		ui.Row(c).FillWidth().Height(miniInfoH).Shrink(0).Padding(6, 12).
+			Gap(11).AlignItems(ui.Center).Children(func() {
+			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
+				Background(ui.Hex("#ffffff").Alpha(0.58)).Clip().Children(func() {
+				if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+					ui.Image(c, bmp).Fill().Fit(ui.Cover)
 				}
 			})
-			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-				title := "未在播放"
-				up := "空格 暂停 / 播放"
-				if a.Track != nil {
-					title = a.Track.Title
-					if a.Track.Up != "" {
-						up = a.Track.Up
-					}
-				}
-				ui.Text(c, title).FontSize(12).TextColor(t.Ink).MaxLines(2)
-				ui.Text(c, up).FontSize(10).TextColor(t.Faint).SingleLine()
+
+			ui.Column(c).Grow(1).MinWidth(0).Gap(7).Justify(ui.Center).Children(func() {
+				ui.Text(c, a.infoTitle()).FontSize(15).Bold().TextColor(t.Ink).MaxLines(2)
+				ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
+						Radius(RadiusPill).Background(t.Blue)
+					ui.Text(c, a.partTitle()).FontSize(12).Bold().
+						TextColor(ui.Hex("#526174")).SingleLine()
+				})
 			})
-			// 紧凑控制：上一集 / 播放 / 下一集 / 还原大窗
-			ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Children(func() {
-				miniBtn(c, a, "mini-prev", iconPrev, func() {
-					if a.Act.Prev != nil {
-						a.Act.Prev()
+
+			ui.Column(c).Width(30).Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
+				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, func() {
+					if a.Act.SetMini != nil {
+						a.Act.SetMini(false)
 					}
 				})
-				playIcon := iconPlay
-				if a.Playing {
-					playIcon = iconPause
-				}
-				miniBtn(c, a, "mini-play", playIcon, func() {
-					if a.Act.TogglePlay != nil {
-						a.Act.TogglePlay()
-					}
-				})
-				miniBtn(c, a, "mini-next", iconNext, func() {
-					if a.Act.Next != nil {
-						a.Act.Next()
-					}
-				})
+				a.miniControl(c, "mini-pin", pick(a.Pinned, "取消窗口置顶", "窗口置顶"),
+					iconPin, func() {
+						if a.Act.TogglePin != nil {
+							a.Act.TogglePin()
+						}
+					})
 			})
 		})
 
-		// 进度条
-		ui.Row(c).FillWidth().Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(t.Faint)
+		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
+		a.miniPlayerBar(c)
+	})
+}
+
+// miniPlayerBar 是迷你模式的播放栏（原版 body.mini-mode #player）：
+// 高 43、内边距 0 10，列宽 59 / 44 / 1fr / 44 / 34，间距 4。
+func (a *App) miniPlayerBar(c *ui.Context) {
+	t := a.Theme
+	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
+		Background(t.PlayerSurface).Children(func() {
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
+		ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).
+			AlignItems(ui.Center).Children(func() {
+			// 59px：播放 28 + 3 + 下一集 28。
+			ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
+				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(Radius).Center().
+					Label(pick(a.Playing, "暂停", "播放"))
+				play.Background(t.Blue.Alpha(0.18)).Border(1, t.Blue.Alpha(0.35))
+				play.Children(func() {
+					ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
+						TextColor(ui.Hex("#0369a1"))
+				})
+				if play.Clicked() && a.Act.TogglePlay != nil {
+					a.Act.TogglePlay()
+				}
+
+				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(Radius).Center().
+					Label("下一集")
+				if next.Hovered() {
+					next.Background(t.GlassHover)
+				} else {
+					next.Background(ui.Transparent)
+				}
+				next.Border(1, t.GlassBorder)
+				next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
+				if next.Clicked() && a.Act.Next != nil {
+					a.Act.Next()
+				}
+			})
+
+			ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
+				Width(44).Shrink(0).Center()
+
 			hi := a.Dur
 			if hi <= 0 {
 				hi = 1
@@ -117,23 +141,38 @@ func (a *App) MiniShell(c *ui.Context) {
 					}
 				}
 			}
-			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(t.Faint)
+
+			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
+				Width(44).Shrink(0).Center()
+
+			vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(Radius).Center().
+				Label("音量")
+			if vol.Hovered() {
+				vol.Background(t.GlassHover)
+			} else {
+				vol.Background(ui.Transparent)
+			}
+			vol.Border(1, t.GlassBorder)
+			vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
+			if vol.Clicked() {
+				a.ShowVolume = !a.ShowVolume
+			}
 		})
 	})
 }
 
-// miniBtn 是迷你模式里的小图标按钮。
-func miniBtn(c *ui.Context, a *App, key string, ic *ui.SVG, onClick func()) {
+// miniControl 是迷你模式右上角的窗口控制键（20×20，原版 .app-title-bar-btn）。
+func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key(key)).Size(28, 24).Radius(RadiusSmall).Center().Label(key)
+	b := ui.ButtonBase(c.Key(key)).Size(20, 20).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
 	if b.Hovered() {
 		b.Background(t.GlassHover)
 	} else {
-		b.Background(t.Glass)
+		b.Background(ui.Transparent)
 	}
 	b.Children(func() { ui.Icon(c, ic).Size(12, 12).TextColor(t.Muted) })
 	if b.Clicked() {
-		onClick()
+		fn()
 	}
 }
 

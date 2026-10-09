@@ -25,16 +25,20 @@ func (a *App) shortcuts(c *ui.Context) {
 			a.Act.Next()
 		}
 	})
-	c.OnShortcut(0, ui.KeyUp, func() { a.nudgeVolume(0.05) })
-	c.OnShortcut(0, ui.KeyDown, func() { a.nudgeVolume(-0.05) })
+	c.OnShortcut(0, ui.KeyUp, func() {
+		a.nudgeVolume(0.05)
+	})
+	c.OnShortcut(0, ui.KeyDown, func() {
+		a.nudgeVolume(-0.05)
+	})
 	c.OnShortcut(0, ui.KeyEscape, func() {
 		switch {
-		case a.ShowParts:
-			a.ShowParts = false
-		case a.ShowDanmaku:
-			a.ShowDanmaku = false
+		case a.Drawer != "":
+			a.Drawer = ""
 		case a.ShowSpeed:
 			a.ShowSpeed = false
+		case a.ShowVolume:
+			a.ShowVolume = false
 		}
 	})
 }

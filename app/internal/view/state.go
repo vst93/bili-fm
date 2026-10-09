@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -16,7 +17,12 @@ type Card struct {
 	Cover    string
 	Title    string
 	Duration string // 封面右下角角标，空则不画
-	Meta     []string
+	// meta 行按旧版 CardMeta 的字段类型分开存，视图按卡片宽度决定显示哪几列
+	// （作者 40% / 播放量 30% / 发布时间 30%，窄了从末尾隐藏）。
+	Up      string // 作者
+	Views   string // 播放量
+	Pubdate string // 发布时间（相对或短的绝对形式）
+	Extra   string // 附加（稍后再看的「已看 30%」等）
 	// Track 是点击这张卡片要播放的内容。
 	Track Track
 }
@@ -56,52 +62,142 @@ type Comment struct {
 	Time    string
 }
 
-// Section 是导航里的一个分区。
+// List 是一个抽屉的列表状态。
+//
+// 旧版每个抽屉有自己的 state（各自的 cards / loading / page / hasMore），
+// 所以切抽屉不会互相覆盖，也不会闪一下上一个抽屉的内容。
+type List struct {
+	Cards   []Card
+	Loading bool
+	Page    int
+	HasMore bool
+}
+
+// Section 是搜索栏右侧一个入口对应的抽屉。
+//
+// 注意：旧版的「热门与推荐」「历史」是两个抽屉内各自带 tab，
+// 而不是四个独立分区（见 recommendList.tsx / historyList.tsx）。
 type Section struct {
-	Key   string // recommend / popular / feed / favorite / history / watchlater
+	Key   string // feed / popular / favorite / history
 	Label string
 	// NeedLogin 为真时未登录就提示登录而不是发请求。
 	NeedLogin bool
 }
 
-// Sections 是顶部分区，顺序与原版一致。
-var Sections = []Section{
-	// 推荐接口未登录时返回空，所以也标成需要登录，界面上给提示而不是白屏。
-	{Key: "recommend", Label: "推荐", NeedLogin: true},
-	{Key: "popular", Label: "热门"},
-	{Key: "feed", Label: "动态", NeedLogin: true},
-	{Key: "favorite", Label: "收藏", NeedLogin: true},
-	{Key: "history", Label: "历史", NeedLogin: true},
-	{Key: "watchlater", Label: "稍后再看", NeedLogin: true},
+// Folder 是一个收藏夹（收藏抽屉的表头 tab）。
+type Folder struct {
+	ID    int64
+	Title string
+	Count int64
 }
+
+// Series 是 UP 主的一个合集（UP 空间抽屉的「合集」tab）。
+type Series struct {
+	ID    int64
+	Title string
+	Count int64
+}
+
+// Info 是当前视频的详情（标题 / 简介 / UP 主 / 分集 / 互动数），
+// 来自 GetCList，主区右栅和「详情」抽屉都用它。
+type Info struct {
+	Aid       int64
+	Bvid      string
+	Cid       int64
+	Title     string
+	Desc      string
+	Pic       string
+	OwnerMid  int64
+	OwnerName string
+	OwnerFace string
+	Parts     []Part
+	Like      int64
+	Coin      int64
+	Favorite  int64
+	View      int64
+}
+
+// 抽屉的 key。Drawer 为空表示没有抽屉打开；分区抽屉直接用分区的 key。
+const (
+	DrawerSearch  = "search"
+	DrawerParts   = "parts"
+	DrawerDanmaku = "danmaku"
+	DrawerInfo    = "info"
+	// DrawerUp 是「UP 主的空间」（视频 / 合集两个 tab），点主区的 UP 头像进。
+	DrawerUp = "up"
+	// DrawerSeries 是一个合集的视频列表，从 UP 空间里选一个合集进。
+	DrawerSeries = "series"
+)
+
+// UP 空间抽屉的两个 tab（原版 upVideoList.tsx 的「视频 / 合集」）。
+const (
+	UpTabVideos = "videos"
+	UpTabSeries = "series"
+)
+
+// Sections 是搜索栏右侧四个入口对应的抽屉，顺序与原版一致。
+var Sections = []Section{
+	{Key: "feed", Label: "动态", NeedLogin: true},
+	// 热门不需要登录，推荐需要，所以这个抽屉的登录提示看 RecTab。
+	{Key: "popular", Label: "热门与推荐"},
+	{Key: "favorite", Label: "收藏", NeedLogin: true},
+	// 观看历史需要登录；稍后再看也一样（接口会直接返回空）。
+	{Key: "history", Label: "历史", NeedLogin: true},
+}
+
+// 抽屉表头 tab 的取值（与原版 searchList / recommendList / historyList 一致）。
+const (
+	SortTotal  = "totalrank" // 搜索：综合
+	SortClick  = "click"     // 搜索：最多播放
+	SortUpdate = "update"    // 搜索：最新发布
+
+	RecHot       = "hot"       // 热门与推荐：热门（GetBLPopularList）
+	RecRecommend = "recommend" // 热门与推荐：推荐（GetBLRCMDList）
+
+	HistHistory    = "history"    // 历史：观看历史
+	HistWatchLater = "watchlater" // 历史：稍后再看
+)
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。
 type Actions struct {
-	LoadSection   func(section string, page int)
-	Search        func(query string)
-	Play          func(index int)
-	TogglePlay    func()
-	Next          func()
-	Prev          func()
-	Seek          func(seconds float64)
-	SetSpeed      func(v float64)
-	ToggleEQ      func()
-	ToggleSponsor func()
-	SetVolume     func(v float64)
-	OpenVideo     func()
-	CloseVideo    func()
-	OpenParts     func(t Track)
-	ToggleDanmaku func()
-	LoadMore      func()
-	Login         func()
-	Like          func()
-	Coin          func()
-	Favorite      func()
-	Follow        func()
-	Quit          func()
-	Minimize      func()
-	SetMini       func(on bool)
-	SaveQueue     func()
+	LoadSection func(section string, page int)
+	// Reload 按当前抽屉的 tab / 排序重拉第一页（刷新键和切 tab 都走它）。
+	Reload func()
+	// SelectFolder 切收藏夹（收藏抽屉的表头 tab）。
+	SelectFolder func(id int64)
+	// OpenUp 打开某个 UP 主的空间（主区的 UP 头像 / 名字）。
+	OpenUp func(mid int64, name string)
+	// SelectSeries 在 UP 空间里选一个合集。
+	SelectSeries func(id int64)
+	// ToggleFollow 关注 / 取关当前视频的 UP（或 UP 空间里那个）。
+	ToggleFollow func()
+	// ToggleIncognito 切换隐身模式（历史抽屉表头）。
+	ToggleIncognito func()
+	Search          func(query string)
+	Play            func(index int)
+	TogglePlay      func()
+	Next            func()
+	Prev            func()
+	Seek            func(seconds float64)
+	SetSpeed        func(v float64)
+	ToggleEQ        func()
+	ToggleSponsor   func()
+	SetVolume       func(v float64)
+	OpenVideo       func()
+	CloseVideo      func()
+	OpenParts       func(t Track)
+	ToggleDanmaku   func()
+	LoadMore        func()
+	Login           func()
+	Like            func()
+	Coin            func()
+	Favorite        func()
+	Follow          func()
+	Quit            func()
+	Minimize        func()
+	SetMini         func(on bool)
+	TogglePin       func()
+	SaveQueue       func()
 }
 
 // App 是主窗口的全部状态。
@@ -112,14 +208,35 @@ type App struct {
 	Act    Actions
 
 	// 导航
-	Section  int
-	Cards    []Card
-	Loading  bool
+	Section int
+	// Lists 按抽屉 key（分区 key 或 DrawerSearch）存各自的列表。
+	Lists    map[string]*List
 	Status   string
-	Page     int
-	HasMore  bool
 	LoggedIn bool
 	UName    string
+	Face     string // 登录用户头像 URL，未登录为空
+
+	// 抽屉表头（tab / 排序 / 收藏夹）
+	SortOrder string // 搜索排序：SortTotal / SortClick / SortUpdate
+	RecTab    string // 热门与推荐：RecHot / RecRecommend
+	HistTab   string // 历史：HistHistory / HistWatchLater
+	Folders   []Folder
+	FolderID  int64
+	// Incognito 是隐身模式：不读也不写云端的观看记录与进度（只用本地断点）。
+	Incognito bool
+
+	// UP 空间 / 合集
+	UpMid      int64
+	UpName     string
+	UpFollowed bool
+	UpFans     int64  // 粉丝数，UP 空间表头显示
+	UpTab      string // UpTabVideos / UpTabSeries
+	SeriesList []Series
+	SeriesID   int64
+	SeriesName string
+
+	// UpOffset 是 UP 视频列表的翻页游标（旧版是 offset 而不是页码）。
+	UpOffset string
 
 	// 播放
 	Queue   []Track
@@ -135,13 +252,20 @@ type App struct {
 	// Buffering 表示正在起播（网络 + 解码初始化）。
 	Buffering bool
 
-	// 分集 / 弹幕 / 评论
-	Parts       []Part
-	ShowParts   bool
-	ShowDanmaku bool
-	ShowInfo    bool
-	Danmaku     []Danmaku
-	Comments    []Comment
+	// 分集 / 弹幕 / 评论 / 详情
+	Info     *Info
+	Danmaku  []Danmaku
+	Comments []Comment
+
+	// Drawer 是当前打开的抽屉："" 表示没有，否则是分区 key 或
+	// DrawerSearch / DrawerParts / DrawerDanmaku / DrawerInfo。
+	// 原版同一时刻只有一个抽屉（HeroUI Drawer 的 isOpen）。
+	Drawer string
+
+	// 封面圆盘的旋转角（度）。播放时按真实时间累加，暂停时停住
+	// （原版是 #video-cover.record-disc 的 22s CSS 动画）。
+	discDeg float32
+	discAt  time.Time
 
 	// 互动状态
 	Liked    bool
@@ -159,17 +283,59 @@ type App struct {
 	// 不能跟着拖动一路触发）。seeking 标记拖动中，SeekValue 是滑块绑定的值。
 	seeking   bool
 	SeekValue float64
-	// ShowSpeed 表示倍速档位菜单展开着。
-	ShowSpeed bool
+	// ShowSpeed / ShowVolume 表示播放栏的倍速、音量弹层展开着。
+	ShowSpeed  bool
+	ShowVolume bool
 
 	// Mini 表示处于迷你模式（400×155 置顶小窗）。
 	Mini bool
+	// Pinned 表示迷你窗置顶（原版迷你模式里的图钉按钮）。
+	Pinned bool
 }
 
 // NewApp 建一个用当前时段主题的应用。
 func NewApp(repaint func()) *App {
-	a := &App{Theme: ThemeAt(time.Now()), Speed: 1, Volume: 1, Images: imagecache.New(repaint)}
+	a := &App{
+		Theme:  ThemeAt(time.Now()),
+		Speed:  1,
+		Volume: 1,
+		Images: imagecache.New(repaint),
+		// 抽屉表头的默认 tab（与原版一致：搜索按综合、热门与推荐默认热门、
+		// 历史默认观看历史）。
+		SortOrder: SortTotal,
+		RecTab:    RecHot,
+		HistTab:   HistHistory,
+		UpTab:     UpTabVideos,
+	}
+	a.discAt = time.Now()
 	return a
+}
+
+// ListFor 返回某个抽屉的列表状态，没有就建一个。
+// 只在界面线程调用（视图每帧、以及 Win.Update 回调里）。
+func (a *App) ListFor(key string) *List {
+	if a.Lists == nil {
+		a.Lists = map[string]*List{}
+	}
+	l := a.Lists[key]
+	if l == nil {
+		l = &List{}
+		a.Lists[key] = l
+	}
+	return l
+}
+
+// list 返回当前抽屉的列表状态。
+func (a *App) list() *List { return a.ListFor(a.Drawer) }
+
+// SectionIndex 返回分区 key 的下标，找不到时返回 0。
+func SectionIndex(key string) int {
+	for i, s := range Sections {
+		if s.Key == key {
+			return i
+		}
+	}
+	return 0
 }
 
 // RefreshTheme 在时段变化时重新取令牌。
@@ -189,21 +355,6 @@ func (a *App) Current() *Track {
 		return nil
 	}
 	return &a.Queue[a.Index]
-}
-
-// progress 返回播放进度 0..1。
-func (a *App) progress() float32 {
-	if a.Dur <= 0 {
-		return 0
-	}
-	p := a.Pos / a.Dur
-	if p < 0 {
-		return 0
-	}
-	if p > 1 {
-		return 1
-	}
-	return float32(p)
 }
 
 // icon 解析一段内联 SVG，用于界面图标。
@@ -229,4 +380,50 @@ var (
 	iconEQ      = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
 	iconVolume  = icon(`<path d="M3 6.2h2.2L8.2 3.5v9L5.2 9.8H3z"/><path d="M10.6 6.2a2.6 2.6 0 0 1 0 3.6"/>`)
 	iconSponsor = icon(`<path d="M2 4.5h12v7H2z"/><path d="M5 7.5h6"/>`)
+
+	// 搜索栏右侧的四个内容入口（对应原版 home-global-actions 里的
+	// ShareSys / ChartRing / WeixinFavorites / History）。
+	iconFeed     = icon(`<path d="M13.4 8A5.4 5.4 0 1 1 8 2.6"/><path d="M10.8 8A2.8 2.8 0 1 1 8 5.2"/><circle cx="8" cy="8" r="1"/>`)
+	iconPopular  = icon(`<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.1"/><path d="M12.6 3.4l1.2-1.2"/>`)
+	iconFavorite = icon(`<path d="M8 1.9l5.3 2.9v6.4L8 14.1 2.7 11.2V4.8z"/><path d="M2.7 4.8L8 7.7l5.3-2.9"/><path d="M8 7.7v6.4"/>`)
+	iconHistory  = icon(`<path d="M2.7 8a5.3 5.3 0 1 0 1.7-3.9"/><path d="M2.3 2.6v2.7H5"/><path d="M8 5.3V8l2.1 1.3"/>`)
+	// 搜索药丸里的放大镜（提交键）。
+	iconMagnifier = icon(`<circle cx="7.2" cy="7.2" r="4.3"/><path d="M10.4 10.4L13.8 13.8"/>`)
+	// 操作行里的「浏览器打开」与工具条里的「播放列表」。
+	iconBrowser   = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="1.6"/><path d="M1.8 6.2h12.4"/><circle cx="4.3" cy="4.6" r="0.5"/><circle cx="6.3" cy="4.6" r="0.5"/>`)
+	iconMusicList = icon(`<path d="M2.5 4h7M2.5 7.5h7M2.5 11h4"/><path d="M12 4.6v6.2"/><circle cx="10.6" cy="11.6" r="1.6"/>`)
+	// 迷你模式的两个窗口控制：还原大窗 / 置顶。
+	iconRestore = icon(`<rect x="2.2" y="2.2" width="8" height="8" rx="1.4"/><rect x="5.8" y="5.8" width="8" height="8" rx="1.4"/>`)
+	iconPin     = icon(`<path d="M6.2 1.8h3.6l-.7 3.6 2.5 2.5H4.4l2.5-2.5z"/><path d="M8 7.9v6.3"/>`)
+	// 标题栏的「切换到迷你模式」（原版 #switch-window-mode 用的 ZoomInternal）。
+	iconMini = icon(`<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><rect x="8" y="8" width="5" height="4" rx="1"/>`)
+	// 抽屉表头的刷新键。
+	// 历史抽屉表头的「隐身」开关（原版用 MaskOne）。
+	iconMask    = icon(`<path d="M1.8 8h2.6a2 2 0 0 1 0 4H1.8z"/><path d="M14.2 8h-2.6a2 2 0 0 0 0 4h2.6z"/><path d="M6 10.4h4"/>`)
+	iconRefresh = icon(`<path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/><path d="M13.6 2.4v2.8h-2.8"/>`)
+	// 工具条的「合集」（原版用 icon-park 的 Layers）。
+	iconSeries = icon(`<path d="M8 1.9l6.2 3.2L8 8.3 1.8 5.1z"/><path d="M2.6 8.2l5.4 2.8 5.4-2.8"/><path d="M2.6 11.2l5.4 2.8 5.4-2.8"/>`)
+	// UP 空间抽屉里的关注 / 已关注。
+	iconFollow   = icon(`<path d="M8 3.6v8.8M3.6 8h8.8"/>`)
+	iconFollowed = icon(`<path d="M3.4 8.4l3 3 6.2-6.8"/>`)
 )
+
+// pick 是三元表达式的泛型版。
+func pick[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
+}
+
+// compactCount 把数量转成「1.2万」这样的短文本（原版 formatCompactCount）。
+func compactCount(n int64) string {
+	switch {
+	case n >= 100000000:
+		return fmt.Sprintf("%.1f亿", float64(n)/1e8)
+	case n >= 10000:
+		return fmt.Sprintf("%.1f万", float64(n)/1e4)
+	default:
+		return fmt.Sprint(n)
+	}
+}

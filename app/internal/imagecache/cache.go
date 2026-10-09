@@ -160,6 +160,9 @@ func ThumbURL(raw string) string {
 	src := raw
 	if strings.HasPrefix(src, "//") {
 		src = "https:" + src
+	} else if strings.HasPrefix(src, "http://") {
+		// B 站的动态接口会返回 http 的图床地址，统一走 https。
+		src = "https://" + strings.TrimPrefix(src, "http://")
 	}
 	u, err := url.Parse(src)
 	if err != nil {

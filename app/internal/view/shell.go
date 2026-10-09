@@ -1,39 +1,42 @@
 package view
 
 import (
-	"fmt"
+	"runtime"
 
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
 // Shell 画出整个主窗口。
+//
+// 布局与原版一一对应（globals.css 的尺寸标在注释里）：
+//
+//	标题栏 36px     .app-title-bar（品牌居中，窗口按钮靠右）
+//	主区   1fr      .home-stage（上：搜索药丸；下：封面圆盘 + 视频信息）
+//	播放栏 56px     #player（单行）
+//	抽屉   覆盖层   [data-slot="wrapper"] > section（底部滑入）
 func (a *App) Shell(c *ui.Context) {
 	if a.Mini {
 		a.MiniShell(c)
 		return
 	}
 	t := a.Theme
+	c.SetTheme(t.uiTheme())
 	a.shortcuts(c)
 	c.Root().Background(t.Period.Sample(0.5))
 
-	// 背景：时段渐变（ui.LinearGradient 只有两个颜色，按条带叠出多段）。
-	ui.Column(c).Fill().Children(func() { a.backdrop(c) })
+	// 背景：时段渐变 + 当前封面的氛围光（原版 .app-shell::before / ::after）。
+	ui.Column(c).Fill().Children(func() {
+		a.backdrop(c)
+		a.ambient(c)
+	})
 
 	// 前景浮在背景之上。
 	ui.Column(c).Absolute().Fill().Children(func() {
 		a.titleBar(c)
-		a.sectionTabs(c)
-		a.content(c)
+		a.homeStage(c)
 		a.playerBar(c)
-		if a.ShowParts {
-			a.partsPanel(c)
-		}
-		if a.ShowDanmaku {
-			a.danmakuPanel(c)
-		}
-		if a.ShowInfo {
-			a.infoPanel(c)
-		}
+		a.drawer(c)
 	})
 }
 
@@ -47,239 +50,86 @@ func (a *App) backdrop(c *ui.Context) {
 	}
 }
 
-// titleBar 是自绘标题栏：品牌、状态、搜索框、窗口按钮。
+// titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧一个「切换到迷你模式」。
+//
+// 窗口用原生窗口控件（mygo 的 TitleBarHidden：macOS 是红绿灯、Windows 是
+// 最小化/最大化/关闭、Linux 是 GTK 的标题按钮），与旧版一致 —— 旧版在
+// macOS 上就是 decorations + TitleBarStyle::Overlay。c.TitleBar() 给出原生
+// 控件占的宽高，两边留出来就不会被压住，同时保持品牌落在窗口正中。
+//
+// 旧版在 Linux 上不提供迷你模式（webkit2gtk 的窗口改不了尺寸），所以那里
+// 不画这个按钮；原生窗口没这个限制。
 func (a *App) titleBar(c *ui.Context) {
 	t := a.Theme
+	tb := c.TitleBar()
 	ui.Row(c).FillWidth().Height(TitleBarHeight).Shrink(0).
-		AlignItems(ui.Center).Padding(0, 8, 0, 12).Gap(10).DragWindow().Children(func() {
-		ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
-		ui.Text(c, a.statusLine()).FontSize(11).TextColor(t.Faint).SingleLine().MaxWidth(200)
+		Padding(0, 16).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Box(c).Width(tb.Left).Shrink(0)
 		ui.Box(c).Grow(1)
-		if f := ui.SearchField(c, &a.Query).Width(260).Label("搜索视频"); f.Submitted() {
-			if a.Act.Search != nil {
-				a.Act.Search(a.Query)
+		ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).Children(func() {
+			if Logo != nil {
+				ui.Image(c, Logo).Size(24, 24)
 			}
-		}
+			ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
+		})
 		ui.Box(c).Grow(1)
-		a.windowButtons(c)
-	})
-}
-
-func (a *App) statusLine() string {
-	if a.Loading {
-		return "加载中…"
-	}
-	if a.Status != "" {
-		return a.Status
-	}
-	if a.UName != "" {
-		return "已登录：" + a.UName
-	}
-	return ""
-}
-
-// windowButtons 是自绘的最小化 / 关闭（无边框窗口）。
-func (a *App) windowButtons(c *ui.Context) {
-	t := a.Theme
-	ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-		min := ui.ButtonBase(c.Key("win-min")).Size(28, 22).Radius(RadiusSmall).Center().
-			Label("最小化").Tooltip("最小化")
-		if min.Hovered() {
-			min.Background(t.GlassHover)
-		} else {
-			min.Background(t.Glass)
-		}
-		min.Children(func() { ui.Icon(c, iconMin).Size(14, 14).TextColor(t.Muted) })
-		if min.Clicked() && a.Act.Minimize != nil {
-			a.Act.Minimize()
-		}
-
-		closeB := ui.ButtonBase(c.Key("win-close")).Size(28, 22).Radius(RadiusSmall).Center().
-			Label("关闭").Tooltip("关闭")
-		if closeB.Hovered() {
-			closeB.Background(t.Rose.Alpha(0.28))
-		} else {
-			closeB.Background(t.Glass)
-		}
-		closeB.Children(func() { ui.Icon(c, iconClose).Size(13, 13).TextColor(t.Muted) })
-		if closeB.Clicked() && a.Act.Quit != nil {
-			a.Act.Quit()
-		}
-	})
-}
-
-// sectionTabs 是分区切换。
-func (a *App) sectionTabs(c *ui.Context) {
-	t := a.Theme
-	ui.Row(c).FillWidth().Shrink(0).Padding(2, 14, 8, 14).Gap(6).AlignItems(ui.Center).Children(func() {
-		for i, s := range Sections {
-			active := i == a.Section
-			b := ui.ButtonBase(c.Key("sec-"+s.Key)).Height(26).Padding(0, 12).
-				Radius(RadiusPill).Center().Label(s.Label)
-			switch {
-			case active:
-				b.Background(t.GlassHover).Border(1, t.GlassBorder)
-			case b.Hovered():
+		if runtime.GOOS != "linux" {
+			b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
+				Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
+			if b.Hovered() {
 				b.Background(t.GlassHover)
-			default:
-				b.Background(t.Glass)
+			} else {
+				b.Background(ui.Transparent)
 			}
-			b.Children(func() {
-				ui.Text(c, s.Label).FontSize(12).TextColor(pick(active, t.Ink, t.Muted))
-			})
-			if b.Clicked() && i != a.Section {
-				a.Section = i
-				a.Page = 1
-				a.Cards = nil
-				if a.Act.LoadSection != nil {
-					a.Act.LoadSection(s.Key, 1)
-				}
+			b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(t.Muted) })
+			if b.Clicked() && a.Act.SetMini != nil {
+				a.Act.SetMini(true)
 			}
 		}
-		ui.Box(c).Grow(1)
-		if a.LoggedIn {
-			if b := ui.ButtonBase(c.Key("logout-hint")).Height(26).Padding(0, 10).Radius(RadiusPill).
-				Center().Label("已登录"); b.Hovered() {
-				b.Background(t.GlassHover)
-			}
-		} else if b := ui.ButtonBase(c.Key("login")).Height(26).Padding(0, 12).Radius(RadiusPill).
-			Center().Label("扫码登录"); b.Hovered() {
-			b.Background(t.GlassHover)
-		} else {
-			b.Background(t.Glass)
-			if b.Clicked() && a.Act.Login != nil {
-				a.Act.Login()
-			}
-		}
+		ui.Box(c).Width(tb.Right).Shrink(0)
 	})
 }
 
-// content 是中间的内容区：卡片网格 + 空态 / 加载态 / 加载更多。
-func (a *App) content(c *ui.Context) {
-	t := a.Theme
-	ui.Column(c).Grow(1).Padding(4, 14, 4, 14).Children(func() {
-		switch {
-		case a.Loading && len(a.Cards) == 0:
-			ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
-			return
-		case len(a.Cards) == 0:
-			ui.Text(c, a.emptyHint()).FontSize(12).TextColor(t.Faint)
-			return
-		}
-		ui.Scroll(c).Grow(1).Children(func() {
-			ui.Column(c).Gap(8).Children(func() {
-				a.cardGrid(c)
-				if a.HasMore {
-					more := ui.ButtonBase(c.Key("load-more")).FillWidth().Height(32).Radius(Radius).
-						Center().Label("加载更多")
-					if more.Hovered() {
-						more.Background(t.GlassHover)
-					} else {
-						more.Background(t.Glass)
-					}
-					more.Children(func() {
-						ui.Text(c, pick(a.Loading, "加载中…", "加载更多")).FontSize(12).TextColor(t.Muted)
-					})
-					if more.Clicked() && !a.Loading && a.Act.LoadMore != nil {
-						a.Act.LoadMore()
-					}
-				}
-			})
+// AmbientBlur 是氛围光的模糊半径（原版 .app-shell::before 的 filter: blur(20px)）。
+const AmbientBlur = 20
+
+// ambient 是「氛围光」：把当前封面铺满整窗、模糊、压到 31% 不透明度，再叠一层
+// 白渐变 —— 原版 .app-shell::before / ::after。这是 bili-FM 的视觉签名，所有
+// 玻璃都浮在它上面。
+//
+// 原版还有 saturate(0.78) brightness(1.14) contrast(0.76)，glass.Blur 只做高斯
+// 模糊，这三个滤镜没有对应能力（想要更淡可以调 Opacity）。
+//
+// 封面没加载好就什么都不画（imagecache 未命中返回 nil），所以切歌时不会先闪
+// 一下空白 —— 旧版为此专门做了「先预载、后换源」。
+func (a *App) ambient(c *ui.Context) {
+	uri := a.coverURL()
+	if uri == "" {
+		return
+	}
+	bmp := a.Images.Bitmap(uri)
+	if bmp == nil {
+		return
+	}
+	ui.Box(c).Absolute().Fill().PassThrough().Children(func() {
+		ui.Image(c, bmp).Fill().Fit(ui.Cover).Opacity(0.31)
+		// 模糊它下面画过的东西（渐变 + 封面）。
+		ui.Box(c).Absolute().Fill().PassThrough().
+			Material(glass.Blur{Radius: AmbientBlur})
+		// ::after：一层白渐变，把氛围光压得更淡更匀。
+		ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
+			From:  ui.Hex("#f8fbff").Alpha(0.22),
+			To:    ui.Hex("#f8fbff").Alpha(0.14),
+			Angle: 180,
 		})
 	})
 }
 
-func (a *App) emptyHint() string {
-	if a.CurrentSection().NeedLogin && !a.LoggedIn {
-		return "这个分区需要登录，点右上角「扫码登录」"
-	}
-	return "点上面的分区加载内容，或用搜索框找视频"
-}
-
-// cardGrid 按固定列数排卡片。
-func (a *App) cardGrid(c *ui.Context) {
-	const cols = 4
-	for i := 0; i < len(a.Cards); i += cols {
-		end := min(i+cols, len(a.Cards))
-		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-			for j := i; j < end; j++ {
-				a.card(c, j)
-			}
-			for j := end; j < i+cols; j++ {
-				ui.Box(c).Grow(1).Basis(0)
-			}
-		})
-	}
-}
-
-// card 是一张列表卡片：封面 + 时长角标 + 标题 + meta 行。
-func (a *App) card(c *ui.Context, index int) {
-	t := a.Theme
-	card := a.Cards[index]
-
-	playing := a.Current() != nil && card.Bvid != "" && a.Current().Bvid == card.Bvid
-	box := ui.Column(c).Key(fmt.Sprintf("card-%d-%s", index, card.Bvid)).Grow(1).Basis(0).
-		Padding(6).Radius(Radius).Gap(6).Cursor(ui.CursorPointer)
-	switch {
-	case playing:
-		box.Background(t.GlassHover).Border(1, t.Blue.Alpha(0.65))
-	case box.Hovered():
-		box.Background(t.GlassHover)
-	default:
-		box.Background(t.Glass)
-	}
-
-	box.Children(func() {
-		ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
-			Background(t.CoverPlaceholder()).Clip().Children(func() {
-			if bmp := a.Images.Bitmap(card.Cover); bmp != nil {
-				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			}
-			if card.Duration != "" {
-				ui.Text(c, card.Duration).FontSize(10).TextColor(ui.Hex("#ffffff")).
-					Absolute().Right(4).Bottom(3).
-					Padding(1, 4).Radius(3).Background(ui.Hex("#0f172a").Alpha(0.62))
-			}
-			if playing {
-				ui.Text(c, "正在播放").FontSize(9).TextColor(ui.Hex("#ffffff")).
-					Absolute().Left(4).Top(4).
-					Padding(1, 5).Radius(3).Background(t.Blue.Alpha(0.85))
-			}
-		})
-		ui.Text(c, card.Title).FontSize(12).TextColor(t.Ink).MaxLines(2)
-		if len(card.Meta) > 0 {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				for k, m := range card.Meta {
-					if m == "" {
-						continue
-					}
-					if k > 0 {
-						ui.Text(c, "·").FontSize(10).TextColor(t.Faint)
-					}
-					ui.Text(c, m).FontSize(10).TextColor(t.Faint).SingleLine()
-				}
-			})
-		}
+// homeStage 是标题栏与播放栏之间的主区（.home-stage）：
+// 高 = 100% - 56px，内边距 20 28 0 28，纵向排「搜索药丸 + 正在播放」。
+func (a *App) homeStage(c *ui.Context) {
+	ui.Column(c).FillWidth().Grow(1).Shrink(1).Padding(20, 28, 0, 28).Children(func() {
+		a.searchBar(c)
+		a.nowPlaying(c)
 	})
-	if box.Clicked() {
-		a.Index = index
-		if a.Act.Play != nil {
-			a.Act.Play(index)
-		}
-	}
-}
-
-// CoverPlaceholder 是封面未加载时的底色。
-func (t Theme) CoverPlaceholder() ui.Color {
-	if t.Dark {
-		return ui.Hex("#ffffff").Alpha(0.08)
-	}
-	return ui.Hex("#0f172a").Alpha(0.08)
-}
-
-func pick[T any](cond bool, a, b T) T {
-	if cond {
-		return a
-	}
-	return b
 }
