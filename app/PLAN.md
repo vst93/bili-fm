@@ -211,7 +211,9 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
   直接打开；「浏览器打开」接上系统浏览器；迷你窗音量弹层；迷你窗位置记忆。
 - **其他**：骨架屏、卡片 meta 按宽度隐藏字段、tab 记忆、标题/简介可选中、
   列表有界滑动窗口（上限 160）。
-- **测试**：`internal/view` 与 `main` 包新增 Go 单测。
+- **测试**：`internal/view` 与 `main` 包新增 Go 单测（`go test -race ./...` 里
+  `internal/media` 的吞吐断言会因 -race 变慢而失败，是测试自身的前提不成立，
+  不是代码问题；不带 -race 全绿）。
 - **系统媒体中心（Linux）**：`internal/mediactl` 用 MPRIS 暴露曲目/状态/位置，
   桌面环境与媒体键可以直接控制；实测 Play/Pause/Next 与元数据都对。
   Volume / Rate / LoopStatus / Shuffle 还是**可写属性**，系统媒体控件可以直接
