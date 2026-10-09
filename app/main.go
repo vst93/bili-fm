@@ -82,6 +82,8 @@ type controller struct {
 
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
 	miniPoll chan struct{}
+	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
+	videoSilent bool
 }
 
 func main() {
@@ -161,6 +163,7 @@ func main() {
 
 	c.wireActions()
 	c.wirePlayer()
+	c.wireVideo()
 	c.restoreQueue()
 
 	mygo.Bind(video.NewService(c.vid))
@@ -422,38 +425,46 @@ func (c *controller) wireActions() {
 }
 
 func (c *controller) wirePlayer() {
+	// 这三个回调都跑在播放器的上报 goroutine 上，而它们读写的是界面状态，
+	// 所以统一丢到 Win.Update（主线程）里执行，避免数据竞争。
 	c.mp.OnProgress(func(pos, dur float64) {
-		c.app.Pos, c.app.Dur = pos, dur
-		c.maybeSkipSponsor(pos)
-		c.trackResume(pos) // 本地断点 5s 落盘 + 云端 30s 上报
-		c.app.Win.Update(func() {})
+		c.app.Win.Update(func() {
+			c.app.Pos, c.app.Dur = pos, dur
+			c.maybeSkipSponsor(pos)
+			c.trackResume(pos) // 本地断点 5s 落盘 + 云端 30s 上报
+		})
 	})
 	c.mp.OnEnded(func() {
-		// 单曲循环：直接重播当前曲目（不管选集/列表）。
-		if c.app.PlayMode == view.PlayModeSingle {
-			c.startCurrent()
-			return
-		}
-		// 播放列表模式：在来源列表里续播。
-		if c.app.PlayingPlaylist != "" {
-			c.step(1)
-			return
-		}
-		// 普通队列：还有下一条就继续，否则停。
-		if len(c.app.Queue) > 1 {
-			c.step(1)
-			return
-		}
-		c.app.Playing = false
-		c.app.Buffering = false
-		c.app.Win.Update(func() {})
+		c.app.Win.Update(func() { c.handleEnded() })
 	})
 	c.mp.OnError(func(err error) {
 		log.Printf("播放错误: %v", err)
-		c.app.Playing = false
-		c.app.Buffering = false
-		c.app.Win.Update(func() {})
+		c.app.Win.Update(func() {
+			c.app.Playing = false
+			c.app.Buffering = false
+		})
 	})
+}
+
+// handleEnded 处理自然播完（主线程）。
+func (c *controller) handleEnded() {
+	// 单曲循环：直接重播当前曲目（不管选集/列表）。
+	if c.app.PlayMode == view.PlayModeSingle {
+		c.startCurrent()
+		return
+	}
+	// 播放列表模式：在来源列表里续播。
+	if c.app.PlayingPlaylist != "" {
+		c.step(1)
+		return
+	}
+	// 普通队列：还有下一条就继续，否则停。
+	if len(c.app.Queue) > 1 {
+		c.step(1)
+		return
+	}
+	c.app.Playing = false
+	c.app.Buffering = false
 }
 
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
@@ -1035,6 +1046,17 @@ func (c *controller) reload() {
 	case view.DrawerSeries:
 		a.ListFor(view.DrawerSeries).Cards = nil
 		c.loadSeriesVideos(a.SeriesID, 1)
+	case view.DrawerDanmaku:
+		// 弹幕/评论抽屉的刷新：清掉再拉一次。
+		if a.DanmakuTab == view.TabReply {
+			a.Comments = nil
+			a.ReplyPage = 0
+			a.RepliesHasMore = false
+			c.loadComments(1)
+		} else {
+			a.Danmaku = nil
+			c.toggleDanmaku()
+		}
 	case "favorite":
 		// 收藏夹列表还没拉过（或换账号了）就先拉它，再拉内容。
 		if len(a.Folders) == 0 {
@@ -1358,6 +1380,12 @@ func (c *controller) startCurrent() {
 	if t == nil {
 		return
 	}
+	// 切歌时静默关掉视频弹窗（不要它再跳回来接音频）。
+	if c.app.VideoOpen {
+		c.videoSilent = true
+		c.vid.Close()
+		c.app.VideoOpen = false
+	}
 	c.app.Buffering = true
 	c.app.Status = "起播中…"
 	// 从选集、搜索结果等进入时关掉抽屉；播放列表模式下要保留列表。
@@ -1642,6 +1670,51 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 
 // ---------------------------------------------------------------- 视频弹窗
 
+// wireVideo 把视频弹窗的回调接回来：
+//   - 弹窗播放时主区进度跟随它，并持续记断点/上报；
+//   - 弹窗关掉后把音频接回来（跳到弹窗停下的位置继续听）；
+//   - 弹窗自然播完按播放模式续播。
+func (c *controller) wireVideo() {
+	c.vid.OnState(func(st video.State) {
+		c.app.Win.Update(func() {
+			if !c.app.VideoOpen {
+				return
+			}
+			if st.Duration > 0 {
+				c.app.Dur = st.Duration
+			}
+			c.app.Pos = st.Time
+		})
+		c.trackResume(st.Time)
+	})
+	c.vid.OnClose(func(st video.State) {
+		c.app.Win.Update(func() { c.app.VideoOpen = false })
+		if c.quitting || c.videoSilent {
+			c.videoSilent = false
+			return
+		}
+		if c.app.Current() == nil {
+			return
+		}
+		// 音视接力：跳到弹窗停下的位置继续听。
+		c.flushProgress(st.Time)
+		if st.Time > 0 {
+			c.seek(st.Time)
+		}
+		if !st.Paused {
+			c.mp.Resume()
+			c.app.Win.Update(func() { c.app.Playing = true })
+		}
+	})
+	c.vid.OnEnded(func() {
+		if c.app.PlayMode == view.PlayModeSingle {
+			c.startCurrent()
+			return
+		}
+		c.step(1)
+	})
+}
+
 func (c *controller) openVideo() {
 	t := c.app.Current()
 	if t == nil || t.Cid == 0 {
@@ -1649,11 +1722,17 @@ func (c *controller) openVideo() {
 		c.app.Win.Update(func() {})
 		return
 	}
+	// 弹窗自带声音：先把音频引擎停下来，避免双声。失败时再恢复。
+	wasPlaying := c.app.Playing
+	c.mp.Pause()
+	c.app.Playing = false
+	c.app.Win.Update(func() {})
 	go func() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
 		if u.URL == "" {
 			c.app.NotifyType("error", "取播放地址失败")
+			c.restoreAudioAfterVideo(wasPlaying)
 			return
 		}
 		opts := video.Options{
@@ -1666,10 +1745,19 @@ func (c *controller) openVideo() {
 		}
 		if err := c.vid.Open(opts); err != nil {
 			c.app.NotifyType("error", "打开视频窗口失败："+err.Error())
+			c.restoreAudioAfterVideo(wasPlaying)
 			return
 		}
 		c.app.Win.Update(func() { c.app.VideoOpen = true })
 	}()
+}
+
+// restoreAudioAfterVideo 弹窗没开成时把音频恢复回来。
+func (c *controller) restoreAudioAfterVideo(wasPlaying bool) {
+	if wasPlaying {
+		c.mp.Resume()
+		c.app.Win.Update(func() { c.app.Playing = true })
+	}
 }
 
 func (c *controller) closeVideo() {

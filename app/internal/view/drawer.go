@@ -244,7 +244,7 @@ func (a *App) seriesLabel() string {
 // refreshable 返回这个抽屉的表头有没有刷新键（原版每个列表抽屉都有）。
 func (a *App) refreshable() bool {
 	switch a.Drawer {
-	case DrawerParts, DrawerDanmaku, DrawerInfo, DrawerPlaylist:
+	case DrawerParts, DrawerInfo, DrawerPlaylist:
 		return false
 	}
 	return a.Drawer != ""
