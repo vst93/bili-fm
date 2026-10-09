@@ -91,6 +91,57 @@ func TestRandOtherIndex(t *testing.T) {
 	}
 }
 
+func TestToCardsHistoryItem(t *testing.T) {
+	// 观看历史：bvid/aid 在 history 子对象里，作者是 author_name。
+	items := []any{map[string]any{
+		"title":       "看过的视频",
+		"cover":       "c.jpg",
+		"author_name": "某UP",
+		"view_at":     float64(1700000000),
+		"progress":    float64(30),
+		"duration":    float64(100),
+		"history":     map[string]any{"bvid": "BVhist", "oid": float64(123)},
+	}}
+	cards := toCards(items)
+	if len(cards) != 1 {
+		t.Fatalf("数量 = %d", len(cards))
+	}
+	c := cards[0]
+	if c.Bvid != "BVhist" || c.Track.Aid != 123 {
+		t.Errorf("history card = %+v", c)
+	}
+	if c.Extra != "已看 30%" {
+		t.Errorf("extra = %q", c.Extra)
+	}
+}
+
+func TestToCardsFavoriteAndWatchLater(t *testing.T) {
+	// 收藏：作者在 upper.name，播放量在 cnt_info.play。
+	fav := []any{map[string]any{
+		"bvid": "BVfav", "title": "收藏的视频", "pic": "p.jpg",
+		"duration": float64(200),
+		"upper":    map[string]any{"name": "收藏UP"},
+		"cnt_info": map[string]any{"play": float64(12345)},
+	}}
+	c := toCards(fav)
+	if len(c) != 1 || c[0].Up != "收藏UP" || c[0].Views != "1.2万" || c[0].Duration != "3:20" {
+		t.Errorf("fav card = %+v", c)
+	}
+
+	// 稍后再看：owner.name + stat.view + progress=-1（已看完）。
+	wl := []any{map[string]any{
+		"bvid": "BVwl", "title": "稍后再看", "pic": "w.jpg",
+		"duration": float64(60),
+		"owner":    map[string]any{"name": "WLUP"},
+		"stat":     map[string]any{"view": float64(999)},
+		"progress": float64(-1),
+	}}
+	c = toCards(wl)
+	if len(c) != 1 || c[0].Up != "WLUP" || c[0].Views != "999" || c[0].Extra != "已看完" {
+		t.Errorf("watch later card = %+v", c)
+	}
+}
+
 func TestSetCardsRetention(t *testing.T) {
 	list := &view.List{}
 	first := make([]view.Card, 100)
