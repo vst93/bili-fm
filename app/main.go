@@ -702,6 +702,7 @@ func (c *controller) openUp(mid int64, name string) {
 	a.ListFor(view.DrawerUp).Cards = nil
 	a.ListFor(view.DrawerUp).Loading = true
 	a.SeriesList = nil
+	upTab := a.UpTab
 	a.Win.Update(func() {})
 
 	go func() {
@@ -722,20 +723,20 @@ func (c *controller) openUp(mid int64, name string) {
 			})
 		}
 		a.Win.Update(func() { a.SeriesList = list })
-		if a.UpTab == view.UpTabSeries {
+		if upTab == view.UpTabSeries {
 			a.Win.Update(func() { a.ListFor(view.DrawerUp).Loading = false })
 			return
 		}
-		c.loadUpVideos("")
+		c.loadUpVideos(mid, "")
 	}()
 }
 
 // loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
-func (c *controller) loadUpVideos(offset string) {
+// mid 由调用方在主线程取好传进来，不在网络 goroutine 里读界面状态。
+func (c *controller) loadUpVideos(mid int64, offset string) {
 	list := c.app.ListFor(view.DrawerUp)
 	c.app.Win.Update(func() { list.Loading = true })
 
-	mid := c.app.UpMid
 	go func() {
 		l, err := c.bl.GetUpVideoList(int(mid), offset)
 		c.app.Win.Update(func() {
@@ -754,11 +755,10 @@ func (c *controller) loadUpVideos(offset string) {
 }
 
 // loadUpSeries 拉 UP 主的合集列表（UP 空间的「合集」tab）。
-func (c *controller) loadUpSeries() {
+func (c *controller) loadUpSeries(mid int64) {
 	list := c.app.ListFor(view.DrawerUp)
 	c.app.Win.Update(func() { list.Loading = true })
 
-	mid := c.app.UpMid
 	go func() {
 		series, _ := c.bl.GetSeriesList(int(mid))
 		out := make([]view.Series, 0, len(series))
@@ -1087,9 +1087,9 @@ func (c *controller) reload() {
 		a.ListFor(view.DrawerUp).Cards = nil
 		a.UpOffset = ""
 		if a.UpTab == view.UpTabSeries {
-			c.loadUpSeries()
+			c.loadUpSeries(a.UpMid)
 		} else {
-			c.loadUpVideos("")
+			c.loadUpVideos(a.UpMid, "")
 		}
 	case view.DrawerSeries:
 		a.ListFor(view.DrawerSeries).Cards = nil
@@ -1195,7 +1195,7 @@ func (c *controller) loadMore() {
 		if a.UpTab == view.UpTabSeries {
 			return
 		}
-		c.loadUpVideos(a.UpOffset)
+		c.loadUpVideos(a.UpMid, a.UpOffset)
 	case view.DrawerSeries:
 		c.loadSeriesVideos(a.SeriesID, a.ListFor(view.DrawerSeries).Page+1)
 	default:
