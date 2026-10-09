@@ -152,28 +152,97 @@ func (a *App) nowPlaying(c *ui.Context) {
 	})
 }
 
-// coverDisc 是左栏的封面圆盘（.cover-shell 292px，内部 #video-cover 90%）：
-// 一个圆，播放时 22s 转一圈，点一下切换播放/暂停。
+// coverDisc 是左栏的封面（原版 .cover-shell 292px，内部 #video-cover）：
+//
+//	disc   （默认）圆形唱片，播放时 22s 转一圈，点一下切换播放/暂停；
+//	square 静态圆角方块（省 GPU），点一下也切换播放/暂停。
+//
+// 右下角三个开关（原版 .cover-mode-toggle）：切换碟片/封面、封面背景、高级质感。
 func (a *App) coverDisc(c *ui.Context) {
 	ui.Row(c).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-		ring := ui.Box(c).Size(292, 292).Shrink(0).Radius(RadiusPill).
-			Border(1, ui.Hex("#ffffff").Alpha(0.20)).Center()
-		ring.Children(func() {
-			disc := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(RadiusPill).Clip().
-				Background(ui.Hex("#0f172a")).
-				Border(1, ui.Hex("#ffffff").Alpha(0.20)).
-				Label(pick(a.Playing, "暂停", "播放"))
-			a.spinDisc(disc)
-			disc.Children(func() {
-				if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
-					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+		shell := ui.Box(c).Size(292, 292).Shrink(0)
+		shell.Children(func() {
+			if a.CoverMode == "square" {
+				sq := ui.ButtonBase(c.Key("disc")).Fill().Radius(14).Clip().
+					Background(ui.Hex("#0f172a")).
+					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
+					Label(pick(a.Playing, "暂停", "播放"))
+				sq.Children(func() {
+					if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+						ui.Image(c, bmp).Fill().Fit(ui.Cover)
+					}
+				})
+				if sq.Clicked() && a.Act.TogglePlay != nil {
+					a.Act.TogglePlay()
 				}
-			})
-			if disc.Clicked() && a.Act.TogglePlay != nil {
-				a.Act.TogglePlay()
+			} else {
+				ring := ui.Box(c).Fill().Radius(RadiusPill).
+					Border(1, ui.Hex("#ffffff").Alpha(0.20)).Center()
+				ring.Children(func() {
+					disc := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(RadiusPill).Clip().
+						Background(ui.Hex("#0f172a")).
+						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
+						Label(pick(a.Playing, "暂停", "播放"))
+					a.spinDisc(disc)
+					disc.Children(func() {
+						if bmp := a.Images.Bitmap(a.coverURL()); bmp != nil {
+							ui.Image(c, bmp).Fill().Fit(ui.Cover)
+						}
+					})
+					if disc.Clicked() && a.Act.TogglePlay != nil {
+						a.Act.TogglePlay()
+					}
+				})
 			}
+
+			// 三个小开关：碟片/封面、封面背景、高级质感。
+			ui.Row(c).Absolute().Right(6).Bottom(6).Gap(4).Children(func() {
+				a.coverToggle(c, "cover-mode", "切换封面模式",
+					iconRefresh, true, func() {
+						if a.Act.SetCoverMode == nil {
+							return
+						}
+						if a.CoverMode == "square" {
+							a.Act.SetCoverMode("disc")
+						} else {
+							a.Act.SetCoverMode("square")
+						}
+					})
+				a.coverToggle(c, "ambient", "封面背景", iconHalo, a.Ambient, func() {
+					if a.Act.ToggleAmbient != nil {
+						a.Act.ToggleAmbient()
+					}
+				})
+				a.coverToggle(c, "premium", "高级质感", iconSparkles, a.Premium, func() {
+					if a.Act.TogglePremium != nil {
+						a.Act.TogglePremium()
+					}
+				})
+			})
 		})
 	})
+}
+
+// coverToggle 是封面上的一个小开关（原版 .cover-mode-toggle）。active 为真时
+// 底色更亮、图标用强调色，与旧版的 is-active 一致。
+func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("cover-"+key)).Size(26, 26).Radius(RadiusPill).
+		Center().Label(label).Tooltip(label)
+	switch {
+	case active:
+		b.Background(ui.Hex("#ffffff").Alpha(0.72)).Border(1, t.GlassBorderBright)
+	case b.Hovered():
+		b.Background(ui.Hex("#ffffff").Alpha(0.52))
+	default:
+		b.Background(ui.Hex("#ffffff").Alpha(0.30)).Border(1, t.GlassBorder)
+	}
+	b.Children(func() {
+		ui.Icon(c, ic).Size(13, 13).TextColor(pick(active, t.Blue, t.Muted))
+	})
+	if b.Clicked() {
+		fn()
+	}
 }
 
 // spinDisc 让封面圆盘转起来（原版 #video-cover.record-disc 是 22s 一圈的
@@ -296,7 +365,11 @@ func (a *App) contextDock(c *ui.Context) {
 		a.iconButton(c, "dock-parts", "选集", iconList, a.openParts)
 		a.iconButton(c, "dock-series", "合集", iconSeries, a.openSeries)
 		a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, func() {
-			a.Drawer = DrawerInfo
+			if a.Drawer == DrawerPlaylist {
+				a.Drawer = ""
+			} else {
+				a.Drawer = DrawerPlaylist
+			}
 		})
 	})
 }
@@ -333,6 +406,14 @@ func (a *App) openParts() {
 	if a.Act.OpenParts != nil {
 		a.Act.OpenParts(*a.Track)
 	}
+}
+
+// playlistActive 返回当前播放列表抽屉 tab 对应的记录。
+func (a *App) playlistActive(tab string) []PlayItem {
+	if tab == ListSeries {
+		return a.SeriesPlaylist
+	}
+	return a.Playlist
 }
 
 // openDanmaku 打开弹幕抽屉；弹幕数据由上层拉取。

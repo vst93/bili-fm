@@ -22,6 +22,7 @@ func (a *App) Shell(c *ui.Context) {
 	}
 	t := a.Theme
 	c.SetTheme(t.uiTheme())
+	a.drainToasts(c)
 	a.shortcuts(c)
 	c.Root().Background(t.Period.Sample(0.5))
 
@@ -37,6 +38,7 @@ func (a *App) Shell(c *ui.Context) {
 		a.homeStage(c)
 		a.playerBar(c)
 		a.drawer(c)
+		a.modal(c)
 	})
 }
 
@@ -73,20 +75,54 @@ func (a *App) titleBar(c *ui.Context) {
 			ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
 		})
 		ui.Box(c).Grow(1)
-		if runtime.GOOS != "linux" {
-			b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
-				Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
-			if b.Hovered() {
-				b.Background(t.GlassHover)
-			} else {
-				b.Background(ui.Transparent)
+		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Children(func() {
+			a.settingsButton(c)
+			if runtime.GOOS != "linux" {
+				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
+					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
+				if b.Hovered() {
+					b.Background(t.GlassHover)
+				} else {
+					b.Background(ui.Transparent)
+				}
+				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(t.Muted) })
+				if b.Clicked() && a.Act.SetMini != nil {
+					a.Act.SetMini(true)
+				}
 			}
-			b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(t.Muted) })
-			if b.Clicked() && a.Act.SetMini != nil {
-				a.Act.SetMini(true)
-			}
-		}
+		})
 		ui.Box(c).Width(tb.Right).Shrink(0)
+	})
+}
+
+// settingsButton 是标题栏里的「设置」下拉（原版非 macOS 平台的 #settings-entry）：
+// 关于应用 / 快捷键 / 检查更新 / 退出应用。
+func (a *App) settingsButton(c *ui.Context) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("settings")).Height(24).Padding(0, 9).Radius(RadiusSmall).
+		Center().Label("设置").Tooltip("设置")
+	if b.Hovered() {
+		b.Background(t.GlassHover)
+	} else {
+		b.Background(ui.Transparent)
+	}
+	b.Children(func() {
+		ui.Text(c, "设置").FontSize(13).TextColor(t.Ink)
+	})
+	b.Menu(func(m *ui.Menu) {
+		if m.Item("关于应用").Chosen() && a.Act.ShowAbout != nil {
+			a.Act.ShowAbout()
+		}
+		if m.Item("快捷键").Chosen() && a.Act.ShowShortcuts != nil {
+			a.Act.ShowShortcuts()
+		}
+		if m.Item("检查更新").Chosen() && a.Act.CheckUpdate != nil {
+			a.Act.CheckUpdate()
+		}
+		m.Separator()
+		if m.Item("退出应用").Chosen() && a.Act.Quit != nil {
+			a.Act.Quit()
+		}
 	})
 }
 
@@ -103,6 +139,9 @@ const AmbientBlur = 20
 // 封面没加载好就什么都不画（imagecache 未命中返回 nil），所以切歌时不会先闪
 // 一下空白 —— 旧版为此专门做了「先预载、后换源」。
 func (a *App) ambient(c *ui.Context) {
+	if !a.Ambient {
+		return
+	}
 	uri := a.coverURL()
 	if uri == "" {
 		return
@@ -113,9 +152,12 @@ func (a *App) ambient(c *ui.Context) {
 	}
 	ui.Box(c).Absolute().Fill().PassThrough().Children(func() {
 		ui.Image(c, bmp).Fill().Fit(ui.Cover).Opacity(0.31)
-		// 模糊它下面画过的东西（渐变 + 封面）。
-		ui.Box(c).Absolute().Fill().PassThrough().
-			Material(glass.Blur{Radius: AmbientBlur})
+		// 模糊它下面画过的东西（渐变 + 封面）。关掉「高级质感」时不模糊：
+		// 少一个离屏合成，代价是背景更锐利一些（原版 premiumTexture 的用意）。
+		if a.Premium {
+			ui.Box(c).Absolute().Fill().PassThrough().
+				Material(glass.Blur{Radius: AmbientBlur})
+		}
 		// ::after：一层白渐变，把氛围光压得更淡更匀。
 		ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
 			From:  ui.Hex("#f8fbff").Alpha(0.22),

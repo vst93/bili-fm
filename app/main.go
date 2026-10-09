@@ -68,6 +68,9 @@ type controller struct {
 	// quitting 为真表示真的在退出（而不是关窗到托盘）。
 	quitting bool
 
+	// loginGen 是登录轮询的代号：关闭面板/重新登录会让旧的轮询自尽。
+	loginGen int
+
 	// 进度同步的节流时间点（见 progress.go）。
 	resumeWroteAt time.Time
 	reportedKey   string
@@ -86,6 +89,8 @@ func main() {
 	drawerOnStart := flag.String("drawer", "", "启动后直接打开某个抽屉（调试用）")
 	winPos := flag.String("window-pos", "", "窗口位置 X,Y（调试用；不填则居中）")
 	seriesOnStart := flag.Int64("series", 0, "启动后直接打开这个合集 id（调试用）")
+	modalOnStart := flag.String("modal", "", "启动后直接打开某个对话框（调试用：about/shortcuts/login）")
+	toastOnStart := flag.String("toast", "", "启动后弹一个 toast（调试用）")
 	flag.Parse()
 
 	kv, err := store.OpenDefault()
@@ -135,6 +140,10 @@ func main() {
 	c.sponsorOn = app.Sponsor
 	// 隐身模式（原版 localStorage 的 incognitoMode）：不读也不写云端进度。
 	app.Incognito = kv.String("incognito") == "true"
+	// 显示偏好（倍速/音量/均衡/封面模式/氛围光/高级质感）。
+	c.loadPrefs()
+	// 播放列表与播放模式。
+	c.loadPlaylists()
 
 	c.wireActions()
 	c.wirePlayer()
@@ -214,6 +223,21 @@ func main() {
 			}()
 		} else if *drawerOnStart != "" {
 			c.debugOpenDrawer(*drawerOnStart, *seriesOnStart)
+		}
+
+		// 调试用：直接弹一个对话框 / toast（截图对照用）。
+		if *modalOnStart != "" {
+			switch *modalOnStart {
+			case "about":
+				c.showAbout()
+			case "shortcuts":
+				c.showShortcuts()
+			case "login":
+				c.login()
+			}
+		}
+		if *toastOnStart != "" {
+			app.Notify(*toastOnStart)
 		}
 
 		// 关闭窗口 = 隐藏到托盘（与旧版一致），从托盘或 Dock 恢复。
@@ -297,33 +321,50 @@ func (c *controller) debugOpenDrawer(kind string, seriesID int64) {
 func (c *controller) wireActions() {
 	a := c.app
 	a.Act = view.Actions{
-		LoadSection:     c.loadSection,
-		Reload:          c.reload,
-		SelectFolder:    c.selectFolder,
-		OpenUp:          c.openUp,
-		SelectSeries:    c.selectSeries,
-		ToggleFollow:    c.follow,
-		ToggleIncognito: c.toggleIncognito,
-		Search:          c.search,
-		Play:            c.playIndex,
-		TogglePlay:      c.togglePlay,
-		Next:            func() { c.step(1) },
-		Prev:            func() { c.step(-1) },
-		Seek:            c.seek,
-		SetSpeed:        func(v float64) { c.mp.SetSpeed(v) },
-		ToggleEQ:        c.toggleEQ,
-		ToggleSponsor:   c.toggleSponsor,
-		SetVolume:       func(v float64) { c.mp.SetVolume(v) },
-		OpenVideo:       c.openVideo,
-		CloseVideo:      c.closeVideo,
-		OpenParts:       c.openParts,
-		ToggleDanmaku:   c.toggleDanmaku,
-		LoadMore:        c.loadMore,
-		Login:           c.login,
-		SetMini:         c.setMini,
-		TogglePin:       c.togglePin,
-		Quit:            func() { mygo.App.Quit() },
-		Minimize:        func() { a.Win.Minimize() },
+		LoadSection:        c.loadSection,
+		Reload:             c.reload,
+		SelectFolder:       c.selectFolder,
+		OpenUp:             c.openUp,
+		SelectSeries:       c.selectSeries,
+		ToggleFollow:       c.follow,
+		ToggleIncognito:    c.toggleIncognito,
+		Search:             c.search,
+		Play:               c.playIndex,
+		TogglePlay:         c.togglePlay,
+		Next:               func() { c.step(1) },
+		Prev:               func() { c.step(-1) },
+		Seek:               c.seek,
+		SetSpeed:           c.setSpeed,
+		ToggleEQ:           c.toggleEQ,
+		ToggleSponsor:      c.toggleSponsor,
+		SetVolume:          c.setVolume,
+		OpenVideo:          c.openVideo,
+		CloseVideo:         c.closeVideo,
+		OpenParts:          c.openParts,
+		ToggleDanmaku:      c.toggleDanmaku,
+		LoadMore:           c.loadMore,
+		Login:              c.login,
+		CloseLogin:         c.closeLogin,
+		ShowAbout:          c.showAbout,
+		ShowShortcuts:      c.showShortcuts,
+		CheckUpdate:        c.checkUpdate,
+		CloseModal:         c.closeModal,
+		SetCoverMode:       c.setCoverMode,
+		ToggleAmbient:      c.toggleAmbient,
+		TogglePremium:      c.togglePremium,
+		PlayPlaylist:       c.playPlaylist,
+		DeletePlaylistItem: c.deletePlaylistItem,
+		ReorderPlaylist:    c.reorderPlaylist,
+		ClearPlaylist:      c.clearPlaylist,
+		CyclePlayMode:      c.cyclePlayMode,
+		SwitchPlaylistTab:  c.switchPlaylistTab,
+		AddToPlaylist:      c.addToPlaylist,
+		AddAllToPlaylist:   c.addAllToPlaylist,
+		SeriesPlayAll:      c.seriesPlayAll,
+		SetMini:            c.setMini,
+		TogglePin:          c.togglePin,
+		Quit:               func() { mygo.App.Quit() },
+		Minimize:           func() { a.Win.Minimize() },
 	}
 }
 
@@ -335,8 +376,24 @@ func (c *controller) wirePlayer() {
 		c.app.Win.Update(func() {})
 	})
 	c.mp.OnEnded(func() {
+		// 单曲循环：直接重播当前曲目（不管选集/列表）。
+		if c.app.PlayMode == view.PlayModeSingle {
+			c.startCurrent()
+			return
+		}
+		// 播放列表模式：在来源列表里续播。
+		if c.app.PlayingPlaylist != "" {
+			c.step(1)
+			return
+		}
+		// 普通队列：还有下一条就继续，否则停。
+		if len(c.app.Queue) > 1 {
+			c.step(1)
+			return
+		}
 		c.app.Playing = false
-		c.step(1)
+		c.app.Buffering = false
+		c.app.Win.Update(func() {})
 	})
 	c.mp.OnError(func(err error) {
 		log.Printf("播放错误: %v", err)
@@ -544,7 +601,7 @@ func (c *controller) loadUpVideos(offset string) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
-				c.app.Status = "加载失败：" + err.Error()
+				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
 			cards := toUpCards(l.Items)
@@ -605,7 +662,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
-				c.app.Status = "加载失败：" + err.Error()
+				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
 			cards := make([]view.Card, 0, len(archives))
@@ -717,7 +774,7 @@ func (c *controller) loadSection(section string, page int) {
 		a.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
-				a.Status = "加载失败：" + err.Error()
+				a.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
 			if page <= 1 {
@@ -837,7 +894,7 @@ func (c *controller) loadFolders() {
 		if err != nil {
 			c.app.Win.Update(func() {
 				c.app.ListFor("favorite").Loading = false
-				c.app.Status = "收藏夹加载失败：" + err.Error()
+				c.app.NotifyType("error", "收藏夹加载失败："+err.Error())
 			})
 			return
 		}
@@ -879,7 +936,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
-				c.app.Status = "加载失败：" + err.Error()
+				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
 			if page <= 1 {
@@ -956,6 +1013,12 @@ func (c *controller) search(query string) {
 
 // playIndex 播放当前列表里的第 index 条。
 func (c *controller) playIndex(index int) {
+	// 选集抽屉：队列已经由 openParts 建好了（就是这集的所有分 P）。
+	if c.app.Drawer == view.DrawerParts {
+		c.app.Index = index
+		c.startCurrent()
+		return
+	}
 	cards := c.app.ListFor(c.app.Drawer).Cards
 	if index < 0 || index >= len(cards) {
 		return
@@ -967,12 +1030,20 @@ func (c *controller) playIndex(index int) {
 	}
 	c.app.Queue = queue
 	c.app.Index = index
+	// 从普通列表进入：退出「播放列表模式」。
+	c.app.PlayingPlaylist = ""
 	c.startCurrent()
 }
 
-// openParts 时把分集当作队列。
+// openParts 打开选集抽屉时把分集当作播放队列（旧版：进详情后上一首/下一首
+// 就在分 P 之间走）。已经拉过详情就直接用，否则补拉一次。
 func (c *controller) openParts(t view.Track) {
-	if c.app.Drawer != view.DrawerParts || t.Bvid == "" {
+	a := c.app
+	if a.Drawer != view.DrawerParts || t.Bvid == "" {
+		return
+	}
+	if a.Info != nil && a.Info.Bvid == t.Bvid && len(a.Info.Parts) > 0 {
+		c.buildPartsQueue(a.Info, t.Cid)
 		return
 	}
 	go func() {
@@ -980,24 +1051,32 @@ func (c *controller) openParts(t view.Track) {
 		if info == nil || len(info.Parts) == 0 {
 			return
 		}
-		queue := make([]view.Track, 0, len(info.Parts))
-		for _, p := range info.Parts {
-			queue = append(queue, view.Track{
-				Aid: info.Aid, Bvid: t.Bvid, Cid: p.Cid,
-				Title: info.Title, Up: info.OwnerName, Cover: info.Pic,
-				Duration: t.Duration, Part: p.Part,
-			})
-		}
-		c.app.Win.Update(func() {
-			c.app.Info = info
-			c.app.Queue = queue
-			for i, q := range queue {
-				if q.Cid == t.Cid {
-					c.app.Index = i
-				}
-			}
+		a.Win.Update(func() {
+			a.Info = info
+			c.buildPartsQueue(info, t.Cid)
 		})
 	}()
+}
+
+// buildPartsQueue 把详情的分集变成播放队列，并把当前位置指到 cid。
+func (c *controller) buildPartsQueue(info *view.Info, cid int64) {
+	a := c.app
+	queue := make([]view.Track, 0, len(info.Parts))
+	for _, p := range info.Parts {
+		queue = append(queue, view.Track{
+			Aid: info.Aid, Bvid: info.Bvid, Cid: p.Cid,
+			Title: info.Title, Up: info.OwnerName, Cover: info.Pic,
+			Part: p.Part,
+		})
+	}
+	a.Queue = queue
+	a.PlayingPlaylist = ""
+	for i, q := range queue {
+		if q.Cid == cid {
+			a.Index = i
+		}
+	}
+	a.Win.Update(func() {})
 }
 
 // videoInfoOf 拉取视频详情（标题 / 简介 / UP 主 / 分集 / 互动数）。
@@ -1022,7 +1101,10 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 		View:      vi.Stat.View,
 	}
 	for _, p := range vi.Pages {
-		info.Parts = append(info.Parts, view.Part{Cid: int64(p.Cid), Page: p.Page, Part: p.Part})
+		info.Parts = append(info.Parts, view.Part{
+			Cid: int64(p.Cid), Page: p.Page, Part: p.Part,
+			Duration: int64(p.Duration), FirstFrame: p.FirstFrame,
+		})
 	}
 	if len(vi.Pages) > 0 {
 		info.Cid = int64(vi.Pages[0].Cid)
@@ -1049,7 +1131,10 @@ func (c *controller) startCurrent() {
 	}
 	c.app.Buffering = true
 	c.app.Status = "起播中…"
-	c.app.Drawer = ""
+	// 从选集、搜索结果等进入时关掉抽屉；播放列表模式下要保留列表。
+	if c.app.Drawer != view.DrawerPlaylist {
+		c.app.Drawer = ""
+	}
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
 	c.app.Win.Update(func() {})
@@ -1073,7 +1158,7 @@ func (c *controller) startCurrent() {
 		if cid == 0 {
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
-				c.app.Status = "取分集失败"
+				c.app.NotifyType("warning", "取分集失败")
 			})
 			return
 		}
@@ -1085,7 +1170,7 @@ func (c *controller) startCurrent() {
 		if u.URL == "" {
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
-				c.app.Status = "该视频暂时无法播放"
+				c.app.NotifyType("warning", "该视频暂时无法播放")
 			})
 			return
 		}
@@ -1101,7 +1186,7 @@ func (c *controller) startCurrent() {
 		if err := c.mp.Play(u.URL, audioHeaders); err != nil {
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
-				c.app.Status = "起播失败：" + err.Error()
+				c.app.NotifyType("error", "起播失败："+err.Error())
 			})
 			return
 		}
@@ -1166,6 +1251,30 @@ func (c *controller) step(delta int) {
 	}
 	// 切歌前把当前这条的断点补写 / 补报（原版在切歌时 force 上报）。
 	c.flushProgress(c.app.Pos)
+
+	// 播放列表模式：在来源列表里按播放模式选下一条。
+	if c.app.PlayingPlaylist != "" && delta != 0 {
+		items := c.playlistOf(c.app.PlayingPlaylist)
+		n := len(items)
+		if n == 0 {
+			return
+		}
+		var next int
+		if delta > 0 && c.app.PlayMode == view.PlayModeShuffle {
+			next = randomOtherIndex(n, c.app.Index)
+		} else {
+			next = c.app.Index + delta
+			if next < 0 {
+				next = n - 1
+			}
+			if next >= n {
+				next = 0
+			}
+		}
+		c.playPlaylist(c.app.PlayingPlaylist, next)
+		return
+	}
+
 	next := c.app.Index + delta
 	if next < 0 {
 		next = len(c.app.Queue) - 1
@@ -1195,6 +1304,7 @@ func (c *controller) seek(seconds float64) {
 func (c *controller) toggleEQ() {
 	c.app.EQ = !c.app.EQ
 	c.mp.SetEQ(c.app.EQ)
+	_ = c.kv.SetString(prefEQ, strconv.FormatBool(c.app.EQ))
 	c.app.Win.Update(func() {})
 }
 
@@ -1255,7 +1365,7 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 func (c *controller) openVideo() {
 	t := c.app.Current()
 	if t == nil || t.Cid == 0 {
-		c.app.Status = "先选一个视频"
+		c.app.NotifyType("warning", "先选一个视频")
 		c.app.Win.Update(func() {})
 		return
 	}
@@ -1263,7 +1373,7 @@ func (c *controller) openVideo() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
 		if u.URL == "" {
-			c.app.Win.Update(func() { c.app.Status = "取播放地址失败" })
+			c.app.NotifyType("error", "取播放地址失败")
 			return
 		}
 		opts := video.Options{
@@ -1275,7 +1385,7 @@ func (c *controller) openVideo() {
 			Parent:  c.app.Win,
 		}
 		if err := c.vid.Open(opts); err != nil {
-			c.app.Win.Update(func() { c.app.Status = "打开视频窗口失败：" + err.Error() })
+			c.app.NotifyType("error", "打开视频窗口失败："+err.Error())
 			return
 		}
 		c.app.Win.Update(func() { c.app.VideoOpen = true })
@@ -1286,39 +1396,6 @@ func (c *controller) closeVideo() {
 	c.vid.Close()
 	c.app.VideoOpen = false
 	c.app.Win.Update(func() {})
-}
-
-// ---------------------------------------------------------------- 登录
-
-func (c *controller) login() {
-	c.app.Status = "请在手机上确认登录…"
-	c.app.Win.Update(func() {})
-	go func() {
-		qr, err := c.bl.GetLoginQRCode()
-		if err != nil {
-			c.app.Win.Update(func() { c.app.Status = "取二维码失败：" + err.Error() })
-			return
-		}
-		c.app.Win.Update(func() { c.app.Status = "扫码地址：" + qr })
-		// 轮询登录状态
-		for i := 0; i < 90; i++ {
-			time.Sleep(2 * time.Second)
-			if c.bl.GetLoginQRCodeStatus() {
-				bilibili.LoginStatus = true
-				info := c.bl.GetBLUserInfo()
-				c.app.Win.Update(func() {
-					c.app.LoggedIn = true
-					if info != nil {
-						c.app.UName = info.Uname
-					}
-					c.app.Status = "登录成功"
-				})
-				c.loadSection(c.app.CurrentSection().Key, 1)
-				return
-			}
-		}
-		c.app.Win.Update(func() { c.app.Status = "登录超时" })
-	}()
 }
 
 // ---------------------------------------------------------------- 小工具

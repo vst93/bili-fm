@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -45,6 +46,9 @@ type Part struct {
 	Cid  int64
 	Page int
 	Part string
+	// Duration 是这一集的时长（秒），FirstFrame 是这一集的封面首帧。
+	Duration   int64
+	FirstFrame string
 }
 
 // Danmaku 是一条弹幕。
@@ -60,6 +64,18 @@ type Comment struct {
 	Content string
 	Likes   int64
 	Time    string
+}
+
+// PlayItem 是播放列表里的一条记录（原版 PlaylistItem）。
+type PlayItem struct {
+	ID         string // bvid-cid，去重用
+	Bvid       string
+	Aid        int64
+	Cid        int64
+	Part       string
+	FirstFrame string
+	Title      string
+	Pic        string
 }
 
 // List 是一个抽屉的列表状态。
@@ -127,6 +143,21 @@ const (
 	DrawerUp = "up"
 	// DrawerSeries 是一个合集的视频列表，从 UP 空间里选一个合集进。
 	DrawerSeries = "series"
+	// DrawerPlaylist 是播放列表（我的列表 / 合集列表两个 tab）。
+	DrawerPlaylist = "playlist"
+)
+
+// 播放模式（原版 PlaylistPlayMode）。
+const (
+	PlayModeSequence = "sequence"
+	PlayModeSingle   = "single"
+	PlayModeShuffle  = "shuffle"
+)
+
+// 播放列表的来源（原版 activePlaylistType）。
+const (
+	ListUser   = "user"
+	ListSeries = "series"
 )
 
 // UP 空间抽屉的两个 tab（原版 upVideoList.tsx 的「视频 / 合集」）。
@@ -157,6 +188,28 @@ const (
 	HistHistory    = "history"    // 历史：观看历史
 	HistWatchLater = "watchlater" // 历史：稍后再看
 )
+
+// Modal 是一个模态对话框（原版的 DialogProvider / 登录面板）。
+//
+// 同一时刻只显示一个；Kind 决定内容：
+//
+//	login      扫码登录（QR 是二维码位图）
+//	about      关于应用
+//	shortcuts  快捷键
+//	update     检查更新 / 下载进度
+//	message    通用提示（标题 + 正文）
+type Modal struct {
+	Kind    string
+	Title   string
+	Message string
+	// QR 是登录二维码的位图（Kind == "login"）。
+	QR *ui.Bitmap
+	// 更新相关（Kind == "update"）：目标版本号与下载进度（Total 为 0 表示不确定）。
+	Version    string
+	Downloaded int64
+	Total      int64
+	Busy       bool
+}
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。
 type Actions struct {
@@ -189,6 +242,11 @@ type Actions struct {
 	ToggleDanmaku   func()
 	LoadMore        func()
 	Login           func()
+	CloseLogin      func()
+	ShowAbout       func()
+	ShowShortcuts   func()
+	CheckUpdate     func()
+	CloseModal      func()
 	Like            func()
 	Coin            func()
 	Favorite        func()
@@ -197,7 +255,20 @@ type Actions struct {
 	Minimize        func()
 	SetMini         func(on bool)
 	TogglePin       func()
-	SaveQueue       func()
+	SetCoverMode    func(mode string)
+	ToggleAmbient   func()
+	TogglePremium   func()
+	// 播放列表
+	PlayPlaylist       func(list string, index int)
+	DeletePlaylistItem func(list, id string)
+	ReorderPlaylist    func(list string, from, to int)
+	ClearPlaylist      func(list string)
+	CyclePlayMode      func()
+	SwitchPlaylistTab  func(list string)
+	AddToPlaylist      func(part Part)
+	AddAllToPlaylist   func()
+	SeriesPlayAll      func()
+	SaveQueue          func()
 }
 
 // App 是主窗口的全部状态。
@@ -257,6 +328,22 @@ type App struct {
 	Danmaku  []Danmaku
 	Comments []Comment
 
+	// 播放列表（原版 playlist / seriesPlaylist）。
+	//
+	// Playlist 是「我的列表」（用户从选集面板手动添加的）；SeriesPlaylist 是
+	// 「合集列表」（从合集「播放全部」加载的）。两者都落盘。
+	Playlist       []PlayItem
+	SeriesPlaylist []PlayItem
+	// PlayingPlaylist 是当前正在播放的来源：ListUser / ListSeries / ""（从
+	// 普通列表或选集进入时为空）。
+	PlayingPlaylist string
+	// PlayMode 是播放模式（sequence / single / shuffle）。
+	PlayMode string
+	// PlaylistTab 是播放列表抽屉当前显示的 tab。
+	PlaylistTab string
+	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。
+	locateNow bool
+
 	// Drawer 是当前打开的抽屉："" 表示没有，否则是分区 key 或
 	// DrawerSearch / DrawerParts / DrawerDanmaku / DrawerInfo。
 	// 原版同一时刻只有一个抽屉（HeroUI Drawer 的 isOpen）。
@@ -291,6 +378,20 @@ type App struct {
 	Mini bool
 	// Pinned 表示迷你窗置顶（原版迷你模式里的图钉按钮）。
 	Pinned bool
+
+	// 显示偏好（原版 localStorage 的 coverMode / ambientBackgroundEnabled /
+	// premiumTexture，落盘在本地存储里）。
+	CoverMode string // "disc"（默认，转动的圆盘）或 "square"（静态方块）
+	Ambient   bool   // 封面背景（氛围光）开关
+	Premium   bool   // 高级质感
+
+	// Modal 是当前显示的模态对话框（nil 表示没有）。
+	Modal *Modal
+
+	// toasts 是待弹出的 toast：后台线程通过 Notify 入队，下一帧由 Shell
+	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
+	toastMu sync.Mutex
+	toasts  []ui.Toast
 }
 
 // NewApp 建一个用当前时段主题的应用。
@@ -306,9 +407,50 @@ func NewApp(repaint func()) *App {
 		RecTab:    RecHot,
 		HistTab:   HistHistory,
 		UpTab:     UpTabVideos,
+		// 显示偏好默认值与原版一致：碟片模式、封面背景开、高级质感开。
+		CoverMode: "disc",
+		Ambient:   true,
+		Premium:   true,
+		// 播放列表默认：顺序播放、我的列表页签。
+		PlayMode:    PlayModeSequence,
+		PlaylistTab: ListUser,
 	}
 	a.discAt = time.Now()
 	return a
+}
+
+// Notify 弹一个 toast（等价原版的 toast({ content })，由视图下一帧显示）。
+// 可以从任意 goroutine 调用。
+func (a *App) Notify(message string) {
+	a.notifyToast(ui.Toast{Title: message})
+}
+
+// NotifyType 弹一个带类型（error / warning / success）的 toast。
+func (a *App) NotifyType(typ, message string) {
+	a.notifyToast(ui.Toast{Title: message, Type: typ})
+}
+
+func (a *App) notifyToast(t ui.Toast) {
+	if t.Title == "" {
+		return
+	}
+	a.toastMu.Lock()
+	a.toasts = append(a.toasts, t)
+	a.toastMu.Unlock()
+	if a.Win != nil {
+		a.Win.Invalidate()
+	}
+}
+
+// drainToasts 在构建帧时把排队的 toast 交给框架显示。
+func (a *App) drainToasts(c *ui.Context) {
+	a.toastMu.Lock()
+	list := a.toasts
+	a.toasts = nil
+	a.toastMu.Unlock()
+	for _, t := range list {
+		c.AddToast(t)
+	}
 }
 
 // ListFor 返回某个抽屉的列表状态，没有就建一个。
@@ -401,11 +543,26 @@ var (
 	// 历史抽屉表头的「隐身」开关（原版用 MaskOne）。
 	iconMask    = icon(`<path d="M1.8 8h2.6a2 2 0 0 1 0 4H1.8z"/><path d="M14.2 8h-2.6a2 2 0 0 0 0 4h2.6z"/><path d="M6 10.4h4"/>`)
 	iconRefresh = icon(`<path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/><path d="M13.6 2.4v2.8h-2.8"/>`)
+	// 封面背景（原版用 icon-park 的 Halo）与高级质感（Sparkles）。
+	iconHalo     = icon(`<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4v2M8 12.6v2M1.4 8h2M12.6 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>`)
+	iconSparkles = icon(`<path d="M6.4 10.2A1.5 1.5 0 0 0 5.3 9.1L1.6 8a.4.4 0 0 1 0-.7l3.7-1.1A1.5 1.5 0 0 0 6.4 5.1l1.1-3.7a.4.4 0 0 1 .7 0l1.1 3.7a1.5 1.5 0 0 0 1.1 1.1l3.7 1.1a.4.4 0 0 1 0 .7l-3.7 1.1a1.5 1.5 0 0 0-1.1 1.1l-1.1 3.7a.4.4 0 0 1-.7 0z"/><path d="M13 2v2.4M14.2 3.2h-2.4"/>`)
 	// 工具条的「合集」（原版用 icon-park 的 Layers）。
 	iconSeries = icon(`<path d="M8 1.9l6.2 3.2L8 8.3 1.8 5.1z"/><path d="M2.6 8.2l5.4 2.8 5.4-2.8"/><path d="M2.6 11.2l5.4 2.8 5.4-2.8"/>`)
 	// UP 空间抽屉里的关注 / 已关注。
 	iconFollow   = icon(`<path d="M8 3.6v8.8M3.6 8h8.8"/>`)
 	iconFollowed = icon(`<path d="M3.4 8.4l3 3 6.2-6.8"/>`)
+
+	// 播放列表：定位当前 / 播放模式 / 删除 / 添加 / 已添加 / 上移下移。
+	iconLocate  = icon(`<circle cx="8" cy="8" r="3"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2"/>`)
+	iconOrder   = icon(`<path d="M2.5 4h11M2.5 8h7M2.5 12h11"/>`)
+	iconLoop    = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/>`)
+	iconLoopOne = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/><path d="M7 6.4v3.2"/>`)
+	iconShuffle = icon(`<path d="M2.5 4.5h2.2l6.8 7h2"/><path d="M2.5 11.5h2.2l2.3-2.4"/><path d="M9 6.9l2.5-2.4h2"/><path d="M11.4 2.6L13.5 4.5l-2.1 1.9M11.4 9.6l2.1 1.9-2.1 1.9"/>`)
+	iconDelete  = icon(`<path d="M3 4.5h10M6.2 4.5V3h3.6v1.5M4.4 4.5l.6 8.2a1 1 0 0 0 1 .9h4a1 1 0 0 0 1-.9l.6-8.2"/>`)
+	iconAdd     = icon(`<path d="M8 3.4v9.2M3.4 8h9.2"/>`)
+	iconCheck   = icon(`<path d="M3.2 8.4l3.2 3.2 6.4-7"/>`)
+	iconUp      = icon(`<path d="M8 12.5V3.5M4.2 7.3L8 3.5l3.8 3.8"/>`)
+	iconDown    = icon(`<path d="M8 3.5v9M11.8 8.7L8 12.5 4.2 8.7"/>`)
 )
 
 // pick 是三元表达式的泛型版。

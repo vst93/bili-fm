@@ -506,7 +506,10 @@ type QRCodeStatusResponse struct {
 }
 
 func (bl *BL) GetLoginQRCodeStatus() (status bool) {
-	if !LoginStatus {
+	// 注意：这里**不能**再用 LoginStatus 当守卫。LoginStatus 表示「已登录」，
+	// 而轮询发生在登录之前，加了守卫就永远 poll 不出来（旧移植遗留的 bug）。
+	// 轮询节奏由调用方控制，这里立即返回，不做 time.Sleep 阻塞。
+	if QrCocdeKey == "" {
 		return false
 	}
 
@@ -555,19 +558,14 @@ func (bl *BL) GetLoginQRCodeStatus() (status bool) {
 	switch qrCodeStatus.Data.Code {
 	case 0:
 		cookie := strings.Join(resp.Header["Set-Cookie"], "; ")
-		fmt.Println("二维码扫描成功，Cookie:", cookie)
+		fmt.Println("二维码扫描成功")
 		bl.SetSESSDATA(cookie)
 		return true
-		// 在实际应用中，你可能需要将 cookie 存储到某个地方，这里只是打印出来
 	case 86038:
 		fmt.Println("二维码已失效")
-		time.Sleep(5 * time.Second)
 		return false
-		// 在这里调用 getLoginQRCode 函数（假设它已经定义）
-		// getLoginQRCode()
 	default:
 		fmt.Println("二维码扫描中...")
-		time.Sleep(2 * time.Second)
 		return false
 	}
 }

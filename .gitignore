@@ -1,36 +1,12 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
+# 编辑器
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
 
-
-pnpm-lock.yaml
-yarn.lock
-package-lock.json
-bun.lock
-
-# MSIX packaging intermediate output (build/windows sources are committed)
-build/msix/
-__pycache__/
-aur/bili-FM-*.pkg.tar.zst
-aur/bili-FM-2.0.48-preview-linux-x86_64.pkg.tar.zst
+# mygo 构建产物（app/.gitignore 里也有一份，防止从根目录构建时漏掉）
+app/build/
+app/frontend/src/
+app/.mygo/
+app/blprobe

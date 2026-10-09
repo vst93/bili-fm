@@ -7,6 +7,7 @@ replace github.com/egoist/mygo => github.com/vst93/mygo v0.3.4-0.20261008174503-
 require (
 	github.com/ebitengine/oto/v3 v3.5.1
 	github.com/egoist/mygo v0.3.4
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tphakala/go-aac v0.7.0
 	github.com/tphakala/go-m4a v0.5.0
 )

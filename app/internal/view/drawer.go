@@ -126,6 +126,10 @@ func (a *App) drawerTabs(c *ui.Context) {
 		ui.Text(c, "动态列表").FontSize(14).Bold().TextColor(ui.Hex("#334155"))
 	case DrawerUp:
 		a.upHeader(c)
+	case DrawerParts:
+		a.partsHeader(c)
+	case DrawerPlaylist:
+		a.playlistTabs(c)
 	case DrawerSeries:
 		ui.Text(c, a.seriesLabel()).FontSize(14).Bold().SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
@@ -143,8 +147,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 					ui.Text(c, "播放全部").FontSize(12).TextColor(ui.Hex("#475569"))
 				})
 			})
-			if b.Clicked() && a.Act.Play != nil {
-				a.Act.Play(0)
+			if b.Clicked() && a.Act.SeriesPlayAll != nil {
+				a.Act.SeriesPlayAll()
 			}
 		}
 	default:
@@ -238,7 +242,7 @@ func (a *App) seriesLabel() string {
 // refreshable 返回这个抽屉的表头有没有刷新键（原版每个列表抽屉都有）。
 func (a *App) refreshable() bool {
 	switch a.Drawer {
-	case DrawerParts, DrawerDanmaku, DrawerInfo:
+	case DrawerParts, DrawerDanmaku, DrawerInfo, DrawerPlaylist:
 		return false
 	}
 	return a.Drawer != ""
@@ -364,6 +368,8 @@ func (a *App) drawerBody(c *ui.Context) {
 			} else {
 				a.listBody(c)
 			}
+		case DrawerPlaylist:
+			a.playlistBody(c)
 		default:
 			a.listBody(c)
 		}
@@ -604,6 +610,43 @@ func estimateCardWidth(c *ui.Context) float32 {
 
 // ---------------------------------------------------------------- 分集抽屉
 
+// partsHeader 是选集抽屉的表头（原版 pageList.tsx）：「选集(N)」+ 定位当前 +
+// 「全部添加」到播放列表。
+func (a *App) partsHeader(c *ui.Context) {
+	t := a.Theme
+	n := 0
+	if a.Info != nil {
+		n = len(a.Info.Parts)
+	}
+	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).Bold().
+		TextColor(ui.Hex("#334155")).Shrink(0)
+
+	if a.Track != nil {
+		a.headerButton(c, "parts-locate", "定位到当前播放的位置", iconLocate, func() {
+			a.locateNow = true
+		})
+	}
+	if n > 0 {
+		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
+			Radius(Radius).Center().Label("全部添加")
+		if b.Hovered() {
+			b.Background(t.GlassHover)
+		} else {
+			b.Background(t.GlassActive)
+		}
+		b.Children(func() {
+			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, iconAdd).Size(13, 13).TextColor(ui.Hex("#475569"))
+				ui.Text(c, "全部添加").FontSize(12).TextColor(ui.Hex("#475569"))
+			})
+		})
+		if b.Clicked() && a.Act.AddAllToPlaylist != nil {
+			a.Act.AddAllToPlaylist()
+		}
+	}
+}
+
+// partsBody 是选集抽屉正文：三列卡片网格，每张卡片右上角一个「添加到播放列表」。
 func (a *App) partsBody(c *ui.Context) {
 	t := a.Theme
 	var parts []Part
@@ -614,31 +657,106 @@ func (a *App) partsBody(c *ui.Context) {
 		ui.Text(c, "没有分集信息").FontSize(12).TextColor(t.Faint)
 		return
 	}
-	ui.Column(c).Gap(2).Children(func() {
-		for i, p := range parts {
-			active := a.Track != nil && a.Track.Cid == p.Cid
-			row := ui.Row(c).Key(fmt.Sprintf("part-%d", p.Cid)).FillWidth().
-				Padding(6, 8).Radius(RadiusSmall).Gap(8).AlignItems(ui.Center).
-				Cursor(ui.CursorPointer)
-			switch {
-			case active:
-				row.Background(t.Blue.Alpha(0.22))
-			case row.Hovered():
-				row.Background(t.GlassHover)
-			}
-			row.Children(func() {
-				ui.Text(c, fmt.Sprintf("P%d", p.Page)).FontSize(10).TextColor(t.Faint).Width(26)
-				ui.Text(c, p.Part).FontSize(12).TextColor(t.Ink).Grow(1).SingleLine()
-			})
-			if row.Clicked() {
-				idx := i
-				a.Drawer = ""
-				if a.Act.Play != nil {
-					a.Act.Play(idx)
+
+	const cols = 3
+	ui.Column(c).Gap(8).Children(func() {
+		for i := 0; i < len(parts); i += cols {
+			end := min(i+cols, len(parts))
+			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
+				for j := i; j < end; j++ {
+					a.partCard(c, j, parts[j])
 				}
-			}
+				for j := end; j < i+cols; j++ {
+					ui.Box(c).Grow(1).Basis(0)
+				}
+			})
 		}
 	})
+	// 定位标志只在这一次构建里生效。
+	a.locateNow = false
+}
+
+// partCard 是一张选集卡片。
+func (a *App) partCard(c *ui.Context, index int, p Part) {
+	t := a.Theme
+	active := a.Track != nil && a.Track.Cid == p.Cid
+	inList := a.playlistHas(p.Cid)
+	box := ui.Column(c).Key(fmt.Sprintf("part-%d", p.Cid)).Grow(1).Basis(0).
+		Padding(6).Radius(Radius).Gap(6).Cursor(ui.CursorPointer)
+	switch {
+	case active:
+		box.Background(t.GlassHover).Border(2, t.Blue)
+	case box.Hovered():
+		box.Background(t.GlassHover)
+	default:
+		box.Background(t.Glass)
+	}
+	if active && a.locateNow {
+		box.ScrollIntoView()
+	}
+
+	box.Children(func() {
+		cover := ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
+			Background(t.CoverPlaceholder()).Clip()
+		cover.Children(func() {
+			src := p.FirstFrame
+			if src == "" && a.Info != nil {
+				src = a.Info.Pic
+			}
+			if bmp := a.Images.Bitmap(src); bmp != nil {
+				ui.Image(c, bmp).Fill().Fit(ui.Cover)
+			}
+			if p.Duration > 0 {
+				ui.Text(c, fmtTime(float64(p.Duration))).FontSize(11).TextColor(ui.Hex("#f8fafc")).
+					Absolute().Right(0).Bottom(0).Padding(2, 5).
+					Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
+			}
+			if active {
+				ui.Text(c, "正在播放").FontSize(9).TextColor(ui.Hex("#ffffff")).
+					Absolute().Left(4).Top(4).Padding(1, 5).Radius(3).
+					Background(t.Blue.Alpha(0.85))
+			}
+			// 右上角的添加键。
+			addLabel := "添加到播放列表"
+			if inList {
+				addLabel = "已在播放列表中"
+			}
+			add := ui.ButtonBase(c.Key(fmt.Sprintf("part-add-%d", p.Cid))).
+				Size(24, 24).Radius(RadiusPill).Center().Label(addLabel).Tooltip(addLabel)
+			add.Absolute().Right(4).Top(4)
+			if inList {
+				add.Background(ui.Hex("#0f172a").Alpha(0.42))
+			} else if add.Hovered() {
+				add.Background(ui.Hex("#0f172a").Alpha(0.62))
+			} else {
+				add.Background(ui.Hex("#0f172a").Alpha(0.42))
+			}
+			add.Children(func() {
+				ui.Icon(c, pick(inList, iconCheck, iconAdd)).Size(13, 13).
+					TextColor(pick(inList, ui.Hex("#4ade80"), ui.Hex("#ffffff")))
+			})
+			if add.Clicked() && a.Act.AddToPlaylist != nil {
+				a.Act.AddToPlaylist(p)
+			}
+		})
+		ui.Text(c, p.Part).FontSize(13).TextColor(t.Ink).MaxLines(2)
+	})
+	if box.Clicked() {
+		if a.Act.Play != nil {
+			a.Act.Play(index)
+		}
+		a.Drawer = ""
+	}
+}
+
+// playlistHas 返回这一集是否已在「我的列表」里。
+func (a *App) playlistHas(cid int64) bool {
+	for _, it := range a.Playlist {
+		if it.Cid == cid {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------- 弹幕抽屉
