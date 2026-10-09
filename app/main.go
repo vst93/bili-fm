@@ -107,6 +107,7 @@ func main() {
 	addAllOnStart := flag.Bool("addall", false, "加载详情后把全部分集加入播放列表（调试用）")
 	videoOnStart := flag.Bool("video", false, "起播后自动打开视频弹窗（调试用）")
 	foldersOnStart := flag.Int("folders", 0, "注入 N 个假收藏夹并打开收藏抽屉（调试用）")
+	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	flag.Parse()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
@@ -248,6 +249,23 @@ func main() {
 			app.FolderID = list[0].ID
 			app.Section = sectionIndex("favorite")
 			app.Drawer = "favorite"
+			app.Win.Update(func() {})
+		}
+
+		// 调试用：注入假播放列表，检查拖拽排序的行布局。
+		if *playlistOnStart > 0 {
+			items := make([]view.PlayItem, *playlistOnStart)
+			for i := range items {
+				items[i] = view.PlayItem{
+					ID:    fmt.Sprintf("fake-%d", i),
+					Bvid:  "BVfake",
+					Part:  fmt.Sprintf("第 %d 集", i+1),
+					Title: fmt.Sprintf("假视频标题 %d", i+1),
+				}
+			}
+			app.Playlist = items
+			app.PlaylistTab = view.ListUser
+			app.Drawer = view.DrawerPlaylist
 			app.Win.Update(func() {})
 		}
 

@@ -93,13 +93,24 @@ func (a *App) playlistBody(c *ui.Context) {
 	a.locateNow = false
 }
 
-// playlistRow 是一条记录。
+// playlistRow 是一条记录。我的列表支持拖拽排序（拖到别的行上即插入到那个位置）。
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	t := a.Theme
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
 	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(6, 8).
 		Radius(RadiusSmall).Gap(10).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+
+	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。
+	editable := a.PlaylistTab == ListUser
+	if editable {
+		row.Drag(item.ID)
+	}
+	_, dragOver := ui.DragOver[string](row)
+	droppedID, dropped := ui.Drop[string](row)
+
 	switch {
+	case dragOver:
+		row.Background(t.Blue.Alpha(0.10)).Border(2, t.Blue)
 	case current:
 		row.Background(t.Blue.Alpha(0.18))
 	case row.Hovered():
@@ -133,22 +144,8 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			ui.Text(c, item.Title).FontSize(11).TextColor(t.Faint).SingleLine()
 		})
 
-		// 我的列表才允许编辑：上移 / 下移 / 删除。
-		if a.PlaylistTab == ListUser {
-			if index > 0 {
-				a.rowIconButton(c, fmt.Sprintf("pl-up-%s", item.ID), "上移", iconUp, ui.Hex("#94a3b8"), func() {
-					if a.Act.ReorderPlaylist != nil {
-						a.Act.ReorderPlaylist(ListUser, index, index-1)
-					}
-				})
-			}
-			if index < len(a.Playlist)-1 {
-				a.rowIconButton(c, fmt.Sprintf("pl-down-%s", item.ID), "下移", iconDown, ui.Hex("#94a3b8"), func() {
-					if a.Act.ReorderPlaylist != nil {
-						a.Act.ReorderPlaylist(ListUser, index, index+1)
-					}
-				})
-			}
+		// 我的列表才允许删除（排序靠拖拽）。
+		if editable {
 			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose, ui.Hex("#94a3b8"), func() {
 				if a.Act.DeletePlaylistItem != nil {
 					a.Act.DeletePlaylistItem(ListUser, item.ID)
@@ -158,6 +155,19 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	})
 	if row.Clicked() && a.Act.PlayPlaylist != nil {
 		a.Act.PlayPlaylist(a.PlaylistTab, index)
+	}
+	// 放下：把被拖的记录插到这一行的位置。
+	if dropped && editable && a.Act.ReorderPlaylist != nil {
+		from := -1
+		for i, it := range a.Playlist {
+			if it.ID == droppedID {
+				from = i
+				break
+			}
+		}
+		if from >= 0 && from != index {
+			a.Act.ReorderPlaylist(ListUser, from, index)
+		}
 	}
 }
 
