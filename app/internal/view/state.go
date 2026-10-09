@@ -625,14 +625,11 @@ var (
 	// 播放列表：定位当前 / 播放模式 / 删除 / 添加 / 已添加 / 上移下移。
 	iconLocate  = icon(`<circle cx="8" cy="8" r="3"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2"/>`)
 	iconOrder   = icon(`<path d="M2.5 4h11M2.5 8h7M2.5 12h11"/>`)
-	iconLoop    = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/>`)
 	iconLoopOne = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/><path d="M7 6.4v3.2"/>`)
 	iconShuffle = icon(`<path d="M2.5 4.5h2.2l6.8 7h2"/><path d="M2.5 11.5h2.2l2.3-2.4"/><path d="M9 6.9l2.5-2.4h2"/><path d="M11.4 2.6L13.5 4.5l-2.1 1.9M11.4 9.6l2.1 1.9-2.1 1.9"/>`)
 	iconDelete  = icon(`<path d="M3 4.5h10M6.2 4.5V3h3.6v1.5M4.4 4.5l.6 8.2a1 1 0 0 0 1 .9h4a1 1 0 0 0 1-.9l.6-8.2"/>`)
 	iconAdd     = icon(`<path d="M8 3.4v9.2M3.4 8h9.2"/>`)
 	iconCheck   = icon(`<path d="M3.2 8.4l3.2 3.2 6.4-7"/>`)
-	iconUp      = icon(`<path d="M8 12.5V3.5M4.2 7.3L8 3.5l3.8 3.8"/>`)
-	iconDown    = icon(`<path d="M8 3.5v9M11.8 8.7L8 12.5 4.2 8.7"/>`)
 )
 
 // pick 是三元表达式的泛型版。

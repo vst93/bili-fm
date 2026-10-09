@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -139,6 +141,20 @@ func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 	c = toCards(wl)
 	if len(c) != 1 || c[0].Up != "WLUP" || c[0].Views != "999" || c[0].Extra != "已看完" {
 		t.Errorf("watch later card = %+v", c)
+	}
+}
+
+func TestToDanmakuListCaps(t *testing.T) {
+	items := make([]bilibili.DanmakuItem, maxDanmaku+50)
+	for i := range items {
+		items[i] = bilibili.DanmakuItem{Content: fmt.Sprintf("dm%d", i), Time: float64(i), Color: 0xff0000}
+	}
+	got := toDanmakuList(items)
+	if len(got) != maxDanmaku {
+		t.Fatalf("len = %d, want %d", len(got), maxDanmaku)
+	}
+	if got[0].Text != "dm0" || got[0].Color != 0xff0000 {
+		t.Errorf("first = %+v", got[0])
 	}
 }
 

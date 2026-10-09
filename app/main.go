@@ -605,6 +605,10 @@ func (c *controller) loadComments(page int) {
 			} else {
 				a.Comments = append(a.Comments, list...)
 			}
+			// 上限：列表不做虚拟化，条目太多每帧构建很吃力。
+			if len(a.Comments) > maxComments {
+				a.Comments = a.Comments[:maxComments]
+			}
 			a.ReplyPage = page
 			a.RepliesHasMore = r.HasMore
 			a.ReplyTotal = r.TotalCount
@@ -1629,10 +1633,7 @@ func (c *controller) startCurrent() {
 
 		// 弹幕与跳过分段：可选增强，失败不影响播放。
 		if d, err := c.bl.GetDanmakuList(int(cid)); err == nil && d != nil {
-			list := make([]view.Danmaku, 0, len(d.Items))
-			for _, it := range d.Items {
-				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
-			}
+			list := toDanmakuList(d.Items)
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}
 		if c.sponsorOn {
@@ -1801,13 +1802,30 @@ func (c *controller) toggleDanmaku() {
 			if err != nil || d == nil {
 				return
 			}
-			list := make([]view.Danmaku, 0, len(d.Items))
-			for _, it := range d.Items {
-				list = append(list, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
-			}
+			list := toDanmakuList(d.Items)
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}()
 	}
+}
+
+// maxDanmaku / maxComments 是内存里保留的弹幕/评论条数上限（原版也是这个量级）：
+// 列表不做虚拟化，条目太多每帧构建会很吃力。
+const (
+	maxDanmaku  = 400
+	maxComments = 120
+)
+
+// toDanmakuList 把接口弹幕转成视图弹幕，并裁到上限。
+func toDanmakuList(items []bilibili.DanmakuItem) []view.Danmaku {
+	n := len(items)
+	if n > maxDanmaku {
+		n = maxDanmaku
+	}
+	out := make([]view.Danmaku, 0, n)
+	for _, it := range items[:n] {
+		out = append(out, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
+	}
+	return out
 }
 
 // maybeSkipSponsor 在播放到跳过分段时自动跳过去。

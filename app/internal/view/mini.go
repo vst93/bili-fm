@@ -56,7 +56,8 @@ func (a *App) MiniShell(c *ui.Context) {
 				ui.Text(c, a.infoTitle()).FontSize(15).Bold().TextColor(t.Ink).MaxLines(2)
 				ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
-						Radius(RadiusPill).Background(t.Blue)
+						Radius(RadiusPill).
+						Background(pick(a.PlayingPlaylist != "", ui.Hex("#0d9488"), t.Blue))
 					ui.Text(c, a.partTitle()).FontSize(12).Bold().
 						TextColor(ui.Hex("#526174")).SingleLine()
 				})
