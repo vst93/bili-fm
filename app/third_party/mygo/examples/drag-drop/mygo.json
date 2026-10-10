@@ -1,0 +1,5 @@
+{
+  "name": "MyGo Drag Demo",
+  "identifier": "dev.mygo.examples.drag-drop",
+  "out": "build"
+}

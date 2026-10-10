@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mygo",
+  "compatibility_date": "2026-09-01",
+  // A static site: no Worker script, only the pages that `bun run build` prerenders.
+  "assets": {
+    "directory": "./dist/client",
+    // docs/app/index.html is served at /docs/app.
+    "html_handling": "drop-trailing-slash",
+    // dist/client/404.html, with a 404 status.
+    "not_found_handling": "404-page",
+  },
+  // `wrangler preview`, which Cloudflare's builds run, needs this block, even empty:
+  // previews take the settings above.
+  "previews": {},
+}

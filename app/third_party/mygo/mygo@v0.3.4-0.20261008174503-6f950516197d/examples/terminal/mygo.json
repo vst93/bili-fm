@@ -1,0 +1,5 @@
+{
+  "name": "Terminal",
+  "identifier": "dev.mygo.examples.terminal",
+  "macos": { "minimumSystemVersion": "13.0" }
+}

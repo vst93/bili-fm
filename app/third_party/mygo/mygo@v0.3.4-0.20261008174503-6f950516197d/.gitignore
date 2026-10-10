@@ -1,0 +1,10 @@
+node_modules
+dist/
+.mygo/
+examples/*/dist/
+examples/*/build/
+/mygo
+/cmd/mygo/mygo
+packages/cli/npm/*/bin/
+.DS_Store
+mygo.ts

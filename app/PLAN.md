@@ -470,3 +470,23 @@ release 里，不在就直接让 workflow 失败。
 加这道校验是因为踩过一次：第一版把 Linux 归档改名、又漏传了 darwin/windows
 的归档，结果 **6 个清单全部指向不存在的文件**，应用内更新会在所有平台 404，
 而且只有用户点了更新才会发现。
+
+## 给框架补了「位图旋转」能力（2026-10）
+
+唱片 22s 一圈的旋转在 mygo 里本来做不了（`Rotate` 只对矢量图标生效）。
+没有放弃，直接给框架打了补丁，fork 在 **vst93/mygo** 的
+`feat/bitmap-rotate` 分支（commit 396651b4bd43）：
+
+- `scene.Op` 新增 `Rotation`（OpImage 顺时针角度，绕 Rect 中心）；
+- CPU 渲染器 `raster.image` 实现了旋转：遍历**旋转后包围盒**、
+  逐像素做逆变换取源像素，但**裁剪仍用原始 Rect 的 Radii**——
+  旋转的封面依然是圆，不会变成方形卡片；
+- `Element.Rotate` 同时设置 Icon 与 Image 的角度，`Element.Loop`
+  照旧驱动进度（暂停即停帧，不会跳）。
+
+应用侧 `go.mod` 的 replace 指到这个 fork 的 pseudo-version。
+**GPU 渲染器暂时忽略 Rotation**（本机正好是 CPU 渲染，已实机验证
+旋转生效）；等 GPU 侧补上后，CPU/GPU 表现要一致（框架的既有约定）。
+
+给框架提的注意点：`Rotation` 只在 CPU renderer 生效这件事必须写进
+`scene.Op` 的注释里（已写），不然 GPU 侧不知道要补。

@@ -1,0 +1,3 @@
+build/
+native/.zig-cache/
+native/zig-out/

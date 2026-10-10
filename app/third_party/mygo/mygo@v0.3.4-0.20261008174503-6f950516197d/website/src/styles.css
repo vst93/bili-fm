@@ -1,0 +1,315 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-gopher: var(--gopher);
+  --color-gopher-ink: var(--gopher-ink);
+  --color-bang-1: var(--bang-1);
+  --color-bang-2: var(--bang-2);
+  --color-bang-3: var(--bang-3);
+  --color-bang-4: var(--bang-4);
+  --color-bang-5: var(--bang-5);
+  --color-code: var(--code);
+  --color-better: var(--better);
+  --color-worse: var(--worse);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Neutral, with one accent: Go's gopher blue. */
+:root {
+  --gopher: oklch(0.69 0.13 224);
+  --gopher-ink: oklch(0.5 0.11 228);
+  /* The "!" of the wordmark, in the colors of MyGO!!!!!'s members: Tomori,
+     Anon, Rāna, Soyo and Taki. Deeper on white, for 3:1. */
+  --bang-1: oklch(0.66 0.084 231);
+  --bang-2: oklch(0.69 0.145 12);
+  --bang-3: oklch(0.65 0.169 144);
+  --bang-4: oklch(0.67 0.111 88);
+  --bang-5: oklch(0.59 0.078 284);
+  --code: oklch(0.985 0 0);
+  /* A benchmark that got faster or leaner, or slower or heavier: text
+     colors, always next to an arrow. */
+  --better: oklch(0.52 0.14 150);
+  --worse: oklch(0.55 0.2 27);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: var(--gopher);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --gopher: oklch(0.76 0.12 222);
+  --gopher-ink: oklch(0.8 0.11 222);
+  --bang-1: oklch(0.76 0.084 231);
+  --bang-2: oklch(0.76 0.145 12);
+  --bang-3: oklch(0.81 0.169 144);
+  --bang-4: oklch(0.91 0.111 88);
+  --bang-5: oklch(0.59 0.078 284);
+  --code: oklch(0.165 0 0);
+  --better: oklch(0.78 0.15 150);
+  --worse: oklch(0.72 0.17 25);
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.175 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply scroll-pt-28 font-sans antialiased;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--gopher) 28%, transparent);
+  }
+}
+
+/* The column of every page, between two hairlines. */
+@utility frame {
+  @apply mx-auto w-full max-w-6xl border-x;
+}
+
+/* The small caps of the page: section numbers, captions, keys. */
+@utility label {
+  @apply font-mono text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase;
+}
+
+/* The "!" of the wordmark come in one after another, --bang-delay apart:
+   each from large, raised and blurred, springing to its size. */
+@theme inline {
+  --animate-bang: bang 0.4s linear var(--bang-delay, 0s) both;
+}
+@keyframes bang {
+  0% { opacity: 0; scale: 2.2; translate: 0 -0.25em; filter: blur(0.04em); }
+  10% { opacity: 0.5; scale: 1.39; translate: 0 -0.15em; filter: blur(0.024em); }
+  20% { opacity: 1; scale: 0.93; translate: 0 -0.08em; filter: blur(0.013em); }
+  30% { scale: 0.85; translate: 0 -0.04em; filter: blur(0.007em); }
+  40% { scale: 0.92; translate: 0 -0.02em; filter: blur(0.003em); }
+  50% { scale: 0.99; translate: 0 -0.01em; filter: blur(0); }
+  60% { scale: 1.015; translate: 0 0; }
+  80% { scale: 1.004; }
+  100% { scale: 1; }
+}
+
+/* Shiki, for both color schemes. */
+.shiki,
+.shiki span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+}
+.dark .shiki,
+.dark .shiki span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+}
+.shiki {
+  @apply font-mono;
+  font-size: 13px;
+  line-height: 1.7;
+  font-variant-ligatures: none;
+  tab-size: 4;
+}
+
+/* The pages of the docs, rendered from markdown. */
+.prose-docs {
+  @apply text-[15.5px] leading-7 text-foreground/85;
+
+  & > :first-child {
+    margin-top: 0;
+  }
+  & h2,
+  & h3,
+  & h4 {
+    @apply text-foreground;
+  }
+  & h2 {
+    @apply mt-16 mb-4 border-t pt-10 text-[1.625rem] leading-tight font-semibold tracking-[-0.025em];
+  }
+  & h3 {
+    @apply mt-10 mb-3 text-[1.0625rem] font-semibold tracking-tight;
+  }
+  & h4 {
+    @apply mt-8 mb-2 font-semibold;
+  }
+  & :is(h2, h3, h4) > a {
+    @apply relative text-inherit no-underline;
+  }
+  & :is(h2, h3, h4) > a::after {
+    content: "§";
+    @apply ml-2 font-sans text-[0.7em] text-gopher-ink opacity-0 transition-opacity;
+  }
+  & :is(h2, h3, h4) > a:hover::after {
+    @apply opacity-100;
+  }
+  & p,
+  & ul,
+  & ol,
+  & blockquote {
+    @apply my-5;
+  }
+  & a {
+    @apply font-medium text-foreground underline decoration-gopher/45 decoration-1 underline-offset-[5px] transition-colors hover:decoration-gopher;
+  }
+  & strong {
+    @apply font-semibold text-foreground;
+  }
+  & ul {
+    @apply list-disc pl-6;
+  }
+  & ol {
+    @apply list-decimal pl-6;
+  }
+  & li {
+    @apply my-2 pl-1;
+  }
+  & li::marker {
+    @apply text-muted-foreground/70;
+  }
+  & li > :is(ul, ol) {
+    @apply my-2;
+  }
+  & blockquote {
+    @apply border-l-2 border-gopher pl-4 text-muted-foreground;
+  }
+  & hr {
+    @apply my-12;
+  }
+  & :not(pre) > code {
+    @apply rounded-[5px] bg-muted px-[0.35em] py-[0.12em] font-mono text-[0.84em] font-normal text-foreground;
+    overflow-wrap: anywhere;
+  }
+  & .table-wrap {
+    @apply my-6 overflow-x-auto rounded-lg border bg-card;
+  }
+  & table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  & th {
+    @apply border-b px-4 py-2.5 font-mono text-[11px] font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase;
+  }
+  & td {
+    @apply border-b px-4 py-2.5 align-top;
+  }
+  & tr:last-child td {
+    @apply border-b-0;
+  }
+  & td code {
+    overflow-wrap: normal;
+    @apply whitespace-nowrap;
+  }
+}
+
+/* A code block of the docs, with its copy button. */
+.code-block {
+  @apply relative my-6 overflow-hidden rounded-lg border bg-code;
+
+  & pre {
+    @apply overflow-x-auto px-5 py-4;
+  }
+}
+
+.copy-button {
+  @apply absolute top-2 right-2 flex size-7 items-center justify-center rounded-md border bg-card text-muted-foreground opacity-0 transition-all hover:text-foreground focus-visible:opacity-100;
+
+  .code-block:hover & {
+    @apply opacity-100;
+  }
+  & svg {
+    @apply size-3.5;
+  }
+  & .icon-check,
+  &[data-copied] .icon-copy {
+    @apply hidden;
+  }
+  &[data-copied] .icon-check {
+    @apply block text-gopher-ink;
+  }
+}
+
+/* README's lists of guides, as an index. */
+.doc-cards {
+  @apply my-6 grid border-t sm:grid-cols-2;
+}
+.prose-docs a.doc-card {
+  @apply flex flex-col gap-1 border-b py-4 no-underline transition-colors sm:odd:border-r sm:odd:pr-6 sm:even:pl-6;
+}
+.doc-card-title {
+  @apply text-[15px] font-semibold tracking-tight text-foreground transition-colors;
+}
+.prose-docs a.doc-card:hover .doc-card-title {
+  @apply text-gopher-ink;
+}
+.doc-card-description {
+  @apply text-sm leading-6 font-normal text-muted-foreground;
+}

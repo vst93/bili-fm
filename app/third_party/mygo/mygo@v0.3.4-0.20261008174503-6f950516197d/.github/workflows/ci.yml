@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: Windows, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+      - name: Install WebKitGTK and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+      - run: bun install --frozen-lockfile
+      - name: Build the JavaScript packages
+        run: bun run build
+      - name: Build and vet every platform
+        if: runner.os == 'Linux'
+        run: |
+          for os in darwin linux windows; do
+            GOOS=$os go build ./...
+            GOOS=$os go vet ./...
+            # Production builds leave the inspector of native UI out.
+            GOOS=$os go vet -tags mygo_noinspector ./...
+          done
+          GOOS=freebsd go build ./...
+      # The installer tests download NSIS on Windows; keeping it in the cache
+      # spares them the download, and the hosts it comes from.
+      - name: Restore NSIS
+        id: nsis
+        if: runner.os == 'Windows'
+        uses: actions/cache/restore@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
+      - run: go test ./...
+      - name: Test without the inspector, as production builds
+        if: runner.os == 'Linux'
+        run: go test -tags mygo_noinspector ./ui .
+      - name: Save NSIS
+        if: always() && runner.os == 'Windows' && steps.nsis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: ${{ steps.nsis.outputs.cache-primary-key }}
+      - run: bun run test
+      - run: bun run typecheck
+      - name: GUI tests
+        if: runner.os != 'Linux'
+        env:
+          MYGO_E2E: 1
+        run: go test ./internal/e2e
+      - name: GUI tests
+        if: runner.os == 'Linux'
+        env:
+          MYGO_E2E: 1
+          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
+        run: xvfb-run -a dbus-run-session -- go test ./internal/e2e
+      # Runners have no GPU, so native UI draws on the CPU above; MYGO_GPU=1
+      # draws it with OpenGL all the same, on Mesa's llvmpipe.
+      - name: GUI tests of native UI drawn with OpenGL
+        if: runner.os == 'Linux'
+        env:
+          MYGO_E2E: 1
+          MYGO_GPU: 1
+        run: xvfb-run -a dbus-run-session -- go test -run 'TestContentWindow' ./internal/e2e
+
+  # Windows on ARM64, which no machine of the maintainers runs: DirectWrite's
+  # methods taking floats go through purego, which sets the floating point
+  # registers syscall leaves alone there, and Direct3D 11 draws native UI.
+  # The JavaScript packages are the same everywhere, so Bun is left out.
+  windows-arm64:
+    name: Windows ARM64
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Restore NSIS
+        id: nsis
+        uses: actions/cache/restore@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: nsis-${{ hashFiles('cmd/mygo/nsis.go') }}
+      - run: go test ./...
+      - name: Test without the inspector, as production builds
+        if: runner.os == 'Linux'
+        run: go test -tags mygo_noinspector ./ui .
+      - name: Save NSIS
+        if: always() && steps.nsis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~\AppData\Local\mygo\nsis-*
+          key: ${{ steps.nsis.outputs.cache-primary-key }}
+      - name: GUI tests of native UI
+        env:
+          MYGO_E2E: 1
+        run: go test -run 'TestContentWindow' ./internal/e2e

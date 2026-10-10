@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Todo</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <h1>Todo</h1>
+    </header>
+    <main>
+      <form id="add">
+        <input id="title" placeholder="What needs to be done?" autocomplete="off" autofocus />
+      </form>
+      <p id="error" role="alert"></p>
+      <nav id="filters">
+        <button data-filter="all" class="active">All</button>
+        <button data-filter="active">Active</button>
+        <button data-filter="done">Done</button>
+      </nav>
+      <ul id="list"></ul>
+      <footer>
+        <span id="count"></span>
+        <span class="actions">
+          <button id="clear" class="link">Clear done</button>
+          <button id="export" class="link">Export…</button>
+        </span>
+      </footer>
+    </main>
+    <template id="item">
+      <li>
+        <label><input type="checkbox" /><span></span></label>
+        <button class="remove" title="Remove">×</button>
+      </li>
+    </template>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

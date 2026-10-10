@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Check the version
+        run: bun scripts/version.ts --check "$GITHUB_REF_NAME"
+      - run: bun install --frozen-lockfile
+      - name: Build the JavaScript packages
+        run: bun run build
+      - name: Update npm, for trusted publishing
+        run: npm install -g npm@latest
+      - name: Publish the npm packages
+        env:
+          # Needed until npm trusts this workflow to publish every package,
+          # which it can only for packages that exist.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun scripts/publish.ts --provenance
+      - name: Add the Go module to the module proxy
+        continue-on-error: true
+        run: curl -fsS "https://proxy.golang.org/github.com/egoist/mygo/@v/$GITHUB_REF_NAME.info"
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            exit 0
+          fi
+          flags=()
+          if [[ $GITHUB_REF_NAME == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "MyGo ${GITHUB_REF_NAME#v}" "${flags[@]}"

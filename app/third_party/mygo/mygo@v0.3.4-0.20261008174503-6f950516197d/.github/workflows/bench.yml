@@ -1,0 +1,134 @@
+name: Benchmarks
+
+# Every push to main is measured on macOS, Linux and Windows, and the
+# results go to the benchmarks branch, which the website's /benchmarks page
+# reads. Started by hand, the workflow measures the commit of its ref input
+# instead, as to fill in history, with this commit's scripts/bench.ts and
+# internal/idlemem.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+      - "docs/**"
+      - "website/**"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The commit to measure, a full SHA, branch or tag (the workflow's own by default)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest }
+          - { name: Linux, os: ubuntu-latest }
+          - { name: Windows, os: windows-latest }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out the commit to measure
+        if: inputs.ref
+        env:
+          REF: ${{ inputs.ref }}
+        # The tools are this commit's: the script, and idlemem.
+        run: |
+          cp scripts/bench.ts "$RUNNER_TEMP/bench.ts"
+          cp -R internal/idlemem "$RUNNER_TEMP/idlemem"
+          git fetch --depth 1 origin "$REF"
+          git checkout --detach FETCH_HEAD
+          mkdir -p scripts && cp "$RUNNER_TEMP/bench.ts" scripts/bench.ts
+          rm -rf internal/idlemem && cp -R "$RUNNER_TEMP/idlemem" internal/idlemem
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      # Bun runs the script, which needs no packages.
+      - uses: oven-sh/setup-bun@v2
+      - name: Install WebKitGTK and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-0 xvfb xauth dbus-x11 libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+      - name: Run the benchmarks
+        run: |
+          bench=(bun scripts/bench.ts run --e2e --out "$RUNNER_TEMP/bench-$RUNNER_OS.json")
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a dbus-run-session -- "${bench[@]}"
+          else
+            "${bench[@]}"
+          fi
+      # A benchmark that failed leaves the results of the others.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: bench-${{ runner.os }}
+          path: ${{ runner.temp }}/bench-${{ runner.os }}.json
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish
+    needs: bench
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bench-*
+          path: ${{ runner.temp }}/results
+          merge-multiple: true
+      - name: Commit the results to the benchmarks branch
+        run: |
+          shopt -s nullglob
+          results=("$RUNNER_TEMP"/results/*.json)
+          if [ ${#results[@]} -eq 0 ]; then
+            echo "::error::no results to publish"
+            exit 1
+          fi
+          sha=$(jq -r .sha "${results[0]}")
+          data="$RUNNER_TEMP/data"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The runs of other commits may push meanwhile: merge onto theirs
+          # and try again.
+          for attempt in 1 2 3 4 5; do
+            git worktree remove --force "$data" 2>/dev/null || true
+            git branch -D benchmarks 2>/dev/null || true
+            if git fetch --depth 1 origin benchmarks; then
+              git worktree add --detach "$data" FETCH_HEAD
+            else
+              git worktree add --detach "$data"
+              git -C "$data" switch --orphan benchmarks
+            fi
+            bun scripts/bench.ts merge "$data" "${results[@]}"
+            git -C "$data" add -A
+            if git -C "$data" diff --cached --quiet; then
+              echo "the results are published already"
+              exit 0
+            fi
+            # [skip ci]: the website's builds skip the branch too. Only
+            # these commits may say it: anywhere in a commit message of main,
+            # GitHub skips the push's workflows and Cloudflare its deploy.
+            git -C "$data" commit -q -m "Benchmarks of ${sha:0:7} [skip ci]"
+            if git -C "$data" push origin HEAD:refs/heads/benchmarks; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
