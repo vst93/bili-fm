@@ -48,8 +48,11 @@ func (a *App) MiniShell(c *ui.Context) {
 			Gap(11).AlignItems(ui.Center).DragWindow().Children(func() {
 			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
 				Background(ui.Hex("#ffffff").Alpha(0.58)).Clip().Children(func() {
+				// 封面缺失时退回 logo（原版 cover || "/logo.png"）。
 				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+				} else if Logo != nil {
+					ui.Image(c, Logo).Fill().Fit(ui.Cover)
 				}
 				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
 				ui.Box(c).Fill().PassThrough().LinearGradient(ui.LinearGradient{

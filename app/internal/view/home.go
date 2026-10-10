@@ -188,11 +188,7 @@ func (a *App) coverDisc(c *ui.Context) {
 					Background(ui.Hex("#0f172a")).
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Label(pick(a.Playing, "暂停", "播放"))
-				sq.Children(func() {
-					if bmp := a.coverBitmap(); bmp != nil {
-						ui.Image(c, bmp).Fill().Fit(ui.Cover)
-					}
-				})
+				sq.Children(func() { a.coverOrLogo(c) })
 				if sq.Clicked() && a.Act.TogglePlay != nil {
 					a.Act.TogglePlay()
 				}
@@ -205,11 +201,7 @@ func (a *App) coverDisc(c *ui.Context) {
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 						Label(pick(a.Playing, "暂停", "播放"))
 					a.spinDisc(disc)
-					disc.Children(func() {
-						if bmp := a.coverBitmap(); bmp != nil {
-							ui.Image(c, bmp).Fill().Fit(ui.Cover)
-						}
-					})
+					disc.Children(func() { a.coverOrLogo(c) })
 					if disc.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
 					}
@@ -696,4 +688,13 @@ func statText(info *Info, pick func(*Info) int64) string {
 		return compactCount(n)
 	}
 	return ""
+}
+
+// coverOrLogo 画封面，没有封面时退回 logo（原版 cover || "/logo.png"）。
+func (a *App) coverOrLogo(c *ui.Context) {
+	if bmp := a.coverBitmap(); bmp != nil {
+		ui.Image(c, bmp).Fill().Fit(ui.Cover)
+	} else if Logo != nil {
+		ui.Image(c, Logo).Fill().Fit(ui.Cover)
+	}
 }
