@@ -55,6 +55,9 @@ type Manager struct {
 	mu  sync.Mutex
 	win *mygo.Window
 	st  State
+	// opening 表示一次 Open 正在进行（异步的窗口创建落定之前，
+	// 再来的 Open 直接拒绝，避免快速连点开出多个弹窗）。
+	opening bool
 
 	onState func(State)
 	onClose func(State)
@@ -88,7 +91,21 @@ func (m *Manager) State() State {
 }
 
 // Open 打开（或复用）弹窗。已有弹窗时先关掉再开，保证换集时是新地址。
+// 有一次 Open 还在创建中时，后续的 Open 拒绝：快速连点不会开出多个。
 func (m *Manager) Open(o Options) error {
+	m.mu.Lock()
+	if m.opening {
+		m.mu.Unlock()
+		return nil
+	}
+	m.opening = true
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		m.opening = false
+		m.mu.Unlock()
+	}()
+
 	m.Close()
 
 	q := url.Values{}

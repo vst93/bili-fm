@@ -200,7 +200,17 @@ func (a *App) coverDisc(c *ui.Context) {
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 						Label(pick(a.Playing, "暂停", "播放"))
-					disc.Children(func() { a.coverOrLogo(c) })
+					disc.Children(func() {
+						// 唱片：播放时 22s 一圈（框架已支持位图旋转，见
+						// internal/mygo fork 的 raster.image / scene.Op.Rotation）。
+						// Loop 的进度驱动角度，暂停时框架停帧，自然停在原地。
+						if a.coverBitmap() != nil || Logo != nil {
+							img := a.coverImage(c)
+							if a.Playing {
+								img.Rotate(img.Loop("disc", discSpinPeriod, ui.Linear) * 360)
+							}
+						}
+					})
 					if disc.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
 					}
@@ -256,6 +266,9 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 		fn()
 	}
 }
+
+// discSpinPeriod 是唱片一圈的周期（原版 #video-cover.record-disc 的 22s）。
+const discSpinPeriod = 22 * time.Second
 
 // searchSpinDeg 是搜索按钮小旋转的角度（每秒一圈）。
 func searchSpinDeg() float32 {
@@ -379,7 +392,9 @@ func (a *App) partPill(c *ui.Context) {
 // contentActions 是操作行（.video-content-actions）：点赞 / 投币 / 收藏
 // 三个带计数的按钮，再加浏览器打开 / 视频 / 弹幕三个纯图标按钮。
 func (a *App) contentActions(c *ui.Context) {
-	ui.Row(c).Margin(14, 0, 0, 0).Gap(4).AlignItems(ui.Start).Children(func() {
+	// 行用 AlignItems(Start) + 底部留白：计数挂在按钮下方，不占行高
+	// （原版 absolute 不占流内空间，行高由按钮决定，下面留 14px 给文字）。
+	ui.Row(c).Margin(14, 0, 16, 0).Gap(4).AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
 		a.statButton(c, "like", iconLike, a.Liked, ui.Hex("#e11d48"), a.statLike(), a.Act.Like)
 		a.statButton(c, "coin", iconCoin, a.Coined, ui.Hex("#ca8a04"), a.statCoin(), a.Act.Coin)
@@ -538,34 +553,38 @@ func (a *App) openDanmaku() {
 	}
 }
 
-// statButton 是「图标 + 计数」的按钮（原版 .nav-stat-btn 是横排：图标 20、
-// 计数在右侧，激活时图标按动作变色——点赞红、投币黄、收藏黄）。
+// statButton 是互动按钮（原版 .nav-stat-btn）：32×32 图标钮，计数以 9px
+// 绝对定位挂在按钮正下方；激活时图标按动作变色——点赞红、投币黄、收藏黄。
+// 计数为空（没有在播）时整钮禁用（原版 disabled）。
 func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, activeInk ui.Color, count string, fn func()) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("stat-"+key)).Height(ToolButton).Padding(0, 6).
-		Radius(ToolButtonR).Gap(4).Center().Label(key).Tooltip(key).
-		Disabled(count == "" && !a.hasCurrent())
+	off := count == ""
+	b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
+		Radius(ToolButtonR).Center().Label(key).Tooltip(key).
+		Disabled(off)
 	if active {
-		b.Background(activeInk.Alpha(0.14))
+		b.Background(activeInk.Alpha(0.16))
 	} else if b.Hovered() {
 		b.Background(t.GlassHover)
 	} else {
 		b.Background(ui.Transparent)
 	}
+	if off {
+		b.Background(ui.Transparent)
+	}
 	b.Children(func() {
 		ui.Icon(c, ic).Size(18, 18).TextColor(pick(active, activeInk, ui.Hex("#475569")))
 		if count != "" {
-			ui.Text(c, count).FontSize(12).
-				TextColor(pick(active, activeInk, t.Faint))
+			// 计数挂按钮正下方（原版 .nav-stat-value 的 absolute top:100%）。
+			ui.Text(c, count).FontSize(9).
+				TextColor(pick(active, activeInk, ui.Hex("#64748b"))).
+				Absolute().Left(0).Right(0).Top(ToolButton + 1).Center()
 		}
 	})
 	if b.Clicked() && fn != nil {
 		fn()
 	}
 }
-
-// hasCurrent 报告当前有没有在播放的视频（决定互动按钮是否可用）。
-func (a *App) hasCurrent() bool { return a.Track != nil }
 
 // iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。
 func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) ui.Element {
@@ -685,4 +704,13 @@ func (a *App) coverOrLogo(c *ui.Context) {
 	} else if Logo != nil {
 		ui.Image(c, Logo).Fill().Fit(ui.Cover)
 	}
+}
+
+// coverImage 画圆盘封面（或 logo）并返回图片元素，供旋转。
+// 调用前先确认 coverBitmap() 或 Logo 非空。
+func (a *App) coverImage(c *ui.Context) ui.Element {
+	if bmp := a.coverBitmap(); bmp != nil {
+		return ui.Image(c, bmp).Fill().Fit(ui.Cover)
+	}
+	return ui.Image(c, Logo).Fill().Fit(ui.Cover)
 }

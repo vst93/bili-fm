@@ -2,7 +2,7 @@ module github.com/vst93/bili-fm/app
 
 go 1.27.1
 
-replace github.com/egoist/mygo => github.com/vst93/mygo v0.3.4-0.20261008174503-6f950516197d
+replace github.com/egoist/mygo => /tmp/mygo-fork
 
 require (
 	github.com/ebitengine/oto/v3 v3.5.1

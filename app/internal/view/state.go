@@ -621,36 +621,42 @@ func icon(shapes string) *ui.SVG {
 }
 
 var (
-	iconPlay    = icon(`<path d="M4.5 2.8v10.4l8.5-5.2z"/>`)
-	iconPause   = icon(`<path d="M5.2 3v10M10.8 3v10"/>`)
-	iconPrev    = icon(`<path d="M11.5 3v10L4.5 8z"/><path d="M4.5 3v10"/>`)
-	iconNext    = icon(`<path d="M4.5 3v10L11.5 8z"/><path d="M11.5 3v10"/>`)
-	iconVideo   = icon(`<rect x="1.5" y="3.5" width="13" height="9" rx="1.6"/><path d="M7 6.6l3 1.4-3 1.4z"/>`)
-	iconDanmaku = icon(`<rect x="1.5" y="2.8" width="13" height="8.6" rx="1.6"/><path d="M4.5 14.2l2-2.8"/><path d="M4.6 5.9h6.8M4.6 8.4h4.4"/>`)
-	iconList    = icon(`<path d="M5.5 4h9M5.5 8h9M5.5 12h9"/><path d="M2.2 4h.6M2.2 8h.6M2.2 12h.6"/>`)
-	iconSearch  = icon(`<circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/>`)
-	iconClose   = icon(`<path d="M4 4l8 8M12 4l-8 8"/>`)
-	iconMin     = icon(`<path d="M4 8h8"/>`)
-	iconLike    = icon(`<path d="M5.2 7.2l2.6-4.6a1.2 1.2 0 0 1 2.2.6V6.4h3.1a1.2 1.2 0 0 1 1.2 1.4l-.9 5A1.2 1.2 0 0 1 12.2 14H5.2"/><path d="M5.2 7.2H2.6V14h2.6z"/>`)
-	iconCoin    = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 5v6M6 8h4"/>`)
-	iconStar    = icon(`<path d="M8 1.8l1.9 4.2 4.6.5-3.4 3.1.9 4.5L8 11.9l-4 2.2.9-4.5L1.5 6.5l4.6-.5z"/>`)
-	iconSpeed   = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 8l3-2.2"/>`)
-	iconEQ      = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
-	iconVolume  = icon(`<path d="M3 6.2h2.2L8.2 3.5v9L5.2 9.8H3z"/><path d="M10.6 6.2a2.6 2.6 0 0 1 0 3.6"/>`)
-	// 静音（音量图标 + 斜线）。
-	iconMute    = icon(`<path d="M3 6.2h2.2L8.2 3.5v9L5.2 9.8H3z"/><path d="M3 13L13 3"/>`)
-	iconSponsor = icon(`<path d="M2 4.5h12v7H2z"/><path d="M5 7.5h6"/>`)
+	// 播放/暂停/下一首：icon-park 的 PlayOne / Pause / GoEnd。
+	iconPlay  = icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`)
+	iconPause = icon(`<rect x="4.4" y="3" width="2.8" height="10" rx="0.9"/><rect x="8.8" y="3" width="2.8" height="10" rx="0.9"/>`)
+	// GoEnd：右三角 + 右侧竖线。
+	iconNext = icon(`<path d="M3.6 3.4v9.2a.7.7 0 0 0 1.08.6l6.2-4.6a.7.7 0 0 0 0-1.2L4.68 2.8a.7.7 0 0 0-1.08.6z"/><path d="M12.2 3v10" stroke-width="1.8"/>`)
+	iconPrev = icon(`<path d="M12.4 3.4v9.2a.7.7 0 0 1-1.08.6l-6.2-4.6a.7.7 0 0 1 0-1.2l6.2-4.6a.7.7 0 0 1 1.08.6z"/><path d="M3.8 3v10" stroke-width="1.8"/>`)
+	// 音量：VolumeNotice（喇叭 + 两道弧）/ VolumeMute（喇叭 + 斜杠）。
+	iconVolume = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M11.4 6.2a2.6 2.6 0 0 1 0 3.6"/><path d="M12.9 4.6a4.6 4.6 0 0 1 0 6.8"/>`)
+	iconMute   = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M10.8 6.4l3.4 3.2M14.2 6.4l-3.4 3.2" stroke-width="1.6"/>`)
+	// 弹幕/评论：Comment（气泡 + 三点）。
+	iconDanmaku = icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`)
+	// 选集：DoubleUp（双层人字形向上）。
+	iconList   = icon(`<path d="M3.4 8.6L8 4.2l4.6 4.4M3.4 12.2L8 7.8l4.6 4.4" stroke-width="1.7"/>`)
+	iconSearch = icon(`<circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/>`)
+	iconClose  = icon(`<path d="M4 4l8 8M12 4l-8 8"/>`)
+	iconMin    = icon(`<path d="M4 8h8"/>`)
+	// 互动：ThumbsUp / HandleB(投币，圆形钱币) / Star。
+	iconLike  = icon(`<path d="M6.4 13.6V7l2.2-4a1.1 1.1 0 0 1 1.9.9l-.4 2.7h2.8a1.2 1.2 0 0 1 1.18 1.42l-.86 4.4a1.6 1.6 0 0 1-1.57 1.3H6.4z"/><path d="M6.4 7H3.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h2.5"/>`)
+	iconCoin  = icon(`<circle cx="8" cy="8" r="5.6"/><path d="M8 5.2v5.6M6.4 6.6c0-.8.7-1.4 1.6-1.4s1.6.6 1.6 1.4-.7 1.2-1.6 1.4c-.9.2-1.6.6-1.6 1.4s.7 1.4 1.6 1.4 1.6-.6 1.6-1.4"/>`)
+	iconStar  = icon(`<path d="M8 1.9l1.9 4.2 4.6.5-3.4 3.1.9 4.5L8 11.9l-4 2.2.9-4.5L1.5 6.5l4.6-.5z"/>`)
+	iconSpeed = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 8l3-2.2"/>`)
+	iconEQ    = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
+	// 恰饭跳过：icon-park 的 Ad（方框 + "广"的简化），这里用方框 + 小三角播放。
+	iconSponsor = icon(`<rect x="2" y="4.5" width="12" height="7" rx="1.2"/><path d="M6.4 6.4l3.6 1.6-3.6 1.6z"/>`)
 
-	// 搜索栏右侧的四个内容入口（对应原版 home-global-actions 里的
-	// ShareSys / ChartRing / WeixinFavorites / History）。
+	// 搜索栏右侧四个入口（ShareSys / ChartRing / WeixinFavorites / History）。
 	iconFeed     = icon(`<path d="M13.4 8A5.4 5.4 0 1 1 8 2.6"/><path d="M10.8 8A2.8 2.8 0 1 1 8 5.2"/><circle cx="8" cy="8" r="1"/>`)
 	iconPopular  = icon(`<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.1"/><path d="M12.6 3.4l1.2-1.2"/>`)
 	iconFavorite = icon(`<path d="M8 1.9l5.3 2.9v6.4L8 14.1 2.7 11.2V4.8z"/><path d="M2.7 4.8L8 7.7l5.3-2.9"/><path d="M8 7.7v6.4"/>`)
 	iconHistory  = icon(`<path d="M2.7 8a5.3 5.3 0 1 0 1.7-3.9"/><path d="M2.3 2.6v2.7H5"/><path d="M8 5.3V8l2.1 1.3"/>`)
 	// 搜索药丸里的放大镜（提交键）。
 	iconMagnifier = icon(`<circle cx="7.2" cy="7.2" r="4.3"/><path d="M10.4 10.4L13.8 13.8"/>`)
-	// 操作行里的「浏览器打开」与工具条里的「播放列表」。
-	iconBrowser   = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="1.6"/><path d="M1.8 6.2h12.4"/><circle cx="4.3" cy="4.6" r="0.5"/><circle cx="6.3" cy="4.6" r="0.5"/>`)
+	// 浏览器（Browser）与播放列表（MusicList）。
+	iconBrowser = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="1.6"/><path d="M1.8 6.2h12.4"/><circle cx="4.3" cy="4.6" r="0.5"/><circle cx="6.3" cy="4.6" r="0.5"/>`)
+	// 视频播放：VideoTwo（圆角方框 + 右下播放角）。
+	iconVideo     = icon(`<rect x="1.8" y="3" width="12.4" height="9" rx="1.6"/><path d="M7 6.6l3 1.4-3 1.4z"/>`)
 	iconMusicList = icon(`<path d="M2.5 4h7M2.5 7.5h7M2.5 11h4"/><path d="M12 4.6v6.2"/><circle cx="10.6" cy="11.6" r="1.6"/>`)
 	// 迷你模式的两个窗口控制：还原大窗 / 置顶。
 	iconRestore = icon(`<rect x="2.2" y="2.2" width="8" height="8" rx="1.4"/><rect x="5.8" y="5.8" width="8" height="8" rx="1.4"/>`)
@@ -661,23 +667,26 @@ var (
 	// 历史抽屉表头的「隐身」开关（原版用 MaskOne）。
 	iconMask    = icon(`<path d="M1.8 8h2.6a2 2 0 0 1 0 4H1.8z"/><path d="M14.2 8h-2.6a2 2 0 0 0 0 4h2.6z"/><path d="M6 10.4h4"/>`)
 	iconRefresh = icon(`<path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/><path d="M13.6 2.4v2.8h-2.8"/>`)
-	// 封面背景（原版用 icon-park 的 Halo）与高级质感（Sparkles）。
-	iconHalo     = icon(`<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4v2M8 12.6v2M1.4 8h2M12.6 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>`)
-	iconSparkles = icon(`<path d="M6.4 10.2A1.5 1.5 0 0 0 5.3 9.1L1.6 8a.4.4 0 0 1 0-.7l3.7-1.1A1.5 1.5 0 0 0 6.4 5.1l1.1-3.7a.4.4 0 0 1 .7 0l1.1 3.7a1.5 1.5 0 0 0 1.1 1.1l3.7 1.1a.4.4 0 0 1 0 .7l-3.7 1.1a1.5 1.5 0 0 0-1.1 1.1l-1.1 3.7a.4.4 0 0 1-.7 0z"/><path d="M13 2v2.4M14.2 3.2h-2.4"/>`)
 	// 工具条的「合集」（原版用 icon-park 的 Layers）。
 	iconSeries = icon(`<path d="M8 1.9l6.2 3.2L8 8.3 1.8 5.1z"/><path d="M2.6 8.2l5.4 2.8 5.4-2.8"/><path d="M2.6 11.2l5.4 2.8 5.4-2.8"/>`)
 	// UP 空间抽屉里的关注 / 已关注。
+	// 封面背景（Halo）与高级质感（Sparkles）。
+	iconHalo     = icon(`<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4v2M8 12.6v2M1.4 8h2M12.6 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>`)
+	iconSparkles = icon(`<path d="M6.4 10.2A1.5 1.5 0 0 0 5.3 9.1L1.6 8a.4.4 0 0 1 0-.7l3.7-1.1A1.5 1.5 0 0 0 6.4 5.1l1.1-3.7a.4.4 0 0 1 .7 0l1.1 3.7a1.5 1.5 0 0 0 1.1 1.1l3.7 1.1a.4.4 0 0 1 0 .7l-3.7 1.1a1.5 1.5 0 0 0-1.1 1.1l-1.1 3.7a.4.4 0 0 1-.7 0z"/><path d="M13 2v2.4M14.2 3.2h-2.4"/>`)
 	iconFollow   = icon(`<path d="M8 3.6v8.8M3.6 8h8.8"/>`)
 	iconFollowed = icon(`<path d="M3.4 8.4l3 3 6.2-6.8"/>`)
-
-	// 播放列表：定位当前 / 播放模式 / 删除 / 添加 / 已添加 / 上移下移。
-	iconLocate  = icon(`<circle cx="8" cy="8" r="3"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2"/>`)
+	// 定位当前（FocusOne）。
+	iconLocate = icon(`<circle cx="8" cy="8" r="3"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2"/>`)
+	// 播放列表：播放模式 / 删除 / 添加 / 已添加 / 上移下移。
 	iconOrder   = icon(`<path d="M2.5 4h11M2.5 8h7M2.5 12h11"/>`)
+	iconLoop    = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/>`)
 	iconLoopOne = icon(`<path d="M3 8a5 5 0 0 1 8.5-3.5L13 6"/><path d="M13 2.6V6H9.6"/><path d="M13 8a5 5 0 0 1-8.5 3.5L3 10"/><path d="M3 13.4V10h3.4"/><path d="M7 6.4v3.2"/>`)
 	iconShuffle = icon(`<path d="M2.5 4.5h2.2l6.8 7h2"/><path d="M2.5 11.5h2.2l2.3-2.4"/><path d="M9 6.9l2.5-2.4h2"/><path d="M11.4 2.6L13.5 4.5l-2.1 1.9M11.4 9.6l2.1 1.9-2.1 1.9"/>`)
 	iconDelete  = icon(`<path d="M3 4.5h10M6.2 4.5V3h3.6v1.5M4.4 4.5l.6 8.2a1 1 0 0 0 1 .9h4a1 1 0 0 0 1-.9l.6-8.2"/>`)
 	iconAdd     = icon(`<path d="M8 3.4v9.2M3.4 8h9.2"/>`)
 	iconCheck   = icon(`<path d="M3.2 8.4l3.2 3.2 6.4-7"/>`)
+	iconUp      = icon(`<path d="M8 12.5V3.5M4.2 7.3L8 3.5l3.8 3.8"/>`)
+	iconDown    = icon(`<path d="M8 3.5v9M11.8 8.7L8 12.5 4.2 8.7"/>`)
 )
 
 // pick 是三元表达式的泛型版。

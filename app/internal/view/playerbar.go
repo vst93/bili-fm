@@ -103,21 +103,11 @@ func (a *App) progress(c *ui.Context) {
 	if !a.seeking {
 		a.SeekValue = a.Pos
 	}
-	wrap := ui.Box(c).Grow(1).MinWidth(0)
-	wrap.Children(func() {
-		s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-		if s.Changed() {
-			a.seeking = true
-		}
-		if s.Submitted() || (a.seeking && !s.Dragging()) {
-			if a.seeking {
-				a.seeking = false
-				if a.Act.Seek != nil {
-					a.Act.Seek(a.SeekValue)
-				}
-			}
-		}
-		// 广告段标记：纯视觉，与「自动跳过」开关无关（原版 player-timeline-sponsor）。
+	// 定位容器：标记层画在下层，Slider 在上层接指针（标记纯视觉，
+	// 原版 player-timeline-sponsor 是 pointer-events:none 的覆盖层，
+	// 绝不能压在 Slider 上截走命中，否则进度条没法拖）。
+	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Children(func() {
+		// 广告段标记：纯视觉，与「自动跳过」开关无关。
 		if a.Dur > 0 {
 			for _, seg := range a.SponsorSegments {
 				start := float32(seg.Start / a.Dur)
@@ -133,10 +123,22 @@ func (a *App) progress(c *ui.Context) {
 				}
 				ui.Box(c).Absolute().BottomPercent(45).LeftPercent(start * 100).
 					WidthPercent((end - start) * 100).Height(3).Radius(2).
-					Background(ui.Hex("#ef4444").Alpha(0.55)).PassThrough()
+					Background(ui.Hex("#ef4444").Alpha(0.55))
 			}
 		}
 	})
+	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+	if s.Changed() {
+		a.seeking = true
+	}
+	if s.Submitted() || (a.seeking && !s.Dragging()) {
+		if a.seeking {
+			a.seeking = false
+			if a.Act.Seek != nil {
+				a.Act.Seek(a.SeekValue)
+			}
+		}
+	}
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
