@@ -501,19 +501,25 @@ func (a *App) listBody(c *ui.Context) {
 
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
 func (a *App) skeletonGrid(c *ui.Context) {
-	t := a.Theme
-	placeholder := ui.Hex("#0f172a").Alpha(0.06)
+	// 原版 .list-skeleton-*：卡片底 rgba(255,255,255,.4)、封面 16:10 圆角 8、
+	// 两行文本条（12px 圆角 6，第二行 60% 宽），opacity 1.4s 脉冲。
+	// mygo 没有 opacity 动画，用底色的深浅交替近似（帧驱动）。
+	cover := ui.Hex("#64748b").Alpha(0.16)
+	line := ui.Hex("#64748b").Alpha(0.16)
+	card := ui.Hex("#ffffff").Alpha(0.40)
 	const cols = 3
 	ui.Column(c).Gap(8).Children(func() {
 		for row := 0; row < 3; row++ {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 				for j := 0; j < cols; j++ {
-					ui.Column(c).Grow(1).Basis(0).Padding(6).Radius(Radius).
-						Background(t.Glass).Gap(8).Children(func() {
-						ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
-							Background(placeholder)
-						ui.Box(c).FillWidth().Height(14).Radius(4).Background(placeholder)
-						ui.Box(c).WidthPercent(60).Height(10).Radius(4).Background(placeholder)
+					ui.Column(c).Grow(1).Basis(0).Padding(8).Radius(12).
+						Background(card).Gap(0).Children(func() {
+						ui.Box(c).FillWidth().AspectRatio(16.0 / 10.0).Radius(8).
+							Background(cover)
+						ui.Box(c).FillWidth().Height(12).Margin(8, 0, 0, 0).Radius(6).
+							Background(line)
+						ui.Box(c).WidthPercent(60).Height(12).Margin(8, 0, 0, 0).
+							Radius(6).Background(line)
 					})
 				}
 			})

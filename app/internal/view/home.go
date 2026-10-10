@@ -282,10 +282,13 @@ func (a *App) videoInfo(c *ui.Context) {
 	t := a.Theme
 	ui.Column(c).Grow(1).MinWidth(0).AlignItems(ui.Start).Children(func() {
 		a.videoInfoHead(c)
-		ui.Text(c, a.infoTitle()).FontSize(22).Bold().TextColor(t.Ink).
-			MaxLines(2).Margin(8, 0, 0, 0).Selectable()
-		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(t.Muted).
-			MaxLines(3).Margin(14, 0, 0, 0).Selectable()
+		// 原版 #video-title h2：22px / 800 / 2 行截断 / min-height 52。
+		ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
+			MinHeight(52).MaxLines(2).Margin(8, 0, 0, 0).Selectable()
+		// 原版 #video-desc：13px / #9ca3af / max-height 14vh 截断
+		//（600 高的窗口 ≈ 4 行）。
+		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#9ca3af")).
+			MaxLines(4).Margin(6, 0, 0, 0).Selectable()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
@@ -314,8 +317,9 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
 				name.Background(ui.Transparent)
 				name.Children(func() {
-					ui.Text(c, a.ownerName()).FontSize(15).Bold().
-						TextColor(pick(name.Hovered(), t.Blue, ui.Hex("#334155"))).
+					// 原版 #video-owner-name：15px / 650 / hover #0284c7。
+					ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
+						TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
 						SingleLine().MaxWidth(240)
 				})
 				if name.Clicked() {
