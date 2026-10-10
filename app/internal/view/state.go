@@ -404,6 +404,10 @@ type App struct {
 	PlayMode string
 	// PlaylistTab 是播放列表抽屉当前显示的 tab。
 	PlaylistTab string
+	// SearchRequestID 是搜索请求的代号：慢的旧响应不得覆盖新的搜索结果
+	// （原版 searchRequestIdRef）。
+	SearchRequestID int
+
 	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。
 	locateNow bool
 	// WLRemovePending 是「从稍后再看移除」请求中的 aid，按钮置灰防连点

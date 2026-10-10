@@ -1423,14 +1423,27 @@ func bvidFromURL(s string) string {
 var bvRe = regexp.MustCompile(`BV[a-zA-Z0-9]+`)
 
 func (c *controller) search(query string) {
-	list := c.app.ListFor(view.DrawerSearch)
+	a := c.app
+	// 空关键词：清结果并关抽屉（原版 handleSearch 的空值分支）。
+	if q := strings.TrimSpace(query); q == "" {
+		a.Query = ""
+		list := a.ListFor(view.DrawerSearch)
+		list.Cards, list.HasMore, list.Loading = nil, false, false
+		a.Drawer = ""
+		a.Win.Update(func() {})
+		return
+	}
+	// 请求代号：慢的旧响应不得覆盖新的（原版 searchRequestIdRef）。
+	a.SearchRequestID++
+	reqID := a.SearchRequestID
+
+	list := a.ListFor(view.DrawerSearch)
 	list.Loading = true
-	c.app.Status = "搜索中…"
-	c.app.Drawer = view.DrawerSearch
-	c.app.Win.Update(func() {})
+	a.Drawer = view.DrawerSearch
+	a.Win.Update(func() {})
 
 	// 搜索排序（表头的「综合 / 最多播放 / 最新发布」）。
-	order := c.app.SortOrder
+	order := a.SortOrder
 	if order == "" {
 		order = view.SortTotal
 	}
@@ -1451,11 +1464,19 @@ func (c *controller) search(query string) {
 				"pubdate": metaDateText(r.Date),
 			})
 		}
-		c.app.Win.Update(func() {
+		a.Win.Update(func() {
+			if a.SearchRequestID != reqID {
+				return // 已经发起了更新的搜索
+			}
 			list.Loading = false
-			list.Cards = toCards(items)
+			// 运行态上限（原版 MAX_RETAINED_LIST_ITEMS）。
+			cards := toCards(items)
+			if len(cards) > maxRetainedCards {
+				cards = cards[:maxRetainedCards]
+			}
+			list.Cards = cards
 			list.HasMore = false
-			c.app.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(list.Cards))
+			a.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(list.Cards))
 		})
 	}()
 }
