@@ -120,7 +120,9 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		// 左侧 4px 强调条（用一条 4px 宽的色条元素叠在行首表达，
 		// mygo 的 Border 是四边同宽，没有单边接口）。
 		row.Gradient(t.Blue.Alpha(0.30), ui.Hex("#ffffff").Alpha(0.52), 90).
-			Border(1, ui.Hex("#0369a1").Alpha(0.46))
+			Border(1, ui.Hex("#0369a1").Alpha(0.46)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.64)).
+			InsetShadow(0, -1, 0, 0, ui.Hex("#0369a1").Alpha(0.16))
 		row.Children(func() {})
 	case row.Hovered():
 		row.Background(t.GlassHover)

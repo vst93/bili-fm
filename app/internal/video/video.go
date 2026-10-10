@@ -127,11 +127,6 @@ func (m *Manager) Open(o Options) error {
 		MinWidth:  320,
 		MinHeight: 200,
 		Frameless: true,
-		Page: mygo.PageOptions{
-			// 弹窗是「用户点了播放」的结果，但手势发生在主窗，弹窗自己
-			// 没有手势 —— 不放开自动播放策略，隐藏/后台起播会被引擎拒绝。
-			Autoplay: mygo.AutoplayAllow,
-		},
 	})
 	if w == nil {
 		return fmt.Errorf("video: 创建弹窗失败")

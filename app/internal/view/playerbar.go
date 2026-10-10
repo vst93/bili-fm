@@ -2,7 +2,6 @@ package view
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -28,21 +27,26 @@ func (a *App) playerBar(c *ui.Context) {
 		To:    t.PlayerSurface,
 		Angle: 180,
 	})
+	// 播放栏玻璃（原版 #player .player-controls 的 box-shadow）：
+	// 顶部 1px 内亮线 + 底部 1px 内暗线（玻璃截面厚度）。
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
-		Background(t.PlayerSurface).Children(func() {
-		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
-		ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
-			AlignItems(ui.Center).Children(func() {
-			a.transport(c)
-			a.timeText(c, a.Pos)
-			a.progress(c)
-			a.timeText(c, a.Dur)
-			a.volumeButton(c)
-			a.speedButton(c)
-			a.eqButton(c)
-			a.sponsorButton(c)
+		Background(t.PlayerSurface).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)).
+		InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.05)).
+		Children(func() {
+			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
+			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
+				AlignItems(ui.Center).Children(func() {
+				a.transport(c)
+				a.timeText(c, a.Pos)
+				a.progress(c)
+				a.timeText(c, a.Dur)
+				a.volumeButton(c)
+				a.speedButton(c)
+				a.eqButton(c)
+				a.sponsorButton(c)
+			})
 		})
-	})
 
 	// 倍速 / 音量弹层：从播放栏上方向上弹。
 	if a.ShowSpeed {
@@ -57,9 +61,11 @@ func (a *App) playerBar(c *ui.Context) {
 func (a *App) transport(c *ui.Context) {
 	t := a.Theme
 	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
-		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569。
+		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569，
+		// 内亮线（inset 0 1px 1px rgba(255,255,255,.82)）。
 		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
-			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
+			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放")).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.82))
 		if a.Playing {
 			play.Background(pressFeedback(play, t.Blue.Alpha(0.16), t.Blue.Alpha(0.24), t.Blue.Alpha(0.34))).
 				Border(1, ui.Hex("#0369a1").Alpha(0.30))
@@ -110,32 +116,24 @@ func (a *App) progress(c *ui.Context) {
 	//   松手       —— 发一次 seek，继续停在目标值（引擎要重建解码器，
 	//                 a.Pos 慢半拍，立刻跟随会弹回旧位置，看起来卡住）；
 	//   追上/超时  —— 恢复跟随播放。
-	// 进度条本体：Slider **每帧构建且只构建一次**（独占命中，周围不叠
-	// 任何 Absolute 覆盖盒——之前试过，把整个播放栏的点击都截走了）。
-	//
-	// Changed 在拖动的每一帧都会触发（Slider 按帧写回 *value），
-	// 所以这里只负责「进入拖动/持续拖动」，绝不能动 seekSent——
-	// 否则松手时会连发多次 seek（每次都是重建解码器 + 网络定位），
-	// 表现为「从起点逐步加载到结束点」。
+	// 进度条：**每帧构建一次**，逻辑刻意最简单——
+	//   按下拖动  —— 滑块停在手上（SeekValue 不被 Pos 覆盖），零网络请求；
+	//   松手      —— 对最终位置发一次 seek（引擎同步重定位，Pos 立即跟上）；
+	//   其余时间  —— 跟随播放。
+	// 不做 reached/超时兜底那套（之前那版越写越复杂还卡）：
+	// mp.Seek 返回时解码器已重定位、WSOLA 起始采样已接上，
+	// OnProgress 报的就是新位置，不存在「弹回」需要防护。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
 	if s.Changed() {
 		a.seeking = true
-		a.seekedAt = time.Now() // 用户还在操作
 	}
 	if a.seeking && !s.Dragging() {
-		// 已松手：对**最终位置**发一次 seek，等引擎追上。
-		if !a.seekSent {
-			a.seekSent = true
-			if a.Act.Seek != nil {
-				a.Act.Seek(a.SeekValue)
-			}
-		}
-		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
-		if reached || time.Since(a.seekedAt) > 8*time.Second {
-			a.seeking, a.seekSent = false, false
+		// 松手：跳一次，恢复跟随。
+		a.seeking = false
+		if a.Act.Seek != nil {
+			a.Act.Seek(a.SeekValue)
 		}
 	} else if !a.seeking && !s.Dragging() {
-		// 跟随播放。
 		a.SeekValue = a.Pos
 	}
 }
@@ -151,7 +149,8 @@ func (a *App) volumeButton(c *ui.Context) {
 	default:
 		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
-	b.Border(1, t.GlassBorder)
+	b.Border(1, t.GlassBorder).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 	// 原版：音量键图标随音量变化（0 视为静音）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -369,23 +368,15 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套时序：拖动中只记 seekedAt，绝不动 seekSent
-	// （Changed 每帧触发，动了就会松手后连发多次 seek）。
+	// 与主窗同一套：按下冻结、松手跳一次。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
 	if s.Changed() {
 		a.seeking = true
-		a.seekedAt = time.Now()
 	}
 	if a.seeking && !s.Dragging() {
-		if !a.seekSent {
-			a.seekSent = true
-			if a.Act.Seek != nil {
-				a.Act.Seek(a.SeekValue)
-			}
-		}
-		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
-		if reached || time.Since(a.seekedAt) > 8*time.Second {
-			a.seeking, a.seekSent = false, false
+		a.seeking = false
+		if a.Act.Seek != nil {
+			a.Act.Seek(a.SeekValue)
 		}
 	} else if !a.seeking && !s.Dragging() {
 		a.SeekValue = a.Pos

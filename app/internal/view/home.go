@@ -391,6 +391,7 @@ func (a *App) partPill(c *ui.Context) {
 	}
 	ui.Row(c).MaxWidth(430).Height(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).Border(1, ui.Hex("#ffffff").Alpha(0.38)).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.64)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
