@@ -39,6 +39,8 @@ type Track struct {
 	Duration int64 // 秒
 	// Part 是分集标题（多 P 时用）。
 	Part string
+	// FirstFrame 是这一分集的封面首帧（多 P 时优先于视频封面显示）。
+	FirstFrame string
 }
 
 // Part 是一个分集。

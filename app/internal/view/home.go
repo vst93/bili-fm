@@ -664,9 +664,13 @@ func (a *App) coverBitmap() *ui.Bitmap {
 	return a.shownCoverBmp
 }
 
-// coverURL 是圆盘上显示的封面：优先详情里的首帧，退回列表卡片封面
+// coverURL 是圆盘上显示的封面：多 P 时优先当前分集的首帧，
+// 再退详情封面，最后退列表卡片封面
 // （对应原版的 graftingImage(pageFirstFrame || displayVideoInfo?.pic)）。
 func (a *App) coverURL() string {
+	if a.Track != nil && a.Track.FirstFrame != "" {
+		return a.Track.FirstFrame
+	}
 	if a.Info != nil && a.Info.Pic != "" {
 		return a.Info.Pic
 	}

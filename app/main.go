@@ -1499,7 +1499,7 @@ func (c *controller) buildPartsQueue(info *view.Info, cid int64) {
 		queue = append(queue, view.Track{
 			Aid: info.Aid, Bvid: info.Bvid, Cid: p.Cid,
 			Title: info.Title, Up: info.OwnerName, Cover: info.Pic,
-			Part: p.Part,
+			Part: p.Part, FirstFrame: p.FirstFrame,
 		})
 	}
 	a.Queue = queue
