@@ -129,7 +129,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 	case "favorite":
 		ui.Text(c, "收藏").FontSize(14).Bold().TextColor(ui.Hex("#334155")).Shrink(0)
 		if len(a.Folders) == 0 {
-			ui.Text(c, "还没有收藏夹").FontSize(12).TextColor(t.Faint)
+			ui.Text(c, "暂无收藏内容").FontSize(12).TextColor(t.Faint)
 			break
 		}
 		// 收藏夹可能很多：左右滚动键 + 横向滚动（原版 collect-scroll-btn，
@@ -428,7 +428,7 @@ func (a *App) seriesListBody(c *ui.Context) {
 		ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
 		return
 	case len(a.SeriesList) == 0:
-		ui.Text(c, "这位 UP 主还没有合集").FontSize(12).TextColor(t.Faint)
+		ui.Text(c, "暂无合集视频").FontSize(12).TextColor(t.Faint)
 		return
 	}
 	ui.Row(c).Gap(8).Wrap().AlignItems(ui.Start).Children(func() {
@@ -532,6 +532,35 @@ func (a *App) skeletonGrid(c *ui.Context) {
 func (a *App) emptyHint() string {
 	if a.needsLogin() {
 		return "这个分区需要登录，点右上角头像扫码登录"
+	}
+	// 空态文案对齐原版各列表组件。
+	switch a.Drawer {
+	case DrawerSearch:
+		return "没有找到相关视频"
+	}
+	if s := a.CurrentSection(); s.Key == a.Drawer {
+		switch a.Drawer {
+		case "favorite":
+			return "暂无收藏内容"
+		case "feed":
+			return "暂无动态内容"
+		case "history":
+			if a.HistTab == HistWatchLater {
+				return "暂无稍后再看视频"
+			}
+			return "暂无观看历史"
+		case "popular":
+			if a.RecTab == RecRecommend {
+				return "暂无推荐内容"
+			}
+			return "暂无热门内容"
+		}
+	}
+	if a.Drawer == DrawerUp {
+		if a.UpTab == UpTabSeries {
+			return "暂无合集视频"
+		}
+		return "该UP主暂无视频"
 	}
 	return "没有内容"
 }
@@ -987,7 +1016,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 	}
 	t := a.Theme
 	if len(a.Danmaku) == 0 {
-		ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
+		ui.Text(c, "暂无弹幕").FontSize(12).TextColor(t.Faint)
 		return
 	}
 	groups := groupDanmaku(a.Danmaku)
@@ -1057,7 +1086,7 @@ func (a *App) repliesBody(c *ui.Context) {
 		if a.RepliesLoading {
 			ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
 		} else {
-			ui.Text(c, "还没有评论").FontSize(12).TextColor(t.Faint)
+			ui.Text(c, "暂无评论").FontSize(12).TextColor(t.Faint)
 		}
 		return
 	}

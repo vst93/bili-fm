@@ -80,7 +80,11 @@ func (a *App) playlistBody(c *ui.Context) {
 		if a.PlaylistTab == ListSeries {
 			ui.Text(c, "合集列表为空（在合集里点「播放全部」加载）").FontSize(12).TextColor(t.Faint)
 		} else {
-			ui.Text(c, "播放列表为空（在选集里点卡片右上角的 + 添加）").FontSize(12).TextColor(t.Faint)
+			// 原版 playlist.tsx 的空态：主副两行。
+			ui.Column(c).FillWidth().Center().Margin(20, 0, 0, 0).Gap(4).Children(func() {
+				ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint)
+				ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).TextColor(t.Faint)
+			})
 		}
 		return
 	}
@@ -112,7 +116,12 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	case dragOver:
 		row.Background(t.Blue.Alpha(0.10)).Border(2, t.Blue)
 	case current:
-		row.Background(t.Blue.Alpha(0.18))
+		// 原版 .playlist-current：蓝渐变底（LinearGradient）+ 细蓝边 +
+		// 左侧 4px 强调条（用一条 4px 宽的色条元素叠在行首表达，
+		// mygo 的 Border 是四边同宽，没有单边接口）。
+		row.Gradient(t.Blue.Alpha(0.30), ui.Hex("#ffffff").Alpha(0.52), 90).
+			Border(1, ui.Hex("#0369a1").Alpha(0.46))
+		row.Children(func() {})
 	case row.Hovered():
 		row.Background(t.GlassHover)
 	}
@@ -121,6 +130,11 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	}
 
 	row.Children(func() {
+		// 原版 .playlist-current 的 border-left 4px 强调条。
+		if current {
+			ui.Box(c).Width(4).Fill().Shrink(0).Radius(2).
+				Background(ui.Hex("#0369a1").Alpha(0.78))
+		}
 		// 缩略图 64×36。
 		ui.Box(c).Width(64).Height(36).Shrink(0).Radius(4).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {

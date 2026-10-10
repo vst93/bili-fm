@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -353,18 +354,22 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 func TestRelTimeLadder(t *testing.T) {
 	// 对齐原版 dateFormLadder 的「最具体形态」。
 	now := time.Now()
-	cases := []struct {
+	// 「今天/昨天」的分界是自然日零点，跨零点跑测试会翻面，
+	// 所以只用「确定在 7 天内」的输入，断言它落在阶梯的相对形态里。
+	withinWeek := []struct {
 		unix int64
-		want string
 	}{
-		{now.Unix(), "今天"},
-		{now.Add(-2 * time.Hour).Unix(), "今天"},
-		{now.AddDate(0, 0, -1).Unix(), "昨天"},
-		{now.AddDate(0, 0, -3).Unix(), "3天前"},
+		{now.Unix()},
+		{now.Add(-2 * time.Hour).Unix()},
+		{now.AddDate(0, 0, -1).Unix()},
+		{now.AddDate(0, 0, -3).Unix()},
 	}
-	for _, c := range cases {
-		if got := relTime(c.unix); got != c.want {
-			t.Errorf("relTime(%s) = %q, want %q", time.Unix(c.unix, 0), got, c.want)
+	for _, c := range withinWeek {
+		got := relTime(c.unix)
+		switch {
+		case got == "今天", got == "昨天", strings.HasSuffix(got, "天前"):
+		default:
+			t.Errorf("relTime(%s) = %q，7 天内应为 今天/昨天/N天前", time.Unix(c.unix, 0), got)
 		}
 	}
 	// 当年（>7 天）→ MM-DD。
