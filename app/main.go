@@ -1201,6 +1201,19 @@ func (c *controller) reload() {
 	case view.DrawerUp:
 		a.ListFor(view.DrawerUp).Cards = nil
 		a.UpOffset = ""
+		// 刷新时同时重查关注状态和粉丝数（原版 handleRefresh）。
+		if mid := a.UpMid; mid != 0 {
+			go func() {
+				st, err := c.bl.IsFollowing(int(mid))
+				if err != nil || st == nil {
+					return
+				}
+				a.Win.Update(func() {
+					a.UpFollowed = st.IsFollowing
+					a.UpFans = st.Follower
+				})
+			}()
+		}
 		if a.UpTab == view.UpTabSeries {
 			c.loadUpSeries(a.UpMid)
 		} else {
