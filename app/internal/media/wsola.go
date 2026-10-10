@@ -55,7 +55,11 @@ type WSOLA struct {
 
 // NewWSOLA 建一个变速器。channels 是声道数，speed 是播放速度
 // （1 为原速，2 为两倍速）。
-func NewWSOLA(channels int, speed float64) *WSOLA {
+// NewWSOLA 建一个变速器。channels 是声道数，speed 是播放速度
+// （1 为原速，2 为两倍速）；startSample 是这条流从源音频的第几个采样
+// 开始（seek 重建流水线时传入目标位置，SourcePosition 才能接上，
+// 不然播放进度会从 0 重算）。
+func NewWSOLA(channels int, speed float64, startSample int) *WSOLA {
 	if channels < 1 {
 		channels = 1
 	}
@@ -74,6 +78,7 @@ func NewWSOLA(channels int, speed float64) *WSOLA {
 		window: hann(n),
 		ola:    make([]float32, n*channels),
 		speed:  speed,
+		skip:   startSample,
 	}
 	return w
 }

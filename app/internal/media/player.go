@@ -313,7 +313,7 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	p := &pipeline{
 		rf: rf, rd: rd, dec: dec, info: info,
 		channels: info.Channels,
-		ws:       NewWSOLA(info.Channels, speed),
+		ws:       NewWSOLA(info.Channels, speed, 0),
 		eq:       NewCompressor(info.Channels, info.SampleRate),
 	}
 	if info.SampleRate != rate {
@@ -398,7 +398,11 @@ func (p *pipeline) seek(seconds float64) error {
 	}
 
 	p.rd, p.dec = rd, dec
-	p.ws = NewWSOLA(p.channels, p.ws.Speed())
+	// 起始采样按**源音频**的采样数算（不是 WSOLA 输出的采样数）：
+	// SourcePosition 用源采样率换算秒。seek 只重定位不解码，前面
+	// 的帧没经过变速，所以直接用 seconds × 源采样率。
+	startSample := int(seconds * float64(p.info.SampleRate))
+	p.ws = NewWSOLA(p.channels, p.ws.Speed(), startSample)
 	if p.eq.Enabled() {
 		p.eq.SetEnabled(true)
 	}

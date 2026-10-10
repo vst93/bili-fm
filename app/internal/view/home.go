@@ -562,15 +562,13 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, act
 	b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
 		Radius(ToolButtonR).Center().Label(key).Tooltip(key).
 		Disabled(off)
-	if active {
-		b.Background(activeInk.Alpha(0.16))
-	} else if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
+	switch {
+	case off:
 		b.Background(ui.Transparent)
-	}
-	if off {
-		b.Background(ui.Transparent)
+	case active:
+		b.Background(pressFeedback(b, activeInk.Alpha(0.16), activeInk.Alpha(0.24), activeInk.Alpha(0.34)))
+	default:
+		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
 	b.Children(func() {
 		ui.Icon(c, ic).Size(18, 18).TextColor(pick(active, activeInk, ui.Hex("#475569")))
@@ -600,11 +598,9 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Col
 	}
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(ui.Transparent)
-	}
+	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
+	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
+	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(textInk) })
 	if b.Clicked() && fn != nil {
 		fn()

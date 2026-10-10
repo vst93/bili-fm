@@ -272,13 +272,31 @@ func fmtDur(sec int64) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
-// fmtViews 把播放量转成「1.2万」这样的短文本。
+// fmtViews 把播放量转成短文本（原版 formatViewCount）：
+// ≥100万 → 整数万（539万），≥1万 → 一位小数（4.1万）。
 func fmtViews(n int64) string {
 	switch {
 	case n >= 100000000:
 		return fmt.Sprintf("%.1f亿", float64(n)/1e8)
+	case n >= 1000000:
+		return fmt.Sprintf("%d万", n/10000)
 	case n >= 10000:
 		return fmt.Sprintf("%.1f万", float64(n)/1e4)
+	default:
+		return fmt.Sprint(n)
+	}
+}
+
+// fmtCompactCount 把三键数值（点赞/投币/收藏）转成短文本（原版
+// formatCompactCount）：≥1亿 → x.x亿，≥100万 → 整数 w，≥1万 → x.x w。
+func fmtCompactCount(n int64) string {
+	switch {
+	case n >= 100000000:
+		return fmt.Sprintf("%.1f亿", float64(n)/1e8)
+	case n >= 1000000:
+		return fmt.Sprintf("%dw", n/10000)
+	case n >= 10000:
+		return fmt.Sprintf("%.1fw", float64(n)/1e4)
 	default:
 		return fmt.Sprint(n)
 	}

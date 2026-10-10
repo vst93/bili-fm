@@ -58,14 +58,16 @@ func TestFmtTime(t *testing.T) {
 }
 
 func TestCompactCount(t *testing.T) {
+	// 与原版 formatCompactCount 一致：≥1亿 x.x亿，≥100万 整数 w，≥1万 x.x w。
 	cases := []struct {
 		in   int64
 		want string
 	}{
 		{0, "0"},
 		{999, "999"},
-		{10000, "1.0万"},
-		{42100, "4.2万"},
+		{10000, "1.0w"},
+		{42100, "4.2w"},
+		{1234567, "123w"},
 		{123456789, "1.2亿"},
 	}
 	for _, c := range cases {

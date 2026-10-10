@@ -703,12 +703,16 @@ func pick[T any](cond bool, a, b T) T {
 }
 
 // compactCount 把数量转成「1.2万」这样的短文本（原版 formatCompactCount）。
+// compactCount 是三键数值（点赞/投币/收藏）的显示（原版
+// formatCompactCount）：≥1亿 → x.x亿，≥100万 → 整数 w，≥1万 → x.x w。
 func compactCount(n int64) string {
 	switch {
 	case n >= 100000000:
 		return fmt.Sprintf("%.1f亿", float64(n)/1e8)
+	case n >= 1000000:
+		return fmt.Sprintf("%dw", n/10000)
 	case n >= 10000:
-		return fmt.Sprintf("%.1f万", float64(n)/1e4)
+		return fmt.Sprintf("%.1fw", float64(n)/1e4)
 	default:
 		return fmt.Sprint(n)
 	}
@@ -724,3 +728,25 @@ var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/s
 
 // ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度）。
 func (a *App) ResetSeek() { a.seeking, a.seekSent = false, false }
+
+// pressable 是按钮的按压反馈。原版是 `.player-button:active` 的
+// `transform: scale(0.93)`，mygo 没有缩放变换（Rotate 只管角度），
+// 退而求其次：按住时底色加深一档，给出「按下了」的反馈。
+func pressable(e ui.Element, rest, pressed ui.Color) ui.Element {
+	if e.Pressed() {
+		return e.Background(pressed)
+	}
+	return e.Background(rest)
+}
+
+// pressFeedback 是按钮的 hover/press 组合反馈：rest 平时、hover 悬停、
+// pressed 按住（mygo 无缩放变换，用底色表达「按下」，见 pressable）。
+func pressFeedback(e ui.Element, rest, hover, pressed ui.Color) ui.Color {
+	switch {
+	case e.Pressed():
+		return pressed
+	case e.Hovered():
+		return hover
+	}
+	return rest
+}

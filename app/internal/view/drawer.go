@@ -298,7 +298,8 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 		Radius(Radius).Center().Label(it.Label)
 	switch {
 	case active:
-		b.Background(ui.Hex("#ffffff").Alpha(0.52)).Border(1, t.GlassBorderBright)
+		b.Background(pressFeedback(b, ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.62), t.LiquidBgActive)).
+			Border(1, t.GlassBorderBright)
 	case b.Hovered():
 		b.Background(t.LiquidBgHover).Border(1, t.GlassBorderBright)
 	default:

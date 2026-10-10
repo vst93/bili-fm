@@ -8,7 +8,7 @@ import (
 // TestWSOLAConcurrentSpeedAndPosition 断言变速器的控制方法与产出方法可以并发
 // 调用（oto 取数据与进度上报是两条 goroutine）。
 func TestWSOLAConcurrentSpeedAndPosition(t *testing.T) {
-	w := NewWSOLA(2, 1)
+	w := NewWSOLA(2, 1, 0)
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 

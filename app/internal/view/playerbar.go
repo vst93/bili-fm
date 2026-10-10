@@ -61,9 +61,11 @@ func (a *App) transport(c *ui.Context) {
 		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
 			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
 		if a.Playing {
-			play.Background(t.Blue.Alpha(0.16)).Border(1, ui.Hex("#0369a1").Alpha(0.30))
+			play.Background(pressFeedback(play, t.Blue.Alpha(0.16), t.Blue.Alpha(0.24), t.Blue.Alpha(0.34))).
+				Border(1, ui.Hex("#0369a1").Alpha(0.30))
 		} else {
-			play.Background(t.LiquidBg).Border(1, ui.Hex("#94a3b8").Alpha(0.22))
+			play.Background(pressFeedback(play, t.LiquidBg, t.GlassHover, t.GlassActive)).
+				Border(1, ui.Hex("#94a3b8").Alpha(0.22))
 		}
 		play.Children(func() {
 			ink := pick(a.Playing, ui.Hex("#0369a1"), ui.Hex("#475569"))
@@ -76,11 +78,7 @@ func (a *App) transport(c *ui.Context) {
 		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
 			Label("下一集").Tooltip("下一集")
 		next.Disabled(!a.canNavigate())
-		if next.Hovered() {
-			next.Background(t.GlassHover)
-		} else {
-			next.Background(ui.Transparent)
-		}
+		next.Background(pressFeedback(next, ui.Transparent, t.GlassHover, t.GlassActive))
 		next.Border(1, t.GlassBorder)
 		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
@@ -147,10 +145,11 @@ func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
 		Label("音量").Tooltip("音量")
-	if a.ShowVolume || b.Hovered() {
+	switch {
+	case a.ShowVolume:
 		b.Background(t.GlassHover)
-	} else {
-		b.Background(ui.Transparent)
+	default:
+		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
 	b.Border(1, t.GlassBorder)
 	// 原版：音量键图标随音量变化（0 视为静音）。
@@ -170,10 +169,11 @@ func (a *App) speedButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
 		Label("倍速").Tooltip("倍速")
-	if a.ShowSpeed || b.Hovered() {
+	switch {
+	case a.ShowSpeed:
 		b.Background(t.GlassHover)
-	} else {
-		b.Background(ui.Transparent)
+	default:
+		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
 	b.Border(1, t.GlassBorder)
 	b.Children(func() {
@@ -193,10 +193,8 @@ func (a *App) eqButton(c *ui.Context) {
 	switch {
 	case a.EQ:
 		b.Background(t.Blue.Alpha(0.28))
-	case b.Hovered():
-		b.Background(t.GlassHover)
 	default:
-		b.Background(ui.Transparent)
+		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
 	b.Border(1, t.GlassBorder)
 	b.Children(func() {
@@ -215,10 +213,8 @@ func (a *App) sponsorButton(c *ui.Context) {
 	switch {
 	case a.Sponsor:
 		b.Background(t.Blue.Alpha(0.28))
-	case b.Hovered():
-		b.Background(t.GlassHover)
 	default:
-		b.Background(ui.Transparent)
+		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
 	b.Border(1, t.GlassBorder)
 	b.Children(func() {

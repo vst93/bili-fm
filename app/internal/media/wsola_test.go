@@ -52,7 +52,7 @@ func TestPitchPreserved(t *testing.T) {
 	in := sine(rate, freq, 2.0)
 
 	for _, speed := range []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0} {
-		w := NewWSOLA(1, speed)
+		w := NewWSOLA(1, speed, 0)
 		out := append(w.Push(in), w.Flush()...)
 
 		got := dominantFreq(out, rate, 200, 1200)
@@ -80,7 +80,7 @@ func TestStereoIndependent(t *testing.T) {
 		in[2*i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/rate))
 		in[2*i+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/rate))
 	}
-	w := NewWSOLA(2, 1.5)
+	w := NewWSOLA(2, 1.5, 0)
 	out := append(w.Push(in), w.Flush()...)
 
 	left := make([]float32, 0, len(out)/2)
@@ -104,7 +104,7 @@ func TestThroughput(t *testing.T) {
 	in := sine(rate, 440, 10.0) // 10 秒单声道
 
 	for _, speed := range []float64{1.0, 2.0, 3.0} {
-		w := NewWSOLA(2, speed)
+		w := NewWSOLA(2, speed, 0)
 		// 转成立体声输入
 		st := make([]float32, len(in)*2)
 		for i, v := range in {
