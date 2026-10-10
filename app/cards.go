@@ -239,25 +239,50 @@ func progressLabel(progress, duration int64) string {
 	return fmt.Sprintf("已看 %d%%", ratio)
 }
 
-// relTime 把 unix 秒变成相对时间（旧版的 formatRelativeTime）。
+// relTime 把 unix 秒变成相对时间，对齐原版 dateFormLadder 的「最具体形态」：
+//
+//	≤0 天 → 今天；1 天 → 昨天；≤7 天 → N天前；
+//	当年 → MM-DD（比相对形态更具体）；跨年 → yyyy-MM-DD；
+//	兜底 → N个月前 / N年前。
 func relTime(unix int64) string {
-	d := time.Since(time.Unix(unix, 0))
-	switch {
-	case d < time.Minute:
-		return "刚刚"
-	case d < time.Hour:
-		return fmt.Sprintf("%d分钟前", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d小时前", int(d.Hours()))
-	case d < 48*time.Hour:
-		return "昨天"
-	case d < 30*24*time.Hour:
-		return fmt.Sprintf("%d天前", int(d.Hours()/24))
-	case d < 365*24*time.Hour:
-		return fmt.Sprintf("%d个月前", int(d.Hours()/(24*30)))
-	default:
-		return time.Unix(unix, 0).Format("2006-01-02")
+	if unix <= 0 {
+		return ""
 	}
+	target := time.Unix(unix, 0)
+	now := time.Now()
+	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	startOfTarget := time.Date(target.Year(), target.Month(), target.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	dayDiff := (startOfToday - startOfTarget) / 86400
+	switch {
+	case dayDiff <= 0:
+		return "今天"
+	case dayDiff == 1:
+		return "昨天"
+	case dayDiff <= 7:
+		return fmt.Sprintf("%d天前", dayDiff)
+	}
+
+	// 自然月差（当月同日没到就少算一个月），夹到 ≥1。
+	monthDiff := (now.Year()-target.Year())*12 + int(now.Month()-target.Month())
+	if now.Day() < target.Day() {
+		monthDiff--
+	}
+	if monthDiff < 1 {
+		monthDiff = 1
+	}
+	yearDiff := now.Year() - target.Year()
+
+	mmdd := fmt.Sprintf("%02d-%02d", target.Month(), target.Day())
+	if target.Year() == now.Year() {
+		return mmdd
+	}
+	if yearDiff >= 1 && monthDiff >= 12 {
+		return fmt.Sprintf("%d年前", yearDiff)
+	}
+	if yearDiff >= 2 {
+		return fmt.Sprintf("%d年前", yearDiff)
+	}
+	return fmt.Sprintf("%d个月前", monthDiff)
 }
 
 // fmtDur 把秒转成 mm:ss / h:mm:ss。

@@ -1653,8 +1653,9 @@ func (c *controller) startCurrent() {
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
 	c.app.SponsorSegments = nil
-	// seek 状态机复位（换歌后跟随新进度）。
+	// seek 状态机复位（换歌后跟随新进度）；丢弃起播期间排队的 seek。
 	c.app.ResetSeek()
+	c.app.HasPendingSeek = false
 	c.app.Win.Update(func() {})
 
 	// 主区右栅要立刻换成这条视频的信息，所以先把列表卡片里的字段填上，
@@ -1755,6 +1756,11 @@ func (c *controller) startCurrent() {
 			c.app.Dur = c.mp.Duration()
 			c.app.Status = ""
 			c.syncMediaTrack()
+			// 起播期间用户请求过的跳转，现在执行（safeSeek 的排队语义）。
+			if c.app.HasPendingSeek {
+				c.app.HasPendingSeek = false
+				go c.seek(c.app.PendingSeek)
+			}
 		})
 
 		// 续播：本地/云端断点比 5 秒靠后才跳。
@@ -1867,6 +1873,15 @@ func (c *controller) step(delta int) {
 }
 
 func (c *controller) seek(seconds float64) {
+	// 起播中（Buffering）不立即 seek：解码器还在初始化，与 safeSeek 的
+	// readyState 保护同理——记下目标，等起播完成后执行（排队不丢弃）。
+	if c.app.Buffering {
+		c.app.PendingSeek = seconds
+		c.app.HasPendingSeek = true
+		c.app.SeekValue = seconds
+		c.app.Notify("起播完成后跳转")
+		return
+	}
 	// 跳转等于改了断点，立刻补写 + 补报（原版把 seek 当关键事件）。
 	c.flushProgress(seconds)
 	c.syncMediaPosition(seconds)

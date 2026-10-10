@@ -463,6 +463,11 @@ type App struct {
 	seekSent bool
 	// seekedAt 是用户开始拖动的时间，用于 seek 卡住时的超时兜底。
 	seekedAt time.Time
+	// PendingSeek 是起播（Buffering）期间用户请求的跳转目标：
+	// 原版 safeSeek 在 readyState 不足时会挡下 seek，这里改成
+	// 等起播完成后执行一次（排队而不是丢弃）。
+	PendingSeek    float64
+	HasPendingSeek bool
 	// ShowSpeed / ShowVolume 表示播放栏的倍速、音量弹层展开着。
 	ShowSpeed  bool
 	ShowVolume bool

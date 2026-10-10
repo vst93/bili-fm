@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
@@ -311,7 +312,7 @@ func TestMetaDateText(t *testing.T) {
 		if got == "" {
 			t.Errorf("metaDateText(%q) = 空", in)
 		}
-		// 超过一年的日期 relTime 会回落成绝对日期，所以只要求非空。
+		// relTime 是阶梯式：N天前 / MM-DD / N个月前 / N年前，均非空。
 	}
 	if got := metaDateText(""); got != "" {
 		t.Errorf("metaDateText(\"\") = %q, want empty", got)
@@ -346,5 +347,39 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 	c = toCards(items)
 	if len(c) != 1 || c[0].Pubdate == "" {
 		t.Errorf("ctime pubdate = %+v", c)
+	}
+}
+
+func TestRelTimeLadder(t *testing.T) {
+	// 对齐原版 dateFormLadder 的「最具体形态」。
+	now := time.Now()
+	cases := []struct {
+		unix int64
+		want string
+	}{
+		{now.Unix(), "今天"},
+		{now.Add(-2 * time.Hour).Unix(), "今天"},
+		{now.AddDate(0, 0, -1).Unix(), "昨天"},
+		{now.AddDate(0, 0, -3).Unix(), "3天前"},
+	}
+	for _, c := range cases {
+		if got := relTime(c.unix); got != c.want {
+			t.Errorf("relTime(%s) = %q, want %q", time.Unix(c.unix, 0), got, c.want)
+		}
+	}
+	// 当年（>7 天）→ MM-DD。
+	target := now.AddDate(0, 0, -20)
+	if got := relTime(target.Unix()); got != target.Format("01-02") {
+		t.Errorf("relTime(当年-20天) = %q, want %q", got, target.Format("01-02"))
+	}
+	// 跨年（>1 年）→ N年前。
+	old := now.AddDate(-2, 0, 0)
+	if got := relTime(old.Unix()); got != "2年前" {
+		t.Errorf("relTime(2年前) = %q, want 2年前", got)
+	}
+	// 相对旧的（>1 个月、同年）→ MM-DD（比「N个月前」更具体）。
+	lastMonth := now.AddDate(0, -2, 0)
+	if got := relTime(lastMonth.Unix()); got == "" {
+		t.Errorf("relTime(2个月前) 为空")
 	}
 }
