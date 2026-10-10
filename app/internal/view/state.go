@@ -458,6 +458,11 @@ type App struct {
 	// 不能跟着拖动一路触发）。seeking 标记拖动中，SeekValue 是滑块绑定的值。
 	seeking   bool
 	SeekValue float64
+	// seekSent 表示 seek 请求已发出、正在等引擎追上（这期间滑块停在
+	// 目标值，不被旧 Pos 拽回——原版 isSeekingRef 的语义）。
+	seekSent bool
+	// seekedAt 是用户开始拖动的时间，用于 seek 卡住时的超时兜底。
+	seekedAt time.Time
 	// ShowSpeed / ShowVolume 表示播放栏的倍速、音量弹层展开着。
 	ShowSpeed  bool
 	ShowVolume bool
@@ -716,3 +721,6 @@ func compactCount(n int64) string {
 // 旋转时一侧的粗/细不对称，看起来像唱片表面反光。为了"缺口"效果，
 // 用一段 270° 弧 + 一段 90° 直线收口（全部 C 命令）。
 var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M50 6 C76 6 94 26 94 50 C94 76 76 94 50 94 C26 94 6 76 6 50 C6 26 26 6 50 6" stroke-width="7"/><path d="M50 6 C64 6 76 14 82 26" stroke-width="10"/></svg>`))
+
+// ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度）。
+func (a *App) ResetSeek() { a.seeking, a.seekSent = false, false }

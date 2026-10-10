@@ -139,25 +139,9 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 			ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
 				Width(44).Shrink(0).Center()
 
-			hi := a.Dur
-			if hi <= 0 {
-				hi = 1
-			}
-			if !a.seeking {
-				a.SeekValue = a.Pos
-			}
-			s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-			if s.Changed() {
-				a.seeking = true
-			}
-			if s.Submitted() || (a.seeking && !s.Dragging()) {
-				if a.seeking {
-					a.seeking = false
-					if a.Act.Seek != nil {
-						a.Act.Seek(a.SeekValue)
-					}
-				}
-			}
+			// 与主窗同一套 seek 状态机（见 progress）：拖动中停在目标值，
+			// 松手发 seek、等引擎追上才恢复跟随——否则滑块弹回旧位置。
+			a.miniProgress(c)
 
 			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
 				Width(44).Shrink(0).Center()

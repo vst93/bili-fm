@@ -1653,6 +1653,8 @@ func (c *controller) startCurrent() {
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
 	c.app.SponsorSegments = nil
+	// seek 状态机复位（换歌后跟随新进度）。
+	c.app.ResetSeek()
 	c.app.Win.Update(func() {})
 
 	// 主区右栅要立刻换成这条视频的信息，所以先把列表卡片里的字段填上，

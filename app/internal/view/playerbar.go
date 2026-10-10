@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -103,41 +104,41 @@ func (a *App) progress(c *ui.Context) {
 	if !a.seeking {
 		a.SeekValue = a.Pos
 	}
-	// 定位容器：标记层画在下层，Slider 在上层接指针（标记纯视觉，
-	// 原版 player-timeline-sponsor 是 pointer-events:none 的覆盖层，
-	// 绝不能压在 Slider 上截走命中，否则进度条没法拖）。
-	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Children(func() {
-		// 广告段标记：纯视觉，与「自动跳过」开关无关。
-		if a.Dur > 0 {
-			for _, seg := range a.SponsorSegments {
-				start := float32(seg.Start / a.Dur)
-				end := float32(seg.End / a.Dur)
-				if start < 0 {
-					start = 0
-				}
-				if end > 1 {
-					end = 1
-				}
-				if end <= start {
-					continue
-				}
-				ui.Box(c).Absolute().BottomPercent(45).LeftPercent(start * 100).
-					WidthPercent((end - start) * 100).Height(3).Radius(2).
-					Background(ui.Hex("#ef4444").Alpha(0.55))
-			}
+	// 进度条本体：Slider 独占命中。**绝不能**在它周围叠任何 Absolute
+	// 覆盖盒（之前试过，把整个播放栏的点击都截走了）。
+	//
+	// seek 后引擎要重建解码器，a.Pos 要过一会儿才追上目标值；这期间
+	// 不能把 SeekValue 拽回旧 Pos，否则滑块「卡住」弹回（原版用
+	// isSeekingRef + safeSeek 表达同一件事）。松手即置 seekedAt，
+	// 等 Pos 到达目标（或超时兜底）才恢复跟随。
+	if a.seeking {
+		s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+		if s.Dragging() {
+			return
 		}
-	})
-	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-	if s.Changed() {
-		a.seeking = true
-	}
-	if s.Submitted() || (a.seeking && !s.Dragging()) {
-		if a.seeking {
-			a.seeking = false
+		// 已松手：发 seek，等追上。
+		if !a.seekSent {
+			a.seekSent = true
 			if a.Act.Seek != nil {
 				a.Act.Seek(a.SeekValue)
 			}
 		}
+		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
+		if reached || time.Since(a.seekedAt) > 3*time.Second {
+			a.seeking, a.seekSent = false, false
+		}
+		_ = s
+		return
+	}
+	// 跟随播放（含刚播完一次 seek 后的恢复）。
+	if a.Pos < a.SeekValue-2 || a.Pos > a.SeekValue+2 {
+		a.SeekValue = a.Pos
+	}
+	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+	if s.Changed() {
+		a.seeking = true
+		a.seekSent = false
+		a.seekedAt = time.Now()
 	}
 }
 
@@ -350,3 +351,39 @@ func abs(v float64) float64 {
 
 // speedOptions 是倍速可选项，与旧版的档位一致。
 var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0}
+
+// miniProgress 是迷你窗的进度条（与主窗的 progress 共用同一套 seek
+// 状态机，只是尺寸更小、没有广告段标记）。
+func (a *App) miniProgress(c *ui.Context) {
+	hi := a.Dur
+	if hi <= 0 {
+		hi = 1
+	}
+	if a.seeking {
+		s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
+		if s.Dragging() {
+			return
+		}
+		if !a.seekSent {
+			a.seekSent = true
+			if a.Act.Seek != nil {
+				a.Act.Seek(a.SeekValue)
+			}
+		}
+		if (a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5) ||
+			time.Since(a.seekedAt) > 3*time.Second {
+			a.seeking, a.seekSent = false, false
+		}
+		_ = s
+		return
+	}
+	if a.Pos < a.SeekValue-2 || a.Pos > a.SeekValue+2 {
+		a.SeekValue = a.Pos
+	}
+	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
+	if s.Changed() {
+		a.seeking = true
+		a.seekSent = false
+		a.seekedAt = time.Now()
+	}
+}
