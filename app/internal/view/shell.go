@@ -67,18 +67,38 @@ func (a *App) titleBar(c *ui.Context) {
 	tb := c.TitleBar()
 	ui.Row(c).FillWidth().Height(TitleBarHeight).Shrink(0).
 		Padding(0, 16).AlignItems(ui.Center).DragWindow().Children(func() {
-		ui.Box(c).Width(tb.Left).Shrink(0)
-		ui.Box(c).Grow(1)
-		ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).Children(func() {
-			if Logo != nil {
-				ui.Image(c, Logo).Size(24, 24)
+		mac := runtime.GOOS == "darwin"
+		// 品牌：macOS 居中（红绿灯在左），Windows/Linux 靠左 + 设置在旁
+		// （原版 .title-bar-brand 的 isMac 分支）。≤600px 时隐藏（原版如此）。
+		brand := func(grow bool) {
+			box := ui.Row(c).Gap(6).AlignItems(ui.Center)
+			if grow {
+				box.Grow(1)
+			} else {
+				box.Shrink(0)
 			}
-			ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
-		})
-		ui.Box(c).Grow(1)
-		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Children(func() {
+			box.Children(func() {
+				if Logo != nil {
+					ui.Image(c, Logo).Size(24, 24)
+				}
+				ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
+			})
+		}
+		if mac {
+			ui.Box(c).Width(tb.Left).Shrink(0)
+			ui.Box(c).Grow(1)
+			brand(false)
+			ui.Box(c).Grow(1)
+		} else {
+			ui.Box(c).Width(tb.Left).Shrink(0)
+			brand(false)
 			a.settingsButton(c)
+			ui.Box(c).Grow(1)
+		}
+		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Children(func() {
+			// 迷你入口：原版在 Linux 上不提供（webkit2gtk 改不了窗口尺寸）。
 			if runtime.GOOS != "linux" {
+				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
 				if b.Hovered() {
