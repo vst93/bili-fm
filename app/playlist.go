@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 
 	"github.com/vst93/bili-fm/app/internal/view"
@@ -17,6 +18,8 @@ const (
 	kvUserPlaylist   = "userPlaylist"
 	kvSeriesPlaylist = "seriesPlaylist"
 	kvPlayMode       = "playlistPlayMode"
+	kvPlayingList    = "playingPlaylistType"
+	kvPlayingIndex   = "playingPlaylistIndex"
 )
 
 // loadPlaylists 启动时读回播放列表与播放模式（原版从 dkv / localStorage 读）。
@@ -31,9 +34,19 @@ func (c *controller) loadPlaylists() {
 	if m := c.kv.String(kvPlayMode); m == view.PlayModeSingle || m == view.PlayModeShuffle {
 		a.PlayMode = m
 	}
+	// 正在播放的来源/下标：只在不与恢复的队列冲突时用（恢复队列后 Index 已指向那条）。
+	if src := c.kv.String(kvPlayingList); src == view.ListUser || src == view.ListSeries {
+		a.PlayingPlaylist = src
+		if idx, err := strconv.Atoi(c.kv.String(kvPlayingIndex)); err == nil {
+			a.PlaylistTab = src
+			if idx >= 0 && idx < len(c.playlistOf(src)) {
+				a.Index = idx
+			}
+		}
+	}
 }
 
-// savePlaylists 把两个列表写盘。
+// savePlaylists 把两个列表写盘（含各自正在播放的下标，原版也一并持久化）。
 func (c *controller) savePlaylists() {
 	a := c.app
 	if b, err := json.Marshal(a.Playlist); err == nil {
@@ -43,6 +56,9 @@ func (c *controller) savePlaylists() {
 		_ = c.kv.SetString(kvSeriesPlaylist, string(b))
 	}
 	_ = c.kv.SetString(kvPlayMode, a.PlayMode)
+	// 正在播放的来源与下标：恢复时播放列表抽屉能标记到当时那条。
+	_ = c.kv.SetString(kvPlayingList, a.PlayingPlaylist)
+	_ = c.kv.SetString(kvPlayingIndex, strconv.Itoa(a.Index))
 }
 
 // playlistOf 返回某个来源的记录切片。
