@@ -81,7 +81,8 @@ func (a *App) titleBar(c *ui.Context) {
 				if Logo != nil {
 					ui.Image(c, Logo).Size(24, 24)
 				}
-				ui.Text(c, "bili-FM").FontSize(13).Bold().TextColor(t.Ink)
+				// 原版 text-sm（14px）。
+				ui.Text(c, "bili-FM").FontSize(14).FontWeight(600).TextColor(t.Ink)
 			})
 		}
 		if mac {
