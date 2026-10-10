@@ -470,6 +470,8 @@ type App struct {
 	// 新 seek 目标只更新 PendingSeek，等这次跑完再补一次——
 	// 连续拖动不会堆叠多个重建。
 	SeekBusy bool
+	// wasPressed 是上一帧 Slider 是否被按住（识别松手的下降沿）。
+	wasPressed bool
 	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
 	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
 	// 记在这里，等条件允许后执行一次（排队而不是丢弃）——

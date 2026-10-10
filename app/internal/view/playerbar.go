@@ -116,26 +116,26 @@ func (a *App) progress(c *ui.Context) {
 	//   松手       —— 发一次 seek，继续停在目标值（引擎要重建解码器，
 	//                 a.Pos 慢半拍，立刻跟随会弹回旧位置，看起来卡住）；
 	//   追上/超时  —— 恢复跟随播放。
-	// 进度条：**每帧构建一次**，逻辑刻意最简单——
-	//   按下拖动  —— 滑块停在手上（SeekValue 不被 Pos 覆盖），零网络请求；
-	//   松手      —— 对最终位置发一次 seek（引擎同步重定位，Pos 立即跟上）；
-	//   其余时间  —— 跟随播放。
-	// 不做 reached/超时兜底那套（之前那版越写越复杂还卡）：
-	// mp.Seek 返回时解码器已重定位、WSOLA 起始采样已接上，
-	// OnProgress 报的就是新位置，不存在「弹回」需要防护。
+	// 进度条：Slider 的 *value 绑定就是滑块本身——**位置完全交给框架**。
+	//
+	// mygo 的 Slider 按下即设定值并进入 pressed，移动每帧改值（点击定位
+	// 和拖动是一体的，没有「没碰滑块却触发拖动」的问题——按下就设定，
+	// 正是原版 input[type=range] 的行为）。
+	//
+	// 应用侧只有两件事：
+	//   未按下时  —— 把播放位置写进 *value（滑块跟随播放，框架画动画）；
+	//   按下中    —— 绝不写（滑块跟手），松手（Pressed 下降沿）发一次 seek。
+	// OnProgress 的副作用在拖动中跳过（见 main.go）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-	if s.Changed() {
-		a.seeking = true
-	}
-	if a.seeking && !s.Dragging() {
-		// 松手：跳一次，恢复跟随。
-		a.seeking = false
-		if a.Act.Seek != nil {
-			a.Act.Seek(a.SeekValue)
-		}
-	} else if !a.seeking && !s.Dragging() {
+	if !s.Pressed() {
+		// 未按下：滑块跟随播放。
 		a.SeekValue = a.Pos
 	}
+	// 松手瞬间（上一帧 pressed、这一帧已松开）：滑块停在的位置就是目标。
+	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
+		a.Act.Seek(a.SeekValue)
+	}
+	a.wasPressed = s.Pressed()
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -368,17 +368,13 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套：按下冻结、松手跳一次。
+	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-	if s.Changed() {
-		a.seeking = true
-	}
-	if a.seeking && !s.Dragging() {
-		a.seeking = false
-		if a.Act.Seek != nil {
-			a.Act.Seek(a.SeekValue)
-		}
-	} else if !a.seeking && !s.Dragging() {
+	if !s.Pressed() {
 		a.SeekValue = a.Pos
 	}
+	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
+		a.Act.Seek(a.SeekValue)
+	}
+	a.wasPressed = s.Pressed()
 }
