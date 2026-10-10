@@ -417,6 +417,9 @@ type App struct {
 	// （原版 searchRequestIdRef）。
 	SearchRequestID int
 
+	// CollectScroll 是收藏夹表头横向滚动的位置（左右键拨动它）。
+	CollectScroll ui.ScrollState
+
 	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。
 	locateNow bool
 	// PartSearch 是选集搜索框的输入（原版 .part-search-input）。
@@ -639,7 +642,10 @@ var (
 	iconPrev = icon(`<path d="M12.4 3.4v9.2a.7.7 0 0 1-1.08.6l-6.2-4.6a.7.7 0 0 1 0-1.2l6.2-4.6a.7.7 0 0 1 1.08.6z"/><path d="M3.8 3v10" stroke-width="1.8"/>`)
 	// 音量：VolumeNotice（喇叭 + 两道弧）/ VolumeMute（喇叭 + 斜杠）。
 	iconVolume = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M11.4 6.2a2.6 2.6 0 0 1 0 3.6"/><path d="M12.9 4.6a4.6 4.6 0 0 1 0 6.8"/>`)
-	iconMute   = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M10.8 6.4l3.4 3.2M14.2 6.4l-3.4 3.2" stroke-width="1.6"/>`)
+	// 左右箭头（收藏夹表头滚动键）。
+	iconLeft  = icon(`<path d="M10 3.2L5.2 8l4.8 4.8"/>`)
+	iconRight = icon(`<path d="M6 3.2L10.8 8L6 12.8"/>`)
+	iconMute  = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M10.8 6.4l3.4 3.2M14.2 6.4l-3.4 3.2" stroke-width="1.6"/>`)
 	// 弹幕/评论：Comment（气泡 + 三点）。
 	iconDanmaku = icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`)
 	// 选集：DoubleUp（双层人字形向上）。

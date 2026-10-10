@@ -132,14 +132,18 @@ func (a *App) drawerTabs(c *ui.Context) {
 			ui.Text(c, "还没有收藏夹").FontSize(12).TextColor(t.Faint)
 			break
 		}
-		// 收藏夹可能很多：横向滚动，不把后面的挤掉。
-		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(32).Children(func() {
+		// 收藏夹可能很多：左右滚动键 + 横向滚动（原版 collect-scroll-btn，
+		// 每次 200px）。
+		a.collectScrollBtn(c, "collect-left", "向左滚动", -200)
+		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(32).
+			TrackScroll(&a.CollectScroll).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				for _, f := range a.Folders {
 					a.folderTab(c, f)
 				}
 			})
 		})
+		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
 		ui.Text(c, "动态列表").FontSize(14).Bold().TextColor(ui.Hex("#334155"))
 	case DrawerUp:
@@ -1119,4 +1123,23 @@ func (a *App) locatePart(keyword string) {
 	}
 	// 没有匹配就提示（不移动）。
 	a.Notify("没有匹配的分集：" + kw)
+}
+
+// collectScrollBtn 是收藏夹表头的左右滚动键（原版 collect-scroll-btn）：
+// 把横向滚动位置拨 200px。
+func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key(key)).Size(26, 28).Radius(7).Center().
+		Label(label).Tooltip(label)
+	b.Background(ui.Hex("#0f172a").Alpha(0.06))
+	if b.Hovered() {
+		b.Background(ui.Hex("#0f172a").Alpha(0.12))
+	}
+	b.Children(func() {
+		ic := pick(delta < 0, iconLeft, iconRight)
+		ui.Icon(c, ic).Size(14, 14).TextColor(pick(b.Hovered(), t.Blue, ui.Hex("#475569")))
+	})
+	if b.Clicked() {
+		a.CollectScroll.X = max(0, a.CollectScroll.X+delta)
+	}
 }
