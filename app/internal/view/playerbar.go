@@ -19,6 +19,14 @@ import (
 // 音量 / 倍速 / 均衡 / 跳过赞助。原版没有封面和标题 —— 那些在主区。
 func (a *App) playerBar(c *ui.Context) {
 	t := a.Theme
+	// 顶边渐隐（原版 #player::before）：让播放栏的上沿融进内容区，
+	// 不然栏体和内容之间是一条硬切线。
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(56).Height(10).Shrink(0).
+		PassThrough().LinearGradient(ui.LinearGradient{
+		From:  ui.Transparent,
+		To:    t.PlayerSurface,
+		Angle: 180,
+	})
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
 		Background(t.PlayerSurface).Children(func() {
 		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
