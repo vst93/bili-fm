@@ -32,6 +32,24 @@ func (a *App) shortcuts(c *ui.Context) {
 		a.nudgeVolume(-0.05)
 	})
 	c.OnShortcut(0, ui.KeyEscape, func() {
+		// 原版视频弹窗打开时 Esc 关弹窗（其余快捷键屏蔽）。
+		if a.VideoOpen {
+			if a.Act.CloseVideo != nil {
+				a.Act.CloseVideo()
+			}
+			return
+		}
+		if a.Modal != nil {
+			// 模态框开着时 Esc 等价点关闭。
+			if a.Modal.Kind == "login" {
+				if a.Act.CloseLogin != nil {
+					a.Act.CloseLogin()
+				}
+			} else if a.Act.CloseModal != nil {
+				a.Act.CloseModal()
+			}
+			return
+		}
 		switch {
 		case a.Drawer != "":
 			a.Drawer = ""

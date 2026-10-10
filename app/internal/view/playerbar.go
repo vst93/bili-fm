@@ -337,4 +337,4 @@ func abs(v float64) float64 {
 }
 
 // speedOptions 是倍速可选项，与旧版的档位一致。
-var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0}
+var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0}
