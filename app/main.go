@@ -509,6 +509,13 @@ func (c *controller) wirePlayer() {
 	// 所以统一丢到 Win.Update（主线程）里执行，避免数据竞争。
 	c.mp.OnProgress(func(pos, dur float64) {
 		c.app.Win.Update(func() {
+			// 拖动中：跳过全部进度副作用（原版 handleTimeUpdate 里
+			// isSeekingRef 直接 return 的语义）——只记 Pos，
+			// 不让 DBus/KV 写和 sponsor 判定挤占拖动的帧。
+			if c.app.Seeking() {
+				c.app.Pos, c.app.Dur = pos, dur
+				return
+			}
 			c.app.Pos, c.app.Dur = pos, dur
 			c.syncMediaPosition(pos)
 			c.maybeSkipSponsor(pos)
@@ -1889,20 +1896,39 @@ func (c *controller) seek(seconds float64) {
 		c.app.PendingSeek = seconds
 		c.app.HasPendingSeek = true
 		c.app.SeekValue = seconds
-		c.app.Notify("起播完成后跳转")
 		return
 	}
+	// 上一次 seek 还在跑：只更新目标（滑块已停在手上），跑完补一次。
+	if c.app.SeekBusy {
+		c.app.PendingSeek = seconds
+		c.app.HasPendingSeek = true
+		return
+	}
+	c.app.SeekBusy = true
+	c.runSeek(seconds)
+}
+
+// runSeek 真正执行一次 seek；完成后若有排队的/期间新来的目标，补一次。
+func (c *controller) runSeek(seconds float64) {
 	// 跳转等于改了断点，立刻补写 + 补报（原版把 seek 当关键事件）。
 	c.flushProgress(seconds)
 	c.syncMediaPosition(seconds)
 	go func() {
-		if err := c.mp.Seek(seconds); err != nil {
-			log.Printf("跳转失败: %v", err)
-			return
-		}
+		err := c.mp.Seek(seconds)
 		c.app.Win.Update(func() {
+			c.app.SeekBusy = false
+			if err != nil {
+				log.Printf("跳转失败: %v", err)
+				return
+			}
 			c.app.Pos = seconds
 			c.skipped = map[int]bool{}
+			// 期间用户又拖了：补一次到最新目标。
+			if c.app.HasPendingSeek {
+				c.app.HasPendingSeek = false
+				next := c.app.PendingSeek
+				go c.runSeek(next)
+			}
 		})
 	}()
 }

@@ -466,9 +466,14 @@ type App struct {
 	seekSent bool
 	// seekedAt 是用户开始拖动的时间，用于 seek 卡住时的超时兜底。
 	seekedAt time.Time
-	// PendingSeek 是起播（Buffering）期间用户请求的跳转目标：
-	// 原版 safeSeek 在 readyState 不足时会挡下 seek，这里改成
-	// 等起播完成后执行一次（排队而不是丢弃）。
+	// SeekBusy 表示一次 seek 还在跑（重定位+重建解码器）；期间的
+	// 新 seek 目标只更新 PendingSeek，等这次跑完再补一次——
+	// 连续拖动不会堆叠多个重建。
+	SeekBusy bool
+	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
+	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
+	// 记在这里，等条件允许后执行一次（排队而不是丢弃）——
+	// 对应原版 safeSeek 的 readyState 保护。
 	PendingSeek    float64
 	HasPendingSeek bool
 	// ShowSpeed / ShowVolume 表示播放栏的倍速、音量弹层展开着。
@@ -739,6 +744,9 @@ var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/s
 
 // ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度）。
 func (a *App) ResetSeek() { a.seeking, a.seekSent = false, false }
+
+// Seeking 报告用户是否正在拖动进度条（供 OnProgress 跳过副作用）。
+func (a *App) Seeking() bool { return a.seeking }
 
 // pressable 是按钮的按压反馈。原版是 `.player-button:active` 的
 // `transform: scale(0.93)`，mygo 没有缩放变换（Rotate 只管角度），
