@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
@@ -372,11 +373,20 @@ func (a *App) drawerTitle() string {
 // 弹幕抽屉自己用虚拟化列表当滚动容器（行数可能上千），所以不走外层的
 // ui.Scroll；其余抽屉内容不多，统一套一层滚动。
 func (a *App) drawerBody(c *ui.Context) {
+	// 滚动到底自动翻页（原版各列表抽屉的 handleScroll：距底 ≤80px 加载下一页；
+	// 弹幕/评论抽屉的评论 tab 是 <100px），不是「加载更多」按钮。
+	st := a.ListFor(a.Drawer).Scroll
 	if a.Drawer == DrawerDanmaku {
-		a.danmakuBody(c)
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&st).
+			Children(func() { a.danmakuBody(c) })
+		a.ListFor(a.Drawer).Scroll = st
+		if a.DanmakuTab == TabReply && a.RepliesHasMore && !a.RepliesLoading &&
+			st.MaxY > 0 && st.Y >= st.MaxY-100 && a.Act.LoadComments != nil {
+			a.Act.LoadComments(a.ReplyPage + 1)
+		}
 		return
 	}
-	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
+	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&st).Children(func() {
 		switch a.Drawer {
 		case DrawerParts:
 			a.partsBody(c)
@@ -393,6 +403,14 @@ func (a *App) drawerBody(c *ui.Context) {
 			a.listBody(c)
 		}
 	})
+	a.ListFor(a.Drawer).Scroll = st
+
+	// 到底附近就请求下一页（HasMore / 非加载中才发，避免重复）。
+	l := a.list()
+	if l.HasMore && !l.Loading && len(l.Cards) > 0 && st.MaxY > 0 &&
+		st.Y >= st.MaxY-80 && a.Act.LoadMore != nil {
+		a.Act.LoadMore()
+	}
 }
 
 // seriesListBody 是 UP 空间的「合集」tab（原版 upVideoList.tsx 的合集列表）：
@@ -471,21 +489,7 @@ func (a *App) listBody(c *ui.Context) {
 				}
 			})
 		}
-		if a.list().HasMore {
-			more := ui.ButtonBase(c.Key("load-more")).FillWidth().Height(32).Radius(Radius).
-				Center().Label("加载更多")
-			if more.Hovered() {
-				more.Background(t.GlassHover)
-			} else {
-				more.Background(t.Glass)
-			}
-			more.Children(func() {
-				ui.Text(c, pick(a.list().Loading, "加载中…", "加载更多")).FontSize(12).TextColor(t.Muted)
-			})
-			if more.Clicked() && !a.list().Loading && a.Act.LoadMore != nil {
-				a.Act.LoadMore()
-			}
-		}
+		// 加载更多改为滚动到底自动翻页（见 drawerBody），不再画按钮。
 	})
 }
 
@@ -855,34 +859,112 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	}
 }
 
+// danmakuGroup 是同一秒的弹幕组（原版 DanmakuTimeGroup）。
+type danmakuGroup struct {
+	Second int
+	// Entries 是这一秒里去重后的弹幕，按出现次数从多到少排。
+	Entries []danmakuEntry
+	// TotalCount 是这一秒的原始总条数。
+	TotalCount int
+}
+
+type danmakuEntry struct {
+	Text  string
+	Color int
+	Count int
+}
+
+// groupDanmaku 按秒分组：同一秒内相同文本合并计数，组内按次数排序
+// （原版 groupedDanmaku 的逻辑）。
+func groupDanmaku(list []Danmaku) []danmakuGroup {
+	type key struct {
+		second int
+		text   string
+	}
+	counts := map[key]*danmakuEntry{}
+	order := map[int][]string{}
+	var seconds []int
+	for _, d := range list {
+		sec := int(d.Time)
+		text := strings.Join(strings.Fields(d.Text), " ")
+		k := key{sec, text}
+		if _, ok := counts[k]; !ok {
+			counts[k] = &danmakuEntry{Text: text, Color: d.Color}
+			if _, seen := order[sec]; !seen {
+				seconds = append(seconds, sec)
+			}
+			order[sec] = append(order[sec], text)
+		}
+		counts[k].Count++
+	}
+	out := make([]danmakuGroup, 0, len(seconds))
+	for _, sec := range seconds {
+		g := danmakuGroup{Second: sec}
+		seenText := map[string]bool{}
+		for _, text := range order[sec] {
+			if seenText[text] {
+				continue
+			}
+			seenText[text] = true
+			g.Entries = append(g.Entries, *counts[key{sec, text}])
+			g.TotalCount += counts[key{sec, text}].Count
+		}
+		// 组内按出现次数从多到少（原版排序）。
+		for i := 1; i < len(g.Entries); i++ {
+			for j := i; j > 0 && g.Entries[j].Count > g.Entries[j-1].Count; j-- {
+				g.Entries[j], g.Entries[j-1] = g.Entries[j-1], g.Entries[j]
+			}
+		}
+		out = append(out, g)
+	}
+	// 按秒升序（原版 sort）。
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].Second < out[j-1].Second; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+// danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle
+// 的 YIQ 亮度逻辑；原生界面只有浅色主题，对应 isDarkMode = false 分支）。
+func danmakuInk(color int) ui.Color {
+	if color <= 0 {
+		return ui.Hex("#1e293b")
+	}
+	r := (color >> 16) & 0xff
+	g := (color >> 8) & 0xff
+	b := color & 0xff
+	brightness := (float64(r)*299 + float64(g)*587 + float64(b)*114) / 1000
+	if brightness > 200 {
+		return ui.Hex("#1a1a1a")
+	}
+	if brightness > 160 {
+		return ui.Hex("#333333")
+	}
+	return ui.RGB(uint8(r), uint8(g), uint8(b))
+}
+
 // danmakuBody 画弹幕或评论列表。
+// 弹幕按秒分组：组头「时间 + N 条」，组内去重、按次数排序、重复显示 ×N，
+// 文字用弹幕自身颜色（太亮/太暗换对比色）——对齐原版 danmakuList。
 func (a *App) danmakuBody(c *ui.Context) {
 	if a.DanmakuTab == TabReply {
-		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
-			a.repliesBody(c)
-		})
+		a.repliesBody(c)
 		return
 	}
 	t := a.Theme
 	if len(a.Danmaku) == 0 {
-		ui.Box(c).FillWidth().Padding(12, 24).Children(func() {
-			ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
-		})
+		ui.Text(c, "还没有弹幕").FontSize(12).TextColor(t.Faint)
 		return
 	}
+	groups := groupDanmaku(a.Danmaku)
 
-	// 换集时重置列表的滚动位置。
-	if a.Track != nil && a.Track.Cid != a.danmakuCid {
-		a.danmakuList = ui.ListState{}
-		a.danmakuCid = a.Track.Cid
-		a.danmakuScrollIdx = -1
-	}
-
-	// 自动跟随：当前时间所在的弹幕下标（只在下标变化时滚，不干扰手滑）。
+	// 自动跟随：把当前时间所在的组滚进视野（只在下标变化时滚，不干扰手滑）。
 	cur := -1
 	if a.DanmakuAutoScroll && a.Pos > 0 {
-		for i, d := range a.Danmaku {
-			if d.Time <= a.Pos {
+		for i, g := range groups {
+			if float64(g.Second) <= a.Pos {
 				cur = i
 			} else {
 				break
@@ -890,51 +972,49 @@ func (a *App) danmakuBody(c *ui.Context) {
 		}
 	}
 
-	// 虚拟化：上千条弹幕也只构建可见的那几十行。
-	ui.List(c, &a.danmakuList, len(a.Danmaku), func(i int) {
-		d := a.Danmaku[i]
-		row := ui.Row(c).Key(fmt.Sprintf("dm-%d", i)).FillWidth().
-			Padding(4, 8).Radius(RadiusSmall).Gap(8).AlignItems(ui.Center).
-			Cursor(ui.CursorPointer)
-		switch {
-		case i == cur:
-			row.Background(t.Blue.Alpha(0.14))
-		case row.Hovered():
-			row.Background(t.GlassHover)
+	ui.Column(c).Gap(6).Children(func() {
+		for i, g := range groups {
+			isCur := i == cur
+			box := ui.Column(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
+				Padding(4, 8).Radius(RadiusSmall).Gap(3).
+				Cursor(ui.CursorPointer)
+			switch {
+			case isCur:
+				box.Background(t.Blue.Alpha(0.10))
+			case box.Hovered():
+				box.Background(t.GlassHover)
+			}
+			if isCur && a.danmakuScrollIdx != cur {
+				box.ScrollIntoView()
+			}
+			box.Children(func() {
+				// 组头：时间 + 这一秒的总条数。
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, fmtTime(float64(g.Second))).FontSize(10).
+						TextColor(pick(isCur, t.Blue, t.Faint)).Width(44)
+					ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(10).TextColor(t.Faint)
+				})
+				for _, e := range g.Entries {
+					row := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
+						FillWidth().Gap(6).AlignItems(ui.Center)
+					row.Children(func() {
+						ui.Text(c, e.Text).FontSize(12).TextColor(danmakuInk(e.Color)).Grow(1).MaxLines(2)
+						if e.Count > 1 {
+							ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
+								TextColor(t.Faint).Shrink(0)
+						}
+					})
+					if row.Clicked() && a.Act.Seek != nil {
+						a.Act.Seek(float64(g.Second))
+					}
+				}
+			})
+			if box.Clicked() && a.Act.Seek != nil {
+				a.Act.Seek(float64(g.Second))
+			}
 		}
-		row.Children(func() {
-			ui.Text(c, fmtTime(d.Time)).FontSize(10).TextColor(t.Faint).Width(44)
-			ui.Text(c, d.Text).FontSize(12).TextColor(danmakuInk(d.Color)).Grow(1).SingleLine()
-		})
-		if row.Clicked() && a.Act.Seek != nil {
-			a.Act.Seek(d.Time)
-		}
-	}).FillWidth().Grow(1).Padding(8, 24)
-
-	if cur >= 0 && a.danmakuScrollIdx != cur {
-		a.danmakuList.ScrollIntoView(cur)
-		a.danmakuScrollIdx = cur
-	}
-}
-
-// danmakuInk 把 B 站弹幕颜色转成在浅色背景上可读的墨色（原版 danmakuList 的
-// 亮度判断）：太亮的颜色（白/黄）回落到深灰，否则用原色。
-func danmakuInk(color int) ui.Color {
-	if color == 0 {
-		return ui.Hex("#1e293b")
-	}
-	r := (color >> 16) & 0xff
-	g := (color >> 8) & 0xff
-	b := color & 0xff
-	brightness := (r*299 + g*587 + b*114) / 1000
-	switch {
-	case brightness > 200:
-		return ui.Hex("#1a1a1a")
-	case brightness > 160:
-		return ui.Hex("#333333")
-	default:
-		return ui.RGB(uint8(r), uint8(g), uint8(b))
-	}
+	})
+	a.danmakuScrollIdx = cur
 }
 
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：热评 + 楼中楼预览 +
@@ -949,8 +1029,16 @@ func (a *App) repliesBody(c *ui.Context) {
 		}
 		return
 	}
+	// 评论按时间倒序（原版 danmakuList 的 sortedReplies：b.ctime - a.ctime）。
+	sorted := make([]Comment, len(a.Comments))
+	copy(sorted, a.Comments)
+	for i := 1; i < len(sorted); i++ {
+		for j := i; j > 0 && sorted[j].SendTime > sorted[j-1].SendTime; j-- {
+			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+		}
+	}
 	ui.Column(c).Gap(12).Children(func() {
-		for i, cm := range a.Comments {
+		for i, cm := range sorted {
 			ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Gap(4).Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, cm.User).FontSize(12).Bold().TextColor(t.Blue).SingleLine()

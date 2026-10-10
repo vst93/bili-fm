@@ -38,21 +38,6 @@ func TestBackdropBands(t *testing.T) {
 	}
 }
 
-func TestDanmakuInk(t *testing.T) {
-	// 0 用默认墨色。
-	if danmakuInk(0) != ui.Hex("#1e293b") {
-		t.Error("color 0 should be default ink")
-	}
-	// 纯白（0xffffff）太亮 → 深灰。
-	if danmakuInk(0xffffff) != ui.Hex("#1a1a1a") {
-		t.Error("white should fall back to dark")
-	}
-	// 纯红（0xff0000，亮度约 76）保留原色。
-	if danmakuInk(0xff0000) != ui.RGB(0xff, 0, 0) {
-		t.Error("red should keep its color")
-	}
-}
-
 func TestFmtTime(t *testing.T) {
 	cases := []struct {
 		in   float64

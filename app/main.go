@@ -599,9 +599,10 @@ func (c *controller) loadComments(page int) {
 			list := make([]view.Comment, 0, len(r.Items))
 			for _, it := range r.Items {
 				cm := view.Comment{
-					Content: it.Content.Message,
-					Likes:   int64(it.Like),
-					Time:    time.Unix(it.SendTime, 0).Format("2006-01-02"),
+					Content:  it.Content.Message,
+					Likes:    int64(it.Like),
+					Time:     time.Unix(it.SendTime, 0).Format("2006-01-02"),
+					SendTime: it.SendTime,
 				}
 				if m := toMap(it.Member); m != nil {
 					cm.User = pickStr(m, "uname")

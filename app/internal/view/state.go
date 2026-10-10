@@ -73,7 +73,9 @@ type Comment struct {
 	Content string
 	Likes   int64
 	Time    string
-	Replies []Comment
+	// SendTime 是发送时间（unix 秒），用于排序（原版评论 tab 按时间倒序）。
+	SendTime int64
+	Replies  []Comment
 }
 
 // PlayItem 是播放列表里的一条记录（原版 PlaylistItem）。
@@ -97,6 +99,8 @@ type List struct {
 	Loading bool
 	Page    int
 	HasMore bool
+	// Scroll 记录这个抽屉滚动到哪（同时用来判断「到底了」自动翻页）。
+	Scroll ui.ScrollState
 }
 
 // Section 是搜索栏右侧一个入口对应的抽屉。
