@@ -70,12 +70,31 @@ v.addEventListener('error', () => {
 });
 
 // 从主窗带来的播放位置续播。
-v.addEventListener('loadedmetadata', () => {
-  if (startAt > 0 && isFinite(startAt) && Math.abs(v.currentTime - startAt) > 0.5) {
-    try { v.currentTime = startAt; } catch (_) {}
+// 有些 WebKit 版本在第一次 seek 生效前就报了 metadata，所以要重试：
+// canPlay 时再校验一次，没同步上就补一次（原版 syncInitialTime 的逻辑）。
+let initialSeekPending = startAt > 0;
+const syncInitialTime = () => {
+  if (!initialSeekPending) return true;
+  if (!(startAt > 0) || !isFinite(startAt)) {
+    initialSeekPending = false;
+    return true;
   }
+  if (Math.abs(v.currentTime - startAt) <= 1) {
+    initialSeekPending = false;
+    return true;
+  }
+  try { v.currentTime = startAt; } catch (_) {}
+  return Math.abs(v.currentTime - startAt) <= 1;
+};
+
+v.addEventListener('loadedmetadata', () => {
+  syncInitialTime();
   call('Video.Log', `metadata dur=${v.duration.toFixed(1)} size=${v.videoWidth}x${v.videoHeight}`);
 }, { once: true });
+
+v.addEventListener('canplay', () => {
+  if (syncInitialTime()) call('Video.Log', 'initial-seek synced');
+});
 
 // 起播：先试未静音自动播放；被策略拦下就静音起播再取消静音。
 (async () => {

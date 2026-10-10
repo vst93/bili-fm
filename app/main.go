@@ -1636,7 +1636,7 @@ func (c *controller) startCurrent() {
 		if u.URL == "" {
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
-				c.app.NotifyType("warning", "该视频暂时无法播放")
+				c.app.NotifyType("warning", "该视频暂时无法播放，可能已失效或受限")
 			})
 			return
 		}
@@ -1942,6 +1942,14 @@ func (c *controller) wireVideo() {
 		})
 	})
 	c.vid.OnEnded(func() {
+		// 看完：B 站用 progress = -1 表示已看完，并清掉本地断点
+		// （与 progress.go 的 resumeTailSeconds 语义一致）。
+		if t := c.app.Current(); t != nil && !c.app.Incognito {
+			c.reportProgress(t.Aid, t.Cid, -1)
+		}
+		if t2 := c.app.Current(); t2 != nil {
+			c.clearResume(t2.Aid, t2.Cid)
+		}
 		c.app.Win.Update(func() { c.handleEnded() })
 	})
 }

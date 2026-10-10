@@ -241,7 +241,7 @@ func (c *controller) switchPlaylistTab(list string) {
 func (c *controller) seriesPlayAll() {
 	a := c.app
 	if a.SeriesID == 0 {
-		a.NotifyType("warning", "还没有选择合集")
+		a.NotifyType("warning", "请先到 UP 空间选择一个合集")
 		return
 	}
 	a.Notify("正在加载合集…")
