@@ -43,13 +43,20 @@ func (a *App) MiniShell(c *ui.Context) {
 		ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()
 
 		// 主体：封面 + 标题 + 选集 + 窗口控制。
+		// 整行可拖动窗口（原版 #min-video-info 带 data-tauri-drag-region="deep"）。
 		ui.Row(c).FillWidth().Height(miniInfoH).Shrink(0).Padding(6, 12).
-			Gap(11).AlignItems(ui.Center).Children(func() {
+			Gap(11).AlignItems(ui.Center).DragWindow().Children(func() {
 			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
 				Background(ui.Hex("#ffffff").Alpha(0.58)).Clip().Children(func() {
 				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
 				}
+				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
+				ui.Box(c).Fill().PassThrough().LinearGradient(ui.LinearGradient{
+					From:  ui.Hex("#ffffff").Alpha(0.30),
+					To:    ui.Transparent,
+					Angle: 135,
+				})
 			})
 
 			ui.Column(c).Grow(1).MinWidth(0).Gap(7).Justify(ui.Center).Children(func() {
