@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -373,7 +374,7 @@ func (p *pipeline) seek(seconds float64) error {
 		seconds = dur
 	}
 
-	// 每帧的采样数固定，据此把时间换成帧号。
+	// 时间 → 帧号：每帧的采样数固定，据此把秒换成帧下标。
 	frameSamples := 1024
 	if p.info.FrameCount > 0 && dur > 0 {
 		frameSamples = int(math.Round(float64(p.info.SampleRate) * dur / float64(p.info.FrameCount)))
@@ -387,9 +388,12 @@ func (p *pipeline) seek(seconds float64) error {
 	if err != nil {
 		return fmt.Errorf("media: 重新解析失败: %w", err)
 	}
-	for i := 0; i < skip; i++ {
-		if _, err := rd.ReadFrame(); err != nil {
-			break // 跳到文件尾部，交给解码器读到底
+	// 直接把游标定位到目标帧（库按 sample table 算出字节偏移，
+	// 只发几个 Range 请求）——之前是逐帧 ReadFrame 跳过，跳一小时
+	// 要发 ~15 万个请求，seek 卡死就卡在这。
+	if skip > 0 {
+		if err := rd.SeekSample(skip); err != nil {
+			log.Printf("seek 定位到帧 %d 失败（退回顺序读）: %v", skip, err)
 		}
 	}
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(p.info.ASC))

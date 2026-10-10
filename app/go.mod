@@ -4,6 +4,8 @@ go 1.27.1
 
 replace github.com/egoist/mygo => github.com/vst93/mygo v0.3.4-0.20261010054714-396651b4bd43
 
+replace github.com/tphakala/go-m4a => github.com/vst93/go-m4a v0.5.1
+
 require (
 	github.com/ebitengine/oto/v3 v3.5.1
 	github.com/egoist/mygo v0.3.4
@@ -17,7 +19,7 @@ require (
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
-	github.com/tphakala/simd v1.9.0 // indirect
+	github.com/tphakala/simd v1.11.0 // indirect
 	golang.org/x/image v0.46.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 )
