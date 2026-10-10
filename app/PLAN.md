@@ -210,6 +210,33 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - **交互对齐**：点列表卡片打开选集面板（不直接起播）；搜索框粘 B 站链接
   直接打开；「浏览器打开」接上系统浏览器；迷你窗音量弹层；迷你窗位置记忆。
 
+### 细节对齐轮·第三批（实测反馈驱动）
+
+- **进度条拖动**：松手后连发多次 seek（Slider 每帧写回值、Changed 每帧触发，
+  而状态机在 Changed 里清 seekSent）→ 拖动中不再动 seekSent，松手对
+  最终位置发一次 seek；拖动中零网络请求。
+- **seek 后时间归零**：pipeline.seek 重建 WSOLA 而 SourcePosition 从
+  WSOLA 累计——NewWSOLA 增加 startSample，seek 把目标位置传进去。
+- **播放栏整体点不动**：广告段标记的 Absolute 定位容器把整个播放栏的
+  命中吃了 → 删掉（标记暂缺，宁可没视觉也不能点不动）。
+- **视频弹窗唯一性**：Manager.Open 加 opening 标志，快速连点不再多开。
+- **Buffering 期间 seek**：对齐原版 safeSeek 的 readyState 保护——
+  记 PendingSeek，起播完成后执行（排队不丢弃）。
+- **seek 后时间接续（引擎层）**：配合 WSOLA startSample，
+  pipeline.seek 用 SeekSample 一次定位（见下）。
+- **go-m4a：Reader.SeekSample/SampleCount**（fork vst93/go-m4a v0.5.1，
+  上游 PR tphakala/go-m4a#69）：seek 从「逐帧 ReadFrame（每帧一个
+  HTTP Range 请求，一小时 ≈ 15 万个）」改为 O(chunks) 定位。
+- **三键计数格式**：对齐 formatCompactCount（≥1亿 x.x亿 / ≥100万 整数 w /
+  ≥1万 x.x w）；列表播放量对齐 formatViewCount（≥100万 整数万）。
+- **图标重绘**：PlayOne/Pause/GoEnd/VolumeNotice/Mute/Comment/DoubleUp/
+  ThumbsUp/HandleB/Star/VideoTwo 等，对齐 icon-park outline 风格。
+- **相对时间阶梯**：对齐 dateFormLadder——今天/昨天/N天前/MM-DD(当年)/
+  yyyy-MM-DD(跨年)/N个月前/N年前，单测覆盖。
+- **状态圆点**：播放列表模式玫红（--studio-rose），主区胶囊 + mini 窗
+  （含外圈光晕）。
+- **收藏夹表头**：左右滚动键（collect-scroll-btn，每次 200px）。
+
 ### 细节对齐轮·第二批（组件+状态机级对照，未用截图）
 
 逐个抽屉组件数 hook（danmakuList 20 个、upVideoList 9 个、historyList 8 个…）
