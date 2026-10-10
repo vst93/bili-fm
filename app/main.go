@@ -1422,6 +1422,8 @@ func (c *controller) search(query string) {
 				"duration": parseDurText(r.Length),
 				"owner":    map[string]any{"name": r.Author},
 				"stat":     map[string]any{"view": parseCountText(r.Views)},
+				// 原版搜索卡片的 meta 三列：作者/播放量/发布时间。
+				"pubdate": metaDateText(r.Date),
 			})
 		}
 		c.app.Win.Update(func() {

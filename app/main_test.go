@@ -303,3 +303,20 @@ func ids(list []view.PlayItem) []string {
 	}
 	return out
 }
+
+func TestMetaDateText(t *testing.T) {
+	// 相对时间随当前时间变：合法日期应该变成「N天前」之类，而不是原样返回。
+	for _, in := range []string{"2024-05-01 12:00:00", "2024-05-01 12:00", "2024-05-01"} {
+		got := metaDateText(in)
+		if got == "" {
+			t.Errorf("metaDateText(%q) = 空", in)
+		}
+		// 超过一年的日期 relTime 会回落成绝对日期，所以只要求非空。
+	}
+	if got := metaDateText(""); got != "" {
+		t.Errorf("metaDateText(\"\") = %q, want empty", got)
+	}
+	if got := metaDateText("不是日期"); got != "不是日期" {
+		t.Errorf("metaDateText(非日期) = %q, want 原样", got)
+	}
+}

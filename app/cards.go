@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vst93/bili-fm/app/internal/view"
@@ -265,4 +266,25 @@ func fmtViews(n int64) string {
 	default:
 		return fmt.Sprint(n)
 	}
+}
+
+// metaDateText 把搜索结果里的日期（"2024-05-01 12:00" 等）转成相对时间，
+// 与原版 formatMetaDate 一致；解析不出来就原样返回，空串给空。
+func metaDateText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	// 只取前 19 位（yyyy-MM-dd[ HH:mm[:ss]]）。
+	if len(raw) > 19 {
+		raw = raw[:19]
+	}
+	for _, layout := range []string{
+		"2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02",
+	} {
+		if ts, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return relTime(ts.Unix())
+		}
+	}
+	return raw
 }
