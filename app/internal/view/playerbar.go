@@ -110,15 +110,20 @@ func (a *App) progress(c *ui.Context) {
 	//   松手       —— 发一次 seek，继续停在目标值（引擎要重建解码器，
 	//                 a.Pos 慢半拍，立刻跟随会弹回旧位置，看起来卡住）；
 	//   追上/超时  —— 恢复跟随播放。
+	// 进度条本体：Slider **每帧构建且只构建一次**（独占命中，周围不叠
+	// 任何 Absolute 覆盖盒——之前试过，把整个播放栏的点击都截走了）。
+	//
+	// Changed 在拖动的每一帧都会触发（Slider 按帧写回 *value），
+	// 所以这里只负责「进入拖动/持续拖动」，绝不能动 seekSent——
+	// 否则松手时会连发多次 seek（每次都是重建解码器 + 网络定位），
+	// 表现为「从起点逐步加载到结束点」。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
 	if s.Changed() {
-		// 开始拖（或点定位）：记住目标，进入 seeking。
 		a.seeking = true
-		a.seekSent = false
-		a.seekedAt = time.Now()
+		a.seekedAt = time.Now() // 用户还在操作
 	}
 	if a.seeking && !s.Dragging() {
-		// 已松手：发一次 seek，等引擎追上。
+		// 已松手：对**最终位置**发一次 seek，等引擎追上。
 		if !a.seekSent {
 			a.seekSent = true
 			if a.Act.Seek != nil {
@@ -126,7 +131,7 @@ func (a *App) progress(c *ui.Context) {
 			}
 		}
 		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
-		if reached || time.Since(a.seekedAt) > 5*time.Second {
+		if reached || time.Since(a.seekedAt) > 8*time.Second {
 			a.seeking, a.seekSent = false, false
 		}
 	} else if !a.seeking && !s.Dragging() {
@@ -350,10 +355,11 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
+	// 与主窗同一套时序：拖动中只记 seekedAt，绝不动 seekSent
+	// （Changed 每帧触发，动了就会松手后连发多次 seek）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
 	if s.Changed() {
 		a.seeking = true
-		a.seekSent = false
 		a.seekedAt = time.Now()
 	}
 	if a.seeking && !s.Dragging() {
@@ -364,7 +370,7 @@ func (a *App) miniProgress(c *ui.Context) {
 			}
 		}
 		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
-		if reached || time.Since(a.seekedAt) > 5*time.Second {
+		if reached || time.Since(a.seekedAt) > 8*time.Second {
 			a.seeking, a.seekSent = false, false
 		}
 	} else if !a.seeking && !s.Dragging() {
