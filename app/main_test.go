@@ -319,6 +319,10 @@ func TestMetaDateText(t *testing.T) {
 	if got := metaDateText("不是日期"); got != "不是日期" {
 		t.Errorf("metaDateText(非日期) = %q, want 原样", got)
 	}
+	// pubdate 为 0 时接口会给 1970 占位，应该不显示。
+	if got := metaDateText("1970-01-01"); got != "" {
+		t.Errorf("metaDateText(1970 占位) = %q, want empty", got)
+	}
 }
 
 func TestToCardsViewsFallbackAndPubdate(t *testing.T) {

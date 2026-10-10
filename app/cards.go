@@ -298,9 +298,15 @@ func metaDateText(raw string) string {
 	for _, layout := range []string{
 		"2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02",
 	} {
-		if ts, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
-			return relTime(ts.Unix())
+		ts, err := time.ParseInLocation(layout, raw, time.Local)
+		if err != nil {
+			continue
 		}
+		// 1970 附近的都是没拿到 pubdate 的占位（接口给 0），不显示。
+		if ts.Year() <= 1971 {
+			return ""
+		}
+		return relTime(ts.Unix())
 	}
 	return raw
 }
