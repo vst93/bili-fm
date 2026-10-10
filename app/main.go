@@ -598,22 +598,36 @@ func (c *controller) loadComments(page int) {
 			}
 			list := make([]view.Comment, 0, len(r.Items))
 			for _, it := range r.Items {
+				// 完整日期时间（原版 formatDate：本地格式的 ctime）。
+				timeText := time.Unix(it.SendTime, 0).Format("2006-01-02 15:04")
 				cm := view.Comment{
 					Content:  it.Content.Message,
 					Likes:    int64(it.Like),
-					Time:     time.Unix(it.SendTime, 0).Format("2006-01-02"),
+					Time:     timeText,
 					SendTime: it.SendTime,
 				}
 				if m := toMap(it.Member); m != nil {
 					cm.User = pickStr(m, "uname")
 					cm.Avatar = pickStr(m, "avatar")
-				}
-				for _, rp := range it.Replies {
-					user := ""
-					if m := toMap(rp.Member); m != nil {
-						user = pickStr(m, "uname")
+					cm.Level = int(pickInt(m, "level"))
+					if li := subMap(m, "level_info"); li != nil {
+						if lv := pickInt(li, "current_level"); lv > 0 {
+							cm.Level = int(lv)
+						}
 					}
-					cm.Replies = append(cm.Replies, view.Comment{User: user, Content: rp.Content.Message})
+				}
+				// 楼中楼预览只取前 3 条（原版如此），超出显示「查看更多回复...」。
+				for i, rp := range it.Replies {
+					sub := view.Comment{Content: rp.Content.Message, SendTime: rp.SendTime}
+					if m := toMap(rp.Member); m != nil {
+						sub.User = pickStr(m, "uname")
+						sub.Level = int(pickInt(m, "level"))
+					}
+					if i < 3 {
+						cm.Replies = append(cm.Replies, sub)
+					} else {
+						cm.RepliesMore = true
+					}
 				}
 				list = append(list, cm)
 			}

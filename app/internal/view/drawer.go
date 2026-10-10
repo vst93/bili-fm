@@ -375,18 +375,21 @@ func (a *App) drawerTitle() string {
 func (a *App) drawerBody(c *ui.Context) {
 	// 滚动到底自动翻页（原版各列表抽屉的 handleScroll：距底 ≤80px 加载下一页；
 	// 弹幕/评论抽屉的评论 tab 是 <100px），不是「加载更多」按钮。
-	st := a.ListFor(a.Drawer).Scroll
+	//
+	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
+	// 所以必须传**稳定地址**（List 常驻在 map 里），不能按值拷进出 ——
+	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
+	l := a.ListFor(a.Drawer)
 	if a.Drawer == DrawerDanmaku {
-		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&st).
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).
 			Children(func() { a.danmakuBody(c) })
-		a.ListFor(a.Drawer).Scroll = st
 		if a.DanmakuTab == TabReply && a.RepliesHasMore && !a.RepliesLoading &&
-			st.MaxY > 0 && st.Y >= st.MaxY-100 && a.Act.LoadComments != nil {
+			l.Scroll.MaxY > 0 && l.Scroll.Y >= l.Scroll.MaxY-100 && a.Act.LoadComments != nil {
 			a.Act.LoadComments(a.ReplyPage + 1)
 		}
 		return
 	}
-	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&st).Children(func() {
+	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).Children(func() {
 		switch a.Drawer {
 		case DrawerParts:
 			a.partsBody(c)
@@ -403,12 +406,10 @@ func (a *App) drawerBody(c *ui.Context) {
 			a.listBody(c)
 		}
 	})
-	a.ListFor(a.Drawer).Scroll = st
 
 	// 到底附近就请求下一页（HasMore / 非加载中才发，避免重复）。
-	l := a.list()
-	if l.HasMore && !l.Loading && len(l.Cards) > 0 && st.MaxY > 0 &&
-		st.Y >= st.MaxY-80 && a.Act.LoadMore != nil {
+	if l.HasMore && !l.Loading && len(l.Cards) > 0 && l.Scroll.MaxY > 0 &&
+		l.Scroll.Y >= l.Scroll.MaxY-80 && a.Act.LoadMore != nil {
 		a.Act.LoadMore()
 	}
 }
@@ -698,6 +699,18 @@ func (a *App) partsHeader(c *ui.Context) {
 			a.locateNow = true
 		})
 	}
+	// 选集搜索（原版 .part-search）：输入标题片段，回车滚到下一个匹配的分集
+	//（连续回车继续下一个，循环）。
+	ui.Box(c).Grow(1).MinWidth(0).Height(30).Radius(RadiusSmall).
+		Background(ui.Hex("#ffffff").Alpha(0.80)).
+		Border(1, ui.Hex("#94a3b8").Alpha(0.35)).
+		AlignItems(ui.Center).Padding(0, 6).Children(func() {
+		in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(12).
+			TextColor(ui.Hex("#334155")).Placeholder("搜索选集，回车跳转").Label("搜索选集")
+		if in.Submitted() {
+			a.locatePart(a.PartSearch)
+		}
+	})
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加")
@@ -746,6 +759,7 @@ func (a *App) partsBody(c *ui.Context) {
 	})
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false
+	a.locatePartIndex = -1
 }
 
 // partCard 是一张选集卡片。
@@ -763,7 +777,8 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 	default:
 		box.Background(t.Glass)
 	}
-	if active && a.locateNow {
+	// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
+	if (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex) {
 		box.ScrollIntoView()
 	}
 
@@ -1080,4 +1095,27 @@ func (a *App) repliesBody(c *ui.Context) {
 			}
 		}
 	})
+}
+
+// locatePart 把选集搜索框的关键词跳到下一个匹配的分集（连续回车继续，
+// 到尾再循环；原版 handleSearchPart）。从当前游标往后找，找不到再从头找。
+func (a *App) locatePart(keyword string) {
+	kw := strings.TrimSpace(keyword)
+	if kw == "" || a.Info == nil || len(a.Info.Parts) == 0 {
+		return
+	}
+	n := len(a.Info.Parts)
+	start := a.PartSearchCursor
+	for i := 0; i < n; i++ {
+		idx := (start + i) % n
+		if strings.Contains(a.Info.Parts[idx].Part, kw) {
+			a.PartSearchCursor = (idx + 1) % n
+			a.locatePartIndex = idx
+			a.locateNow = true
+			a.Win.Update(func() {})
+			return
+		}
+	}
+	// 没有匹配就提示（不移动）。
+	a.Notify("没有匹配的分集：" + kw)
 }

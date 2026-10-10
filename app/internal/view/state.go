@@ -75,7 +75,11 @@ type Comment struct {
 	Time    string
 	// SendTime 是发送时间（unix 秒），用于排序（原版评论 tab 按时间倒序）。
 	SendTime int64
-	Replies  []Comment
+	// Level 是 B 站用户等级（0~6，原版评论行显示 Lv.N）。
+	Level   int
+	Replies []Comment
+	// RepliesMore 为真表示楼中楼还有更多没显示（原版「查看更多回复...」）。
+	RepliesMore bool
 }
 
 // PlayItem 是播放列表里的一条记录（原版 PlaylistItem）。
@@ -415,6 +419,12 @@ type App struct {
 
 	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。
 	locateNow bool
+	// PartSearch 是选集搜索框的输入（原版 .part-search-input）。
+	PartSearch string
+	// PartSearchCursor 是选集搜索的游标（连续回车跳下一个）。
+	PartSearchCursor int
+	// locatePartIndex 是选集搜索要跳到的分集下标（-1 表示无）。
+	locatePartIndex int
 	// WLRemovePending 是「从稍后再看移除」请求中的 aid，按钮置灰防连点
 	// （原版 historyList 的 pendingAids）。
 	WLRemovePending map[int64]bool
