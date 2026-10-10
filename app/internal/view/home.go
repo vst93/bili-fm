@@ -375,15 +375,20 @@ func (a *App) openUp() {
 // partPill 是选集胶囊（.video-part-pill）：小圆点 + 来源 + 分集标题。
 // 从播放列表播入时前缀显示「播放列表」（原版 isPlaylistMode）。
 func (a *App) partPill(c *ui.Context) {
+	t := a.Theme
 	blue := ui.Hex("#0369a1")
+	// 播放列表模式的圆点是玫红（原版 .video-part-dot-playlist 用
+	// --studio-rose），非播放列表才是蓝。
+	inPlaylist := a.PlayingPlaylist != ""
+	dotInk := pick(inPlaylist, t.Rose, ui.Hex("#0284c7"))
 	source := "当前选集"
-	if a.PlayingPlaylist != "" {
+	if inPlaylist {
 		source = "播放列表"
 	}
 	ui.Row(c).MaxWidth(430).Height(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).Border(1, ui.Hex("#ffffff").Alpha(0.38)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(ui.Hex("#0284c7"))
+		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
 		ui.Text(c, a.partTitle()).FontSize(13).Bold().TextColor(blue).SingleLine()
 	})

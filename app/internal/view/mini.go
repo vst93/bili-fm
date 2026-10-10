@@ -65,9 +65,13 @@ func (a *App) MiniShell(c *ui.Context) {
 			ui.Column(c).Grow(1).MinWidth(0).Gap(7).Justify(ui.Center).Children(func() {
 				ui.Text(c, a.infoTitle()).FontSize(15).Bold().TextColor(t.Ink).MaxLines(2)
 				ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-					ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
-						Radius(RadiusPill).
-						Background(pick(a.PlayingPlaylist != "", ui.Hex("#0d9488"), t.Blue))
+					// 播放列表模式圆点玫红 + 外圈光晕（原版
+					// .mini-status-dot-playlist 的 box-shadow ring）。
+					inList := a.PlayingPlaylist != ""
+					dotInk := pick(inList, t.Rose, t.Blue)
+					dot := ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
+						Radius(RadiusPill).Background(dotInk)
+					dot.Shadow(0, 0, 0, 4, dotInk.Alpha(0.12))
 					ui.Text(c, a.partTitle()).FontSize(12).Bold().
 						TextColor(ui.Hex("#526174")).SingleLine()
 				})
