@@ -177,7 +177,7 @@ func (a *App) speedButton(c *ui.Context) {
 	}
 	b.Border(1, t.GlassBorder)
 	b.Children(func() {
-		ui.Text(c, fmt.Sprintf("%.1fx", a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
+		ui.Text(c, speedLabel(a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
 	})
 	if b.Clicked() {
 		a.ShowSpeed = !a.ShowSpeed
@@ -263,7 +263,7 @@ func (a *App) speedPopover(c *ui.Context) {
 					opt := opt
 					b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
 						MinWidth(36).Height(24).Padding(0, 8).Radius(8).
-						Center().Label(fmt.Sprintf("%.1fx", opt))
+						Center().Label(speedLabel(opt))
 					switch {
 					case active:
 						b.Background(t.Blue.Alpha(0.16))
@@ -271,7 +271,7 @@ func (a *App) speedPopover(c *ui.Context) {
 						b.Background(t.Blue.Alpha(0.10))
 					}
 					b.Children(func() {
-						ui.Text(c, fmt.Sprintf("%.1fx", opt)).FontSize(11).FontWeight(650).
+						ui.Text(c, speedLabel(opt)).FontSize(11).FontWeight(650).
 							TextColor(pick(active, t.Blue, ui.Hex("#475569")))
 					})
 					if b.Clicked() {
@@ -341,6 +341,15 @@ func fmtTime(sec float64) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, ss)
 	}
 	return fmt.Sprintf("%d:%02d", m, ss)
+}
+
+// speedLabel 是倍速的显示文案（原版 rate===1/2/3 ? toFixed(1) : rate + "x"）：
+// 整数档显示一位小数（1.0x/2.0x/3.0x），非整数档原样（0.5x/0.75x/1.25x/1.5x）。
+func speedLabel(v float64) string {
+	if v == 1 || v == 2 || v == 3 {
+		return fmt.Sprintf("%.1fx", v)
+	}
+	return fmt.Sprintf("%gx", v)
 }
 
 func abs(v float64) float64 {
