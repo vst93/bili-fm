@@ -69,7 +69,12 @@ func (a *App) drawerHeader(c *ui.Context) {
 			})
 		}
 	})
-	ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#64748b").Alpha(0.14))
+	// 分割线：灰蓝暗线 + 下方 1px 白高光，模拟玻璃截面（原版 header 的
+	// border-bottom + box-shadow 两层）。
+	ui.Box(c).FillWidth().Height(2).Shrink(0).Children(func() {
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#64748b").Alpha(0.14))
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#ffffff").Alpha(0.40))
+	})
 
 	// 关闭键浮在右上角（原版是绝对定位的 close 按钮）。
 	ui.Box(c).Absolute().Right(10).Top(8).Children(func() {
