@@ -102,19 +102,23 @@ func (a *App) progress(c *ui.Context) {
 	if !a.seeking {
 		a.SeekValue = a.Pos
 	}
-	// 进度条本体：Slider 独占命中。**绝不能**在它周围叠任何 Absolute
-	// 覆盖盒（之前试过，把整个播放栏的点击都截走了）。
+	// 进度条本体：Slider **每帧构建且只构建一次**（独占命中，周围不叠
+	// 任何 Absolute 覆盖盒——之前试过，把整个播放栏的点击都截走了）。
 	//
-	// seek 后引擎要重建解码器，a.Pos 要过一会儿才追上目标值；这期间
-	// 不能把 SeekValue 拽回旧 Pos，否则滑块「卡住」弹回（原版用
-	// isSeekingRef + safeSeek 表达同一件事）。松手即置 seekedAt，
-	// 等 Pos 到达目标（或超时兜底）才恢复跟随。
-	if a.seeking {
-		s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-		if s.Dragging() {
-			return
-		}
-		// 已松手：发 seek，等追上。
+	// seek 的时序对齐原版 isSeekingRef：
+	//   拖动中     —— 滑块停在手上（SeekValue 不被 Pos 覆盖），不发 seek；
+	//   松手       —— 发一次 seek，继续停在目标值（引擎要重建解码器，
+	//                 a.Pos 慢半拍，立刻跟随会弹回旧位置，看起来卡住）；
+	//   追上/超时  —— 恢复跟随播放。
+	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+	if s.Changed() {
+		// 开始拖（或点定位）：记住目标，进入 seeking。
+		a.seeking = true
+		a.seekSent = false
+		a.seekedAt = time.Now()
+	}
+	if a.seeking && !s.Dragging() {
+		// 已松手：发一次 seek，等引擎追上。
 		if !a.seekSent {
 			a.seekSent = true
 			if a.Act.Seek != nil {
@@ -122,21 +126,12 @@ func (a *App) progress(c *ui.Context) {
 			}
 		}
 		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
-		if reached || time.Since(a.seekedAt) > 3*time.Second {
+		if reached || time.Since(a.seekedAt) > 5*time.Second {
 			a.seeking, a.seekSent = false, false
 		}
-		_ = s
-		return
-	}
-	// 跟随播放（含刚播完一次 seek 后的恢复）。
-	if a.Pos < a.SeekValue-2 || a.Pos > a.SeekValue+2 {
+	} else if !a.seeking && !s.Dragging() {
+		// 跟随播放。
 		a.SeekValue = a.Pos
-	}
-	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-	if s.Changed() {
-		a.seeking = true
-		a.seekSent = false
-		a.seekedAt = time.Now()
 	}
 }
 
@@ -349,37 +344,30 @@ func abs(v float64) float64 {
 var speedOptions = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0}
 
 // miniProgress 是迷你窗的进度条（与主窗的 progress 共用同一套 seek
-// 状态机，只是尺寸更小、没有广告段标记）。
+// 状态机，只是尺寸更小、没有广告段标记）。Slider 同样每帧只构建一次。
 func (a *App) miniProgress(c *ui.Context) {
 	hi := a.Dur
 	if hi <= 0 {
 		hi = 1
-	}
-	if a.seeking {
-		s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-		if s.Dragging() {
-			return
-		}
-		if !a.seekSent {
-			a.seekSent = true
-			if a.Act.Seek != nil {
-				a.Act.Seek(a.SeekValue)
-			}
-		}
-		if (a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5) ||
-			time.Since(a.seekedAt) > 3*time.Second {
-			a.seeking, a.seekSent = false, false
-		}
-		_ = s
-		return
-	}
-	if a.Pos < a.SeekValue-2 || a.Pos > a.SeekValue+2 {
-		a.SeekValue = a.Pos
 	}
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
 	if s.Changed() {
 		a.seeking = true
 		a.seekSent = false
 		a.seekedAt = time.Now()
+	}
+	if a.seeking && !s.Dragging() {
+		if !a.seekSent {
+			a.seekSent = true
+			if a.Act.Seek != nil {
+				a.Act.Seek(a.SeekValue)
+			}
+		}
+		reached := a.Pos >= a.SeekValue-1 && a.Pos <= a.SeekValue+1.5
+		if reached || time.Since(a.seekedAt) > 5*time.Second {
+			a.seeking, a.seekSent = false, false
+		}
+	} else if !a.seeking && !s.Dragging() {
+		a.SeekValue = a.Pos
 	}
 }
