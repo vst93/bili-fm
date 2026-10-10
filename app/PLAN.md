@@ -277,6 +277,23 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - 「浏览器打开」是空实现；URL 链接不会直开；迷你音量键点了没反应。
 - 视频弹窗页面错误处理里先取不存在的 `#err` 元素会抛异常。
 
+### 框架能力限制：唱片旋转做不了（2026-10 定论）
+
+原版 `#video-cover.record-disc` 是 22s 一圈的 CSS 动画（转整个位图）。
+mygo 的 `Rotate` **只对矢量图标生效**：`paint.go` 里只有 `kindIcon` 分支把
+rotate 传给 `drawIcon`，`kindImage`（位图）走 `p.image()` 完全不带旋转；
+`drawBitmap` 也没有角度参数。SVG 渲染器（`internal/svg`）又不支持
+`<image>` 元素，所以「位图包进 SVG 再转」也走不通。
+
+试过的替代方案都卡在同一处：
+- 高光弧 Icon 叠在封面 Button 里 → Button 的 `Clip()`（圆形裁剪必需，
+  否则方形封面）会把旋转后的边界框裁掉，弧线看不见；
+- Icon 提到 ring 层用 Absolute 叠放 → Absolute 的参照与层叠不可控，
+  且 `Loop()` 驱动的动画元素偶发不绘制。
+
+**结论**：封面圆盘保持静止，`spinDisc`/`iconDiscSheen` 已回退。
+等 mygo 支持位图旋转（或给出位图元素的变换 API）再做。
+
 ### 还没做（下一批）
 
 - **玻璃材质**：mygo 有 `plugins/glass`（真 Liquid Glass），现在还是「半透明

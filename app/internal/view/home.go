@@ -200,7 +200,6 @@ func (a *App) coverDisc(c *ui.Context) {
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 						Label(pick(a.Playing, "暂停", "播放"))
-					a.spinDisc(disc)
 					disc.Children(func() { a.coverOrLogo(c) })
 					if disc.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
@@ -256,21 +255,6 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 	if b.Clicked() {
 		fn()
 	}
-}
-
-// spinDisc 让封面圆盘转起来（原版 #video-cover.record-disc 是 22s 一圈的
-// CSS 动画，animation-play-state 跟着播放状态）。
-//
-// Loop 的作用是让 mygo 持续出帧；角度按真实时间自己累加，这样暂停再继续
-// 不会跳。暂停时不调 Loop，帧自然停下来。
-func (a *App) spinDisc(e ui.Element) {
-	now := time.Now()
-	if a.Playing {
-		e.Loop("disc", time.Hour, ui.Linear)
-		a.discDeg += float32(now.Sub(a.discAt).Seconds()) * (360.0 / 22.0)
-	}
-	a.discAt = now
-	e.Rotate(a.discDeg)
 }
 
 // searchSpinDeg 是搜索按钮小旋转的角度（每秒一圈）。

@@ -699,3 +699,11 @@ func compactCount(n int64) string {
 		return fmt.Sprint(n)
 	}
 }
+
+// iconDiscSheen 是唱片高光：一条穿过圆心的宽光带 + 两道细弧（旋转时像
+// 唱片表面在反光）。viewBox 0 0 100 100。
+// 不用 opacity 属性（解析器不认），透明度用浅色模拟。
+// 高光弧：整圆环但用两段三次贝塞尔（解析器不支持 A 弧命令），配合
+// 旋转时一侧的粗/细不对称，看起来像唱片表面反光。为了"缺口"效果，
+// 用一段 270° 弧 + 一段 90° 直线收口（全部 C 命令）。
+var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M50 6 C76 6 94 26 94 50 C94 76 76 94 50 94 C26 94 6 76 6 50 C6 26 26 6 50 6" stroke-width="7"/><path d="M50 6 C64 6 76 14 82 26" stroke-width="10"/></svg>`))

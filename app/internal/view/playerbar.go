@@ -56,15 +56,17 @@ func (a *App) playerBar(c *ui.Context) {
 func (a *App) transport(c *ui.Context) {
 	t := a.Theme
 	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
-		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(Radius).Center().
+		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569。
+		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
 			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
-		play.Background(t.Blue.Alpha(0.18)).Border(1, t.Blue.Alpha(0.35))
+		if a.Playing {
+			play.Background(t.Blue.Alpha(0.16)).Border(1, ui.Hex("#0369a1").Alpha(0.30))
+		} else {
+			play.Background(t.LiquidBg).Border(1, ui.Hex("#94a3b8").Alpha(0.22))
+		}
 		play.Children(func() {
-			if a.Playing {
-				ui.Icon(c, iconPause).Size(17, 17).TextColor(ui.Hex("#0369a1"))
-			} else {
-				ui.Icon(c, iconPlay).Size(17, 17).TextColor(ui.Hex("#0369a1"))
-			}
+			ink := pick(a.Playing, ui.Hex("#0369a1"), ui.Hex("#475569"))
+			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(18, 18).TextColor(ink)
 		})
 		if play.Clicked() && a.Act.TogglePlay != nil {
 			a.Act.TogglePlay()
