@@ -885,17 +885,28 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 }
 
 // removeWatchLater 把一条从「稍后再看」移除，然后刷新列表。
+// 请求中的 aid 置灰防连点（原版 pendingAids）。
 func (c *controller) removeWatchLater(aid int64) {
-	if aid == 0 {
+	if aid == 0 || c.app.WLRemovePending[aid] {
 		return
 	}
+	if c.app.WLRemovePending == nil {
+		c.app.WLRemovePending = map[int64]bool{}
+	}
+	c.app.WLRemovePending[aid] = true
+	c.app.Win.Update(func() {})
+
 	go func() {
-		if err := c.bl.RemoveFromWatchLater(aid); err != nil {
-			c.app.NotifyType("error", "移除失败："+err.Error())
-			return
-		}
-		c.app.Notify("已从稍后再看移除")
-		c.app.Win.Update(func() { c.reload() })
+		err := c.bl.RemoveFromWatchLater(aid)
+		c.app.Win.Update(func() {
+			delete(c.app.WLRemovePending, aid)
+			if err != nil {
+				c.app.NotifyType("error", "移除失败："+err.Error())
+				return
+			}
+			c.app.Notify("已从稍后再看移除")
+			c.reload()
+		})
 	}()
 }
 

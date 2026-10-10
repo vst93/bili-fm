@@ -406,6 +406,9 @@ type App struct {
 	PlaylistTab string
 	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。
 	locateNow bool
+	// WLRemovePending 是「从稍后再看移除」请求中的 aid，按钮置灰防连点
+	// （原版 historyList 的 pendingAids）。
+	WLRemovePending map[int64]bool
 
 	// Drawer 是当前打开的抽屉："" 表示没有，否则是分区 key 或
 	// DrawerSearch / DrawerParts / DrawerDanmaku。

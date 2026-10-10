@@ -578,18 +578,24 @@ func (a *App) card(c *ui.Context, index int) {
 			// 「稍后再看」列表的移除键（原版 historyList）。
 			if a.Drawer == "history" && a.HistTab == HistWatchLater && card.Track.Aid != 0 {
 				aid := card.Track.Aid
+				// 请求中的置灰防连点（原版 pendingAids）。
+				pending := a.WLRemovePending != nil && a.WLRemovePending[aid]
 				b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).Size(22, 22).Radius(4).
 					Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
+				b.Disabled(pending)
 				b.Absolute().Right(4).Top(4)
-				if b.Hovered() {
+				switch {
+				case pending:
+					b.Background(ui.Hex("#0f172a").Alpha(0.30))
+				case b.Hovered():
 					b.Background(ui.Hex("#0f172a").Alpha(0.62))
-				} else {
+				default:
 					b.Background(ui.Hex("#0f172a").Alpha(0.42))
 				}
 				b.Children(func() {
 					ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
 				})
-				if b.Clicked() && a.Act.RemoveWatchLater != nil {
+				if b.Clicked() && !pending && a.Act.RemoveWatchLater != nil {
 					a.Act.RemoveWatchLater(aid)
 				}
 			}
