@@ -102,11 +102,27 @@ func toCards(items []any) []view.Card {
 
 		// meta 行：旧版的字段优先级是 作者 > 播放量 > 发布时间 > 附加（进度等）。
 		pubdate, extra := "", ""
-		if t := pickInt(m, "view_at"); t > 0 {
+		if t := pickInt(m, "view_at", "pubdate", "ctime"); t > 0 {
 			pubdate = relTime(t)
 		}
 		if p := pickInt(m, "progress"); p != 0 {
 			extra = progressLabel(p, dur)
+		}
+		// 播放量缺了用弹幕数顶上（原版 viewsMetaField 的回退）。
+		if views == "" {
+			if d := pickInt(m, "danmaku"); d > 0 {
+				views = fmtViews(d)
+			}
+			if st := subMap(m, "stat"); st != nil && views == "" {
+				if d := pickInt(st, "danmaku", "reply"); d > 0 {
+					views = fmtViews(d)
+				}
+			}
+			if ci := subMap(m, "cnt_info"); ci != nil && views == "" {
+				if d := pickInt(ci, "danmaku"); d > 0 {
+					views = fmtViews(d)
+				}
+			}
 		}
 
 		aid := pickInt(m, "aid", "id")

@@ -320,3 +320,27 @@ func TestMetaDateText(t *testing.T) {
 		t.Errorf("metaDateText(非日期) = %q, want 原样", got)
 	}
 }
+
+func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
+	// 播放量缺失时用弹幕数顶上（原版 viewsMetaField）。
+	items := []any{map[string]any{
+		"bvid": "BVdan", "title": "t", "pic": "p",
+		"owner": map[string]any{"name": "UP"},
+		"stat":  map[string]any{"danmaku": float64(12345)},
+	}}
+	c := toCards(items)
+	if len(c) != 1 || c[0].Views != "1.2万" {
+		t.Errorf("danmaku 回退 = %+v", c)
+	}
+
+	// 收藏夹的 ctime / 推荐的 pubdate 都要变成相对时间（>1 年回落绝对日期，只要求非空）。
+	items = []any{map[string]any{
+		"bvid": "BVct", "title": "t2", "pic": "p",
+		"upper": map[string]any{"name": "UP2"},
+		"ctime": float64(1700000000),
+	}}
+	c = toCards(items)
+	if len(c) != 1 || c[0].Pubdate == "" {
+		t.Errorf("ctime pubdate = %+v", c)
+	}
+}
