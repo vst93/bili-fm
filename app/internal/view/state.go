@@ -406,6 +406,11 @@ type App struct {
 	PlaylistTab string
 	// SearchRequestID 是搜索请求的代号：慢的旧响应不得覆盖新的搜索结果
 	// （原版 searchRequestIdRef）。
+	// PlaybackRequestID 同理，用于起播（原版 playbackRequestIdRef）。
+	PlaybackRequestID int
+
+	// SearchRequestID 是搜索请求的代号：慢的旧响应不得覆盖新的搜索结果
+	// （原版 searchRequestIdRef）。
 	SearchRequestID int
 
 	// locateNow 在点了「定位到当前」后置位，下一帧把当前行滚进视野。

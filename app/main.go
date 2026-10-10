@@ -1652,15 +1652,26 @@ func (c *controller) startCurrent() {
 	c.syncMediaTrack()
 	// 倍速/均衡/音量也在主线程取好，goroutine 里不读界面状态。
 	speed, eq, vol := c.app.Speed, c.app.EQ, c.app.Volume
+	// 请求代号：用户快速连点时，慢的旧起播响应不得覆盖新的
+	// （原版 playbackRequestIdRef）。
+	c.app.PlaybackRequestID++
+	reqID := c.app.PlaybackRequestID
+	stale := func() bool { return c.app.PlaybackRequestID != reqID }
 
 	go func() {
 		cid := t.Cid
 		info := c.videoInfoOf(t.Bvid, t)
+		if stale() {
+			return
+		}
 		if info != nil {
 			if cid == 0 {
 				cid = info.Cid
 			}
 			c.app.Win.Update(func() {
+				if stale() {
+					return
+				}
 				c.app.Info = info
 				c.syncMediaTrack()
 			})
@@ -1669,6 +1680,9 @@ func (c *controller) startCurrent() {
 		}
 		if cid == 0 {
 			c.app.Win.Update(func() {
+				if stale() {
+					return
+				}
 				c.app.Buffering = false
 				c.app.NotifyType("warning", "取分集失败")
 			})
@@ -1677,10 +1691,16 @@ func (c *controller) startCurrent() {
 		// 续播点要在起播前定好：media.Player.Seek 会重建解码器，起播后再跳
 		// 会卡一下。云端最多等 800ms，超时用本地断点。
 		resume := c.resolveResume(t.Aid, cid)
+		if stale() {
+			return
+		}
 
 		u := c.bl.GetUrlByCid(int(t.Aid), int(cid))
 		if u.URL == "" {
 			c.app.Win.Update(func() {
+				if stale() {
+					return
+				}
 				c.app.Buffering = false
 				c.app.NotifyType("warning", "该视频暂时无法播放，可能已失效或受限")
 			})
@@ -1689,11 +1709,19 @@ func (c *controller) startCurrent() {
 
 		// 回填 cid 与分集标题
 		c.app.Win.Update(func() {
+			if stale() {
+				return
+			}
 			t.Cid = cid
 			c.app.Track = t
 			c.app.Pos, c.app.Dur = 0, 0
 		})
 
+		// 真正起播前再校验一次：这期间用户可能已经点了别的。
+		if stale() {
+			log.Printf("起播取消（已切到别的曲目）")
+			return
+		}
 		if err := c.mp.Play(u.URL, audioHeaders); err != nil {
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
