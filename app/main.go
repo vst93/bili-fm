@@ -109,6 +109,7 @@ func main() {
 	foldersOnStart := flag.Int("folders", 0, "注入 N 个假收藏夹并打开收藏抽屉（调试用）")
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
+	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
@@ -321,6 +322,15 @@ func main() {
 		}
 		if *toastOnStart != "" {
 			app.Notify(*toastOnStart)
+		}
+		switch *popOnStart {
+		case "speed":
+			app.ShowSpeed = true
+		case "volume":
+			app.ShowVolume = true
+		}
+		if *popOnStart != "" {
+			app.Win.Update(func() {})
 		}
 
 		// 调试用：列表加载后自动播放第 N 条（等列表就绪）。

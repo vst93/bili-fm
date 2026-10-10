@@ -248,35 +248,41 @@ func sponsorDotColor(status string) ui.Color {
 // ---------------------------------------------------------------- 弹层
 
 // speedPopover 是倍速档位菜单，从播放栏第 6 列上方弹出。
+// speedPopover 是倍速弹层（原版 .player-speed-popover）：从倍速按钮
+// **左侧横向弹出**的一排档位胶囊（min-width 36、11px/650、圆角 8，
+// 白玻璃 0.82 + 14 圆角 + 蓝底 16% 的激活态）。
 func (a *App) speedPopover(c *ui.Context) {
 	t := a.Theme
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).Children(func() {
-		ui.Column(c).Absolute().Right(150).Bottom(60).Width(96).Padding(4).
-			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
-			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Children(func() {
-			for _, opt := range speedOptions {
-				active := abs(opt-a.Speed) < 0.001
-				b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).FillWidth().Height(26).
-					Padding(0, 8).Radius(RadiusSmall).Label(fmt.Sprintf("%.1fx", opt))
-				switch {
-				case active:
-					b.Background(t.Blue.Alpha(0.22))
-				case b.Hovered():
-					b.Background(t.GlassHover)
-				}
-				b.Children(func() {
-					ui.Text(c, fmt.Sprintf("%.1fx", opt)).FontSize(11).
-						TextColor(pick(active, t.Blue, t.Ink))
-				})
-				if b.Clicked() {
-					a.Speed = opt
-					a.ShowSpeed = false
-					if a.Act.SetSpeed != nil {
-						a.Act.SetSpeed(opt)
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
+		ui.Row(c).Absolute().Right(44).Bottom(60).Padding(4).Gap(2).
+			Radius(14).Background(t.Panel).Border(1, t.GlassBorder).
+			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).AlignItems(ui.Center).
+			Children(func() {
+				for _, opt := range speedOptions {
+					active := abs(opt-a.Speed) < 0.001
+					opt := opt
+					b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
+						MinWidth(36).Height(24).Padding(0, 8).Radius(8).
+						Center().Label(fmt.Sprintf("%.1fx", opt))
+					switch {
+					case active:
+						b.Background(t.Blue.Alpha(0.16))
+					case b.Hovered():
+						b.Background(t.Blue.Alpha(0.10))
+					}
+					b.Children(func() {
+						ui.Text(c, fmt.Sprintf("%.1fx", opt)).FontSize(11).FontWeight(650).
+							TextColor(pick(active, t.Blue, ui.Hex("#475569")))
+					})
+					if b.Clicked() {
+						a.Speed = opt
+						a.ShowSpeed = false
+						if a.Act.SetSpeed != nil {
+							a.Act.SetSpeed(opt)
+						}
 					}
 				}
-			}
-		})
+			})
 	})
 }
 
@@ -285,42 +291,41 @@ func (a *App) volumePopover(c *ui.Context) {
 	a.volumePopoverAt(c, 190, 60)
 }
 
-// volumePopoverAt 同上，可指定右下角偏移（迷你模式的播放栏更矮）。
+// volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量按钮
+// **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。
 func (a *App) volumePopoverAt(c *ui.Context, right, bottom float32) {
 	t := a.Theme
-	ui.Box(c).Absolute().Fill().Children(func() {
-		ui.Column(c).Absolute().Right(right).Bottom(bottom).Width(200).Padding(10).
-			Radius(Radius).Background(t.Panel).Border(1, t.GlassBorder).
-			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).Children(func() {
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
-				// 静音键：独立的切换（原版 player-volume-mute-button）。
-				mute := ui.ButtonBase(c.Key("volume-mute")).Size(26, 26).Radius(RadiusSmall).
-					Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
-				if a.Muted {
-					mute.Background(t.Rose.Alpha(0.18))
-				} else if mute.Hovered() {
-					mute.Background(t.GlassHover)
-				} else {
-					mute.Background(ui.Transparent)
-				}
-				mute.Children(func() {
-					ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(14, 14).
-						TextColor(pick(a.Muted, t.Rose, t.Muted))
-				})
-				if mute.Clicked() && a.Act.ToggleMute != nil {
-					a.Act.ToggleMute()
-				}
-
-				v := a.Volume
-				s := ui.Slider(c, &v, 0, 1).Grow(1).Label("音量")
-				if s.Changed() {
-					a.Volume = v
-					if a.Act.SetVolume != nil {
-						a.Act.SetVolume(v)
-					}
-				}
-				ui.Text(c, fmt.Sprintf("%d%%", int(a.Volume*100))).FontSize(10).TextColor(t.Faint)
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
+		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(184).Height(42).
+			Padding(0, 10).Radius(14).Background(t.Panel).Border(1, t.GlassBorder).
+			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).
+			AlignItems(ui.Center).Children(func() {
+			// 静音键：独立的切换（原版 player-volume-mute-button）。
+			mute := ui.ButtonBase(c.Key("volume-mute")).Size(26, 26).Radius(RadiusSmall).
+				Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
+			if a.Muted {
+				mute.Background(t.Rose.Alpha(0.18))
+			} else if mute.Hovered() {
+				mute.Background(t.GlassHover)
+			} else {
+				mute.Background(ui.Transparent)
+			}
+			mute.Children(func() {
+				ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(14, 14).
+					TextColor(pick(a.Muted, t.Rose, t.Muted))
 			})
+			if mute.Clicked() && a.Act.ToggleMute != nil {
+				a.Act.ToggleMute()
+			}
+
+			v := a.Volume
+			sl := ui.Slider(c, &v, 0, 1).Grow(1).Height(24).Label("音量")
+			if sl.Changed() {
+				a.Volume = v
+				if a.Act.SetVolume != nil {
+					a.Act.SetVolume(v)
+				}
+			}
 		})
 	})
 }
