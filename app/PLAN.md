@@ -500,20 +500,58 @@ release 里，不在就直接让 workflow 失败。
 
 ## 给框架补了「位图旋转」能力（2026-10）
 
-唱片 22s 一圈的旋转在 mygo 里本来做不了（`Rotate` 只对矢量图标生效）。
-没有放弃，直接给框架打了补丁，fork 在 **vst93/mygo** 的
-`feat/bitmap-rotate` 分支（commit 396651b4bd43）：
+唱片 22s 一圈的旋转在 mygo 里本来做不了（`Rotate` 只对矢量图标生效：
+`paint.go` 只在 `kindIcon` 分支把角度传给渲染器，位图那条分支收不到）。
+给框架打了补丁：`scene.Op` 新增 `Rotation`，CPU 渲染器的 `raster.image`
+遍历旋转后包围盒、逐像素做逆变换取源像素（裁剪仍用原始 Rect 的 Radii，
+所以旋转的封面依然是圆的），`Element.Rotate` 同时设置 Icon 与 Image 的角度。
 
-- `scene.Op` 新增 `Rotation`（OpImage 顺时针角度，绕 Rect 中心）；
-- CPU 渲染器 `raster.image` 实现了旋转：遍历**旋转后包围盒**、
-  逐像素做逆变换取源像素，但**裁剪仍用原始 Rect 的 Radii**——
-  旋转的封面依然是圆，不会变成方形卡片；
-- `Element.Rotate` 同时设置 Icon 与 Image 的角度，`Element.Loop`
-  照旧驱动进度（暂停即停帧，不会跳）。
+**已作为 PR egoist/mygo#201 提交上游，等合并。**
+本地 fork 已放弃（框架发版很频繁，维护 fork 的成本大于收益），
+`go.mod` 的 `replace` 指回官方版本；等上游合并后直接用官方能力，
+在那之前唱片保持静止。GPU 渲染器暂时忽略 `Rotation`（本机是 CPU 渲染）。
 
-应用侧 `go.mod` 的 replace 指到这个 fork 的 pseudo-version。
-**GPU 渲染器暂时忽略 Rotation**（本机正好是 CPU 渲染，已实机验证
-旋转生效）；等 GPU 侧补上后，CPU/GPU 表现要一致（框架的既有约定）。
+## 进度条这一块踩过的坑（2026-10，重要）
 
-给框架提的注意点：`Rotation` 只在 CPU renderer 生效这件事必须写进
-`scene.Op` 的注释里（已写），不然 GPU 侧不知道要补。
+底部进度条前后回归过四五次，根因全是**对框架 API 的理解错了**，
+不是逻辑写错。记在这里免得再犯：
+
+1. **`Element.Dragging()` 不是指针拖动。** 它是 HTML5 拖放
+   （`rt.drag`，只有调用 `ui.Drag()` 建立拖放源时才非空）的接口，
+   对 Slider **永远返回 false**。用它判断「用户是否在拖进度条」=
+   点击和拖动全都不触发。
+2. **`Element.Pressed()` 不能用于「是否按住」。** 它要求指针在元素
+   矩形内（`Rect{s.vx,s.vy,s.vw,s.vh}.Contains(pointerX,pointerY)`），
+   而进度条轨道只有 6px 高——拖动时指针稍一偏离就返回 false，
+   会被误判成松手（表现为「拖到一半失效/跳回」）。
+   **正确信号是 `Element.Dragged()` 的 `ok`**：它就是 `st.pressed`，
+   与元素矩形无关。
+3. **框架的输入处理在「每帧构建之后」跑**（`runtime.go` 里
+   `rt.view()` 之后才 `rt.applyInputs()`）。所以应用侧在构建阶段写
+   绑定的 `*value` 是安全的（会在 `applyInputs` 里被指针位置覆盖）；
+   但**不能用旧值去覆盖它**——松手当帧必须先读值发 seek、再做跟随，
+   顺序反了就是「松手跳回原地」。
+4. **「跟随播放位置」和「用户拖动」争同一个 `*value`**：用
+   `SeekBusy`（seek 在跑）+ 一个 250ms 的交接窗口把两者错开，
+   否则每 500ms 的进度上报会把滑块拽回去。
+
+现在这段逻辑抽成了纯函数 `progressPlan`（`internal/view/state.go`），
+四条不变量由 `TestProgressPlan` 的 7 个子测试钉住。
+
+## 进度条视觉：自绘而不是用现成控件
+
+原版这条轨道是纯 CSS 的：6px 高、左右内缩 7px（= 滑块半径）、1px 白边、
+已播部分 90° 青 `#2dd4bf` → 蓝 `#0284c7` 渐变、滑块 14 圆 + 白边 + 蓝投影。
+框架默认的 `Slider` 只有一条素色轨道，达不到这个质感，所以改用
+`SliderBase`（只提供取值，不带外观）+ `Element.Draw` 自绘轨道/滑块/填充。
+
+`SliderBase` 与 `Slider` 共用同一个 `sliderInput`，输入行为完全不变
+（`Dragged()` / `Changed()` 照旧）。`PaddingX(7)` 让取值区间两端各缩进
+一个滑块半径，滑块圆心才能走到轨道的两个端点（原生 range 的行为）。
+
+## 端到端验证进度条（Xvfb + xdotool）
+
+进度条的交互光看代码判断不出来，`./check-e2e.sh` 会在 Xvfb 里真跑一遍：
+用 xdotool 按下拖动再松手，然后检查日志里有没有出现 seek 的痕迹
+（`flushProgress` 会打「上报播放进度失败」或「跳转失败」）。
+需要 `Xvfb`、`xdotool`、`imagemagick`。**只用于本地排查，CI 里不跑。**
