@@ -112,6 +112,10 @@ func (p *Player) ensureContext(rate, channels int) (int, error) {
 		SampleRate:   rate,
 		ChannelCount: channels,
 		Format:       oto.FormatSignedInt16LE,
+		// 设备缓冲给足 150ms：底层驱动默认只有几十毫秒，网络抖一下就见底。
+		// 我们的预读队列（1.5s）负责"不出现欠载"，这个缓冲负责"万一欠载了
+		// 也不至于立刻爆音"。150ms 的延迟对音乐播放器无感知。
+		BufferSize: 150 * time.Millisecond,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("media: 打开音频输出失败: %w", err)
@@ -301,12 +305,21 @@ func (p *Player) reportLoop(stop chan struct{}) {
 // pipeline 是「解码 → 变速 → 均衡 → s16le 字节」的流水线，
 // 实现 io.Reader 供 oto 拉取。
 type pipeline struct {
-	mu sync.Mutex
-	// wsMu 只保护 ws 这一个指针。position() 要读它，而流水线锁 mu 会被
-	// Read/seek 的网络 I/O 长期持有 —— 共用一个锁会让进度上报跟着卡住
-	//（实测过同类问题：UI 上的 SetSpeed/EQ 卡 22 秒）。分开之后
-	// 「读进度」永远不会被 I/O 挡住。
-	wsMu sync.Mutex
+	// ── 并发模型（这是播放不卡的关键）──────────────────────────
+	//
+	//   后台生产者 goroutine ──► 就绪队列（s16le 字节）──► oto 的取数回调
+	//        拿 procMu，做网络 I/O      只拿 mu            只拿 mu，永不碰网络
+	//
+	// 取数回调是声卡饿了才来叫的，**绝不能让它碰网络**：一碰，网络抖动就
+	// 直接变成爆音/卡顿（oto 的设备缓冲只有几十毫秒，一次 HTTP 往返就够
+	// 让它见底）。所以解码提前在后台做，队列里始终留着约 1.5 秒的数据，
+	// 回调只负责把字节搬走。
+	//
+	// 三把锁各管一块，互不嵌套等待：
+	//   procMu —— 「解码→变速→均衡→重采样」这条链与它的缓冲，还有 seek 重建
+	//   mu     —— 就绪队列与对外状态（done/err/欠载计数）
+	//   wsMu   —— 只有 ws 指针（position() 要读它，不能等 procMu）
+	procMu sync.Mutex
 
 	rf   *remoteFile
 	rd   *m4a.Reader
@@ -314,19 +327,32 @@ type pipeline struct {
 	info m4a.Info
 
 	channels int
+	wsMu     sync.Mutex
 	ws       *WSOLA
 	eq       *Compressor
 	// rs 在输出采样率与流的采样率不同时做转换，nil 表示不需要。
 	rs *resampler
 
-	src   []byte
-	flt   []float32
-	out   []byte
-	outAt int
+	// 处理链的临时缓冲（只在 procMu 内用）。
+	src []byte
+	flt []float32
+	enc []byte
+	// procEOF 表示输入已到末端（生产者在 procMu 内读写）。
+	procEOF bool
 
-	eof  bool
-	err  error
-	done bool
+	mu      sync.Mutex
+	ready   []byte
+	readyAt int
+	started bool
+	eof     bool
+	err     error
+	done    bool
+	under   int
+
+	stop chan struct{}
+	// wake 用来把生产者从「队列已满」的等待里叫醒（seek 之后要立刻续产）。
+	wake chan struct{}
+	once sync.Once
 }
 
 // newPipeline 建流水线。outRate 是音频上下文的采样率（0 表示还没建立，
@@ -357,10 +383,92 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	if eqOn {
 		p.eq.SetEnabled(true)
 	}
+	p.stop, p.wake = make(chan struct{}), make(chan struct{}, 1)
+	go p.pump()
 	return p, nil
 }
 
+// readAheadBytes 是就绪队列维持的水位：约 1.5 秒的 s16le 数据。
+// 太小挡不住网络抖动，太大则 seek/暂停的响应变钝。
+func (p *pipeline) readAheadBytes() int {
+	return p.info.SampleRate * p.channels * 2 * 3 / 2
+}
+
+// pump 是后台生产者：把就绪队列填到水位，锁外做耗时的解码与网络读。
+func (p *pipeline) pump() {
+	water := p.readAheadBytes()
+	for {
+		p.mu.Lock()
+		pending := len(p.ready) - p.readyAt
+		idle := pending >= water || p.eof
+		p.mu.Unlock()
+		if p.stopped() {
+			return
+		}
+		if idle {
+			select {
+			case <-p.stop:
+				return
+			case <-p.wake:
+			case <-time.After(20 * time.Millisecond):
+			}
+			continue
+		}
+		chunk, ended, err := p.produce()
+		if err != nil {
+			p.mu.Lock()
+			p.err, p.eof = err, true
+			p.mu.Unlock()
+			return
+		}
+		if len(chunk) > 0 {
+			p.mu.Lock()
+			p.ready = append(p.ready, chunk...)
+			p.started = true
+			p.mu.Unlock()
+		}
+		if ended {
+			// 流真的到头了（不是"这块还没攒够"——那种情况 chunk 也是空的，
+			// 但后面还有数据）。之后进 idle 分支等 seek 唤醒。
+			p.mu.Lock()
+			p.eof = true
+			p.mu.Unlock()
+		}
+	}
+}
+
+// stopped 报告 stop 是否已关闭。
+func (p *pipeline) stopped() bool {
+	select {
+	case <-p.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// nudge 把生产者从等待里叫醒（seek 之后要立刻接着产）。
+func (p *pipeline) nudge() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+// produce 解码一块、变速、均衡、重采样，返回 s16le 字节。
+// 返回空切片**不代表结束** —— WSOLA 还没攒够一帧时就是空的（倍速越高、
+// 流式源每次给的越少，这种情况越多）。是否到头由 ended 单独报告。
+func (p *pipeline) produce() ([]byte, bool, error) {
+	p.procMu.Lock()
+	defer p.procMu.Unlock()
+	return p.produceLocked()
+}
+
 func (p *pipeline) close() {
+	// 先叫停生产者：它可能在网络读里，等它把 procMu 让出来再动解码器。
+	p.once.Do(func() { close(p.stop) })
+	p.procMu.Lock()
+	defer p.procMu.Unlock()
 	if p.dec != nil {
 		_ = p.dec.Reset(nil)
 	}
@@ -411,8 +519,10 @@ func (p *pipeline) setEQ(on bool) {
 }
 
 func (p *pipeline) seek(seconds float64) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	// 拿 procMu 而不是 mu：既要与生产者互斥（它在解码），又不能挡住
+	// 取数回调（它只碰 mu）。生产者最多在做一块，等它做完即可。
+	p.procMu.Lock()
+	defer p.procMu.Unlock()
 
 	if seconds < 0 {
 		seconds = 0
@@ -454,12 +564,17 @@ func (p *pipeline) seek(seconds float64) error {
 	// SourcePosition 用源采样率换算秒。seek 只重定位不解码，前面
 	// 的帧没经过变速，所以直接用 seconds × 源采样率。
 	startSample := int(seconds * float64(p.info.SampleRate))
+	p.procEOF = false
 	p.setWS(NewWSOLA(p.channels, p.wsNow().Speed(), startSample))
 	if p.eq.Enabled() {
 		p.eq.SetEnabled(true)
 	}
-	p.out, p.outAt = nil, 0
+	// 丢掉跳转前解码好的数据：不清的话会先把旧位置的声音放出来。
+	p.mu.Lock()
+	p.ready, p.readyAt = p.ready[:0], 0
 	p.eof, p.done, p.err = false, false, nil
+	p.mu.Unlock()
+	p.nudge()
 	return nil
 }
 
@@ -468,52 +583,102 @@ func (p *pipeline) seek(seconds float64) error {
 // 用循环而不是让 fillLocked 自我递归：WSOLA 可能一次读不满一帧（倍速越高、
 // 每次要的输入越多；流式源每次只给一块也很常见），递归会在这种时候一直
 // 压栈。这里循环到有产出、或读到流末端为止。
-func (p *pipeline) Read(b []byte) (int, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// readWait 是队列空时取数回调最多等多久。到此为止就是欠载 ——
+// 宁可补一小段静音让声卡继续走，也不要让设备缓冲彻底见底（那是爆音）。
+const readWait = 120 * time.Millisecond
 
+// Read 实现 io.Reader，供 oto 拉取。**只碰就绪队列，绝不做 I/O。**
+func (p *pipeline) Read(b []byte) (int, error) {
+	if n := p.take(b); n > 0 {
+		return n, nil
+	}
+	deadline := time.Now().Add(readWait)
 	for {
-		if p.outAt < len(p.out) {
-			n := copy(b, p.out[p.outAt:])
-			p.outAt += n
-			return n, nil
-		}
-		if p.eof {
+		p.mu.Lock()
+		eof, err := p.eof, p.err
+		p.mu.Unlock()
+		if eof {
+			p.mu.Lock()
 			p.done = true
+			p.mu.Unlock()
+			if err != nil {
+				return 0, err
+			}
 			return 0, io.EOF
 		}
-		if err := p.fillLocked(); err != nil {
-			p.err = err
-			return 0, err
+		if n := p.take(b); n > 0 {
+			return n, nil
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		select {
+		case <-p.stop:
+			return 0, io.EOF
+		case <-time.After(4 * time.Millisecond):
 		}
 	}
+	// 欠载：补静音。这样声卡的节奏不被打断，网络恢复后声音自然接上。
+	for i := range b {
+		b[i] = 0
+	}
+	p.mu.Lock()
+	p.under++
+	p.mu.Unlock()
+	return len(b), nil
 }
 
-// fillLocked 解码一块、变速、均衡，产出 s16le 字节到 p.out。
-func (p *pipeline) fillLocked() error {
+// take 从就绪队列搬走至多 len(b) 字节。
+func (p *pipeline) take(b []byte) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := copy(b, p.ready[p.readyAt:])
+	p.readyAt += n
+	// 队列读完就归零；长期运行则偶尔压缩一次，避免底层数组无限增长。
+	switch {
+	case p.readyAt >= len(p.ready):
+		p.ready, p.readyAt = p.ready[:0], 0
+	case p.readyAt > 1<<18:
+		p.ready = append(p.ready[:0], p.ready[p.readyAt:]...)
+		p.readyAt = 0
+	}
+	return n
+}
+
+// Underruns 报告欠载次数（诊断用：数字大说明预读水位不够或网络太差）。
+func (p *pipeline) Underruns() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.under
+}
+
+// produceLocked 解码一块、变速、均衡、重采样，产出 s16le 字节。
+// 调用方必须持有 procMu。ended 表示输入已到末端。
+func (p *pipeline) produceLocked() ([]byte, bool, error) {
 	const want = 4096 // 每次解码的采样帧数
+	if p.procEOF {
+		return nil, true, nil
+	}
 	if len(p.src) < want*p.channels*2 {
 		p.src = make([]byte, want*p.channels*2)
 	}
 	n, err := io.ReadFull(p.dec, p.src)
 	if n == 0 && err != nil {
-		// 输入结束：让 WSOLA 把尾巴吐出来。
+		// 输入结束：让 WSOLA 把尾巴吐出来（只做一次）。
+		p.procEOF = true
 		if len(p.flt) > 0 {
 			p.flt = nil
 		}
-		tail := p.ws.Flush()
+		tail := p.wsNow().Flush()
 		p.eq.Process(tail)
 		if p.rs != nil {
 			tail = p.rs.Push(tail)
 		}
-		p.out = appendS16(p.out[:0], tail)
-		p.outAt = 0
-		p.eof = true
-		return nil
+		return appendS16(nil, tail), true, nil
 	}
 	frames := n / (p.channels * 2)
 	if frames == 0 {
-		return nil
+		return nil, false, nil
 	}
 
 	if cap(p.flt) < frames*p.channels {
@@ -529,10 +694,7 @@ func (p *pipeline) fillLocked() error {
 	if p.rs != nil {
 		scaled = p.rs.Push(scaled)
 	}
-	p.out = appendS16(p.out[:0], scaled)
-	p.outAt = 0
-	// 没攒够一帧时 out 为空：直接返回，Read 的循环会再读一块。
-	return nil
+	return appendS16(p.enc[:0], scaled), false, nil
 }
 
 // appendS16 把交错 float32 转成 s16le 字节。
