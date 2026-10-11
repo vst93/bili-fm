@@ -116,7 +116,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 			AlignItems(ui.Center).Children(func() {
 			// 59px：播放 28 + 3 + 下一集 28。
 			ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
-				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(Radius).Center().
+				// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
+				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
 					Label(pick(a.Playing, "暂停", "播放"))
 				play.Background(t.Blue.Alpha(0.18)).Border(1, t.Blue.Alpha(0.35))
 				play.Children(func() {
@@ -127,7 +128,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					a.Act.TogglePlay()
 				}
 
-				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(Radius).Center().
+				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
 					Label("下一集")
 				next.Disabled(!a.canNavigate())
 				if next.Hovered() {
@@ -152,33 +153,37 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
 				Width(44).Shrink(0).Center()
 
-			// 34px 列（原版 mini 播放栏 grid 的最后一列）。
-			vol := ui.ButtonBase(c.Key("mini-volume")).Size(34, 28).Radius(Radius).Center().
-				Label("音量")
-			if vol.Hovered() {
-				vol.Background(t.GlassHover)
-			} else {
-				vol.Background(ui.Transparent)
-			}
-			vol.Border(1, t.GlassBorder)
-			vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
-			if vol.Clicked() {
-				a.ShowVolume = !a.ShowVolume
-			}
+			// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
+			ui.Box(c).Width(34).Shrink(0).Children(func() {
+				vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
+					Label("音量")
+				if vol.Hovered() {
+					vol.Background(t.GlassHover)
+				} else {
+					vol.Background(ui.Transparent)
+				}
+				vol.Border(1, t.GlassBorder)
+				vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
+				if vol.Clicked() {
+					a.ShowVolume = !a.ShowVolume
+				}
+			})
 		})
 	})
 }
 
-// miniControl 是迷你模式右上角的窗口控制键（20×20，原版 .app-title-bar-btn）。
+// miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标
+// （原版 .mini-window-controls 里的 .app-title-bar-btn + size={16}；
+// 两颗纵向 gap 4 → 30+4+30 = 64，正好与封面同高）。
 func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key(key)).Size(20, 20).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
+	b := ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
 	if b.Hovered() {
 		b.Background(t.GlassHover)
 	} else {
 		b.Background(ui.Transparent)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(12, 12).TextColor(t.Muted) })
+	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(t.Muted) })
 	if b.Clicked() {
 		fn()
 	}
