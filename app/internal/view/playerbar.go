@@ -101,38 +101,43 @@ func (a *App) timeText(c *ui.Context, sec float64) {
 }
 
 // progress 是第 3 列（1fr）的可拖动进度条，上面叠广告段标记。
+// seekSettle 是松手/seek 完成后滑块停在目标值、不跟随播放位置的时长。
+const seekSettle = 250 * time.Millisecond
+
 func (a *App) progress(c *ui.Context) {
 	hi := a.Dur
 	if hi <= 0 {
 		hi = 1
 	}
-	// 进度条：单一 Slider，既是指示器也是输入器（原版 input[type=range]）。
+	// 进度条 = 原版 <input type=range> 的一个 Slider，既显示也是输入。
 	//
-	// *value 双向：框架在拖动时写；应用侧在「非拖动且 seek 已稳定」时写
-	// 播放位置。两者何时交接是关键——
-	//   拖动中            不跟随（不然每 500ms 把滑块拽回播放位置，拖不动）；
-	//   松手后 2 秒内     不跟随（seek 要重建解码器，Pos 慢半拍，立刻
-	//                     跟随会弹回旧位置，看起来“拖了没反应”）；
-	//   其余              跟随播放位置。
-	// stableAt 之后再跟随：seek 完成时 Pos 已是新位置，滑块无感切换。
-	if a.Seeking() {
-		// 拖动中：让框架全权写 *value，应用侧不碰。
-	} else if a.SeekBusy || time.Since(a.SeekStableAt) < 2*time.Second {
-		// seek 在跑 / 刚结束：停在目标值。
-	} else {
-		a.SeekValue = a.Pos
-	}
-
+	// *value 有两个写入方，靠「指针是否按住」分开：
+	//   框架（sliderInput，在每帧构建之后的 applyInputs 里跑）——
+	//         指针按住时按指针位置写（点击与拖动是同一件事）；
+	//   应用——无人操作时写播放位置（滑块跟随播放）。
+	//
+	// held 用 Dragged() 的 ok：它就是 st.pressed，**与元素矩形无关**。
+	// 不能用 Pressed()——指针一旦移出 5px 高的细轨道它就返回 false，
+	// 拖动会被误判成松手（这是「拖到一半失效」的原因）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-	dragging := s.Dragging()
-	if dragging != a.wasDrag {
-		a.SeekStableAt = time.Now() // 拖动开始 / 松手
+	_, _, held := s.Dragged()
+	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
+
+	if held != a.wasHeld {
+		a.SeekStableAt = time.Now() // 交接点：按下 / 松手
 	}
-	if a.wasDrag && !dragging && a.Act.Seek != nil {
-		// 松手：seek 到滑块停的位置。
-		a.Act.Seek(a.SeekValue)
+	seek, next := progressPlan(progressInput{
+		held:    held,
+		changed: changed,
+		busy:    a.SeekBusy,
+		settle:  time.Since(a.SeekStableAt),
+		pos:     a.Pos,
+	}, a.SeekValue, a.wasHeld, seekSettle)
+	if seek && a.Act.Seek != nil {
+		a.Act.Seek(a.SeekValue) // 用用户放下的值提交
 	}
-	a.wasDrag = dragging
+	a.SeekValue = next
+	a.wasHeld = held
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -365,11 +370,23 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek。
+	// 与主窗同一套规则（见 progress）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-	dragging := s.Dragging()
-	if a.wasDrag && !dragging && a.Act.Seek != nil {
+	_, _, held := s.Dragged()
+	changed := s.Changed()
+	if held != a.wasHeld {
+		a.SeekStableAt = time.Now()
+	}
+	seek, next := progressPlan(progressInput{
+		held:    held,
+		changed: changed,
+		busy:    a.SeekBusy,
+		settle:  time.Since(a.SeekStableAt),
+		pos:     a.Pos,
+	}, a.SeekValue, a.wasHeld, seekSettle)
+	if seek && a.Act.Seek != nil {
 		a.Act.Seek(a.SeekValue)
 	}
-	a.wasDrag = dragging
+	a.SeekValue = next
+	a.wasHeld = held
 }

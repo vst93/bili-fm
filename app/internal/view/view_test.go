@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -168,4 +169,70 @@ func TestNeedsLogin(t *testing.T) {
 	if !a.needsLogin() {
 		t.Error("recommend without login should need login")
 	}
+}
+
+// TestProgressPlan 钉住进度条的交接不变量——这块反复出过问题：
+// 拖动失效、松手跳回原地、双进度条、seek 期间弹回。
+func TestProgressPlan(t *testing.T) {
+	const settle = 250 * time.Millisecond
+	const pos = 10.0   // 播放位置
+	const want = 120.0 // 用户拖到的目标
+
+	t.Run("拖动中不跟随也不 seek", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{held: true, pos: pos}, want, true, settle)
+		if seek {
+			t.Fatal("拖动中不应提交 seek")
+		}
+		if next != want {
+			t.Fatalf("拖动中滑块应停在手上 %v，得到 %v", want, next)
+		}
+	})
+
+	t.Run("松手当帧用用户的值 seek，且不被播放位置覆盖", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{held: false, pos: pos, settle: 0}, want, true, settle)
+		if !seek {
+			t.Fatal("松手应提交一次 seek")
+		}
+		if next != want {
+			t.Fatalf("松手后应停在目标 %v，得到 %v（跟随把值抹掉了）", want, next)
+		}
+	})
+
+	t.Run("seek 在跑时不跟随", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{held: false, busy: true, pos: pos, settle: time.Second}, want, false, settle)
+		if seek || next != want {
+			t.Fatalf("seek 中不应 seek/跟随，得到 seek=%v next=%v", seek, next)
+		}
+	})
+
+	t.Run("刚过交接点不跟随", func(t *testing.T) {
+		_, next := progressPlan(progressInput{held: false, pos: pos, settle: settle / 2}, want, false, settle)
+		if next != want {
+			t.Fatalf("交接窗口内不应跟随，得到 %v", next)
+		}
+	})
+
+	t.Run("稳定后跟随播放位置", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{held: false, pos: pos, settle: time.Second}, want, false, settle)
+		if seek {
+			t.Fatal("稳定后不应 seek")
+		}
+		if next != pos {
+			t.Fatalf("稳定后应跟随播放位置 %v，得到 %v", pos, next)
+		}
+	})
+
+	t.Run("键盘改值提交 seek", func(t *testing.T) {
+		seek, _ := progressPlan(progressInput{changed: true, pos: pos, settle: time.Second}, want, false, settle)
+		if !seek {
+			t.Fatal("键盘方向键改值应提交 seek")
+		}
+	})
+
+	t.Run("正常播放帧不改值也不 seek", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{pos: pos, settle: time.Second}, pos, false, settle)
+		if seek || next != pos {
+			t.Fatalf("正常帧应为空操作，得到 seek=%v next=%v", seek, next)
+		}
+	})
 }

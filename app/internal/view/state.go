@@ -457,23 +457,19 @@ type App struct {
 	// 搜索
 	Query string
 
-	// 进度条：拖动期间用 SeekValue，松手才真正 seek（seek 会重建解码器，
-	// 不能跟着拖动一路触发）。seeking 标记拖动中，SeekValue 是滑块绑定的值。
-	seeking   bool
+	// SeekValue 是进度条滑块绑定的值：按住时由框架写（sliderInput），
+	// 无人操作时由 view 写播放位置。交接规则见 playerbar.progress。
 	SeekValue float64
-	// seekSent 表示 seek 请求已发出、正在等引擎追上（这期间滑块停在
-	// 目标值，不被旧 Pos 拽回——原版 isSeekingRef 的语义）。
-	seekSent bool
-	// seekedAt 是用户开始拖动的时间，用于 seek 卡住时的超时兜底。
-	seekedAt time.Time
 	// SeekBusy 表示一次 seek 还在跑（重定位+重建解码器）；期间的
 	// 新 seek 目标只更新 PendingSeek，等这次跑完再补一次——
 	// 连续拖动不会堆叠多个重建。
 	SeekBusy bool
-	// wasDrag 是上一帧 Slider 是否在拖动（识别松手的下降沿）。
-	wasDrag bool
-	// SeekStableAt 是最近一次「滑块状态变化」的时间（开始拖/松手/
-	// seek 完成）：松手后 2 秒内不跟随播放位置，等引擎追上。
+	// wasHeld 是上一帧指针是否按在进度条上（识别松手的下降沿）。
+	// 用 Dragged() 的 ok 而不是 Pressed()：Pressed() 在指针移出细轨道
+	// 时就是 false，拖动中会被误判成松手。
+	wasHeld bool
+	// SeekStableAt 是最近一次「滑块交接点」的时间（按下/松手/seek 完成）：
+	// 此后一小段时间不跟随播放位置，等引擎追上。
 	SeekStableAt time.Time
 	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
 	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
@@ -747,11 +743,44 @@ func compactCount(n int64) string {
 // 用一段 270° 弧 + 一段 90° 直线收口（全部 C 命令）。
 var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M50 6 C76 6 94 26 94 50 C94 76 76 94 50 94 C26 94 6 76 6 50 C6 26 26 6 50 6" stroke-width="7"/><path d="M50 6 C64 6 76 14 82 26" stroke-width="10"/></svg>`))
 
+// progressInput 是进度条一帧的输入（都是框架/引擎给的外部状态）。
+type progressInput struct {
+	held    bool          // 指针是否按在进度条上（Dragged 的 ok）
+	changed bool          // 框架本帧是否改了值（键盘/快速点击）
+	busy    bool          // 一次 seek 还在跑
+	settle  time.Duration // 距最近一次交接点（按下/松手/seek 完成）的时间
+	pos     float64       // 播放位置
+}
+
+// progressPlan 是进度条每帧的决策：是否提交 seek、滑块值该是多少。
+//
+// 抽成纯函数是为了把下面四条不变量钉死（这块反复出过问题）：
+//  1. 按住时不跟随播放位置——否则每 500ms 的进度上报会把滑块拽回去；
+//  2. 松手当帧提交 seek，且**用用户放下的值**（调用方必须先读 value
+//     再写新值，这里通过返回值分离做到结构上不可能写反）；
+//  3. seek 在跑 / 刚过交接点时停在目标值，不跟随（Pos 慢半拍，跟随会弹回）；
+//  4. 其余时间跟随播放位置。
+func progressPlan(in progressInput, value float64, wasHeld bool, settle time.Duration) (seek bool, next float64) {
+	next = value
+	if wasHeld && !in.held {
+		seek = true // 松手：拖动结束 / 点击的按下-松开
+	}
+	if in.changed && !in.held && !wasHeld {
+		seek = true // 键盘方向键改值
+	}
+	if !seek && !in.held && !in.busy && in.settle > settle {
+		next = in.pos // 跟随播放
+	}
+	return seek, next
+}
+
 // ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度）。
-func (a *App) ResetSeek() { a.seeking, a.seekSent = false, false }
+func (a *App) ResetSeek() { a.wasHeld, a.SeekBusy, a.SeekStableAt = false, false, time.Time{} }
 
 // Seeking 报告用户是否正在拖动进度条（供 OnProgress 跳过副作用）。
-func (a *App) Seeking() bool { return a.seeking }
+// Seeking 表示用户正在操作进度条，或一次 seek 还在跑——这期间
+// OnProgress 的进度副作用（断点/KV/恰饭判定）要跳过。
+func (a *App) Seeking() bool { return a.wasHeld || a.SeekBusy }
 
 // pressable 是按钮的按压反馈。原版是 `.player-button:active` 的
 // `transform: scale(0.93)`，mygo 没有缩放变换（Rotate 只管角度），
