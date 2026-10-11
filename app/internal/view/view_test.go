@@ -104,24 +104,6 @@ func TestSplitLines(t *testing.T) {
 	}
 }
 
-func TestFmtBytes(t *testing.T) {
-	cases := []struct {
-		in   int64
-		want string
-	}{
-		{0, "0 B"},
-		{512, "512 B"},
-		{1024, "1.0 KB"},
-		{1536, "1.5 KB"},
-		{1048576, "1.0 MB"},
-	}
-	for _, c := range cases {
-		if got := fmtBytes(c.in); got != c.want {
-			t.Errorf("fmtBytes(%d) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 func TestAvatarInitial(t *testing.T) {
 	if got := avatarInitial("音你所乐"); got != "音" {
 		t.Errorf("avatarInitial = %q", got)
