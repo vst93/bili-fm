@@ -152,7 +152,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
 				Width(44).Shrink(0).Center()
 
-			vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(Radius).Center().
+			// 34px 列（原版 mini 播放栏 grid 的最后一列）。
+			vol := ui.ButtonBase(c.Key("mini-volume")).Size(34, 28).Radius(Radius).Center().
 				Label("音量")
 			if vol.Hovered() {
 				vol.Background(t.GlassHover)

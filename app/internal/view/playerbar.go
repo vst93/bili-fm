@@ -141,7 +141,7 @@ func (a *App) progress(c *ui.Context) {
 // volumeButton 是第 5 列（34px）：点开音量弹层。
 func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("volume")).Size(34, 32).Radius(Radius).Center().
 		Label("音量").Tooltip("音量")
 	switch {
 	case a.ShowVolume:
@@ -187,7 +187,7 @@ func (a *App) speedButton(c *ui.Context) {
 // eqButton 是第 7 列（34px）：均衡开关。
 func (a *App) eqButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("eq")).Size(32, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
 		Label("均衡").Tooltip("均衡")
 	switch {
 	case a.EQ:
@@ -207,7 +207,7 @@ func (a *App) eqButton(c *ui.Context) {
 // sponsorButton 是第 8 列（40px）：跳过赞助片段开关。
 func (a *App) sponsorButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("sponsor")).Size(32, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("sponsor")).Size(40, 32).Radius(Radius).Center().
 		Label("跳过赞助").Tooltip("跳过赞助片段")
 	switch {
 	case a.Sponsor:
