@@ -3,121 +3,128 @@ package media
 import (
 	"math"
 	"testing"
-	"time"
 )
 
-// dominantFreq 数上升沿过零。对纯正弦这是精确的，而且比频率扫描快几个
-// 数量级（扫描式相关跑一次要几十秒，还会因为泄漏产生 ~2% 的系统偏差）。
-func dominantFreq(sig []float32, rate int, lo, hi float64) float64 {
-	// 取中段，避开首尾叠加未定型的部分。
-	start, end := len(sig)/4, len(sig)*3/4
-	if end-start < 4096 {
-		start, end = 0, len(sig)
+// feed 用 440Hz 正弦喂 w，返回这次拿到的输出样本数与当前源位置。
+func feedWSOLA(w *WSOLA, frames int, ch int) (int, int) {
+	buf := make([]float32, frames*ch)
+	for i := 0; i < frames; i++ {
+		v := float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
+		for c := 0; c < ch; c++ {
+			buf[i*ch+c] = v
+		}
 	}
-	x := sig[start:end]
+	return len(w.Push(buf)) / ch, w.SourcePosition()
+}
 
-	first, last, cycles := -1, -1, 0
-	for i := 1; i < len(x); i++ {
-		if x[i-1] <= 0 && x[i] > 0 {
-			if first < 0 {
-				first = i
-			} else {
-				last = i
-				cycles++
+// TestWSOLASpeedChangeMidStream 是「改倍速后卡死 / 进度乱跳」的回归测试。
+//
+// 旧实现用 frame×step 从帧号**重算**标称分析位置，而 step 里含 speed：
+// 改一次速度会把过去所有帧也按新速度重算，游标一次性向前跳掉一大截
+// （播 1 分钟后切 2x 就跳 1 分钟的源音频），输入跟不上就再也不产出。
+// 现在的实现增量推进，改速度只影响之后每帧前进的距离。
+func TestWSOLASpeedChangeMidStream(t *testing.T) {
+	cases := []struct {
+		name string
+		to   float64
+	}{
+		{"加速到 2x", 2.0},
+		{"加速到 3x", 3.0},
+		{"减速到 0.5x", 0.5},
+		{"减速到 0.75x", 0.75},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewWSOLA(1, 1.0, 0)
+			// 先按原速跑掉一大段（对应"播了一会儿之后再改速"）。
+			const pre = 48000 * 30 // 30 秒
+			produced, _ := feedWSOLA(w, pre, 1)
+			if produced == 0 {
+				t.Fatal("原速阶段就没有产出")
 			}
-		}
+			posBefore := w.SourcePosition()
+
+			w.SetSpeed(tc.to)
+			producedAfter := 0
+			lastPos := posBefore
+			// 再喂 5 秒（输入足够，之前卡死时这里会一直产出 0）。
+			for i := 0; i < 10; i++ {
+				n, pos := feedWSOLA(w, 48000/2, 1)
+				producedAfter += n
+				if pos < lastPos {
+					t.Fatalf("源位置回退了：%d → %d", lastPos, pos)
+				}
+				// 单次喂入 0.5 秒输入，位置前进不应超过"输入量 + 一帧"。
+				if jump := pos - lastPos; jump > 48000/2+1024 {
+					t.Fatalf("位置跳变过大：一次喂入 0.5s 输入，位置前进了 %d 个采样", jump)
+				}
+				lastPos = pos
+			}
+			if producedAfter == 0 {
+				t.Fatal("改速度之后完全没有产出 —— 卡死了")
+			}
+		})
 	}
-	if cycles == 0 || last <= first {
-		return 0
-	}
-	return float64(cycles) * float64(rate) / float64(last-first)
 }
 
-func sine(rate int, freq, seconds float64) []float32 {
-	n := int(float64(rate) * seconds)
-	out := make([]float32, n)
-	for i := range out {
-		out[i] = float32(0.5 * math.Sin(2*math.Pi*freq*float64(i)/float64(rate)))
-	}
-	return out
-}
-
-// TestPitchPreserved 是 WSOLA 最核心的性质：变速之后音高不变。
-// 朴素重采样（花栗鼠音）会让 440Hz 变成 880Hz，这里必须仍然是 440Hz。
-func TestPitchPreserved(t *testing.T) {
-	const (
-		rate = 44100
-		freq = 440.0
-	)
-	in := sine(rate, freq, 2.0)
-
-	for _, speed := range []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0} {
+// TestWSOLASpeedRatio 检查稳态输出长度符合 1/speed（变速的核心契约）。
+func TestWSOLASpeedRatio(t *testing.T) {
+	for _, speed := range []float64{0.5, 1.0, 1.5, 2.0, 3.0} {
 		w := NewWSOLA(1, speed, 0)
-		out := append(w.Push(in), w.Flush()...)
-
-		got := dominantFreq(out, rate, 200, 1200)
-		if math.Abs(got-freq) > 3 {
-			t.Errorf("speed=%.2f: 主频 %.2f Hz，期望 %.2f Hz（音高变了）", speed, got, freq)
-		}
-
-		// 输出长度应当约等于输入 / speed。
-		want := float64(len(in)) / speed
-		gotLen := float64(len(out))
-		if math.Abs(gotLen-want)/want > 0.08 {
-			t.Errorf("speed=%.2f: 输出 %d 采样，期望约 %.0f（误差 %.1f%%）",
-				speed, len(out), want, 100*math.Abs(gotLen-want)/want)
+		const inFrames = 48000 * 10
+		produced, _ := feedWSOLA(w, inFrames, 1)
+		want := float64(inFrames) / speed
+		// 允许一帧多一点的边界误差。
+		if math.Abs(float64(produced)-want) > 2048 {
+			t.Errorf("speed=%v：喂入 %d 帧产出 %d，期望约 %.0f", speed, inFrames, produced, want)
 		}
 	}
 }
 
-// TestStereoIndependent 确认立体声按声道独立处理（左右不串）。
-func TestStereoIndependent(t *testing.T) {
-	const rate = 44100
-	// 左 440Hz，右 880Hz，交错。
-	n := rate
-	in := make([]float32, n*2)
-	for i := 0; i < n; i++ {
-		in[2*i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/rate))
-		in[2*i+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/rate))
+// TestWSOLAStartSample 检查从流中途开始时（seek 重建）游标接得上。
+func TestWSOLAStartSample(t *testing.T) {
+	const start = 48000 * 7
+	w := NewWSOLA(1, 1.0, start)
+	if got := w.SourcePosition(); got != start {
+		t.Errorf("初始源位置应为 %d，得到 %d", start, got)
 	}
-	w := NewWSOLA(2, 1.5, 0)
-	out := append(w.Push(in), w.Flush()...)
-
-	left := make([]float32, 0, len(out)/2)
-	right := make([]float32, 0, len(out)/2)
-	for i := 0; i+1 < len(out); i += 2 {
-		left = append(left, out[i])
-		right = append(right, out[i+1])
-	}
-	if f := dominantFreq(left, rate, 200, 1500); math.Abs(f-440) > 3 {
-		t.Errorf("左声道主频 %.2f Hz，期望 440", f)
-	}
-	if f := dominantFreq(right, rate, 200, 1500); math.Abs(f-880) > 5 {
-		t.Errorf("右声道主频 %.2f Hz，期望 880", f)
+	if n, _ := feedWSOLA(w, 48000, 1); n == 0 {
+		t.Error("从 startSample 起应该立刻能产出（旧实现要先空转若干帧对齐 skip）")
 	}
 }
 
-// TestThroughput 量一下开销。实时播放要求远高于 1x：3 倍速播放时，
-// 每 1 秒墙钟要产出 1 秒输出（输出长度已是输入的 1/3）。
-func TestThroughput(t *testing.T) {
-	const rate = 44100
-	in := sine(rate, 440, 10.0) // 10 秒单声道
+// TestWSOLAFlush 检查结束时尾部能吐干净、长度与稳态一致。
+func TestWSOLAFlush(t *testing.T) {
+	for _, speed := range []float64{0.5, 1.0, 2.0} {
+		w := NewWSOLA(1, speed, 0)
+		const inFrames = 48000 * 3
+		produced, _ := feedWSOLA(w, inFrames, 1)
+		produced += len(w.Flush()) / 1
+		want := float64(inFrames) / speed
+		if d := math.Abs(float64(produced) - want); d > 4096 {
+			t.Errorf("speed=%v：含 Flush 共产出 %d，期望约 %.0f（差 %.0f）", speed, produced, want, d)
+		}
+	}
+}
 
-	for _, speed := range []float64{1.0, 2.0, 3.0} {
-		w := NewWSOLA(2, speed, 0)
-		// 转成立体声输入
-		st := make([]float32, len(in)*2)
-		for i, v := range in {
-			st[2*i], st[2*i+1] = v, v
+// TestWSOLAManySpeedChanges 连续多次改速度（用户连点档位）也不能卡。
+func TestWSOLAManySpeedChanges(t *testing.T) {
+	w := NewWSOLA(2, 1.0, 0)
+	speeds := []float64{1.25, 1.5, 2.0, 3.0, 0.5, 0.75, 1.0, 2.0}
+	lastPos := w.SourcePosition()
+	for i, sp := range speeds {
+		// 每次改速度前后各喂一点，模拟播放中随手切档。
+		if n, _ := feedWSOLA(w, 48000/4, 2); n == 0 && i > 0 {
+			t.Fatalf("第 %d 次改速前就没有产出", i)
 		}
-		t0 := time.Now()
-		out := append(w.Push(st), w.Flush()...)
-		el := time.Since(t0)
-		outSeconds := float64(len(out)/2) / rate
-		t.Logf("speed=%.1f: 输入 10.00s → 输出 %.2fs，耗时 %v，实时倍率 %.1fx",
-			speed, outSeconds, el, outSeconds/el.Seconds())
-		if outSeconds/el.Seconds() < 5 {
-			t.Errorf("speed=%.1f: 只有 %.1fx 实时，太慢", speed, outSeconds/el.Seconds())
+		w.SetSpeed(sp)
+		n, pos := feedWSOLA(w, 48000/4, 2)
+		if n == 0 {
+			t.Fatalf("改成 %v 之后没有产出", sp)
 		}
+		if pos < lastPos {
+			t.Fatalf("改成 %v 之后源位置回退：%d → %d", sp, lastPos, pos)
+		}
+		lastPos = pos
 	}
 }

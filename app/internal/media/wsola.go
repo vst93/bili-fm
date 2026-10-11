@@ -38,14 +38,25 @@ type WSOLA struct {
 	search int // 互相关搜索半径
 	window []float32
 
-	in      []float32 // 待处理输入（交错）
-	skip    int       // in 里已丢弃的采样数（相对流起点的绝对位置）
-	posPrev int       // 上一帧分析位置（绝对，采样数）
+	in   []float32 // 待处理输入（交错）
+	skip int       // in 里已丢弃的采样数（相对流起点的绝对位置）
+
+	// pos 是**标称分析游标**（绝对采样数）。它只按 hop×当帧速度**增量**
+	// 前进，不从帧号重算 —— 这是倍速能中途改的前提：
+	//   frame×step 的算法里 step 含 speed，改一次速度就会把「过去所有帧」
+	//   也按新速度重算，游标一次性向前跳掉一大截（播 1 分钟后切 2x 就跳
+	//   1 分钟的源音频），输入永远跟不上 → 直接停住不再产出，进度也跟着跳。
+	//   （那个算法原本是为了防漂移：不能按 posPrev+step 递推，因为互相关
+	//   每帧能挪 ±search。这里两者兼顾 —— 增量推进用标称游标，互相关只
+	//   决定"实际取哪一段"，不进游标。）
+	pos float64
+	// lastTarget 是最近一帧的标称目标位置，SourcePosition 用它报告
+	// 「已经消费到源音频的哪里」。
+	lastTarget int
+	// posPrev 是上一帧**实际选用**的位置（互相关结果），只作为相似度
+	// 模板使用。
+	posPrev int
 	hasPrev bool
-	// frame 是已产出的合成帧数。标称分析位置由帧号算出（frame*step），
-	// 不能按 posPrev+step 递推：互相关每帧最多能挪 ±search，那样漂移会
-	// 累积成随机游走，输出长度会明显偏离 1/speed。
-	frame int
 
 	ola    []float32 // 叠加缓冲（交错），长度 n
 	out    []float32 // 已产出但未取走的输出（交错）
@@ -79,11 +90,17 @@ func NewWSOLA(channels int, speed float64, startSample int) *WSOLA {
 		ola:    make([]float32, n*channels),
 		speed:  speed,
 		skip:   startSample,
+		// 游标从 startSample 起（seek 重建时就是目标位置）。原来的实现从
+		// 0 起、靠"空转若干帧直到 target 追上 skip"来对齐，既浪费又依赖
+		// 边界行为。
+		pos:        float64(startSample),
+		lastTarget: startSample,
 	}
 	return w
 }
 
-// SetSpeed 改速度。变速器会在下一个产出点生效。
+// SetSpeed 改速度。分析游标按增量推进，所以这里只影响**之后**每帧前进的
+// 距离，不会回头改写已经消费过的位置 —— 中途改速度是连续的。
 func (w *WSOLA) SetSpeed(speed float64) {
 	if speed <= 0 {
 		return
@@ -106,9 +123,9 @@ func (w *WSOLA) SourcePosition() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.hasPrev {
-		return 0
+		return w.lastTarget
 	}
-	return w.posPrev + w.n
+	return w.lastTarget + w.n
 }
 
 // Push 送进一段交错 PCM（float32，-1..1），返回目前能产出的输出。
@@ -150,10 +167,9 @@ func (w *WSOLA) available() int { return len(w.in)/w.ch + w.skip }
 
 // produce 尽可能多地产出合成帧。
 func (w *WSOLA) produce() {
-	step := float64(w.hop) * w.speed // 分析端每帧前进的距离
 	for {
-		// 本帧的标称分析位置（绝对采样数），由帧号决定。
-		target := int(math.Round(float64(w.frame) * step))
+		// 本帧的标称目标位置：直接取游标（增量推进，见 pos 的注释）。
+		target := int(math.Round(w.pos))
 		// 搜索需要 target+search+n 个采样可用。
 		if w.available() < target+w.search+w.n {
 			break
@@ -162,8 +178,10 @@ func (w *WSOLA) produce() {
 		pos := w.choosePosition(target)
 		w.emit(pos)
 		w.posPrev = pos
+		w.lastTarget = target
 		w.hasPrev = true
-		w.frame++
+		// 按**当前**速度推进游标：改速度只影响之后的前进量。
+		w.pos += float64(w.hop) * w.speed
 	}
 	w.discard()
 }
@@ -235,7 +253,8 @@ func (w *WSOLA) slice(start, frames int) []float32 {
 // discard 丢掉已经用不到的输入。保留范围要覆盖「上一帧分析位置 - 搜索半径」
 // 之前的内容。
 func (w *WSOLA) discard() {
-	keepFrom := w.posPrev - w.search - w.n
+	// 用标称游标算保留范围：实际位置总在它的 ±search 之内，取游标更稳。
+	keepFrom := int(w.pos) - w.search - w.n
 	if keepFrom <= w.skip {
 		return
 	}

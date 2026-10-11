@@ -653,3 +653,64 @@ Liquid Glass（`plugins/glass`）：边缘折射、1px 描光聚光、可选的�
 `prefs.go` 里的 `dbgSlow(name, fn)` 会给一段操作打点，超过 30ms 才打印。
 播放栏的所有操作都套了它。配合 `xdotool` 脚本依次点击各控件，日志里
 出现 `[slow]` 就直接指到具体哪一步 —— 比盯着代码猜快得多。
+
+## 音频流水线的设计（2026-10 重整）
+
+这一块出过几次问题（倍速卡死、EQ 卡 22 秒、均衡把声音压没），根因都是
+**局部补丁**式的改法。这里把整套设计写清楚，以后按这套判断。
+
+### 数据流
+
+```
+HTTP Range 流
+  └─ go-m4a 解封装（m4a.Reader，支持 SeekSample 直接定位到帧）
+      └─ AAC 解码（aacpcm → s16le 交错）
+          └─ WSOLA 变速不变调
+              └─ 压缩器（音量均衡）
+                  └─ 重采样（仅当流的采样率 ≠ 输出上下文采样率）
+                      └─ s16le 字节 → oto 声卡输出
+```
+
+### 锁的模型（三把，各管一块）
+
+| 锁 | 保护 | 谁在用 |
+|---|---|---|
+| `Player.mu` | `cur`/`op`/`speed`/`eqOn`/`vol` 这些**指针与标量** | 所有 Player 方法 |
+| `pipeline.mu` | 解码器、输入输出缓冲、seek 重建 | `Read`（oto goroutine）、`seek` |
+| `pipeline.wsMu` | **只有 `ws` 这一个指针** | `position()`、`setWS()` |
+| `Compressor.mu` / `WSOLA.mu` | 各自的内部状态 | 各自的方法 |
+
+**铁律：不许握着任何一把锁做网络 I/O。**
+
+- `Play` 在锁外建流水线（`m4a.NewReader` 要发 HTTP），进锁只做交换；
+  建好后用**当前值**重新套一遍 speed/eqOn（建的那几秒里用户的改动不能被
+  快照吃掉）。
+- `Read`/`seek` 里的网络读必须在 `pipeline.mu` 内（要与重建互斥），
+  所以**任何会被 UI 线程或上报循环调用的读写都不能用这把锁**——
+  `setEQ` 因此走 `Compressor.mu`，`position()` 因此走 `wsMu`。
+- 违反这条的后果不是"慢一点"：实测 UI 卡过 22 秒。
+
+### WSOLA 的游标：必须增量推进
+
+合成端的标称分析游标 `pos` **只按 `hop × 当帧速度` 增量前进**，不写成
+`frame × step`：
+
+- `frame × step` 里 `step` 含 speed，改一次倍速会把**过去所有帧**也按新
+  速度重算 —— 播 1 分钟后切 2x，游标一次性向前跳 1 分钟的源音频，输入
+  永远跟不上，`produce()` 再也产不出东西 → **音频卡死、进度乱跳**。
+- 增量推进时，改速度只影响**之后**每帧前进的距离，游标连续。
+- 原来的写法是为了防漂移（不能用 `posPrev + step` 递推，因为互相关每帧
+  能挪 ±search）。现在两者兼顾：**游标走标称值，互相关只决定"实际取哪
+  一段"，不进游标**。`posPrev` 保留下来只作相似度模板。
+
+改速度的契约：**任何时刻改速度都必须连续、不许停顿、不许让源位置回退**。
+`TestWSOLASpeedChangeMidStream` / `TestWSOLAManySpeedChanges` 钉住这条
+（含 0.5x/0.75x/2x/3x、以及连点档位）。
+
+### 音量均衡：压缩 + **补偿增益**
+
+原版用 Web Audio 的 `DynamicsCompressorNode`（threshold -50 / knee 40 /
+ratio 12 / attack 0 / release 0.25）。它自带**自动补偿增益**（让 0 dBFS
+输入仍是 0 dBFS）—— 只抄压缩曲线不抄补偿，就是"一开均衡所有声音变小"。
+起音必须是瞬时的（原版 attack: 0）：用平滑包络会在峰值处停在"较低电平
+对应的高增益"上，把满幅内容抬过 1.0 造成削波。

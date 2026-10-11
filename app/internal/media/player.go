@@ -302,6 +302,11 @@ func (p *Player) reportLoop(stop chan struct{}) {
 // 实现 io.Reader 供 oto 拉取。
 type pipeline struct {
 	mu sync.Mutex
+	// wsMu 只保护 ws 这一个指针。position() 要读它，而流水线锁 mu 会被
+	// Read/seek 的网络 I/O 长期持有 —— 共用一个锁会让进度上报跟着卡住
+	//（实测过同类问题：UI 上的 SetSpeed/EQ 卡 22 秒）。分开之后
+	// 「读进度」永远不会被 I/O 挡住。
+	wsMu sync.Mutex
 
 	rf   *remoteFile
 	rd   *m4a.Reader
@@ -365,10 +370,23 @@ func (p *pipeline) duration() float64 {
 	return p.info.Duration.Seconds()
 }
 
-func (p *pipeline) position() float64 {
-	p.mu.Lock()
+// wsNow 取当前的变速器指针（不阻塞在流水线锁上）。
+func (p *pipeline) wsNow() *WSOLA {
+	p.wsMu.Lock()
 	ws := p.ws
-	p.mu.Unlock()
+	p.wsMu.Unlock()
+	return ws
+}
+
+// setWS 换变速器（seek 重建时）。
+func (p *pipeline) setWS(ws *WSOLA) {
+	p.wsMu.Lock()
+	p.ws = ws
+	p.wsMu.Unlock()
+}
+
+func (p *pipeline) position() float64 {
+	ws := p.wsNow()
 	if ws == nil {
 		return 0
 	}
@@ -436,7 +454,7 @@ func (p *pipeline) seek(seconds float64) error {
 	// SourcePosition 用源采样率换算秒。seek 只重定位不解码，前面
 	// 的帧没经过变速，所以直接用 seconds × 源采样率。
 	startSample := int(seconds * float64(p.info.SampleRate))
-	p.ws = NewWSOLA(p.channels, p.ws.Speed(), startSample)
+	p.setWS(NewWSOLA(p.channels, p.wsNow().Speed(), startSample))
 	if p.eq.Enabled() {
 		p.eq.SetEnabled(true)
 	}
@@ -446,11 +464,20 @@ func (p *pipeline) seek(seconds float64) error {
 }
 
 // Read 实现 io.Reader，供 oto 拉取 s16le 字节。
+//
+// 用循环而不是让 fillLocked 自我递归：WSOLA 可能一次读不满一帧（倍速越高、
+// 每次要的输入越多；流式源每次只给一块也很常见），递归会在这种时候一直
+// 压栈。这里循环到有产出、或读到流末端为止。
 func (p *pipeline) Read(b []byte) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for p.outAt >= len(p.out) {
+	for {
+		if p.outAt < len(p.out) {
+			n := copy(b, p.out[p.outAt:])
+			p.outAt += n
+			return n, nil
+		}
 		if p.eof {
 			p.done = true
 			return 0, io.EOF
@@ -460,9 +487,6 @@ func (p *pipeline) Read(b []byte) (int, error) {
 			return 0, err
 		}
 	}
-	n := copy(b, p.out[p.outAt:])
-	p.outAt += n
-	return n, nil
 }
 
 // fillLocked 解码一块、变速、均衡，产出 s16le 字节到 p.out。
@@ -500,16 +524,14 @@ func (p *pipeline) fillLocked() error {
 		p.flt[i] = float32(int16(uint16(p.src[2*i])|uint16(p.src[2*i+1])<<8)) / 32768
 	}
 
-	scaled := p.ws.Push(p.flt)
+	scaled := p.wsNow().Push(p.flt)
 	p.eq.Process(scaled)
 	if p.rs != nil {
 		scaled = p.rs.Push(scaled)
 	}
 	p.out = appendS16(p.out[:0], scaled)
 	p.outAt = 0
-	if len(p.out) == 0 {
-		return p.fillLocked() // WSOLA 还没攒够一帧，继续读
-	}
+	// 没攒够一帧时 out 为空：直接返回，Read 的循环会再读一块。
 	return nil
 }
 
