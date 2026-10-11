@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ebitengine/oto/v3"
@@ -35,6 +36,9 @@ type Player struct {
 	onError    func(error)
 
 	stopProgress chan struct{}
+
+	// gen 是起播代号，见 Play。
+	gen atomic.Uint64
 }
 
 // NewPlayer 建一个播放器。
@@ -55,6 +59,10 @@ func (p *Player) OnError(fn func(error)) { p.onError = fn }
 // Referer 与 User-Agent）。
 func (p *Player) Play(url string, headers map[string]string) error {
 	p.Stop()
+	// 给这次起播一个代号。建流水线要发 HTTP（几秒级），期间用户完全可能
+	// 又切了一首 —— 那时这一次的结果必须作废，否则两个 oto player 会
+	// **同时**在拉数据（两首歌叠着放），而且先前那个永远关不掉。
+	gen := p.gen.Add(1)
 
 	rf, err := newRemoteFile(url, headers)
 	if err != nil {
@@ -75,8 +83,26 @@ func (p *Player) Play(url string, headers map[string]string) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.ctx == nil {
-		return errors.New("media: 音频上下文未建立")
+	if p.ctx == nil || p.gen.Load() != gen {
+		// 上下文没建好，或期间已有更新的起播：关掉这次建好的，
+		// 什么都不装。
+		p.mu.Unlock()
+		pipe.close()
+		p.mu.Lock()
+		return errSuperseded
+	}
+	// 安装前先关掉上一个（并发的起播可能在这之前装上了自己的）。
+	if p.op != nil {
+		p.op.Close()
+		p.op = nil
+	}
+	if p.cur != nil {
+		p.cur.close()
+		p.cur = nil
+	}
+	if p.stopProgress != nil {
+		close(p.stopProgress)
+		p.stopProgress = nil
 	}
 	// 建流水线期间用户可能改过倍速/均衡，以**当前**值为准，
 	// 不然这几秒里的改动会被建的时候那份快照吃掉。
@@ -91,6 +117,9 @@ func (p *Player) Play(url string, headers map[string]string) error {
 	go p.reportLoop(p.stopProgress)
 	return nil
 }
+
+// errSuperseded 表示这次起播被更新的起播取代了（调用方通常忽略它）。
+var errSuperseded = errors.New("media: 起播已被新的请求取代")
 
 // ensureContext 保证有一个 oto 上下文，返回输出采样率。
 //

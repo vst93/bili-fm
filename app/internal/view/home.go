@@ -233,9 +233,11 @@ func (a *App) coverDisc(c *ui.Context) {
 						InsetShadow(0, 0, 0, 1, ui.Hex("#ffffff").Alpha(0.10)).
 						Label(pick(a.Playing, "暂停", "播放"))
 					disc.Children(func() {
-						// 唱片：播放时 22s 一圈（框架已支持位图旋转，见
-						// internal/mygo fork 的 raster.image / scene.Op.Rotation）。
-						// Loop 的进度驱动角度，暂停时框架停帧，自然停在原地。
+						// 唱片：播放时 22s 一圈。v0.4.3 的 Transforms 让
+						// Rotate 对任意元素生效（含图片）—— 之前只有矢量图标
+						// 会转，位图转不了，这块一直静止。（我们提的上游
+						// PR #201 就是干这个的，现在被官方的 Transforms 取代了。）
+						// Loop 的进度驱动角度；暂停时不构建，停在原地。
 						if a.coverBitmap() != nil || Logo != nil {
 							img := a.coverImage(c)
 							if a.Playing {
