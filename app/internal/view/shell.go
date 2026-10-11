@@ -45,7 +45,7 @@ func (a *App) Shell(c *ui.Context) {
 
 // backdrop 叠出时段背景渐变。
 func (a *App) backdrop(c *ui.Context) {
-	const bands = 12
+	const bands = 4
 	for _, b := range a.Theme.Period.BackdropBands(bands) {
 		ui.Box(c).FillWidth().Grow(1).LinearGradient(ui.LinearGradient{
 			From: b[0], To: b[1], Angle: 180,

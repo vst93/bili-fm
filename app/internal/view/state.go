@@ -503,6 +503,9 @@ type App struct {
 
 	// Modal 是当前显示的模态对话框（nil 表示没有）。
 	Modal *Modal
+	// discAngle / discLast 是唱片的旋转角度与上次推进时间（见 advanceDisc）。
+	discAngle float32
+	discLast  time.Time
 	// drawerOpenKey / drawerOpenedAt 用来算抽屉的上滑入场进度。
 	drawerOpenKey  string
 	drawerOpenedAt time.Time

@@ -233,15 +233,29 @@ func (a *App) coverDisc(c *ui.Context) {
 						InsetShadow(0, 0, 0, 1, ui.Hex("#ffffff").Alpha(0.10)).
 						Label(pick(a.Playing, "暂停", "播放"))
 					disc.Children(func() {
-						// 唱片：播放时 22s 一圈。v0.4.3 的 Transforms 让
-						// Rotate 对任意元素生效（含图片）—— 之前只有矢量图标
-						// 会转，位图转不了，这块一直静止。（我们提的上游
-						// PR #201 就是干这个的，现在被官方的 Transforms 取代了。）
-						// Loop 的进度驱动角度；暂停时不构建，停在原地。
+						// 唱片：播放时 22s 一圈（原版 #video-cover.record-disc）。
+						//
+						// **用 AnimatePose，不要用 Rotate**：Rotate 的角度是在
+						// 视图里算的，意味着每一帧都要重建整个视图 —— 实测
+						// （llvmpipe 纯 CPU 渲染、800×600）连续旋转要吃掉 200%
+						// 单核，一个音乐播放器不该这样。AnimatePose 的中间帧走
+						// 框架「只重绘不重建」那条路（runtime 的 repaintFrame +
+						// repose），代价低一个数量级。
+						//
+						// 做法：每次视图重建时把目标角度推到 discSpinStep 之后
+						// 应到的角度，用等长的线性过渡覆盖这一段；中间帧由框架
+						// 插值，角速度恒定。播放时进度上报每 500ms 会重建一次
+						// 视图，所以 1s 的步长留了余量。
 						if a.coverBitmap() != nil || Logo != nil {
+							a.advanceDisc(time.Now())
 							img := a.coverImage(c)
 							if a.Playing {
-								img.Rotate(img.Loop("disc", discSpinPeriod, ui.Linear) * 360)
+								rate := float32(discSpinStep) / float32(discSpinPeriod) * 360
+								img.AnimatePose(ui.Pose{Rotate: a.discAngle + rate},
+									ui.Animation{Duration: discSpinStep, Ease: ui.Linear})
+							} else {
+								img.AnimatePose(ui.Pose{Rotate: a.discAngle},
+									ui.Animation{Duration: discSpinStep, Ease: ui.Linear})
 							}
 						}
 					})
@@ -322,6 +336,25 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 
 // discSpinPeriod 是唱片一圈的周期（原版 #video-cover.record-disc 的 22s）。
 const discSpinPeriod = 22 * time.Second
+
+// discSpinStep 是每次视图重建时往前推的旋转过渡长度。播放时进度上报每
+// 500ms 会重建一次视图，这里取 1s 留余量（目标始终按挂钟算，早推不会跳）。
+const discSpinStep = time.Second
+
+// advanceDisc 把唱片角度按经过的时间推进；暂停时不推，停在原地。
+func (a *App) advanceDisc(now time.Time) {
+	if a.discLast.IsZero() {
+		a.discLast = now
+		return
+	}
+	if dt := now.Sub(a.discLast); dt > 0 && a.Playing {
+		a.discAngle += float32(dt.Seconds()/discSpinPeriod.Seconds()) * 360
+		if a.discAngle > 360 {
+			a.discAngle -= 360
+		}
+	}
+	a.discLast = now
+}
 
 // videoInfo 是右栏（原版 #video-info，固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
