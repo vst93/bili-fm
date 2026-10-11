@@ -514,6 +514,7 @@ func (c *controller) wireActions() {
 		ToggleEQ:           func() { dbgSlow("toggleEQ", c.toggleEQ) },
 		ToggleSponsor:      c.toggleSponsor,
 		SetVolume:          c.setVolume,
+		PersistVolume:      c.persistVolume,
 		ToggleMute:         c.toggleMute,
 		OpenVideo:          c.openVideo,
 		CloseVideo:         c.closeVideo,

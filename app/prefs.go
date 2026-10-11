@@ -99,6 +99,11 @@ func (c *controller) setVolume(v float64) {
 	if c.media != nil {
 		c.media.SetVolume(v)
 	}
+}
+
+// persistVolume 只把音量写盘。单独拆出来是因为拖滑杆时每帧都会调
+// setVolume，而落盘只在松手时做一次（原版同样的分工）。
+func (c *controller) persistVolume(v float64) {
 	_ = c.kv.SetString(prefVolume, strconv.FormatFloat(v, 'f', -1, 64))
 }
 

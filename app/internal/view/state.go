@@ -277,6 +277,9 @@ type Actions struct {
 	ToggleEQ      func()
 	ToggleSponsor func()
 	SetVolume     func(v float64)
+	// PersistVolume 只把音量落盘（原版注释：音量偏好**仅在拖动提交/静音
+	// 切换时写**，不跟着每次 input 事件写 —— 拖一次要写几十次盘）。
+	PersistVolume func(v float64)
 	ToggleMute    func()
 	OpenVideo     func()
 	CloseVideo    func()
@@ -467,6 +470,9 @@ type App struct {
 	// 新 seek 目标只更新 PendingSeek，等这次跑完再补一次——
 	// 连续拖动不会堆叠多个重建。
 	SeekBusy bool
+	// wasVolHeld 是上一帧指针是否按在音量滑杆上（识别松手的下降沿，
+	// 用来决定什么时候落盘）。
+	wasVolHeld bool
 	// wasHeld 是上一帧指针是否按在进度条上（识别松手的下降沿）。
 	// 用 Dragged() 的 ok 而不是 Pressed()：Pressed() 在指针移出细轨道
 	// 时就是 false，拖动中会被误判成松手。

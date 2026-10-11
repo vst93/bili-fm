@@ -461,12 +461,19 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 
 			v := a.Volume
 			sl := ui.Slider(c, &v, 0, 1).Grow(1).Height(24).Label("音量")
+			_, _, held := sl.Dragged()
 			if sl.Changed() {
 				a.Volume = v
+				// 拖动中只应用到音频，**不落盘**（原版注释：仅在拖动提交时写。
+				// 跟着每次 input 写的话，拖一次要写几十次盘）。
 				if a.Act.SetVolume != nil {
 					a.Act.SetVolume(v)
 				}
 			}
+			if a.wasVolHeld && !held && a.Act.PersistVolume != nil {
+				a.Act.PersistVolume(a.Volume)
+			}
+			a.wasVolHeld = held
 		})
 	})
 }
