@@ -22,6 +22,14 @@ import (
 // drawerIn 是抽屉上滑入场的时长。
 const drawerIn = 220 * time.Millisecond
 
+// drawerProgress 返回抽屉入场的进度（0→1），由打开时间算。
+func drawerProgress(a *App) float32 {
+	if age := time.Since(a.drawerOpenedAt); age < drawerIn {
+		return float32(age) / float32(drawerIn)
+	}
+	return 1
+}
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
 	if a.Drawer == "" {
@@ -35,16 +43,17 @@ func (a *App) drawer(c *ui.Context) {
 	if a.Drawer != a.drawerOpenKey {
 		a.drawerOpenKey, a.drawerOpenedAt = a.Drawer, time.Now()
 	}
-	overlay := ui.Box(c).Absolute().Fill().Background(ui.Hex("#0f172a").Alpha(0.28))
+	// 遮罩随入场渐显（原版抽屉的遮罩是过渡出来的，不是瞬间盖上）。
+	prog := drawerProgress(a)
+	overlay := ui.Box(c).Absolute().Fill()
+	overlay.Opacity(overlay.AnimateTo("drawer-bg", prog,
+		ui.Animation{Duration: drawerIn})).
+		Background(ui.Hex("#0f172a").Alpha(0.28))
 	overlay.Children(func() {
 		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
 		// （--liquid-blur-thin：小面积用薄玻璃），所以面板本身也是真玻璃。
 		// 上滑入场（原版抽屉是从底部滑上来的）。进度由打开时间算，
 		// 位移交给 AnimateTo 平滑。
-		prog := float32(1)
-		if age := time.Since(a.drawerOpenedAt); age < drawerIn {
-			prog = float32(age) / float32(drawerIn)
-		}
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
 			Material(glass.Glass{}).

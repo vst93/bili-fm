@@ -382,6 +382,13 @@ func (a *App) videoInfoHead(c *ui.Context) {
 	ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
 		face := ui.ButtonBase(c.Key("owner-face")).Size(40, 40).Radius(RadiusPill).Clip().
 			Background(t.CoverPlaceholder()).Label("UP 主空间")
+		// 悬停放大 5%（原版 #video-owner-face 的 hover:scale-105）。
+		// 用 AnimatePose：只重绘不重建视图，便宜。
+		scale := float32(1)
+		if face.Hovered() {
+			scale = 1.05
+		}
+		face.AnimatePose(ui.Pose{Scale: scale}, ui.Snappy)
 		face.Children(func() {
 			if bmp := a.Images.Bitmap(a.ownerFace()); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
