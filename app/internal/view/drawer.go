@@ -234,23 +234,10 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(92).Height(32).Padding(0, 8).
 		Radius(Radius).Label("隐身").Tooltip("开启后不读取或上报云端播放记录与进度")
-	switch {
-	case a.Incognito:
-		b.Background(ui.Hex("#cffafe").Alpha(0.5)).
-			Border(1, ui.Hex("#0e7490").Alpha(0.34)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
-			Shadow(0, 2, 8, 0, ui.Hex("#0e7490").Alpha(0.10))
-	case b.Hovered():
-		b.Background(ui.Hex("#ffffff").Alpha(0.5)).
-			Border(1, ui.Hex("#64748b").Alpha(0.32)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.62)).
-			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
-	default:
-		b.Background(ui.Hex("#ffffff").Alpha(0.34)).
-			Border(1, ui.Hex("#64748b").Alpha(0.2)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.62)).
-			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
-	}
+	// 材质走框架玻璃；开启隐身时用青色 Tint 表达（原版是 rgba(207,250,254,.5) 底）。
+	b.Material(glassTint(a.Incognito, b.Hovered(),
+		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30))).
+		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
 	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
@@ -341,19 +328,12 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 
 // folderTab 是一个收藏夹 tab（原版显示「标题 (条数)」）。
 func (a *App) folderTab(c *ui.Context, f Folder) {
-	t := a.Theme
 	active := f.ID == a.FolderID
 	label := fmt.Sprintf("%s (%d)", f.Title, f.Count)
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("folder-%d", f.ID))).Height(32).Padding(0, 14).
 		Radius(Radius).Center().Label(label)
-	switch {
-	case active:
-		b.Background(ui.Hex("#ffffff").Alpha(0.52)).Border(1, t.GlassBorderBright)
-	case b.Hovered():
-		b.Background(t.LiquidBgHover).Border(1, t.GlassBorderBright)
-	default:
-		b.Background(t.LiquidBg).Border(1, t.GlassBorder)
-	}
+	b.Material(glassTint(active, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30)))
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).Bold().SingleLine().MaxWidth(180).
 			TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))
@@ -466,16 +446,17 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 	// 原版是抽屉里的 Card（与视频卡片同一套玻璃材质），当前合集加 2px 主色边。
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("series-%d", s.ID))).FillWidth().
 		Padding(8).Radius(12).AlignItems(ui.Start)
+	// 与列表卡片同一套：框架玻璃 + 当前项 2px 主色边。
 	switch {
 	case active:
-		b.Background(t.Glass).Border(2, ui.Hex("#006FEE"))
+		b.Material(glass.Glass{Tint: ui.Hex("#006FEE").Alpha(0.18)}).
+			Border(2, ui.Hex("#006FEE"))
 	case b.Hovered():
-		b.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+		b.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)}).
+			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		b.Background(t.Glass).Border(1, t.GlassBorder).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)).
-			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
+		b.Material(glass.Glass{}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 	b.Children(func() {
