@@ -308,10 +308,10 @@ func (a *App) videoInfo(c *ui.Context) {
 		// 原版 #video-title h2：22px / 800 / 2 行截断 / min-height 52。
 		ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
 			MinHeight(52).MaxLines(2).Margin(8, 0, 0, 0).Selectable()
-		// 原版 #video-desc：13px / #9ca3af / max-height 14vh 截断
-		//（600 高的窗口 ≈ 4 行）。
-		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#9ca3af")).
-			MaxLines(4).Margin(6, 0, 0, 0).Selectable()
+		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
+		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）。
+		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
+			MaxLines(3).Margin(14, 0, 0, 0).Selectable()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
@@ -412,9 +412,14 @@ func (a *App) partPill(c *ui.Context) {
 	if inPlaylist {
 		source = "播放列表"
 	}
-	ui.Row(c).MaxWidth(430).Height(36).Margin(12, 0, 0, 0).Padding(5, 11).
+	// 原版 .video-part-pill：min-height 36、margin-top 12、padding 5 11、
+	// 薄玻璃底 rgba(255,255,255,.15) + 1px 白边（.38）、外侧 0 2px 10px
+	// rgba(15,23,42,.035)、内侧顶部一线高光。
+	ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).Border(1, ui.Hex("#ffffff").Alpha(0.38)).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.64)).
+		Background(ui.Hex("#ffffff").Alpha(0.15)).
+		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
