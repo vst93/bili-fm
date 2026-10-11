@@ -494,7 +494,7 @@ func (a *App) contextDock(c *ui.Context) {
 		sr := a.iconButton(c, "dock-search", "搜索结果", iconSearch, 20, func() {
 			a.Drawer = DrawerSearch
 		})
-		sr.Disabled(len(a.ListFor(DrawerSearch).Cards) == 0)
+		disableNav(sr, len(a.ListFor(DrawerSearch).Cards) == 0)
 		// 选集：非播放列表模式且有视频时图标是蓝色（原版 fill 逻辑）。
 		partsInk := ui.Color{}
 		if a.PlayingPlaylist == "" && a.Track != nil {
@@ -503,7 +503,7 @@ func (a *App) contextDock(c *ui.Context) {
 		a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, a.openParts)
 		// 合集：还没选过合集时禁用。
 		series := a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.openSeries)
-		series.Disabled(a.SeriesID == 0)
+		disableNav(series, a.SeriesID == 0)
 		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
 		plist := a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, 20, func() {
 			if a.Drawer == DrawerPlaylist {
@@ -517,7 +517,7 @@ func (a *App) contextDock(c *ui.Context) {
 			if a.PlayingPlaylist == ListSeries {
 				ink = ui.Hex("#a855f7") // 合集来源是紫色（原版）
 			}
-			plist.Disabled(false)
+			disableNav(plist, false)
 			_ = ink
 		}
 		if n := a.playlistBadgeCount(); n > 0 {
@@ -526,7 +526,7 @@ func (a *App) contextDock(c *ui.Context) {
 				Absolute().Right(-4).Top(-4).Padding(1, 4).Radius(RadiusPill).
 				Background(a.playlistBadgeInk())
 			badge.Label("播放列表数量")
-			plist.Disabled(false)
+			disableNav(plist, false)
 		}
 	})
 }
@@ -625,7 +625,8 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, ac
 		AlignItems(ui.Center).Shrink(0)
 	col.Children(func() {
 		b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
-			Radius(ToolButtonR).Center().Label(key).Tooltip(key).Disabled(off)
+			Radius(ToolButtonR).Center().Label(key).Tooltip(key)
+		disableNav(b, off)
 		switch {
 		case off:
 			b.Background(ui.Transparent)
@@ -646,6 +647,17 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, ac
 				SingleLine().MaxWidth(ToolButton)
 		}
 	})
+}
+
+// disableNav 把按钮设成原版 `.nav-icon-btn:disabled` 的样子：禁用 +
+// opacity .3。mygo 的禁用态自己会乘 .5，这里再乘 .6 补到 .3
+// （注意 IsDisabled 查不到「之后才调用 Disabled」的情况，所以显式传参）。
+func disableNav(b ui.Element, off bool) ui.Element {
+	b.Disabled(off)
+	if off {
+		b.Opacity(0.6)
+	}
+	return b
 }
 
 // iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。

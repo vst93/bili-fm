@@ -63,6 +63,16 @@ func (a *App) playerBar(c *ui.Context) {
 	}
 }
 
+// disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
+// 禁用 + opacity .42（mygo 的禁用态自己乘 .5，这里再乘 .84）。
+func disablePlayerButton(b ui.Element, off bool) ui.Element {
+	b.Disabled(off)
+	if off {
+		b.Opacity(0.84)
+	}
+	return b
+}
+
 // transport 是第 1 列（80px）：播放/暂停（42） + 下一集（32）。
 func (a *App) transport(c *ui.Context) {
 	t := a.Theme
@@ -98,6 +108,10 @@ func (a *App) transport(c *ui.Context) {
 		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
 			Label("下一集").Tooltip("下一集")
 		next.Disabled(!a.canNavigate())
+		if !a.canNavigate() {
+			// 原版 .player-button:disabled 是 opacity .42（mygo 已乘 .5）。
+			next.Opacity(0.84)
+		}
 		next.Background(pressFeedback(next, ui.Transparent, t.GlassHover, t.GlassActive))
 		next.Border(1, t.GlassBorder).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
