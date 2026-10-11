@@ -127,15 +127,21 @@ func (a *App) progress(c *ui.Context) {
 	//   按下中    —— 绝不写（滑块跟手），松手（Pressed 下降沿）发一次 seek。
 	// OnProgress 的副作用在拖动中跳过（见 main.go）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-	if !s.Pressed() {
-		// 未按下：滑块跟随播放。
-		a.SeekValue = a.Pos
-	}
-	// 松手瞬间（上一帧 pressed、这一帧已松开）：滑块停在的位置就是目标。
+
+	// 松手下降沿：**先**读滑块停在的位置发 seek（这一帧 SeekValue 还是
+	// 用户放下的值），**再**做跟随——顺序反了就会拿旧 Pos 覆盖掉目标，
+	// seek 跳回原地（点击/拖动「失效」的根因）。
 	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
 		a.Act.Seek(a.SeekValue)
 	}
 	a.wasPressed = s.Pressed()
+
+	if !s.Pressed() && !a.wasPressed && !a.SeekBusy {
+		// 未按下、也没有 seek 在跑：滑块跟随播放。
+		// （seek 在跑时停在目标值，等 OnProgress 报出新位置——
+		// 重定位 + 重建解码器要几百 ms~秒级，期间跟随会弹回旧位置。）
+		a.SeekValue = a.Pos
+	}
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -368,13 +374,16 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek。
+	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek；
+	// seek 在跑时停在目标值（不弹回旧位置）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-	if !s.Pressed() {
-		a.SeekValue = a.Pos
-	}
+
 	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
 		a.Act.Seek(a.SeekValue)
 	}
 	a.wasPressed = s.Pressed()
+
+	if !s.Pressed() && !a.wasPressed && !a.SeekBusy {
+		a.SeekValue = a.Pos
+	}
 }
