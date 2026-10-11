@@ -50,12 +50,22 @@ func (a *App) searchField(c *ui.Context) {
 	t := a.Theme
 	// 原版内腔：padding-left 10（文字视觉起点）/ padding-right 1（提交键
 	// 离右 1px、离上下 1px，四周等距）；内凹 = 顶部深影 + 底部亮高光。
+	// 原版 [data-slot="input-wrapper"]：高 36、左内边距 10、右 1；
+	// 1px 边 rgba(100,116,139,.14)、底 rgba(15,23,42,.025)（不是白底，
+	// 是很淡的内凹腔）、内影 inset 0 1px 2px rgba(15,23,42,.06) +
+	// inset 0 -0.5px 0 白 .3；聚焦时描边转蓝并加一圈 2px 光环。
 	slot := ui.Row(c).Grow(1).Height(SearchSlotH).Radius(SearchSlotR).
 		Padding(0, 1, 0, 10).
-		Background(ui.Hex("#ffffff").Alpha(0.80)).
-		Border(1, ui.Hex("#94a3b8").Alpha(0.35)).
-		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.08)).
+		Background(ui.Hex("#0f172a").Alpha(0.025)).
+		Border(1, ui.Hex("#64748b").Alpha(0.14)).
+		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.06)).
+		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.30)).
 		AlignItems(ui.Center)
+	if slot.FocusWithin() {
+		slot.Border(1, ui.Hex("#0ea5e9").Alpha(0.40)).
+			Background(ui.Hex("#ffffff").Alpha(0.05)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	}
 	var in ui.Element
 	slot.Children(func() {
 		in = ui.TextInputBase(c, &a.Query).Grow(1).FontSize(14).
