@@ -187,7 +187,8 @@ func (a *App) volumeButton(c *ui.Context) {
 // speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
 func (a *App) speedButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("speed")).Size(32, 32).Radius(Radius).Center().
+	// 原版 .player-speed-button：40×32（列宽同为 40）。
+	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
 		Label("倍速").Tooltip("倍速")
 	switch {
 	case a.ShowSpeed:
@@ -209,7 +210,8 @@ func (a *App) speedButton(c *ui.Context) {
 // eqButton 是第 7 列（34px）：均衡开关。
 func (a *App) eqButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("eq")).Size(32, 32).Radius(Radius).Center().
+	// 原版 .player-eq-button：34×32（列宽 34）。
+	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
 		Label("均衡").Tooltip("均衡")
 	switch {
 	case a.EQ:
@@ -230,7 +232,8 @@ func (a *App) eqButton(c *ui.Context) {
 // sponsorButton 是第 8 列（40px）：跳过赞助片段开关。
 func (a *App) sponsorButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("sponsor")).Size(32, 32).Radius(Radius).Center().
+	// 原版 .player-sponsor-button：34×32（列宽 40，留 6px 余量）。
+	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label("跳过赞助").Tooltip("跳过赞助片段")
 	switch {
 	case a.Sponsor:
@@ -277,9 +280,16 @@ func sponsorDotColor(status string) ui.Color {
 func (a *App) speedPopover(c *ui.Context) {
 	t := a.Theme
 	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
-		ui.Row(c).Absolute().Right(44).Bottom(60).Padding(4).Gap(2).
-			Radius(14).Background(t.Panel).Border(1, t.GlassBorder).
-			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).AlignItems(ui.Center).
+		// 原版 .player-speed-popover：速度列（右起 108..148）左侧 10px → 右边 158；
+		// 高 32（4 padding + 24 选项）居中于 56 的栏 → 距底 12。
+		// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
+		// 与音量弹层的薄玻璃不同（倍速弹层要压住下面的内容）。
+		ui.Row(c).Absolute().Right(158).Bottom(12).Padding(4).Gap(2).
+			Radius(14).Background(ui.Hex("#ffffff").Alpha(0.82)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.72)).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.95)).
+			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).
+			AlignItems(ui.Center).
 			Children(func() {
 				for _, opt := range speedOptions {
 					active := abs(opt-a.Speed) < 0.001
@@ -311,17 +321,26 @@ func (a *App) speedPopover(c *ui.Context) {
 
 // volumePopover 是音量滑块，从播放栏第 5 列上方弹出。
 func (a *App) volumePopover(c *ui.Context) {
-	a.volumePopoverAt(c, 190, 60)
+	// 原版 .player-volume-popover 挂在音量按钮的列容器上（right: calc(100%+10px)、
+	// top: 50% + translateY(-50%)）：弹层在按钮**左侧 10px**、并与播放栏垂直居中。
+	// 主窗右侧列宽 18(pad)+40+8+34+8+40+8+34 = 190 → 弹层右边 = 200；
+	// 高 42 居中于 56 的栏 → 距底 (56-42)/2 = 7。
+	a.volumePopoverAt(c, 200, 7, 184, 42, 14)
 }
 
 // volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量按钮
 // **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。
-func (a *App) volumePopoverAt(c *ui.Context, right, bottom float32) {
+func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32) {
 	t := a.Theme
 	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
-		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(184).Height(42).
-			Padding(0, 10).Radius(14).Background(t.Panel).Border(1, t.GlassBorder).
-			Shadow(0, 8, 24, 0, shadowInk.Alpha(0.12)).Gap(8).
+		// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
+		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
+		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).
+			Padding(0, 10, 0, 8).Radius(radius).
+			Background(ui.Hex("#ffffff").Alpha(0.34)).Border(1, t.GlassBorder).
+			InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90)).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
+			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(8).
 			AlignItems(ui.Center).Children(func() {
 			// 静音键：独立的切换（原版 player-volume-mute-button）。
 			mute := ui.ButtonBase(c.Key("volume-mute")).Size(26, 26).Radius(RadiusSmall).

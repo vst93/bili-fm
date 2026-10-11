@@ -99,7 +99,9 @@ func (a *App) MiniShell(c *ui.Context) {
 
 		// 音量弹层（迷你窗里也要能弹出来，否则音量键点了没反应）。
 		if a.ShowVolume {
-			a.volumePopoverAt(c, 8, 44)
+			// 原版 mini：158×38、圆角 12，音量列（右起 10+34）左侧 8px → 右边 52；
+			// 高 38 居中于 43 的 mini 栏 → 距底 (43-38)/2 ≈ 2。
+			a.volumePopoverAt(c, 52, 2, 158, 38, 12)
 		}
 		a.toastViewport(c)
 	})

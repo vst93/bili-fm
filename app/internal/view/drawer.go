@@ -51,7 +51,9 @@ func (a *App) drawer(c *ui.Context) {
 // 表头里放：抽屉自己的 tab（或标题）+ 刷新键。
 func (a *App) drawerHeader(c *ui.Context) {
 	t := a.Theme
-	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 16).
+	// HeroUI 的 DrawerHeader/DrawerBody 都是 px-6（24），所以表头左边距
+	// 与正文一致；右侧 44 给绝对定位的关闭键让位。
+	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 24).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		a.drawerTabs(c)
 		// 收藏抽屉的收藏夹 tab 自己占满剩余宽度（可横向滚动），不再放弹性占位。
