@@ -28,7 +28,7 @@ func (a *App) playlistTabs(c *ui.Context) {
 	// 定位到当前播放的记录：只在当前 tab 就是正在播放的来源时有效。
 	if a.PlayingPlaylist == a.PlaylistTab {
 		if items := a.playlistActive(a.PlaylistTab); a.Index >= 0 && a.Index < len(items) {
-			a.headerButton(c, "playlist-locate", "定位到当前播放的记录", iconLocate, func() {
+			a.headerButton(c, "playlist-locate", "定位到当前播放的记录", iconLocate, 18, ui.Hex("#888888"), func() {
 				a.locateNow = true
 			})
 		}
@@ -37,7 +37,7 @@ func (a *App) playlistTabs(c *ui.Context) {
 	a.playModeButton(c)
 
 	if a.PlaylistTab == ListUser && len(a.Playlist) > 0 {
-		a.headerButton(c, "playlist-clear", "清空播放列表", iconDelete, func() {
+		a.headerButton(c, "playlist-clear", "清空播放列表", iconDelete, 18, ui.Hex("#888888"), func() {
 			if a.Act.ClearPlaylist != nil {
 				a.Act.ClearPlaylist(ListUser)
 			}

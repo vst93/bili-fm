@@ -68,7 +68,12 @@ func (a *App) drawerHeader(c *ui.Context) {
 			ui.Text(c, fmt.Sprintf("%d 条", len(a.list().Cards))).FontSize(11).TextColor(t.Faint)
 		}
 		if a.refreshable() {
-			a.headerButton(c, "drawer-refresh", "刷新", iconRefresh, func() {
+			// 原版刷新键：20px #333（弹幕抽屉是 18px，见下）。
+			refreshSize := float32(20)
+			if a.Drawer == DrawerDanmaku {
+				refreshSize = 18
+			}
+			a.headerButton(c, "drawer-refresh", "刷新", iconRefresh, refreshSize, ui.Hex("#333333"), func() {
 				if a.Act.Reload != nil {
 					a.Act.Reload()
 				}
@@ -132,7 +137,9 @@ func (a *App) drawerTabs(c *ui.Context) {
 			a.incognitoSwitch(c)
 		}
 	case "favorite":
-		ui.Text(c, "收藏").FontSize(14).Bold().TextColor(ui.Hex("#334155")).Shrink(0)
+		// 原版 collectList 表头文案是「收藏列表」，字重是默认 400（text-sm 无 weight 类）。
+		ui.Text(c, "收藏列表").FontSize(14).FontWeight(400).
+			TextColor(ui.Hex("#334155")).Shrink(0)
 		if len(a.Folders) == 0 {
 			ui.Text(c, "暂无收藏内容").FontSize(12).TextColor(t.Faint)
 			break
@@ -150,7 +157,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		})
 		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
-		ui.Text(c, "动态列表").FontSize(14).Bold().TextColor(ui.Hex("#334155"))
+		ui.Text(c, "动态列表").FontSize(14).FontWeight(400).TextColor(ui.Hex("#334155"))
 	case DrawerUp:
 		a.upHeader(c)
 	case DrawerParts:
@@ -160,7 +167,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 	case DrawerPlaylist:
 		a.playlistTabs(c)
 	case DrawerSeries:
-		ui.Text(c, a.seriesLabel()).FontSize(14).Bold().SingleLine().
+		ui.Text(c, a.seriesLabel()).FontSize(14).FontWeight(400).SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
@@ -172,7 +179,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 			}
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, iconPlay).Size(12, 12).TextColor(ui.Hex("#475569"))
+					ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
 					ui.Text(c, "播放全部").FontSize(12).TextColor(ui.Hex("#475569"))
 				})
 			})
@@ -181,7 +188,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 			}
 		}
 	default:
-		ui.Text(c, a.drawerTitle()).FontSize(14).Bold().TextColor(ui.Hex("#334155"))
+		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(400).
+			TextColor(ui.Hex("#334155"))
 	}
 }
 
@@ -189,14 +197,17 @@ func (a *App) drawerTabs(c *ui.Context) {
 // 「{名字}」的空间 + 关注 / 已关注 + 视频 / 合集 tab。
 func (a *App) upHeader(c *ui.Context) {
 	t := a.Theme
-	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).Bold().
+	// 原版 upVideoList 表头：「name」的空间（14/500）+ 粉丝数（12 default-500）
+	// + 关注键（min-w 70、图标 14）。
+	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(500).
 		SingleLine().MaxWidth(200).TextColor(ui.Hex("#334155")).Shrink(0)
 	if a.UpFans > 0 {
-		ui.Text(c, "粉丝 "+compactCount(a.UpFans)).FontSize(12).TextColor(t.Faint).Shrink(0)
+		ui.Text(c, "粉丝 "+compactCount(a.UpFans)).FontSize(12).
+			TextColor(ui.Hex("#71717a")).Shrink(0)
 	}
 
 	label := pick(a.UpFollowed, "已关注", "关注")
-	b := ui.ButtonBase(c.Key("up-follow")).Height(32).Padding(0, 12).
+	b := ui.ButtonBase(c.Key("up-follow")).MinWidth(70).Height(32).Padding(0, 12).
 		Radius(Radius).Center().Label(label)
 	if b.Hovered() {
 		b.Background(t.GlassHover)
@@ -205,10 +216,11 @@ func (a *App) upHeader(c *ui.Context) {
 	}
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, pick(a.UpFollowed, iconFollowed, iconFollow)).Size(12, 12).
-				TextColor(pick(a.UpFollowed, t.Muted, t.Blue))
-			ui.Text(c, label).FontSize(12).
-				TextColor(pick(a.UpFollowed, t.Muted, t.Blue))
+			// 原版：关注态是 Close #666 + 默认字色；未关注是 Add + text-primary。
+			ui.Icon(c, pick(a.UpFollowed, iconFollowed, iconFollow)).Size(14, 14).
+				TextColor(pick(a.UpFollowed, ui.Hex("#666666"), ui.Hex("#2563eb")))
+			ui.Text(c, label).FontSize(14).
+				TextColor(pick(a.UpFollowed, ui.Hex("#3f3f46"), ui.Hex("#2563eb")))
 		})
 	})
 	if b.Clicked() && a.Act.ToggleFollow != nil {
@@ -370,7 +382,9 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 }
 
 // headerButton 是表头里的图标键（原版是 variant="light" 的小按钮）。
-func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
+// headerButton 是抽屉表头的图标按钮。原版各按钮的图标尺寸/颜色并不统一：
+// 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
+func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	if b.Hovered() {
@@ -378,8 +392,7 @@ func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, fn func
 	} else {
 		b.Background(t.GlassActive)
 	}
-	// 原版抽屉表头的图标按钮统一 18px（FocusOne/Order/Shuffle/Delete）。
-	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(ui.Hex("#475569")) })
+	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
 	if b.Clicked() {
 		fn()
 	}
@@ -458,7 +471,9 @@ func (a *App) seriesListBody(c *ui.Context) {
 		ui.Text(c, "暂无合集视频").FontSize(12).TextColor(t.Faint)
 		return
 	}
-	ui.Row(c).Gap(8).Wrap().AlignItems(ui.Start).Children(func() {
+	// 原版 UP 空间的合集 tab：纵向排列的卡片（flex flex-col gap-2），
+	// 每张卡片 padding 8，标题 14px bold 两行截断 + 「N 个视频」12px default-500。
+	ui.Column(c).Gap(8).Children(func() {
 		for _, s := range a.SeriesList {
 			a.seriesChip(c, s)
 		}
@@ -469,20 +484,30 @@ func (a *App) seriesListBody(c *ui.Context) {
 func (a *App) seriesChip(c *ui.Context, s Series) {
 	t := a.Theme
 	active := s.ID == a.SeriesID
-	b := ui.ButtonBase(c.Key(fmt.Sprintf("series-%d", s.ID))).Height(36).Padding(0, 14).
-		Radius(Radius).Label(fmt.Sprintf("%s (%d)", s.Title, s.Count))
+	// 原版是抽屉里的 Card（与视频卡片同一套玻璃材质），当前合集加 2px 主色边。
+	b := ui.ButtonBase(c.Key(fmt.Sprintf("series-%d", s.ID))).FillWidth().
+		Padding(8).Radius(12).AlignItems(ui.Start)
 	switch {
 	case active:
-		b.Background(ui.Hex("#ffffff").Alpha(0.52)).Border(1, t.GlassBorderBright)
+		b.Background(t.Glass).Border(2, ui.Hex("#006FEE"))
 	case b.Hovered():
-		b.Background(t.LiquidBgHover).Border(1, t.GlassBorderBright)
+		b.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		b.Background(t.LiquidBg).Border(1, t.GlassBorder)
+		b.Background(t.Glass).Border(1, t.GlassBorder).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
+			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 	b.Children(func() {
-		ui.Text(c, fmt.Sprintf("%s (%d)", s.Title, s.Count)).FontSize(13).Bold().
-			SingleLine().MaxWidth(320).
-			TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))
+		ui.Column(c).FillWidth().Children(func() {
+			// <b className="line-clamp-2 text-sm">：14px bold、两行截断。
+			ui.Text(c, s.Title).FontSize(14).FontWeight(700).
+				TextColor(t.Ink).MaxLines(2)
+			// <p className="text-xs text-default-500 mt-1">。
+			ui.Text(c, fmt.Sprintf("%d 个视频", s.Count)).FontSize(12).
+				Margin(4, 0, 0, 0).TextColor(ui.Hex("#71717a"))
+		})
 	})
 	if b.Clicked() {
 		a.SeriesID = s.ID
@@ -798,11 +823,12 @@ func (a *App) partsHeader(c *ui.Context) {
 	if a.Info != nil {
 		n = len(a.Info.Parts)
 	}
-	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).Bold().
+	// 原版 pageList 表头：「选集(N)」是 text-sm（14/400）。
+	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(400).
 		TextColor(ui.Hex("#334155")).Shrink(0)
 
 	if a.Track != nil {
-		a.headerButton(c, "parts-locate", "定位到当前播放的位置", iconLocate, func() {
+		a.headerButton(c, "parts-locate", "定位到当前播放的位置", iconLocate, 18, ui.Hex("#888888"), func() {
 			a.locateNow = true
 		})
 	}
@@ -981,8 +1007,9 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	})
 
 	if a.DanmakuTab == TabDanmaku {
-		a.headerButton(c, "dm-autoscroll", pick(a.DanmakuAutoScroll, "关闭自动跟随", "开启自动跟随"),
-			iconLocate, func() {
+		a.headerButton(c, "dm-autoscroll",
+			pick(a.DanmakuAutoScroll, "关闭自动跟随", "开启自动跟随"),
+			iconLocate, 18, ui.Hex("#888888"), func() {
 				a.DanmakuAutoScroll = !a.DanmakuAutoScroll
 				a.danmakuScrollIdx = -1
 			})
