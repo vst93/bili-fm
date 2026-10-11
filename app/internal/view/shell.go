@@ -164,7 +164,12 @@ func (a *App) ambient(c *ui.Context) {
 	if !a.Ambient {
 		return
 	}
-	bmp := a.coverBitmap()
+	// 氛围光要用**调过色**的那份（原版这一层带 saturate/brightness/contrast
+	// 滤镜，见 imagecache.Ambient），拿不到就退回原图。
+	bmp := a.Images.Ambient(a.coverURL())
+	if bmp == nil {
+		bmp = a.coverBitmap()
+	}
 	if bmp == nil {
 		return
 	}

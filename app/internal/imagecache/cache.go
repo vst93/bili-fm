@@ -6,6 +6,8 @@
 package imagecache
 
 import (
+	"bytes"
+	"image"
 	"io"
 	"net/http"
 	"net/url"
@@ -39,7 +41,10 @@ type Cache struct {
 }
 
 type entry struct {
-	bitmap  *ui.Bitmap
+	bitmap *ui.Bitmap
+	// small 是同一张图的缩小版，只为氛围光的调色留一份源
+	//（见 ambient.go）。64×64 的图像约 16KB。
+	small   *image.RGBA
 	failed  bool
 	pending bool
 	// failedAt 是上次失败的时间，用于冷却后再试（原版 RetryImg 会重试）。
@@ -102,7 +107,7 @@ func (c *Cache) fetch(rawURL string) {
 	src := ThumbURL(rawURL)
 	req, err := http.NewRequest("GET", src, nil)
 	if err != nil {
-		c.finish(rawURL, nil, true)
+		c.finish(rawURL, nil, nil, true)
 		return
 	}
 	req.Header.Set("User-Agent", ua)
@@ -111,28 +116,35 @@ func (c *Cache) fetch(rawURL string) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.finish(rawURL, nil, true)
+		c.finish(rawURL, nil, nil, true)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		c.finish(rawURL, nil, true)
+		c.finish(rawURL, nil, nil, true)
 		return
 	}
 	// 封面是缩略图，限制读取量，避免异常响应把内存吃满。
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		c.finish(rawURL, nil, true)
+		c.finish(rawURL, nil, nil, true)
 		return
 	}
 	bmp, err := ui.DecodeBitmap(data)
-	c.finish(rawURL, bmp, err != nil)
+	var small *image.RGBA
+	if err == nil {
+		// 顺带留一张小图给氛围光调色用（同一份解码数据，不额外请求）。
+		if img, _, derr := image.Decode(bytes.NewReader(data)); derr == nil {
+			small = downscale(img, ambientSource)
+		}
+	}
+	c.finish(rawURL, bmp, small, err != nil)
 }
 
-func (c *Cache) finish(rawURL string, bmp *ui.Bitmap, failed bool) {
+func (c *Cache) finish(rawURL string, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
 	c.mu.Lock()
 	if e := c.items[rawURL]; e != nil {
-		e.bitmap, e.failed, e.pending = bmp, failed, false
+		e.bitmap, e.small, e.failed, e.pending = bmp, small, failed, false
 		if failed {
 			e.failedAt = time.Now()
 		}
