@@ -113,66 +113,68 @@ func (a *App) MiniShell(c *ui.Context) {
 func (a *App) miniPlayerBar(c *ui.Context) {
 	t := a.Theme
 	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
-		// 与主窗同一层框架玻璃。
-		Material(glass.Glass{}).Children(func() {
-		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
-		ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).
-			AlignItems(ui.Center).Children(func() {
-			// 59px：播放 28 + 3 + 下一集 28。
-			ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
-				// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
-				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
-					Label(pick(a.Playing, "暂停", "播放"))
-				// 框架 Interactive 玻璃；播放中用蓝 Tint 表达"正在播"。
-				mg := glass.Glass{Interactive: true}
-				if a.Playing {
-					mg.Tint = ui.Hex("#0ea5e9").Alpha(0.32)
-				} else if play.Hovered() {
-					mg.Tint = ui.Hex("#ffffff").Alpha(0.22)
-				}
-				play.Material(mg)
-				play.Children(func() {
-					ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
-						TextColor(ui.Hex("#0369a1"))
+		// 与主窗同一层框架玻璃 + 同一道向上投影。
+		Material(glass.Glass{}).
+		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
+		Children(func() {
+			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
+			ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).
+				AlignItems(ui.Center).Children(func() {
+				// 59px：播放 28 + 3 + 下一集 28。
+				ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
+					// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
+					play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
+						Label(pick(a.Playing, "暂停", "播放"))
+					// 框架 Interactive 玻璃；播放中用蓝 Tint 表达"正在播"。
+					mg := glass.Glass{Interactive: true}
+					if a.Playing {
+						mg.Tint = ui.Hex("#0ea5e9").Alpha(0.32)
+					} else if play.Hovered() {
+						mg.Tint = ui.Hex("#ffffff").Alpha(0.22)
+					}
+					play.Material(mg)
+					play.Children(func() {
+						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
+							TextColor(ui.Hex("#0369a1"))
+					})
+					if play.Clicked() && a.Act.TogglePlay != nil {
+						a.Act.TogglePlay()
+					}
+
+					next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
+						Label("下一集")
+					disablePlayerButton(next, !a.canNavigate())
+					next.Material(glassTint(false, next.Hovered(),
+						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+					next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
+					if next.Clicked() && a.Act.Next != nil {
+						a.Act.Next()
+					}
 				})
-				if play.Clicked() && a.Act.TogglePlay != nil {
-					a.Act.TogglePlay()
-				}
 
-				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
-					Label("下一集")
-				disablePlayerButton(next, !a.canNavigate())
-				next.Material(glassTint(false, next.Hovered(),
-					ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
-				next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
-				if next.Clicked() && a.Act.Next != nil {
-					a.Act.Next()
-				}
-			})
+				ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
+					Width(44).Shrink(0).Center()
 
-			ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
-				Width(44).Shrink(0).Center()
+				// 与主窗同一套 seek 状态机（见 progress）：拖动中停在目标值，
+				// 松手发 seek、等引擎追上才恢复跟随——否则滑块弹回旧位置。
+				a.miniProgress(c)
 
-			// 与主窗同一套 seek 状态机（见 progress）：拖动中停在目标值，
-			// 松手发 seek、等引擎追上才恢复跟随——否则滑块弹回旧位置。
-			a.miniProgress(c)
+				ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
+					Width(44).Shrink(0).Center()
 
-			ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
-				Width(44).Shrink(0).Center()
-
-			// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
-			ui.Box(c).Width(34).Shrink(0).Children(func() {
-				vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
-					Label("音量")
-				vol.Material(glassTint(false, vol.Hovered(),
-					ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
-				vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
-				if vol.Clicked() {
-					a.ShowVolume = !a.ShowVolume
-				}
+				// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
+				ui.Box(c).Width(34).Shrink(0).Children(func() {
+					vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
+						Label("音量")
+					vol.Material(glassTint(false, vol.Hovered(),
+						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+					vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
+					if vol.Clicked() {
+						a.ShowVolume = !a.ShowVolume
+					}
+				})
 			})
 		})
-	})
 }
 
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标

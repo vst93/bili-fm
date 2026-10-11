@@ -28,12 +28,22 @@ func (a *App) playerBar(c *ui.Context) {
 	// 高度按框架的约定 = 栏高 + 10（软边缘多出的那 10 DIP）。
 	// Background 必须显式给：主题的 Background 被我们设成了透明。
 	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(66).Shrink(0).
-		PassThrough().Material(glass.ScrollEdge{Background: t.PlayerSurface})
+		PassThrough(). // 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
+		// 后者是个不透明的蓝灰，淡出来是一条明显的灰带。
+		// 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
+		// 后者是不透明的蓝灰，淡出来是一条明显的灰带。
+		// Bottom: true = 「栏在元素的底部、效果好从栏向上生」；
+		// 元素是「栏 56 + 上方 10DIP」，方向搞反会变成向下淡出（一条硬边）。
+		Material(glass.ScrollEdge{Background: t.PlayerEdgeFade, Bottom: true})
 	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
 		Material(glass.Glass{}).
+		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影
+		//（0 -10px 28px rgba(15,23,42,.05)，浅色/深色时段都是这个值）。
+		// 前两层内影由玻璃自己的描光承担。
+		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		Children(func() {
 			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
 			// 内容区保持完整 56px。

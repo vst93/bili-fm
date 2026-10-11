@@ -55,7 +55,11 @@ type Theme struct {
 	// 播放栏：只有这一组按时段切（CSS 的 #player 覆盖块）。
 	PlayerSurface ui.Color
 	PlayerBorder  ui.Color
-	PlayerButton  ui.Color
+	// PlayerEdgeFade 是播放栏上沿那 10px 的淡出色（原版 --player-edge-fade）：
+	// 浅色时段是浅蓝 24%，深色时段是灰蓝 11%。用 --player-surface 当淡出色
+	// 会得到一条明显的灰带（两者不是一个用处）。
+	PlayerEdgeFade ui.Color
+	PlayerButton   ui.Color
 }
 
 // darkPeriods 是背景较深、播放栏换烟熏玻璃的时段。
@@ -105,9 +109,10 @@ func ThemeFor(p Period) Theme {
 		Rose: ui.Hex("#e11d48"),
 
 		// 浅色时段的播放栏就是 CSS 里 var(--player-*) 的兜底值。
-		PlayerSurface: ui.Hex("#f1f8fd").Alpha(0.36),
-		PlayerBorder:  ui.Hex("#ffffff").Alpha(0.72),
-		PlayerButton:  ui.Hex("#334155").Alpha(0.72),
+		PlayerSurface:  ui.Hex("#f1f8fd").Alpha(0.36),
+		PlayerBorder:   ui.Hex("#ffffff").Alpha(0.72),
+		PlayerEdgeFade: ui.Hex("#bae6fd").Alpha(0.24),
+		PlayerButton:   ui.Hex("#334155").Alpha(0.72),
 	}
 
 	if darkPeriods[p.Name] {
@@ -115,6 +120,7 @@ func ThemeFor(p Period) Theme {
 		// 只有 #player 的令牌变深（globals.css 的 smoked glass 块）。
 		t.PlayerSurface = ui.Hex("#1e293b").Alpha(0.16)
 		t.PlayerBorder = ui.Hex("#ffffff").Alpha(0.22)
+		t.PlayerEdgeFade = ui.Hex("#475569").Alpha(0.11)
 		t.PlayerButton = ui.Hex("#334155").Alpha(0.84)
 	}
 	return t
