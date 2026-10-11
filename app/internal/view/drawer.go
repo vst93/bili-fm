@@ -34,6 +34,9 @@ func (a *App) drawer(c *ui.Context) {
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
 			Material(glass.Glass{}).
+			// 原版是 border-top: 1px solid var(--glass-border)（其余三边在屏幕外，
+			// 用内阴影画顶线即可）。
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.55)).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
 		panel.Children(func() {
 			a.drawerHeader(c)
@@ -224,22 +227,37 @@ func (a *App) upHeader(c *ui.Context) {
 // incognitoSwitch 是历史抽屉表头里的「隐身」开关（原版 .history-incognito-switch）：
 // 32 高、图标 + 文字 + 一个小轨道。打开后不读也不写云端进度。
 func (a *App) incognitoSwitch(c *ui.Context) {
-	b := ui.ButtonBase(c.Key("incognito")).Height(32).Padding(0, 8).Radius(Radius).
-		Label("隐身").Tooltip("开启后不读取或上报云端播放记录与进度")
-	if a.Incognito {
-		b.Background(ui.Hex("#cffafe").Alpha(0.5)).Border(1, ui.Hex("#0e7490").Alpha(0.34))
-	} else if b.Hovered() {
-		b.Background(ui.Hex("#ffffff").Alpha(0.5)).Border(1, ui.Hex("#64748b").Alpha(0.32))
-	} else {
-		b.Background(ui.Hex("#ffffff").Alpha(0.34)).Border(1, ui.Hex("#64748b").Alpha(0.2))
+	// 原版 .history-incognito-switch：min-width 92、高 32、gap 7、padding 0 8、
+	// 圆角 8、1px 边 rgba(100,116,139,.2)、底 rgba(255,255,255,.34)，
+	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
+	b := ui.ButtonBase(c.Key("incognito")).MinWidth(92).Height(32).Padding(0, 8).
+		Radius(Radius).Label("隐身").Tooltip("开启后不读取或上报云端播放记录与进度")
+	switch {
+	case a.Incognito:
+		b.Background(ui.Hex("#cffafe").Alpha(0.5)).
+			Border(1, ui.Hex("#0e7490").Alpha(0.34)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 2, 8, 0, ui.Hex("#0e7490").Alpha(0.10))
+	case b.Hovered():
+		b.Background(ui.Hex("#ffffff").Alpha(0.5)).
+			Border(1, ui.Hex("#64748b").Alpha(0.32)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.62)).
+			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
+	default:
+		b.Background(ui.Hex("#ffffff").Alpha(0.34)).
+			Border(1, ui.Hex("#64748b").Alpha(0.2)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.62)).
+			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
 	}
 	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, iconMask).Size(15, 15).TextColor(ink)
-			ui.Text(c, "隐身").FontSize(12).TextColor(ink)
-			// 轨道 27×16，滑块 12，打开时右移 11。
+			// .history-incognito-label：12px / 650 / line-height 1。
+			ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(ink)
+			// 轨道 27×16（padding 2、圆角 999、内凹影），滑块 12，打开时右移 11。
 			ui.Box(c).Width(27).Height(16).Shrink(0).Radius(RadiusPill).Padding(2).
+				InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				Background(pick(a.Incognito, ui.Hex("#0891b2"), ui.Hex("#64748b").Alpha(0.32))).
 				Children(func() {
 					ui.Box(c).Size(12, 12).Radius(RadiusPill).Background(ui.Hex("#ffffff")).
