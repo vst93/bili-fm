@@ -17,18 +17,12 @@ func (a *App) toastViewport(c *ui.Context) {
 		for _, t := range toasts {
 			p := ui.ToastBase(c, t)
 			accent, ic := toastAccent(t.Type)
-			// 原版底色：linear-gradient(135deg, rgba(255,255,255,.5), 类型色 8%)。
+			// 材质用框架玻璃，类型色只作为 Tint 透出来 —— 原版那层
+			// 135° 渐变（白 50% → 类型色 8%）是想手搓玻璃，而
+			// LinearGradient 会直接把 Material 顶掉（fill 只有一个）。
+			// 注意：Material 之后不能再调 Background/LinearGradient。
 			p.Root.Row().Gap(8).Padding(8, 16).Radius(13).
-				Material(glass.Glass{}).
-				LinearGradient(ui.LinearGradient{
-					From:  ui.Hex("#ffffff").Alpha(0.50),
-					To:    accent.Alpha(0.08),
-					Angle: 135,
-				}).
-				Border(1, ui.Hex("#ffffff").Alpha(0.55)).
-				// 原版 --glass-specular + --glass-shadow-lifted。
-				InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90)).
-				InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
+				Material(glass.Glass{Tint: accent.Alpha(0.10)}).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
 			p.Root.Children(func() {

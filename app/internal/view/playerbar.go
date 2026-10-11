@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/egoist/mygo/plugins/glass"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -28,12 +30,11 @@ func (a *App) playerBar(c *ui.Context) {
 		To:    t.PlayerSurface,
 		Angle: 180,
 	})
-	// 播放栏玻璃（原版 #player .player-controls 的 box-shadow）：
-	// 顶部 1px 内亮线 + 底部 1px 内暗线（玻璃截面厚度）。
+	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
+	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
+	// （原版那套 inset 亮线/暗线是在手搓同一件事）。
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
-		Background(t.PlayerSurface).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)).
-		InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.05)).
+		Material(glass.Glass{}).
 		Children(func() {
 			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
 			// 内容区保持完整 56px。
@@ -63,6 +64,18 @@ func (a *App) playerBar(c *ui.Context) {
 	}
 }
 
+// glassTint 按「激活 / 悬停 / 常态」给按钮选玻璃的 Tint —— 播放栏里的小按钮
+// 统一走框架玻璃，状态差异只体现在 Tint 上（原版是用半透明白底 + 蓝底表达的）。
+func glassTint(active, hovered bool, activeTint, hoverTint ui.Color) glass.Glass {
+	switch {
+	case active:
+		return glass.Glass{Tint: activeTint}
+	case hovered:
+		return glass.Glass{Tint: hoverTint}
+	}
+	return glass.Glass{}
+}
+
 // disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
 // 禁用 + opacity .42（mygo 的禁用态自己乘 .5，这里再乘 .84）。
 func disablePlayerButton(b ui.Element, off bool) ui.Element {
@@ -79,24 +92,18 @@ func (a *App) transport(c *ui.Context) {
 	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
 		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569，
 		// 内亮线（inset 0 1px 1px rgba(255,255,255,.82)）。
+		// 播放键用框架的 Interactive 玻璃：按下时玻璃会长大一点
+		//（macOS 27 的 NSGlassEffectView 行为），这正是原版那套手搓
+		// inset 阴影想表达而做不到的"液态"感。播放中用 Tint 上蓝。
 		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
-			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放")).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.82))
+			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
+		pg := glass.Glass{Interactive: true}
 		if a.Playing {
-			// 原版 [data-playing]：底 rgba(125,211,252,.16)、边 rgba(2,132,199,.3)、
-			// 阴影 inset 0 1px 1px 白 .82 + inset 0 -2px 4px + 0 4px 12px 蓝。
-			play.Background(pressFeedback(play, ui.Hex("#7dd3fc").Alpha(0.16), t.Blue.Alpha(0.24), t.Blue.Alpha(0.34))).
-				Border(1, ui.Hex("#0284c7").Alpha(0.30)).
-				InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.10)).
-				Shadow(0, 4, 12, 0, ui.Hex("#0284c7").Alpha(0.10))
-		} else {
-			// 原版 :not([data-playing])：边 rgba(148,163,184,.22)、
-			// 阴影 inset 0 1px 1px 白 .76 + 0 3px 10px。
-			play.Background(pressFeedback(play, t.LiquidBg, t.GlassHover, t.GlassActive)).
-				Border(1, ui.Hex("#94a3b8").Alpha(0.22)).
-				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.76)).
-				Shadow(0, 3, 10, 0, ui.Hex("#0f172a").Alpha(0.06))
+			pg.Tint = pick(play.Hovered(), t.Blue.Alpha(0.34), t.Blue.Alpha(0.22))
+		} else if play.Hovered() {
+			pg.Tint = ui.Hex("#ffffff").Alpha(0.22)
 		}
+		play.Material(pg)
 		play.Children(func() {
 			ink := pick(a.Playing, ui.Hex("#0369a1"), ui.Hex("#475569"))
 			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(18, 18).TextColor(ink)
@@ -112,9 +119,8 @@ func (a *App) transport(c *ui.Context) {
 			// 原版 .player-button:disabled 是 opacity .42（mygo 已乘 .5）。
 			next.Opacity(0.84)
 		}
-		next.Background(pressFeedback(next, ui.Transparent, t.GlassHover, t.GlassActive))
-		next.Border(1, t.GlassBorder).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+		next.Material(glassTint(false, next.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
 		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
@@ -246,14 +252,8 @@ func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
 		Label("音量").Tooltip("音量")
-	switch {
-	case a.ShowVolume:
-		b.Background(t.GlassHover)
-	default:
-		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	}
-	b.Border(1, t.GlassBorder).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+	b.Material(glassTint(a.ShowVolume, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
 	// 原版：音量键图标随音量变化（0 视为静音）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -268,18 +268,11 @@ func (a *App) volumeButton(c *ui.Context) {
 
 // speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
 func (a *App) speedButton(c *ui.Context) {
-	t := a.Theme
 	// 原版 .player-speed-button：40×32（列宽同为 40）。
 	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
 		Label("倍速").Tooltip("倍速")
-	switch {
-	case a.ShowSpeed:
-		b.Background(t.GlassHover)
-	default:
-		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	}
-	b.Border(1, t.GlassBorder).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+	b.Material(glassTint(a.ShowSpeed, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
 	b.Children(func() {
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
 	})
@@ -295,14 +288,8 @@ func (a *App) eqButton(c *ui.Context) {
 	// 原版 .player-eq-button：34×32（列宽 34）。
 	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
 		Label("均衡").Tooltip("均衡")
-	switch {
-	case a.EQ:
-		b.Background(t.Blue.Alpha(0.28))
-	default:
-		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	}
-	b.Border(1, t.GlassBorder).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+	b.Material(glassTint(a.EQ, b.Hovered(),
+		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
 	b.Children(func() {
 		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
 	})
@@ -317,14 +304,8 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 原版 .player-sponsor-button：34×32（列宽 40，留 6px 余量）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label("跳过赞助").Tooltip("跳过赞助片段")
-	switch {
-	case a.Sponsor:
-		b.Background(t.Blue.Alpha(0.28))
-	default:
-		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	}
-	b.Border(1, t.GlassBorder).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+	b.Material(glassTint(a.Sponsor, b.Hovered(),
+		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
@@ -367,9 +348,10 @@ func (a *App) speedPopover(c *ui.Context) {
 		// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
 		// 与音量弹层的薄玻璃不同（倍速弹层要压住下面的内容）。
 		ui.Row(c).Absolute().Right(158).Bottom(12).Padding(4).Gap(2).
-			Radius(14).Background(ui.Hex("#ffffff").Alpha(0.82)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.72)).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.95)).
+			Radius(14).
+			// 原版是近乎实白（rf.82）+ blur(10)；换成框架玻璃，抬一级投影
+			// 让它从播放栏上"浮起来"。
+			Material(glass.Glass{}).
 			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).
 			AlignItems(ui.Center).
 			Children(func() {
@@ -419,9 +401,7 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
 		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).
 			Padding(0, 10, 0, 8).Radius(radius).
-			Background(ui.Hex("#ffffff").Alpha(0.34)).Border(1, t.GlassBorder).
-			InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90)).
-			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
+			Material(glass.Glass{}).
 			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(8).
 			AlignItems(ui.Center).Children(func() {
 			// 静音键：独立的切换（原版 player-volume-mute-button）。

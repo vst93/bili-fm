@@ -1,6 +1,7 @@
 package view
 
 import (
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -112,7 +113,8 @@ func (a *App) MiniShell(c *ui.Context) {
 func (a *App) miniPlayerBar(c *ui.Context) {
 	t := a.Theme
 	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
-		Background(t.PlayerSurface).Children(func() {
+		// 与主窗同一层框架玻璃。
+		Material(glass.Glass{}).Children(func() {
 		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
 		ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).
 			AlignItems(ui.Center).Children(func() {
@@ -121,13 +123,14 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
 				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
 					Label(pick(a.Playing, "暂停", "播放"))
-				// 原版 mini .player-play-button：底 rgba(186,230,253,.35)、
-				// 边 rgba(2,132,199,.2)、三层阴影（上内白线 + 下内蓝 + 外投影）。
-				play.Background(ui.Hex("#bae6fd").Alpha(0.35)).
-					Border(1, ui.Hex("#0284c7").Alpha(0.20)).
-					InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
-					InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
-					Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
+				// 框架 Interactive 玻璃；播放中用蓝 Tint 表达"正在播"。
+				mg := glass.Glass{Interactive: true}
+				if a.Playing {
+					mg.Tint = ui.Hex("#0ea5e9").Alpha(0.32)
+				} else if play.Hovered() {
+					mg.Tint = ui.Hex("#ffffff").Alpha(0.22)
+				}
+				play.Material(mg)
 				play.Children(func() {
 					ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
 						TextColor(ui.Hex("#0369a1"))
@@ -139,13 +142,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
 					Label("下一集")
 				disablePlayerButton(next, !a.canNavigate())
-				if next.Hovered() {
-					next.Background(t.GlassHover)
-				} else {
-					next.Background(ui.Transparent)
-				}
-				next.Border(1, t.GlassBorder).
-					InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+				next.Material(glassTint(false, next.Hovered(),
+					ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
 				next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
 				if next.Clicked() && a.Act.Next != nil {
 					a.Act.Next()
@@ -166,13 +164,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 			ui.Box(c).Width(34).Shrink(0).Children(func() {
 				vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
 					Label("音量")
-				if vol.Hovered() {
-					vol.Background(t.GlassHover)
-				} else {
-					vol.Background(ui.Transparent)
-				}
-				vol.Border(1, t.GlassBorder).
-					InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
+				vol.Material(glassTint(false, vol.Hovered(),
+					ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
 				vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
 				if vol.Clicked() {
 					a.ShowVolume = !a.ShowVolume

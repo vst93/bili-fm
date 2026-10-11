@@ -330,18 +330,11 @@ func (a *App) tabs(c *ui.Context, group string, items []tabItem, selected string
 }
 
 func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect func(string)) {
-	t := a.Theme
 	b := ui.ButtonBase(c.Key("tab-"+group+"-"+it.Key)).Height(32).Padding(0, 14).
 		Radius(Radius).Center().Label(it.Label)
-	switch {
-	case active:
-		b.Background(pressFeedback(b, ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.62), t.LiquidBgActive)).
-			Border(1, t.GlassBorderBright)
-	case b.Hovered():
-		b.Background(t.LiquidBgHover).Border(1, t.GlassBorderBright)
-	default:
-		b.Background(t.LiquidBg).Border(1, t.GlassBorder)
-	}
+	// 材质交给框架玻璃（选中态更实一点 = Tint 更亮），不再手搓半透明白 + 描边。
+	b.Material(glassTint(active, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30)))
 	b.Children(func() {
 		// 原版 tab：13px / 600；选中 #0369a1，悬停（未选中）#334155。
 		ink := ui.Hex("#475569")
@@ -386,13 +379,9 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 // headerButton 是抽屉表头的图标按钮。原版各按钮的图标尺寸/颜色并不统一：
 // 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
 func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
-	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(t.GlassActive)
-	}
+	b.Material(glassTint(false, b.Hovered(),
+		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
 	if b.Clicked() {
 		fn()
@@ -653,20 +642,21 @@ func (a *App) card(c *ui.Context, index int) {
 	// overflow: hidden。封面通栏（.img-container 高 100），页脚另有一层浅底。
 	box := ui.Column(c).Key(fmt.Sprintf("card-%d-%s", index, card.Bvid)).Grow(1).Basis(0).
 		Radius(12).Clip().Cursor(ui.CursorPointer)
+	// 卡片本体是框架玻璃；在播/悬停用 Tint + 光圈表达（原版是描边 + 上浮，
+	// mygo 没有位移变换，用外投影代替"抬起"）。
 	switch {
 	case playing:
-		// 正在播放（原版 is-pointer-hovered 的蓝色描边 + 光圈 + 外投影）。
-		box.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+		box.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
+			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
 			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	case box.Hovered():
-		box.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+		box.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)}).
+			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
 			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		box.Border(1, t.GlassBorder).Background(t.Glass).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)).
-			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
+		box.Material(glass.Glass{}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 
@@ -713,8 +703,10 @@ func (a *App) card(c *ui.Context, index int) {
 		})
 
 		// 页脚（原版 [data-slot=footer]）：浅底 + 顶部 1px 白线，px-2 py-1。
+		// 页脚只铺很薄一层白洗色 + 顶部一线分隔，让卡片玻璃透出来
+		//（原版是 rgba(255,255,255,.22)，会把玻璃盖死）。
 		ui.Column(c).FillWidth().Grow(1).Padding(4, 8).
-			Background(ui.Hex("#ffffff").Alpha(0.22)).
+			Background(ui.Hex("#ffffff").Alpha(0.12)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
 				// 原版标题：text-small（14）/ bold / 单行截断。
