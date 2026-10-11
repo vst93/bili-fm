@@ -310,8 +310,14 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 		b.Background(t.LiquidBg).Border(1, t.GlassBorder)
 	}
 	b.Children(func() {
-		ui.Text(c, it.Label).FontSize(13).Bold().
-			TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))
+		// 原版 tab：13px / 600；选中 #0369a1，悬停（未选中）#334155。
+		ink := ui.Hex("#475569")
+		if active {
+			ink = ui.Hex("#0369a1")
+		} else if b.Hovered() {
+			ink = ui.Hex("#334155")
+		}
+		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink)
 	})
 	if b.Clicked() && !active {
 		onSelect(it.Key)
@@ -352,7 +358,8 @@ func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, fn func
 	} else {
 		b.Background(t.GlassActive)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(ui.Hex("#475569")) })
+	// 原版抽屉表头的图标按钮统一 18px（FocusOne/Order/Shuffle/Delete）。
+	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(ui.Hex("#475569")) })
 	if b.Clicked() {
 		fn()
 	}

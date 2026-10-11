@@ -64,7 +64,7 @@ func (a *App) playModeButton(c *ui.Context) {
 		b.Background(t.GlassActive)
 	}
 	b.Children(func() {
-		ui.Icon(c, ic).Size(17, 17).
+		ui.Icon(c, ic).Size(18, 18).
 			TextColor(pick(a.PlayMode == PlayModeSequence, ui.Hex("#475569"), t.Blue))
 	})
 	if b.Clicked() && a.Act.CyclePlayMode != nil {
@@ -88,7 +88,7 @@ func (a *App) playlistBody(c *ui.Context) {
 		}
 		return
 	}
-	ui.Column(c).Gap(2).Children(func() {
+	ui.Column(c).Gap(4).Children(func() {
 		for i := range items {
 			a.playlistRow(c, i, items[i])
 		}
@@ -101,8 +101,9 @@ func (a *App) playlistBody(c *ui.Context) {
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	t := a.Theme
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
-	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(6, 8).
-		Radius(RadiusSmall).Gap(10).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	// 原版行：p-2（8）、rounded-lg（8）、gap-2（8）。
+	row := ui.Row(c).Key("pl-" + item.ID).FillWidth().Padding(8).
+		Radius(Radius).Gap(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 
 	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。
 	editable := a.PlaylistTab == ListUser
@@ -152,16 +153,22 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				if current {
-					ui.Icon(c, iconPlay).Size(11, 11).TextColor(t.Blue)
+					ui.Icon(c, iconPlay).Size(12, 12).TextColor(t.Blue)
 				}
-				ui.Text(c, item.Part).FontSize(13).
-					TextColor(pick(current, t.Blue, ui.Hex("#1f2937"))).SingleLine()
+				// 原版：text-sm（14），当前项 text-blue-600 font-medium。
+				part := ui.Text(c, item.Part).FontSize(14).SingleLine().
+					TextColor(pick(current, t.Blue, ui.Hex("#1f2937")))
+				if current {
+					part.FontWeight(500)
+				}
 			})
-			ui.Text(c, item.Title).FontSize(11).TextColor(t.Faint).SingleLine()
+			// 原版：text-xs（12）text-gray-400。
+			ui.Text(c, item.Title).FontSize(12).TextColor(ui.Hex("#9ca3af")).SingleLine()
 		})
 
 		// 我的列表才允许删除（排序靠拖拽）。
-		if editable {
+		// 原版按钮默认 opacity-0，行 hover 才显形（group-hover:opacity-100）。
+		if editable && row.Hovered() {
 			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose, ui.Hex("#94a3b8"), func() {
 				if a.Act.DeletePlaylistItem != nil {
 					a.Act.DeletePlaylistItem(ListUser, item.ID)
@@ -197,7 +204,7 @@ func (a *App) rowIconButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui
 	} else {
 		b.Background(ui.Transparent)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(14, 14).TextColor(ink) })
+	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(ink) })
 	if b.Clicked() {
 		fn()
 	}
