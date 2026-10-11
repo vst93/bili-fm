@@ -109,6 +109,7 @@ func main() {
 	foldersOnStart := flag.Int("folders", 0, "注入 N 个假收藏夹并打开收藏抽屉（调试用）")
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
+	repliesOnStart := flag.Int("replies", 0, "注入 N 条假评论并打开评论 tab（调试用）")
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
 
@@ -280,6 +281,32 @@ func main() {
 			}
 			app.Danmaku = dms
 			app.DanmakuTab = view.TabDanmaku
+			app.Drawer = view.DrawerDanmaku
+			app.Win.Update(func() {})
+		}
+
+		// 调试用：注入假评论，检查评论 tab 的排版。
+		if *repliesOnStart > 0 {
+			cms := make([]view.Comment, *repliesOnStart)
+			for i := range cms {
+				cms[i] = view.Comment{
+					User:     fmt.Sprintf("用户%d", i+1),
+					Content:  fmt.Sprintf("这是第 %d 条评论的内容，用来检查排版与换行是否正常。", i+1),
+					Likes:    int64(i * 7),
+					Level:    (i % 6) + 1,
+					SendTime: int64(1700000000 - i*3600),
+					Time:     fmt.Sprintf("2026-10-%02d 12:%02d", (i%28)+1, i%60),
+				}
+				if i%3 == 0 {
+					cms[i].Replies = []view.Comment{
+						{User: "回复者A", Content: "楼中楼第一条回复。", SendTime: cms[i].SendTime + 60},
+						{User: "回复者B", Content: "楼中楼第二条回复，稍微长一点看看换行。", SendTime: cms[i].SendTime + 120},
+					}
+				}
+			}
+			app.Comments = cms
+			app.RepliesHasMore = true
+			app.DanmakuTab = view.TabReply
 			app.Drawer = view.DrawerDanmaku
 			app.Win.Update(func() {})
 		}

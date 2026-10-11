@@ -1190,25 +1190,73 @@ func (a *App) repliesBody(c *ui.Context) {
 			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
 		}
 	}
-	ui.Column(c).Gap(12).Children(func() {
+	// 原版评论行配色走 HeroUI 的 default 调色板（zinc）。
+	const (
+		def100 = "#f4f4f5" // 分隔线
+		def200 = "#e4e4e7" // 头像底 / 楼中楼左线
+		def400 = "#a1a1aa" // 时间、点赞
+		def600 = "#52525b" // 正文
+		def700 = "#3f3f46" // 昵称
+		prim   = "#006FEE" // primary-500
+	)
+	ui.Column(c).Children(func() {
 		for i, cm := range sorted {
-			ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Gap(4).Children(func() {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, cm.User).FontSize(12).Bold().TextColor(t.Blue).SingleLine()
-					ui.Text(c, cm.Time).FontSize(10).TextColor(t.Faint)
+			// 原版行：py-2 px-8 + 底部分隔线（border-default-100）。
+			row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
+				Padding(8, 32).Gap(8).InsetShadow(0, -1, 0, 0, ui.Hex(def100))
+			if row.Hovered() {
+				row.Background(ui.Hex("#fafafa"))
+			}
+			row.Children(func() {
+				// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
+						Background(ui.Hex(def200)).Clip()
+					face.Children(func() {
+						if bmp := a.Images.Bitmap(cm.Avatar); bmp != nil {
+							ui.Image(c, bmp).Fill().Fit(ui.Cover)
+						}
+					})
+					ui.Column(c).Children(func() {
+						// text-sm font-medium text-default-700。
+						ui.Text(c, cm.User).FontSize(14).FontWeight(500).
+							TextColor(ui.Hex(def700)).SingleLine()
+						// text-xs text-default-400：Lv.N · 时间。
+						meta := cm.Time
+						if cm.Level > 0 {
+							meta = fmt.Sprintf("Lv.%d · %s", cm.Level, cm.Time)
+						}
+						ui.Text(c, meta).FontSize(12).TextColor(ui.Hex(def400)).SingleLine()
+					})
+				})
+				// 正文区左缩进 40（原版 pl-10，与头像同宽）。
+				ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
+					// text-sm leading-relaxed text-default-600。
+					ui.Text(c, cm.Content).FontSize(14).TextColor(ui.Hex(def600)).MaxLines(10)
 					if cm.Likes > 0 {
-						ui.Text(c, fmt.Sprintf("赞 %d", cm.Likes)).FontSize(10).TextColor(t.Faint)
+						ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
+							Margin(4, 0, 0, 0).TextColor(ui.Hex(def400))
+					}
+					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线。
+					if len(cm.Replies) > 0 {
+						ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
+							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex(def200)).Children(func() {
+							for j, rp := range cm.Replies {
+								ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
+									FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
+									ui.Text(c, rp.User+":").FontSize(12).
+										FontWeight(500).TextColor(ui.Hex(prim)).Shrink(0)
+									ui.Text(c, rp.Content).FontSize(12).
+										TextColor(ui.Hex(def600)).Grow(1).MaxLines(4)
+								})
+							}
+							if cm.RepliesMore || len(cm.Replies) >= 3 {
+								ui.Text(c, "查看更多回复...").FontSize(12).
+									TextColor(ui.Hex(def400))
+							}
+						})
 					}
 				})
-				ui.Text(c, cm.Content).FontSize(12).TextColor(t.Ink).MaxLines(8)
-				for j, rp := range cm.Replies {
-					ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).FillWidth().
-						Padding(4, 8).Radius(RadiusSmall).
-						Background(t.LiquidBg).Gap(6).Children(func() {
-						ui.Text(c, rp.User+"：").FontSize(11).TextColor(t.Blue).Shrink(0)
-						ui.Text(c, rp.Content).FontSize(11).TextColor(t.Muted).Grow(1).MaxLines(3)
-					})
-				}
 			})
 		}
 		if a.RepliesHasMore {
