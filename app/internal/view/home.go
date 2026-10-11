@@ -160,9 +160,9 @@ func (a *App) openSection(key string) {
 // 点击登录；已登录时显示头像。
 func (a *App) userButton(c *ui.Context) {
 	t := a.Theme
+	// 圆形头像键：材质用框架玻璃（头像图盖在上面时玻璃只做边缘）。
 	b := ui.ButtonBase(c.Key("user")).Size(AvatarSize, AvatarSize).Radius(RadiusPill).
-		Center().Clip().Background(t.Glass).
-		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+		Center().Clip().Material(glass.Glass{}).
 		Label(pick(a.LoggedIn, "已登录", "扫码登录")).
 		Tooltip(pick(a.LoggedIn, "已登录 "+a.UName, "扫码登录"))
 	b.Children(func() {

@@ -81,13 +81,13 @@ func (a *App) MiniShell(c *ui.Context) {
 			})
 
 			ui.Column(c).Width(30).Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
-				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, func() {
+				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, func() {
 					if a.Act.SetMini != nil {
 						a.Act.SetMini(false)
 					}
 				})
 				a.miniControl(c, "mini-pin", pick(a.Pinned, "取消窗口置顶", "窗口置顶"),
-					iconPin, func() {
+					iconPin, a.Pinned, func() {
 						if a.Act.TogglePin != nil {
 							a.Act.TogglePin()
 						}
@@ -178,15 +178,15 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标
 // （原版 .mini-window-controls 里的 .app-title-bar-btn + size={16}；
 // 两颗纵向 gap 4 → 30+4+30 = 64，正好与封面同高）。
-func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
+func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(ui.Transparent)
-	}
-	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(t.Muted) })
+	// 常态透明，悬停/激活才铺玻璃（原版 .mini-window-controls 的按钮同样如此）。
+	glassOn(b, active, b.Hovered(),
+		ui.Hex("#0ea5e9").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30))
+	b.Children(func() {
+		ui.Icon(c, ic).Size(16, 16).TextColor(pick(active, t.Blue, t.Muted))
+	})
 	if b.Clicked() {
 		fn()
 	}
