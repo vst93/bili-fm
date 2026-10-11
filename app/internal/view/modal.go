@@ -1,54 +1,56 @@
 package view
 
 import (
-	"fmt"
-
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
 // modal 画当前模态对话框（原版的 DialogProvider + 登录面板）。
 //
-// 覆盖层 rgba(15,23,42,0.28) 不模糊，点空白处关闭；面板是白色玻璃卡片、
-// 圆角 16、投影 0 24 60。
+// v0.4.0 起用官方 `ui.Modal`：Esc / 点外部关闭是框架行为（Dismissed），
+// 焦点圈、覆盖层、居中都不用自己管——之前手绘的 overlay 把整个窗口的
+// 点击都吃掉的教训不会再犯。
+//
+// 登录框的关闭走 CloseLogin（要停轮询），其余走 CloseModal。
 func (a *App) modal(c *ui.Context) {
 	m := a.Modal
 	if m == nil {
 		return
 	}
 	t := a.Theme
+	open := true
 
-	overlay := ui.Box(c).Absolute().Fill().Background(ui.Hex("#0f172a").Alpha(0.28))
-	overlay.Children(func() {
-		ui.Column(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).
-			Center().Children(func() {
-			panel := ui.Column(c).Width(320).Padding(20).
-				Radius(16).Material(glass.Glass{}).
-				Border(1, ui.Hex("#ffffff").Alpha(0.70)).
-				Shadow(0, 24, 60, 0, shadowInk.Alpha(0.20))
-			if m.Kind == "login" {
-				panel.Width(340)
-			}
-			panel.Children(func() {
-				switch m.Kind {
-				case "login":
-					a.modalLogin(c, m, t)
-				default:
-					a.modalMessage(c, m, t)
-				}
-			})
-		})
-	})
-	if overlay.Clicked() {
-		// 登录框要停掉轮询（closeLogin 会换代），其他框直接关。
+	// DialogBase：Esc / 点外部关闭是框架行为，dismissed 在同一帧报告
+	// （panel.Dismissed()），登录框据此停轮询。
+	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
+		// Esc / 点外部关闭是框架行为，Dismissed 同一帧报告；
+		// 登录框据此停轮询（CloseLogin 会换代），其余直接关。
+		panel.Width(320).Padding(20).
+			Radius(16).Material(glass.Glass{}).
+			Border(1, ui.Hex("#ffffff").Alpha(0.70)).
+			Shadow(0, 24, 60, 0, shadowInk.Alpha(0.20))
 		if m.Kind == "login" {
-			if a.Act.CloseLogin != nil {
-				a.Act.CloseLogin()
-			}
-		} else if a.Act.CloseModal != nil {
-			a.Act.CloseModal()
+			panel.Width(340)
 		}
-	}
+		panel.Children(func() {
+			switch m.Kind {
+			case "login":
+				a.modalLogin(c, m, t)
+			default:
+				a.modalMessage(c, m, t)
+			}
+		})
+
+		if panel.Dismissed() {
+			if m.Kind == "login" {
+				if a.Act.CloseLogin != nil {
+					a.Act.CloseLogin()
+				}
+			} else if a.Act.CloseModal != nil {
+				a.Act.CloseModal()
+			}
+		}
+	})
 }
 
 // modalLogin 是扫码登录面板（原版 .login-glass）。
@@ -149,18 +151,4 @@ func splitLines(s string) []string {
 	}
 	out = append(out, s[start:])
 	return out
-}
-
-// fmtBytes 把字节数格式化成 B / KB / MB（原版 formatBytes）。
-func fmtBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
 }
