@@ -1025,8 +1025,9 @@ func (c *controller) setMini(on bool) {
 				a.Win.SetPosition(xi, yi)
 			}
 		}
-		a.Win.SetAlwaysOnTop(true)
-		a.Pinned = true
+		// 迷你窗默认**不**置顶（原版 isMiniPinned 初始 false，进迷你模式
+		// 也不调 set_window_always_on_top）；置顶由窗口上那颗图钉控制。
+		a.Win.SetAlwaysOnTop(a.Pinned)
 		c.startMiniPosPoll()
 	} else {
 		c.stopMiniPosPoll()
