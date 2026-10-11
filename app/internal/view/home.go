@@ -15,12 +15,27 @@ import (
 // max-width 520、高 46、圆角 13、内边距 4、子元素间距 8，
 // 内容依次是「输入内腔 + 四个内容入口 + 头像」。
 func (a *App) searchBar(c *ui.Context) {
+	t := a.Theme
 	ui.Row(c).FillWidth().Height(SearchBarHeight).Shrink(0).Justify(ui.Center).Children(func() {
 		// 原版 .home-searchbar 自己有 backdrop-filter（blur(20px) saturate(1.45)），
 		// 是真玻璃，所以这里用 glass.Glass 而不是半透明填充。
+		// 原版 .home-searchbar：1px 玻璃边、::before 是 blur(20px)+白 22%、
+		// ::after 是 1px 内圈描光（上缘亮、下缘暗），外面两层淡投影；
+		// 悬停时描边转亮、投影抬起。
 		pill := ui.Row(c).Width(SearchBarWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			Material(glass.Glass{})
+			Material(glass.Glass{}).
+			InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90)).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06))
+		if pill.Hovered() {
+			pill.Border(1, t.GlassBorderBright).
+				Shadow(0, 16, 38, 0, ui.Hex("#0f172a").Alpha(0.11)).
+				Shadow(0, 1, 4, 0, ui.Hex("#0f172a").Alpha(0.03))
+		} else {
+			pill.Border(1, t.GlassBorder).
+				Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.07)).
+				Shadow(0, 1, 4, 0, ui.Hex("#0f172a").Alpha(0.03))
+		}
 		pill.Children(func() {
 			a.searchField(c)
 			a.sectionButtons(c)
