@@ -655,14 +655,8 @@ func (a *App) card(c *ui.Context, index int) {
 					Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
 				b.Disabled(pending)
 				b.Absolute().Right(4).Top(4)
-				switch {
-				case pending:
-					b.Background(ui.Hex("#0f172a").Alpha(0.30))
-				case b.Hovered():
-					b.Background(ui.Hex("#0f172a").Alpha(0.62))
-				default:
-					b.Background(ui.Hex("#0f172a").Alpha(0.42))
-				}
+				b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
+					pick(b.Hovered(), float32(0.62), float32(0.45)))})
 				b.Children(func() {
 					ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
 				})
@@ -701,8 +695,7 @@ func (a *App) card(c *ui.Context, index int) {
 func (a *App) playingBadge(c *ui.Context) {
 	ui.Row(c).Absolute().Left(6).Top(6).Height(22).Padding(0, 8, 0, 7).
 		Radius(RadiusPill).Gap(5).AlignItems(ui.Center).
-		Background(ui.Hex("#0f172a").Alpha(0.55)).
-		Border(1, ui.Hex("#ffffff").Alpha(0.28)).Children(func() {
+		Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.58)}).Children(func() {
 		ui.Row(c).Gap(2).AlignItems(ui.End).Height(10).Children(func() {
 			for _, h := range []float32{4, 9, 6} {
 				ui.Box(c).Width(2).Height(h).Radius(1).
@@ -912,13 +905,9 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			add := ui.ButtonBase(c.Key(fmt.Sprintf("part-add-%d", p.Cid))).
 				Size(24, 24).Radius(RadiusPill).Center().Label(addLabel).Tooltip(addLabel)
 			add.Absolute().Right(4).Top(4)
-			if inList {
-				add.Background(ui.Hex("#0f172a").Alpha(0.42))
-			} else if add.Hovered() {
-				add.Background(ui.Hex("#0f172a").Alpha(0.62))
-			} else {
-				add.Background(ui.Hex("#0f172a").Alpha(0.42))
-			}
+			// 压在封面上：Clear 玻璃 + 深色 Tint（与封面上的三个开关同一套）。
+			add.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
+				pick(add.Hovered(), float32(0.62), float32(0.45)))})
 			add.Children(func() {
 				ui.Icon(c, pick(inList, iconCheck, iconAdd)).Size(13, 13).
 					TextColor(pick(inList, ui.Hex("#4ade80"), ui.Hex("#ffffff")))
@@ -1143,18 +1132,16 @@ func (a *App) danmakuBody(c *ui.Context) {
 						chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 							Height(27).Padding(3, 7, 3, 9).Gap(5).
 							Radius(8).AlignItems(ui.Center).
-							Background(ui.Hex("#ffffff").Alpha(0.48)).
-							Border(1, ui.Hex("#ffffff").Alpha(0.52)).
-							InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+							// 材质走框架玻璃（原版是白色半透明小胶囊）。
+							Material(glass.Glass{}).
 							Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
 						switch {
 						case isCur:
-							chip.Background(ui.Hex("#f0f9ff").Alpha(0.76)).
+							chip.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
 								Border(1, t.Blue.Alpha(0.48)).
 								Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
 						case box.Hovered():
-							chip.Background(ui.Hex("#ffffff").Alpha(0.58)).
-								Border(1, ui.Hex("#ffffff").Alpha(0.68))
+							chip.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.22)})
 						}
 						chip.Children(func() {
 							// .danmaku-message-text：13px / 650 / 单行截断。
