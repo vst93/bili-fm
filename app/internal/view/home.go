@@ -186,6 +186,8 @@ func (a *App) nowPlaying(c *ui.Context) {
 func (a *App) coverDisc(c *ui.Context) {
 	ui.Row(c).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		shell := ui.Box(c).Size(292, 292).Shrink(0)
+		// 原版 .cover-mode-toggle 默认 opacity:0，.cover-shell:hover 才显形。
+		shellHovered := shell.Hovered()
 		shell.Children(func() {
 			if a.CoverMode == "square" {
 				sq := ui.ButtonBase(c.Key("disc")).Fill().Radius(14).Clip().
@@ -197,12 +199,18 @@ func (a *App) coverDisc(c *ui.Context) {
 					a.Act.TogglePlay()
 				}
 			} else {
-				ring := ui.Box(c).Fill().Radius(RadiusPill).
-					Border(1, ui.Hex("#ffffff").Alpha(0.20)).Center()
+				// 外圈玻璃环（原版 .cover-shell::before）：inset 3% →
+				// 292 × 0.94 ≈ 274，1px 白边 + 柔和投影；唱片 263 居中其内。
+				ring := ui.Box(c).Size(274, 274).AlignSelf(ui.Center).Radius(RadiusPill).
+					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
+					Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).Center()
 				ring.Children(func() {
+					// 唱片（原版 #video-cover）：90% 于外环 = 263，深底 + 1px
+					// 白边 + 内侧 1px 白线（inset 0 0 0 1px rgba(255,255,255,.1)）。
 					disc := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(RadiusPill).Clip().
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
+						InsetShadow(0, 0, 0, 1, ui.Hex("#ffffff").Alpha(0.10)).
 						Label(pick(a.Playing, "暂停", "播放"))
 					disc.Children(func() {
 						// 唱片：播放时 22s 一圈（框架已支持位图旋转，见
@@ -222,7 +230,9 @@ func (a *App) coverDisc(c *ui.Context) {
 			}
 
 			// 三个小开关：碟片/封面、封面背景、高级质感。
-			ui.Row(c).Absolute().Right(6).Bottom(6).Gap(4).Children(func() {
+			// 原版底部右起 8px，彼此间距 6（28 + 6 = 34）；整组随封面悬停淡入。
+			ui.Row(c).Absolute().Right(8).Bottom(8).Gap(6).
+				Opacity(pick(shellHovered, float32(0.85), float32(0))).Children(func() {
 				a.coverToggle(c, "cover-mode", "切换封面模式",
 					iconRefresh, true, func() {
 						if a.Act.SetCoverMode == nil {
@@ -252,19 +262,28 @@ func (a *App) coverDisc(c *ui.Context) {
 // coverToggle 是封面上的一个小开关（原版 .cover-mode-toggle）。active 为真时
 // 底色更亮、图标用强调色，与旧版的 is-active 一致。
 func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
-	t := a.Theme
-	b := ui.ButtonBase(c.Key("cover-"+key)).Size(26, 26).Radius(RadiusPill).
+	b := ui.ButtonBase(c.Key("cover-"+key)).Size(28, 28).Radius(RadiusPill).
 		Center().Label(label).Tooltip(label)
+	// 原版：深色半透明圆（rgba(15,23,42,.35)）+ 1px 白边；
+	// 激活改蓝底 rgba(14,165,233,.28) + 浅蓝边 rgba(125,211,252,.45)；
+	// 悬停底色加深到 .55。
 	switch {
 	case active:
-		b.Background(ui.Hex("#ffffff").Alpha(0.72)).Border(1, t.GlassBorderBright)
+		b.Background(ui.Hex("#0ea5e9").Alpha(0.28)).
+			Border(1, ui.Hex("#7dd3fc").Alpha(0.45))
 	case b.Hovered():
-		b.Background(ui.Hex("#ffffff").Alpha(0.52))
+		b.Background(ui.Hex("#0f172a").Alpha(0.55)).Border(1, ui.Hex("#ffffff").Alpha(0.25))
 	default:
-		b.Background(ui.Hex("#ffffff").Alpha(0.30)).Border(1, t.GlassBorder)
+		b.Background(ui.Hex("#0f172a").Alpha(0.35)).Border(1, ui.Hex("#ffffff").Alpha(0.25))
 	}
 	b.Children(func() {
-		ui.Icon(c, ic).Size(13, 13).TextColor(pick(active, t.Blue, t.Muted))
+		ink := ui.Hex("#ffffff").Alpha(0.70)
+		if active {
+			ink = ui.Hex("#ffffff").Alpha(0.95)
+		} else if b.Hovered() {
+			ink = ui.Hex("#ffffff").Alpha(0.95)
+		}
+		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
 	})
 	if b.Clicked() {
 		fn()
