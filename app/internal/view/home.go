@@ -83,10 +83,10 @@ func (a *App) searchField(c *ui.Context) {
 		submit.Disabled(searching)
 		submit.Children(func() {
 			if searching {
-				// 搜索中的小旋转（原版 .search-submit-spinner）。
-				spin := ui.Icon(c, iconPopular).Size(18, 18).TextColor(t.Blue)
-				spin.Loop("search-spin", time.Second, ui.Linear)
-				spin.Rotate(searchSpinDeg())
+				// 搜索中：用框架的 Spinner（原版是自己写 CSS 关键帧做
+				// .search-submit-spinner）。v0.4.2 起 Spinner 会跟着
+				// TextColor 上色，所以能直接染成主题蓝。
+				ui.Spinner(c).Size(18, 18).TextColor(t.Blue)
 			} else {
 				ui.Icon(c, iconMagnifier).Size(18, 18).
 					TextColor(pick(submit.Hovered(), ui.Hex("#0284c7"), ui.Hex("#64748b")))
@@ -313,12 +313,6 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 
 // discSpinPeriod 是唱片一圈的周期（原版 #video-cover.record-disc 的 22s）。
 const discSpinPeriod = 22 * time.Second
-
-// searchSpinDeg 是搜索按钮小旋转的角度（每秒一圈）。
-func searchSpinDeg() float32 {
-	ns := time.Now().UnixNano()
-	return float32(ns%int64(time.Second)) / float32(time.Second) * 360
-}
 
 // videoInfo 是右栏（原版 #video-info，固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。

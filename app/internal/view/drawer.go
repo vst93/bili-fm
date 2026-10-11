@@ -1271,15 +1271,20 @@ func (a *App) repliesBody(c *ui.Context) {
 			})
 		}
 		if a.RepliesHasMore {
+			// 原版是 HeroUI 的 <Button isLoading>，加载时按钮里带一个 spinner；
+			// mygo 的 Spinner 从 v0.4.2 起跟着 TextColor 上色。
 			more := ui.ButtonBase(c.Key("reply-more")).FillWidth().Height(32).Radius(Radius).
 				Center().Label("加载更多评论")
-			if more.Hovered() {
-				more.Background(t.GlassHover)
-			} else {
-				more.Background(t.Glass)
-			}
+			more.Material(glassTint(false, more.Hovered(),
+				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 			more.Children(func() {
-				ui.Text(c, pick(a.RepliesLoading, "加载中…", "加载更多评论")).FontSize(12).TextColor(t.Muted)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					if a.RepliesLoading {
+						ui.Spinner(c).Size(14, 14).TextColor(t.Muted)
+					}
+					ui.Text(c, pick(a.RepliesLoading, "加载中", "加载更多评论")).
+						FontSize(12).TextColor(t.Muted)
+				})
 			})
 			if more.Clicked() && !a.RepliesLoading && a.Act.LoadComments != nil {
 				a.Act.LoadComments(a.ReplyPage + 1)

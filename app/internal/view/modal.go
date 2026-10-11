@@ -147,22 +147,15 @@ func (a *App) modalButton(c *ui.Context, label string, primary bool, fn func()) 
 	// padding 8 22、圆角 10、13px / 500。
 	b := ui.ButtonBase(c.Key("modal-"+label)).Height(34).Padding(0, 22).
 		Radius(10).Center().Label(label)
-	switch {
-	case primary:
-		b.LinearGradient(ui.LinearGradient{
-			From:  ui.Hex("#0ea5e9").Alpha(0.88),
-			To:    ui.Hex("#38bdf8").Alpha(0.82),
-			Angle: 135,
-		}).
-			Border(1, ui.Hex("#0ea5e9").Alpha(0.40)).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.40)).
+	// 材质走框架玻璃：主按钮用较实的蓝色 Tint 表达"强调"，普通按钮是素玻璃。
+	// （原版主按钮是 135° 蓝渐变 —— 那是手搓玻璃的做法，换成 Tint 更贴框架材质。）
+	if primary {
+		// Tint 要给足：玻璃本身会把颜色稀释，0.5 时白字对比度不够。
+		b.Material(glass.Glass{Tint: pick(b.Hovered(), t.Blue.Alpha(0.85), t.Blue.Alpha(0.75))}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0ea5e9").Alpha(0.22))
-	default:
-		b.Background(ui.Hex("#ffffff").Alpha(0.45)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.50))
-		if b.Hovered() {
-			b.Background(t.GlassHover)
-		}
+	} else {
+		b.Material(glassTint(false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 	}
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).
