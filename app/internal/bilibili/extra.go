@@ -354,6 +354,9 @@ type SponsorSegment struct {
 	Category string  `json:"category"`
 	Start    float64 `json:"start"`
 	End      float64 `json:"end"`
+	// VideoDuration 是这条标记对应的视频时长。原版拿它和实际媒体时长比对
+	//（容差 2s），不一致就丢弃——同一视频的不同版本分段位置不能混用。
+	VideoDuration float64 `json:"videoDuration"`
 }
 
 // 独立且超时短的 client：SponsorBlock 是可选增强，绝不能让慢接口拖住播放。
@@ -392,10 +395,11 @@ func (bl *BL) FetchSponsorSegments(bvid string, cid int64) ([]SponsorSegment, er
 	}
 	// 服务端可能返回对象数组或分段数组，两种都试。
 	var raw []struct {
-		Category string          `json:"category"`
-		Segment  []float64       `json:"segment"`
-		Action   string          `json:"action"`
-		Segments [][]interface{} `json:"segments"`
+		Category      string          `json:"category"`
+		Segment       []float64       `json:"segment"`
+		Action        string          `json:"action"`
+		Segments      [][]interface{} `json:"segments"`
+		VideoDuration float64         `json:"videoDuration"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
@@ -403,7 +407,12 @@ func (bl *BL) FetchSponsorSegments(bvid string, cid int64) ([]SponsorSegment, er
 	var out []SponsorSegment
 	for _, r := range raw {
 		if len(r.Segment) == 2 {
-			out = append(out, SponsorSegment{Category: r.Category, Start: r.Segment[0], End: r.Segment[1]})
+			out = append(out, SponsorSegment{
+				Category:      r.Category,
+				Start:         r.Segment[0],
+				End:           r.Segment[1],
+				VideoDuration: r.VideoDuration,
+			})
 			continue
 		}
 		// 旧格式：segments 是 [[start, end], ...]

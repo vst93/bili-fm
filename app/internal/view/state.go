@@ -64,6 +64,9 @@ type Danmaku struct {
 // Segment 是一个跳过分段（SponsorBlock），用于进度条上的广告段标记。
 type Segment struct {
 	Start, End float64
+	// VideoDuration 非 0 时用来校验「这条标记是否属于当前这一版视频」，
+	// 与实际总时长差超过 2s 就不画（原版 SPONSOR_DURATION_TOLERANCE_SECONDS）。
+	VideoDuration float64
 }
 
 // Comment 是一条评论（Replies 是楼中楼预览，原版只取前几条）。

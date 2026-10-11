@@ -110,6 +110,7 @@ func main() {
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
 	repliesOnStart := flag.Int("replies", 0, "注入 N 条假评论并打开评论 tab（调试用）")
+	sponsorOnStart := flag.Int("sponsor", 0, "注入 N 段假广告段标记（调试用）")
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
 
@@ -282,6 +283,22 @@ func main() {
 			app.Danmaku = dms
 			app.DanmakuTab = view.TabDanmaku
 			app.Drawer = view.DrawerDanmaku
+			app.Win.Update(func() {})
+		}
+
+		// 调试用：注入假广告段，检查进度条上的分段标记。
+		if *sponsorOnStart > 0 {
+			list := make([]view.Segment, *sponsorOnStart)
+			for i := range list {
+				start := float64(i)*97 + 40
+				list[i] = view.Segment{Start: start, End: start + 55}
+			}
+			app.SponsorSegments = list
+			app.Sponsor = true
+			app.SponsorStatus = "ok"
+			// 无头环境里媒体不会真的加载，Dur 一直是 0 —— 标记按比例画，
+			// 所以给个假总时长才能看到效果。
+			app.Dur = 600
 			app.Win.Update(func() {})
 		}
 
@@ -708,7 +725,7 @@ func (c *controller) switchDanmakuTab(tab string) {
 func toViewSegments(segs []bilibili.SponsorSegment) []view.Segment {
 	out := make([]view.Segment, 0, len(segs))
 	for _, s := range segs {
-		out = append(out, view.Segment{Start: s.Start, End: s.End})
+		out = append(out, view.Segment{Start: s.Start, End: s.End, VideoDuration: s.VideoDuration})
 	}
 	return out
 }

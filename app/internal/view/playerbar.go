@@ -167,10 +167,16 @@ const (
 	timelineThumb  = 14 // 滑块直径
 )
 
+// sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
+const sponsorTolerance = 2.0
+
 // paintTimeline 画进度条的轨道、已播进度与滑块。原版这套外观是纯 CSS
 // （6px 轨道 + 1px 白边 + 青→蓝渐变填充 + 14px 玻璃滑块），框架默认的
 // Slider 只有一条素色轨道，所以这里用 SliderBase + 自绘。
-func paintTimeline(p *ui.Painter, r ui.Rect, frac float32) {
+//
+// segs 是广告段（SponsorBlock）。**只按数据画，与「自动跳过」开关无关** ——
+// 原版注释写得很明确：查到 segments 就画，开关只控制要不要自动跳。
+func paintTimeline(p *ui.Painter, r ui.Rect, frac float32, segs []Segment, dur float64) {
 	if frac < 0 {
 		frac = 0
 	} else if frac > 1 {
@@ -182,6 +188,24 @@ func paintTimeline(p *ui.Painter, r ui.Rect, frac float32) {
 		Y: cy - timelineTrackH/2,
 		W: r.W - timelineInset*2,
 		H: timelineTrackH,
+	}
+	// 广告段标记先画：原版这一层是 z-index 0（在轨道 z-index 1 之下），
+	// 所以红色是透过半透明轨道透出来的淡红，而不是压在轨道上的实红。
+	if dur > 0 {
+		for _, seg := range segs {
+			if seg.VideoDuration > 0 && abs(seg.VideoDuration-dur) > sponsorTolerance {
+				continue // 分段属于另一版视频，位置对不上，丢掉
+			}
+			lo := clampF(float64(seg.Start)/dur, 0, 1)
+			hi := clampF(float64(seg.End)/dur, 0, 1)
+			if hi <= lo {
+				continue
+			}
+			x0 := track.X + track.W*float32(lo)
+			x1 := track.X + track.W*float32(hi)
+			p.Fill(ui.Rect{X: x0, Y: track.Y, W: x1 - x0, H: track.H},
+				ui.Hex("#f87171").Alpha(0.35), 0)
+		}
 	}
 	// 未播部分：半透明白（原版 --player-track-rest）。
 	p.Fill(track, ui.Hex("#ffffff").Alpha(0.32), timelineTrackH/2)
@@ -249,7 +273,8 @@ func (a *App) progress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac) })
+	segs, dur := a.SponsorSegments, a.Dur
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
 }
 
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
@@ -507,5 +532,17 @@ func (a *App) miniProgress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac) })
+	segs, dur := a.SponsorSegments, a.Dur
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
+}
+
+// clampF 把 v 夹到 [lo, hi]。
+func clampF(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
