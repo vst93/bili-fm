@@ -413,7 +413,15 @@ func main() {
 		}
 
 		// 关闭窗口 = 隐藏到托盘（与旧版一致），从托盘或 Dock 恢复。
-		// quitting 为真时不再拦截，否则 App.Quit() 关不掉窗口、进程退不出。
+		//
+		// 真正退出时不能拦：App.Quit() 的流程是「先问每个窗口能不能关，
+		// 都同意才退」，而这里把「用户点关闭键」解释成隐藏并 PreventDefault，
+		// 于是退出会被取消 —— 之前设置菜单的「退出应用」和托盘的
+		// RoleQuit 都因此无效。
+		//
+		// 统一在 OnBeforeQuit 置位：它在「问窗口」**之前**触发，所以
+		// 不管退出是谁发起的（菜单、托盘 Role、Cmd+Q、系统关机）都能生效。
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { c.quitting = true })
 		app.Win.OnClose(func(e *mygo.CloseEvent) {
 			if c.quitting {
 				return
@@ -544,7 +552,7 @@ func (c *controller) wireActions() {
 		RemoveWatchLater:   c.removeWatchLater,
 		SetMini:            c.setMini,
 		TogglePin:          c.togglePin,
-		Quit:               func() { mygo.App.Quit() },
+		Quit:               c.quit,
 		Minimize:           func() { a.Win.Minimize() },
 	}
 }
