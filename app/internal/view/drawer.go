@@ -739,12 +739,14 @@ func (a *App) partsHeader(c *ui.Context) {
 			a.locateNow = true
 		})
 	}
-	// 选集搜索（原版 .part-search）：输入标题片段，回车滚到下一个匹配的分集
-	//（连续回车继续下一个，循环）。
-	ui.Box(c).Grow(1).MinWidth(0).Height(30).Radius(RadiusSmall).
-		Background(ui.Hex("#ffffff").Alpha(0.80)).
-		Border(1, ui.Hex("#94a3b8").Alpha(0.35)).
-		AlignItems(ui.Center).Padding(0, 6).Children(func() {
+	// 选集搜索（原版 header .part-search）：flex 0 1 180px（不撑满）、
+	// 高 32、圆角 8、内边距 0 10、gap 6，内凹底（rgba(15,23,42,.035)）。
+	ui.Row(c).Width(180).MaxWidth(180).Shrink(1).Height(32).Radius(Radius).
+		Gap(6).Padding(0, 10).
+		Background(ui.Hex("#0f172a").Alpha(0.035)).
+		Border(1, ui.Hex("#475569").Alpha(0.50)).
+		AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(t.Faint)
 		in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(12).
 			TextColor(ui.Hex("#334155")).Placeholder("搜索选集，回车跳转").Label("搜索选集")
 		if in.Submitted() {
@@ -761,7 +763,7 @@ func (a *App) partsHeader(c *ui.Context) {
 		}
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconAdd).Size(13, 13).TextColor(ui.Hex("#475569"))
+				ui.Icon(c, iconAdd).Size(16, 16).TextColor(ui.Hex("#475569"))
 				ui.Text(c, "全部添加").FontSize(12).TextColor(ui.Hex("#475569"))
 			})
 		})
