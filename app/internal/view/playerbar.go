@@ -41,7 +41,9 @@ func (a *App) playerBar(c *ui.Context) {
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 				AlignItems(ui.Center).Children(func() {
 				a.transport(c)
-				a.timeText(c, a.Pos)
+				// 拖动中/seek 未落地时，左侧时间显示预览位置
+				//（原版 updateSeekPreviewUi 会一起更新时间标签）。
+				a.timeText(c, a.shownPos())
 				a.progress(c)
 				a.timeText(c, a.Dur)
 				// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
@@ -106,6 +108,15 @@ func (a *App) transport(c *ui.Context) {
 	})
 }
 
+// shownPos 是进度条左侧时间该显示的位置：操作中显示滑块停的值，
+// 其余时候显示真实播放位置。
+func (a *App) shownPos() float64 {
+	if a.wasHeld || a.SeekBusy {
+		return a.SeekValue
+	}
+	return a.Pos
+}
+
 // timeText 是第 2 / 第 4 列（56px）的时间文本。
 func (a *App) timeText(c *ui.Context, sec float64) {
 	ui.Text(c, fmtTime(sec)).FontSize(11).TextColor(ui.Hex("#334155").Alpha(0.72)).
@@ -116,12 +127,62 @@ func (a *App) timeText(c *ui.Context, sec float64) {
 // seekSettle 是松手/seek 完成后滑块停在目标值、不跟随播放位置的时长。
 const seekSettle = 250 * time.Millisecond
 
+// 进度条（原版 #player .player-timeline）的视觉参数。
+const (
+	timelineH      = 24 // 外层高（可点击区）
+	timelineTrackH = 6  // 轨道高
+	timelineInset  = 7  // 轨道左右内缩 = 滑块半径
+	timelineThumb  = 14 // 滑块直径
+)
+
+// paintTimeline 画进度条的轨道、已播进度与滑块。原版这套外观是纯 CSS
+// （6px 轨道 + 1px 白边 + 青→蓝渐变填充 + 14px 玻璃滑块），框架默认的
+// Slider 只有一条素色轨道，所以这里用 SliderBase + 自绘。
+func paintTimeline(p *ui.Painter, r ui.Rect, frac float32) {
+	if frac < 0 {
+		frac = 0
+	} else if frac > 1 {
+		frac = 1
+	}
+	cy := r.Y + r.H/2
+	track := ui.Rect{
+		X: r.X + timelineInset,
+		Y: cy - timelineTrackH/2,
+		W: r.W - timelineInset*2,
+		H: timelineTrackH,
+	}
+	// 未播部分：半透明白（原版 --player-track-rest）。
+	p.Fill(track, ui.Hex("#ffffff").Alpha(0.32), timelineTrackH/2)
+	if frac > 0.001 {
+		// 已播部分：90° 青 → 蓝（原版渐变在 --player-progress 处硬停）。
+		fill := ui.Rect{X: track.X, Y: track.Y, W: track.W * frac, H: track.H}
+		p.FillGradient(fill, ui.LinearGradient{
+			From:  ui.Hex("#2dd4bf").Alpha(0.78),
+			To:    ui.Hex("#0284c7").Alpha(0.82),
+			Angle: 90,
+		}, timelineTrackH/2)
+	}
+	p.Stroke(track, ui.Hex("#ffffff").Alpha(0.68), timelineTrackH/2, 1)
+
+	// 滑块：14 圆、1px 白边、淡蓝底 + 蓝色投影。
+	cx := r.X + timelineInset + (r.W-timelineThumb)*frac
+	k := ui.Rect{
+		X: cx - timelineThumb/2,
+		Y: cy - timelineThumb/2,
+		W: timelineThumb,
+		H: timelineThumb,
+	}
+	p.Shadow(k, timelineThumb/2, 0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.24))
+	p.Fill(k, ui.Hex("#e0f2fe").Alpha(0.62), timelineThumb/2)
+	p.Stroke(k, ui.Hex("#ffffff").Alpha(0.90), timelineThumb/2, 1)
+}
+
 func (a *App) progress(c *ui.Context) {
 	hi := a.Dur
 	if hi <= 0 {
 		hi = 1
 	}
-	// 进度条 = 原版 <input type=range> 的一个 Slider，既显示也是输入。
+	// 进度条 = 原版 <input type=range>，既显示也是输入。
 	//
 	// *value 有两个写入方，靠「指针是否按住」分开：
 	//   框架（sliderInput，在每帧构建之后的 applyInputs 里跑）——
@@ -129,9 +190,13 @@ func (a *App) progress(c *ui.Context) {
 	//   应用——无人操作时写播放位置（滑块跟随播放）。
 	//
 	// held 用 Dragged() 的 ok：它就是 st.pressed，**与元素矩形无关**。
-	// 不能用 Pressed()——指针一旦移出 5px 高的细轨道它就返回 false，
-	// 拖动会被误判成松手（这是「拖到一半失效」的原因）。
-	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
+	// 不能用 Pressed()——指针一旦移出细轨道它就返回 false，拖动会被误判
+	// 成松手（这是「拖到一半失效」的原因）。
+	//
+	// PaddingX(7) 让取值区间两端各缩进一个滑块半径，滑块的圆心才能走到
+	// 轨道的两个端点（原生 range 的行为）。
+	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
+		PaddingX(timelineInset).Label("播放进度")
 	_, _, held := s.Dragged()
 	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
 
@@ -150,6 +215,9 @@ func (a *App) progress(c *ui.Context) {
 	}
 	a.SeekValue = next
 	a.wasHeld = held
+
+	frac := float32(a.SeekValue / hi)
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac) })
 }
 
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
@@ -411,8 +479,9 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套规则（见 progress）。
-	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
+	// 与主窗同一套规则与外观（见 progress / paintTimeline）。
+	s := ui.SliderBase(c, &a.SeekValue, 0, hi).Grow(1).Height(timelineH).
+		PaddingX(timelineInset).Label("播放进度")
 	_, _, held := s.Dragged()
 	changed := s.Changed()
 	if held != a.wasHeld {
@@ -430,4 +499,7 @@ func (a *App) miniProgress(c *ui.Context) {
 	}
 	a.SeekValue = next
 	a.wasHeld = held
+
+	frac := float32(a.SeekValue / hi)
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac) })
 }
