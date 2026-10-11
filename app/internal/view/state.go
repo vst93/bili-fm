@@ -708,7 +708,10 @@ var (
 	iconAdd     = icon(`<path d="M8 3.4v9.2M3.4 8h9.2"/>`)
 	iconCheck   = icon(`<path d="M3.2 8.4l3.2 3.2 6.4-7"/>`)
 	iconUp      = icon(`<path d="M8 12.5V3.5M4.2 7.3L8 3.5l3.8 3.8"/>`)
-	iconDown    = icon(`<path d="M8 3.5v9M11.8 8.7L8 12.5 4.2 8.7"/>`)
+	// toast 用的信息 / 警告（原版 Info / Attention）。
+	iconInfo = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.8"/><path d="M8 5.1v.1" stroke-width="2"/>`)
+	iconWarn = icon(`<path d="M8 2.2l6.1 10.8H1.9z"/><path d="M8 6.6v3.2"/><path d="M8 11.7v.1" stroke-width="2"/>`)
+	iconDown = icon(`<path d="M8 3.5v9M11.8 8.7L8 12.5 4.2 8.7"/>`)
 )
 
 // pick 是三元表达式的泛型版。

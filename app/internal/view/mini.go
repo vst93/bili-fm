@@ -101,7 +101,7 @@ func (a *App) MiniShell(c *ui.Context) {
 		if a.ShowVolume {
 			a.volumePopoverAt(c, 8, 44)
 		}
-		a.toastViewport(c, 50)
+		a.toastViewport(c)
 	})
 }
 
