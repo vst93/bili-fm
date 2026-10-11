@@ -74,12 +74,14 @@ func (a *App) searchField(c *ui.Context) {
 		if in.Submitted() {
 			a.runSearch()
 		}
+		// 原版 .search-submit-btn：32×32、圆角 6、默认透明 + opacity .82、
+		// 图标 #64748b；悬停 opacity 1、图标转 #0284c7、底白 50%。
 		submit := ui.ButtonBase(c.Key("search-submit")).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
 		if submit.Hovered() {
-			submit.Background(t.GlassHover)
+			submit.Background(ui.Hex("#ffffff").Alpha(0.50)).Opacity(1)
 		} else {
-			submit.Background(ui.Transparent)
+			submit.Background(ui.Transparent).Opacity(0.82)
 		}
 		searching := a.list().Loading
 		submit.Disabled(searching)
@@ -90,7 +92,8 @@ func (a *App) searchField(c *ui.Context) {
 				spin.Loop("search-spin", time.Second, ui.Linear)
 				spin.Rotate(searchSpinDeg())
 			} else {
-				ui.Icon(c, iconMagnifier).Size(18, 18).TextColor(t.Muted)
+				ui.Icon(c, iconMagnifier).Size(18, 18).
+					TextColor(pick(submit.Hovered(), ui.Hex("#0284c7"), ui.Hex("#64748b")))
 			}
 		})
 		if submit.Clicked() {
