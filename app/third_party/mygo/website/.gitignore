@@ -1,8 +1,0 @@
-node_modules
-dist
-.tanstack
-.wrangler
-.output
-*.local
-.env*
-*.tsbuildinfo

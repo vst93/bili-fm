@@ -1,8 +1,0 @@
-{
-  "name": "Quick Notes",
-  "identifier": "dev.mygo.examples.menubar-native",
-  "out": "build",
-  "macos": {
-    "infoPlist": { "LSUIElement": true }
-  }
-}

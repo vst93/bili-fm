@@ -1,3 +1,0 @@
-interface:
-  display_name: "MyGo Maintenance"
-  short_description: "Maintain MyGo apps with safe UI lifetimes"

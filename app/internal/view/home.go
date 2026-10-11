@@ -61,11 +61,11 @@ func (a *App) searchField(c *ui.Context) {
 		submit.Children(func() {
 			if searching {
 				// 搜索中的小旋转（原版 .search-submit-spinner）。
-				spin := ui.Icon(c, iconPopular).Size(15, 15).TextColor(t.Blue)
+				spin := ui.Icon(c, iconPopular).Size(18, 18).TextColor(t.Blue)
 				spin.Loop("search-spin", time.Second, ui.Linear)
 				spin.Rotate(searchSpinDeg())
 			} else {
-				ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(t.Muted)
+				ui.Icon(c, iconMagnifier).Size(18, 18).TextColor(t.Muted)
 			}
 		})
 		if submit.Clicked() {
@@ -114,7 +114,7 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	} else {
 		b.Background(ui.Transparent)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(t.Muted) })
+	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(t.Muted) })
 	if b.Clicked() {
 		a.openSection(key)
 	}
@@ -406,12 +406,16 @@ func (a *App) partPill(c *ui.Context) {
 // contentActions 是操作行（.video-content-actions）：点赞 / 投币 / 收藏
 // 三个带计数的按钮，再加浏览器打开 / 视频 / 弹幕三个纯图标按钮。
 func (a *App) contentActions(c *ui.Context) {
-	ui.Row(c).Margin(14, 0, 4, 0).Gap(4).AlignItems(ui.Start).Children(func() {
+	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
+	// 底部 14px 是给绝对定位的计数留的位置（这里用等高的计数行实现）。
+	ui.Row(c).Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
+		AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
-		a.statButton(c, "like", iconLike, a.Liked, ui.Hex("#e11d48"), a.statLike(), a.Act.Like)
-		a.statButton(c, "coin", iconCoin, a.Coined, ui.Hex("#ca8a04"), a.statCoin(), a.Act.Coin)
-		a.statButton(c, "fav", iconStar, a.Faved, ui.Hex("#eab308"), a.statFav(), a.Act.Favorite)
-		a.iconButton(c, "browser", "浏览器打开", iconBrowser, func() {
+		// 原版这三个是 size={20}。
+		a.statButton(c, "like", iconLike, 20, a.Liked, ui.Hex("#e11d48"), a.statLike(), a.Act.Like)
+		a.statButton(c, "coin", iconCoin, 20, a.Coined, ui.Hex("#ca8a04"), a.statCoin(), a.Act.Coin)
+		a.statButton(c, "fav", iconStar, 20, a.Faved, ui.Hex("#eab308"), a.statFav(), a.Act.Favorite)
+		a.iconButton(c, "browser", "浏览器打开", iconBrowser, 18, func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
@@ -425,7 +429,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.iconButton(c, "video", "视频播放", iconVideo, func() {
+		a.iconButton(c, "video", "视频播放", iconVideo, 18, func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {
 					a.Act.CloseVideo()
@@ -434,7 +438,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenVideo()
 			}
 		})
-		a.iconButton(c, "danmaku", "弹幕/评论", iconDanmaku, a.openDanmaku)
+		a.iconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 18, a.openDanmaku)
 	})
 }
 
@@ -444,9 +448,11 @@ func (a *App) contextDock(c *ui.Context) {
 	t := a.Theme
 	ui.Row(c).Margin(12, 0, 0, 0).Padding(3).Radius(10).Gap(2).AlignItems(ui.Center).
 		Background(ui.Hex("#0f172a").Alpha(0.03)).
-		Border(1, ui.Hex("#64748b").Alpha(0.14)).Children(func() {
+		Border(1, ui.Hex("#64748b").Alpha(0.14)).
+		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.05)).
+		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.35)).Children(func() {
 		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
-		sr := a.iconButton(c, "dock-search", "搜索结果", iconSearch, func() {
+		sr := a.iconButton(c, "dock-search", "搜索结果", iconSearch, 20, func() {
 			a.Drawer = DrawerSearch
 		})
 		sr.Disabled(len(a.ListFor(DrawerSearch).Cards) == 0)
@@ -455,12 +461,12 @@ func (a *App) contextDock(c *ui.Context) {
 		if a.PlayingPlaylist == "" && a.Track != nil {
 			partsInk = t.Blue
 		}
-		a.inkButton(c, "dock-parts", "选集", iconList, partsInk, a.openParts)
+		a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, a.openParts)
 		// 合集：还没选过合集时禁用。
-		series := a.iconButton(c, "dock-series", "合集", iconSeries, a.openSeries)
+		series := a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.openSeries)
 		series.Disabled(a.SeriesID == 0)
 		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
-		plist := a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, func() {
+		plist := a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, 20, func() {
 			if a.Drawer == DrawerPlaylist {
 				a.Drawer = ""
 			} else {
@@ -573,7 +579,7 @@ func (a *App) openDanmaku() {
 // CSS 里避免计数撑高行高的手法；mygo 的 Absolute 需要父级显式定位，
 // 在 Button 的 Center 布局里取不到整行宽，居中不了）。整列高度
 // statColumn 高：按钮 32 + 间隔 1 + 计数 12。
-func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, activeInk ui.Color, count string, fn func()) {
+func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, active bool, activeInk ui.Color, count string, fn func()) {
 	t := a.Theme
 	off := count == ""
 	col := ui.Column(c).Width(ToolButton).Height(ToolButton + 13).
@@ -590,7 +596,7 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, act
 			b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 		}
 		b.Children(func() {
-			ui.Icon(c, ic).Size(18, 18).TextColor(pick(active, activeInk, ui.Hex("#475569")))
+			ui.Icon(c, ic).Size(size, size).TextColor(pick(active, activeInk, ui.Hex("#475569")))
 		})
 		if b.Clicked() && fn != nil {
 			fn()
@@ -604,12 +610,12 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, active bool, act
 }
 
 // iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。
-func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, fn func()) ui.Element {
-	return a.inkButton(c, key, label, ic, ui.Color{}, fn)
+func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, fn func()) ui.Element {
+	return a.inkButton(c, key, label, ic, size, ui.Color{}, fn)
 }
 
 // inkButton 同 iconButton，ink 非零时用它做图标颜色（原版部分按钮是蓝色）。
-func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Color, fn func()) ui.Element {
+func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) ui.Element {
 	t := a.Theme
 	textInk := ui.Hex("#475569")
 	if ink.A != 0 {
@@ -621,7 +627,7 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Col
 	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
 	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	b.Children(func() { ui.Icon(c, ic).Size(17, 17).TextColor(textInk) })
+	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(textInk) })
 	if b.Clicked() && fn != nil {
 		fn()
 	}

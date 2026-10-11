@@ -35,17 +35,20 @@ func (a *App) playerBar(c *ui.Context) {
 		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)).
 		InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		Children(func() {
-			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
+			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
+			// 内容区保持完整 56px。
+			ui.Box(c).FillWidth().Height(1).Absolute().Top(0).Background(t.PlayerBorder)
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 				AlignItems(ui.Center).Children(func() {
 				a.transport(c)
 				a.timeText(c, a.Pos)
 				a.progress(c)
 				a.timeText(c, a.Dur)
-				a.volumeButton(c)
-				a.speedButton(c)
-				a.eqButton(c)
-				a.sponsorButton(c)
+				// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
+				playerSlot(c, 34, func() { a.volumeButton(c) })
+				playerSlot(c, 40, func() { a.speedButton(c) })
+				playerSlot(c, 34, func() { a.eqButton(c) })
+				playerSlot(c, 40, func() { a.sponsorButton(c) })
 			})
 		})
 
@@ -140,10 +143,17 @@ func (a *App) progress(c *ui.Context) {
 	a.wasHeld = held
 }
 
+// playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
+// grid-template-columns: 80px 56px 1fr 56px 34px 40px 34px 40px，
+// 列宽由列容器决定，**里面按钮一律 32×32**（.player-button）。
+func playerSlot(c *ui.Context, width float32, build func()) {
+	ui.Box(c).Width(width).Height(32).Shrink(0).Children(build)
+}
+
 // volumeButton 是第 5 列（34px）：点开音量弹层。
 func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("volume")).Size(34, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
 		Label("音量").Tooltip("音量")
 	switch {
 	case a.ShowVolume:
@@ -168,7 +178,7 @@ func (a *App) volumeButton(c *ui.Context) {
 // speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
 func (a *App) speedButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("speed")).Size(32, 32).Radius(Radius).Center().
 		Label("倍速").Tooltip("倍速")
 	switch {
 	case a.ShowSpeed:
@@ -189,7 +199,7 @@ func (a *App) speedButton(c *ui.Context) {
 // eqButton 是第 7 列（34px）：均衡开关。
 func (a *App) eqButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("eq")).Size(32, 32).Radius(Radius).Center().
 		Label("均衡").Tooltip("均衡")
 	switch {
 	case a.EQ:
@@ -209,7 +219,7 @@ func (a *App) eqButton(c *ui.Context) {
 // sponsorButton 是第 8 列（40px）：跳过赞助片段开关。
 func (a *App) sponsorButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("sponsor")).Size(40, 32).Radius(Radius).Center().
+	b := ui.ButtonBase(c.Key("sponsor")).Size(32, 32).Radius(Radius).Center().
 		Label("跳过赞助").Tooltip("跳过赞助片段")
 	switch {
 	case a.Sponsor:
