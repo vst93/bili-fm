@@ -586,3 +586,46 @@ Xvfb 里跑出来的截图里玻璃层是真模糊的。所以这里**保留玻�
 后者生效：`#9ca3af` → `var(--studio-muted)`、`margin-top: 6px` → `14px`、
 加 3 行截断。对照尺寸时**必须往后看有没有覆盖规则**，否则会照抄到已经
 失效的旧值。对照抽屉表头、卡片等其它样式时同理。
+
+## 材质策略：用框架的 Liquid Glass，不复刻原版手搓玻璃（2026-10）
+
+原版那套玻璃是「半透明白底 + 1px 白边 + inset 亮线/暗线 +
+`backdrop-filter: blur()`」，本质是在 CSS 里手搓玻璃。mygo 有真正的
+Liquid Glass（`plugins/glass`）：边缘折射、1px 描光聚光、可选的按下生长，
+在 GPU 与 CPU 上由同一套着色器画出来，各平台一致。
+
+所以**材质这一层不再照抄原版**，改用：
+
+| 场景 | 用什么 |
+|---|---|
+| 结构面（播放栏、mini 播放栏、抽屉、模态框、Toast、弹层、搜索药丸、卡片、tab） | `glass.Glass{}` |
+| 有「激活」色的小控件（EQ/恰饭开、tab 选中、卡片在播） | `glass.Glass{Tint: …}` |
+| 主操作（播放键） | `glass.Glass{Interactive: true}` —— 按下时玻璃会长大，这是原版手搓 inset 想表达而做不到的 |
+| 压在封面/照片上的小键 | `glass.Glass{Style: glass.Clear, Tint: 深色}` —— Clear 几乎不染色，只做轻微折射 |
+| 常态无框的小图标键（内容操作行、dock、顶部分区） | **常态透明**，只在悬停/激活时铺玻璃 |
+
+最后一条是实测调出来的：原版 `.nav-icon-btn` 常态是「透明 + 一点径向高光」，
+给每颗都铺一块玻璃会显得"每个图标都套了个盒子"。判断依据就是
+**原版有没有常驻底色/描边**：有（播放栏按钮、抽屉表头按钮、tab）就常驻玻璃，
+没有（内容操作行、dock、顶部分区）就只在悬停/激活时铺。
+
+另外玻璃面上**不要再叠手搓的 1px 边框与 inset 亮/暗线**——玻璃自带描光，
+两层描边会显脏。
+
+### 踩坑：`fill` 只有一个，Material 与 Background / LinearGradient 互相覆盖
+
+`Element.Material` 设 `fill = fillMaterial`；`Background` 只在
+`fill == fillGradient` 时才改回 `fillColor`；`LinearGradient` 直接设
+`fill = fillGradient`（**会把 Material 整个顶掉**）。后果：
+
+- `Material(glass.Glass{}).Background(白 .82)` 里的底色是**空操作**（被静默忽略）；
+- 之前 Toast 写成 `Material(...).LinearGradient(...)`，等于一直没玻璃。
+
+所以「一层颜色 + 一层玻璃」必须拆成两个元素（外层玻璃 + 内层
+`PassThrough` 的颜色叠加），不能靠链式调用堆在同一层。
+
+### 性能
+
+实测应用是**按需重绘**（20 秒里不到 60 帧，多数是图片到位时触发的），
+空闲时 0% CPU。所以玻璃的着色器成本可以忽略。若以后加入常驻动画
+（例如封面旋转），需要重新测。
