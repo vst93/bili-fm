@@ -22,14 +22,13 @@ import (
 // 音量 / 倍速 / 均衡 / 跳过赞助。原版没有封面和标题 —— 那些在主区。
 func (a *App) playerBar(c *ui.Context) {
 	t := a.Theme
-	// 顶边渐隐（原版 #player::before）：让播放栏的上沿融进内容区，
-	// 不然栏体和内容之间是一条硬切线。
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(56).Height(10).Shrink(0).
-		PassThrough().LinearGradient(ui.LinearGradient{
-		From:  ui.Transparent,
-		To:    t.PlayerSurface,
-		Angle: 180,
-	})
+	// 栏顶的滚动边缘效果（原版 #player::before 那条 10px 渐变就是在手搓这个）：
+	// 内容滚到栏下时淡出/结霜，栏体上沿才不会是一条硬切线。
+	// 框架的 ScrollEdge 就是 macOS 26+ 的这个效果；软边缘淡出、硬边缘结霜。
+	// 高度按框架的约定 = 栏高 + 10（软边缘多出的那 10 DIP）。
+	// Background 必须显式给：主题的 Background 被我们设成了透明。
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(66).Shrink(0).
+		PassThrough().Material(glass.ScrollEdge{Background: t.PlayerSurface})
 	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。
