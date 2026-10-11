@@ -105,43 +105,25 @@ func (a *App) progress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	if !a.seeking {
-		a.SeekValue = a.Pos
-	}
-	// 进度条本体：Slider **每帧构建且只构建一次**（独占命中，周围不叠
-	// 任何 Absolute 覆盖盒——之前试过，把整个播放栏的点击都截走了）。
+	// 进度条：Slider 的 *value 完全交给框架写（拖动每帧写回、点击写一次）。
+	// 应用侧**绝不在构建时覆盖它**——构建在输入处理之后跑，覆盖会把
+	// 用户刚拖的值抹掉（拖动失效/无反应的根因）。
 	//
-	// seek 的时序对齐原版 isSeekingRef：
-	//   拖动中     —— 滑块停在手上（SeekValue 不被 Pos 覆盖），不发 seek；
-	//   松手       —— 发一次 seek，继续停在目标值（引擎要重建解码器，
-	//                 a.Pos 慢半拍，立刻跟随会弹回旧位置，看起来卡住）；
-	//   追上/超时  —— 恢复跟随播放。
-	// 进度条：Slider 的 *value 绑定就是滑块本身——**位置完全交给框架**。
-	//
-	// mygo 的 Slider 按下即设定值并进入 pressed，移动每帧改值（点击定位
-	// 和拖动是一体的，没有「没碰滑块却触发拖动」的问题——按下就设定，
-	// 正是原版 input[type=range] 的行为）。
-	//
-	// 应用侧只有两件事：
-	//   未按下时  —— 把播放位置写进 *value（滑块跟随播放，框架画动画）；
-	//   按下中    —— 绝不写（滑块跟手），松手（Pressed 下降沿）发一次 seek。
-	// OnProgress 的副作用在拖动中跳过（见 main.go）。
+	// 应用侧只读：
+	//   Dragging()  —— 用户正在拖：什么也不做；
+	//   松手下降沿  —— 读 *value 发一次 seek（拖动的最后值/点击的位置）。
+	// 播放位置的展示不走 Slider，走下方 Pos 驱动的进度底色（Progress），
+	// 视觉与原版一致（轨道 + 已播进度 + 拖动时框架画滑块）。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
-
-	// 松手下降沿：**先**读滑块停在的位置发 seek（这一帧 SeekValue 还是
-	// 用户放下的值），**再**做跟随——顺序反了就会拿旧 Pos 覆盖掉目标，
-	// seek 跳回原地（点击/拖动「失效」的根因）。
-	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
+	dragging := s.Dragging()
+	if a.wasDrag && !dragging && a.Act.Seek != nil {
+		// 松手下降沿：目标就是滑块停在的位置。
 		a.Act.Seek(a.SeekValue)
 	}
-	a.wasPressed = s.Pressed()
+	a.wasDrag = dragging
 
-	if !s.Pressed() && !a.wasPressed && !a.SeekBusy {
-		// 未按下、也没有 seek 在跑：滑块跟随播放。
-		// （seek 在跑时停在目标值，等 OnProgress 报出新位置——
-		// 重定位 + 重建解码器要几百 ms~秒级，期间跟随会弹回旧位置。）
-		a.SeekValue = a.Pos
-	}
+	// 播放进度底色：跟随真实播放位置（拖动中停更，见 OnProgress）。
+	ui.Progress(c, a.Pos/hi).FillWidth().Height(4).Radius(2)
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -374,16 +356,11 @@ func (a *App) miniProgress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek；
-	// seek 在跑时停在目标值（不弹回旧位置）。
+	// 与主窗同一套：位置交给框架，松手下降沿发一次 seek。
 	s := ui.Slider(c, &a.SeekValue, 0, hi).Grow(1).Label("播放进度")
-
-	if a.wasPressed && !s.Pressed() && a.Act.Seek != nil {
+	dragging := s.Dragging()
+	if a.wasDrag && !dragging && a.Act.Seek != nil {
 		a.Act.Seek(a.SeekValue)
 	}
-	a.wasPressed = s.Pressed()
-
-	if !s.Pressed() && !a.wasPressed && !a.SeekBusy {
-		a.SeekValue = a.Pos
-	}
+	a.wasDrag = dragging
 }
