@@ -1917,6 +1917,7 @@ func (c *controller) runSeek(seconds float64) {
 		err := c.mp.Seek(seconds)
 		c.app.Win.Update(func() {
 			c.app.SeekBusy = false
+			c.app.SeekStableAt = time.Now() // seek 完成，可以恢复跟随
 			if err != nil {
 				log.Printf("跳转失败: %v", err)
 				return

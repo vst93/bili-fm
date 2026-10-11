@@ -472,6 +472,9 @@ type App struct {
 	SeekBusy bool
 	// wasDrag 是上一帧 Slider 是否在拖动（识别松手的下降沿）。
 	wasDrag bool
+	// SeekStableAt 是最近一次「滑块状态变化」的时间（开始拖/松手/
+	// seek 完成）：松手后 2 秒内不跟随播放位置，等引擎追上。
+	SeekStableAt time.Time
 	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
 	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
 	// 记在这里，等条件允许后执行一次（排队而不是丢弃）——

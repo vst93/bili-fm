@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -105,25 +106,33 @@ func (a *App) progress(c *ui.Context) {
 	if hi <= 0 {
 		hi = 1
 	}
-	// 进度条：Slider 的 *value 完全交给框架写（拖动每帧写回、点击写一次）。
-	// 应用侧**绝不在构建时覆盖它**——构建在输入处理之后跑，覆盖会把
-	// 用户刚拖的值抹掉（拖动失效/无反应的根因）。
+	// 进度条：单一 Slider，既是指示器也是输入器（原版 input[type=range]）。
 	//
-	// 应用侧只读：
-	//   Dragging()  —— 用户正在拖：什么也不做；
-	//   松手下降沿  —— 读 *value 发一次 seek（拖动的最后值/点击的位置）。
-	// 播放位置的展示不走 Slider，走下方 Pos 驱动的进度底色（Progress），
-	// 视觉与原版一致（轨道 + 已播进度 + 拖动时框架画滑块）。
+	// *value 双向：框架在拖动时写；应用侧在「非拖动且 seek 已稳定」时写
+	// 播放位置。两者何时交接是关键——
+	//   拖动中            不跟随（不然每 500ms 把滑块拽回播放位置，拖不动）；
+	//   松手后 2 秒内     不跟随（seek 要重建解码器，Pos 慢半拍，立刻
+	//                     跟随会弹回旧位置，看起来“拖了没反应”）；
+	//   其余              跟随播放位置。
+	// stableAt 之后再跟随：seek 完成时 Pos 已是新位置，滑块无感切换。
+	if a.Seeking() {
+		// 拖动中：让框架全权写 *value，应用侧不碰。
+	} else if a.SeekBusy || time.Since(a.SeekStableAt) < 2*time.Second {
+		// seek 在跑 / 刚结束：停在目标值。
+	} else {
+		a.SeekValue = a.Pos
+	}
+
 	s := ui.Slider(c, &a.SeekValue, 0, hi).FillWidth().Label("播放进度")
 	dragging := s.Dragging()
+	if dragging != a.wasDrag {
+		a.SeekStableAt = time.Now() // 拖动开始 / 松手
+	}
 	if a.wasDrag && !dragging && a.Act.Seek != nil {
-		// 松手下降沿：目标就是滑块停在的位置。
+		// 松手：seek 到滑块停的位置。
 		a.Act.Seek(a.SeekValue)
 	}
 	a.wasDrag = dragging
-
-	// 播放进度底色：跟随真实播放位置（拖动中停更，见 OnProgress）。
-	ui.Progress(c, a.Pos/hi).FillWidth().Height(4).Radius(2)
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
