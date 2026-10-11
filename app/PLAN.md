@@ -555,3 +555,34 @@ release 里，不在就直接让 workflow 失败。
 用 xdotool 按下拖动再松手，然后检查日志里有没有出现 seek 的痕迹
 （`flushProgress` 会打「上报播放进度失败」或「跳转失败」）。
 需要 `Xvfb`、`xdotool`、`imagemagick`。**只用于本地排查，CI 里不跑。**
+
+## 一个**有意为之**的平台差异：Linux 上的玻璃质感
+
+原版在 Linux 上把玻璃材质整体降级成近乎不透明的白：
+
+```css
+body.platform-linux #root {
+    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-blur: none;
+    --liquid-bg: rgba(255, 255, 255, 0.9);
+    --liquid-blur: none;
+}
+```
+
+注释写明了原因：Linux 的窗口管理器渲染不了外层圆角，而 webkit2gtk 上做
+backdrop-filter 代价太高（原版在别处也写了「去掉全窗 blur 滤镜（GPU 最大
+单项）」）。
+
+**mygo 没有这个限制**——它的 CPU/GPU 渲染器能正常做背景模糊，本机在
+Xvfb 里跑出来的截图里玻璃层是真模糊的。所以这里**保留玻璃质感**，
+不回退到 Linux 那份不透明白：那份是给 webkit2gtk 打的补丁，不是设计意图，
+照搬只会让界面比原版在该平台上的**意图外观**更差。
+
+（macOS / Windows 上原版用的就是半透明 + 模糊，与我们的取值一致。）
+
+## 原版 CSS 里「后面的规则覆盖前面的」要注意
+
+`#video-desc` 在 globals.css 里出现了两次（717 行和 2326 行），
+后者生效：`#9ca3af` → `var(--studio-muted)`、`margin-top: 6px` → `14px`、
+加 3 行截断。对照尺寸时**必须往后看有没有覆盖规则**，否则会照抄到已经
+失效的旧值。对照抽屉表头、卡片等其它样式时同理。
