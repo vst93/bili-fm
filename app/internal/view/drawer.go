@@ -125,7 +125,6 @@ func (a *App) drawerHeader(c *ui.Context) {
 
 // drawerTabs 画抽屉表头左边的部分：列表抽屉是 tab，其余是一个标题。
 func (a *App) drawerTabs(c *ui.Context) {
-	t := a.Theme
 	switch a.Drawer {
 	case DrawerSearch:
 		a.tabs(c, "sort", []tabItem{
@@ -161,7 +160,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		ui.Text(c, "收藏列表").FontSize(14).FontWeight(400).
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		if len(a.Folders) == 0 {
-			ui.Text(c, "暂无收藏内容").FontSize(12).TextColor(t.Faint)
+			a.emptyNote(c, "暂无收藏内容")
 			break
 		}
 		// 收藏夹可能很多：左右滚动键 + 横向滚动（原版 collect-scroll-btn，
@@ -446,13 +445,12 @@ func (a *App) drawerBody(c *ui.Context) {
 // seriesListBody 是 UP 空间的「合集」tab（原版 upVideoList.tsx 的合集列表）：
 // 一排下拉的合集胶囊，点一个就进那个合集。
 func (a *App) seriesListBody(c *ui.Context) {
-	t := a.Theme
 	switch {
 	case a.list().Loading && len(a.SeriesList) == 0:
-		ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
+		a.emptyNote(c, "加载中…")
 		return
 	case len(a.SeriesList) == 0:
-		ui.Text(c, "暂无合集视频").FontSize(12).TextColor(t.Faint)
+		a.emptyNote(c, "暂无合集视频")
 		return
 	}
 	// 原版 UP 空间的合集 tab：纵向排列的卡片（flex flex-col gap-2），
@@ -509,13 +507,12 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 // listBody 是搜索结果 / 分区列表：三列卡片网格 + 加载更多。
 // （原版抽屉里的网格是 grid-cols-2 sm:grid-cols-3 gap-2。）
 func (a *App) listBody(c *ui.Context) {
-	t := a.Theme
 	switch {
 	case a.list().Loading && len(a.list().Cards) == 0:
 		a.skeletonGrid(c)
 		return
 	case len(a.list().Cards) == 0:
-		ui.Text(c, a.emptyHint()).FontSize(12).TextColor(t.Faint)
+		a.emptyNote(c, a.emptyHint())
 		return
 	}
 
@@ -567,6 +564,15 @@ func (a *App) skeletonGrid(c *ui.Context) {
 				}
 			})
 		}
+	})
+}
+
+// emptyNote 是列表空态/加载中的提示行：居中、上下各 32px 留白、zinc-400
+// （原版是 text-center text-default-400 py-8）。之前是左对齐一行小字，
+// 在抽屉里显得很空。
+func (a *App) emptyNote(c *ui.Context, text string) {
+	ui.Row(c).FillWidth().Padding(32, 0).Justify(ui.Center).Children(func() {
+		ui.Text(c, text).FontSize(14).TextColor(ui.Hex("#a1a1aa"))
 	})
 }
 
@@ -891,13 +897,12 @@ func (a *App) partsHeader(c *ui.Context) {
 
 // partsBody 是选集抽屉正文：三列卡片网格，每张卡片右上角一个「添加到播放列表」。
 func (a *App) partsBody(c *ui.Context) {
-	t := a.Theme
 	var parts []Part
 	if a.Info != nil {
 		parts = a.Info.Parts
 	}
 	if len(parts) == 0 {
-		ui.Text(c, "没有分集信息").FontSize(12).TextColor(t.Faint)
+		a.emptyNote(c, "没有分集信息")
 		return
 	}
 
@@ -1118,7 +1123,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 	}
 	t := a.Theme
 	if len(a.Danmaku) == 0 {
-		ui.Text(c, "暂无弹幕").FontSize(12).TextColor(t.Faint)
+		a.emptyNote(c, "暂无弹幕")
 		return
 	}
 	groups := groupDanmaku(a.Danmaku)
@@ -1225,9 +1230,9 @@ func (a *App) repliesBody(c *ui.Context) {
 	t := a.Theme
 	if len(a.Comments) == 0 {
 		if a.RepliesLoading {
-			ui.Text(c, "加载中…").FontSize(12).TextColor(t.Faint)
+			a.emptyNote(c, "加载中…")
 		} else {
-			ui.Text(c, "暂无评论").FontSize(12).TextColor(t.Faint)
+			a.emptyNote(c, "暂无评论")
 		}
 		return
 	}
