@@ -596,32 +596,43 @@ func (a *App) card(c *ui.Context, index int) {
 	card := a.list().Cards[index]
 
 	playing := a.Current() != nil && card.Bvid != "" && a.Current().Bvid == card.Bvid
+	// 原版抽屉里的卡片（globals.css 的 [role=button][class*=bg-content]）：
+	// 圆角 12、1px 玻璃边框、玻璃底、三层阴影（上内亮线 / 下内暗线 / 外投影），
+	// overflow: hidden。封面通栏（.img-container 高 100），页脚另有一层浅底。
 	box := ui.Column(c).Key(fmt.Sprintf("card-%d-%s", index, card.Bvid)).Grow(1).Basis(0).
-		Padding(6).Radius(Radius).Gap(6).Cursor(ui.CursorPointer)
+		Radius(12).Clip().Cursor(ui.CursorPointer)
 	switch {
 	case playing:
-		box.Background(t.GlassHover).Border(1, t.Blue.Alpha(0.65))
+		// 正在播放（原版 is-pointer-hovered 的蓝色描边 + 光圈 + 外投影）。
+		box.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
+			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	case box.Hovered():
-		box.Background(t.GlassHover)
+		box.Border(1, ui.Hex("#0369a1").Alpha(0.60)).Background(t.Glass).
+			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
+			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		box.Background(t.Glass)
+		box.Border(1, t.GlassBorder).Background(t.Glass).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
+			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 
 	box.Children(func() {
-		ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
+		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
+		ui.Box(c).FillWidth().Height(100).Shrink(0).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {
 			if bmp := a.Images.Bitmap(card.Cover); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
 			}
+			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
 			if card.Duration != "" {
 				ui.Text(c, card.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
 					Padding(2, 5).Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
 			if playing {
-				ui.Text(c, "正在播放").FontSize(9).TextColor(ui.Hex("#ffffff")).
-					Absolute().Left(4).Top(4).
-					Padding(1, 5).Radius(3).Background(t.Blue.Alpha(0.85))
+				a.playingBadge(c)
 			}
 			// 「稍后再看」列表的移除键（原版 historyList）。
 			if a.Drawer == "history" && a.HistTab == HistWatchLater && card.Track.Aid != 0 {
@@ -648,9 +659,20 @@ func (a *App) card(c *ui.Context, index int) {
 				}
 			}
 		})
-		// 原版 ListCard 的标题是单行截断（line-clamp-1）。
-		ui.Text(c, card.Title).FontSize(14).TextColor(t.Ink).SingleLine()
-		a.metaRow(c, card)
+
+		// 页脚（原版 [data-slot=footer]）：浅底 + 顶部 1px 白线，px-2 py-1。
+		ui.Column(c).FillWidth().Grow(1).Padding(4, 8).
+			Background(ui.Hex("#ffffff").Alpha(0.22)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
+			Children(func() {
+				// 原版标题：text-small（14）/ bold / 单行截断。
+				ui.Text(c, card.Title).FontSize(14).FontWeight(700).
+					TextColor(t.Ink).SingleLine()
+				// 原版 meta 容器：text-xs（12）/ text-default-500 / mt-1。
+				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
+					a.metaRow(c, card)
+				})
+			})
 	})
 	if box.Clicked() {
 		// 与原版一致：点卡片只是打开选集面板，不直接起播。
@@ -658,6 +680,24 @@ func (a *App) card(c *ui.Context, index int) {
 			a.Act.OpenCard(index)
 		}
 	}
+}
+
+// playingBadge 是封面左上角的「正在播放」胶囊（原版 .part-playing-badge）：
+// 22 高、圆角 999、深玻璃底 rgba(15,23,42,.55) + 1px 白边，左侧三根均衡器小柱。
+func (a *App) playingBadge(c *ui.Context) {
+	ui.Row(c).Absolute().Left(6).Top(6).Height(22).Padding(0, 8, 0, 7).
+		Radius(RadiusPill).Gap(5).AlignItems(ui.Center).
+		Background(ui.Hex("#0f172a").Alpha(0.55)).
+		Border(1, ui.Hex("#ffffff").Alpha(0.28)).Children(func() {
+		ui.Row(c).Gap(2).AlignItems(ui.End).Height(10).Children(func() {
+			for _, h := range []float32{4, 9, 6} {
+				ui.Box(c).Width(2).Height(h).Radius(1).
+					Background(ui.Hex("#7dd3fc")).AlignSelf(ui.End)
+			}
+		})
+		ui.Text(c, "正在播放").FontSize(11).FontWeight(600).
+			TextColor(ui.Hex("#e2e8f0"))
+	})
 }
 
 // metaRow 是卡片的 meta 行（旧版 CardMeta + globals.css 里的容器查询）。
@@ -675,7 +715,6 @@ func (a *App) card(c *ui.Context, index int) {
 // 宽度取**上一帧的真实布局宽度**（Element.Bounds，旧版用 ResizeObserver）；
 // 首帧还没有布局，按窗口宽度估一个。
 func (a *App) metaRow(c *ui.Context, card Card) {
-	t := a.Theme
 	row := ui.Row(c).Key("meta-" + card.Bvid).FillWidth().AlignItems(ui.Center)
 	w := row.Bounds().W
 	if w <= 0 {
@@ -706,13 +745,14 @@ func (a *App) metaRow(c *ui.Context, card Card) {
 			}
 			first = false
 			col.Children(func() {
-				ui.Text(c, f.text).FontSize(12).TextColor(t.Faint).SingleLine()
+				// 原版 meta 用 text-default-500（zinc-500 #71717a）。
+				ui.Text(c, f.text).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
 			})
 		}
 		// 附加字段（稍后再看的进度）不参与三列比例，窄了直接不显示。
 		if card.Extra != "" && w > 260 {
 			ui.Box(c).Padding(0, 0, 0, 8).Children(func() {
-				ui.Text(c, card.Extra).FontSize(12).TextColor(t.Faint).SingleLine()
+				ui.Text(c, card.Extra).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
 			})
 		}
 	})
