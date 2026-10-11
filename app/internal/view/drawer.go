@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
@@ -564,8 +565,14 @@ func (a *App) skeletonGrid(c *ui.Context) {
 		for row := 0; row < 3; row++ {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 				for j := 0; j < cols; j++ {
-					ui.Column(c).Grow(1).Basis(0).Padding(8).Radius(12).
-						Background(card).Gap(0).Children(func() {
+					// 原版是 1.4s 的 opacity 脉冲（.list-skeleton-pulse：
+					// 0.55 ↔ 1）。用 Loop 的进度做三角波驱动透明度。
+					item := ui.Column(c).Key(fmt.Sprintf("skel-%d-%d", row, j)).
+						Grow(1).Basis(0).Padding(8).Radius(12).Background(card).Gap(0)
+					ph := float64(item.Loop("skel", 1400*time.Millisecond, ui.Linear))
+					tri := 1 - abs(2*ph-1) // 0 → 1 → 0
+					item.Opacity(float32(0.55 + 0.45*tri))
+					item.Children(func() {
 						ui.Box(c).FillWidth().AspectRatio(16.0 / 10.0).Radius(8).
 							Background(cover)
 						ui.Box(c).FillWidth().Height(12).Margin(8, 0, 0, 0).Radius(6).
