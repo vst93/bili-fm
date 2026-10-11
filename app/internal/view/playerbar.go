@@ -76,6 +76,19 @@ func glassTint(active, hovered bool, activeTint, hoverTint ui.Color) glass.Glass
 	return glass.Glass{}
 }
 
+// glassOn 给「常态无框」的小图标按钮上材质：只有激活/悬停才铺玻璃面，
+// 常态保持透明 —— 原版 .nav-icon-btn 常态就是透明 + 一点径向高光，
+// 每颗都铺一块玻璃会显得"每个图标都套了个盒子"。
+func glassOn(b ui.Element, active, hovered bool, activeTint, hoverTint ui.Color) ui.Element {
+	switch {
+	case active:
+		return b.Material(glass.Glass{Tint: activeTint})
+	case hovered:
+		return b.Material(glass.Glass{Tint: hoverTint})
+	}
+	return b.Background(ui.Transparent)
+}
+
 // disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
 // 禁用 + opacity .42（mygo 的禁用态自己乘 .5，这里再乘 .84）。
 func disablePlayerButton(b ui.Element, off bool) ui.Element {

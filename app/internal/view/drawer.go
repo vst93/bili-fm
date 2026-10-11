@@ -93,9 +93,7 @@ func (a *App) drawerHeader(c *ui.Context) {
 		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(ToolButtonR).Center().
 			Label("关闭").Tooltip("关闭")
 		if b.Hovered() {
-			b.Background(t.GlassHover)
-		} else {
-			b.Background(ui.Transparent)
+			b.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.30)})
 		}
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
@@ -173,11 +171,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
-			if b.Hovered() {
-				b.Background(t.GlassHover)
-			} else {
-				b.Background(t.GlassActive)
-			}
+			b.Material(glassTint(false, b.Hovered(),
+				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 					ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
@@ -197,7 +192,6 @@ func (a *App) drawerTabs(c *ui.Context) {
 // upHeader 是 UP 空间抽屉的表头（原版 upVideoList.tsx）：
 // 「{名字}」的空间 + 关注 / 已关注 + 视频 / 合集 tab。
 func (a *App) upHeader(c *ui.Context) {
-	t := a.Theme
 	// 原版 upVideoList 表头：「name」的空间（14/500）+ 粉丝数（12 default-500）
 	// + 关注键（min-w 70、图标 14）。
 	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(500).
@@ -210,11 +204,8 @@ func (a *App) upHeader(c *ui.Context) {
 	label := pick(a.UpFollowed, "已关注", "关注")
 	b := ui.ButtonBase(c.Key("up-follow")).MinWidth(70).Height(32).Padding(0, 12).
 		Radius(Radius).Center().Label(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(t.GlassActive)
-	}
+	b.Material(glassTint(false, b.Hovered(),
+		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// 原版：关注态是 Close #666 + 默认字色；未关注是 Add + text-primary。
@@ -848,11 +839,8 @@ func (a *App) partsHeader(c *ui.Context) {
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加")
-		if b.Hovered() {
-			b.Background(t.GlassHover)
-		} else {
-			b.Background(t.GlassActive)
-		}
+		b.Material(glassTint(false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconAdd).Size(16, 16).TextColor(ui.Hex("#475569"))
@@ -905,11 +893,11 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		Padding(6).Radius(Radius).Gap(6).Cursor(ui.CursorPointer)
 	switch {
 	case active:
-		box.Background(t.GlassHover).Border(2, t.Blue)
+		box.Material(glass.Glass{Tint: t.Blue.Alpha(0.22)}).Border(2, t.Blue)
 	case box.Hovered():
-		box.Background(t.GlassHover)
+		box.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)})
 	default:
-		box.Background(t.Glass)
+		box.Material(glass.Glass{})
 	}
 	// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
 	if (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex) {

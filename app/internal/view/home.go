@@ -137,11 +137,7 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("nav-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(ui.Transparent)
-	}
+	glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(t.Muted) })
 	if b.Clicked() {
 		a.openSection(key)
@@ -295,14 +291,15 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 	// 原版：深色半透明圆（rgba(15,23,42,.35)）+ 1px 白边；
 	// 激活改蓝底 rgba(14,165,233,.28) + 浅蓝边 rgba(125,211,252,.45)；
 	// 悬停底色加深到 .55。
+	// 这几个键浮在封面上：用 Clear 玻璃（几乎不染色、只做轻微折射），
+	// 底色靠深色 Tint —— 正是 Clear 这个材质的用途（玻璃压在照片/视频上）。
 	switch {
 	case active:
-		b.Background(ui.Hex("#0ea5e9").Alpha(0.28)).
-			Border(1, ui.Hex("#7dd3fc").Alpha(0.45))
+		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0ea5e9").Alpha(0.45)})
 	case b.Hovered():
-		b.Background(ui.Hex("#0f172a").Alpha(0.55)).Border(1, ui.Hex("#ffffff").Alpha(0.25))
+		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.60)})
 	default:
-		b.Background(ui.Hex("#0f172a").Alpha(0.35)).Border(1, ui.Hex("#ffffff").Alpha(0.25))
+		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.42)})
 	}
 	b.Children(func() {
 		ink := ui.Hex("#ffffff").Alpha(0.70)
@@ -444,10 +441,9 @@ func (a *App) partPill(c *ui.Context) {
 	// 薄玻璃底 rgba(255,255,255,.15) + 1px 白边（.38）、外侧 0 2px 10px
 	// rgba(15,23,42,.035)、内侧顶部一线高光。
 	ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
-		Radius(RadiusPill).Border(1, ui.Hex("#ffffff").Alpha(0.38)).
-		Background(ui.Hex("#ffffff").Alpha(0.15)).
+		Radius(RadiusPill).
+		Material(glass.Glass{}).
 		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
-		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
@@ -632,7 +628,6 @@ func (a *App) openDanmaku() {
 // 在 Button 的 Center 布局里取不到整行宽，居中不了）。整列高度
 // statColumn 高：按钮 32 + 间隔 1 + 计数 12。
 func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, active bool, activeInk ui.Color, count string, fn func()) {
-	t := a.Theme
 	off := count == ""
 	col := ui.Column(c).Width(ToolButton).Height(ToolButton + 13).
 		AlignItems(ui.Center).Shrink(0)
@@ -640,13 +635,14 @@ func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, ac
 		b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label(key).Tooltip(key)
 		disableNav(b, off)
+		// 材质走框架玻璃；激活（已赞/已投币/已收藏）用该状态的强调色做 Tint。
 		switch {
 		case off:
 			b.Background(ui.Transparent)
 		case active:
-			b.Background(pressFeedback(b, activeInk.Alpha(0.16), activeInk.Alpha(0.24), activeInk.Alpha(0.34)))
+			glassOn(b, true, b.Hovered(), activeInk.Alpha(0.26), activeInk.Alpha(0.26))
 		default:
-			b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+			glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 		}
 		b.Children(func() {
 			ui.Icon(c, ic).Size(size, size).TextColor(pick(active, activeInk, ui.Hex("#475569")))
