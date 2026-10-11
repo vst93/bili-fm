@@ -275,6 +275,7 @@ func (a *App) progress(c *ui.Context) {
 	frac := float32(a.SeekValue / hi)
 	segs, dur := a.SponsorSegments, a.Dur
 	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
+	a.seekBubble(c, s, dur)
 }
 
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
@@ -541,6 +542,46 @@ func (a *App) miniProgress(c *ui.Context) {
 	frac := float32(a.SeekValue / hi)
 	segs, dur := a.SponsorSegments, a.Dur
 	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
+	a.seekBubble(c, s, dur)
+}
+
+// seekBubble 是悬停时间气泡（原版 .player-seek-bubble）：指针停在轨道上时，
+// 在对应位置的上方 6px 显示那个点的时间。原版只在精确指针下启用（触摸不显示），
+// mygo 拿不到指针类型，就一视同仁。
+func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
+	px, _, over := s.PointerPosition()
+	if !over || dur <= 0 {
+		return
+	}
+	w := s.Bounds().W
+	span := w - 2*timelineInset
+	if span <= 0 {
+		return
+	}
+	ratio := clampF(float64((px-timelineInset)/span), 0, 1)
+	label := fmtTime(dur * ratio)
+	// 气泡宽度按字符数估（原版靠 CSS 自适应，mygo 要自己算才能居中）。
+	bw := float32(len(label))*6.2 + 14
+	left := px - bw/2
+	if left < 0 {
+		left = 0
+	}
+	if max := w - bw; left > max {
+		left = max
+	}
+	// 作为进度条的**子元素**挂上去：Absolute 的定位基准是父级的 padding box，
+	// 直接建在这里会以「播放栏那一行」为父级，整块位置会偏掉。
+	// PassThrough：气泡只是显示，不能把进度条的指针事件吃掉。
+	s.Children(func() {
+		ui.Text(c, label).FontSize(10).FontWeight(650).
+			TextColor(ui.Hex("#0f172a")).
+			Absolute().Left(left).Bottom(timelineH+6).
+			Width(bw).Center().PassThrough().
+			Padding(2, 6).Radius(7).
+			Background(ui.Hex("#ffffff").Alpha(0.86)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.14))
+	})
 }
 
 // clampF 把 v 夹到 [lo, hi]。
