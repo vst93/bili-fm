@@ -119,7 +119,13 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
 				play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
 					Label(pick(a.Playing, "暂停", "播放"))
-				play.Background(t.Blue.Alpha(0.18)).Border(1, t.Blue.Alpha(0.35))
+				// 原版 mini .player-play-button：底 rgba(186,230,253,.35)、
+				// 边 rgba(2,132,199,.2)、三层阴影（上内白线 + 下内蓝 + 外投影）。
+				play.Background(ui.Hex("#bae6fd").Alpha(0.35)).
+					Border(1, ui.Hex("#0284c7").Alpha(0.20)).
+					InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
+					InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
+					Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
 				play.Children(func() {
 					ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
 						TextColor(ui.Hex("#0369a1"))
@@ -136,7 +142,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				} else {
 					next.Background(ui.Transparent)
 				}
-				next.Border(1, t.GlassBorder)
+				next.Border(1, t.GlassBorder).
+					InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 				next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
 				if next.Clicked() && a.Act.Next != nil {
 					a.Act.Next()
@@ -162,7 +169,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				} else {
 					vol.Background(ui.Transparent)
 				}
-				vol.Border(1, t.GlassBorder)
+				vol.Border(1, t.GlassBorder).
+					InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 				vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
 				if vol.Clicked() {
 					a.ShowVolume = !a.ShowVolume

@@ -71,11 +71,19 @@ func (a *App) transport(c *ui.Context) {
 			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放")).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.82))
 		if a.Playing {
-			play.Background(pressFeedback(play, t.Blue.Alpha(0.16), t.Blue.Alpha(0.24), t.Blue.Alpha(0.34))).
-				Border(1, ui.Hex("#0369a1").Alpha(0.30))
+			// 原版 [data-playing]：底 rgba(125,211,252,.16)、边 rgba(2,132,199,.3)、
+			// 阴影 inset 0 1px 1px 白 .82 + inset 0 -2px 4px + 0 4px 12px 蓝。
+			play.Background(pressFeedback(play, ui.Hex("#7dd3fc").Alpha(0.16), t.Blue.Alpha(0.24), t.Blue.Alpha(0.34))).
+				Border(1, ui.Hex("#0284c7").Alpha(0.30)).
+				InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.10)).
+				Shadow(0, 4, 12, 0, ui.Hex("#0284c7").Alpha(0.10))
 		} else {
+			// 原版 :not([data-playing])：边 rgba(148,163,184,.22)、
+			// 阴影 inset 0 1px 1px 白 .76 + 0 3px 10px。
 			play.Background(pressFeedback(play, t.LiquidBg, t.GlassHover, t.GlassActive)).
-				Border(1, ui.Hex("#94a3b8").Alpha(0.22))
+				Border(1, ui.Hex("#94a3b8").Alpha(0.22)).
+				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.76)).
+				Shadow(0, 3, 10, 0, ui.Hex("#0f172a").Alpha(0.06))
 		}
 		play.Children(func() {
 			ink := pick(a.Playing, ui.Hex("#0369a1"), ui.Hex("#475569"))
@@ -89,7 +97,8 @@ func (a *App) transport(c *ui.Context) {
 			Label("下一集").Tooltip("下一集")
 		next.Disabled(!a.canNavigate())
 		next.Background(pressFeedback(next, ui.Transparent, t.GlassHover, t.GlassActive))
-		next.Border(1, t.GlassBorder)
+		next.Border(1, t.GlassBorder).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
@@ -186,7 +195,8 @@ func (a *App) speedButton(c *ui.Context) {
 	default:
 		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
-	b.Border(1, t.GlassBorder)
+	b.Border(1, t.GlassBorder).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 	b.Children(func() {
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
 	})
@@ -207,7 +217,8 @@ func (a *App) eqButton(c *ui.Context) {
 	default:
 		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
-	b.Border(1, t.GlassBorder)
+	b.Border(1, t.GlassBorder).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 	b.Children(func() {
 		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
 	})
@@ -227,7 +238,8 @@ func (a *App) sponsorButton(c *ui.Context) {
 	default:
 		b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	}
-	b.Border(1, t.GlassBorder)
+	b.Border(1, t.GlassBorder).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.70))
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
