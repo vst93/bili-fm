@@ -16,6 +16,12 @@ import (
 //
 // 不同 B 站视频的默认音量差异很大，开启后安静的和响亮的视频能落在更接近
 // 的响度上。
+//
+// **关键：补偿增益（makeup gain）**。Web Audio 的 DynamicsCompressorNode
+// 会自动加这一项 —— 它按压缩曲线反算，让 0 dBFS 输入仍是 0 dBFS。少了
+// 它，-50 dB 阈值 + 12:1 会把**所有**内容压到极小（实测就是"一开均衡
+// 声音全变得很小"）。加上之后：满幅信号保持满幅，安静的内容被抬上来，
+// 这才是「音量均衡」。
 type Compressor struct {
 	// mu 保护下面这些控制字段：SetEnabled 在界面线程调，Process 在 oto
 	// 取数据 goroutine 上调。
@@ -31,8 +37,10 @@ type Compressor struct {
 	transLeft  int
 	transTotal int
 
-	// 每个声道的包络（dB 域的增益衰减）
+	// 每个声道的包络（dB 域的增益，含补偿增益）
 	envDB []float64
+	// releaseCoef 是释放的单极点系数（0.25s）；起音是瞬时的，没有系数。
+	releaseCoef float64
 }
 
 const eqTransitionSeconds = 0.12
@@ -49,6 +57,8 @@ func NewCompressor(channels, rate int) *Compressor {
 		tKnee:      0,
 		tRatio:     1,
 		envDB:      make([]float64, channels),
+		// 释放 250ms（原版 release: 0.25；起音是瞬时的，见 Process）。
+		releaseCoef: math.Exp(-1.0 / (0.25 * float64(rate))),
 	}
 }
 
@@ -122,33 +132,64 @@ func (c *Compressor) Process(buf []float32) {
 		if peak > 1e-7 {
 			xDB = 20 * math.Log10(peak)
 		}
-		gainDB := c.gainReduction(xDB)
-		// 释放平滑：旧版 release 0.25s，用单极点逼近。
-		coef := math.Exp(-1.0 / (0.25 * float64(c.rate)))
+		gainDB := c.gainReduction(xDB) + c.makeupDB()
+		// 峰值检测：起音**瞬时**（原版 attack: 0）、释放 0.25s。
+		//
+		// 起音必须瞬时，不能平滑：平滑会让包络在信号峰值处还停在"较低电平
+		// 对应的高增益"上，于是满幅内容被抬到 1.0 以上（实测 1.039，会被
+		// 后面转 s16 时硬削）。瞬时起音后，任意时刻的增益就是该电平在
+		// 压缩曲线上的值，而 curve(0)+makeup=0，所以输出不会超过输入。
+		if gainDB < c.envDB[0] {
+			for ch2 := 0; ch2 < ch; ch2++ {
+				c.envDB[ch2] = gainDB
+			}
+		} else {
+			for ch2 := 0; ch2 < ch; ch2++ {
+				c.envDB[ch2] = gainDB + (c.envDB[ch2]-gainDB)*c.releaseCoef
+			}
+		}
 		for ch2 := 0; ch2 < ch; ch2++ {
-			c.envDB[ch2] = gainDB + (c.envDB[ch2]-gainDB)*coef
 			g := math.Pow(10, c.envDB[ch2]/20)
 			buf[base+ch2] = float32(float64(buf[base+ch2]) * g)
 		}
 	}
 }
 
-// gainReduction 返回该电平应施加的增益（dB，<=0），带软拐点。
-func (c *Compressor) gainReduction(xDB float64) float64 {
+// curveDB 是按当前参数压缩后的输出电平（dB），带软拐点。
+func (c *Compressor) curveDB(xDB float64) float64 {
 	th, knee, ratio := c.threshold, c.knee, c.ratio
+	if knee <= 0 {
+		if xDB <= th {
+			return xDB
+		}
+		return th + (xDB-th)/ratio
+	}
 	lo := th - knee/2
 	hi := th + knee/2
-
-	var yDB float64
 	switch {
 	case xDB < lo:
-		yDB = xDB
+		return xDB
 	case xDB > hi:
-		yDB = th + (xDB-th)/ratio
+		return th + (xDB-th)/ratio
 	default:
 		// 二次插值，与 Web Audio 的软拐点一致。
 		t := xDB - lo
-		yDB = xDB + (1/ratio-1)*t*t/(2*knee)
+		return xDB + (1/ratio-1)*t*t/(2*knee)
 	}
-	return yDB - xDB
+}
+
+// gainReduction 返回该电平应施加的增益（dB，<=0）。
+func (c *Compressor) gainReduction(xDB float64) float64 {
+	return c.curveDB(xDB) - xDB
+}
+
+// makeupDB 是自动补偿增益：让 0 dBFS 输入仍输出 0 dBFS。
+//
+// 这是 Web Audio DynamicsCompressorNode 自带的行为，也是「音量均衡」能
+// 把小音量抬上来的关键 —— 只有压缩没有补偿，就只是把所有声音变小。
+func (c *Compressor) makeupDB() float64 {
+	if c.ratio <= 1.0001 && c.threshold >= -0.001 {
+		return 0
+	}
+	return -c.curveDB(0)
 }
