@@ -124,7 +124,6 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			Border(1, ui.Hex("#0369a1").Alpha(0.46)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.64)).
 			InsetShadow(0, -1, 0, 0, ui.Hex("#0369a1").Alpha(0.16))
-		row.Children(func() {})
 	case row.Hovered():
 		row.Background(t.GlassHover)
 	}
@@ -134,8 +133,12 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 
 	row.Children(func() {
 		// 原版 .playlist-current 的 border-left 4px 强调条。
+		//
+		// 注意用 FillHeight 而不是 Fill：**Fill() 会把宽度也设成 100%**，
+		// 这条 4px 色条于是撑满整行、把封面和文字挤成 0 宽
+		//（表现就是选中项变成一条纯蓝色横条）。
 		if current {
-			ui.Box(c).Width(4).Fill().Shrink(0).Radius(2).
+			ui.Box(c).Width(4).FillHeight().Shrink(0).Radius(2).
 				Background(ui.Hex("#0369a1").Alpha(0.78))
 		}
 		// 缩略图 64×36。

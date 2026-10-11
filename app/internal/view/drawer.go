@@ -603,22 +603,97 @@ func (a *App) needsLogin() bool {
 
 // card 是一张列表卡片：封面 + 时长角标 + 标题 + meta 行（原版 ListCard）。
 func (a *App) card(c *ui.Context, index int) {
-	t := a.Theme
 	card := a.list().Cards[index]
-
 	playing := a.Current() != nil && card.Bvid != "" && a.Current().Bvid == card.Bvid
-	// 原版抽屉里的卡片（globals.css 的 [role=button][class*=bg-content]）：
-	// 圆角 12、1px 玻璃边框、玻璃底、三层阴影（上内亮线 / 下内暗线 / 外投影），
-	// overflow: hidden。封面通栏（.img-container 高 100），页脚另有一层浅底。
-	box := ui.Column(c).Key(fmt.Sprintf("card-%d-%s", index, card.Bvid)).Grow(1).Basis(0).
+	spec := cardSpec{
+		Key:      fmt.Sprintf("card-%d-%s", index, card.Bvid),
+		Cover:    card.Cover,
+		Title:    card.Title,
+		Duration: card.Duration,
+		Active:   playing,
+		Playing:  playing,
+		// 三列比例：作者 40% / 播放量 30% / 发布时间 30%；卡片窄了从末尾
+		// 依次隐藏（阈值与原版的容器查询一致）。
+		Fields: []cardField{
+			{Text: card.Up, Ratio: 40},
+			{Text: card.Views, Ratio: 30, MinW: 150},
+			{Text: card.Pubdate, Ratio: 30, MinW: 200},
+			{Text: card.Extra, Ratio: 30, MinW: 260},
+		},
+		OnClick: func() {
+			// 与原版一致：点卡片只是打开选集面板，不直接起播。
+			if a.Act.OpenCard != nil {
+				a.Act.OpenCard(index)
+			}
+		},
+	}
+	// 「稍后再看」列表在封面上多一个移除键（原版 historyList）。
+	if a.Drawer == "history" && a.HistTab == HistWatchLater && card.Track.Aid != 0 {
+		aid := card.Track.Aid
+		spec.Cover2 = func(c *ui.Context) {
+			// 请求中的置灰防连点（原版 pendingAids）。
+			pending := a.WLRemovePending != nil && a.WLRemovePending[aid]
+			b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).Size(22, 22).Radius(4).
+				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
+			b.Disabled(pending)
+			b.Absolute().Right(4).Top(4)
+			b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
+				pick(b.Hovered(), float32(0.62), float32(0.45)))})
+			b.Children(func() {
+				ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
+			})
+			if b.Clicked() && !pending && a.Act.RemoveWatchLater != nil {
+				a.Act.RemoveWatchLater(aid)
+			}
+		}
+	}
+	a.renderCard(c, spec)
+}
+
+// cardField 是卡片 meta 行里的一个字段。
+type cardField struct {
+	Text string
+	// Ratio 是该列占整行的比例（原版 4:3:3 那套）。
+	Ratio float32
+	// MinW 是显示该字段所需的最小卡片宽度（原版用容器查询，卡片窄了从
+	// 末尾依次隐藏）。0 表示总是显示。
+	MinW float32
+}
+
+// cardSpec 是一张列表卡片的内容。
+type cardSpec struct {
+	Key      string
+	Cover    string
+	Title    string
+	Duration string
+	Fields   []cardField
+	// Active 表示「正在播放」：蓝 Tint + 2px 蓝边。
+	Active  bool
+	Playing bool
+	// Cover2 是叠在封面上的附加内容（添加键、移除键…）。
+	Cover2  func(*ui.Context)
+	OnClick func()
+	// Scroll 为真时把卡片滚进视野（定位当前播放）。
+	Scroll bool
+}
+
+// renderCard 画一张列表卡片。
+//
+// 搜索结果 / 推荐 / 收藏 / 稍后再看 / UP 空间 / **选集**……全走这一套：
+// 原版就是一个 ListCard 组件，各列表只传不同的 fields 与 coverChildren。
+// 之前选集自己另写了一份（padding 6、圆角 8、封面 16:9），和别的列表对
+// 不上 —— 现在合成一份，样式不再碎片化。
+func (a *App) renderCard(c *ui.Context, spec cardSpec) {
+	t := a.Theme
+	// 原版抽屉卡片（globals.css 的 [role=button][class*=bg-content]）：
+	// 圆角 12、玻璃底、封面通栏（.img-container 高 100）、页脚另有一层浅底。
+	box := ui.Column(c).Key(spec.Key).Grow(1).Basis(0).
 		Radius(12).Clip().Cursor(ui.CursorPointer)
-	// 卡片本体是框架玻璃；在播/悬停用 Tint + 光圈表达（原版是描边 + 上浮，
-	// mygo 没有位移变换，用外投影代替"抬起"）。
 	switch {
-	case playing:
-		box.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
-			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
-			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
+	case spec.Active:
+		// 原版选集卡片的在播态就是 border-2 border-[#0284c7]。
+		box.Material(glass.Glass{Tint: t.Blue.Alpha(0.20)}).
+			Border(2, ui.Hex("#0284c7")).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	case box.Hovered():
 		box.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)}).
@@ -629,65 +704,80 @@ func (a *App) card(c *ui.Context, index int) {
 		box.Material(glass.Glass{}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
+	if spec.Scroll {
+		box.ScrollIntoView()
+	}
 
 	box.Children(func() {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
 		ui.Box(c).FillWidth().Height(100).Shrink(0).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {
-			if bmp := a.Images.Bitmap(card.Cover); bmp != nil {
+			if bmp := a.Images.Bitmap(spec.Cover); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
-			if card.Duration != "" {
-				ui.Text(c, card.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
+			if spec.Duration != "" {
+				ui.Text(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
 					Padding(2, 5).Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
-			if playing {
+			if spec.Playing {
 				a.playingBadge(c)
 			}
-			// 「稍后再看」列表的移除键（原版 historyList）。
-			if a.Drawer == "history" && a.HistTab == HistWatchLater && card.Track.Aid != 0 {
-				aid := card.Track.Aid
-				// 请求中的置灰防连点（原版 pendingAids）。
-				pending := a.WLRemovePending != nil && a.WLRemovePending[aid]
-				b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).Size(22, 22).Radius(4).
-					Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
-				b.Disabled(pending)
-				b.Absolute().Right(4).Top(4)
-				b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
-					pick(b.Hovered(), float32(0.62), float32(0.45)))})
-				b.Children(func() {
-					ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
-				})
-				if b.Clicked() && !pending && a.Act.RemoveWatchLater != nil {
-					a.Act.RemoveWatchLater(aid)
-				}
+			if spec.Cover2 != nil {
+				spec.Cover2(c)
 			}
 		})
 
-		// 页脚（原版 [data-slot=footer]）：浅底 + 顶部 1px 白线，px-2 py-1。
-		// 页脚只铺很薄一层白洗色 + 顶部一线分隔，让卡片玻璃透出来
-		//（原版是 rgba(255,255,255,.22)，会把玻璃盖死）。
+		// 页脚（原版 [data-slot=footer]）：px-2 py-1，只铺很薄一层白洗色 +
+		// 顶部一线分隔，让卡片玻璃透出来。
 		ui.Column(c).FillWidth().Grow(1).Padding(4, 8).
 			Background(ui.Hex("#ffffff").Alpha(0.12)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
 				// 原版标题：text-small（14）/ bold / 单行截断。
-				ui.Text(c, card.Title).FontSize(14).FontWeight(700).
+				ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
 					TextColor(t.Ink).SingleLine()
-				// 原版 meta 容器：text-xs（12）/ text-default-500 / mt-1。
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
-					a.metaRow(c, card)
+					a.cardMeta(c, spec.Key, spec.Fields)
 				})
 			})
 	})
-	if box.Clicked() {
-		// 与原版一致：点卡片只是打开选集面板，不直接起播。
-		if a.Act.OpenCard != nil {
-			a.Act.OpenCard(index)
-		}
+	if box.Clicked() && spec.OnClick != nil {
+		spec.OnClick()
 	}
+}
+
+// cardMeta 是卡片的 meta 行（原版 CardMeta + globals.css 里的容器查询）。
+//
+// 列间距进列自身的左内边距（原版 `+ .card-meta-field { padding-left: 8px }`），
+// 这样比例正好落在整行上。
+//
+// 宽度取**上一帧的真实布局宽度**（Element.Bounds）；首帧还没有布局，
+// 按窗口宽度估一个。
+func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
+	row := ui.Row(c).Key(key + "-meta").FillWidth().AlignItems(ui.Center)
+	w := row.Bounds().W
+	if w <= 0 {
+		w = estimateCardWidth(c)
+	}
+	row.Children(func() {
+		first := true
+		for _, f := range fields {
+			if f.Text == "" || w < f.MinW {
+				continue
+			}
+			col := ui.Box(c).BasisPercent(f.Ratio).Shrink(1).MinWidth(0)
+			if !first {
+				col.Padding(0, 0, 0, 8)
+			}
+			first = false
+			col.Children(func() {
+				// 原版 meta 用 text-default-500（zinc-500 #71717a）。
+				ui.Text(c, f.Text).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
+			})
+		}
+	})
 }
 
 // playingBadge 是封面左上角的「正在播放」胶囊（原版 .part-playing-badge）：
@@ -704,64 +794,6 @@ func (a *App) playingBadge(c *ui.Context) {
 		})
 		ui.Text(c, "正在播放").FontSize(11).FontWeight(600).
 			TextColor(ui.Hex("#e2e8f0"))
-	})
-}
-
-// metaRow 是卡片的 meta 行（旧版 CardMeta + globals.css 里的容器查询）。
-//
-// 三列比例：作者 40% / 播放量 30% / 发布时间 30%，列的间距进列自身的左内边距
-// （旧版用 `+ .card-meta-field { padding-left: 8px }`，这样比例正好落在整行上）。
-//
-// 卡片窄了从末尾隐藏字段，阈值与旧版一致：
-//
-//	<= 260px 隐藏附加（进度等）
-//	<= 240px 隐藏时长（时长在封面角标上，meta 里本来就不放）
-//	<= 200px 隐藏发布时间
-//	<= 150px 隐藏播放量
-//
-// 宽度取**上一帧的真实布局宽度**（Element.Bounds，旧版用 ResizeObserver）；
-// 首帧还没有布局，按窗口宽度估一个。
-func (a *App) metaRow(c *ui.Context, card Card) {
-	row := ui.Row(c).Key("meta-" + card.Bvid).FillWidth().AlignItems(ui.Center)
-	w := row.Bounds().W
-	if w <= 0 {
-		w = estimateCardWidth(c)
-	}
-
-	type field struct {
-		text  string
-		ratio float32
-	}
-	fields := []field{{text: card.Up, ratio: 40}}
-	if w > 150 {
-		fields = append(fields, field{text: card.Views, ratio: 30})
-	}
-	if w > 200 {
-		fields = append(fields, field{text: card.Pubdate, ratio: 30})
-	}
-
-	row.Children(func() {
-		first := true
-		for _, f := range fields {
-			if f.text == "" {
-				continue
-			}
-			col := ui.Box(c).BasisPercent(f.ratio).Shrink(1).MinWidth(0)
-			if !first {
-				col.Padding(0, 0, 0, 8)
-			}
-			first = false
-			col.Children(func() {
-				// 原版 meta 用 text-default-500（zinc-500 #71717a）。
-				ui.Text(c, f.text).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
-			})
-		}
-		// 附加字段（稍后再看的进度）不参与三列比例，窄了直接不显示。
-		if card.Extra != "" && w > 260 {
-			ui.Box(c).Padding(0, 0, 0, 8).Children(func() {
-				ui.Text(c, card.Extra).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
-			})
-		}
 	})
 }
 
@@ -858,52 +890,39 @@ func (a *App) partsBody(c *ui.Context) {
 
 // partCard 是一张选集卡片。
 func (a *App) partCard(c *ui.Context, index int, p Part) {
-	t := a.Theme
 	active := a.Track != nil && a.Track.Cid == p.Cid
 	inList := a.playlistHas(p.Cid)
-	box := ui.Column(c).Key(fmt.Sprintf("part-%d", p.Cid)).Grow(1).Basis(0).
-		Padding(6).Radius(Radius).Gap(6).Cursor(ui.CursorPointer)
-	switch {
-	case active:
-		box.Material(glass.Glass{Tint: t.Blue.Alpha(0.22)}).Border(2, t.Blue)
-	case box.Hovered():
-		box.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)})
-	default:
-		box.Material(glass.Glass{})
+	cover := p.FirstFrame
+	if cover == "" && a.Info != nil {
+		cover = a.Info.Pic
 	}
-	// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
-	if (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex) {
-		box.ScrollIntoView()
+	dur := ""
+	if p.Duration > 0 {
+		dur = fmtTime(float64(p.Duration))
 	}
-
-	box.Children(func() {
-		cover := ui.Box(c).FillWidth().AspectRatio(16.0 / 9.0).Radius(RadiusSmall).
-			Background(t.CoverPlaceholder()).Clip()
-		cover.Children(func() {
-			src := p.FirstFrame
-			if src == "" && a.Info != nil {
-				src = a.Info.Pic
-			}
-			if bmp := a.Images.Bitmap(src); bmp != nil {
-				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			}
-			if p.Duration > 0 {
-				ui.Text(c, fmtTime(float64(p.Duration))).FontSize(11).TextColor(ui.Hex("#f8fafc")).
-					Absolute().Right(0).Bottom(0).Padding(2, 5).
-					Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
-			}
-			if active {
-				ui.Text(c, "正在播放").FontSize(9).TextColor(ui.Hex("#ffffff")).
-					Absolute().Left(4).Top(4).Padding(1, 5).Radius(3).
-					Background(t.Blue.Alpha(0.85))
-			}
+	// 原版选集卡片就是同一个 ListCard，只是 fields 换成
+	// [{播放量}, {时长}]、封面叠「正在播放」+「添加到播放列表」。
+	spec := cardSpec{
+		Key:      fmt.Sprintf("part-%d", p.Cid),
+		Cover:    cover,
+		Title:    p.Part,
+		Duration: dur,
+		Active:   active,
+		Playing:  active,
+		Fields: []cardField{
+			{Text: statText(a.Info, func(i *Info) int64 { return i.View }), Ratio: 40},
+			{Text: dur, Ratio: 30, MinW: 150},
+		},
+		// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
+		Scroll: (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex),
+		Cover2: func(c *ui.Context) {
 			// 右上角的添加键。
-			addLabel := "添加到播放列表"
+			label := "添加到播放列表"
 			if inList {
-				addLabel = "已在播放列表中"
+				label = "已在播放列表中"
 			}
 			add := ui.ButtonBase(c.Key(fmt.Sprintf("part-add-%d", p.Cid))).
-				Size(24, 24).Radius(RadiusPill).Center().Label(addLabel).Tooltip(addLabel)
+				Size(24, 24).Radius(RadiusPill).Center().Label(label).Tooltip(label)
 			add.Absolute().Right(4).Top(4)
 			// 压在封面上：Clear 玻璃 + 深色 Tint（与封面上的三个开关同一套）。
 			add.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
@@ -915,15 +934,15 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			if add.Clicked() && a.Act.AddToPlaylist != nil {
 				a.Act.AddToPlaylist(p)
 			}
-		})
-		ui.Text(c, p.Part).FontSize(13).TextColor(t.Ink).MaxLines(2)
-	})
-	if box.Clicked() {
-		if a.Act.Play != nil {
-			a.Act.Play(index)
-		}
-		a.Drawer = ""
+		},
+		OnClick: func() {
+			if a.Act.Play != nil {
+				a.Act.Play(index)
+			}
+			a.Drawer = ""
+		},
 	}
+	a.renderCard(c, spec)
 }
 
 // playlistHas 返回这一集是否已在「我的列表」里。

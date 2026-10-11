@@ -73,7 +73,9 @@ func (c *controller) playlistOf(list string) []view.PlayItem {
 //
 // 原版是「播放列表模式」（isPlaylistMode），上一首/下一首和播完自动续播都
 // 在这个列表里走。这里用 App.PlayingPlaylist 表示当前来源。
-func (c *controller) playPlaylist(list string, index int) {
+// keepDrawer 表示「播完保持播放列表抽屉打开」—— 只有用户**在抽屉里点某一行**
+// 时才是这样（他要接着往下挑）。自动切下一首、合集播放全部这些都不该弹抽屉。
+func (c *controller) playPlaylist(list string, index int, keepDrawer bool) {
 	a := c.app
 	items := c.playlistOf(list)
 	if index < 0 || index >= len(items) {
@@ -89,8 +91,10 @@ func (c *controller) playPlaylist(list string, index int) {
 	a.PlaylistTab = list
 	c.saveQueue()
 	c.startCurrent()
-	// startCurrent 会把抽屉关掉；播放列表要在播放期间保持打开。
-	a.Drawer = view.DrawerPlaylist
+	if keepDrawer {
+		// startCurrent 会把抽屉关掉；从抽屉点进来的要让它保持打开。
+		a.Drawer = view.DrawerPlaylist
+	}
 	a.Win.Update(func() {})
 }
 
@@ -347,7 +351,7 @@ func (c *controller) seriesPlayAll() {
 			c.savePlaylists()
 			a.NotifyType("success", fmt.Sprintf("已加载 %d 集到播放列表", len(out)))
 			// 起播要在主线程做（它会改界面状态）。
-			c.playPlaylist(view.ListSeries, 0)
+			c.playPlaylist(view.ListSeries, 0, false)
 		})
 	}()
 }

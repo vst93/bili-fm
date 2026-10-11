@@ -271,6 +271,12 @@ func main() {
 			app.Playlist = items
 			app.PlaylistTab = view.ListUser
 			app.Drawer = view.DrawerPlaylist
+			// 让某一条成为「当前播放」以检查选中项布局（-play 指定下标）。
+			if *playOnStart >= 0 && *playOnStart < len(items) {
+				app.PlayingPlaylist = view.ListUser
+				app.Index = *playOnStart
+				app.Playing = true
+			}
 			app.Win.Update(func() {})
 		}
 
@@ -501,44 +507,45 @@ func (c *controller) debugOpenDrawer(kind string, seriesID int64) {
 func (c *controller) wireActions() {
 	a := c.app
 	a.Act = view.Actions{
-		LoadSection:        c.loadSection,
-		Reload:             c.reload,
-		SelectFolder:       c.selectFolder,
-		OpenUp:             c.openUp,
-		SelectSeries:       c.selectSeries,
-		ToggleFollow:       c.follow,
-		ToggleIncognito:    c.toggleIncognito,
-		Search:             c.search,
-		UrlJump:            c.urlJump,
-		OpenCard:           c.openCard,
-		OpenBrowser:        c.openBrowser,
-		CopyLink:           c.copyLink,
-		Play:               c.playIndex,
-		TogglePlay:         func() { dbgSlow("togglePlay", c.togglePlay) },
-		Next:               func() { dbgSlow("next", func() { c.step(1) }) },
-		Prev:               func() { dbgSlow("prev", func() { c.step(-1) }) },
-		Seek:               func(v float64) { dbgSlow("seek", func() { c.seek(v) }) },
-		SetSpeed:           c.setSpeed,
-		ToggleEQ:           func() { dbgSlow("toggleEQ", c.toggleEQ) },
-		ToggleSponsor:      c.toggleSponsor,
-		SetVolume:          c.setVolume,
-		PersistVolume:      c.persistVolume,
-		ToggleMute:         c.toggleMute,
-		OpenVideo:          c.openVideo,
-		CloseVideo:         c.closeVideo,
-		OpenParts:          c.openParts,
-		ToggleDanmaku:      c.toggleDanmaku,
-		LoadMore:           c.loadMore,
-		Login:              c.login,
-		CloseLogin:         c.closeLogin,
-		ShowAbout:          c.showAbout,
-		ShowShortcuts:      c.showShortcuts,
-		CheckUpdate:        c.checkUpdate,
-		CloseModal:         c.closeModal,
-		SetCoverMode:       c.setCoverMode,
-		ToggleAmbient:      c.toggleAmbient,
-		TogglePremium:      c.togglePremium,
-		PlayPlaylist:       c.playPlaylist,
+		LoadSection:     c.loadSection,
+		Reload:          c.reload,
+		SelectFolder:    c.selectFolder,
+		OpenUp:          c.openUp,
+		SelectSeries:    c.selectSeries,
+		ToggleFollow:    c.follow,
+		ToggleIncognito: c.toggleIncognito,
+		Search:          c.search,
+		UrlJump:         c.urlJump,
+		OpenCard:        c.openCard,
+		OpenBrowser:     c.openBrowser,
+		CopyLink:        c.copyLink,
+		Play:            c.playIndex,
+		TogglePlay:      func() { dbgSlow("togglePlay", c.togglePlay) },
+		Next:            func() { dbgSlow("next", func() { c.step(1) }) },
+		Prev:            func() { dbgSlow("prev", func() { c.step(-1) }) },
+		Seek:            func(v float64) { dbgSlow("seek", func() { c.seek(v) }) },
+		SetSpeed:        c.setSpeed,
+		ToggleEQ:        func() { dbgSlow("toggleEQ", c.toggleEQ) },
+		ToggleSponsor:   c.toggleSponsor,
+		SetVolume:       c.setVolume,
+		PersistVolume:   c.persistVolume,
+		ToggleMute:      c.toggleMute,
+		OpenVideo:       c.openVideo,
+		CloseVideo:      c.closeVideo,
+		OpenParts:       c.openParts,
+		ToggleDanmaku:   c.toggleDanmaku,
+		LoadMore:        c.loadMore,
+		Login:           c.login,
+		CloseLogin:      c.closeLogin,
+		ShowAbout:       c.showAbout,
+		ShowShortcuts:   c.showShortcuts,
+		CheckUpdate:     c.checkUpdate,
+		CloseModal:      c.closeModal,
+		SetCoverMode:    c.setCoverMode,
+		ToggleAmbient:   c.toggleAmbient,
+		TogglePremium:   c.togglePremium,
+		// 从播放列表抽屉里点某一行：播完保持抽屉打开（要接着挑）。
+		PlayPlaylist:       func(list string, index int) { c.playPlaylist(list, index, true) },
 		DeletePlaylistItem: c.deletePlaylistItem,
 		ReorderPlaylist:    c.reorderPlaylist,
 		ClearPlaylist:      c.clearPlaylist,
@@ -1927,7 +1934,8 @@ func (c *controller) step(delta int) {
 				next = 0
 			}
 		}
-		c.playPlaylist(c.app.PlayingPlaylist, next)
+		// 自动切下一首：静默切换，不要把播放列表抽屉弹出来。
+		c.playPlaylist(c.app.PlayingPlaylist, next, false)
 		return
 	}
 
