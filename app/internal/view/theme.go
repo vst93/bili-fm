@@ -197,9 +197,10 @@ const (
 	SearchBarHeight = 46
 	SearchRadius    = 13
 	SearchPadding   = 4
-	SearchSlotH     = 38
-	SearchSlotR     = 8
-	ToolButton      = 32
-	ToolButtonR     = 6
-	AvatarSize      = 36
+	// 内腔高 36 = 46 - 2(外框边框) - 8(外框 padding)；圆角 = 13 - 5 = 8。
+	SearchSlotH = 36
+	SearchSlotR = 8
+	ToolButton  = 32
+	ToolButtonR = 6
+	AvatarSize  = 36
 )

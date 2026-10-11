@@ -33,9 +33,13 @@ func (a *App) searchBar(c *ui.Context) {
 // 白底、圆角 8、内边距 4，右端一个 32×32 的放大镜提交键。
 func (a *App) searchField(c *ui.Context) {
 	t := a.Theme
-	slot := ui.Row(c).Grow(1).Height(SearchSlotH).Radius(SearchSlotR).Padding(0, 4).
+	// 原版内腔：padding-left 10（文字视觉起点）/ padding-right 1（提交键
+	// 离右 1px、离上下 1px，四周等距）；内凹 = 顶部深影 + 底部亮高光。
+	slot := ui.Row(c).Grow(1).Height(SearchSlotH).Radius(SearchSlotR).
+		Padding(0, 1, 0, 10).
 		Background(ui.Hex("#ffffff").Alpha(0.80)).
 		Border(1, ui.Hex("#94a3b8").Alpha(0.35)).
+		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.08)).
 		AlignItems(ui.Center)
 	var in ui.Element
 	slot.Children(func() {
@@ -611,7 +615,8 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Col
 	if ink.A != 0 {
 		textInk = ink
 	}
-	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
+	// 原版 .nav-icon-btn：32×32、圆角 7、无边框、径向高光底、opacity .92。
+	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(7).
 		Center().Label(label).Tooltip(label)
 	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
 	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
