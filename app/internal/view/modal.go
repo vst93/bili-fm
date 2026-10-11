@@ -1,9 +1,14 @@
 package view
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
+
+// modalIn 是模态框入场（缩放 + 淡入）的时长。
+const modalIn = 180 * time.Millisecond
 
 // modal 画当前模态对话框（原版的 DialogProvider + 登录面板）。
 //
@@ -19,6 +24,11 @@ func (a *App) modal(c *ui.Context) {
 	}
 	t := a.Theme
 	open := true
+	// 缩放入场（原版 .liquid-dialog 的 scale 0.95 → 1 + 淡入，
+	// 0.2s transition）。进度由打开时间算，值交给 AnimateTo 平滑。
+	if a.modalOpenedAt.IsZero() {
+		a.modalOpenedAt = time.Now()
+	}
 
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		switch m.Kind {
@@ -44,6 +54,14 @@ func (a *App) modal(c *ui.Context) {
 				Shadow(0, 24, 64, 0, ui.Hex("#0f172a").Alpha(0.22)).
 				Shadow(0, 4, 16, 0, ui.Hex("#0f172a").Alpha(0.06))
 		}
+		prog := float32(1)
+		if age := time.Since(a.modalOpenedAt); age < modalIn {
+			prog = float32(age) / float32(modalIn)
+		}
+		sc := panel.AnimateTo("modal-in", 0.96+0.04*prog, ui.Snappy)
+		panel.Scale(sc, sc).
+			Opacity(panel.AnimateTo("modal-fade", prog,
+				ui.Animation{Duration: modalIn}))
 		panel.Children(func() {
 			switch m.Kind {
 			case "login":
@@ -55,6 +73,7 @@ func (a *App) modal(c *ui.Context) {
 
 		// Esc / 点外部关闭由框架报告；登录框要停轮询（CloseLogin 换代）。
 		if panel.Dismissed() {
+			a.modalOpenedAt = time.Time{}
 			if m.Kind == "login" {
 				if a.Act.CloseLogin != nil {
 					a.Act.CloseLogin()

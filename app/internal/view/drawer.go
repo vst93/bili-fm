@@ -19,6 +19,9 @@ import (
 //	头部    section > header
 //	        高 48、右侧留 44 给绝对定位的关闭键、下边框 1px rgba(100,116,139,0.14)
 //
+// drawerIn 是抽屉上滑入场的时长。
+const drawerIn = 220 * time.Millisecond
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
 	if a.Drawer == "" {
@@ -28,15 +31,26 @@ func (a *App) drawer(c *ui.Context) {
 	// min(92vh, 100vh - 54px)：54 是播放栏高度，抽屉不盖住它。
 	h := min(winH*0.92, winH-54)
 
+	// 换抽屉 / 重新打开时重置入场时间（做上滑入场用）。
+	if a.Drawer != a.drawerOpenKey {
+		a.drawerOpenKey, a.drawerOpenedAt = a.Drawer, time.Now()
+	}
 	overlay := ui.Box(c).Absolute().Fill().Background(ui.Hex("#0f172a").Alpha(0.28))
 	overlay.Children(func() {
 		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
 		// （--liquid-blur-thin：小面积用薄玻璃），所以面板本身也是真玻璃。
+		// 上滑入场（原版抽屉是从底部滑上来的）。进度由打开时间算，
+		// 位移交给 AnimateTo 平滑。
+		prog := float32(1)
+		if age := time.Since(a.drawerOpenedAt); age < drawerIn {
+			prog = float32(age) / float32(drawerIn)
+		}
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
 			Material(glass.Glass{}).
 			// 玻璃自带顶缘聚光，不再叠原版那条手搓的 1px 顶线。
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
+		panel.Translate(0, panel.AnimateTo("drawer-in", (1-prog)*h, ui.Snappy))
 		panel.Children(func() {
 			a.drawerHeader(c)
 			a.drawerBody(c)
@@ -704,6 +718,13 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		box.Material(glass.Glass{}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
+	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
+	// v0.4.3 的 Transforms 对任意元素生效，用弹簧做，中途移开会顺着速度回去。
+	lift := float32(0)
+	if box.Hovered() || spec.Active {
+		lift = -3
+	}
+	box.Translate(0, box.AnimateTo("lift", lift, ui.Snappy))
 	if spec.Scroll {
 		box.ScrollIntoView()
 	}

@@ -503,11 +503,20 @@ type App struct {
 
 	// Modal 是当前显示的模态对话框（nil 表示没有）。
 	Modal *Modal
+	// drawerOpenKey / drawerOpenedAt 用来算抽屉的上滑入场进度。
+	drawerOpenKey  string
+	drawerOpenedAt time.Time
+	// modalOpenedAt 同理，给模态框的缩放入场用。
+	modalOpenedAt time.Time
 
 	// toasts 是待弹出的 toast：后台线程通过 Notify 入队，下一帧由 Shell
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
 	toastMu sync.Mutex
 	toasts  []ui.Toast
+	// toastSeen 记每条 toast 首次出现的时间：框架只公开了剩余时间 Left，
+	// 拿不到年龄，淡入进度得自己记（key 用 toast 根元素的稳定 ID）。
+	toastSeen   map[uint64]time.Time
+	toastSeenMu sync.Mutex
 
 	// danmakuList 是弹幕列表的虚拟化状态（mygo 的 ui.List 只构建可见行）；
 	// danmakuCid 用于换集时重置它。

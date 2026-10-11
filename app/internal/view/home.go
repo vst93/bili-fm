@@ -253,8 +253,15 @@ func (a *App) coverDisc(c *ui.Context) {
 
 			// 三个小开关：碟片/封面、封面背景、高级质感。
 			// 原版底部右起 8px，彼此间距 6（28 + 6 = 34）；整组随封面悬停淡入。
-			ui.Row(c).Absolute().Right(8).Bottom(8).Gap(6).
-				Opacity(pick(shellHovered, float32(0.85), float32(0))).Children(func() {
+			// 整组随封面悬停淡入淡出（原版 .cover-mode-toggle 的
+			// opacity 0 ↔ .85 + 0.2s 过渡）。交给 AnimateTo 平滑。
+			group := ui.Row(c).Absolute().Right(8).Bottom(8).Gap(6)
+			target := float32(0)
+			if shellHovered {
+				target = 0.85
+			}
+			group.Opacity(group.AnimateTo("cover-toggles", target,
+				ui.Animation{Duration: 200 * time.Millisecond})).Children(func() {
 				a.coverToggle(c, "cover-mode", "切换封面模式",
 					iconRefresh, true, func() {
 						if a.Act.SetCoverMode == nil {

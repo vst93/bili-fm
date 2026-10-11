@@ -1,6 +1,8 @@
 package view
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
@@ -17,6 +19,9 @@ func (a *App) toastViewport(c *ui.Context) {
 		for _, t := range toasts {
 			p := ui.ToastBase(c, t)
 			accent, ic := toastAccent(t.Type)
+			// 淡入淡出：框架自带的那套只在内置外观里做，我们用了自定义外观
+			// 就得自己来。ToastParts 只公开了 Left（剩余时间），首现时间自己记。
+			op := p.Root.AnimateTo("toast-in", toastFadeTarget(a, p), ui.Animation{Duration: toastFade})
 			// 材质用框架玻璃，类型色只作为 Tint 透出来 —— 原版那层
 			// 135° 渐变（白 50% → 类型色 8%）是想手搓玻璃，而
 			// LinearGradient 会直接把 Material 顶掉（fill 只有一个）。
@@ -25,6 +30,7 @@ func (a *App) toastViewport(c *ui.Context) {
 				Material(glass.Glass{Tint: accent.Alpha(0.10)}).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
+			p.Root.Opacity(op)
 			p.Root.Children(func() {
 				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(accent)
 				// 原版：text-sm（14）font-medium text-slate-800。
@@ -33,6 +39,35 @@ func (a *App) toastViewport(c *ui.Context) {
 			})
 		}
 	})
+}
+
+// toastFade 是 toast 淡入淡出的时长（框架内置外观用的是 200ms）。
+const toastFade = 200 * time.Millisecond
+
+// toastFadeTarget 算出某条 toast 这一帧该有的不透明度：
+// 前 200ms 由 0 升到 1，最后 200ms 再由 1 落回 0。
+// 交给 AnimateTo 平滑，框架会自己把中间的帧排上。
+func toastFadeTarget(a *App, p ui.ToastParts) float32 {
+	id := p.Root.ID()
+	now := time.Now()
+	a.toastSeenMu.Lock()
+	if a.toastSeen == nil {
+		a.toastSeen = map[uint64]time.Time{}
+	}
+	first, ok := a.toastSeen[id]
+	if !ok {
+		first = now
+		a.toastSeen[id] = first
+	}
+	a.toastSeenMu.Unlock()
+
+	if age := now.Sub(first); age < toastFade {
+		return float32(age) / float32(toastFade)
+	}
+	if left := p.Left(); left > 0 && left < toastFade {
+		return float32(left) / float32(toastFade)
+	}
+	return 1
 }
 
 // toastAccent 把 toast 类型映射成原版的图标与颜色
