@@ -66,16 +66,27 @@ func parseFloat(s string) float64 {
 
 // setSpeed 设置倍速并落盘。
 func (c *controller) setSpeed(v float64) {
+	dbgSlow("setSpeed", func() { c.mp.SetSpeed(v) })
 	c.app.Speed = v
-	c.mp.SetSpeed(v)
 	// 视频弹窗开着时同步倍速。
 	if c.app.VideoOpen {
-		c.vid.SetSpeed(v)
+		dbgSlow("vid.SetSpeed", func() { c.vid.SetSpeed(v) })
 	}
 	if c.media != nil {
-		c.media.SetRate(v)
+		dbgSlow("media.SetRate", func() { c.media.SetRate(v) })
 	}
-	_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
+	dbgSlow("kv.SetString", func() {
+		_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
+	})
+}
+
+// dbgSlow 打印耗时超过 30ms 的步骤（排查界面卡顿用）。
+func dbgSlow(name string, fn func()) {
+	t0 := time.Now()
+	fn()
+	if d := time.Since(t0); d > 30*time.Millisecond {
+		log.Printf("[slow] %s 用了 %v", name, d)
+	}
 }
 
 // setVolume 设置音量并落盘（静音时先解除静音，否则听不出变化）。

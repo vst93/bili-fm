@@ -61,15 +61,27 @@ func (p *Player) Play(url string, headers map[string]string) error {
 		return err
 	}
 
+	// 建流水线要发 HTTP 请求解析 MP4 头（几秒级），**绝不能握着 p.mu**：
+	// UI 线程上的 SetSpeed/SetVolume 会一起干等（实测倍速切换卡过 22 秒）。
+	// 先在锁外建好，再进锁只做一次交换。
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	pipe, err := newPipeline(rf, p.ctxRate, p.speed, p.eqOn, p.ensureContext)
+	rate, speed, eqOn := p.ctxRate, p.speed, p.eqOn
+	p.mu.Unlock()
+
+	pipe, err := newPipeline(rf, rate, speed, eqOn, p.ensureContext)
 	if err != nil {
 		return err
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.ctx == nil {
 		return errors.New("media: 音频上下文未建立")
 	}
+	// 建流水线期间用户可能改过倍速/均衡，以**当前**值为准，
+	// 不然这几秒里的改动会被建的时候那份快照吃掉。
+	pipe.ws.SetSpeed(p.speed)
+	pipe.eq.SetEnabled(p.eqOn)
 	p.cur = pipe
 	p.op = p.ctx.NewPlayer(pipe)
 	p.op.SetVolume(p.vol)
@@ -85,11 +97,16 @@ func (p *Player) Play(url string, headers map[string]string) error {
 // oto 明确不支持创建多个 context，所以上下文只在第一次播放时按当时流的
 // 采样率建立；之后采样率不同的流由 pipeline 内的重采样器转换。
 func (p *Player) ensureContext(rate, channels int) (int, error) {
-	if p.ctx != nil {
-		if channels != p.ctxCh {
-			return 0, fmt.Errorf("media: 声道数从 %d 变成 %d，暂不支持", p.ctxCh, channels)
+	// Play 现在在锁外建流水线，所以这里自己加锁读已有的上下文。
+	// oto.NewContext（开音频设备）本身也在锁外做，不然又会卡住 UI 线程。
+	p.mu.Lock()
+	have, ctxRate, ctxCh := p.ctx != nil, p.ctxRate, p.ctxCh
+	p.mu.Unlock()
+	if have {
+		if channels != ctxCh {
+			return 0, fmt.Errorf("media: 声道数从 %d 变成 %d，暂不支持", ctxCh, channels)
 		}
-		return p.ctxRate, nil
+		return ctxRate, nil
 	}
 	ctx, ready, err := oto.NewContext(&oto.NewContextOptions{
 		SampleRate:   rate,
@@ -100,7 +117,14 @@ func (p *Player) ensureContext(rate, channels int) (int, error) {
 		return 0, fmt.Errorf("media: 打开音频输出失败: %w", err)
 	}
 	<-ready
-	p.ctx, p.ctxRate, p.ctxCh = ctx, rate, channels
+	p.mu.Lock()
+	// 两个 goroutine 同时第一次起播时，先到的赢，后来者用已建好的。
+	if p.ctx == nil {
+		p.ctx, p.ctxRate, p.ctxCh = ctx, rate, channels
+	} else {
+		rate = p.ctxRate
+	}
+	p.mu.Unlock()
 	return rate, nil
 }
 
