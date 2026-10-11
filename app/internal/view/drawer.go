@@ -1084,46 +1084,87 @@ func (a *App) danmakuBody(c *ui.Context) {
 		}
 	}
 
-	ui.Column(c).Gap(6).Children(func() {
+	// 原版 .danmaku-time-group：整行 grid（64px 时间列 + 1fr 消息列）、gap 10、
+	// padding 11 12 13、底部 1px 分隔线；组之间没有间距，靠这条线分开。
+	sep := ui.Hex("#64748b").Alpha(0.14)
+	ui.Column(c).Children(func() {
 		for i, g := range groups {
 			isCur := i == cur
-			box := ui.Column(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
-				Padding(4, 8).Radius(RadiusSmall).Gap(3).
-				Cursor(ui.CursorPointer)
+			box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
+				Padding(11, 12, 13).Gap(10).AlignItems(ui.Start).
+				Cursor(ui.CursorPointer).
+				InsetShadow(0, -1, 0, 0, sep)
+			// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
 			switch {
 			case isCur:
-				box.Background(t.Blue.Alpha(0.10))
+				box.InsetShadow(0, -1, 0, 0, ui.Hex("#0284c7").Alpha(0.30))
 			case box.Hovered():
-				box.Background(t.GlassHover)
+				box.InsetShadow(0, -1, 0, 0, t.Blue.Alpha(0.24))
 			}
 			if isCur && a.danmakuScrollIdx != cur {
 				box.ScrollIntoView()
 			}
 			box.Children(func() {
-				// 组头：时间 + 这一秒的总条数。
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, fmtTime(float64(g.Second))).FontSize(10).
-						TextColor(pick(isCur, t.Blue, t.Faint)).Width(44)
-					ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(10).TextColor(t.Faint)
-				})
-				for _, e := range g.Entries {
-					row := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
-						FillWidth().Gap(6).AlignItems(ui.Center)
-					row.Children(func() {
-						ui.Text(c, e.Text).FontSize(12).TextColor(danmakuInk(e.Color)).Grow(1).MaxLines(2)
-						if e.Count > 1 {
-							ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
-								TextColor(t.Faint).Shrink(0)
-						}
-					})
-					if row.Clicked() && a.Act.Seek != nil {
-						a.Act.Seek(float64(g.Second))
+				// 左列 64：时间标签 + 「N 条」，右缘一线分隔（.danmaku-time-head）。
+				ui.Column(c).Width(64).Shrink(0).Gap(4).Justify(ui.Center).
+					InsetShadow(1, 0, 0, 0, sep).Children(func() {
+					lbl := ui.Text(c, fmtTime(float64(g.Second))).FontSize(13).
+						FontWeight(700).Padding(3, 5).Radius(6)
+					if isCur {
+						// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
+						lbl.Background(ui.Hex("#0284c7")).TextColor(ui.Hex("#ffffff")).
+							InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
+							Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
+					} else {
+						lbl.TextColor(ui.Hex("#334155"))
 					}
-				}
+					// .danmaku-time-total：11px #64748b（当前组转蓝加粗）。
+					tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
+						TextColor(ui.Hex("#64748b"))
+					if isCur {
+						tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
+					}
+				})
+
+				// 右列：消息横排换行的一串小胶囊（.danmaku-message-list）。
+				ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).Children(func() {
+					for _, e := range g.Entries {
+						chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
+							Height(27).Padding(3, 7, 3, 9).Gap(5).
+							Radius(8).AlignItems(ui.Center).
+							Background(ui.Hex("#ffffff").Alpha(0.48)).
+							Border(1, ui.Hex("#ffffff").Alpha(0.52)).
+							InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+							Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
+						switch {
+						case isCur:
+							chip.Background(ui.Hex("#f0f9ff").Alpha(0.76)).
+								Border(1, t.Blue.Alpha(0.48)).
+								Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
+						case box.Hovered():
+							chip.Background(ui.Hex("#ffffff").Alpha(0.58)).
+								Border(1, ui.Hex("#ffffff").Alpha(0.68))
+						}
+						chip.Children(func() {
+							// .danmaku-message-text：13px / 650 / 单行截断。
+							ui.Text(c, e.Text).FontSize(13).FontWeight(650).
+								TextColor(danmakuInk(e.Color)).SingleLine()
+							if e.Count > 1 {
+								// .danmaku-repeat-count：小蓝胶囊 ×N。
+								ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
+									FontWeight(700).TextColor(ui.Hex("#0369a1")).
+									Padding(0, 5).Radius(7).MinWidth(24).
+									Background(ui.Hex("#e0f2fe").Alpha(0.70)).
+									Border(1, t.Blue.Alpha(0.20))
+							}
+						})
+						// 点一条弹幕跳到它出现的时间（原版没有，但弹幕播放器都这么做）。
+						if chip.Clicked() && a.Act.Seek != nil {
+							a.Act.Seek(float64(g.Second))
+						}
+					}
+				})
 			})
-			if box.Clicked() && a.Act.Seek != nil {
-				a.Act.Seek(float64(g.Second))
-			}
 		}
 	})
 	a.danmakuScrollIdx = cur
