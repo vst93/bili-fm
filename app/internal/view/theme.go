@@ -210,3 +210,17 @@ const (
 	ToolButtonR = 6
 	AvatarSize  = 36
 )
+
+// pressPose 给按钮加上原版那套按压手感（.nav-icon-btn / .top-tool-btn）：
+// 悬停上浮 1px、按下缩到 0.94。用 AnimatePose —— 只重绘不重建视图，
+// 比在视图里算值便宜得多，所以这类微动效可以铺开用。
+func pressPose(b ui.Element) {
+	pose := ui.Pose{}
+	switch {
+	case b.Pressed():
+		pose = ui.Pose{Scale: 0.94}
+	case b.Hovered():
+		pose = ui.Pose{Y: -1}
+	}
+	b.AnimatePose(pose, ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut})
+}

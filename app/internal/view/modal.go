@@ -176,6 +176,7 @@ func (a *App) modalButton(c *ui.Context, label string, primary bool, fn func()) 
 		b.Material(glassTint(false, b.Hovered(),
 			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
 	}
+	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).
 			TextColor(pick(primary, ui.Hex("#ffffff"), ui.Hex("#475569")))

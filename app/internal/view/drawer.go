@@ -334,6 +334,7 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 	// 材质交给框架玻璃（选中态更实一点 = Tint 更亮），不再手搓半透明白 + 描边。
 	b.Material(glassTint(active, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30)))
+	pressPose(b)
 	b.Children(func() {
 		// 原版 tab：13px / 600；选中 #0369a1，悬停（未选中）#334155。
 		ink := ui.Hex("#475569")
@@ -374,6 +375,7 @@ func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size fl
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	b.Material(glassTint(false, b.Hovered(),
 		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+	pressPose(b)
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
 	if b.Clicked() {
 		fn()

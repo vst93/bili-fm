@@ -143,6 +143,7 @@ func (a *App) transport(c *ui.Context) {
 		}
 		next.Material(glassTint(false, next.Hovered(),
 			ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+		pressPose(next)
 		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
@@ -321,6 +322,7 @@ func (a *App) speedButton(c *ui.Context) {
 		Label("倍速").Tooltip("倍速")
 	b.Material(glassTint(a.ShowSpeed, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
+	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
 	})
@@ -338,6 +340,7 @@ func (a *App) eqButton(c *ui.Context) {
 		Label("均衡").Tooltip("均衡")
 	b.Material(glassTint(a.EQ, b.Hovered(),
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
+	pressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
 	})
@@ -354,6 +357,7 @@ func (a *App) sponsorButton(c *ui.Context) {
 		Label("跳过赞助").Tooltip("跳过赞助片段")
 	b.Material(glassTint(a.Sponsor, b.Hovered(),
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
+	pressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))

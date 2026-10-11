@@ -134,6 +134,7 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	b := ui.ButtonBase(c.Key("nav-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
 	glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+	pressPose(b)
 	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(t.Muted) })
 	if b.Clicked() {
 		a.openSection(key)
