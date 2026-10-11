@@ -267,12 +267,17 @@ func (p *Player) reportLoop(stop chan struct{}) {
 		case <-stop:
 			return
 		case <-t.C:
+			// 只握着 p.mu 取指针就放开：cur.state()/cur.position() 要拿
+			// 流水线的锁，而那把锁会被 otor 取数据的 goroutine 在网络读时
+			// 长期持有 —— 在 p.mu 里等它，UI 线程的 SetSpeed/SetVolume
+			// 又会一起卡住（和 Play 那次是同一类问题）。
 			p.mu.Lock()
-			cur, ended, err := p.cur, false, error(nil)
+			cur := p.cur
+			p.mu.Unlock()
+			ended, err := false, error(nil)
 			if cur != nil {
 				ended, err = cur.state()
 			}
-			p.mu.Unlock()
 			if err != nil && p.onError != nil {
 				p.onError(err)
 				return
@@ -378,12 +383,13 @@ func (p *pipeline) state() (ended bool, err error) {
 
 // seek 跳到指定秒数：重建解封装器，用 ReadFrame 跳过前面若干帧
 // （只定位不decoding，比解码丢弃快得多），再重建解码器。
-// setEQ 在流水线锁内切换均衡，避免与 Read（oto goroutine）里的
-// eq.Process 并发写同一个压缩器的控制状态。
+// setEQ 切换均衡。
+//
+// **不要拿流水线的锁**：Compressor 自己就有锁（SetEnabled/Process 都走它），
+// 而流水线锁会被 Read（oto 取数据的 goroutine）在网络读时长期持有 —— 在它
+// 上面等，UI 线程会一起卡住（实测 toggleEQ 卡过 22 秒）。
 func (p *pipeline) setEQ(on bool) {
-	p.mu.Lock()
 	p.eq.SetEnabled(on)
-	p.mu.Unlock()
 }
 
 func (p *pipeline) seek(seconds float64) error {
