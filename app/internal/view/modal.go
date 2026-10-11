@@ -37,16 +37,10 @@ func (a *App) modal(c *ui.Context) {
 			// 1px 白边 .65 + 四层阴影，底色是 145° 白→浅白的渐变。
 			panel.MinWidth(360).Radius(18).
 				Padding(28, 32, 22).
-				// 原版这里是 backdrop-filter: blur(24px)：只有渐变没有模糊的话，
-				// 背板内容会清晰透出来（标题/封面都看得见）。
-				// Material 提供背板模糊（原版 backdrop-filter: blur(24px)），
-				// 底色取渐变两端的中值 —— 用 LinearGradient 会覆盖掉
-				// material 的模糊层，背板内容就清晰透出来了。
+				// 原版这里是 backdrop-filter: blur(24px) 的一层玻璃；用框架玻璃后
+				// 不再手搓底色与内影（Material 之后调 Background 是空操作，会被
+				// 静默忽略；LinearGradient 更会把 Material 整个顶掉）。
 				Material(glass.Glass{}).
-				Background(ui.Hex("#ffffff").Alpha(0.82)).
-				Border(1, ui.Hex("#ffffff").Alpha(0.65)).
-				InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.85)).
-				InsetShadow(0, -1, 3, 0, ui.Hex("#0f172a").Alpha(0.05)).
 				Shadow(0, 24, 64, 0, ui.Hex("#0f172a").Alpha(0.22)).
 				Shadow(0, 4, 16, 0, ui.Hex("#0f172a").Alpha(0.06))
 		}

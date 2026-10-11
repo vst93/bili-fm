@@ -35,9 +35,7 @@ func (a *App) drawer(c *ui.Context) {
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
 			Material(glass.Glass{}).
-			// 原版是 border-top: 1px solid var(--glass-border)（其余三边在屏幕外，
-			// 用内阴影画顶线即可）。
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.55)).
+			// 玻璃自带顶缘聚光，不再叠原版那条手搓的 1px 顶线。
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
 		panel.Children(func() {
 			a.drawerHeader(c)
