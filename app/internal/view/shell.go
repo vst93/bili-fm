@@ -103,12 +103,14 @@ func (a *App) titleBar(c *ui.Context) {
 				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
-				if b.Hovered() {
-					b.Background(t.GlassHover)
-				} else {
-					b.Background(ui.Transparent)
+				bg, ink, opacity, highlight := titleBarButtonStyle(t, false, b.Hovered())
+				b.Background(bg).Opacity(opacity)
+				if highlight {
+					b.InsetShadow(0, 1, 1, 0, t.Highlight).
+						Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
 				}
-				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(t.Muted) })
+				pressScale(b)
+				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(ink) })
 				if b.Clicked() && a.Act.SetMini != nil {
 					a.Act.SetMini(true)
 				}

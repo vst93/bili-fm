@@ -774,3 +774,21 @@ clip 顺序变化时不会整批失效。
 但 `Scroll` 自己已经 settle（真的渲染了那一帧），后面那次 Frame 是场景没变的
 **空帧**（实测 ~0.5ms）。所以旧的 scroll 数字（1.4ms）其实什么都没量。现在计时
 包住 `Scroll` 本身，scroll 数字变成真实的渲染成本（~640–800ms，软件光栅）。
+
+## mygo v0.4.7 升级评估（2026-10）
+
+`app/go.mod` 从 v0.4.6 升到 **v0.4.7**（`require` 与 `replace` 同步；`go mod tidy`
+顺手清掉 go.sum 里残留的 v0.4.5 行）。逐条读 release notes 对应 PR 的源码后，
+**没有自然用点**，只升级不改代码：
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #275 | `Bitmap.Pixelated` 放大时按像素方块画 | 本项目没有像素画。唯一「像素状」内容是登录二维码，但原版（Tauri）用 `QRCode.toDataURL({width:200})` 生成 200px 图再显示到 160px——是**缩小**，而 Pixelated 只在放大时生效（doc: “Where it shows smaller, it is as smooth as any”）。强行改成「按模块分辨率生成 + 放大」反而偏离原版。 | **不适用** |
+| #276 | `Painter.ImageRegion` 画位图子区域（+ FlipX/Y/Tint） | 本项目没有雪碧图/图集，封面一律 `Fit(Cover)` 整图裁切，无子区域需求。 | **不适用** |
+| #277 | `Painter.Transform` 在 `Draw` 回调里变换所画内容 | 本项目唯一的 `Draw` 回调是播放进度条（`paintTimeline`，纯矢量路径，无变换需求）；唱片旋转走元素级 `AnimatePose`（且刻意避免每帧重建视图，见 home.go 注释）。 | **不适用** |
+| #286 | `ui.Canvas` 离屏画布（画一次、每帧当图显示） | 最接近的候选是窗口背景那 4 条时段渐变。但（a）mygo 的 GPU 渲染器把同帧所有 op 批进一个 scene pass，渐变只是片元着色器，改成纹理采样收益很小；（b）画布按窗口设备像素分配（1400×900@2x ≈ 20MB 常驻），比 4 条渐变昂贵；（c）软件光栅路径下 image op 是逐像素 4 抽样双线性（见 .pending-bugs.md 的实测），可能比渐变填充还慢——本项目 Linux 正是软件光栅瓶颈；（d）还要处理 resize/时段切换重建。**无收益** |
+| #285 | `audio.Player.SetLoopRange` 循环片段 | 本项目的「单曲循环三态」是切歌级循环（`internal/media`），不是片段循环。 | **不适用** |
+| #278/#282/#283/#284/#287 | sprite benchmark / farm·mayoi 示例 / gamepad / `game.View`·`game.Camera` | 只在 `plugins/game` 与 examples，本项目非游戏。 | **不适用** |
+
+升级本身无行为变化（v0.4.7 对 `ui`/`scene`/`raster` 的改动全是新增 API，没有改
+现有语义），`./check.sh` 全绿。

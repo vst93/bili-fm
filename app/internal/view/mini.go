@@ -48,7 +48,11 @@ func (a *App) MiniShell(c *ui.Context) {
 		ui.Row(c).FillWidth().Height(miniInfoH).Shrink(0).Padding(6, 12).
 			Gap(11).AlignItems(ui.Center).DragWindow().Children(func() {
 			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
-				Background(ui.Hex("#ffffff").Alpha(0.58)).Clip().Children(func() {
+				Background(ui.Hex("#ffffff").Alpha(0.58)).
+				// 原版 #min-video-info-cover：box-shadow 0 10px 22px rgba(15,23,42,.16)，
+				// 封面浮在迷你窗背景之上。
+				Shadow(0, 10, 22, 0, shadowInk.Alpha(0.16)).
+				Clip().Children(func() {
 				// 封面缺失时退回 logo（原版 cover || "/logo.png"）。
 				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
@@ -57,7 +61,7 @@ func (a *App) MiniShell(c *ui.Context) {
 				}
 				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
 				ui.Box(c).Fill().PassThrough().LinearGradient(ui.LinearGradient{
-					From:  ui.Hex("#ffffff").Alpha(0.30),
+					From:  ui.Hex("#ffffff").Alpha(0.28),
 					To:    ui.Transparent,
 					Angle: 135,
 				})
@@ -192,11 +196,18 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
-	// 常态透明，悬停/激活才铺玻璃（原版 .mini-window-controls 的按钮同样如此）。
-	glassOn(b, active, b.Hovered(),
-		ui.Hex("#0ea5e9").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30))
+	// 原版 .mini-window-controls button 沿用 .app-title-bar-btn 的通用玻璃规则：
+	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
+	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
+	bg, ink, opacity, highlight := titleBarButtonStyle(t, active, b.Hovered())
+	b.Background(bg).Opacity(opacity)
+	if highlight {
+		b.InsetShadow(0, 1, 1, 0, t.Highlight).
+			Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
+	}
+	pressScale(b)
 	b.Children(func() {
-		ui.Icon(c, ic).Size(16, 16).TextColor(pick(active, t.Blue, t.Muted))
+		ui.Icon(c, ic).Size(16, 16).TextColor(ink)
 	})
 	if b.Clicked() {
 		fn()

@@ -233,6 +233,33 @@ const (
 	DockIconR    = 7
 )
 
+// titleBarButtonStyle 返回标题栏图标键（.app-title-bar-btn / #switch-window-mode）
+// 与迷你窗窗口控制键（.mini-window-controls button）这一帧的视觉。
+//
+// 原版 CSS（globals.css）：
+//
+//	常态  background transparent; color --studio-muted; opacity .72
+//	悬停  background-color --glass-bg-hover（白 .38）; color #0284c7; opacity 1
+//	激活  （迷你窗图钉 aria-pressed=true）background-color --glass-bg-hover;
+//	      color --studio-blue; opacity 1; box-shadow inset 0 1px 1px --glass-highlight
+//
+// 悬停与激活的底色都是白 .38、图标色都是 --studio-blue（#0284c7），所以两者
+// 共用一套；激活额外叠内高光（原版 ::after 的 inset 高光）。
+func titleBarButtonStyle(t Theme, active, hovered bool) (bg, ink ui.Color, opacity float32, highlight bool) {
+	if active || hovered {
+		return t.GlassHover, t.Blue, 1, true
+	}
+	return ui.Transparent, t.Muted, 0.72, false
+}
+
+// pressScale 是 .app-title-bar-btn / #switch-window-mode 的按压手感：只有按下
+// 缩到 0.94，悬停不上浮（与 .nav-icon-btn 的 pressPose 不同，后者悬停会上浮 1px）。
+func pressScale(b ui.Element) {
+	if b.Pressed() {
+		b.AnimatePose(ui.Pose{Scale: 0.94}, ui.Animation{Duration: 160 * time.Millisecond, Ease: ui.EaseOut})
+	}
+}
+
 // pressPose 给按钮加上原版那套按压手感（.nav-icon-btn / .top-tool-btn）：
 // 悬停上浮 1px、按下缩到 0.94。用 AnimatePose —— 只重绘不重建视图，
 // 比在视图里算值便宜得多，所以这类微动效可以铺开用。
