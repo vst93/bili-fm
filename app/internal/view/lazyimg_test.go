@@ -149,6 +149,8 @@ type recordingCache struct {
 	mu    sync.Mutex
 	set   map[string]bool
 	order []string
+	// cancels 记录被 Cancel 退队的 URL（验证滚出窗口取消预取）。
+	cancels []string
 	// widths 记录每个 URL 最后一次请求用的宽度；calls 记录全部调用
 	//（同一 URL 可能被不同调用点用不同宽度请求，如播放器封面 480 +
 	// 氛围光 320）。
@@ -195,6 +197,14 @@ func (r *recordingCache) Get(url string, width int) *ui.Bitmap {
 
 func (r *recordingCache) Pending() int { return 0 }
 
+func (r *recordingCache) Touch(url string, width int) {}
+
+func (r *recordingCache) Cancel(url string, width int) {
+	r.mu.Lock()
+	r.cancels = append(r.cancels, url)
+	r.mu.Unlock()
+}
+
 func (r *recordingCache) Ambient(url string, width int, blur bool) *ui.Bitmap {
 	if url != "" {
 		r.record(url, width, false)
@@ -215,6 +225,18 @@ func (r *recordingCache) sawWidth(url string, width int) bool {
 	defer r.mu.Unlock()
 	for _, c := range r.calls {
 		if c.url == url && c.width == width {
+			return true
+		}
+	}
+	return false
+}
+
+// canceledURL 报告某 URL 是否被 Cancel 退队过。
+func (r *recordingCache) canceledURL(url string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.cancels {
+		if u == url {
 			return true
 		}
 	}
@@ -250,9 +272,34 @@ func TestOffScreenCardsUseGetNotFetch(t *testing.T) {
 	if got := asked.unique(); got >= len(cards) {
 		t.Fatalf("构建期抓取了 %d/%d 张（应为可见窗口；Bitmap 口径）", got, len(cards))
 	}
-//	for _, u := range asked.order {
-//		if strings.HasSuffix(u, "cover49") {
-//			t.Fatal("屏外第 49 张被请求")
-//		}
-//	}
+}
+
+// TestScrollCancelsOffscreenPrefetch 钉住「滚出预取窗口的封面请求被 Cancel」：
+// 先在第 0 行可见，再滚到列表尾部，早期首屏的封面应进入 Cancel（原版浏览器
+// 对滚出 loading=lazy 视口的图取消加载）。
+func TestScrollCancelsOffscreenPrefetch(t *testing.T) {
+	a := NewApp(func() {})
+	asked := newRecordingCache()
+	a.Images = asked
+	cards := make([]Card, 120)
+	for i := range cards {
+		cards[i] = Card{Bvid: fmt.Sprintf("BV%04d", i), Title: "t", Cover: fmt.Sprintf("cover%d", i)}
+	}
+	a.ListFor("feed").Cards = cards
+	a.Drawer = "feed"
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
+	tst.Frame()
+	// 首屏卡片 0 在预取窗口内（不该被取消）。
+	if asked.canceledURL("cover0") {
+		t.Fatal("首屏可见的 cover0 不该被 Cancel")
+	}
+	// 滚到列表远处（远超预取窗口）。
+	for i := 0; i < 3; i++ {
+		tst.Scroll(700, 400, 0, 720)
+		tst.Frame()
+	}
+	if !asked.canceledURL("cover0") {
+		t.Fatal("滚出预取窗口后 cover0 应被 Cancel")
+	}
 }

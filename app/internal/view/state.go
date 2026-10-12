@@ -350,6 +350,13 @@ type ImageStore interface {
 	Bitmap(url string, width int) *ui.Bitmap
 	// Get 只读缓存、不发起抓取（懒加载的构建路径用它）。
 	Get(url string, width int) *ui.Bitmap
+	// Touch 把一张图标记为「本轮可见」：fetch 队列优先服务它
+	//（原版浏览器 loading=lazy 的可见优先语义；实作用不到时是空操作）。
+	Touch(url string, width int)
+	// Cancel 取消一张图的抓取请求（滚出预取窗口时）：还在排队的退队
+	// 回滚并发名额，已拿到名额在途的照常完成（原版浏览器对滚出的
+	// loading=lazy 图取消加载；实作用不到时是空操作）。
+	Cancel(url string, width int)
 	// Ambient 取氛围光用的调色小图。
 	Ambient(url string, width int, blur bool) *ui.Bitmap
 	// Pending 返回还在抓取的张数（占位状态 / 测试用）。

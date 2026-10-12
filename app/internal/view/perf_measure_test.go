@@ -1,5 +1,14 @@
 //go:build perfmeasure
 
+// 无头渲染测量（受控场景 + 生产 surfaceFrame）。默认不编译（perfmeasure tag），
+// 不参与 ./check.sh；手动跑：
+//
+//	MYGO_FRAME_STATS=all go test -tags perfmeasure -run TestPerfDrawerAndScroll -v ./internal/view/
+//
+// 每帧的 build/layout/paint/present 拆分由 mygo 的帧日志给出
+// （ui/framestats.go，随 MYGO_FRAME_STATS 打开）；本文件负责把场景铺开
+// （进抽屉、滚列表、换滚），并用 ui.Tester 的 headless + 真实 runFrame
+// 驱动帧 —— 不启动任何窗口 / GUI。
 package view
 
 import (
@@ -28,7 +37,7 @@ func perfPNG(w, h int) []byte {
 	return b.Bytes()
 }
 
-func perfApp(t *testing.T, n int, scale float32, ambient bool) (*App, *ui.PerfTester, *httptest.Server) {
+func perfApp(t *testing.T, n int, scale float32, ambient bool) (*App, *ui.Tester, *httptest.Server) {
 	t.Helper()
 	data := perfPNG(256, 144)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,31 +51,29 @@ func perfApp(t *testing.T, n int, scale float32, ambient bool) (*App, *ui.PerfTe
 	cards := make([]Card, n)
 	for i := range cards {
 		cards[i] = Card{
-			Bvid:  fmt.Sprintf("BV%04d", i),
-			Title: fmt.Sprintf("标题%d", i),
-			Up:    "UP主名字",
-			Views: "12.3万",
+			Bvid:    fmt.Sprintf("BV%04d", i),
+			Title:   fmt.Sprintf("标题%d", i),
+			Up:      "UP主名字",
+			Views:   "12.3万",
 			Pubdate: "09-11",
-			Cover: fmt.Sprintf("%s/c%d.png", srv.URL, i),
+			Cover:   fmt.Sprintf("%s/c%d.png", srv.URL, i),
 		}
 	}
 	a.ListFor("feed").Cards = cards
 	a.Drawer = "feed"
-	pt := ui.NewPerfTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
-	pt.SetScale(scale)
-	return a, pt, srv
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
+	tst.SetScale(scale)
+	return a, tst, srv
 }
 
-func waitCovers(t *testing.T, a *App, pt *ui.PerfTester) {
+// waitCovers 驱动帧直到封面抓取收敛（Pending 归零）。
+func waitCovers(t *testing.T, a *App, tst *ui.Tester) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		pt.Advance(16 * time.Millisecond)
-		pt.Step()
+		tst.Frame()
 		if a.Images.Pending() == 0 {
-			// one more frame to show them
-			pt.Advance(16 * time.Millisecond)
-			pt.Step()
+			tst.Frame()
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -75,20 +82,15 @@ func waitCovers(t *testing.T, a *App, pt *ui.PerfTester) {
 }
 
 type perfSum struct {
-	n                                              int
-	build, layout, paint, present, total time.Duration
-	worst                                          time.Duration
+	n            int
+	total, worst time.Duration
 }
 
-func (s *perfSum) add(f ui.FramePerf) {
+func (s *perfSum) add(d time.Duration) {
 	s.n++
-	s.build += f.Build
-	s.layout += f.Layout
-	s.paint += f.Paint
-	s.present += f.Present
-	s.total += f.Total
-	if f.Total > s.worst {
-		s.worst = f.Total
+	s.total += d
+	if d > s.worst {
+		s.worst = d
 	}
 }
 
@@ -96,68 +98,59 @@ func (s perfSum) log(t *testing.T, label string) {
 	if s.n == 0 {
 		s.n = 1
 	}
-	t.Logf("%s: frames=%d build=%.2fms layout=%.2fms paint=%.2fms present=%.2fms total=%.2fms worst=%.2fms",
+	t.Logf("%s: frames=%d avg=%.2fms worst=%.2fms",
 		label, s.n,
-		float64(s.build.Microseconds())/1000/float64(s.n),
-		float64(s.layout.Microseconds())/1000/float64(s.n),
-		float64(s.paint.Microseconds())/1000/float64(s.n),
-		float64(s.present.Microseconds())/1000/float64(s.n),
 		float64(s.total.Microseconds())/1000/float64(s.n),
 		float64(s.worst.Microseconds())/1000)
+}
+
+// measure 跑 span 帧，逐帧计总耗时（一次 Tester.Frame 直到视图稳定）。
+func measure(tst *ui.Tester, frames int) perfSum {
+	var s perfSum
+	for i := 0; i < frames; i++ {
+		start := time.Now()
+		tst.Frame()
+		s.add(time.Since(start))
+	}
+	return s
 }
 
 func TestPerfDrawerAndScroll(t *testing.T) {
 	for _, scale := range []float32{1, 2} {
 		for _, ambient := range []bool{true, false} {
-			a, pt, _ := perfApp(t, 300, scale, ambient)
-			// entry: new drawer -> first frames animate.
+			a, tst, _ := perfApp(t, 300, scale, ambient)
 			var entry perfSum
 			for i := 0; i < 16; i++ {
-				pt.Advance(16 * time.Millisecond)
-				f := pt.Step()
+				start := time.Now()
+				tst.Frame()
 				if i > 0 {
-					entry.add(f)
+					entry.add(time.Since(start))
 				}
 			}
-			waitCovers(t, a, pt)
-			// steady: no animation
-			var steady perfSum
-			for i := 0; i < 20; i++ {
-				pt.Advance(16 * time.Millisecond)
-				steady.add(pt.Step())
-			}
-			// scroll
+			waitCovers(t, a, tst)
+			steady := measure(tst, 20)
 			var scroll perfSum
-			ui.ResetRasterOps()
 			for i := 0; i < 30; i++ {
-				pt.Scroll(400, 300, 0, 120)
-				pt.Advance(16 * time.Millisecond)
-				scroll.add(pt.Step())
+				tst.Scroll(400, 300, 0, 120)
+				start := time.Now()
+				tst.Frame()
+				scroll.add(time.Since(start))
 			}
-			ops := ui.RasterOpTimesNow()
 			t.Logf("=== scale=%.0f ambient=%v", scale, ambient)
 			entry.log(t, "entry")
 			steady.log(t, "steady")
 			scroll.log(t, "scroll")
-			t.Logf("   scroll ops=%d fill=%.1f image=%.1f glyph=%.1f shadow=%.1f effect=%.1f hole=%.1f (ms total over %d frames)",
-				ops.Ops, ops.Fill.Seconds()*1000, ops.Image.Seconds()*1000, ops.Glyph.Seconds()*1000,
-				ops.Shadow.Seconds()*1000, ops.Effect.Seconds()*1000, ops.Hole.Seconds()*1000, scroll.n)
 		}
 	}
 }
 
 func TestPerfAmbientOnly(t *testing.T) {
-	// home (no drawer): measure the ambient full-window image cost.
 	for _, ambient := range []bool{true, false} {
-		a, pt, _ := perfApp(t, 0, 1, ambient)
+		a, tst, _ := perfApp(t, 0, 1, ambient)
 		a.Drawer = ""
 		a.Track = &Track{Bvid: "BV1", Cover: a.Face, FirstFrame: a.Face}
-		waitCovers(t, a, pt)
-		var steady perfSum
-		for i := 0; i < 20; i++ {
-			pt.Advance(16 * time.Millisecond)
-			steady.add(pt.Step())
-		}
+		waitCovers(t, a, tst)
+		steady := measure(tst, 20)
 		t.Logf("=== home ambient=%v", ambient)
 		steady.log(t, "home")
 	}
@@ -169,8 +162,8 @@ func TestPerfNoCovers(t *testing.T) {
 	}
 }
 
+// perfNoCovers：300 张卡但不给图床（封面永远抓不到），隔离「纯 UI」成本。
 func perfNoCovers(t *testing.T, scale float32) {
-	// drawer with 300 cards but images never load (no server): isolates image cost.
 	a := NewApp(func() {})
 	cards := make([]Card, 300)
 	for i := range cards {
@@ -178,22 +171,18 @@ func perfNoCovers(t *testing.T, scale float32) {
 	}
 	a.ListFor("feed").Cards = cards
 	a.Drawer = "feed"
-	pt := ui.NewPerfTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
-	pt.SetScale(scale)
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
+	tst.SetScale(scale)
 	for i := 0; i < 20; i++ {
-		pt.Advance(16 * time.Millisecond)
-		pt.Step()
+		tst.Frame()
 	}
-	var steady perfSum
-	for i := 0; i < 20; i++ {
-		pt.Advance(16 * time.Millisecond)
-		steady.add(pt.Step())
-	}
+	steady := measure(tst, 20)
 	var scroll perfSum
 	for i := 0; i < 30; i++ {
-		pt.Scroll(400, 300, 0, 120)
-		pt.Advance(16 * time.Millisecond)
-		scroll.add(pt.Step())
+		tst.Scroll(400, 300, 0, 120)
+		start := time.Now()
+		tst.Frame()
+		scroll.add(time.Since(start))
 	}
 	t.Logf("=== no covers scale=%.0f", scale)
 	steady.log(t, "steady")

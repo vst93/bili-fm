@@ -839,7 +839,10 @@ func (a *App) loadMoreRetry(c *ui.Context, l *List) {
 // 抽屉展开后），给 6 留点余量。
 const initialCardRows = 6
 
-// prefetchCardCovers 只给可见行（外加几行 overscan）的卡片请求封面。
+// prefetchCardCovers 只给可见行（外加几行 overscan）的卡片请求封面，
+// 同时把上一帧预取、本帧已滚出窗口的封面请求取消（原版浏览器对滚出
+// loading=lazy 视口的图取消加载；见 imagecache.Cancel —— 只退排队的，
+// 已在途的照常入库，将来滚回来直接命中）。
 //
 // 从前 renderCard 在构建时直接 Bitmap()：而 mygo 的 List 在行高还没量到之前，
 // 用主题 Space(8)（默认 Spacing 4 → 32px）当估计（mygo ui/list.go:381 的
@@ -847,19 +850,56 @@ const initialCardRows = 6
 // 于是一次请求 90+ 张封面并立刻并发 decode/上传。这里把「请求」和「构建」拆开：
 // 构建只 Get（读缓存），请求只按上一帧的可见窗口发。首帧还没布局
 // （Visible 返回 0,-1）时只预取头几行，绝不铺开屏外的图。
+//
+// 可见行先 Touch 再 Bitmap：抓取队列优先服务当前可见的图，滚动时新可见的
+// 卡片不会被先到的屏外预取插队（原版浏览器 loading=lazy 的可见优先语义）。
 func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
-	first, last := prefetchWindow(st, len(cards))
-	for i := first; i < last; i++ {
-		a.Images.Bitmap(cards[i].Cover, imagecache.WidthCard)
-	}
+	a.prefetchWindowCovers(st, len(cards),
+		func(i int) string { return cards[i].Cover })
 }
 
 // prefetchPartCovers 是选集网格版的封面预取（同一套窗口，封面地址走 partCover）。
 func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part) {
-	first, last := prefetchWindow(st, len(parts))
+	a.prefetchWindowCovers(st, len(parts),
+		func(i int) string { return a.partCover(parts[i]) })
+}
+
+// prefetchWindowCovers 是两个网格预取的公共实现：本帧窗口内的图 Touch（可见
+// 行）+ Bitmap（发起/命中），上一帧在窗口内、本帧已滚出的 Cancel 退队。
+func (a *App) prefetchWindowCovers(st *ui.ListState, n int, cover func(int) string) {
+	first, last := prefetchWindow(st, n)
+	visFirst, visLast := visibleCards(st, n)
 	for i := first; i < last; i++ {
-		a.Images.Bitmap(a.partCover(parts[i]), imagecache.WidthCard)
+		if i >= visFirst && i < visLast {
+			a.Images.Touch(cover(i), imagecache.WidthCard)
+		}
+		a.Images.Bitmap(cover(i), imagecache.WidthCard)
 	}
+	a.cancelOffscreen(n, first, last, cover)
+}
+
+// cancelOffscreen 把滚出预取窗口的封面请求退队。窗口为空（len==0）时视为
+// 「没有请求过」，不取消 —— 切抽屉/换列表的空窗口一帧里所有封面都会被退，
+// 而新列表的 Bitmap 还没来得及发。
+func (a *App) cancelOffscreen(n, first, last int, cover func(int) string) {
+	if n == 0 || last <= first {
+		return
+	}
+	for i := 0; i < n; i++ {
+		if i < first || i >= last {
+			a.Images.Cancel(cover(i), imagecache.WidthCard)
+		}
+	}
+}
+
+// visibleCards 把上一帧的可见**行**换算成卡片下标区间 [first, last)。
+// 未布局过（Visible 返回 0,-1）时按初始几行算。
+func visibleCards(st *ui.ListState, n int) (first, last int) {
+	firstRow, lastRow := st.Visible()
+	if lastRow < firstRow {
+		firstRow, lastRow = 0, initialCardRows-2
+	}
+	return min(n, max(0, firstRow)*cardGridCols), min(n, (lastRow+1)*cardGridCols)
 }
 
 // prefetchWindow 返回网格列表应当预取的卡片下标区间 [first, last)。
