@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
 // 抽屉（原版是 HeroUI 的 Drawer，样式在 globals.css 里被整体覆写）：
@@ -848,7 +850,7 @@ const initialCardRows = 6
 func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
 	first, last := prefetchWindow(st, len(cards))
 	for i := first; i < last; i++ {
-		a.Images.Bitmap(cards[i].Cover)
+		a.Images.Bitmap(cards[i].Cover, imagecache.WidthCard)
 	}
 }
 
@@ -856,7 +858,7 @@ func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
 func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part) {
 	first, last := prefetchWindow(st, len(parts))
 	for i := first; i < last; i++ {
-		a.Images.Bitmap(a.partCover(parts[i]))
+		a.Images.Bitmap(a.partCover(parts[i]), imagecache.WidthCard)
 	}
 }
 
@@ -1190,9 +1192,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
 		ui.Box(c).FillWidth().Height(100).Shrink(0).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {
-			bmp := a.Images.Get(spec.Cover)
+			bmp := a.Images.Get(spec.Cover, imagecache.WidthCard)
 			if !spec.Lazy {
-				bmp = a.Images.Bitmap(spec.Cover)
+				bmp = a.Images.Bitmap(spec.Cover, imagecache.WidthCard)
 			}
 			if bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
@@ -1979,7 +1981,7 @@ func (a *App) repliesBody(c *ui.Context) {
 					face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
 						Background(ui.Hex("#cbd5e1").Alpha(0.6)).Clip()
 					face.Children(func() {
-						if bmp := a.Images.Bitmap(cm.Avatar); bmp != nil {
+						if bmp := a.Images.Bitmap(cm.Avatar, imagecache.WidthAvatar); bmp != nil {
 							ui.Image(c, bmp).Fill().Fit(ui.Cover)
 						}
 					})

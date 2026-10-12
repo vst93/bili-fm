@@ -168,22 +168,36 @@ func clamp255(v float64) uint8 {
 //
 // 与原图分开缓存（key 加后缀），只在真正要当氛围光时才算——按需生成，
 // 不会为列表里每张封面都建一份调色副本。
-func (c *Cache) Ambient(rawURL string, blur bool) *ui.Bitmap {
+//
+// 氛围光的源图按**它自己的宽度**（width，原版显式 320）单独抓取：原版这
+// 一层是独立的一个 `graftingImage(url, 320)` 请求，与播放器碟片的 480 是
+// 两次请求、两个缓存条目。所以这里不能沿用别的宽度的源图（那样要么读不到、
+// 要么宽度对不上），必须自己把 (url, width) 的源图安排上——未就绪时本帧
+// 返回 nil（调用方退回原图），抓回来后的下一帧再派生。
+func (c *Cache) Ambient(rawURL string, width int, blur bool) *ui.Bitmap {
 	if rawURL == "" {
 		return nil
 	}
-	key := rawURL + "\x00ambient"
+	srcKey := key{rawURL, width}
+	k := key{rawURL + "\x00ambient", width}
 	if blur {
-		key += "\x00blur"
+		k.url += "\x00blur"
 	}
 	c.mu.Lock()
-	if e := c.items[key]; e != nil && e.bitmap != nil {
-		c.touchLocked(key)
+	if e := c.items[k]; e != nil && e.bitmap != nil {
+		c.touchLocked(k)
 		b := e.bitmap
 		c.mu.Unlock()
 		return b
 	}
-	src := c.items[rawURL]
+	c.mu.Unlock()
+
+	// 确保源图（同 URL、同宽度）已在抓取。命中则立即返回，未命中就发起
+	// 异步抓取（本帧仍返回 nil，下一帧派生）——与原版独立的一张 320 图一致。
+	c.Bitmap(rawURL, width)
+
+	c.mu.Lock()
+	src := c.items[srcKey]
 	if src == nil || src.small == nil {
 		c.mu.Unlock()
 		return nil
@@ -193,14 +207,14 @@ func (c *Cache) Ambient(rawURL string, blur bool) *ui.Bitmap {
 
 	bmp := ui.NewBitmap(gradeAmbient(small, blur))
 	c.mu.Lock()
-	if e := c.items[key]; e != nil {
+	if e := c.items[k]; e != nil {
 		// 另一个 goroutine 先算好了，用它的。
 		bmp = e.bitmap
 	} else {
-		c.items[key] = &entry{bitmap: bmp}
-		c.order = append(c.order, key)
+		c.items[k] = &entry{bitmap: bmp}
+		c.order = append(c.order, k)
 	}
-	c.touchLocked(key)
+	c.touchLocked(k)
 	c.mu.Unlock()
 	return bmp
 }

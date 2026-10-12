@@ -4,6 +4,8 @@ import (
 	"runtime"
 
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
 // Shell 画出整个主窗口。
@@ -164,7 +166,7 @@ func (a *App) ambient(c *ui.Context) {
 	}
 	// 氛围光要用**调过色**的那份（原版这一层带 saturate/brightness/contrast
 	// 滤镜，见 imagecache.Ambient），拿不到就退回原图。
-	bmp := a.Images.Ambient(a.coverURL(), a.Premium)
+	bmp := a.Images.Ambient(a.coverURL(), imagecache.WidthAmbient, a.Premium)
 	if bmp == nil {
 		bmp = a.coverBitmap()
 	}

@@ -51,7 +51,7 @@ func countServer(t *testing.T) (*httptest.Server, func(path string) int) {
 func TestGetDoesNotFetch(t *testing.T) {
 	srv, hits := countServer(t)
 	c := New(nil)
-	if b := c.Get(srv.URL + "/never.png"); b != nil {
+	if b := c.Get(srv.URL+"/never.png", WidthCard); b != nil {
 		t.Fatal("未加载的 URL，Get 应返回 nil")
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -70,7 +70,7 @@ func TestBitmapAsyncDoesNotBlockThenCaches(t *testing.T) {
 	u := srv.URL + "/a.png"
 
 	start := time.Now()
-	if b := c.Bitmap(u); b != nil {
+	if b := c.Bitmap(u, WidthCard); b != nil {
 		t.Fatal("首次 Bitmap 应返回 nil（未就绪，异步抓取）")
 	}
 	if d := time.Since(start); d > 50*time.Millisecond {
@@ -85,7 +85,7 @@ func TestBitmapAsyncDoesNotBlockThenCaches(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	var bmp *ui.Bitmap
 	for time.Now().Before(deadline) {
-		if b := c.Bitmap(u); b != nil {
+		if b := c.Bitmap(u, WidthCard); b != nil {
 			bmp = b
 			break
 		}
@@ -101,9 +101,9 @@ func TestBitmapAsyncDoesNotBlockThenCaches(t *testing.T) {
 		t.Fatalf("加载完 Pending = %d, want 0", p)
 	}
 	// 再请求几次：必须命中缓存，不再发 HTTP。
-	first := c.Get(u)
+	first := c.Get(u, WidthCard)
 	for i := 0; i < 5; i++ {
-		if got := c.Bitmap(u); got != first {
+		if got := c.Bitmap(u, WidthCard); got != first {
 			t.Fatal("同一 URL 应返回缓存的同一张位图")
 		}
 	}
@@ -123,17 +123,61 @@ func TestConcurrentSameURLOnceNoPanic(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 32; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); c.Bitmap(u) }()
+		go func() { defer wg.Done(); c.Bitmap(u, WidthCard) }()
 	}
 	wg.Wait()
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && c.Get(u) == nil {
+	for time.Now().Before(deadline) && c.Get(u, WidthCard) == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if c.Get(u) == nil {
+	if c.Get(u, WidthCard) == nil {
 		t.Fatal("并发请求后仍未加载")
 	}
 	if n := hits("/shared.png"); n != 1 {
 		t.Fatalf("并发同一 URL 抓取了 %d 次，want 1", n)
+	}
+}
+
+// TestAmbientFetchesOwnWidth 钉住：氛围光源图按**自己的宽度**（320）抓取，
+// 与播放器封面的 480 是两个缓存条目、两次请求（原版是独立的两张图）。
+// 曾经 Ambient 只读 (url, width) 的源缓存，而播放器按 480 取图，(url, 320)
+// 永远不存在 → 氛围光调色层永远返回 nil、悄悄退回原图，观感回退到无滤镜。
+func TestAmbientFetchesOwnWidth(t *testing.T) {
+	srv, hits := countServer(t)
+	c := New(nil)
+	u := srv.URL + "/cover.png"
+
+	// 播放器封面先按 480 就位（coverBitmap 的行为）。
+	c.Bitmap(u, WidthPlayer)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && c.Get(u, WidthPlayer) == nil {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if c.Get(u, WidthPlayer) == nil {
+		t.Fatal("480 源图未就绪")
+	}
+	before := hits("/cover.png") // 测试服务器非 hdslb，无宽度后缀；480 已抓 1 次
+
+	// 氛围光第一次调用：320 源还没抓，返回 nil 但**必须**发起 320 抓取。
+	if b := c.Ambient(u, WidthAmbient, false); b != nil {
+		t.Fatal("320 源图未就绪时 Ambient 应返回 nil")
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	var got *ui.Bitmap
+	for time.Now().Before(deadline) {
+		if got = c.Ambient(u, WidthAmbient, false); got != nil {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if got == nil {
+		t.Fatal("320 源就绪后 Ambient 仍返回 nil")
+	}
+	if n := hits("/cover.png"); n != before+1 {
+		t.Fatalf("氛围光应自抓 320 源图（总请求 %d 次，want %d：480 一次 + 320 一次）", n, before+1)
+	}
+	// 再调用：调色结果命中缓存，不再重复抓取/派生。
+	if c.Ambient(u, WidthAmbient, false) != got {
+		t.Fatal("同 URL 同参数的 Ambient 应命中同一张调色位图")
 	}
 }

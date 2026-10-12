@@ -7,6 +7,8 @@ import (
 
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
 // ---------------------------------------------------------------- 搜索药丸
@@ -170,7 +172,7 @@ func (a *App) userButton(c *ui.Context) {
 		Label(pick(a.LoggedIn, "切换登录账号", "登录账号")).
 		Tooltip(pick(a.LoggedIn, "点击登录其他账号", "点击登录账号"))
 	b.Children(func() {
-		if bmp := a.Images.Bitmap(a.Face); bmp != nil {
+		if bmp := a.Images.Bitmap(a.Face, imagecache.WidthAvatar); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
 		} else {
 			ui.Text(c, avatarInitial(a.UName)).FontSize(13).Bold().TextColor(t.Muted)
@@ -458,7 +460,7 @@ func (a *App) videoInfoHead(c *ui.Context) {
 		}
 		face.AnimatePose(ui.Pose{Scale: scale}, ui.Snappy)
 		face.Children(func() {
-			if bmp := a.Images.Bitmap(a.ownerFace()); bmp != nil {
+			if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
 			}
 		})
@@ -906,7 +908,7 @@ func (a *App) partTitle() string {
 // （原版「先预载、后换源」），没旧图时返回 nil。
 func (a *App) coverBitmap() *ui.Bitmap {
 	if uri := a.coverURL(); uri != "" {
-		if b := a.Images.Bitmap(uri); b != nil {
+		if b := a.Images.Bitmap(uri, imagecache.WidthPlayer); b != nil {
 			a.shownCoverBmp = b
 			return b
 		}

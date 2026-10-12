@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
 // 播放列表抽屉（原版 playlist.tsx）：表头是「我的列表 / 合集列表」两个 tab +
@@ -148,7 +150,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			if src == "" {
 				src = item.Pic
 			}
-			if bmp := a.Images.Bitmap(src); bmp != nil {
+			if bmp := a.Images.Bitmap(src, imagecache.WidthPlaylist); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
 			}
 		})
