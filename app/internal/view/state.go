@@ -623,10 +623,6 @@ type App struct {
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
 	toastMu sync.Mutex
 	toasts  []ui.Toast
-	// toastSeen 记每条 toast 首次出现的时间：框架只公开了剩余时间 Left，
-	// 拿不到年龄，淡入进度得自己记（key 用 toast 根元素的稳定 ID）。
-	toastSeen   map[uint64]time.Time
-	toastSeenMu sync.Mutex
 
 	// danmakuList 是弹幕列表的虚拟化状态（mygo 的 ui.List 只构建可见行）；
 	// danmakuCid 用于换集时重置它。
@@ -681,6 +677,11 @@ func (a *App) NotifyType(typ, message string) {
 func (a *App) notifyToast(t ui.Toast) {
 	if t.Title == "" {
 		return
+	}
+	// 原版 utils/toast.ts 的默认时长是 2s，而框架默认 4s —— 不显式覆盖
+	// 的话 toast 会比原版多挂一倍时间。调用点给了时长就用调用点的。
+	if t.Timeout == 0 {
+		t.Timeout = toastDuration
 	}
 	a.toastMu.Lock()
 	a.toasts = append(a.toasts, t)
