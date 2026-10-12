@@ -509,6 +509,9 @@ type App struct {
 	// drawerOpenKey / drawerOpenedAt 用来算抽屉的上滑入场进度。
 	drawerOpenKey  string
 	drawerOpenedAt time.Time
+	// drawerOffset 是抽屉被拖拽的下滑偏移（v0.4.5 的 ui.Draggable）：
+	// 0 = 贴底完全展开，抽屉高度 = 甩到底、关闭。
+	drawerOffset ui.Point
 	// modalOpenedAt 同理，给模态框的缩放入场用。
 	modalOpenedAt time.Time
 

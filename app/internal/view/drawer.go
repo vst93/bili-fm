@@ -30,6 +30,30 @@ func drawerProgress(a *App) float32 {
 	return 1
 }
 
+// drawerSnap 是抽屉下滑手势的落点（ui.Draggable 的 Snap）：松手时位置在上半
+// 就弹回原位（{}），被甩过中点就落到最底（{Y: h}）等着关闭。用
+// ui.Nearest 而不是自己判阈值：它拿的是**带速度投影**后的位置，
+// 所以快速下甩即使没拖过中点也能甩下去（原版抽屉没有这个手势，
+// 这是原生版补齐的「下滑关闭」）。
+func drawerSnap(h float32) func(ui.Point) ui.Point {
+	return ui.Nearest(ui.Point{}, ui.Point{Y: h})
+}
+
+// drawerDismissed 报告下滑的抽屉是否该关：已经被甩到底（offset 到了 h）
+// 且**停稳了**。动画途中不能关，否则抽屉会瞬间消失而不是滑下去；
+// 高度退化（窗口比播放栏还矮）时也不关，否则抽屉根本打不开。
+func drawerDismissed(offsetY, h float32, transitioning bool) bool {
+	return h > 0 && !transitioning && offsetY >= h
+}
+
+// drawerFade 是遮罩随下滑的透明度系数：贴底时 1，拖到底时 0。
+func drawerFade(offsetY, h float32) float32 {
+	if h <= 0 {
+		return 1
+	}
+	return float32(1 - clampF(float64(offsetY), 0, float64(h))/float64(h))
+}
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
 	if a.Drawer == "" {
@@ -39,16 +63,16 @@ func (a *App) drawer(c *ui.Context) {
 	// min(92vh, 100vh - 54px)：54 是播放栏高度，抽屉不盖住它。
 	h := min(winH*0.92, winH-54)
 
-	// 换抽屉 / 重新打开时重置入场时间（做上滑入场用）。
+	// 换抽屉 / 重新打开时重置入场时间与下滑偏移（做上滑入场用）。
 	if a.Drawer != a.drawerOpenKey {
 		a.drawerOpenKey, a.drawerOpenedAt = a.Drawer, time.Now()
+		a.drawerOffset = ui.Point{}
 	}
 	// 遮罩随入场渐显（原版抽屉的遮罩是过渡出来的，不是瞬间盖上）。
 	prog := drawerProgress(a)
 	overlay := ui.Box(c).Absolute().Fill()
-	overlay.Opacity(overlay.AnimateTo("drawer-bg", prog,
-		ui.Animation{Duration: drawerIn})).
-		Background(ui.Hex("#0f172a").Alpha(0.28))
+	overlay.Background(ui.Hex("#0f172a").Alpha(0.28))
+	var dragY float32
 	overlay.Children(func() {
 		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
 		// （--liquid-blur-thin：小面积用薄玻璃），所以面板本身也是真玻璃。
@@ -60,11 +84,28 @@ func (a *App) drawer(c *ui.Context) {
 			// 玻璃自带顶缘聚光，不再叠原版那条手搓的 1px 顶线。
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
 		panel.Translate(0, panel.AnimateTo("drawer-in", (1-prog)*h, ui.Snappy))
+		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
+		// 更内层的交互元素，不会抢走手势）往下拖，松手弹回或被甩到底关闭。
+		// 偏移叠在入场 Translate 之上，所以入场动画不受影响。
+		panel.Draggable(&a.drawerOffset, ui.DraggableOptions{
+			Axis:   ui.Vertical,
+			Bounds: &ui.Rect{Y: 0, H: h},
+			Snap:   drawerSnap(h),
+		})
 		panel.Children(func() {
 			a.drawerHeader(c)
 			a.drawerBody(c)
 		})
+		// DragOffset 是本帧面板实际显示的偏移（跟手 / 回弹途中都算），
+		// 用它让遮罩跟着下滑变淡。
+		dragY = panel.DragOffset().Y
+		if drawerDismissed(a.drawerOffset.Y, h, panel.Transitioning()) {
+			a.Drawer = ""
+			a.drawerOffset = ui.Point{}
+		}
 	})
+	overlay.Opacity(overlay.AnimateTo("drawer-bg", prog*drawerFade(dragY, h),
+		ui.Animation{Duration: drawerIn}))
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。
 	if overlay.Clicked() {
 		a.Drawer = ""
