@@ -33,10 +33,10 @@ func (a *App) MiniShell(c *ui.Context) {
 	a.shortcuts(c, c.Root())
 	c.Root().Background(ui.Hex("#f7fafd"))
 
+	// 背景：145° 线性渐变 + 左上偏蓝 / 右下偏绿两条径向光晕
+	//（原版 body.mini-mode #root 的三层 background，见 minibg.go）。
 	ui.Column(c).Fill().Children(func() {
-		ui.Box(c).FillWidth().Grow(1).LinearGradient(ui.LinearGradient{
-			From: ui.Hex("#fbfdff"), To: ui.Hex("#f3f8fb"), Angle: 145,
-		})
+		a.miniBackground(c)
 	})
 
 	ui.Column(c).Absolute().Fill().Children(func() {
@@ -131,22 +131,21 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
 						Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
 					disablePlayerButton(play, !a.hasSource())
-					// 原版 mini .player-play-button::before 同样是填充，不是 backdrop-filter。
-					// 只有播放栏本体（#player）才是真玻璃，按钮浮在它之上。
-					fill := ui.Hex("#ffffff").Alpha(0.22)
-					if a.Playing {
-						fill = ui.Hex("#0ea5e9").Alpha(0.32)
-					} else if play.Hovered() {
-						fill = ui.Hex("#ffffff").Alpha(0.22)
-					}
-					play.Background(fill).
-						Border(1, ui.Hex("#ffffff").Alpha(0.55)).
-						InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
-						Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+					// 原版 body.mini-mode #player .player-play-button：浅蓝填充
+					// #bae6fd .35 + 蓝描边 + 蓝调内外投影，**与是否播放无关**
+					//（mini 规则 (1,2,1) 的特异度盖过 [data-playing] 的 (1,2,0)），
+					// 只有图标在 play/pause 间切换；悬停时填充/描边略加深
+					//（#player .player-play-button:hover 的 (1,3,0) 盖过 mini 基态）。
+					playFill, playBorder, playInk := miniPlayStyle(play.Hovered())
+					play.Background(playFill).
+						Border(1, playBorder).
+						InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
+						InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
+						Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
 					pressPose(play)
 					play.Children(func() {
 						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(16, 16).
-							TextColor(ui.Hex("#0369a1"))
+							TextColor(playInk)
 					})
 					if play.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
@@ -188,6 +187,22 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				})
 			})
 		})
+}
+
+// miniPlayStyle 返回迷你窗播放键的（填充, 描边, 图标色）。取自原版
+// body.mini-mode #player .player-play-button 及其 :hover：
+//
+//	常态  background rgba(186,230,253,.35); border rgba(2,132,199,.20); color #0284c7
+//	悬停  background rgba(186,230,253,.50); border rgba(2,132,199,.28); color #0284c7
+//
+// 注意 mini 的基态规则特异度 (1,2,1) 盖过主窗 [data-playing] 的 (1,2,0)，
+// 所以 mini 播放键与是否播放无关（只有 play/pause 图标变）。
+func miniPlayStyle(hovered bool) (fill, border, ink ui.Color) {
+	fill, border, ink = ui.Hex("#bae6fd").Alpha(0.35), ui.Hex("#0284c7").Alpha(0.20), ui.Hex("#0284c7")
+	if hovered {
+		fill, border = ui.Hex("#bae6fd").Alpha(0.50), ui.Hex("#0284c7").Alpha(0.28)
+	}
+	return
 }
 
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标

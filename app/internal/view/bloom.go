@@ -155,18 +155,9 @@ func periodOverlayStops(period string) []gradStop {
 func periodOverlayVisible(period string) bool { return period != "midday" }
 
 // overlayT 返回窗口坐标 (x,y) 在 #root::after 的 165° 线性渐变上的位置
-// （0..1），与 CSS 的渐变线定义一致（方向 d=(sin165°,-cos165°)，线长
-// |W·dx|+|H·dy|，过窗口中心）。
+// （0..1），与 CSS 的渐变线定义一致。
 func overlayT(x, y, w, h float32) float32 {
-	const deg = 165
-	a := deg * math.Pi / 180
-	dx, dy := float32(math.Sin(a)), float32(-math.Cos(a))
-	length := abs32(w*dx) + abs32(h*dy)
-	if length <= 0 {
-		return 0
-	}
-	t := ((x-w/2)*dx+(y-h/2)*dy)/length + 0.5
-	return max(0, min(t, 1))
+	return linearT(x, y, w, h, 165)
 }
 
 // overStraight 把 straight-alpha 的源 (sr,sg,sb,sa) 叠到 (dr,dg,db,da) 上，
