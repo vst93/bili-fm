@@ -75,6 +75,11 @@ func (a *App) titleBar(c *ui.Context) {
 	// 标题栏上、或里面的控件拿到焦点，整条才从 .32/.7 亮到 .82/1，并浮出顶沿投影
 	// 与一层白玻璃。
 	child, brand, edge, wash := titleBarReveal(bar.Hovered() || bar.FocusWithin())
+	// 品牌在窄窗隐藏（原版 titleBar.tsx：windowWidth <= 600 时 display:none）。
+	// 元素本身仍建出来（只不填子节点）——mygo 的元素 id 由「父 id + 已建子元素
+	// 个数」决定，少建一个兄弟会让后面的迷你入口换 id、丢掉悬停/焦点状态。
+	w, _ := c.Size()
+	showBrand := titleBarShowsBrand(w)
 	bar.Children(func() {
 		// ::before / ::after 是绝对定位的两层贴边渐变，画在子元素之下
 		//（原版 z-index 0 < 子元素 1），高度是标题栏的 170% / 140%，往下淡出。
@@ -99,6 +104,9 @@ func (a *App) titleBar(c *ui.Context) {
 				box.Shrink(0)
 			}
 			box.Children(func() {
+				if !showBrand {
+					return
+				}
 				if Logo != nil {
 					ui.Image(c, Logo).Size(24, 24)
 				}
@@ -237,10 +245,14 @@ func (a *App) ambient(c *ui.Context) {
 }
 
 // homeStage 是标题栏与播放栏之间的主区（.home-stage）：
-// 高 = 100% - 56px，内边距 20 28 0 28，纵向排「搜索药丸 + 正在播放」。
+// 高 = 100% - 56px，宽窗内边距 20 28 0 28；窄窗（≤680）12 16 0 16
+// （原版 @media (max-width: 680px)）。
 func (a *App) homeStage(c *ui.Context) {
-	ui.Column(c).FillWidth().Grow(1).Shrink(1).Padding(20, 28, 0, 28).Children(func() {
-		a.searchBar(c)
-		a.nowPlaying(c)
+	w, _ := c.Size()
+	l := homeLayoutFor(w)
+	ui.Column(c).FillWidth().Grow(1).Shrink(1).
+		Padding(l.StagePadY, l.StagePadX, 0, l.StagePadX).Children(func() {
+		a.searchBar(c, l)
+		a.nowPlaying(c, l)
 	})
 }

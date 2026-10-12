@@ -231,7 +231,22 @@ const (
 	ContentIconR = 8
 	DockIcon     = 34
 	DockIconR    = 7
+
+	// titleBarBrandWidth 是标题栏品牌的隐藏断点（原版 titleBar.tsx：windowWidth <= 600
+	// 时整个 .title-bar-brand 不显示）。
+	titleBarBrandWidth = 600
 )
+
+// titleBarShowsBrand 报告某窗口宽度下标题栏是否显示品牌（logo + bili-FM + 设置）。
+func titleBarShowsBrand(width float32) bool { return width > titleBarBrandWidth }
+
+// minF 是 float32 的两值取小。
+func minF(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // titleBarButtonStyle 返回标题栏图标键（.app-title-bar-btn / #switch-window-mode）
 // 与迷你窗窗口控制键（.mini-window-controls button）这一帧的视觉。

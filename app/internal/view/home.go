@@ -11,12 +11,51 @@ import (
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
+// ---------------------------------------------------------------- 主区响应式
+
+// homeLayout 是主区（.home-stage / .home-now-playing / .home-searchbar）
+// 在某个窗口宽度下的布局取值。原版靠 globals.css 的媒体查询切换：
+//
+//	基线        .home-stage padding 20 28 0；.home-searchbar max-width 520；
+//	            .home-now-playing 两栏「304px + 1fr」gap 28 padding 0 8 32；
+//	            .cover-shell 292。
+//	≤680px      .home-stage padding 12 16 0；.home-searchbar max-width 100%；
+//	            .home-now-playing 单列 1fr（align-content:start、gap 12、
+//	            padding 16 8 12、overflow-y:auto）；
+//	            .cover-shell width min(196px, 56vw)。
+//
+// 注意搜索药丸的基线是 `width:100%; max-width:520px` —— 它本来就随父宽收窄，
+// 原生版此前把宽度写死成 520，窗口窄于 576（520 + 两侧 28）时药丸会溢出窗口。
+type homeLayout struct {
+	StagePadY   float32 // .home-stage 顶部内边距
+	StagePadX   float32 // .home-stage 左右内边距
+	SearchWidth float32 // 搜索药丸宽度 = min(max-width, 可用宽)
+	Single      bool    // .home-now-playing 是否单列
+	CoverShell  float32 // .cover-shell 边长（正方形）
+}
+
+// homeNarrowWidth 是主区单列的断点（原版 @media (max-width: 680px)）。
+const homeNarrowWidth = 680
+
+// homeLayoutFor 按窗口宽度算出主区这一帧的布局。抽成纯函数便于单测断点与取值。
+func homeLayoutFor(width float32) homeLayout {
+	l := homeLayout{StagePadY: 20, StagePadX: 28, CoverShell: 292}
+	if width <= homeNarrowWidth {
+		l.StagePadY, l.StagePadX = 12, 16
+		l.Single = true
+		l.CoverShell = minF(196, 0.56*width)
+	}
+	// .home-searchbar width:100% / max-width（窄窗改 100%，但基线 520 本就封顶）。
+	l.SearchWidth = minF(SearchBarWidth, width-2*l.StagePadX)
+	return l
+}
+
 // ---------------------------------------------------------------- 搜索药丸
 
 // searchBar 是居中的液态玻璃搜索药丸（原版 .home-searchbar）：
 // max-width 520、高 46、圆角 13、内边距 4、子元素间距 8，
 // 内容依次是「输入内腔 + 四个内容入口 + 头像」。
-func (a *App) searchBar(c *ui.Context) {
+func (a *App) searchBar(c *ui.Context, l homeLayout) {
 	ui.Row(c).FillWidth().Height(SearchBarHeight).Shrink(0).Justify(ui.Center).Children(func() {
 		// 原版 .home-searchbar 自己有 backdrop-filter（blur(20px) saturate(1.45)），
 		// 是真玻璃，所以这里用 glass.Glass 而不是半透明填充。
@@ -25,7 +64,7 @@ func (a *App) searchBar(c *ui.Context) {
 		// 悬停时描边转亮、投影抬起。
 		// 材质是框架玻璃，它自带边缘聚光与描光，所以不再叠 1px 边框/inset 内影
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
-		pill := ui.Row(c).Width(SearchBarWidth).Height(SearchBarHeight).Radius(SearchRadius).
+		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
 			Material(glassLayer(glass.Glass{})).
 			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.07)).
@@ -194,12 +233,23 @@ func avatarInitial(name string) string {
 // ---------------------------------------------------------------- 正在播放
 
 // nowPlaying 是主区下半部分（原版 .home-now-playing）：
-// 两栏 grid「304px + minmax(0,1fr)」、间距 28、纵向居中、底部留 32。
-func (a *App) nowPlaying(c *ui.Context) {
+// 宽窗是两栏 grid「304px + minmax(0,1fr)」、间距 28、纵向居中、底部留 32；
+// 窄窗（≤680）退化成单列 —— 封面在上、信息在下，间距 12、整体可纵向滚动
+// （原版 @media (max-width: 680px) 把 grid 改成 1fr 并加 overflow-y:auto）。
+func (a *App) nowPlaying(c *ui.Context, l homeLayout) {
+	if l.Single {
+		ui.Scroll(c).FillWidth().Grow(1).Shrink(1).Padding(16, 8, 12, 8).Children(func() {
+			ui.Column(c).FillWidth().Gap(12).Children(func() {
+				a.coverDisc(c, l.CoverShell)
+				a.videoInfo(c, false)
+			})
+		})
+		return
+	}
 	ui.Row(c).FillWidth().Grow(1).Shrink(1).Gap(28).AlignItems(ui.Center).
 		Padding(0, 8, 32, 8).Children(func() {
-		ui.Box(c).Width(304).Shrink(0).Children(func() { a.coverDisc(c) })
-		a.videoInfo(c)
+		ui.Box(c).Width(304).Shrink(0).Children(func() { a.coverDisc(c, l.CoverShell) })
+		a.videoInfo(c, true)
 	})
 }
 
@@ -208,10 +258,13 @@ func (a *App) nowPlaying(c *ui.Context) {
 //	disc   （默认）圆形唱片，播放时 22s 转一圈，点一下切换播放/暂停；
 //	square 静态圆角方块（省 GPU），点一下也切换播放/暂停。
 //
+// side 是 .cover-shell 的边长（宽窗 292；窄窗 min(196, 56vw)）——内部的玻璃环
+// （inset 3%）与封面（90%）都按比例缩放。
+//
 // 右下角三个开关（原版 .cover-mode-toggle）：切换碟片/封面、封面背景、高级质感。
-func (a *App) coverDisc(c *ui.Context) {
+func (a *App) coverDisc(c *ui.Context, side float32) {
 	ui.Row(c).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-		shell := ui.Box(c).Size(292, 292).Shrink(0).Center()
+		shell := ui.Box(c).Size(side, side).Shrink(0).Center()
 		// 原版 .cover-shell 是 `display:grid; place-items:center` —— 玻璃环与
 		// 封面都在 292 的 shell 里**两轴居中**。之前碟片模式只给了
 		// `AlignSelf(ui.Center)`（只居中横轴），玻璃环贴着 shell 顶边，
@@ -224,7 +277,7 @@ func (a *App) coverDisc(c *ui.Context) {
 				// 而不是铺满 292 的整块 —— 之前用 Fill() 把方块封面放大到
 				// 292，比碟片模式（263）大了一圈，右下角三个开关也贴到了边上。
 				// 圆角 12（.cover-art-square / #video-cover.cover-square），不是正圆。
-				sq := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(12).Clip().
+				sq := ui.ButtonBase(c.Key("disc")).Size(side*0.9, side*0.9).Radius(12).Clip().
 					Background(ui.Hex("#0f172a")).
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Label(pick(a.Playing, "暂停", "播放"))
@@ -239,13 +292,13 @@ func (a *App) coverDisc(c *ui.Context) {
 			} else {
 				// 外圈玻璃环（原版 .cover-shell::before）：inset 3% →
 				// 292 × 0.94 ≈ 274，1px 白边 + 柔和投影；唱片 263 居中其内。
-				ring := ui.Box(c).Size(274, 274).Radius(RadiusPill).
+				ring := ui.Box(c).Size(side*0.94, side*0.94).Radius(RadiusPill).
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).Center()
 				ring.Children(func() {
 					// 唱片（原版 #video-cover）：90% 于外环 = 263，深底 + 1px
 					// 白边 + 内侧 1px 白线（inset 0 0 0 1px rgba(255,255,255,.1)）。
-					disc := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(RadiusPill).Clip().
+					disc := ui.ButtonBase(c.Key("disc")).Size(side*0.9, side*0.9).Radius(RadiusPill).Clip().
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 						Label(pick(a.Playing, "暂停", "播放"))
@@ -480,15 +533,25 @@ func (a *App) advanceDisc(now time.Time) {
 	a.discLast, a.discLastPos = now, a.Pos
 }
 
-// videoInfo 是右栏（原版 #video-info，固定 366 高）：
+// videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
-func (a *App) videoInfo(c *ui.Context) {
+//
+// wide 为 false 时是窄窗单列（原版 @media ≤680px）：不再 Grow 充满高度，
+// 标题的 min-height 也从 52 放开成 auto（由内容决定），整块跟随外层滚动。
+func (a *App) videoInfo(c *ui.Context, wide bool) {
 	t := a.Theme
-	ui.Column(c).Grow(1).MinWidth(0).AlignItems(ui.Start).Children(func() {
+	col := ui.Column(c).FillWidth().AlignItems(ui.Start)
+	if wide {
+		col.Grow(1).MinWidth(0)
+	}
+	col.Children(func() {
 		a.videoInfoHead(c)
 		// 原版 #video-title h2：22px / 800 / 2 行截断 / min-height 52。
-		ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
-			MinHeight(52).MaxLines(2).Margin(8, 0, 0, 0).Selectable()
+		title := ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
+			MaxLines(2).Margin(8, 0, 0, 0).Selectable()
+		if wide {
+			title.MinHeight(52)
+		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）。
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
