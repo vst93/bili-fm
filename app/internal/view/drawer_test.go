@@ -367,6 +367,38 @@ func TestCardTitleBadge(t *testing.T) {
 	}
 }
 
+// TestDrawerBackdropLayers 锁住抽屉打开时一帧的 backdrop 玻璃层数上界。
+//
+// 为什么是硬约束：mygo 对每个 `Backdrop: true` 的效果都要单独断一次渲染
+// 通道 + 回读下采样 + 两次模糊（gpu/gpu.go:412、gpu/metal/metal.go:830），
+// 层数直接乘进每帧——这正是抽屉滚动/入场卡顿的根因（见 .pending-bugs.md）。
+// 原版 CSS 里真有 backdrop-filter 的只剩搜索药丸（.home-searchbar::before）
+// 与播放栏（#player .player-controls）两层，所以上界是 2；抽展面板、
+// 播放键、氛围光都已改成填充/烤进位图的模糊（原版那三层就不是
+// backdrop-filter）。再多就是有人又给卡片/按钮盖了真玻璃。
+//
+// 计数在构建期（view.backdropLayers），不受绘制重试/阴影影响。
+func TestDrawerBackdropLayers(t *testing.T) {
+	a := NewApp(func() {})
+	l := a.ListFor("feed")
+	l.Cards = make([]Card, 12)
+	for i := range l.Cards {
+		l.Cards[i] = Card{Bvid: fmt.Sprintf("BV%02d", i), Title: fmt.Sprintf("标题%d", i)}
+	}
+	a.Drawer = "feed"
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	// 等入场动画停稳（入场按真实时钟走），这样接下来的一帧是稳态一帧。
+	for i := 0; i < 30; i++ {
+		time.Sleep(20 * time.Millisecond)
+		tst.Frame()
+	}
+	BackdropLayers() // 丢掉轮询期的计数，只量稳定后的这一帧
+	tst.Frame()
+	if got := BackdropLayers(); got > 2 {
+		t.Fatalf("抽屉打开时 backdrop 层数 = %d, want <= 2（多了会让每帧多出渲染通道打断 + 回读 + 两次模糊）", got)
+	}
+}
+
 // TestDrawerStartPose 钉住入/退场的起手 pose 与「要不要请框架再建一帧」。
 //
 // 入场要 AnimationFrame：起手帧把面板摆到 h，请框架再建一帧，下一帧目标才

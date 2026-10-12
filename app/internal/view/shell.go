@@ -3,7 +3,6 @@ package view
 import (
 	"runtime"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -148,15 +147,14 @@ func (a *App) settingsButton(c *ui.Context) {
 	})
 }
 
-// AmbientBlur 是氛围光的模糊半径（原版 .app-shell::before 的 filter: blur(20px)）。
-const AmbientBlur = 20
-
-// ambient 是「氛围光」：把当前封面铺满整窗、模糊、压到 31% 不透明度，再叠一层
+// ambient 是「氛围光」：把当前封面铺满整窗、压到 31% 不透明度，再叠一层
 // 白渐变 —— 原版 .app-shell::before / ::after。这是 bili-FM 的视觉签名，所有
 // 玻璃都浮在它上面。
 //
-// 原版还有 saturate(0.78) brightness(1.14) contrast(0.76)，glass.Blur 只做高斯
-// 模糊，这三个滤镜没有对应能力（想要更淡可以调 Opacity）。
+// 原版还有 saturate(0.78) brightness(1.14) contrast(0.76) 与 filter: blur(20px)。
+// 注意原版用的是 **filter**（作用于元素自身）而不是 backdrop-filter，所以原生版
+// 没有理由为它留一个全窗 backdrop；这四步现在全部在 imagecache.gradeAmbient
+// 里随封面烤进 64px 源图（blur 由「高级质感」开关决定），每帧只画一张图。
 //
 // 封面没加载好就什么都不画（imagecache 未命中返回 nil），所以切歌时不会先闪
 // 一下空白 —— 旧版为此专门做了「先预载、后换源」。
@@ -166,7 +164,7 @@ func (a *App) ambient(c *ui.Context) {
 	}
 	// 氛围光要用**调过色**的那份（原版这一层带 saturate/brightness/contrast
 	// 滤镜，见 imagecache.Ambient），拿不到就退回原图。
-	bmp := a.Images.Ambient(a.coverURL())
+	bmp := a.Images.Ambient(a.coverURL(), a.Premium)
 	if bmp == nil {
 		bmp = a.coverBitmap()
 	}
@@ -174,13 +172,9 @@ func (a *App) ambient(c *ui.Context) {
 		return
 	}
 	ui.Box(c).Absolute().Fill().PassThrough().Children(func() {
+		// 调色 + 模糊已经烤进位图（imagecache.gradeAmbient），所以这里直接铺图：
+		// 不再为氛围光每帧算一个全窗 backdrop（那是面积最大的一层）。
 		ui.Image(c, bmp).Fill().Fit(ui.Cover).Opacity(0.31)
-		// 模糊它下面画过的东西（渐变 + 封面）。关掉「高级质感」时不模糊：
-		// 少一个离屏合成，代价是背景更锐利一些（原版 premiumTexture 的用意）。
-		if a.Premium {
-			ui.Box(c).Absolute().Fill().PassThrough().
-				Material(glass.Blur{Radius: AmbientBlur})
-		}
 		// ::after：一层白渐变，把氛围光压得更淡更匀。
 		ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
 			From:  ui.Hex("#f8fbff").Alpha(0.22),

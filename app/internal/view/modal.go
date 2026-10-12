@@ -36,7 +36,7 @@ func (a *App) modal(c *ui.Context) {
 			// 原版 .login-glass：320 宽（w-80）、圆角 16（rounded-2xl）。
 			panel.Width(320).Radius(16).
 				Padding(32, 24, 24).
-				Material(glass.Glass{}).
+				Material(glassLayer(glass.Glass{})).
 				Background(ui.Hex("#ffffff").Alpha(0.28)).
 				Border(1, ui.Hex("#ffffff").Alpha(0.40)).
 				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.30)).
@@ -50,7 +50,7 @@ func (a *App) modal(c *ui.Context) {
 				// 原版这里是 backdrop-filter: blur(24px) 的一层玻璃；用框架玻璃后
 				// 不再手搓底色与内影（Material 之后调 Background 是空操作，会被
 				// 静默忽略；LinearGradient 更会把 Material 整个顶掉）。
-				Material(glass.Glass{}).
+				Material(glassLayer(glass.Glass{})).
 				Shadow(0, 24, 64, 0, ui.Hex("#0f172a").Alpha(0.22)).
 				Shadow(0, 4, 16, 0, ui.Hex("#0f172a").Alpha(0.06))
 		}
@@ -170,7 +170,7 @@ func (a *App) modalButton(c *ui.Context, label string, primary bool, fn func()) 
 	// （原版主按钮是 135° 蓝渐变 —— 那是手搓玻璃的做法，换成 Tint 更贴框架材质。）
 	if primary {
 		// Tint 要给足：玻璃本身会把颜色稀释，0.5 时白字对比度不够。
-		b.Material(glass.Glass{Tint: pick(b.Hovered(), t.Blue.Alpha(0.85), t.Blue.Alpha(0.75))}).
+		b.Material(glassLayer(glass.Glass{Tint: pick(b.Hovered(), t.Blue.Alpha(0.85), t.Blue.Alpha(0.75))})).
 			Shadow(0, 4, 12, 0, ui.Hex("#0ea5e9").Alpha(0.22))
 	} else {
 		buttonSurface(b, false, b.Hovered(),

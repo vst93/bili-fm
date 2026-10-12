@@ -25,7 +25,7 @@ func (a *App) searchBar(c *ui.Context) {
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
 		pill := ui.Row(c).Width(SearchBarWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			Material(glass.Glass{}).
+			Material(glassLayer(glass.Glass{})).
 			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.07)).
 			Shadow(0, 1, 4, 0, ui.Hex("#0f172a").Alpha(0.03))
 		if pill.Hovered() {

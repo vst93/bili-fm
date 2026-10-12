@@ -53,12 +53,12 @@ func TestGradeAmbient(t *testing.T) {
 	}
 	// 中灰：饱和度不动它；亮度 1.14 抬到 0.572，再被对比度 0.76 压回
 	// (0.572-0.5)*0.76+0.5 = 0.5547 → 141。
-	got := gradeAmbient(mk(128, 128, 128))
+	got := gradeAmbient(mk(128, 128, 128), true)
 	if got.Pix[0] != 141 {
 		t.Errorf("中灰应为 141，得到 %d", got.Pix[0])
 	}
 	// 纯色：饱和度降低后应往灰靠（R 降、G 升），且不再是纯色。
-	got = gradeAmbient(mk(255, 0, 0))
+	got = gradeAmbient(mk(255, 0, 0), true)
 	if got.Pix[0] <= got.Pix[1] {
 		t.Errorf("降饱和后红通道应仍高于绿通道，得到 %d/%d", got.Pix[0], got.Pix[1])
 	}
@@ -66,7 +66,7 @@ func TestGradeAmbient(t *testing.T) {
 		t.Error("降饱和后绿通道不应还是 0")
 	}
 	// 亮度提升 + 对比度压缩：纯黑提升到接近 0.1 而不是仍是 0。
-	got = gradeAmbient(mk(0, 0, 0))
+	got = gradeAmbient(mk(0, 0, 0), true)
 	if got.Pix[0] < 20 || got.Pix[0] > 40 {
 		t.Errorf("纯黑应被抬到 20~40，得到 %d", got.Pix[0])
 	}
@@ -89,5 +89,33 @@ func TestDownscale(t *testing.T) {
 	small := image.NewRGBA(image.Rect(0, 0, 10, 10))
 	if d := downscale(small, 64); d.Bounds().Dx() != 10 {
 		t.Errorf("够小的图不应再缩，得到 %v", d.Bounds())
+	}
+}
+
+// TestBlurRGBA 检查预烤进氛围光源图的模糊：硬边被混成灰、尺寸不变、
+// 且不修改输入。氛围光不再走每帧 backdrop，模糊必须在这里正确完成。
+func TestBlurRGBA(t *testing.T) {
+	im := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			v := uint8(0)
+			if x >= 4 {
+				v = 255
+			}
+			i := im.PixOffset(x, y)
+			im.Pix[i], im.Pix[i+1], im.Pix[i+2], im.Pix[i+3] = v, v, v, 255
+		}
+	}
+	got := blurRGBA(im, 1)
+	if got.Bounds() != im.Bounds() {
+		t.Fatalf("尺寸不应改变，得到 %v", got.Bounds())
+	}
+	// 边界附近的像素应是黑白的混合，而不是仍然非黑即白。
+	if v := got.Pix[got.PixOffset(3, 4)]; v == 0 || v == 255 {
+		t.Errorf("硬边应被模糊成灰，得到 %d", v)
+	}
+	// 输入不能被改坏（函数应是纯的）。
+	if v := im.Pix[im.PixOffset(0, 0)]; v != 0 {
+		t.Errorf("输入被修改，左上角 = %d", v)
 	}
 }

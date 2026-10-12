@@ -27,7 +27,7 @@ func (a *App) toastViewport(c *ui.Context) {
 			// LinearGradient 会直接把 Material 顶掉（fill 只有一个）。
 			// 注意：Material 之后不能再调 Background/LinearGradient。
 			p.Root.Row().Gap(8).Padding(8, 16).Radius(13).
-				Material(glass.Glass{Tint: accent.Alpha(0.10)}).
+				Material(glassLayer(glass.Glass{Tint: accent.Alpha(0.10)})).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
 			p.Root.Opacity(op)

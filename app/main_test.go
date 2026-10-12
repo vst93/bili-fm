@@ -319,6 +319,45 @@ func TestToUpCards(t *testing.T) {
 	}
 }
 
+// TestSpecialBadge 钉住「普通视频不打标签，只有特殊徽标才打」：
+// B 站的 archive.badge.text 对普通投稿会给出「投稿视频」「动态视频」这类
+// 来源分类，原版 feedList 只在 text == "充电专属" 时才渲染胶囊，本构建
+// 也不得把来源分类透传成标签（用户实机反馈）。特殊徽标（充电/合作/联合）
+// 照旧显示。
+func TestSpecialBadge(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"投稿视频", ""},
+		{"动态视频", ""},
+		{"推荐视频", ""},
+		{"充电专属", "充电专属"},
+		{"合作视频", "合作视频"},
+		{"联合投稿", "联合投稿"},
+	}
+	for _, c := range cases {
+		if got := specialBadge(c.in); got != c.want {
+			t.Errorf("specialBadge(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+
+	// 端到端：动态接口里普通投稿的 badge.text（“投稿视频”）不应变成卡片胶囊。
+	item := func(text string) []any {
+		return []any{map[string]any{"modules": map[string]any{
+			"module_dynamic": map[string]any{"major": map[string]any{"archive": map[string]any{
+				"bvid": "BV1", "title": "普通投稿",
+				"badge": map[string]any{"text": text},
+			}}},
+			"module_author": map[string]any{"name": "UP", "pub_time": "3天前"},
+		}}}
+	}
+	if got := toFeedCards(item("投稿视频"))[0].Badge; got != "" {
+		t.Errorf("普通投稿 badge = %q, want 空（不得显示来源分类）", got)
+	}
+	if got := toFeedCards(item("充电专属"))[0].Badge; got != "充电专属" {
+		t.Errorf("充电专属 badge = %q, want 充电专属", got)
+	}
+}
+
 func TestPlaylistReorderMath(t *testing.T) {
 	// 直接验证 reorder 的核心切片操作（不依赖 controller）。
 	reorder := func(list []view.PlayItem, from, to int) []view.PlayItem {

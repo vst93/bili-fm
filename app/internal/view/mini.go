@@ -114,7 +114,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 	t := a.Theme
 	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
 		// 与主窗同一层框架玻璃 + 同一道向上投影。
-		Material(glass.Glass{}).
+		Material(glassLayer(glass.Glass{})).
 		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		Children(func() {
 			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
@@ -127,14 +127,19 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
 						Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
 					disablePlayerButton(play, !a.hasSource())
-					// 框架 Interactive 玻璃；播放中用蓝 Tint 表达"正在播"。
-					mg := glass.Glass{Interactive: true}
+					// 原版 mini .player-play-button::before 同样是填充，不是 backdrop-filter。
+					// 只有播放栏本体（#player）才是真玻璃，按钮浮在它之上。
+					fill := ui.Hex("#ffffff").Alpha(0.22)
 					if a.Playing {
-						mg.Tint = ui.Hex("#0ea5e9").Alpha(0.32)
+						fill = ui.Hex("#0ea5e9").Alpha(0.32)
 					} else if play.Hovered() {
-						mg.Tint = ui.Hex("#ffffff").Alpha(0.22)
+						fill = ui.Hex("#ffffff").Alpha(0.22)
 					}
-					play.Material(mg)
+					play.Background(fill).
+						Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+						InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
+						Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+					pressPose(play)
 					play.Children(func() {
 						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
 							TextColor(ui.Hex("#0369a1"))

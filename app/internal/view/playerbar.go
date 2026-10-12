@@ -39,7 +39,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
-		Material(glass.Glass{}).
+		Material(glassLayer(glass.Glass{})).
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影
 		//（0 -10px 28px rgba(15,23,42,.05)，浅色/深色时段都是这个值）。
 		// 前两层内影由玻璃自己的描光承担。
@@ -137,13 +137,21 @@ func (a *App) transport(c *ui.Context) {
 			Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
 		// 原版 disabled={!src}：还没有曲目时整个播放栏是禁用态。
 		disablePlayerButton(play, !src)
-		pg := glass.Glass{Interactive: true}
+		// 原版 .player-play-button::before 只有 background-color/background-image，
+		// **没有** backdrop-filter——按键浮在已有 blur 的播放栏之上。之前误用了
+		// Interactive 真玻璃，于是每个播放键每帧多一个 backdrop。这里改回填充；
+		// 按下手感交给 pressPose（原版 :active 就是 scale(.93)）。
+		fill := ui.Hex("#ffffff").Alpha(0.22)
 		if a.Playing {
-			pg.Tint = pick(play.Hovered(), t.Blue.Alpha(0.34), t.Blue.Alpha(0.22))
+			fill = pick(play.Hovered(), t.Blue.Alpha(0.34), t.Blue.Alpha(0.22))
 		} else if play.Hovered() {
-			pg.Tint = ui.Hex("#ffffff").Alpha(0.22)
+			fill = ui.Hex("#ffffff").Alpha(0.22)
 		}
-		play.Material(pg)
+		play.Background(fill).
+			Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
+			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+		pressPose(play)
 		play.Children(func() {
 			ink := pick(a.Playing, ui.Hex("#0369a1"), ui.Hex("#475569"))
 			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(18, 18).TextColor(ink)
@@ -520,7 +528,7 @@ func (a *App) speedPopover(c *ui.Context) {
 			Radius(14).
 			// 原版是近乎实白（rf.82）+ blur(10)；换成框架玻璃，抬一级投影
 			// 让它从播放栏上"浮起来"。
-			Material(glass.Glass{}).
+			Material(glassLayer(glass.Glass{})).
 			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).
 			AlignItems(ui.Center).
 			Children(func() {
@@ -570,7 +578,7 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
 		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).
 			Padding(0, 10, 0, 8).Radius(radius).
-			Material(glass.Glass{}).
+			Material(glassLayer(glass.Glass{})).
 			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(8).
 			AlignItems(ui.Center).Children(func() {
 			// 静音键：独立的切换（原版 player-volume-mute-button）。

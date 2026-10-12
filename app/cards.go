@@ -169,6 +169,28 @@ func toUpCards(items []any) []view.Card { return upCards(items, false) }
 // （原版只有 feedList 的 ListCard 传 titlePrefix）。
 func toFeedCards(items []any) []view.Card { return upCards(items, true) }
 
+// specialBadges 是列表卡片会透传为标题前胶囊的「特殊徽标」白名单。
+//
+// 原版 feedList 的判据是 `archive.badge.text === '充电专属'`（唯一一种）；
+// 这里再加上用户点名的「合作/联合投稿」类特殊徽标。普通投稿的来源分类
+// （「投稿视频」「动态视频」等）不在白名单里，因此不会显示。
+//
+// 白名单而不是黑名单：B 站以后新增任何来源分类文案都会被挡掉，只有明确
+// 认为是「特殊」的才会显示。
+var specialBadges = map[string]bool{
+	"充电专属": true,
+	"合作视频": true,
+	"联合投稿": true,
+}
+
+// specialBadge 只在 text 是白名单里的特殊徽标时返回它，否则返回空串。
+func specialBadge(text string) string {
+	if specialBadges[text] {
+		return text
+	}
+	return ""
+}
+
 func upCards(items []any, withBadge bool) []view.Card {
 	out := make([]view.Card, 0, len(items))
 	for _, it := range items {
@@ -190,11 +212,16 @@ func upCards(items []any, withBadge bool) []view.Card {
 		up := pickStr(author, "name")
 		cover := pickStr(arch, "cover")
 		title := pickStr(arch, "title")
-		// 标题前的小胶囊（原版 feedList 的 titlePrefix）：只有「充电专属」这一种
-		// 红色角标，判据就是 archive.badge.text。只有动态列表才会带上它。
+		// 标题前的小胶囊（原版 feedList 的 titlePrefix）。
+		//
+		// B 站的 archive.badge.text 对**普通投稿**会给出「投稿视频」「动态视频」
+		// 这类**来源分类**标签，而原版 feedList 只在 `badge.text === '充电专属'`
+		// 时才渲染胶囊（src/components/feedList.tsx:98），从不显示来源分类。
+		// 用户也明确要求「普通视频不要打投稿/动态标签，只有特殊的才打」。
+		// 所以不直接透传 badge.text，而是走 specialBadge 白名单。
 		badge := ""
 		if withBadge {
-			badge = pickStr(subMap(arch, "badge"), "text")
+			badge = specialBadge(pickStr(subMap(arch, "badge"), "text"))
 		}
 
 		views := ""

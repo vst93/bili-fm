@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -157,12 +156,18 @@ func (a *App) drawer(c *ui.Context) {
 	var dragY float32
 	overlay.Children(func() {
 		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
-		// （--liquid-blur-thin：小面积用薄玻璃），所以面板本身也是真玻璃。
+		// （--liquid-blur-thin），面板确实是真玻璃。但这一层是抽屉打开时**面积
+		// 最大**的 backdrop（2.7Mpx 级），mygo 对每个 backdrop 都要断一次渲染
+		// 通道 + 回读下采样 + 两次模糊，层数直接乘进每帧——上一轮实测 24→4 层
+		// 后用户实机反馈「仍卡」，所以本轮按既定下一档把面板降级成半透明填充：
+		//   background --liquid-bg + 1px 亮边 + 顶部内高光（原版 ::after 的聚光）
+		// 唯一的观感取舍：面板由「磨砂」变成实色。
 		// 上滑入场（原版抽屉是从底部滑上来的），位移交给 AnimatePose。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
-			Material(glass.Glass{}).
-			// 玻璃自带顶缘聚光，不再叠原版那条手搓的 1px 顶线。
+			Background(a.Theme.LiquidBg).
+			Border(1, a.Theme.GlassBorder).
+			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
 		// **用 AnimatePose，不要用 Translate(AnimateTo)**：AnimateTo 的值要在
 		// 视图里读，意味着动画的每一帧都要重建整个抽屉视图——抽屉正文很重，
