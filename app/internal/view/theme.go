@@ -252,6 +252,90 @@ func titleBarButtonStyle(t Theme, active, hovered bool) (bg, ink ui.Color, opaci
 	return ui.Transparent, t.Muted, 0.72, false
 }
 
+// titleBarReveal 是标题栏的 hover-to-reveal 两态（原版 .app-title-bar 的
+// `:hover` / `:focus-within`），返回四层的不透明度：
+//
+//	child  直接子元素（`.app-title-bar > *`）        常态 .32  → 唤出 .82
+//	brand  `.title-bar-brand`                        常态 .70  → 唤出 1
+//	edge   `.app-title-bar::before` 顶沿投影         常态 .52  → 唤出 .78
+//	wash   `.app-title-bar::after` 白玻璃渐隐        常态 0    → 唤出 1
+//
+// 原版把标题栏做成「静息时退到背景里、鼠标进来才浮现」：不碰它的时候整条只剩
+// 三成不透明度（品牌七成），鼠标落上去、或里面的控件拿到焦点，才亮起并浮出一层
+// 白玻璃与顶沿投影。
+func titleBarReveal(active bool) (child, brand, edge, wash float32) {
+	if active {
+		return 0.82, 1, 0.78, 1
+	}
+	return 0.32, 0.7, 0.52, 0
+}
+
+// gradStop 是一条多停靠点线性渐变的停靠点（位置 0..1 + 颜色）。原版 CSS 里这类
+// 渐变有 4~5 个停靠点，而 ui.LinearGradient 只有两个颜色，所以按带拼（见 gradBands）。
+type gradStop struct {
+	At float32
+	C  ui.Color
+}
+
+// gradAt 在停靠点之间线性插值采样，与 CSS 的多停靠点线性渐变一致。
+func gradAt(stops []gradStop, t float32) ui.Color {
+	if len(stops) == 0 {
+		return ui.Transparent
+	}
+	if t <= stops[0].At {
+		return stops[0].C
+	}
+	last := stops[len(stops)-1]
+	if t >= last.At {
+		return last.C
+	}
+	for i := 1; i < len(stops); i++ {
+		if t <= stops[i].At {
+			a, b := stops[i-1], stops[i]
+			if span := b.At - a.At; span > 0 {
+				return a.C.Mix(b.C, (t-a.At)/span)
+			}
+			return b.C
+		}
+	}
+	return last.C
+}
+
+// gradBands 把多停靠点渐变切成 n 条等高的带，供视图叠出这块渐变。接缝处两侧
+// 颜色相同，所以看不出拼接 —— 与 Period.BackdropBands 同一手法。
+func gradBands(stops []gradStop, n int) [][2]ui.Color {
+	if n < 1 {
+		n = 1
+	}
+	out := make([][2]ui.Color, n)
+	for i := range out {
+		out[i] = [2]ui.Color{
+			gradAt(stops, float32(i)/float32(n)),
+			gradAt(stops, float32(i+1)/float32(n)),
+		}
+	}
+	return out
+}
+
+// 原版 .app-title-bar::before / ::after 的多停靠点渐变（globals.css）。两层都
+// 比标题栏本身高（170% / 140%），往下淡出到全透明；整层的 opacity 由
+// titleBarReveal 给。
+var (
+	titleBarEdgeStops = []gradStop{
+		{0, ui.Hex("#0f172a").Alpha(0.10)},
+		{0.42, ui.Hex("#0f172a").Alpha(0.045)},
+		{0.72, ui.Hex("#0f172a").Alpha(0.012)},
+		{1, ui.Hex("#0f172a").Alpha(0)},
+	}
+	titleBarWashStops = []gradStop{
+		{0, ui.Hex("#ffffff").Alpha(0.35)},
+		{0.30, ui.Hex("#ffffff").Alpha(0.22)},
+		{0.60, ui.Hex("#ffffff").Alpha(0.10)},
+		{0.85, ui.Hex("#ffffff").Alpha(0.02)},
+		{1, ui.Hex("#ffffff").Alpha(0)},
+	}
+)
+
 // pressScale 是 .app-title-bar-btn / #switch-window-mode 的按压手感：只有按下
 // 缩到 0.94，悬停不上浮（与 .nav-icon-btn 的 pressPose 不同，后者悬停会上浮 1px）。
 func pressScale(b ui.Element) {

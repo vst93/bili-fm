@@ -66,13 +66,30 @@ func (a *App) backdrop(c *ui.Context) {
 func (a *App) titleBar(c *ui.Context) {
 	t := a.Theme
 	tb := c.TitleBar()
-	ui.Row(c).FillWidth().Height(TitleBarHeight).Shrink(0).
-		Padding(0, 16).AlignItems(ui.Center).DragWindow().Children(func() {
+	bar := ui.Row(c).FillWidth().Height(TitleBarHeight).Shrink(0).
+		Padding(0, 16).AlignItems(ui.Center).DragWindow()
+	// hover-to-reveal（原版 .app-title-bar 的 :hover / :focus-within）：鼠标落在
+	// 标题栏上、或里面的控件拿到焦点，整条才从 .32/.7 亮到 .82/1，并浮出顶沿投影
+	// 与一层白玻璃。
+	child, brand, edge, wash := titleBarReveal(bar.Hovered() || bar.FocusWithin())
+	bar.Children(func() {
+		// ::before / ::after 是绝对定位的两层贴边渐变，画在子元素之下
+		//（原版 z-index 0 < 子元素 1），高度是标题栏的 170% / 140%，往下淡出。
+		//
+		// 两层都**无条件**建出来（静息时白玻璃那层 opacity 0、整棵子树不绘制）：
+		// mygo 的元素 id 由「父 id + 已在建的子元素个数」决定，少建一个兄弟会
+		// 让它后面所有兄弟换 id —— 焦点/悬停/动画状态会跟着丢。原版 CSS 里这两层
+		// 也是常驻的（只是 opacity 0）。
+		titleBarLayer(c, titleBarEdgeStops, TitleBarHeight*1.7, edge)
+		titleBarLayer(c, titleBarWashStops, TitleBarHeight*1.4, wash)
 		mac := runtime.GOOS == "darwin"
 		// 品牌：macOS 居中（红绿灯在左），Windows/Linux 靠左 + 设置在旁
 		// （原版 .title-bar-brand 的 isMac 分支）。≤600px 时隐藏（原版如此）。
-		brand := func(grow bool) {
-			box := ui.Row(c).Gap(6).AlignItems(ui.Center)
+		//
+		// 整块走 .title-bar-brand 的 .7/1，而不是外层子元素的 .32/.82；
+		// 设置按钮在品牌里面（原版 DOM 如此），所以也跟着 .7/1。
+		brandBox := func(grow, settings bool) {
+			box := ui.Row(c).AlignItems(ui.Center).Opacity(brand)
 			if grow {
 				box.Grow(1)
 			} else {
@@ -84,23 +101,27 @@ func (a *App) titleBar(c *ui.Context) {
 				}
 				// 原版 text-sm（14px）。
 				ui.Text(c, "bili-FM").FontSize(14).FontWeight(600).TextColor(t.Ink)
+				if settings {
+					a.settingsButton(c)
+				}
 			})
 		}
 		if mac {
 			ui.Box(c).Width(tb.Left).Shrink(0)
 			ui.Box(c).Grow(1)
-			brand(false)
+			brandBox(false, false)
 			ui.Box(c).Grow(1)
 		} else {
 			ui.Box(c).Width(tb.Left).Shrink(0)
-			brand(false)
-			a.settingsButton(c)
+			brandBox(false, true)
 			ui.Box(c).Grow(1)
 		}
-		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Opacity(child).Children(func() {
 			// 迷你入口：原版在 Linux 上不提供（webkit2gtk 改不了窗口尺寸）。
 			if runtime.GOOS != "linux" {
 				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
+				// 它在 .app-title-bar-actions 里面，而那一层已经乘了子元素的
+				// .32/.82，所以这里只出自己的 .72（静息时合计 .72×.32 ≈ .23）。
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
 				bg, ink, opacity, highlight := titleBarButtonStyle(t, false, b.Hovered())
@@ -120,19 +141,43 @@ func (a *App) titleBar(c *ui.Context) {
 	})
 }
 
+// titleBarLayer 画 .app-title-bar 的 ::before / ::after 那一层：绝对定位、贴住
+// 标题栏左右与顶沿、比标题栏高（原版 170% / 140%），整层乘 opacity 后往下淡出。
+//
+// 整棵子树（含分带）都要 PassThrough：它们盖在标题栏按钮之上，只要有哪一层
+// 参与命中测试，标题栏里按下的就是它（或者它的祖先 —— 带 DragWindow 的那一行），
+// 按钮就再也点不到了。
+func titleBarLayer(c *ui.Context, stops []gradStop, height, opacity float32) {
+	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(height).PassThrough().
+		Opacity(opacity).Children(func() {
+		ui.Column(c).Fill().PassThrough().Children(func() {
+			for _, b := range gradBands(stops, 4) {
+				ui.Box(c).FillWidth().Grow(1).PassThrough().LinearGradient(ui.LinearGradient{
+					From: b[0], To: b[1], Angle: 180,
+				})
+			}
+		})
+	})
+}
+
 // settingsButton 是标题栏里的「设置」下拉（原版非 macOS 平台的 #settings-entry）：
-// 关于应用 / 快捷键 / 检查更新 / 退出应用。
+// 关于应用 / 快捷键 / 检查更新 / 退出应用。它是 .title-bar-brand 的子元素，所以
+// 跟着品牌的不透明度走（由外层 brandBox 施加），自己不再设 opacity。
+//
+// 原版 Tailwind 类：`hover:bg-gray-200 px-2 py-1 rounded transition-colors
+// text-sm ml-2` —— px-2/py-1（8/4）、rounded（4px）、text-sm（14px）、ml-2（8px）；
+// 悬停底色被 `.app-title-bar button:hover { … !important }` 顶成 --glass-bg-hover。
 func (a *App) settingsButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("settings")).Height(24).Padding(0, 9).Radius(RadiusSmall).
-		Center().Label("设置").Tooltip("设置")
+	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, 8).Radius(4).
+		Margin(0, 0, 0, 8).Center().Label("设置").Tooltip("设置")
 	if b.Hovered() {
 		b.Background(t.GlassHover)
 	} else {
 		b.Background(ui.Transparent)
 	}
 	b.Children(func() {
-		ui.Text(c, "设置").FontSize(13).TextColor(t.Ink)
+		ui.Text(c, "设置").FontSize(14).TextColor(t.Ink)
 	})
 	b.Menu(func(m *ui.Menu) {
 		if m.Item("关于应用").Chosen() && a.Act.ShowAbout != nil {

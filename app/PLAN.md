@@ -125,7 +125,10 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
   `TitleBarHidden`：macOS 是原生红绿灯、Windows/Linux 是原生标题栏按钮 ——
   旧版在 macOS 上就是 `decorations + TitleBarStyle::Overlay`。
 - **标题栏**（36px，`.app-title-bar`）：品牌居中（logo 24×24 + 文字），
-  左右按 `ui.Context.TitleBar()` 留出原生控件的宽度。
+  左右按 `ui.Context.TitleBar()` 留出原生控件的宽度。**hover-to-reveal**：静息时
+  整条退到背景里（子元素 .32、品牌 .70、顶沿投影 .52、无白玻璃），鼠标落到标题栏上
+  或里面的控件拿到焦点才亮起（.82 / 1 / .78 / 1）并浮出一层白玻璃（见
+  `titleBarReveal` + `titleBarLayer`）。
 - **搜索药丸**（`.home-searchbar`）：max-width 520 / 高 46 / 圆角 13 / 内边距 4，
   内容是「白底输入内腔（含放大镜提交键）+ 四个内容入口图标 + 头像」。
   分区不再是单独一行药丸，而是回到搜索栏里的四个入口。
