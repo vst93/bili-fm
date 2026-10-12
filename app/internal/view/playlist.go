@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -11,8 +12,12 @@ import (
 // 播放列表抽屉（原版 playlist.tsx）：表头是「我的列表 / 合集列表」两个 tab +
 // 定位当前 + 播放模式 + 清空；正文是记录行（缩略图 + 分集名 + 视频名 + 删除）。
 //
-// 与旧版的取舍：拖拽排序改成了每行 hover 时出现的上移/下移键 —— 原生界面
-// 做跨行拖拽收益不高，上/下移一样能完成排序。
+// 记录行支持拖拽排序（原版 draggable + onDragOver/onDrop），拖到别的行上即
+// 插入到那个位置。
+
+// playlistRowRadius 是记录行的圆角：原版 Tailwind 是 rounded-lg（8），但
+// globals.css 的 `[data-slot="wrapper"] .group` 把它覆写成 10px !important。
+const playlistRowRadius = 10
 
 // playlistTabs 是播放列表抽屉的表头。
 func (a *App) playlistTabs(c *ui.Context) {
@@ -99,13 +104,129 @@ func (a *App) playlistBody(c *ui.Context) {
 	a.locateNow = false
 }
 
+// playlistRowPaint 是播放列表一行的配色与字重，逐条对应原版 globals.css 里
+// `[data-slot="wrapper"]` 作用域下的几条规则。原版行有三套互斥的 class
+// （playlist.tsx 的三元）：常态带 hover:bg-gray-100、当前项带
+// bg-blue-100+playlist-current、拖拽悬停带 bg-blue-50。层叠后实际生效的是：
+//
+//	常态        .group 白 .42 底、白 .28 边、顶部内高光白 .42、
+//	            外投影 15,23,42 .04（y2/blur8）
+//	常态:hover  .hover\:bg-gray-100:hover 白 .55 底（比 .group:hover 的
+//	            .68 更靠后，同特异度，故胜出）+ 边转天蓝 .34、内高光白 .70、
+//	            外投影 15,23,42 .10（y8/blur22）+ 一圈 1px 天蓝环
+//	当前项      bg-blue-100 覆写为平铺 2,132,199 .16（比 .playlist-current 的
+//	            渐变更靠后、同特异度，故胜；渐变只在悬停时因 (0,3,0) 胜出），
+//	            边 2,132,199 .46、左缘 4px 强调条 3,105,161 .78、
+//	            内高光白 .64 / 底部内影 2,132,199 .16、
+//	            外投影 2,132,199 .14（y8/blur22）
+//	当前项:hover .playlist-current:hover 的蓝→白渐变、边转 2,132,199 .58
+//	:active     常态白 .30、当前项 2,132,199 .1（外加 scale .985）
+//	拖拽悬停    [class*="bg-blue-50"] 天蓝→白渐变、左缘 4px 强调条 .68、
+//	            内高光白 .60、外投影 2,132,199 .12（y4/blur14）
+//
+// 文案色/字重来自同一作用域的覆写：.text-gray-800 → #1e293b/600、
+// .text-gray-400 → #64748b、当前项首行 → #064e7a/800、末行 → #334155/600。
+//
+// 说明（框架硬底）：当前项:hover / 拖拽态的 CSS 是**三段**线性渐变
+// （天蓝 .36 → .20@42% → 白 .62），mygo 的 LinearGradient 只有两段
+// （From/To），所以两端取值、中间用两段插值近似。
+type playlistPaint struct {
+	From, To    ui.Color // 渐变/纯色底；Gradient 为假时只用 From
+	Gradient    bool
+	Border      ui.Color
+	Accent      ui.Color // 左缘强调条；AccentWidth 为 0 表示不画
+	AccentW     float32
+	InsetTop    ui.Color
+	InsetBot    ui.Color
+	Shadow      ui.Color
+	ShadowY     float32
+	ShadowBlur  float32
+	Ring        bool // hover 的 1px 天蓝环
+	PartInk     ui.Color
+	PartWeight  int
+	TitleInk    ui.Color
+	TitleWeight int
+}
+
+// playlistRowPaint 返回播放列表一行的配色。状态优先级与原版 CSS 一致：
+// 拖拽悬停 > 当前项 > 悬停；按下态只改底色（:active 比 :hover 更靠后）。
+func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
+	const white = "#ffffff"
+	p := playlistPaint{
+		From:        ui.Hex(white).Alpha(0.42),
+		Border:      ui.Hex(white).Alpha(0.28),
+		InsetTop:    ui.Hex(white).Alpha(0.42),
+		Shadow:      ui.Hex("#0f172a").Alpha(0.04),
+		ShadowY:     2,
+		ShadowBlur:  8,
+		PartInk:     ui.Hex("#1e293b"),
+		PartWeight:  600,
+		TitleInk:    ui.Hex("#64748b"),
+		TitleWeight: 400,
+	}
+	switch {
+	case dragging:
+		p.From = ui.Hex("#0ea5e9").Alpha(0.24)
+		p.To = ui.Hex(white).Alpha(0.56)
+		p.Gradient = true
+		p.Accent = ui.Hex("#0369a1").Alpha(0.68)
+		p.AccentW = 4
+		p.InsetTop = ui.Hex(white).Alpha(0.60)
+		p.Shadow = ui.Hex("#0284c7").Alpha(0.12)
+		p.ShadowY, p.ShadowBlur = 4, 14
+	case current:
+		p.From = ui.Hex("#0284c7").Alpha(0.16)
+		p.Border = ui.Hex("#0284c7").Alpha(0.46)
+		p.Accent = ui.Hex("#0369a1").Alpha(0.78)
+		p.AccentW = 4
+		p.InsetTop = ui.Hex(white).Alpha(0.64)
+		p.InsetBot = ui.Hex("#0284c7").Alpha(0.16)
+		p.Shadow = ui.Hex("#0284c7").Alpha(0.14)
+		p.ShadowY, p.ShadowBlur = 8, 22
+		p.PartInk = ui.Hex("#064e7a")
+		p.PartWeight = 800
+		p.TitleInk = ui.Hex("#334155")
+		p.TitleWeight = 600
+		if hovered {
+			p.From = ui.Hex("#0ea5e9").Alpha(0.36)
+			p.To = ui.Hex(white).Alpha(0.62)
+			p.Gradient = true
+			p.Border = ui.Hex("#0284c7").Alpha(0.58)
+		}
+	case hovered:
+		p.From = ui.Hex(white).Alpha(0.55)
+		p.Border = ui.Hex("#0ea5e9").Alpha(0.34)
+		p.InsetTop = ui.Hex(white).Alpha(0.70)
+		p.Shadow = ui.Hex("#0f172a").Alpha(0.10)
+		p.ShadowY, p.ShadowBlur = 8, 22
+		p.Ring = true
+	}
+	if pressed {
+		p.Gradient = false
+		p.To = ui.Transparent
+		p.Ring = false
+		if current {
+			p.From = ui.Hex("#0284c7").Alpha(0.10)
+		} else {
+			p.From = ui.Hex(white).Alpha(0.30)
+		}
+	}
+	return p
+}
+
 // playlistRow 是一条记录。我的列表支持拖拽排序（拖到别的行上即插入到那个位置）。
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
-	t := a.Theme
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
-	// 原版行：p-2（8）、rounded-lg（8）、gap-2（8）。
-	row := ui.Row(c).Key("pl-" + item.ID).FillWidth().Padding(8).
-		Radius(Radius).Gap(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	// 原版行：p-2（8）、rounded-lg（8，但 .group 覆写成 10）、gap-2（8）。
+	// 当前项有 border-left 4px 强调条：原来是把 4px 色条当普通子元素放在
+	// 8px 左内边距之后，缩略图被推到 20px；原版是 4+8=12px。当前项把左内边距
+	// 收成 0，让「强调条(4) + gap(8)」正好把内容推到 12px。
+	padL := float32(8)
+	if current {
+		padL = 0
+	}
+	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(8, 8, 8, padL).
+		Radius(playlistRowRadius).Gap(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 
 	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。
 	editable := a.PlaylistTab == ListUser
@@ -115,20 +236,28 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	_, dragOver := ui.DragOver[string](row)
 	droppedID, dropped := ui.Drop[string](row)
 
-	switch {
-	case dragOver:
-		row.Background(t.Blue.Alpha(0.10)).Border(2, t.Blue)
-	case current:
-		// 原版 .playlist-current：蓝渐变底（LinearGradient）+ 细蓝边 +
-		// 左侧 4px 强调条（用一条 4px 宽的色条元素叠在行首表达，
-		// mygo 的 Border 是四边同宽，没有单边接口）。
-		row.Gradient(t.Blue.Alpha(0.30), ui.Hex("#ffffff").Alpha(0.52), 90).
-			Border(1, ui.Hex("#0369a1").Alpha(0.46)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.64)).
-			InsetShadow(0, -1, 0, 0, ui.Hex("#0369a1").Alpha(0.16))
-	case row.Hovered():
-		row.Background(t.GlassHover)
+	p := playlistRowPaint(current, row.Hovered(), dragOver, row.Pressed())
+	if p.Gradient {
+		// 原版 .playlist-current 的蓝→白 90° 渐变。
+		row.Gradient(p.From, p.To, 90)
+	} else {
+		row.Background(p.From)
 	}
+	row.Border(1, p.Border).InsetShadow(0, 1, 0, 0, p.InsetTop)
+	if p.InsetBot != ui.Transparent {
+		row.InsetShadow(0, -1, 0, 0, p.InsetBot)
+	}
+	row.Shadow(0, p.ShadowY, p.ShadowBlur, 0, p.Shadow)
+	if p.Ring {
+		// 原版 hover 的第二层投影：0 0 0 1px rgba(14,165,233,.12)。
+		row.Shadow(0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.12))
+	}
+	// 原版 .group:active / .playlist-current:active 的按压缩放（松开回位）。
+	pose := ui.Pose{}
+	if row.Pressed() {
+		pose = ui.Pose{Scale: 0.985}
+	}
+	row.AnimatePose(pose, ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut})
 	if current && a.locateNow {
 		row.ScrollIntoView()
 	}
@@ -139,13 +268,13 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		// 注意用 FillHeight 而不是 Fill：**Fill() 会把宽度也设成 100%**，
 		// 这条 4px 色条于是撑满整行、把封面和文字挤成 0 宽
 		//（表现就是选中项变成一条纯蓝色横条）。
-		if current {
-			ui.Box(c).Width(4).FillHeight().Shrink(0).Radius(2).
-				Background(ui.Hex("#0369a1").Alpha(0.78))
+		if p.AccentW > 0 {
+			ui.Box(c).Width(p.AccentW).FillHeight().Shrink(0).Radius(2).
+				Background(p.Accent)
 		}
-		// 缩略图 64×36。
+		// 缩略图 64×36。原版 .bg-gray-200 被覆写成 rgba(226,232,240,.6)。
 		ui.Box(c).Width(64).Height(36).Shrink(0).Radius(4).
-			Background(t.CoverPlaceholder()).Clip().Children(func() {
+			Background(ui.Hex("#e2e8f0").Alpha(0.6)).Clip().Children(func() {
 			src := item.FirstFrame
 			if src == "" {
 				src = item.Pic
@@ -158,23 +287,23 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				if current {
-					ui.Icon(c, iconPlay).Size(12, 12).TextColor(t.Blue)
+					ui.Icon(c, iconPlay).Size(12, 12).TextColor(ui.Hex("#3b82f6"))
 				}
-				// 原版：text-sm（14），当前项 text-blue-600 font-medium。
-				part := ui.Text(c, item.Part).FontSize(14).SingleLine().
-					TextColor(pick(current, t.Blue, ui.Hex("#1f2937")))
-				if current {
-					part.FontWeight(500)
-				}
+				// 原版首行：常态 .text-gray-800（#1e293b/600），当前项
+				// .playlist-current p:first-of-type（#064e7a/800）。
+				ui.Text(c, item.Part).FontSize(14).SingleLine().
+					TextColor(p.PartInk).FontWeight(p.PartWeight)
 			})
-			// 原版：text-xs（12）text-gray-400。
-			ui.Text(c, item.Title).FontSize(12).TextColor(ui.Hex("#9ca3af")).SingleLine()
+			// 原版次行：常态 .text-gray-400（#64748b），当前项
+			// .playlist-current p:last-of-type（#334155/600）。
+			ui.Text(c, item.Title).FontSize(12).SingleLine().
+				TextColor(p.TitleInk).FontWeight(p.TitleWeight)
 		})
 
 		// 我的列表才允许删除（排序靠拖拽）。
 		// 原版按钮默认 opacity-0，行 hover 才显形（group-hover:opacity-100）。
 		if editable && row.Hovered() {
-			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose, ui.Hex("#94a3b8"), func() {
+			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose, ui.Hex("#999999"), func() {
 				if a.Act.DeletePlaylistItem != nil {
 					a.Act.DeletePlaylistItem(ListUser, item.ID)
 				}
