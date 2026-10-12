@@ -224,3 +224,33 @@ func TestPickDateForm(t *testing.T) {
 		t.Errorf("pickDateForm(空) = %q, want empty", got)
 	}
 }
+
+// TestDrawerMaskFade 钉住遮罩换算到 ui.Pose.Fade 的**方向**：Pose.Fade 与
+// Opacity 相反（1 = 全透明、0 = 不透明），所以不能把 drawerFade（1 = 不透明）
+// 直接当 Pose.Fade 用——那样会把整个抽屉面板一起涂成透明度 0（抽屉看不见）。
+func TestDrawerMaskFade(t *testing.T) {
+	const h float32 = 400
+	cases := []struct {
+		offsetY  float32
+		entering bool
+		want     float32 // Pose.Fade：0 = 不透明
+	}{
+		{0, false, 0}, // 贴底：遮罩完全不透明 → Fade 0
+		{200, false, 0.5},
+		{h, false, 1}, // 拖到底：遮罩全透明 → Fade 1
+		{h + 50, false, 1},
+		{0, true, 1}, // 入场第一帧：从全透明起步，再由 AnimatePose 渐显
+	}
+	for _, c := range cases {
+		if got := drawerMaskFade(c.offsetY, h, c.entering); got != c.want {
+			t.Errorf("drawerMaskFade(%v, %v, %v) = %v, want %v",
+				c.offsetY, h, c.entering, got, c.want)
+		}
+	}
+	// 与 drawerFade 互补：maskFade + fade == 1（入场帧除外）。
+	for _, y := range []float32{0, 100, 250, h} {
+		if got := drawerMaskFade(y, h, false); got != 1-drawerFade(y, h) {
+			t.Errorf("y=%v: maskFade=%v, 应为 1-fade=%v", y, got, 1-drawerFade(y, h))
+		}
+	}
+}

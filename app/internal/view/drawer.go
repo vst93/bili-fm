@@ -46,9 +46,25 @@ func drawerFade(offsetY, h float32) float32 {
 	return float32(1 - clampF(float64(offsetY), 0, float64(h))/float64(h))
 }
 
+// drawerMaskFade 把「遮罩不透明度」换算成 ui.Pose.Fade 的值。
+//
+// 关键坑：`Pose.Fade` 与 `Opacity` **方向相反**（ui/pose.go 的文档："from
+// 0, opaque, to 1, gone"，paint.go 里是 `opacity *= 1 - poseFade`），而
+// drawerFade 给的是不透明度（1 = 不透明）。直接把 drawerFade 塞进 Pose{Fade}
+// 会把遮罩——以及作为它子节点的整个抽屉面板——涂成透明（opacity 0），
+// 抽屉根本看不见。入场时从全透明（1）起步，由 AnimatePose 渐显到 maskFade。
+func drawerMaskFade(offsetY, h float32, entering bool) float32 {
+	if entering {
+		return 1
+	}
+	return 1 - drawerFade(offsetY, h)
+}
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
 	if a.Drawer == "" {
+		// 关掉后忘掉上一个 key，重新打开同一个抽屉时入场动画才会重放。
+		a.drawerOpenKey = ""
 		return
 	}
 	_, winH := c.Size()
@@ -105,12 +121,10 @@ func (a *App) drawer(c *ui.Context) {
 			a.drawerOffset = ui.Point{}
 		}
 	})
-	// 遮罩是投影淡入（repaint-only），拖动时再跟着 DragOffset 变淡。
-	fade := drawerFade(dragY, h)
-	if entering {
-		fade = 0
-	}
-	overlay.AnimatePose(ui.Pose{Fade: fade}, ui.Animation{Duration: drawerIn})
+	// 遮罩是投影淡入（repaint-only）。注意 Pose.Fade 与 Opacity 方向相反：
+	// 取反才不会把抽屉一起涂成透明（见 drawerMaskFade）。
+	overlay.AnimatePose(ui.Pose{Fade: drawerMaskFade(dragY, h, entering)},
+		ui.Animation{Duration: drawerIn})
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。
 	if overlay.Clicked() {
 		a.Drawer = ""
@@ -469,11 +483,16 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
 	l := a.ListFor(a.Drawer)
 	if a.Drawer == DrawerDanmaku {
+		if a.DanmakuTab == TabDanmaku {
+			// 弹幕 tab 自己用虚拟化 ui.List 当滚动容器（见 danmakuBody）。
+			a.danmakuBody(c)
+			return
+		}
 		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
 		// （上下不对称，底部多留 16 给最后一行）。
 		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).
-			Children(func() { a.danmakuBody(c) })
-		if a.DanmakuTab == TabReply && a.RepliesHasMore && !a.RepliesLoading &&
+			Children(func() { a.repliesBody(c) })
+		if a.RepliesHasMore && !a.RepliesLoading &&
 			l.Scroll.MaxY > 0 && l.Scroll.Y >= l.Scroll.MaxY-100 && a.Act.LoadComments != nil {
 			a.Act.LoadComments(a.ReplyPage + 1)
 		}
@@ -1392,15 +1411,10 @@ func fmtClock(sec float64) string {
 	return fmt.Sprintf("%02d:%02d", s/60, s%60)
 }
 
-// danmakuBody 画弹幕或评论列表。
+// danmakuBody 画弹幕列表（评论列表见 repliesBody，由 drawerBody 按 tab 分派）。
 // 弹幕按秒分组：组头「时间 + N 条」，组内去重、按次数排序、重复显示 ×N，
 // 文字用弹幕自身颜色（太亮/太暗换对比色）——对齐原版 danmakuList。
 func (a *App) danmakuBody(c *ui.Context) {
-	if a.DanmakuTab == TabReply {
-		a.repliesBody(c)
-		return
-	}
-	t := a.Theme
 	if len(a.Danmaku) == 0 {
 		a.emptyNote(c, "暂无弹幕")
 		return
@@ -1413,91 +1427,106 @@ func (a *App) danmakuBody(c *ui.Context) {
 		cur = nearestGroup(groups, a.Pos)
 	}
 
-	// 原版 .danmaku-time-group：整行 grid（64px 时间列 + 1fr 消息列）、gap 10、
-	// padding 11 12 13、底部 1px 分隔线；组之间没有间距，靠这条线分开。
-	sep := ui.Hex("#64748b").Alpha(0.14)
-	ui.Column(c).Children(func() {
-		for i, g := range groups {
-			isCur := i == cur
-			box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
-				Margin(2, 0).
-				Padding(11, 12, 13).Gap(10).AlignItems(ui.Start).
-				Cursor(ui.CursorPointer).
-				InsetShadow(0, -1, 0, 0, sep)
-			// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
-			switch {
-			case isCur:
-				box.InsetShadow(0, -1, 0, 0, ui.Hex("#0284c7").Alpha(0.30))
-			case box.Hovered():
-				box.InsetShadow(0, -1, 0, 0, t.Blue.Alpha(0.24))
-			}
-			if isCur && a.danmakuScrollIdx != cur {
-				box.ScrollIntoView()
-			}
-			box.Children(func() {
-				// 左列 64：时间标签 + 「N 条」，右缘一线分隔（.danmaku-time-head）。
-				// 右缘用 x=-1 的内影（正 x 画的是左缘）。
-				ui.Column(c).Width(64).Shrink(0).Gap(4).Justify(ui.Center).
-					InsetShadow(-1, 0, 0, 0, sep).Children(func() {
-					lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
-						FontWeight(700).Padding(3, 5).Radius(6)
-					if isCur {
-						// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
-						lbl.Background(ui.Hex("#0284c7")).TextColor(ui.Hex("#ffffff")).
-							InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
-							Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
-					} else {
-						lbl.TextColor(ui.Hex("#334155"))
-					}
-					// .danmaku-time-total：11px #64748b（当前组转蓝加粗）。
-					tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
-						TextColor(ui.Hex("#64748b"))
-					if isCur {
-						tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
-					}
-				})
+	// 换集时重置虚拟列表的滚动位置与行高，否则新一集会沿用上一集的锚点。
+	if a.Track != nil && a.Track.Cid != a.danmakuCid {
+		a.danmakuList = ui.ListState{}
+		a.danmakuCid = a.Track.Cid
+		a.danmakuScrollIdx = -1
+	}
 
-				// 右列：消息横排换行的一串小胶囊（.danmaku-message-list，
-				// align-items/align-content 都是 center）。
-				ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-					for _, e := range g.Entries {
-						chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
-							Height(27).Padding(3, 7, 3, 9).Gap(5).
-							Radius(8).AlignItems(ui.Center).
-							// 材质走框架玻璃（原版是白色半透明小胶囊）。
-							Material(glass.Glass{}).
-							Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
-						switch {
-						case isCur:
-							chip.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
-								Border(1, t.Blue.Alpha(0.48)).
-								Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
-						case box.Hovered():
-							chip.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.22)})
-						}
-						chip.Children(func() {
-							// .danmaku-message-text：13px / 650 / 单行截断。
-							ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-								TextColor(danmakuInk(e.Color)).SingleLine()
-							if e.Count > 1 {
-								// .danmaku-repeat-count：小蓝胶囊 ×N。
-								ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
-									FontWeight(700).TextColor(ui.Hex("#0369a1")).
-									Padding(0, 5).Radius(7).MinWidth(24).
-									Background(ui.Hex("#e0f2fe").Alpha(0.70)).
-									Border(1, t.Blue.Alpha(0.20))
-							}
-						})
-						// 点一条弹幕跳到它出现的时间（原版没有，但弹幕播放器都这么做）。
-						if chip.Clicked() && a.Act.Seek != nil {
-							a.Act.Seek(float64(g.Second))
-						}
+	// 虚拟化：这条列表在 bba0c7c 里从 ui.List 改成了 ui.Column，之后每帧都重建
+	// **所有**分组行（分组上千时是主要开销之一）。恢复 ui.List 后只建可见的
+	// 十几行。
+	theme := a.Theme
+	sep := ui.Hex("#64748b").Alpha(0.14)
+	ui.List(c, &a.danmakuList, len(groups), func(i int) {
+		a.danmakuGroupRow(c, groups[i], i == cur, sep, theme)
+	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
+
+	// 只在下标变化时滚，不干扰手滑。
+	if cur >= 0 && a.danmakuScrollIdx != cur {
+		a.danmakuList.ScrollIntoView(cur)
+		a.danmakuScrollIdx = cur
+	}
+}
+
+// danmakuGroupRow 画一个弹幕分组行（原版 .danmaku-time-group）：整行 grid
+// （64px 时间列 + 1fr 消息列）、gap 10、padding 11 12 13、底部 1px 分隔线；
+// 组之间没有间距，靠这条线分开。由 danmakuBody 的虚拟列表按需构建。
+func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.Color, t Theme) {
+	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
+		Margin(2, 0).
+		Padding(11, 12, 13).Gap(10).AlignItems(ui.Start).
+		Cursor(ui.CursorPointer).
+		InsetShadow(0, -1, 0, 0, sep)
+	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
+	switch {
+	case isCur:
+		box.InsetShadow(0, -1, 0, 0, ui.Hex("#0284c7").Alpha(0.30))
+	case box.Hovered():
+		box.InsetShadow(0, -1, 0, 0, t.Blue.Alpha(0.24))
+	}
+	box.Children(func() {
+		// 左列 64：时间标签 + 「N 条」，右缘一线分隔（.danmaku-time-head）。
+		// 右缘用 x=-1 的内影（正 x 画的是左缘）。
+		ui.Column(c).Width(64).Shrink(0).Gap(4).Justify(ui.Center).
+			InsetShadow(-1, 0, 0, 0, sep).Children(func() {
+			lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
+				FontWeight(700).Padding(3, 5).Radius(6)
+			if isCur {
+				// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
+				lbl.Background(ui.Hex("#0284c7")).TextColor(ui.Hex("#ffffff")).
+					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
+					Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
+			} else {
+				lbl.TextColor(ui.Hex("#334155"))
+			}
+			// .danmaku-time-total：11px #64748b（当前组转蓝加粗）。
+			tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
+				TextColor(ui.Hex("#64748b"))
+			if isCur {
+				tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
+			}
+		})
+
+		// 右列：消息横排换行的一串小胶囊（.danmaku-message-list，
+		// align-items/align-content 都是 center）。
+		ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
+			for _, e := range g.Entries {
+				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
+					Height(27).Padding(3, 7, 3, 9).Gap(5).
+					Radius(8).AlignItems(ui.Center).
+					// 材质走框架玻璃（原版是白色半透明小胶囊）。
+					Material(glass.Glass{}).
+					Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
+				switch {
+				case isCur:
+					chip.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
+						Border(1, t.Blue.Alpha(0.48)).
+						Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
+				case box.Hovered():
+					chip.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.22)})
+				}
+				chip.Children(func() {
+					// .danmaku-message-text：13px / 650 / 单行截断。
+					ui.Text(c, e.Text).FontSize(13).FontWeight(650).
+						TextColor(danmakuInk(e.Color)).SingleLine()
+					if e.Count > 1 {
+						// .danmaku-repeat-count：小蓝胶囊 ×N。
+						ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
+							FontWeight(700).TextColor(ui.Hex("#0369a1")).
+							Padding(0, 5).Radius(7).MinWidth(24).
+							Background(ui.Hex("#e0f2fe").Alpha(0.70)).
+							Border(1, t.Blue.Alpha(0.20))
 					}
 				})
-			})
-		}
+				// 点一条弹幕跳到它出现的时间（原版没有，但弹幕播放器都这么做）。
+				if chip.Clicked() && a.Act.Seek != nil {
+					a.Act.Seek(float64(g.Second))
+				}
+			}
+		})
 	})
-	a.danmakuScrollIdx = cur
 }
 
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：玻璃卡片行 + 楼中楼

@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -137,5 +138,30 @@ func TestSortedCommentsCache(t *testing.T) {
 	a.Comments = append(a.Comments, Comment{User: "d", SendTime: 4})
 	if s3 := a.sortedComments(); s3[0].User != "d" {
 		t.Fatalf("append 后首条 = %s, want d", s3[0].User)
+	}
+}
+
+// TestDanmakuListVirtualized 钉住弹幕列表走 mygo 的虚拟化 ui.List：几百个分组
+// 时也只构建可见的那十几行，屏外分组不建（改回 ui.Column 会让整表每帧重建，
+// 这个断言会失败）。
+func TestDanmakuListVirtualized(t *testing.T) {
+	a := NewApp(func() {})
+	a.Pos = 0 // 不自动跟随，停在列表顶部
+	// 400 个分组，每组一条互不相同的弹幕。
+	dms := make([]Danmaku, 400)
+	for i := range dms {
+		dms[i] = Danmaku{Time: float64(i) * 1.5, Text: fmt.Sprintf("弹幕编号%d", i)}
+	}
+	a.Danmaku = dms
+	a.Drawer = DrawerDanmaku
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	if !tst.HasText("弹幕编号0") {
+		t.Fatal("首屏应构建第一组弹幕")
+	}
+	if tst.HasText("弹幕编号399") {
+		t.Fatal("最后一组在屏外，虚拟化列表不该构建它（说明又退回每帧全建）")
 	}
 }
