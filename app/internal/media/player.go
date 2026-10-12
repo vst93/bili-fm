@@ -281,6 +281,19 @@ func (p *Player) Duration() float64 {
 	return cur.duration()
 }
 
+// Buffered 返回当前曲目已预读到本地的媒体秒数（0 表示未知或还没开始）。
+// 对应旧版 Web Audio 的 audio.buffered 末段，用于进度条上的缓冲段。
+// 只读原子量，不会因为一次网络读而阻塞调用方。
+func (p *Player) Buffered() float64 {
+	p.mu.Lock()
+	cur := p.cur
+	p.mu.Unlock()
+	if cur == nil {
+		return 0
+	}
+	return cur.buffered()
+}
+
 // Seek 跳到指定秒数。
 func (p *Player) Seek(seconds float64) error {
 	p.mu.Lock()
@@ -505,6 +518,28 @@ func (p *pipeline) close() {
 
 func (p *pipeline) duration() float64 {
 	return p.info.Duration.Seconds()
+}
+
+// buffered 返回已预读到本地的媒体秒数：远端下载到的字节占比 × 总时长。
+// B 站音频是 AAC（近似恒定码率），字节占比与时长占比基本一致，用来画
+// 进度条上的缓冲段足够（原版 Web Audio 的 buffered 也是按块跳的）。
+// 只读原子量与不可变字段，不碰 procMu/mu，界面线程可以直接调。
+func (p *pipeline) buffered() float64 {
+	if p.rf == nil {
+		return 0
+	}
+	dur := p.info.Duration.Seconds()
+	total := p.rf.Size()
+	if dur <= 0 || total <= 0 {
+		return 0
+	}
+	end := p.rf.ReadAhead()
+	if end < 0 {
+		end = 0
+	} else if end > total {
+		end = total
+	}
+	return dur * float64(end) / float64(total)
 }
 
 // wsNow 取当前的变速器指针（不阻塞在流水线锁上）。

@@ -187,11 +187,19 @@ const sponsorTolerance = 2.0
 //
 // segs 是广告段（SponsorBlock）。**只按数据画，与「自动跳过」开关无关** ——
 // 原版注释写得很明确：查到 segments 就画，开关只控制要不要自动跳。
-func paintTimeline(p *ui.Painter, r ui.Rect, frac float32, segs []Segment, dur float64) {
+//
+// buffered 是已预读的轨道比例（原版 .player-timeline-buffered），铺在
+// 轨道底下、透过半透明底色显示。
+func paintTimeline(p *ui.Painter, r ui.Rect, frac, buffered float32, segs []Segment, dur float64) {
 	if frac < 0 {
 		frac = 0
 	} else if frac > 1 {
 		frac = 1
+	}
+	if buffered < 0 {
+		buffered = 0
+	} else if buffered > 1 {
+		buffered = 1
 	}
 	cy := r.Y + r.H/2
 	track := ui.Rect{
@@ -200,8 +208,21 @@ func paintTimeline(p *ui.Painter, r ui.Rect, frac float32, segs []Segment, dur f
 		W: r.W - timelineInset*2,
 		H: timelineTrackH,
 	}
-	// 广告段标记先画：原版这一层是 z-index 0（在轨道 z-index 1 之下），
-	// 所以红色是透过半透明轨道透出来的淡红，而不是压在轨道上的实红。
+	// 缓冲层最先画：原版这一层 z-index 0，在轨道（z-index 1）之下，
+	// 所以是透过 32% 白的轨道底色显出来的青→天蓝，而不是实色。
+	if buffered > 0.001 {
+		bw := track.W * buffered
+		p.FillGradient(ui.Rect{X: track.X, Y: track.Y, W: bw, H: track.H}, ui.LinearGradient{
+			From:  ui.Hex("#5eead4").Alpha(0.50),
+			To:    ui.Hex("#38bdf8").Alpha(0.46),
+			Angle: 90,
+		}, timelineTrackH/2)
+		// 缓冲末端的 1px 收尾标记（原版 .player-timeline-buffered::after）。
+		p.Fill(ui.Rect{X: track.X + bw - 0.5, Y: track.Y, W: 1, H: track.H},
+			ui.Hex("#7dd3fc").Alpha(0.70), 0)
+	}
+	// 广告段标记：原版这一层是 z-index 0（在轨道 z-index 1 之下，但在缓冲层
+	// 之上），所以红色是透过半透明轨道透出来的淡红，而不是压在轨道上的实红。
 	if dur > 0 {
 		for _, seg := range segs {
 			if seg.VideoDuration > 0 && abs(seg.VideoDuration-dur) > sponsorTolerance {
@@ -284,9 +305,18 @@ func (a *App) progress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
+	bf := bufferedFrac(a.Buffered, a.Dur)
 	segs, dur := a.SponsorSegments, a.Dur
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, bf, segs, dur) })
 	a.seekBubble(c, s, dur)
+}
+
+// bufferedFrac 把「已预读的媒体秒数」换算成进度轨道的 0..1 比例。
+func bufferedFrac(buffered, dur float64) float32 {
+	if dur <= 0 || buffered <= 0 {
+		return 0
+	}
+	return float32(clampF(buffered/dur, 0, 1))
 }
 
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
@@ -554,8 +584,9 @@ func (a *App) miniProgress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
+	bf := bufferedFrac(a.Buffered, a.Dur)
 	segs, dur := a.SponsorSegments, a.Dur
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, segs, dur) })
+	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, bf, segs, dur) })
 	a.seekBubble(c, s, dur)
 }
 

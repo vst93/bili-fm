@@ -371,7 +371,10 @@ type App struct {
 	Playing bool
 	Pos     float64
 	Dur     float64
-	Speed   float64
+	// Buffered 是已预读到本地的媒体秒数（进度条上的缓冲段，原版
+	// audio.buffered；0 表示未知/未开始）。
+	Buffered float64
+	Speed    float64
 	EQ      bool
 	Sponsor bool
 	Volume  float64

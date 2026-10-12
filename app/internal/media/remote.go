@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +31,11 @@ type remoteFile struct {
 	start int64  // 当前块在资源里的起始偏移
 	pos   int64  // 逻辑读位置
 	err   error
+
+	// readHigh 是「已经从远端取到的最高字节偏移」，给进度条的缓冲段用。
+	// 用原子量而不是 f.mu：f.mu 在网络读期间是被 held 住的，界面线程
+	// 不能为了读一个进度数字去等一次 HTTP 往返（见 PLAN 的「锁里做 I/O」）。
+	readHigh atomic.Int64
 }
 
 const remoteChunk = 256 << 10
@@ -101,6 +107,12 @@ func (f *remoteFile) Seek(offset int64, whence int) (int64, error) {
 		return 0, errors.New("media: 定位到负偏移")
 	}
 	f.pos = abs
+	// 缓冲读数要跟着走：跳到现存块之外时旧数据已经被丢掉，读数必须
+	// 回退（否则进度条的缓冲段会显示一段其实已经没有的数据）。
+	// 落在现存块内则保持不变——那块数据还在，缓冲确实延伸到它末尾。
+	if f.buf == nil || abs < f.start || abs >= f.start+int64(len(f.buf)) {
+		f.readHigh.Store(abs)
+	}
 	return abs, nil
 }
 
@@ -165,8 +177,15 @@ func (f *remoteFile) fillLocked() error {
 		return err
 	}
 	f.buf, f.start = data, f.pos
+	if end := f.start + int64(len(data)); end > f.readHigh.Load() {
+		f.readHigh.Store(end)
+	}
 	return nil
 }
+
+// ReadAhead 返回已从远端取到的最高字节偏移（0..Size）。
+// 只读原子量，不拿 f.mu，界面线程可以直接调。
+func (f *remoteFile) ReadAhead() int64 { return f.readHigh.Load() }
 
 func lastIndexByte(s string, b byte) int {
 	for i := len(s) - 1; i >= 0; i-- {

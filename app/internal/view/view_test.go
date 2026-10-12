@@ -280,3 +280,24 @@ func TestFanCount(t *testing.T) {
 		}
 	}
 }
+
+// TestBufferedFrac 钉住进度条缓冲段的换算与夹取（原版 --player-buffered）。
+func TestBufferedFrac(t *testing.T) {
+	cases := []struct {
+		name     string
+		buffered float64
+		dur      float64
+		want     float32
+	}{
+		{"未开始", 0, 100, 0},
+		{"时长为零", 10, 0, 0},
+		{"负值当未缓冲", -5, 100, 0},
+		{"正常比例", 25, 100, 0.25},
+		{"超过总时长夹到 1", 130, 100, 1},
+	}
+	for _, c := range cases {
+		if got := bufferedFrac(c.buffered, c.dur); got != c.want {
+			t.Errorf("%s：bufferedFrac(%v, %v) = %v, want %v", c.name, c.buffered, c.dur, got, c.want)
+		}
+	}
+}

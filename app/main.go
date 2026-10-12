@@ -577,6 +577,8 @@ func (c *controller) wirePlayer() {
 				return
 			}
 			c.app.Pos, c.app.Dur = pos, dur
+			// 缓冲段（原版 audio.buffered）：只读原子量，不会阻塞主线程。
+			c.app.Buffered = c.mp.Buffered()
 			c.syncMediaPosition(pos)
 			c.maybeSkipSponsor(pos)
 			c.trackResume(pos) // 本地断点 5s 落盘 + 云端 30s 上报
@@ -1748,6 +1750,7 @@ func (c *controller) startCurrent() {
 		c.app.VideoOpen = false
 	}
 	c.app.Buffering = true
+	c.app.Buffered = 0
 	c.app.Status = "起播中…"
 	// 从选集、搜索结果等进入时关掉抽屉；播放列表模式下要保留列表。
 	if c.app.Drawer != view.DrawerPlaylist {
