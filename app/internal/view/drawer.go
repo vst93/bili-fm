@@ -610,10 +610,11 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 卡片网格：虚拟化列表自己滚，顺带负责到底翻页。
 	if a.usesCardGrid() {
 		// 退场时不再翻页（内容马上就看不见了）。
-		if a.listBody(c) && !a.drawerClosing && l.HasMore && !l.Loading && a.Act.LoadMore != nil {
+		if a.listBody(c) && !a.drawerClosing && a.Act.LoadMore != nil {
 			// 内容超过一屏且滚到底（first>0）才翻页：与旧逻辑的 MaxY>0 一致，
-			// 避免首屏不满却反复请求空页。
-			if first, last := l.Grid.Visible(); first > 0 && last >= a.gridRows()-1 {
+			// 避免首屏不满却反复请求空页。canAutoLoadMore 还会拦住「上一次翻页
+			// 失败」的情况，否则会每帧重发。
+			if first, last := l.Grid.Visible(); canAutoLoadMore(l, first, last, a.gridRows()) {
 				a.Act.LoadMore()
 			}
 		}
@@ -741,7 +742,7 @@ func (a *App) listBody(c *ui.Context) bool {
 		a.scrollBody(c, l, func() { a.emptyNote(c, a.emptyHint()) })
 		return false
 	}
-	a.cardGrid(c, &l.Grid, l.Cards)
+	a.cardGrid(c, l)
 	return true
 }
 
@@ -758,17 +759,31 @@ func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
 // 几百张）连同各自的材质一起重建——这是「订阅/动态」等列表滚动卡顿的根因
 // （与上一轮弹幕列表恢复 ui.List 同一机制，见 danmakuBody）。ui.List 只建
 // 可见的几排。
-func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
+func (a *App) cardGrid(c *ui.Context, l *List) {
+	st, cards := &l.Grid, l.Cards
+	rows := (len(cards) + cardGridCols - 1) / cardGridCols
+	// 翻页失败时在网格末尾多铺一行「加载失败，点击重试」（原版 historyList
+	// 的 .history-load-more-retry）——它是列表的最后一个虚拟行，跟着一起滚。
+	extra := 0
+	if l.LoadErr {
+		extra = 1
+	}
 	// 行键取首张卡的 bvid：翻页追加 / 滑动窗口裁掉头部时锚点不跳。
 	st.Key = func(r int) any {
 		if i := r * cardGridCols; i < len(cards) && cards[i].Bvid != "" {
 			return cards[i].Bvid
 		}
+		if r == rows && extra == 1 {
+			return "loaderr:" + a.Drawer
+		}
 		return r
 	}
-	rows := (len(cards) + cardGridCols - 1) / cardGridCols
 	a.prefetchCardCovers(st, cards)
-	ui.List(c, st, rows, func(r int) {
+	ui.List(c, st, rows+extra, func(r int) {
+		if r == rows {
+			a.loadMoreRetry(c, l)
+			return
+		}
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 			start := r * cardGridCols
 			end := min(start+cardGridCols, len(cards))
@@ -780,6 +795,42 @@ func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
 			}
 		})
 	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
+}
+
+// canAutoLoadMore 报告卡片网格这一帧该不该自动翻页：有更多、不在加载中、
+// 上一次翻页没失败，且已经滚到底（首行不在顶部）。抽成纯函数便于单测。
+//
+// `LoadErr` 是这里的核心闸门：mygo 的翻页是在渲染里触发的，而渲染每帧都跑，
+// 所以一次失败若不记下来，下一帧就会立刻重发，变成请求/提示风暴。
+func canAutoLoadMore(l *List, first, last, rows int) bool {
+	if !l.HasMore || l.Loading || l.LoadErr {
+		return false
+	}
+	return first > 0 && last >= rows-1
+}
+
+// loadMoreRetry 是网格末尾的「加载失败，点击重试」行（原版
+// .history-load-more-retry：整宽、rose 淡底 + rose 细边、13px #be123c）。
+func (a *App) loadMoreRetry(c *ui.Context, l *List) {
+	b := ui.ButtonBase(c.Key("list-load-retry")).FillWidth().Height(38).
+		Margin(10, 0, 4, 0).Radius(10).Center().
+		Label("加载失败，点击重试").Tooltip("加载失败，点击重试")
+	b.Background(ui.Hex("#f43f5e").Alpha(0.06)).
+		Border(1, ui.Hex("#f43f5e").Alpha(0.20))
+	if b.Hovered() {
+		b.Background(ui.Hex("#f43f5e").Alpha(0.12))
+	}
+	b.Children(func() {
+		ui.Text(c, "加载失败，点击重试").FontSize(13).
+			TextColor(ui.Hex("#be123c"))
+	})
+	// 加载中不重复触发；点一次清掉错误态再重试（同原版按钮）。
+	if b.Clicked() && !l.Loading {
+		l.LoadErr = false
+		if a.Act.LoadMore != nil {
+			a.Act.LoadMore()
+		}
+	}
 }
 
 // initialCardRows 是列表还没布局过时预取的初始行数。一屏约放 5 行（1400×900

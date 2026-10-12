@@ -113,6 +113,11 @@ type List struct {
 	Loading bool
 	Page    int
 	HasMore bool
+	// LoadErr 为真表示上一次「翻页」加载失败。失败后不再每帧自动重试
+	//（mygo 的翻页触发在渲染里，而渲染每帧都跑；不加这个闸门就会在滚到底时
+	// 每次请求失败都立刻重发，形成请求/提示风暴），而是画一行
+	// 「加载失败，点击重试」，对齐原版 historyList 的 loadMoreError。
+	LoadErr bool
 	// Scroll 记录这个抽屉滚动到哪（同时用来判断「到底了」自动翻页）。
 	Scroll ui.ScrollState
 	// Grid 是卡片网格（listBody）与选集网格（partsBody）的虚拟化列表状态：

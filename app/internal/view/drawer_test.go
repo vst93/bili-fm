@@ -675,3 +675,118 @@ func TestHistoryRefreshDisabledWhileLoading(t *testing.T) {
 		t.Fatalf("刷新结束后点击刷新键：reloads=%d，想 1", reloads)
 	}
 }
+
+// TestCanAutoLoadMore 钉住自动翻页的判定：有更多、不在加载中、上一次没失败，
+// 且已经滚到底（首行不在顶部）。尤其是 LoadErr——mygo 的翻页触发在渲染里，
+// 每帧都跑，错了就会在失败后每帧重发一次请求。
+func TestCanAutoLoadMore(t *testing.T) {
+	base := List{HasMore: true}
+	loadErr := List{HasMore: true, LoadErr: true}
+	loading := List{HasMore: true, Loading: true}
+	noMore := List{}
+	cases := []struct {
+		name       string
+		l          List
+		first, last, rows int
+		want       bool
+	}{
+		{"滚到底且有更多", base, 5, 9, 10, true},
+		{"未滚到底", base, 0, 4, 10, false},
+		{"没有更多", noMore, 5, 9, 10, false},
+		{"加载中", loading, 5, 9, 10, false},
+		{"上次失败", loadErr, 5, 9, 10, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := canAutoLoadMore(&c.l, c.first, c.last, c.rows); got != c.want {
+				t.Fatalf("canAutoLoadMore = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// newFeedList 造一个有 n 张卡、还有下一页的 feed 抽屉，返回 App 与列表。
+func newFeedList(t *testing.T, n int) (*App, *List) {
+	t.Helper()
+	a := NewApp(func() {})
+	cards := make([]Card, n)
+	for i := range cards {
+		cards[i] = Card{
+			Bvid: fmt.Sprintf("BV%04d", i), Title: fmt.Sprintf("视频标题%d", i),
+			Up: "UP主", Views: "1.2万", Pubdate: "09-22",
+		}
+	}
+	l := a.ListFor("feed")
+	l.Cards, l.HasMore = cards, true
+	a.Drawer = "feed"
+	return a, l
+}
+
+// TestLoadMoreErrorShowsRetryRow 钉住翻页失败后网格末尾出现「加载失败，点击重试」
+// 行（原版 historyList 的 .history-load-more-retry），错误态清掉后又消失。
+func TestLoadMoreErrorShowsRetryRow(t *testing.T) {
+	a, l := newFeedList(t, 30)
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	if tst.HasText("加载失败，点击重试") {
+		t.Fatal("没有加载失败时不该有重试行")
+	}
+
+	l.LoadErr = true
+	tst.Frame()
+	// 重试行在网格最末尾：滚到底把它带进视野（真实使用中用户此刻就在底部）。
+	tst.Scroll(490, 400, 0, 100000)
+	tst.Frame()
+	if !tst.HasText("加载失败，点击重试") {
+		t.Fatal("翻页失败后应在网格末尾画重试行")
+	}
+
+	l.LoadErr = false
+	tst.Frame()
+	if tst.HasText("加载失败，点击重试") {
+		t.Fatal("错误态清掉后重试行应消失")
+	}
+}
+
+// TestLoadMoreErrorStopsAutoRetry 是本轮修的回归：翻页失败后，即使一直停在
+// 列表底部，也不该每帧自动重发；只有点「加载失败，点击重试」才重试一次。
+func TestLoadMoreErrorStopsAutoRetry(t *testing.T) {
+	a, l := newFeedList(t, 30)
+	calls := 0
+	a.Act.LoadMore = func() { calls++; l.Loading = true }
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	// 滚到底：第一次自动翻页。
+	tst.Scroll(490, 400, 0, 100000)
+	tst.Frame()
+	if calls != 1 {
+		t.Fatalf("滚到底后自动翻页 %d 次，想 1", calls)
+	}
+
+	// 模拟这一页请求失败：装配层把 Loading 落下并置 LoadErr。
+	l.Loading, l.LoadErr = false, true
+	for i := 0; i < 8; i++ {
+		tst.Frame()
+	}
+	if calls != 1 {
+		t.Fatalf("翻页失败后在底部又自动重试了：calls=%d，想 1", calls)
+	}
+
+	// 重试行在网格末尾：滚到底把它带进视野。
+	tst.Scroll(490, 400, 0, 100000)
+	tst.Frame()
+	// 点重试：清错误态并恰好再来一次。
+	l.Loading = false
+	if err := tst.Click("加载失败，点击重试"); err != nil {
+		t.Fatalf("点不到重试行：%v", err)
+	}
+	tst.Frame()
+	if calls != 2 {
+		t.Fatalf("点重试后 calls=%d，想 2", calls)
+	}
+	if l.LoadErr {
+		t.Fatal("点重试应清掉错误态")
+	}
+}

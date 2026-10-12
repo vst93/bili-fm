@@ -939,6 +939,7 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
+				list.LoadErr = offset != ""
 				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
@@ -946,6 +947,7 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 			setCards(list, cards, offset == "")
 			c.app.UpOffset = l.Offset
 			list.HasMore = l.HasMore
+			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
@@ -993,6 +995,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
+				list.LoadErr = page > 1
 				c.app.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
@@ -1014,6 +1017,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			list.Page = page
 			// 合集接口每页 30 条；不足一页就到到底了。
 			list.HasMore = len(archives) >= 30
+			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
@@ -1249,12 +1253,15 @@ func (c *controller) loadSection(section string, page int) {
 			a.Win.Update(func() {
 				list.Loading = false
 				if err != nil {
+					// 只有「翻页」失败才进入可重试的错误态；首屏失败仍走空态。
+					list.LoadErr = page > 1
 					a.NotifyType("error", "加载失败："+err.Error())
 					return
 				}
 				setCards(list, toFeedCards(l.Items), page <= 1)
 				list.Page = page
 				list.HasMore = l.HasMore
+				list.LoadErr = false
 				a.FeedOffset = l.Offset
 				a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 			})
@@ -1267,12 +1274,14 @@ func (c *controller) loadSection(section string, page int) {
 		a.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
+				list.LoadErr = page > 1
 				a.NotifyType("error", "加载失败："+err.Error())
 				return
 			}
 			setCards(list, cards, page <= 1)
 			list.Page = page
 			list.HasMore = more
+			list.LoadErr = false
 			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
@@ -1568,6 +1577,7 @@ func (c *controller) search(query string) {
 		a.Query = ""
 		list := a.ListFor(view.DrawerSearch)
 		list.Cards, list.HasMore, list.Loading = nil, false, false
+		list.LoadErr = false
 		a.Drawer = ""
 		a.Win.Update(func() {})
 		return
@@ -1615,6 +1625,7 @@ func (c *controller) search(query string) {
 			}
 			list.Cards = cards
 			list.HasMore = false
+			list.LoadErr = false
 			a.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(list.Cards))
 		})
 	}()
