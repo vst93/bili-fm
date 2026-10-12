@@ -226,43 +226,51 @@ func TestPickDateForm(t *testing.T) {
 	}
 }
 
-// TestDrawerMaskFade 钉住遮罩换算到 ui.Pose.Fade 的**方向**：Pose.Fade 与
-// Opacity 相反（1 = 全透明、0 = 不透明），所以不能把 drawerFade（1 = 不透明）
-// 直接当 Pose.Fade 用——那样会把整个抽屉面板一起涂成透明度 0（抽屉看不见）。
-func TestDrawerMaskFade(t *testing.T) {
+// TestDrawerAnimOffset 钉住用「布局位移」做抽屉动画的进度函数。
+//
+// 关键：面板的位移必须是**布局**（Bottom）而不是 pose（transform）——mygo 的
+// 软件渲染器对任何带 transform 的 op 都走逐像素重绘，整棵抽屉子树（面板 +
+// 卡片 + 文字）都会被拖慢（无头实测退场一帧 3.8s vs 布局路径 65ms）。这条测试
+// 锁住：入场从 h 升到 0、退场从 0 降到 h、走完就不再请帧。
+func TestDrawerAnimOffset(t *testing.T) {
 	const h float32 = 400
-	cases := []struct {
-		offsetY  float32
-		entering bool
-		want     float32 // Pose.Fade：0 = 不透明
+	t0 := time.Unix(1000, 0)
+	for _, c := range []struct {
+		name    string
+		moving  bool
+		closing bool
+		elapsed time.Duration
+		wantY   float32
+		wantRun bool
 	}{
-		{0, false, 0}, // 贴底：遮罩完全不透明 → Fade 0
-		{200, false, 0.5},
-		{h, false, 1}, // 拖到底：遮罩全透明 → Fade 1
-		{h + 50, false, 1},
-		{0, true, 1}, // 入场第一帧：从全透明起步，再由 AnimatePose 渐显
-	}
-	for _, c := range cases {
-		if got := drawerMaskFade(c.offsetY, h, c.entering); got != c.want {
-			t.Errorf("drawerMaskFade(%v, %v, %v) = %v, want %v",
-				c.offsetY, h, c.entering, got, c.want)
+		{"未开始", false, false, 0, 0, false},
+		{"入场起手", true, false, 0, h, true},
+		{"入场结束", true, false, drawerIn, 0, false},
+		{"退场起手", true, true, 0, 0, true},
+		{"退场结束", true, true, drawerIn, h, false},
+	} {
+		gotY, gotRun := drawerAnimOffset(c.moving, c.closing, t0, t0.Add(c.elapsed), h)
+		if gotY != c.wantY || gotRun != c.wantRun {
+			t.Errorf("%s: drawerAnimOffset = (%v, %v), want (%v, %v)", c.name, gotY, gotRun, c.wantY, c.wantRun)
 		}
 	}
-	// 与 drawerFade 互补：maskFade + fade == 1（入场帧除外）。
-	for _, y := range []float32{0, 100, 250, h} {
-		if got := drawerMaskFade(y, h, false); got != 1-drawerFade(y, h) {
-			t.Errorf("y=%v: maskFade=%v, 应为 1-fade=%v", y, got, 1-drawerFade(y, h))
-		}
+	// 中途：入场在上方（0<y<h）、退场在下方，且都在跑。
+	mid := drawerIn / 2
+	if y, run := drawerAnimOffset(true, false, t0, t0.Add(mid), h); y <= 0 || y >= h || !run {
+		t.Errorf("入场中途 = (%v, %v)，应在 (0, %v) 且还在跑", y, run, h)
+	}
+	if y, run := drawerAnimOffset(true, true, t0, t0.Add(mid), h); y <= 0 || y >= h || !run {
+		t.Errorf("退场中途 = (%v, %v)，应在 (0, %v) 且还在跑", y, run, h)
 	}
 }
 
 // TestDrawerEnterStep 钉住抽屉入场的判定——入场动画消失的回归点。
 //
 // 点击打开抽屉的那一帧，`Clicked()` 会当场置 consumed，框架把整个视图重建
-// 第二趟（input.go）。面板 pose 只在帧末 commit 时采样一次，所以第二趟若把
-// 「已经不是新抽屉」当成立场结束，就会把起始 pose 从 h 改成 0，采到的是 0，
-// 面板首帧即到位——动画没了。drawerEnterStep 用「同一帧内 c.Now() 不变」
-// 识别第二趟，让起始 pose 在整个入场帧里保持 h。
+// 第二趟（input.go）。入场进度按「起始时间戳」算，只在帧内取一次时间，所以
+// 第二趟若把「已经不是新抽屉」当成立场结束，就会把起始时间戳从此刻改掉，
+// 进度从中间起跳——动画没了。drawerEnterStep 用「同一帧内 c.Now() 不变」
+// 识别第二趟，让起始时间戳在整个入场帧里保持不变。
 func TestDrawerEnterStep(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	t1 := t0.Add(16 * time.Millisecond)
@@ -276,7 +284,7 @@ func TestDrawerEnterStep(t *testing.T) {
 	if entering, k, a := drawerEnterStep("feed", key, at, t0); !entering || k != "feed" || !a.Equal(t0) {
 		t.Fatalf("同帧第二趟 = (%v, %q, %v), 应为入场帧", entering, k, a)
 	}
-	// 下一帧：入场结束，pose 目标交给 AnimatePose 从 h 弹回 0。
+	// 下一帧：入场结束，进度交给 drawerAnimOffset 从 h 滑到就位的 0。
 	if entering, _, _ := drawerEnterStep("feed", key, at, t1); entering {
 		t.Fatal("下一帧不该再是入场帧（否则永远停在底部）")
 	}
@@ -287,14 +295,14 @@ func TestDrawerEnterStep(t *testing.T) {
 }
 
 // TestDrawerExitDone 钉住退场收尾的时机：退场起始的那一帧不能收尾（刚设的
-// 起始 pose 还没被 commit 采样，立刻收尾等于没动画），动效停稳且隔了一帧
-// 之后才把抽屉真正移出视图。
+// 起始位移还没被渲染过，立刻收尾等于没动画），动画走完且隔了一帧之后才把
+// 抽屉真正移出视图。
 func TestDrawerExitDone(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	t1 := t0.Add(16 * time.Millisecond)
 
 	if drawerExitDone(t0, t0, false) {
-		t.Error("退场起步帧不该收尾：起始 pose 还没被采样")
+		t.Error("退场起步帧不该收尾：起始位移还没被渲染过")
 	}
 	if drawerExitDone(t0, t1, true) {
 		t.Error("动效还在跑时不该收尾")
@@ -399,40 +407,60 @@ func TestDrawerBackdropLayers(t *testing.T) {
 	}
 }
 
-// TestDrawerStartPose 钉住入/退场的起手 pose 与「要不要请框架再建一帧」。
+// TestDrawerAnimatesByLayout 钉住入/退场真的在动，且位移是布局位移（Find
+// 拿到的矩形随进度上/下移），不靠 pose。drawerAnimOffset 的进度数学由
+// TestDrawerAnimOffset 钉住；为什么用布局而不是 transform（软件渲染器对带
+// transform 的 op 逐像素重绘，退场一帧 3.8s vs 65ms）见 drawerAnimOffset 注释。
 //
-// 入场要 AnimationFrame：起手帧把面板摆到 h，请框架再建一帧，下一帧目标才
-// 变成 0，AnimatePose 从 h 弹回 0。
-//
-// 退场**绝不能**要 AnimationFrame：`Context.AnimationFrame` 会把帧标成
-// 「整个视图要重建」（它会置 rt.animating），而退场期间 `a.drawerClosing`
-// 每帧都为真——一旦每帧都请帧，退场就会每帧重建整个抽屉视图（实测无头退场
-// 每帧 passes=1、avg present 897ms）。退场只设目标，交给 AnimatePose 走
-// 只重绘的 repose 路径。
-func TestDrawerStartPose(t *testing.T) {
-	const h float32 = 400
-	cases := []struct {
-		entering, closing bool
-		wantY             float32
-		wantFrame         bool
-	}{
-		{true, false, h, true},   // 入场：摆到底部外 + 请帧
-		{false, true, h, false},  // 退场：目标设到 h，但不请帧（关键）
-		{false, false, 0, false}, // 稳定在贴底
+// 这里不能靠「真等一下再拍一帧」观察中途：stock 的 ui.Tester 用真实时钟，
+// `Frame()` 内部的 settle() 会连跑最多 20 帧，320×220 下 20 帧 ≈ 260ms，
+// 足以把 220ms 的动画跑完，起手/中途都会被 settle 吃掉。改为把入/退场时间戳
+// 钉在动画两端：未来 → 进度恒为 0（起手），过去一整个时长 → 动画已结束。
+func TestDrawerAnimatesByLayout(t *testing.T) {
+	a := NewApp(func() {})
+	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题"}}
+	a.Drawer = "feed"
+	a.drawerShown = "feed"
+	a.drawerOpenKey = "feed"
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 320, 220)
+
+	// 入场起手：时间戳在未来，面板停在窗口下方（偏移 h），标题应远低于就位位。
+	a.drawerEnterAt = time.Now().Add(time.Second)
+	tst.Frame()
+	start, ok := tst.Find("标题")
+	if !ok {
+		t.Fatal("抽屉打开后找不到卡片标题")
 	}
-	for _, c := range cases {
-		y, frame := drawerStartPose(c.entering, c.closing, h)
-		if y != c.wantY || frame != c.wantFrame {
-			t.Errorf("drawerStartPose(%v, %v, %v) = (%v, %v), want (%v, %v)",
-				c.entering, c.closing, h, y, frame, c.wantY, c.wantFrame)
-		}
+
+	// 入场走完：时间戳在过去一整个时长，面板贴底就位，标题上移。
+	a.drawerEnterAt = time.Now().Add(-2 * drawerIn)
+	tst.Frame()
+	end, _ := tst.Find("标题")
+	if !(end.Y < start.Y) {
+		t.Fatalf("入场未把面板上移：起手 y=%v，就位 y=%v", start.Y, end.Y)
+	}
+
+	// 退场起手：退场时间戳在未来，面板停在贴底（偏移 0）——不该瞬间消失。
+	a.Drawer = ""
+	a.drawerShown = "feed"
+	a.drawerClosing = true
+	a.drawerOpenKey = ""
+	a.drawerExitAt = time.Now().Add(time.Second)
+	tst.Frame()
+	if _, ok := tst.Find("标题"); !ok {
+		t.Fatal("退场起手面板就不见了（应在贴底继续渲染）")
+	}
+
+	// 退场走完：时间戳在过去一整个时长，面板移出视图。
+	a.drawerExitAt = time.Now().Add(-2 * drawerIn)
+	tst.Frame()
+	if _, ok := tst.Find("标题"); ok {
+		t.Fatal("退场走完后面板应移出视图")
 	}
 }
 
 // TestDrawerExitKeepsPanel 钉住「退场有过渡、不瞬间消失」：关掉抽屉后的
-// 第一帧，面板还要继续渲染（下滑淡出），而不是当即被移出视图。之前退场
-// 有一个更严重的 bug——退场每帧都请 `AnimationFrame`，导致每帧重建整个
-// 抽屉视图（见 drawerStartPose 注释）；这条测试至少锁住「不瞬间消失」。
+// 第一帧，面板还要继续渲染（下滑淡出），而不是当即被移出视图。
 func TestDrawerExitKeepsPanel(t *testing.T) {
 	a := NewApp(func() {})
 	l := a.ListFor("feed")
@@ -444,7 +472,7 @@ func TestDrawerExitKeepsPanel(t *testing.T) {
 
 	// 小窗口让每帧足够快：退场动画按真实时钟走，settle 的 20 帧远达不到
 	// 动效时长，所以帧末面板仍在过渡中。
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 500, 400)
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 320, 220)
 	tst.Frame()
 	if !tst.HasText("标题0") {
 		t.Fatal("抽屉打开时应有卡片")
@@ -457,9 +485,8 @@ func TestDrawerExitKeepsPanel(t *testing.T) {
 }
 
 // TestDrawerExitState 钉住退场的状态收尾：退场一开始就清掉 drawerOpenKey
-// （否则同一抽屉关掉后马上重开会没有入场动画——退场走只重绘路径后，收尾会
-// 晚一帧，见 drawerStartPose），并且面板停稳后最终真的被移出视图
-// （drawerShown 清空），不会一直留在场景里。
+// （否则同一抽屉关掉后马上重开会没有入场动画），并且动画走完后最终真的
+// 把面板移出视图（drawerShown 清空），不会一直留在场景里。
 func TestDrawerExitState(t *testing.T) {
 	a := NewApp(func() {})
 	l := a.ListFor("feed")
@@ -474,10 +501,10 @@ func TestDrawerExitState(t *testing.T) {
 	if a.drawerOpenKey != "" {
 		t.Fatal("退场开始后 drawerOpenKey 应为空，否则同一抽屉重开没有入场动画")
 	}
-	// 再跑几帧，退场应停稳并收尾（drawerShown 清空）。动效按真实时钟走：
-	// ui.Snappy 的弹簧约 500ms 的程、~1.1s 停稳，每帧之间等一下让它真的停下。
+	// 再跑几帧，退场应走完并收尾（drawerShown 清空）。动画按真实时钟走
+	// （drawerIn = 220ms），每帧之间等一下让它走完。
 	for i := 0; i < 20 && a.drawerShown != ""; i++ {
-		time.Sleep(80 * time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
 		tst.Frame()
 	}
 	if a.drawerShown != "" {

@@ -45,71 +45,68 @@ func drawerFade(offsetY, h float32) float32 {
 	return float32(1 - clampF(float64(offsetY), 0, float64(h))/float64(h))
 }
 
-// drawerMaskFade 把「遮罩不透明度」换算成 ui.Pose.Fade 的值。
-//
-// 关键坑：`Pose.Fade` 与 `Opacity` **方向相反**（ui/pose.go 的文档："from
-// 0, opaque, to 1, gone"，paint.go 里是 `opacity *= 1 - poseFade`），而
-// drawerFade 给的是不透明度（1 = 不透明）。直接把 drawerFade 塞进 Pose{Fade}
-// 会把遮罩——以及作为它子节点的整个抽屉面板——涂成透明（opacity 0），
-// 抽屉根本看不见。入场时从全透明（1）起步，由 AnimatePose 渐显到 maskFade。
-func drawerMaskFade(offsetY, h float32, entering bool) float32 {
-	if entering {
-		return 1
-	}
-	return 1 - drawerFade(offsetY, h)
-}
-
 // drawerEnterStep 决定抽屉这一帧是不是「入场帧」，并返回要记下的 key 与
-// 时间戳（供下一帧判断）。
-//
-// 返回 true 时，调用方把面板 pose 摆到窗口下方（Y=h），起手帧之后再让框架
-// 用 AnimatePose 把它弹回 0。
+// 时间戳（供下一帧算动画进度）。
 //
 // 难点在**同一帧里的多次 build pass**：点击打开抽屉的那一帧，`Clicked()`
 // 会当场置 `rt.consumed`，框架会把整个视图重建第二趟（input.go:895）。
-// 第一趟设置了入场，第二趟若按「已经不是新抽屉」处理就会把 pose 目标改成 0，
-// 而 pose 只在帧末 commit 时采样一次——于是采到 0，面板首帧即到位，入场动画
-// 消失。`now` 在整帧内不变（context.go 的 c.now 每帧设一次），所以用「与
-// 入场时间戳相同」识别同帧后续 pass，让起手 pose 在整个入场帧里保持 h。
+// 第一趟记下入场时间戳，第二趟若按「已经不是新抽屉」处理就会把时间戳清掉，
+// 入场动画从中间起跳。`now` 在整帧内不变（context.go 的 c.now 每帧设一次），
+// 所以用「与入场时间戳相同」识别同帧后续 pass，保持起始时间不变。
 func drawerEnterStep(drawer, openKey string, enterAt, now time.Time) (entering bool, nextKey string, nextAt time.Time) {
 	switch {
 	case drawer != openKey:
-		// 换抽屉 / 首次打开 / 关掉后重开：进入入场帧。
+		// 换抽屉 / 首次打开 / 关掉后重开：进入入场。
 		return true, drawer, now
 	case enterAt.Equal(now):
-		// 同一帧的又一次 build pass：仍是入场帧，别把起始 pose 覆盖掉。
+		// 同一帧的又一次 build pass：仍是入场帧，别把起始时间覆盖掉。
 		return true, openKey, enterAt
 	}
 	return false, openKey, enterAt
 }
 
-// drawerExitDone 报告退场是否该收尾：至少隔了一帧（`exitAt` 那一刻设的起始
-// pose 已经被 commit 采样，否则同一帧就收尾会让面板根本没动），且面板的
-// 动效已经停稳。
-func drawerExitDone(exitAt, now time.Time, transitioning bool) bool {
-	return !exitAt.Equal(now) && !transitioning
+// drawerExitDone 报告退场是否该收尾：至少隔了一帧（`exitAt` 那一刻设的
+// 起始位移已经被显示过，否则同一帧就收尾会让面板没动过），且动画已经走完。
+func drawerExitDone(exitAt, now time.Time, moving bool) bool {
+	return !exitAt.Equal(now) && !moving
 }
 
-// drawerStartPose 给出面板这一帧的起始 pose（Y 偏移）以及要不要请框架再建
-// 一帧（`Context.AnimationFrame`）。
+// drawerAnimOffset 给出「用布局位移做动画」时面板这一帧的 Y 偏移（DIP，
+// 向下为正，0=贴底就位）。
 //
-// 入场（entering）：把手面摆到窗口下方 h 处，并请框架多建一帧——下一帧
-// entering 已为假，目标才会变成 0，AnimatePose 于是从 h 弹回 0（只走重绘）。
+// 为什么用布局位移（`Bottom`）而不是 `AnimatePose` 的 transform：mygo 的
+// 软件渲染器对任何 `Transform.Set` 的 op 一律走逐像素的 `transformed` 慢路径
+// （internal/raster/raster.go:210 的 dispatch：`if op.Transform.Set { r.transformed(op,
+// nil, nil) } else { r.fill(op) }`），而抽屉面板连同它的卡片/文字整棵子树都会
+// 被 pose 打上 transform，于是整窗重绘变成「逐像素 + archExp/SDRoundRect」。
+// 无头实测（1400×900@2x、120 张卡、受控时钟走生产 surfaceFrame，拆 build/layout/
+// paint/present）：退场 16 帧 present avg 3877ms（worst 4208ms）；改成纯布局位移
+// （transform 保持 identity，走扫描线快路径）后 avg 55–86ms（worst 80–140ms），
+// 约 70×。入场也从 avg 599ms 降到 68ms。代价是每帧多一次 build
+// （实测 build 0.3ms + layout 0.5–1.5ms，随载荷），远小于省下的绘制。
 //
-// 退场（closing）：目标直接设成 h（AnimatePose 从当前位置续走下滑）。**千万
-// 不能在这里也请 AnimationFrame**：`Context.AnimationFrame` 会把帧标成
-// 「整个视图要重建」（ui/context.go:358 置 rt.animating），而退场期间
-// closing 每帧都为真，于是每一帧都重建整个抽屉视图 + 全窗重绘——退场比入场
-// 还慢（实测无头：退场 16 帧 avg present 897ms、每帧 passes=1）。AnimatePose
-// 自己会走只重绘的 repose 路径（ui/pose.go:124 置 rt.repainting），不需要请帧。
-func drawerStartPose(entering, closing bool, h float32) (y float32, animationFrame bool) {
-	switch {
-	case entering:
-		return h, true
-	case closing:
-		return h, false
+// moving 为假时面板停在终点（入场=0 贴底、退场=h 窗口外）；closing 时从 0
+// 滑到 h，入场时从 h 升到 0；未走完时第二个返回值为真，调用方要
+// `Context.AnimationFrame()` 请下一帧。返回值向下为正（叠在面板的
+// `Bottom(-offset)` 上：正 offset 把面板推离窗口底边、向下移出）。
+func drawerAnimOffset(moving, closing bool, start, now time.Time, h float32) (offset float32, animating bool) {
+	target, from := float32(0), h // 入场：从窗口下方 h 升到贴底 0
+	if closing {
+		target, from = h, 0 // 退场：从贴底 0 降到窗口下方 h
 	}
-	return 0, false
+	if !moving || start.IsZero() {
+		return target, false
+	}
+	t := float32(0)
+	if d := now.Sub(start); d > 0 {
+		t = float32(d) / float32(drawerIn)
+	}
+	if t >= 1 {
+		return target, false
+	}
+	// easeOutCubic：与原版 HeroUI 抽屉的 ease-out 接近。
+	e := 1 - (1-t)*(1-t)*(1-t)
+	return from + (target-from)*e, true
 }
 
 // 同一时刻只有一个抽屉打开（App.Drawer）。
@@ -124,12 +121,16 @@ func (a *App) drawer(c *ui.Context) {
 		}
 		if !a.drawerClosing {
 			a.drawerClosing, a.drawerExitAt = true, c.Now()
-			// 退场一开始就把「已起步的抽屉」清掉：退场走 AnimatePose 的
-			// 只重绘路径（见 drawerStartPose），动效停稳前不会再有 build 帧，
-			// `drawerExitDone` 的收尾会晚一帧。若不在这里清 drawerOpenKey，
-			// 同一抽屉关掉后马上重开会被 drawerEnterStep 当成「不是新抽屉」
-			// 而丢掉入场动画。
+			// 退场一开始就把「已起步的抽屉」清掉：否则同一抽屉关掉后马上重开会被
+			// drawerEnterStep 当成「不是新抽屉」而丢掉入场动画。退场进度由
+			// drawerExitAt 独立计时（见 drawerAnimOffset），不依赖 pose 状态。
 			a.drawerOpenKey = ""
+		} else if drawerExitDone(a.drawerExitAt, c.Now(), c.Now().Sub(a.drawerExitAt) < drawerIn) {
+			// 退场动画走完：面板已经滑到窗口外，这一帧起真正移出视图。放在构建
+			// 之前，省掉最后一帧的整窗重绘。
+			a.drawerShown, a.drawerClosing = "", false
+			a.drawerOpenKey, a.drawerOffset = "", ui.Point{}
+			return
 		}
 	} else {
 		a.drawerShown, a.drawerClosing = a.Drawer, false
@@ -141,15 +142,26 @@ func (a *App) drawer(c *ui.Context) {
 	// min(92vh, 100vh - 54px)：54 是播放栏高度，抽屉不盖住它。
 	h := min(winH*0.92, winH-54)
 
-	// 入场：换抽屉 / 重新打开时面板这一帧先停在底部之外（Y=h），下一帧再把
-	// 目标设成 0 让它弹上来。退场时不参与（key 用 drawerShown）。
-	var entering bool
+	// 入场：换抽屉 / 重新打开时记下起始时间，面板从窗口下方（偏移 h）往上滑。
+	// 退场时不参与（key 用 drawerShown）。
 	if !a.drawerClosing {
 		if a.Drawer != a.drawerOpenKey {
 			a.drawerOffset = ui.Point{}
 		}
-		entering, a.drawerOpenKey, a.drawerEnterAt =
+		_, a.drawerOpenKey, a.drawerEnterAt =
 			drawerEnterStep(a.Drawer, a.drawerOpenKey, a.drawerEnterAt, c.Now())
+	}
+	// 动画进度用「布局位移」算，不用 transform（见 drawerAnimOffset）：入场从
+	// h 升到 0、退场从 0 降到 h；未走完就请下一帧（AnimationFrame 会整视图重建，
+	// 这正是重算布局位置所需的）。
+	startAt := a.drawerEnterAt
+	if a.drawerClosing {
+		startAt = a.drawerExitAt
+	}
+	moving := !startAt.IsZero() && c.Now().Sub(startAt) < drawerIn
+	offset, animating := drawerAnimOffset(moving, a.drawerClosing, startAt, c.Now(), h)
+	if animating {
+		c.AnimationFrame()
 	}
 	overlay := ui.Box(c).Absolute().Fill()
 	overlay.Background(ui.Hex("#0f172a").Alpha(0.28))
@@ -162,26 +174,19 @@ func (a *App) drawer(c *ui.Context) {
 		// 后用户实机反馈「仍卡」，所以本轮按既定下一档把面板降级成半透明填充：
 		//   background --liquid-bg + 1px 亮边 + 顶部内高光（原版 ::after 的聚光）
 		// 唯一的观感取舍：面板由「磨砂」变成实色。
-		// 上滑入场（原版抽屉是从底部滑上来的），位移交给 AnimatePose。
-		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
+		//
+		// 位移走 Bottom（布局）而不是 AnimatePose 的 transform：软件渲染器对带
+		// transform 的 op 一律逐像素重绘，整棵抽屉子树（面板 + 卡片 + 文字）都会
+		// 中招（见 drawerAnimOffset 的实测）。每帧重建 ≈0.5ms，远小于省下的绘制。
+		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
 			Background(a.Theme.LiquidBg).
 			Border(1, a.Theme.GlassBorder).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
-		// **用 AnimatePose，不要用 Translate(AnimateTo)**：AnimateTo 的值要在
-		// 视图里读，意味着动画的每一帧都要重建整个抽屉视图——抽屉正文很重，
-		// 这正是之前入场卡顿的根因（机制同 home.go 唱片那段注释）。
-		// 起始 pose 与「要不要请框架再建一帧」由 drawerStartPose 决定（入场要、
-		// 退场**不要**，否则退场每帧重建，见那里的注释）。
-		y, animFrame := drawerStartPose(entering, a.drawerClosing, h)
-		if animFrame {
-			c.AnimationFrame()
-		}
-		panel.AnimatePose(ui.Pose{Y: y}, ui.Snappy)
 		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
 		// 更内层的交互元素，不会抢走手势）往下拖，松手弹回或被甩到底关闭。
-		// 偏移叠在入场 Pose 之上，所以入场动画不受影响。
+		// 偏移叠在布局位移之上。
 		panel.Draggable(&a.drawerOffset, ui.DraggableOptions{
 			Axis:   ui.Vertical,
 			Bounds: &ui.Rect{Y: 0, H: h},
@@ -196,22 +201,16 @@ func (a *App) drawer(c *ui.Context) {
 		})
 		a.Drawer = real
 		// DragOffset 是本帧面板实际显示的偏移（跟手 / 回弹途中都算），
-		// 用它让遮罩跟着下滑变淡。
-		dragY = panel.DragOffset().Y
+		// 叠在布局位移之上，用它让遮罩跟着下滑变淡。
+		dragY = offset + panel.DragOffset().Y
 		if !a.drawerClosing && drawerDismissed(a.drawerOffset.Y, h, panel.Transitioning()) {
 			// 拖拽已经把它滑出去了，下一帧走退场收尾（offset 保持，别弹回）。
 			a.Drawer = ""
 		}
-		// 退场收尾：至少隔一帧（让刚设的 pose 先被采样），且 pose 停稳后才移出。
-		if a.drawerClosing && drawerExitDone(a.drawerExitAt, c.Now(), panel.Transitioning()) {
-			a.drawerShown, a.drawerClosing = "", false
-			a.drawerOpenKey, a.drawerOffset = "", ui.Point{}
-		}
 	})
-	// 遮罩是投影淡入（repaint-only）。注意 Pose.Fade 与 Opacity 方向相反：
-	// 取反才不会把抽屉一起涂成透明（见 drawerMaskFade）。退场时反过来淡出。
-	overlay.AnimatePose(ui.Pose{Fade: drawerMaskFade(dragY, h, entering || a.drawerClosing)},
-		ui.Animation{Duration: drawerIn})
+	// 遮罩跟着面板位置直接改不透明度（不再用 AnimatePose 的 Fade：那会把遮罩
+	// 也打上 transform 的慢路径）：贴底 28%、滑到底 0%。
+	overlay.Background(ui.Hex("#0f172a").Alpha(0.28 * drawerFade(dragY, h)))
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。退场中不再响应。
 	if !a.drawerClosing && overlay.Clicked() {
 		a.Drawer = ""
