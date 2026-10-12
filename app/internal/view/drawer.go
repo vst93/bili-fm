@@ -60,23 +60,69 @@ func drawerMaskFade(offsetY, h float32, entering bool) float32 {
 	return 1 - drawerFade(offsetY, h)
 }
 
+// drawerEnterStep 决定抽屉这一帧是不是「入场帧」，并返回要记下的 key 与
+// 时间戳（供下一帧判断）。
+//
+// 返回 true 时，调用方把面板 pose 摆到窗口下方（Y=h），起手帧之后再让框架
+// 用 AnimatePose 把它弹回 0。
+//
+// 难点在**同一帧里的多次 build pass**：点击打开抽屉的那一帧，`Clicked()`
+// 会当场置 `rt.consumed`，框架会把整个视图重建第二趟（input.go:895）。
+// 第一趟设置了入场，第二趟若按「已经不是新抽屉」处理就会把 pose 目标改成 0，
+// 而 pose 只在帧末 commit 时采样一次——于是采到 0，面板首帧即到位，入场动画
+// 消失。`now` 在整帧内不变（context.go 的 c.now 每帧设一次），所以用「与
+// 入场时间戳相同」识别同帧后续 pass，让起手 pose 在整个入场帧里保持 h。
+func drawerEnterStep(drawer, openKey string, enterAt, now time.Time) (entering bool, nextKey string, nextAt time.Time) {
+	switch {
+	case drawer != openKey:
+		// 换抽屉 / 首次打开 / 关掉后重开：进入入场帧。
+		return true, drawer, now
+	case enterAt.Equal(now):
+		// 同一帧的又一次 build pass：仍是入场帧，别把起始 pose 覆盖掉。
+		return true, openKey, enterAt
+	}
+	return false, openKey, enterAt
+}
+
+// drawerExitDone 报告退场是否该收尾：至少隔了一帧（`exitAt` 那一刻设的起始
+// pose 已经被 commit 采样，否则同一帧就收尾会让面板根本没动），且面板的
+// 动效已经停稳。
+func drawerExitDone(exitAt, now time.Time, transitioning bool) bool {
+	return !exitAt.Equal(now) && !transitioning
+}
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
+	// 关抽屉时 a.Drawer 被清空，但面板不能瞬间消失：先进入退场（用最后显示
+	// 的 key 继续渲染，面板下滑 + 遮罩淡出），停稳后再真正移出视图。
 	if a.Drawer == "" {
-		// 关掉后忘掉上一个 key，重新打开同一个抽屉时入场动画才会重放。
-		a.drawerOpenKey = ""
-		return
+		if a.drawerShown == "" {
+			a.drawerOpenKey = ""
+			a.drawerClosing = false
+			return
+		}
+		if !a.drawerClosing {
+			a.drawerClosing, a.drawerExitAt = true, c.Now()
+		}
+	} else {
+		a.drawerShown, a.drawerClosing = a.Drawer, false
 	}
+	// 渲染用的 key：退场时用最后显示的那个。
+	key := pick(a.Drawer == "", a.drawerShown, a.Drawer)
+
 	_, winH := c.Size()
 	// min(92vh, 100vh - 54px)：54 是播放栏高度，抽屉不盖住它。
 	h := min(winH*0.92, winH-54)
 
-	// 换抽屉 / 重新打开时重置入场状态与下滑偏移：面板这一帧先停在底部
-	// 之外（Y=h），下一帧再把目标设成 0 让它弹上来（见下）。
-	entering := false
-	if a.Drawer != a.drawerOpenKey {
-		a.drawerOpenKey, a.drawerOffset = a.Drawer, ui.Point{}
-		entering = true
+	// 入场：换抽屉 / 重新打开时面板这一帧先停在底部之外（Y=h），下一帧再把
+	// 目标设成 0 让它弹上来。退场时不参与（key 用 drawerShown）。
+	var entering bool
+	if !a.drawerClosing {
+		if a.Drawer != a.drawerOpenKey {
+			a.drawerOffset = ui.Point{}
+		}
+		entering, a.drawerOpenKey, a.drawerEnterAt =
+			drawerEnterStep(a.Drawer, a.drawerOpenKey, a.drawerEnterAt, c.Now())
 	}
 	overlay := ui.Box(c).Absolute().Fill()
 	overlay.Background(ui.Hex("#0f172a").Alpha(0.28))
@@ -95,8 +141,9 @@ func (a *App) drawer(c *ui.Context) {
 		// 这正是之前入场卡顿的根因（机制同 home.go 唱片那段注释）。
 		// AnimatePose 从第一帧给的 pose 起步，所以起手这一帧先把面板摆到
 		// 底部外，再请框架多建一帧把目标设成 0，之后就只在重绘帧里弹上来。
+		// 退场反过来：目标设成 h，面板滑下去（AnimatePose 从当前位置续走）。
 		enterY := float32(0)
-		if entering {
+		if entering || a.drawerClosing {
 			enterY = h
 			c.AnimationFrame()
 		}
@@ -109,24 +156,33 @@ func (a *App) drawer(c *ui.Context) {
 			Bounds: &ui.Rect{Y: 0, H: h},
 			Snap:   drawerSnap(h),
 		})
+		// 正文按 key 渲染（退场时 a.Drawer 已空，临时摆回最后显示的 key）。
+		real := a.Drawer
+		a.Drawer = key
 		panel.Children(func() {
 			a.drawerHeader(c)
 			a.drawerBody(c)
 		})
+		a.Drawer = real
 		// DragOffset 是本帧面板实际显示的偏移（跟手 / 回弹途中都算），
 		// 用它让遮罩跟着下滑变淡。
 		dragY = panel.DragOffset().Y
-		if drawerDismissed(a.drawerOffset.Y, h, panel.Transitioning()) {
+		if !a.drawerClosing && drawerDismissed(a.drawerOffset.Y, h, panel.Transitioning()) {
+			// 拖拽已经把它滑出去了，下一帧走退场收尾（offset 保持，别弹回）。
 			a.Drawer = ""
-			a.drawerOffset = ui.Point{}
+		}
+		// 退场收尾：至少隔一帧（让刚设的 pose 先被采样），且 pose 停稳后才移出。
+		if a.drawerClosing && drawerExitDone(a.drawerExitAt, c.Now(), panel.Transitioning()) {
+			a.drawerShown, a.drawerClosing = "", false
+			a.drawerOpenKey, a.drawerOffset = "", ui.Point{}
 		}
 	})
 	// 遮罩是投影淡入（repaint-only）。注意 Pose.Fade 与 Opacity 方向相反：
-	// 取反才不会把抽屉一起涂成透明（见 drawerMaskFade）。
-	overlay.AnimatePose(ui.Pose{Fade: drawerMaskFade(dragY, h, entering)},
+	// 取反才不会把抽屉一起涂成透明（见 drawerMaskFade）。退场时反过来淡出。
+	overlay.AnimatePose(ui.Pose{Fade: drawerMaskFade(dragY, h, entering || a.drawerClosing)},
 		ui.Animation{Duration: drawerIn})
-	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。
-	if overlay.Clicked() {
+	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。退场中不再响应。
+	if !a.drawerClosing && overlay.Clicked() {
 		a.Drawer = ""
 	}
 }
@@ -472,15 +528,9 @@ func (a *App) drawerTitle() string {
 
 // drawerBody 按抽屉类型画内容。
 //
-// 弹幕抽屉自己用虚拟化列表当滚动容器（行数可能上千），所以不走外层的
-// ui.Scroll；其余抽屉内容不多，统一套一层滚动。
+// 卡片列表（搜索/分区/动态等）与弹幕列表都用 mygo 的虚拟化 ui.List 自带
+// 滚动（只建可见行）；其余内容不多，统一套一层 ui.Scroll。
 func (a *App) drawerBody(c *ui.Context) {
-	// 滚动到底自动翻页（原版各列表抽屉的 handleScroll：距底 ≤80px 加载下一页；
-	// 弹幕/评论抽屉的评论 tab 是 <100px），不是「加载更多」按钮。
-	//
-	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
-	// 所以必须传**稳定地址**（List 常驻在 map 里），不能按值拷进出 ——
-	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
 	l := a.ListFor(a.Drawer)
 	if a.Drawer == DrawerDanmaku {
 		if a.DanmakuTab == TabDanmaku {
@@ -498,29 +548,53 @@ func (a *App) drawerBody(c *ui.Context) {
 		}
 		return
 	}
+	// 卡片网格：虚拟化列表自己滚，顺带负责到底翻页。
+	if a.usesCardGrid() {
+		// 退场时不再翻页（内容马上就看不见了）。
+		if a.listBody(c) && !a.drawerClosing && l.HasMore && !l.Loading && a.Act.LoadMore != nil {
+			// 内容超过一屏且滚到底（first>0）才翻页：与旧逻辑的 MaxY>0 一致，
+			// 避免首屏不满却反复请求空页。
+			if first, last := l.Grid.Visible(); first > 0 && last >= a.gridRows()-1 {
+				a.Act.LoadMore()
+			}
+		}
+		return
+	}
+
+	// 其余抽屉内容不多，统一套一层滚动。
+	//
+	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
+	// 所以必须传**稳定地址**（List 常驻在 map 里），不能按值拷进出 ——
+	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
 	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).Children(func() {
 		switch a.Drawer {
 		case DrawerParts:
 			a.partsBody(c)
 		case DrawerUp:
-			// UP 空间有两个 tab：视频是卡片列表，合集是一排可选的胶囊。
-			if a.UpTab == UpTabSeries {
-				a.seriesListBody(c)
-			} else {
-				a.listBody(c)
-			}
+			// UP 空间有两个 tab：视频是卡片列表（上面已处理），合集是一排胶囊。
+			a.seriesListBody(c)
 		case DrawerPlaylist:
 			a.playlistBody(c)
-		default:
-			a.listBody(c)
 		}
 	})
+}
 
-	// 到底附近就请求下一页（HasMore / 非加载中才发，避免重复）。
-	if l.HasMore && !l.Loading && len(l.Cards) > 0 && l.Scroll.MaxY > 0 &&
-		l.Scroll.Y >= l.Scroll.MaxY-80 && a.Act.LoadMore != nil {
-		a.Act.LoadMore()
+// usesCardGrid 报告当前抽屉是否是三列卡片网格（搜索/分区/UP 视频/合集）。
+// 选集、合集列表、播放列表内容少，仍走 ui.Scroll。
+func (a *App) usesCardGrid() bool {
+	switch a.Drawer {
+	case DrawerParts, DrawerPlaylist, DrawerDanmaku:
+		return false
+	case DrawerUp:
+		return a.UpTab != UpTabSeries
 	}
+	return true
+}
+
+// gridRows 是当前卡片网格的行数（每行 cardGridCols 张）。
+func (a *App) gridRows() int {
+	n := len(a.list().Cards)
+	return (n + cardGridCols - 1) / cardGridCols
 }
 
 // seriesListBody 是 UP 空间的「合集」tab（原版 upVideoList.tsx 的合集列表）：
@@ -585,33 +659,60 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 
 // ---------------------------------------------------------------- 列表抽屉
 
-// listBody 是搜索结果 / 分区列表：三列卡片网格 + 加载更多。
-// （原版抽屉里的网格是 grid-cols-2 sm:grid-cols-3 gap-2。）
-func (a *App) listBody(c *ui.Context) {
-	switch {
-	case a.list().Loading && len(a.list().Cards) == 0:
-		a.skeletonGrid(c)
-		return
-	case len(a.list().Cards) == 0:
-		a.emptyNote(c, a.emptyHint())
-		return
-	}
+// cardGridCols 是卡片网格的列数（原版抽屉网格 grid-cols-2 sm:grid-cols-3；
+// 抽屉里卡片窄，始终按 3 列排）。
+const cardGridCols = 3
 
-	const cols = 3
-	ui.Column(c).Gap(8).Children(func() {
-		for i := 0; i < len(a.list().Cards); i += cols {
-			end := min(i+cols, len(a.list().Cards))
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-				for j := i; j < end; j++ {
-					a.card(c, j)
-				}
-				for j := end; j < i+cols; j++ {
-					ui.Box(c).Grow(1).Basis(0)
-				}
-			})
+// listBody 是搜索结果 / 分区 / UP 视频 / 合集等卡片网格。返回是否画了真正的
+// 卡片（供 drawerBody 决定要不要检查翻页；骨架/空态不算）。
+func (a *App) listBody(c *ui.Context) bool {
+	l := a.list()
+	switch {
+	case l.Loading && len(l.Cards) == 0:
+		a.scrollBody(c, l, func() { a.skeletonGrid(c) })
+		return false
+	case len(l.Cards) == 0:
+		a.scrollBody(c, l, func() { a.emptyNote(c, a.emptyHint()) })
+		return false
+	}
+	a.cardGrid(c, &l.Grid, l.Cards)
+	return true
+}
+
+// scrollBody 把短小的内容（骨架屏 / 空态）套一层 ui.Scroll。
+func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
+	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).
+		Children(body)
+}
+
+// cardGrid 用 mygo 的虚拟化 ui.List 画三列卡片网格：每个 List 行是一排最多
+// cardGridCols 张卡，行高由框架量（卡片封面 100 + 单行标题，所以每排等高）。
+//
+// 之前这里是 ui.Column 逐行构建：滚动时视图每帧重建，会把**所有**卡片（含
+// 几百张）连同玻璃材质一起重建——这是「订阅/动态」等列表滚动卡顿的根因
+// （与上一轮弹幕列表恢复 ui.List 同一机制，见 danmakuBody）。ui.List 只建
+// 可见的几排。
+func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
+	// 行键取首张卡的 bvid：翻页追加 / 滑动窗口裁掉头部时锚点不跳。
+	st.Key = func(r int) any {
+		if i := r * cardGridCols; i < len(cards) && cards[i].Bvid != "" {
+			return cards[i].Bvid
 		}
-		// 加载更多改为滚动到底自动翻页（见 drawerBody），不再画按钮。
-	})
+		return r
+	}
+	rows := (len(cards) + cardGridCols - 1) / cardGridCols
+	ui.List(c, st, rows, func(r int) {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
+			start := r * cardGridCols
+			end := min(start+cardGridCols, len(cards))
+			for j := start; j < end; j++ {
+				a.card(c, j)
+			}
+			for j := end; j < start+cardGridCols; j++ {
+				ui.Box(c).Grow(1).Basis(0)
+			}
+		})
+	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
 }
 
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。

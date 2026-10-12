@@ -1214,6 +1214,9 @@ const maxRetainedCards = 160
 func setCards(list *view.List, cards []view.Card, replace bool) {
 	if replace {
 		list.Cards = cards
+		// 整批替换（换关键词 / 刷新 / 换抽屉）时把虚拟网格的滚动复位到顶；
+		// 追加翻页不动它，锚点跟着旧内容。
+		list.ResetGrid()
 	} else {
 		list.Cards = append(list.Cards, cards...)
 	}

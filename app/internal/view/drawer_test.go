@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -252,5 +253,89 @@ func TestDrawerMaskFade(t *testing.T) {
 		if got := drawerMaskFade(y, h, false); got != 1-drawerFade(y, h) {
 			t.Errorf("y=%v: maskFade=%v, 应为 1-fade=%v", y, got, 1-drawerFade(y, h))
 		}
+	}
+}
+
+// TestDrawerEnterStep 钉住抽屉入场的判定——入场动画消失的回归点。
+//
+// 点击打开抽屉的那一帧，`Clicked()` 会当场置 consumed，框架把整个视图重建
+// 第二趟（input.go）。面板 pose 只在帧末 commit 时采样一次，所以第二趟若把
+// 「已经不是新抽屉」当成立场结束，就会把起始 pose 从 h 改成 0，采到的是 0，
+// 面板首帧即到位——动画没了。drawerEnterStep 用「同一帧内 c.Now() 不变」
+// 识别第二趟，让起始 pose 在整个入场帧里保持 h。
+func TestDrawerEnterStep(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	t1 := t0.Add(16 * time.Millisecond)
+
+	// 首次打开：进入入场帧，记下 key 与这一刻。
+	entering, key, at := drawerEnterStep("feed", "", time.Time{}, t0)
+	if !entering || key != "feed" || !at.Equal(t0) {
+		t.Fatalf("首次打开 = (%v, %q, %v), want (true, feed, t0)", entering, key, at)
+	}
+	// 同一帧的第二次 build pass：时间戳不变，必须仍是入场帧。
+	if entering, k, a := drawerEnterStep("feed", key, at, t0); !entering || k != "feed" || !a.Equal(t0) {
+		t.Fatalf("同帧第二趟 = (%v, %q, %v), 应为入场帧", entering, k, a)
+	}
+	// 下一帧：入场结束，pose 目标交给 AnimatePose 从 h 弹回 0。
+	if entering, _, _ := drawerEnterStep("feed", key, at, t1); entering {
+		t.Fatal("下一帧不该再是入场帧（否则永远停在底部）")
+	}
+	// 换抽屉（或关掉后重开另一个）：重新入场。
+	if entering, k, a := drawerEnterStep("parts", key, at, t1); !entering || k != "parts" || !a.Equal(t1) {
+		t.Fatalf("换抽屉 = (%v, %q, %v), want (true, parts, t1)", entering, k, a)
+	}
+}
+
+// TestDrawerExitDone 钉住退场收尾的时机：退场起始的那一帧不能收尾（刚设的
+// 起始 pose 还没被 commit 采样，立刻收尾等于没动画），动效停稳且隔了一帧
+// 之后才把抽屉真正移出视图。
+func TestDrawerExitDone(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	t1 := t0.Add(16 * time.Millisecond)
+
+	if drawerExitDone(t0, t0, false) {
+		t.Error("退场起步帧不该收尾：起始 pose 还没被采样")
+	}
+	if drawerExitDone(t0, t1, true) {
+		t.Error("动效还在跑时不该收尾")
+	}
+	if !drawerExitDone(t0, t1, false) {
+		t.Error("隔了一帧且停稳后应收尾")
+	}
+}
+
+// TestCardGridVirtualized 钉住卡片网格（订阅/动态、搜索、分区等）走 mygo 的
+// 虚拟化 ui.List：几百张卡时也只构建可见的那几排，屏外卡片不建，滚走后顶部
+// 卡片被回收。改回「ui.Column 每帧全建」会让滚动时每帧重建全部卡片。
+func TestCardGridVirtualized(t *testing.T) {
+	a := NewApp(func() {})
+	cards := make([]Card, 300)
+	for i := range cards {
+		cards[i] = Card{
+			Bvid: fmt.Sprintf("BV%04d", i), Title: fmt.Sprintf("视频标题%d", i),
+			Up: "UP主", Views: "1.2万", Pubdate: "09-22",
+		}
+	}
+	a.ListFor("feed").Cards = cards
+	a.Drawer = "feed"
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	if !tst.HasText("视频标题0") {
+		t.Fatal("首屏应构建第一排卡片")
+	}
+	if tst.HasText("视频标题299") {
+		t.Fatal("最后一张在屏外，虚拟化网格不该构建它（说明又退回每帧全建）")
+	}
+
+	// 滚到底：末尾卡片建出来，顶部的被回收。
+	tst.Scroll(490, 400, 0, 100000)
+	tst.Frame()
+	if !tst.HasText("视频标题299") {
+		t.Fatal("滚到底应构建末尾卡片")
+	}
+	if tst.HasText("视频标题0") {
+		t.Fatal("滚走后顶部卡片应被虚拟化回收")
 	}
 }

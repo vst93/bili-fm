@@ -112,7 +112,14 @@ type List struct {
 	HasMore bool
 	// Scroll 记录这个抽屉滚动到哪（同时用来判断「到底了」自动翻页）。
 	Scroll ui.ScrollState
+	// Grid 是卡片网格（listBody）的虚拟化列表状态：mygo 的 ui.List 只构建
+	// 可见的行，取代了之前「每帧重建整张网格」的做法（见 cardGrid）。
+	Grid ui.ListState
 }
+
+// ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，
+// 避免沿用上一批内容的行锚点。追加翻页不动它。
+func (l *List) ResetGrid() { l.Grid = ui.ListState{} }
 
 // Section 是搜索栏右侧一个入口对应的抽屉。
 //
@@ -528,8 +535,12 @@ type App struct {
 	discAngle   float32
 	discLast    time.Time
 	discLastPos float64
-	// drawerOpenKey 记住当前抽屉的入场是否已经起步（见 drawer）。
+	// drawerOpenKey 记住当前抽屉，drawerEnterAt 是入场起始帧的时间戳：
+	// 同一帧里框架可能把视图重建多趟（点击的 build pass），只有最后一趟会
+	// 被采样；用时间戳把入场钉在「这一刻」，避免第二趟把起始 pose 覆盖成 0
+	// （那样入场动画就没了，见 drawerEnterStep）。
 	drawerOpenKey string
+	drawerEnterAt time.Time
 	// dmGroups / cmSorted 缓存弹幕分组与评论排序：滚动时视图每帧重建，
 	// 每帧重算这些分组 / 排序就是卡顿的来源（见 danmakuGroups）。
 	// *Src 持有缓存依据的那份切片，既是身份判据，也防止旧数组被 GC 回收后
@@ -538,6 +549,12 @@ type App struct {
 	dmGroupsSrc []Danmaku
 	cmSorted    []Comment
 	cmSortedSrc []Comment
+	// drawerShown 是当前（或正退场的）抽屉的 key；drawerClosing / drawerExitAt
+	// 记退场是否进行中、何时起步。关抽屉时 a.Drawer 先被清空，但面板要继续
+	// 下滑淡出（见 drawer），所以得把最后一个 key 留住。
+	drawerShown   string
+	drawerClosing bool
+	drawerExitAt  time.Time
 	// drawerOffset 是抽屉被拖拽的下滑偏移（v0.4.5 的 ui.Draggable）：
 	// 0 = 贴底完全展开，抽屉高度 = 甩到底、关闭。
 	drawerOffset ui.Point
