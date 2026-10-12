@@ -90,6 +90,21 @@ func (m *Manager) State() State {
 	return m.st
 }
 
+// pageURL 把打开选项编成弹窗页面的地址（/video.html?src=…&muted=…）。
+// 抽成纯函数便于测试：弹窗的起播状态（位置 / 倍速 / 静音）全靠这组参数。
+func pageURL(o Options) string {
+	q := url.Values{}
+	q.Set("src", o.Src)
+	q.Set("title", o.Title)
+	q.Set("poster", o.Poster)
+	q.Set("t", fmt.Sprintf("%.2f", o.StartAt))
+	q.Set("speed", fmt.Sprintf("%.2f", max(o.Speed, 0.5)))
+	if o.Muted {
+		q.Set("muted", "1")
+	}
+	return "/video.html?" + q.Encode()
+}
+
 // Open 打开（或复用）弹窗。已有弹窗时先关掉再开，保证换集时是新地址。
 // 有一次 Open 还在创建中时，后续的 Open 拒绝：快速连点不会开出多个。
 func (m *Manager) Open(o Options) error {
@@ -108,16 +123,7 @@ func (m *Manager) Open(o Options) error {
 
 	m.Close()
 
-	q := url.Values{}
-	q.Set("src", o.Src)
-	q.Set("title", o.Title)
-	q.Set("poster", o.Poster)
-	q.Set("t", fmt.Sprintf("%.2f", o.StartAt))
-	q.Set("speed", fmt.Sprintf("%.2f", max(o.Speed, 0.5)))
-	if o.Muted {
-		q.Set("muted", "1")
-	}
-	page := "/video.html?" + q.Encode()
+	page := pageURL(o)
 
 	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:     o.Title,

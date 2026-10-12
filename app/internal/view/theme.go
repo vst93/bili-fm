@@ -134,6 +134,18 @@ func (t Theme) CoverPlaceholder() ui.Color {
 	return ui.Hex("#0f172a").Alpha(0.08)
 }
 
+// drawerPanelFill 是抽屉面板（`[data-slot="wrapper"] > section::before`）的底色。
+//
+// 原版面板是 `--liquid-bg`(rgba(255,255,255,.22)) + backdrop-filter blur(14px)：
+// 模糊把背后的内容揉开，22% 白就够读。原生界面画不了 backdrop-filter（见
+// PLAN.md 的取舍），22% 白直接叠在窗口背景上就太透了——用户实测反馈
+// 「抽屉背景太透，影响阅读」。所以改用原版自己为「没有 backdrop-filter 的
+// 平台」准备的兜底值：`body.platform-linux #root { --liquid-bg: rgba(255,255,255,.9) }`。
+// 这是原版 CSS 里既有的无模糊降级，不是新拍的数值。
+func drawerPanelFill() ui.Color {
+	return ui.Hex("#ffffff").Alpha(0.90)
+}
+
 // liquidGlass 给元素套上液态玻璃材质。
 //
 // 原版是 .liquid-glass：::before 半透明填充 + backdrop-filter 模糊，
@@ -209,6 +221,16 @@ const (
 	ToolButton  = 32
 	ToolButtonR = 6
 	AvatarSize  = 36
+
+	// 原版两组图标按钮（globals.css）：
+	//   .video-content-actions .nav-icon-btn  34×34 圆角 8
+	//   .video-context-dock .nav-icon-btn     34×34 圆角 7
+	// 内容操作行（点赞/投币/收藏/浏览器/视频/弹幕）与工具条（搜索/选集/合集/
+	// 播放列表）都比搜索栏里的 .top-tool-btn（32/6）大一圈。
+	ContentIcon  = 34
+	ContentIconR = 8
+	DockIcon     = 34
+	DockIconR    = 7
 )
 
 // pressPose 给按钮加上原版那套按压手感（.nav-icon-btn / .top-tool-btn）：

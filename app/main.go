@@ -2262,7 +2262,11 @@ func (c *controller) openVideo() {
 			Poster:  proxy.ImageURL(t.Cover),
 			StartAt: c.app.Pos,
 			Speed:   c.app.Speed,
-			Parent:  c.app.Win,
+			// 弹窗起播就跟随主窗的静音状态；主窗有声音时弹窗也应有声音
+			// （无手势时引擎只放行静音起播，页面在第一次交互时再取消静音，
+			// 见 frontend/video.html 的起播策略）。
+			Muted:  c.app.Muted || c.app.Volume <= 0,
+			Parent: c.app.Win,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			c.app.NotifyType("error", "打开视频窗口失败："+err.Error())

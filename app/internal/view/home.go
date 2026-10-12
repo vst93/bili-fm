@@ -603,7 +603,7 @@ func (a *App) contentActions(c *ui.Context) {
 			// 否则会用上一条视频的状态误操作。
 			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
 		})
-		a.iconButton(c, "browser", "浏览器打开", iconBrowser, 18, func() {
+		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 20, func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
@@ -617,7 +617,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.iconButton(c, "video", "视频播放", iconVideo, 18, func() {
+		a.contentIconButton(c, "video", "视频播放", iconVideo, 20, func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {
 					a.Act.CloseVideo()
@@ -626,7 +626,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenVideo()
 			}
 		})
-		a.iconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 18, a.openDanmaku)
+		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 20, a.openDanmaku)
 	})
 }
 
@@ -791,14 +791,15 @@ type statSpec struct {
 	OnClick func()
 }
 
-// statButton 是互动按钮（原版 .nav-stat-btn）：32×32 图标钮，9px 计数
-// 挂在按钮正下方；激活时图标按动作变色——点赞红、投币黄、收藏黄。
+// statButton 是互动按钮（原版 .video-content-actions .nav-icon-btn）：
+// 34×34 图标钮（圆角 8），9px 计数挂在按钮正下方；激活时图标按动作变色——
+// 点赞红、投币黄、收藏黄。
 func (a *App) statButton(c *ui.Context, spec statSpec) {
-	col := ui.Column(c).Width(ToolButton).Height(ToolButton + 13).
+	col := ui.Column(c).Width(ContentIcon).Height(ContentIcon + 13).
 		AlignItems(ui.Center).Shrink(0)
 	col.Children(func() {
-		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ToolButton, ToolButton).
-			Radius(ToolButtonR).Center().Label(spec.Label).Tooltip(spec.Label)
+		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
+			Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
 		disableNav(b, spec.Off)
 		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
 		switch {
@@ -820,7 +821,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		if spec.Count != "" {
 			ui.Text(c, spec.Count).FontSize(9).
 				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))).
-				SingleLine().MaxWidth(ToolButton)
+				SingleLine().MaxWidth(ContentIcon)
 		}
 	})
 }
@@ -836,9 +837,23 @@ func disableNav(b ui.Element, off bool) ui.Element {
 	return b
 }
 
-// iconButton 是 32×32 的纯图标按钮（.nav-icon-btn）。
+// iconButton 是 34×34 的纯图标按钮（.video-context-dock .nav-icon-btn）。
 func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, fn func()) ui.Element {
 	return a.inkButton(c, key, label, ic, size, ui.Color{}, fn)
+}
+
+// contentIconButton 是内容操作行的图标钮（.video-content-actions .nav-icon-btn）：
+// 34×34、圆角 8（比工具条的 7 大）。
+func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, fn func()) ui.Element {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ContentIcon, ContentIcon).Radius(ContentIconR).
+		Center().Label(label).Tooltip(label)
+	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
+	if b.Clicked() && fn != nil {
+		fn()
+	}
+	return b
 }
 
 // inkButton 同 iconButton，ink 非零时用它做图标颜色（原版部分按钮是蓝色）。
@@ -848,8 +863,8 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	if ink.A != 0 {
 		textInk = ink
 	}
-	// 原版 .nav-icon-btn：32×32、圆角 7、无边框、径向高光底、opacity .92。
-	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ToolButton, ToolButton).Radius(7).
+	// 原版 .video-context-dock .nav-icon-btn：34×34、圆角 7、无边框、径向高光底。
+	b := ui.ButtonBase(c.Key("icon-"+key)).Size(DockIcon, DockIcon).Radius(DockIconR).
 		Center().Label(label).Tooltip(label)
 	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
 	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。

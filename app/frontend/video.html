@@ -96,25 +96,46 @@ v.addEventListener('canplay', () => {
   if (syncInitialTime()) call('Video.Log', 'initial-seek synced');
 });
 
-// 起播：先试未静音自动播放；被策略拦下就静音起播再取消静音。
-(async () => {
+// 起播策略（用户反馈「弹窗打开是暂停状态」的修复）：
+//
+//   1. 先试未静音自动播放。主窗的点击手势不在弹窗里，多数引擎会拒绝，
+//      但允许的平台（如 WebKitGTK 默认 media-playback-requires-user-gesture=false）
+//      会直接成功——这时有声音。
+//   2. 被拦下就静音起播。muted autoplay 是各引擎都放行的路径，保证
+//      「打开即在播」，而不是停在暂停态。
+//   3. **不在起播后自动取消静音**：WebKit / Chromium 把「无用户手势的取消静音」
+//      视为违规并直接**暂停**媒体——这正是旧实现 900ms 后画面停住、用户看到
+//      「弹窗是暂停状态」的原因。改为在弹窗里第一次真实手势（点/按键）时再取消
+//      静音，用户一交互就有声。
+let wantSound = !muted;
+const autoplay = async () => {
   let how = 'ok-unmuted';
+  v.muted = muted;
   try {
-    v.muted = muted;
     await v.play();
   } catch (e) {
     try {
       v.muted = true;
       await v.play();
       how = 'ok-muted-only';
-      if (!muted) setTimeout(() => { v.muted = false; }, 900);
     } catch (e2) {
       how = 'blocked:' + e2.name;
       lastErr = 'play() rejected: ' + e2.name;
     }
   }
   call('Video.Log', `autoplay=${how}`);
-})();
+};
+autoplay();
+
+// 第一次真实手势：取消静音（若主窗本来有声音）并确保还在播。
+const onGesture = () => {
+  if (wantSound && v.muted) { v.muted = false; }
+  if (v.paused) { v.play().catch(() => {}); }
+  document.removeEventListener('pointerdown', onGesture, true);
+  document.removeEventListener('keydown', onGesture, true);
+};
+document.addEventListener('pointerdown', onGesture, true);
+document.addEventListener('keydown', onGesture, true);
 
 // 每秒把状态回传给主窗，用于同步进度与播放状态。
 // 正常情况下不显示调试信息，只在出错时显出来。

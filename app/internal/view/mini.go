@@ -141,7 +141,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 						Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
 					pressPose(play)
 					play.Children(func() {
-						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(13, 13).
+						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(16, 16).
 							TextColor(ui.Hex("#0369a1"))
 					})
 					if play.Clicked() && a.Act.TogglePlay != nil {
@@ -153,7 +153,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					disablePlayerButton(next, !a.canNavigate())
 					buttonSurface(next, false, next.Hovered(),
 						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
-					next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
+					next.Children(func() { ui.Icon(c, iconNext).Size(18, 18).TextColor(ui.Hex("#334155")) })
 					if next.Clicked() && a.Act.Next != nil {
 						a.Act.Next()
 					}
@@ -177,7 +177,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					disablePlayerButton(vol, !a.hasSource())
 					buttonSurface(vol, false, vol.Hovered(),
 						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
-					vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
+					vol.Children(func() { ui.Icon(c, iconVolume).Size(18, 18).TextColor(ui.Hex("#334155")) })
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume
 					}

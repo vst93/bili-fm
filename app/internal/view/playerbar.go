@@ -160,7 +160,7 @@ func (a *App) transport(c *ui.Context) {
 			a.Act.TogglePlay()
 		}
 
-		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
+		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(RadiusPill).Center().
 			Label(nextTip()).Tooltip(nextTip())
 		next.Disabled(!a.canNavigate())
 		if !a.canNavigate() {
@@ -364,7 +364,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	// 原版：音量键图标随音量变化（0 视为静音）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
-		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(15, 15).
+		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(20, 20).
 			TextColor(pick(muted, t.Rose, ui.Hex("#334155")))
 	})
 	if b.Clicked() {
@@ -405,7 +405,7 @@ func (a *App) eqButton(c *ui.Context) {
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18))
 	pressPose(b)
 	b.Children(func() {
-		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
+		ui.Icon(c, iconEQ).Size(17, 17).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
 	})
 	if b.Clicked() && a.Act.ToggleEQ != nil {
 		a.Act.ToggleEQ()
@@ -423,7 +423,7 @@ func (a *App) sponsorButton(c *ui.Context) {
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18))
 	pressPose(b)
 	b.Children(func() {
-		ui.Icon(c, iconSponsor).Size(15, 15).
+		ui.Icon(c, iconSponsor).Size(17, 17).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
@@ -606,7 +606,7 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 				mute.Background(ui.Transparent)
 			}
 			mute.Children(func() {
-				ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(14, 14).
+				ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
 					TextColor(pick(a.Muted, t.Rose, t.Muted))
 			})
 			if mute.Clicked() && a.Act.ToggleMute != nil {

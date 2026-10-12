@@ -177,12 +177,16 @@ func (a *App) drawer(c *ui.Context) {
 		//   background --liquid-bg + 1px 亮边 + 顶部内高光（原版 ::after 的聚光）
 		// 唯一的观感取舍：面板由「磨砂」变成实色。
 		//
+		// 降级成填充后底色不能再用 0.22 的 --liquid-bg（那是给 blur 用的）：没有
+		// 模糊时 22% 白太透，用户反馈「影响阅读」。改用原版给无 backdrop-filter
+		// 平台的兜底 --liquid-bg(0.9)（见 drawerPanelFill）。
+		//
 		// 位移走 Bottom（布局）而不是 AnimatePose 的 transform：软件渲染器对带
 		// transform 的 op 一律逐像素重绘，整棵抽屉子树（面板 + 卡片 + 文字）都会
 		// 中招（见 drawerAnimOffset 的实测）。每帧重建 ≈0.5ms，远小于省下的绘制。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
-			Background(a.Theme.LiquidBg).
+			Background(drawerPanelFill()).
 			Border(1, a.Theme.GlassBorder).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
