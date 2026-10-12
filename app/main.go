@@ -127,6 +127,11 @@ func main() {
 	log.Printf("%s", kv.Describe())
 	bilibili.UseStore(kv)
 
+	// 旧版（Wails / Tauri）迁移：键名改了名的配置（sponsor/incognito/播放模式）
+	// 与换了位置的收藏（dkv playlist / Tauri playlist.json）在这里一次性转换。
+	// 幂等，且不会覆盖新版已有的数据。
+	store.Migrate(kv, store.MigrateOptions{Log: log.Printf})
+
 	// 应用内更新：mygo build 用 mygo.json 里 updates 的私钥给每个平台的归档
 	// 签名并写 update-<target>.json；应用用内置的公钥验签。
 	//
