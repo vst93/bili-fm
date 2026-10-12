@@ -23,7 +23,7 @@ func (a *App) Shell(c *ui.Context) {
 	t := a.Theme
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
-	a.shortcuts(c)
+	a.shortcuts(c, c.Root())
 	c.Root().Background(t.Period.Sample(0.5))
 
 	// 背景：时段渐变 + 当前封面的氛围光（原版 .app-shell::before / ::after）。

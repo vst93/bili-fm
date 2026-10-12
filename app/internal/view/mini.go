@@ -30,7 +30,7 @@ func (a *App) MiniShell(c *ui.Context) {
 	t := a.Theme
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
-	a.shortcuts(c)
+	a.shortcuts(c, c.Root())
 	c.Root().Background(ui.Hex("#f7fafd"))
 
 	ui.Column(c).Fill().Children(func() {
