@@ -513,13 +513,26 @@ func (a *App) hasSource() bool { return a.Current() != nil }
 
 // ---------------------------------------------------------------- 弹层
 
-// speedPopover 是倍速档位菜单，从播放栏第 6 列上方弹出。
+// popoverScrim 在弹层之下铺一层全窗点击捕获：点到弹层以外的任何地方就关掉它
+// （原版 player.tsx 是 document mousedown 监听，落在弹层外就 setIsXOpen(false)）。
+//
+// 它必须排在弹层**之前**绘制，弹层才盖在它上面、点得到；又因为它是弹层的
+// **兄弟节点**而不是祖先，点弹层内部的滑块/面板空白时命中链里根本没有它，
+// 不会误关（这正是「点滑块弹层不关」的保证）。
+func (a *App) popoverScrim(c *ui.Context, close func()) {
+	b := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0)
+	if b.Clicked() {
+		close()
+	}
+}
+
 // speedPopover 是倍速弹层（原版 .player-speed-popover）：从倍速按钮
 // **左侧横向弹出**的一排档位胶囊（min-width 36、11px/650、圆角 8，
 // 白玻璃 0.82 + 14 圆角 + 蓝底 16% 的激活态）。
 func (a *App) speedPopover(c *ui.Context) {
 	t := a.Theme
 	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
+		a.popoverScrim(c, func() { a.ShowSpeed = false })
 		// 原版 .player-speed-popover：速度列（右起 108..148）左侧 10px → 右边 158；
 		// 高 32（4 padding + 24 选项）居中于 56 的栏 → 距底 12。
 		// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
@@ -574,6 +587,7 @@ func (a *App) volumePopover(c *ui.Context) {
 func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32) {
 	t := a.Theme
 	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
+		a.popoverScrim(c, func() { a.ShowVolume = false })
 		// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
 		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
 		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).

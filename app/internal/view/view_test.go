@@ -524,6 +524,59 @@ func TestHistoryRefreshLabel(t *testing.T) {
 	}
 }
 
+// TestPopoverClosesOnOutsideClick 钉住音量/倍速弹层的「点外部关闭」：
+// 原版 player.tsx 在 document 上监听 mousedown，指针落在弹层外就关掉弹层；
+// 原生版此前只有「再点一次同一个按钮」与 Esc 两条关闭路径，点别处弹层会一直浮着，
+// 遮住播放栏、与下面的界面叠加。
+func TestPopoverClosesOnOutsideClick(t *testing.T) {
+	a := NewApp(func() {})
+	// 音量/倍速键在「没有可播放视频」时是禁用态（原版 disabled={!src}），
+	// 先给一条队列让它们可点。
+	a.Queue = []Track{{Bvid: "BV1test", Title: "标题"}}
+	a.Index = 0
+	tt := shellTester(t, a)
+
+	// 开：点音量键。（这一下也顺带验证打开它的那一次点击不会被捕获层吞掉、
+	// 导致弹层刚开就自己关掉。）
+	if err := tt.Click("音量"); err != nil {
+		t.Fatalf("点不到音量键：%v", err)
+	}
+	tt.Frame()
+	if !a.ShowVolume {
+		t.Fatal("点音量键后弹层没打开，测试前提不成立")
+	}
+
+	// 点主区左上角（弹层外，窗口 800×600）：弹层应关闭。
+	tt.ClickAt(100, 280)
+	tt.Frame()
+	if a.ShowVolume {
+		t.Errorf("点弹层外部后音量弹层还开着（原版 document mousedown 会关）")
+	}
+
+	// 点在弹层内部（音量滑块中央）不该误关：
+	// 主窗音量弹层 = Right(200) Bottom(7)、184×42 → 中心约 (508, 572)。
+	a.ShowVolume = true
+	tt.Frame()
+	tt.ClickAt(550, 572)
+	tt.Frame()
+	if !a.ShowVolume {
+		t.Errorf("点在弹层内部（滑块）把弹层关了，不该关")
+	}
+
+	// 倍速弹层同样：开、点外部关。
+	a.ShowSpeed = true
+	a.ShowVolume = false
+	tt.Frame()
+	if !a.ShowSpeed {
+		t.Fatal("倍速弹层没打开，测试前提不成立")
+	}
+	tt.ClickAt(100, 280)
+	tt.Frame()
+	if a.ShowSpeed {
+		t.Errorf("点弹层外部后倍速弹层还开着")
+	}
+}
+
 // TestUserButtonLabels 钉住搜索药丸最右端头像键的文案（原版 searchForm）：
 // 未登录是「登录账号」/「点击登录账号」，已登录是「切换登录账号」/
 // 「点击登录其他账号」。之前原生版写的是「扫码登录」/「已登录 <名字>」。

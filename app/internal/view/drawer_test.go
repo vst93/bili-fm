@@ -478,6 +478,14 @@ func TestDrawerExitKeepsPanel(t *testing.T) {
 		t.Fatal("抽屉打开时应有卡片")
 	}
 	a.Drawer = ""
+	// 退场是按真实时钟动画的，而 Tester.Frame() 的 settle 会连跑到动画结束
+	// （最多 20 帧）；机器负载高、单帧 >11ms 时，一帧就跨过 drawerIn(220ms)
+	// 把面板收掉，断言偶发假失败。这里在触发构建前把退场时钟钉在「刚起步」
+	// 那一刻（起始时间放到未来 ⇒ 进度恒为 0、永远不算走完），断言就只关乎
+	// 「退场期间面板仍被渲染」这一件事。退场状态的收尾由 TestDrawerExitState
+	// 覆盖。
+	a.drawerClosing = true
+	a.drawerExitAt = time.Now().Add(2 * drawerIn)
 	tst.Frame()
 	if !tst.HasText("标题0") {
 		t.Fatal("关抽屉后第一帧面板就消失（退场过渡丢失）")
