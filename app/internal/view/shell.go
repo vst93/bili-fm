@@ -27,9 +27,12 @@ func (a *App) Shell(c *ui.Context) {
 	a.shortcuts(c, c.Root())
 	c.Root().Background(t.Period.Sample(0.5))
 
-	// 背景：时段渐变 + 当前封面的氛围光（原版 .app-shell::before / ::after）。
+	// 背景：时段渐变 + 方向光晕 / 时段光罩（#root::before/::after 一块烘图）
+	// + 当前封面的氛围光（原版 #root 的 --liquid-backdrop、#root::before /
+	// ::after、.app-shell::before / ::after）。
 	ui.Column(c).Fill().Children(func() {
 		a.backdrop(c)
+		a.lightField(c)
 		a.ambient(c)
 	})
 

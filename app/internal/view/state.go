@@ -598,6 +598,13 @@ type App struct {
 	// modalOpenedAt 同理，给模态框的缩放入场用。
 	modalOpenedAt time.Time
 
+	// bloomBmp 是 #root::before/::after 光场的烘焙位图（v0.4.7 的 ui.Canvas：
+	// 画一次、每帧当图显示）。bloomSize / bloomPeriod 记住烘焙时的画布像素
+	// 尺寸与时段，任一变了就重烘（几何按窗口比例算、光罩按时段取色）。
+	bloomBmp    *ui.Bitmap
+	bloomSize   [2]int
+	bloomPeriod string
+
 	// toasts 是待弹出的 toast：后台线程通过 Notify 入队，下一帧由 Shell
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
 	toastMu sync.Mutex
