@@ -186,54 +186,42 @@ func (a *App) shownPos() float64 {
 	return a.Pos
 }
 
+// playerTimeWeight 是原版 `#player .player-time` 的字重（600）。时间列要等宽
+// 且比正文实一点：普通字重压在浅色玻璃上看着发虚。
+const playerTimeWeight = 600
+
 // timeText 是第 2 / 第 4 列（56px）的时间文本。
-func (a *App) timeText(c *ui.Context, sec float64) {
-	ui.Text(c, fmtTime(sec)).FontSize(11).TextColor(ui.Hex("#334155").Alpha(0.72)).
-		Width(56).Shrink(0).Center()
+func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56) }
+
+// timeTextAt 画一个时间标签：原版 .player-time 是 11px / 600 / 居中 /
+// color var(--player-time-color)，mini 下字号收成 9px、列宽 44（其余不变）。
+// 主窗与迷你窗共用，字重与颜色只有一处。
+func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
+	ui.Text(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
+		TextColor(ui.Hex("#334155").Alpha(0.72)).Width(width).Shrink(0).Center()
 }
 
 // progress 是第 3 列（1fr）的可拖动进度条，上面叠广告段标记。
 // seekSettle 是松手/seek 完成后滑块停在目标值、不跟随播放位置的时长。
 const seekSettle = 250 * time.Millisecond
 
-// 进度条（原版 #player .player-timeline）的视觉参数。
-const (
-	timelineH      = 24 // 外层高（可点击区）
-	timelineTrackH = 6  // 轨道高
-	timelineInset  = 7  // 轨道左右内缩 = 滑块半径
-	timelineThumb  = 14 // 滑块直径
-)
-
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
-// paintTimeline 画进度条的轨道、已播进度与滑块。原版这套外观是纯 CSS
-// （6px 轨道 + 1px 白边 + 青→蓝渐变填充 + 14px 玻璃滑块），框架默认的
-// Slider 只有一条素色轨道，所以这里用 SliderBase + 自绘。
+// paintTimeline 画进度条的轨道、已播进度与滑块。轨道与滑块的画法在
+// rangeslider.go（与音量条共用），这里只多出缓冲区与广告段两层。
 //
-// segs 是广告段（SponsorBlock）。**只按数据画，与「自动跳过」开关无关** ——
-// 原版注释写得很明确：查到 segments 就画，开关只控制要不要自动跳。
+// 原版这套外观是纯 CSS（6px 轨道 + 1px 白边 + 青→蓝渐变填充 + 14px 玻璃
+// 滑块），框架默认的 Slider 只有一条素色轨道，所以这里用 SliderBase + 自绘。
 //
-// buffered 是已预读的轨道比例（原版 .player-timeline-buffered），铺在
-// 轨道底下、透过半透明底色显示。
-func paintTimeline(p *ui.Painter, r ui.Rect, frac, buffered float32, segs []Segment, dur float64) {
-	if frac < 0 {
-		frac = 0
-	} else if frac > 1 {
-		frac = 1
-	}
-	if buffered < 0 {
-		buffered = 0
-	} else if buffered > 1 {
-		buffered = 1
-	}
-	cy := r.Y + r.H/2
-	track := ui.Rect{
-		X: r.X + timelineInset,
-		Y: cy - timelineTrackH/2,
-		W: r.W - timelineInset*2,
-		H: timelineTrackH,
-	}
+// 层序与原版的 z-index 一致：外投影 → 缓冲（z-index 0）→ 广告段（z-index 0，
+// 在缓冲之上）→ 轨道本体（z-index 1）→ 滑块。缓冲与广告段都**不在**轨道底色
+// 之上，而是透过半透明底色显出来（原版就是这么叠的）。
+func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
+	track := rangeTrackRect(r, rp.Geom)
+	paintRangeShadow(p, track, rp.Hovered)
+
+	buffered := clamp01(rp.Buffered)
 	// 缓冲层最先画：原版这一层 z-index 0，在轨道（z-index 1）之下，
 	// 所以是透过 32% 白的轨道底色显出来的青→天蓝，而不是实色。
 	if buffered > 0.001 {
@@ -249,13 +237,13 @@ func paintTimeline(p *ui.Painter, r ui.Rect, frac, buffered float32, segs []Segm
 	}
 	// 广告段标记：原版这一层是 z-index 0（在轨道 z-index 1 之下，但在缓冲层
 	// 之上），所以红色是透过半透明轨道透出来的淡红，而不是压在轨道上的实红。
-	if dur > 0 {
-		for _, seg := range segs {
-			if seg.VideoDuration > 0 && abs(seg.VideoDuration-dur) > sponsorTolerance {
+	if rp.Dur > 0 {
+		for _, seg := range rp.Segs {
+			if seg.VideoDuration > 0 && abs(seg.VideoDuration-rp.Dur) > sponsorTolerance {
 				continue // 分段属于另一版视频，位置对不上，丢掉
 			}
-			lo := clampF(float64(seg.Start)/dur, 0, 1)
-			hi := clampF(float64(seg.End)/dur, 0, 1)
+			lo := clampF(float64(seg.Start)/rp.Dur, 0, 1)
+			hi := clampF(float64(seg.End)/rp.Dur, 0, 1)
 			if hi <= lo {
 				continue
 			}
@@ -265,30 +253,9 @@ func paintTimeline(p *ui.Painter, r ui.Rect, frac, buffered float32, segs []Segm
 				ui.Hex("#f87171").Alpha(0.35), 0)
 		}
 	}
-	// 未播部分：半透明白（原版 --player-track-rest）。
-	p.Fill(track, ui.Hex("#ffffff").Alpha(0.32), timelineTrackH/2)
-	if frac > 0.001 {
-		// 已播部分：90° 青 → 蓝（原版渐变在 --player-progress 处硬停）。
-		fill := ui.Rect{X: track.X, Y: track.Y, W: track.W * frac, H: track.H}
-		p.FillGradient(fill, ui.LinearGradient{
-			From:  ui.Hex("#2dd4bf").Alpha(0.78),
-			To:    ui.Hex("#0284c7").Alpha(0.82),
-			Angle: 90,
-		}, timelineTrackH/2)
-	}
-	p.Stroke(track, ui.Hex("#ffffff").Alpha(0.68), timelineTrackH/2, 1)
 
-	// 滑块：14 圆、1px 白边、淡蓝底 + 蓝色投影。
-	cx := r.X + timelineInset + (r.W-timelineThumb)*frac
-	k := ui.Rect{
-		X: cx - timelineThumb/2,
-		Y: cy - timelineThumb/2,
-		W: timelineThumb,
-		H: timelineThumb,
-	}
-	p.Shadow(k, timelineThumb/2, 0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.24))
-	p.Fill(k, ui.Hex("#e0f2fe").Alpha(0.62), timelineThumb/2)
-	p.Stroke(k, ui.Hex("#ffffff").Alpha(0.90), timelineThumb/2, 1)
+	paintRangeFill(p, track, rp.Frac, rp.Hovered, rp.Colors)
+	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held)
 }
 
 func (a *App) progress(c *ui.Context) {
@@ -331,10 +298,10 @@ func (a *App) progress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
-	bf := bufferedFrac(a.Buffered, a.Dur)
-	segs, dur := a.SponsorSegments, a.Dur
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, bf, segs, dur) })
-	a.seekBubble(c, s, dur)
+	s.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintTimeline(p, r, a.timelinePaint(s, frac, held))
+	})
+	a.seekBubble(c, s, a.Dur)
 }
 
 // bufferedFrac 把「已预读的媒体秒数」换算成进度轨道的 0..1 比例。
@@ -343,6 +310,22 @@ func bufferedFrac(buffered, dur float64) float32 {
 		return 0
 	}
 	return float32(clampF(buffered/dur, 0, 1))
+}
+
+// timelinePaint 收集进度条这一帧的绘制输入：悬停 / 拖动态取自框架的指针
+// 状态（主窗与迷你窗各有一条进度条，两条共用同一套外观与状态机），
+// 缓冲区比例与广告段数据取自 App。
+func (a *App) timelinePaint(s ui.Element, frac float32, held bool) rangePaint {
+	return rangePaint{
+		Frac:     frac,
+		Buffered: bufferedFrac(a.Buffered, a.Dur),
+		Segs:     a.SponsorSegments,
+		Dur:      a.Dur,
+		Hovered:  s.Hovered(),
+		Held:     held,
+		Colors:   rangeColorsFor(a.Theme),
+		Geom:     timelineGeom,
+	}
 }
 
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
@@ -579,8 +562,24 @@ func (a *App) volumePopover(c *ui.Context) {
 	// top: 50% + translateY(-50%)）：弹层在按钮**左侧 10px**、并与播放栏垂直居中。
 	// 主窗右侧列宽 18(pad)+40+8+34+8+40+8+34 = 190 → 弹层右边 = 200；
 	// 高 42 居中于 56 的栏 → 距底 (56-42)/2 = 7。
-	a.volumePopoverAt(c, 200, 7, 184, 42, 14)
+	a.volumePopoverAt(c, volumePopoverRight, volumePopoverBottom,
+		volumePopoverW, volumePopoverH, volumePopoverRadius)
 }
+
+// 音量弹层的几何（原版 .player-volume-popover）：184×42 / 圆角 14，挂在音量列
+// 左侧 10px 并与播放栏垂直居中；内部 padding 0 10 0 8、gap 8、静音键 26×26。
+// 抽成常量：视图与测试按同一份几何取样，改一处就够。
+const (
+	volumePopoverW      = 184
+	volumePopoverH      = 42
+	volumePopoverRadius = 14
+	volumePopoverRight  = 200 // 主窗：弹层右边距
+	volumePopoverBottom = 7   // 主窗：弹层底边距
+	volumePopoverPadL   = 8
+	volumePopoverPadR   = 10
+	volumePopoverGap    = 8
+	volumeMuteSize      = 26
+)
 
 // volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量按钮
 // **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。
@@ -591,12 +590,13 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 		// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
 		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
 		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).
-			Padding(0, 10, 0, 8).Radius(radius).
+			Padding(0, volumePopoverPadR, 0, volumePopoverPadL).Radius(radius).
 			Material(glassLayer(glass.Glass{})).
-			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(8).
+			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(volumePopoverGap).
 			AlignItems(ui.Center).Children(func() {
 			// 静音键：独立的切换（原版 player-volume-mute-button）。
-			mute := ui.ButtonBase(c.Key("volume-mute")).Size(26, 26).Radius(RadiusSmall).
+			mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
+				Radius(RadiusSmall).
 				Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
 			if a.Muted {
 				mute.Background(t.Rose.Alpha(0.18))
@@ -614,8 +614,22 @@ func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32
 			}
 
 			v := a.Volume
-			sl := ui.Slider(c, &v, 0, 1).Grow(1).Height(24).Label("音量")
+			// 音量条就是原版 input.player-volume-slider：轨道/滑块的 CSS 与
+			// 进度条逐字相同（同一组 thumb 规则 + 同样的 6px 渐变轨道），
+			// 所以这里也用 SliderBase + rangeslider.go 的同一份画法。
+			// 之前用的是框架默认滑杆（细轨道 + 实心旋钮），与原版完全不同。
+			sl := ui.SliderBase(c, &v, 0, 1).Grow(1).Height(timelineH).
+				PaddingX(timelineInset).Label("音量")
 			_, _, held := sl.Dragged()
+			sl.Draw(func(p *ui.Painter, r ui.Rect) {
+				paintRangeBar(p, r, rangePaint{
+					Frac:    float32(v),
+					Hovered: sl.Hovered(),
+					Held:    held,
+					Colors:  rangeColorsFor(a.Theme),
+					Geom:    volumeGeom,
+				})
+			})
 			if sl.Changed() {
 				a.Volume = v
 				// 拖动中只应用到音频，**不落盘**（原版注释：仅在拖动提交时写。
@@ -693,10 +707,10 @@ func (a *App) miniProgress(c *ui.Context) {
 	a.wasHeld = held
 
 	frac := float32(a.SeekValue / hi)
-	bf := bufferedFrac(a.Buffered, a.Dur)
-	segs, dur := a.SponsorSegments, a.Dur
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintTimeline(p, r, frac, bf, segs, dur) })
-	a.seekBubble(c, s, dur)
+	s.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintTimeline(p, r, a.timelinePaint(s, frac, held))
+	})
+	a.seekBubble(c, s, a.Dur)
 }
 
 // seekBubble 是悬停时间气泡（原版 .player-seek-bubble）：指针停在轨道上时，

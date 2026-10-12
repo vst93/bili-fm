@@ -60,6 +60,12 @@ type Theme struct {
 	// 会得到一条明显的灰带（两者不是一个用处）。
 	PlayerEdgeFade ui.Color
 	PlayerButton   ui.Color
+
+	// 进度条 / 音量条那一对变量（原版 --player-track-border /
+	// --player-track-rest）：亮色时段是白 .68 / 白 .32，烟熏玻璃时段收成
+	// 白 .28 / 白 .20——轨道在深色玻璃上再铺原来那么亮就会糊成一条白带。
+	PlayerTrackBorder ui.Color
+	PlayerTrackRest   ui.Color
 }
 
 // darkPeriods 是背景较深、播放栏换烟熏玻璃的时段。
@@ -109,10 +115,12 @@ func ThemeFor(p Period) Theme {
 		Rose: ui.Hex("#e11d48"),
 
 		// 浅色时段的播放栏就是 CSS 里 var(--player-*) 的兜底值。
-		PlayerSurface:  ui.Hex("#f1f8fd").Alpha(0.36),
-		PlayerBorder:   ui.Hex("#ffffff").Alpha(0.72),
-		PlayerEdgeFade: ui.Hex("#bae6fd").Alpha(0.24),
-		PlayerButton:   ui.Hex("#334155").Alpha(0.72),
+		PlayerSurface:     ui.Hex("#f1f8fd").Alpha(0.36),
+		PlayerBorder:      ui.Hex("#ffffff").Alpha(0.72),
+		PlayerEdgeFade:    ui.Hex("#bae6fd").Alpha(0.24),
+		PlayerButton:      ui.Hex("#334155").Alpha(0.72),
+		PlayerTrackBorder: ui.Hex("#ffffff").Alpha(0.68),
+		PlayerTrackRest:   ui.Hex("#ffffff").Alpha(0.32),
 	}
 
 	if darkPeriods[p.Name] {
@@ -122,6 +130,8 @@ func ThemeFor(p Period) Theme {
 		t.PlayerBorder = ui.Hex("#ffffff").Alpha(0.22)
 		t.PlayerEdgeFade = ui.Hex("#475569").Alpha(0.11)
 		t.PlayerButton = ui.Hex("#334155").Alpha(0.84)
+		t.PlayerTrackBorder = ui.Hex("#ffffff").Alpha(0.28)
+		t.PlayerTrackRest = ui.Hex("#ffffff").Alpha(0.20)
 	}
 	return t
 }

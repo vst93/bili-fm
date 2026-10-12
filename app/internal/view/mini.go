@@ -162,15 +162,15 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					}
 				})
 
-				ui.Text(c, fmtTime(a.Pos)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
-					Width(44).Shrink(0).Center()
+				// mini 的时间标签：9px / 44 列宽（原版 body.mini-mode
+				// #player .player-time 只改字号与 padding，字重/颜色沿用主窗）。
+				a.timeTextAt(c, a.Pos, 9, 44)
 
 				// 与主窗同一套 seek 状态机（见 progress）：拖动中停在目标值，
 				// 松手发 seek、等引擎追上才恢复跟随——否则滑块弹回旧位置。
 				a.miniProgress(c)
 
-				ui.Text(c, fmtTime(a.Dur)).FontSize(9).TextColor(ui.Hex("#334155").Alpha(0.72)).
-					Width(44).Shrink(0).Center()
+				a.timeTextAt(c, a.Dur, 9, 44)
 
 				// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
 				ui.Box(c).Width(34).Shrink(0).Children(func() {
