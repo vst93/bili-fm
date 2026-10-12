@@ -714,3 +714,63 @@ ratio 12 / attack 0 / release 0.25）。它自带**自动补偿增益**（让 0 
 输入仍是 0 dBFS）—— 只抄压缩曲线不抄补偿，就是"一开均衡所有声音变小"。
 起音必须是瞬时的（原版 attack: 0）：用平滑包络会在峰值处停在"较低电平
 对应的高增益"上，把满幅内容抬过 1.0 造成削波。
+
+## mygo v0.4.6 升级评估（2026-10）
+
+`app/go.mod` 从 v0.4.5 升到 **v0.4.6**（`require` 与 `replace` 同步，`go mod tidy`
+后 go.sum 只多两行）。逐条读 release notes 对应 PR 的源码后，本项目实际能用上
+的只有 **#258/#259（裁剪遮罩）**；其余是「用不上」——不是没读，是读完后确认
+自然用点不存在：
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #273 | `package audio` 播放音频 | 我们有自己的 `internal/media`（WSOLA 变速不变调 + 均衡/压缩器 + oto 输出）。`audio` 的 `SetSpeed` 是**变速变调**（像唱片），没有均衡/压缩，替不了核心；`OpenStream` 只吃 `io.ReadSeeker` 的已解码流。只拿它当输出汇，得把整条流水线包成自定义 `Decoder`——大改、无头验证不了（CI 没声卡）、用户可感知收益为零。**不采用** |
+| #258 | 只给需要 transform 的 clip 打遮罩 | **采用（升级即生效）**：抽屉面板/卡片/圆角胶囊数量多，v0.4.5 里只要画面里**任何**一个元素带 transform（比如播放中旋转的唱片），整帧所有圆角 clip 都会被 mask。 |
+| #259 | 遮罩按 run 光栅化、跨帧保留 | **采用（升级即生效）**：实测见下。 |
+| #248 | 文本布局缓存按「最近使用的工作集」保留 | 本项目布局工作集远小于旧的 8MB 预算（300 张卡 + 抽屉实测每帧只新建 0~3 个布局），不触发旧版「顺序复用互相驱逐」。**不采用（无收益）** |
+| #254 | `OnScroll` 让终端接管滚轮 | 只在 `plugins/terminal`，本项目不用终端。**不适用** |
+| #252 | 进场元素跟随不参与动画的布局 | 本项目没有用 `ui.Transition` / `Enter`（抽屉走布局位移、卡片走 `AnimatePose`）。**不适用** |
+| #250 | toast 出现时恢复 popover 焦点 | 音量/倍速弹层是**手绘**的（absolute + scrim），没用 `ui.Popover`；`corePopover` 的焦点恢复不涉及。**不适用** |
+| #247 | Windows 恢复最大化窗口内容 | 主窗没用 `StateKey`（不做窗口状态持久化）。**不适用** |
+| #257 | 只在视图显示焦点时才因焦点变化重绘 | `home.go` 搜索框用了 `FocusWithin()`，`focusRead` 为真，焦点变化仍重绘——对我们无差别。 |
+
+### #258/#259 实测（改前 vs 改后）
+
+无头 `ui.Tester` 用的是**纯 Go 软件光栅器**（`internal/raster`），它不走 GPU 的
+裁剪遮罩路径，所以 app 级的 build/layout/paint/present 看不到这两个 PR 的收益。
+下表是 300 张卡、抽屉滚动、scale 1/2、逐帧帧日志（`MYGO_FRAME_STATS=all
+go test -tags perfmeasure -run TestPerfNoCovers`）的聚合：
+
+| 版本 | present avg / p50 | build avg | layout avg | paint avg | scroll（一次 Scroll 含 settle） |
+|---|---|---|---|---|---|
+| v0.4.5 | 65.0 / 53.9 ms | 0.30 | 0.40 | 0.17 | 695.9 / 808.5 ms |
+| v0.4.6 | 56.0 / 43.5 ms | 0.26 | 0.34 | 0.15 | 639.0 / 793.8 ms |
+
+差异在噪声范围内（软件光栅器两版逐字节一致）。
+
+这两个 PR 真正改的是 GPU 路径（`internal/gpu`）里 `raster.ClipMask` 的光栅化
+算法。用 mygo 自己的 `BenchmarkClipMaskRoundedCard`（同机同场景：3400×2000 圆角
+卡 @2x + 嵌套 cell）对两版源码直接实测：
+
+| 遮罩 | v0.4.5（逐像素） | v0.4.6（按 run） | 提速 |
+|---|---|---|---|
+| 圆角卡 3400×2000 | 123.3 ms | 1.94 ms | ~63× |
+| 嵌套 cell 1900×64 | 4.12 ms | 0.011 ms | ~370× |
+
+复现（在模块缓存里直接跑，不改仓库；v0.4.5 需先把同场景 benchmark 拷进源码副本）：
+
+```sh
+(cd "$(go env GOMODCACHE)/github.com/egoist/mygo@v0.4.6" && \
+  GOFLAGS=-mod=mod GOPROXY=off go test -run x -bench BenchmarkClipMaskRoundedCard -benchtime 20x ./internal/raster/)
+```
+
+`#259` 的「跨帧保留」在 GPU 里是 `idleMaskBytes = 32MB` 的 LRU 遮罩槽：变换元素
+来了又走时不再重光栅化，slot 也从「按下标」改成「按 shape+area」，抽屉开合导致
+clip 顺序变化时不会整批失效。
+
+### 顺手修的测量 bug
+
+`perf_measure_test.go` 原来把 `tst.Scroll(...)` 之后那次 `tst.Frame()` 计时——
+但 `Scroll` 自己已经 settle（真的渲染了那一帧），后面那次 Frame 是场景没变的
+**空帧**（实测 ~0.5ms）。所以旧的 scroll 数字（1.4ms）其实什么都没量。现在计时
+包住 `Scroll` 本身，scroll 数字变成真实的渲染成本（~640–800ms，软件光栅）。

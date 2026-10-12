@@ -104,7 +104,10 @@ func (s perfSum) log(t *testing.T, label string) {
 		float64(s.worst.Microseconds())/1000)
 }
 
-// measure 跑 span 帧，逐帧计总耗时（一次 Tester.Frame 直到视图稳定）。
+// measure 跑 frames 帧，逐帧计总耗时。注意：场景不变时 Tester.Frame 走的是
+// 「没有损伤、present 几乎为零」的空帧（实测 ~0.5ms），这里量的是空帧成本；
+// 真正渲染那一帧的成本要用 Scroll（它自己 settle）或帧日志里的
+// build/layout/paint/present 拆分来看。
 func measure(tst *ui.Tester, frames int) perfSum {
 	var s perfSum
 	for i := 0; i < frames; i++ {
@@ -131,9 +134,10 @@ func TestPerfDrawerAndScroll(t *testing.T) {
 			steady := measure(tst, 20)
 			var scroll perfSum
 			for i := 0; i < 30; i++ {
-				tst.Scroll(400, 300, 0, 120)
+				// Scroll 自己会 settle（这一帧真的重绘），计时必须包住它；
+				// 它后面那次 Frame 是场景没变的空帧，计它等于什么都没量。
 				start := time.Now()
-				tst.Frame()
+				tst.Scroll(400, 300, 0, 120)
 				scroll.add(time.Since(start))
 			}
 			t.Logf("=== scale=%.0f ambient=%v", scale, ambient)
@@ -179,9 +183,8 @@ func perfNoCovers(t *testing.T, scale float32) {
 	steady := measure(tst, 20)
 	var scroll perfSum
 	for i := 0; i < 30; i++ {
-		tst.Scroll(400, 300, 0, 120)
 		start := time.Now()
-		tst.Frame()
+		tst.Scroll(400, 300, 0, 120)
 		scroll.add(time.Since(start))
 	}
 	t.Logf("=== no covers scale=%.0f", scale)
