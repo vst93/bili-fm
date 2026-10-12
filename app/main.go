@@ -544,9 +544,14 @@ func (c *controller) wireActions() {
 		ShowShortcuts:   c.showShortcuts,
 		CheckUpdate:     c.checkUpdate,
 		CloseModal:      c.closeModal,
-		SetCoverMode:    c.setCoverMode,
-		ToggleAmbient:   c.toggleAmbient,
-		TogglePremium:   c.togglePremium,
+		// 主区的点赞 / 投币 / 收藏三个按钮走这里。漏接的话按钮看着能点、
+		// 点了却什么都不发生（Act 为 nil，statButton 会静默跳过）。
+		Like:          c.like,
+		Coin:          c.coin,
+		Favorite:      c.favorite,
+		SetCoverMode:  c.setCoverMode,
+		ToggleAmbient: c.toggleAmbient,
+		TogglePremium: c.togglePremium,
 		// 从播放列表抽屉里点某一行：播完保持抽屉打开（要接着挑）。
 		PlayPlaylist:       func(list string, index int) { c.playPlaylist(list, index, true) },
 		DeletePlaylistItem: c.deletePlaylistItem,

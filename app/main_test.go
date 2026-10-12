@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,25 @@ import (
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
+
+// TestWireActionsWiresEverything 用反射钉住 wireActions 把 Actions 的**每个**
+// 字段都接上了。漏接在界面上表现为「按钮看着能点、点了什么都不发生」——
+// 编译器不会报错、已有的界面测试也不会挂（它们自己把 Act 填好了）。
+//
+// 真发生过：主区的点赞 / 投币 / 收藏一直指向 view.Actions 的 Like/Coin/Favorite，
+// 而 wireActions 从没给这三个字段赋过值（Act 为 nil，statButton 会静默跳过）。
+func TestWireActionsWiresEverything(t *testing.T) {
+	c := &controller{app: &view.App{}}
+	c.wireActions()
+	v := reflect.ValueOf(c.app.Act)
+	tp := v.Type()
+	for i := 0; i < tp.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() == reflect.Func && f.IsNil() {
+			t.Errorf("Actions.%s 没有接线（对应控件会静默失效）", tp.Field(i).Name)
+		}
+	}
+}
 
 func TestParseDurText(t *testing.T) {
 	cases := map[string]int64{

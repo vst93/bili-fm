@@ -309,7 +309,6 @@ type Actions struct {
 	Like          func()
 	Coin          func()
 	Favorite      func()
-	Follow        func()
 	Quit          func()
 	Minimize      func()
 	SetMini       func(on bool)
@@ -332,7 +331,6 @@ type Actions struct {
 	LoadComments     func(page int)
 	// RemoveWatchLater 把一条从「稍后再看」移除（原版 historyList 的移除键）。
 	RemoveWatchLater func(aid int64)
-	SaveQueue        func()
 }
 
 // App 是主窗口的全部状态。
