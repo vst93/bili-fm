@@ -181,6 +181,7 @@ type Collaborator struct {
 	Mid   int64
 	Name  string
 	Title string
+	Face  string
 }
 
 // 抽屉的 key。Drawer 为空表示没有抽屉打开；分区抽屉直接用分区的 key。
@@ -438,9 +439,14 @@ type App struct {
 	Buffering bool
 
 	// 分集 / 弹幕 / 评论 / 详情
-	Info     *Info
-	Danmaku  []Danmaku
-	Comments []Comment
+	Info *Info
+	// CollabMid 是合作视频里用户选中的参与 UP 主（0 = 未选，显示主 UP）。
+	// CollabFor 记它属于哪条视频（bvid）：换视频后选择自动失效 —— 对应原版
+	// videoInfo 在 bvid 变化时 `setSelectedOwner(null)`。
+	CollabMid int64
+	CollabFor string
+	Danmaku   []Danmaku
+	Comments  []Comment
 
 	// 弹幕/评论抽屉：DanmakuTab 是当前 tab；DanmakuAutoScroll 是自动跟随
 	// 当前播放时间；Reply* 是评论分页状态。
@@ -802,6 +808,8 @@ var (
 	iconSparkles = icon(`<path d="M6.4 10.2A1.5 1.5 0 0 0 5.3 9.1L1.6 8a.4.4 0 0 1 0-.7l3.7-1.1A1.5 1.5 0 0 0 6.4 5.1l1.1-3.7a.4.4 0 0 1 .7 0l1.1 3.7a1.5 1.5 0 0 0 1.1 1.1l3.7 1.1a.4.4 0 0 1 0 .7l-3.7 1.1a1.5 1.5 0 0 0-1.1 1.1l-1.1 3.7a.4.4 0 0 1-.7 0z"/><path d="M13 2v2.4M14.2 3.2h-2.4"/>`)
 	iconFollow   = icon(`<path d="M8 3.6v8.8M3.6 8h8.8"/>`)
 	iconFollowed = icon(`<path d="M3.4 8.4l3 3 6.2-6.8"/>`)
+	// 合作 UP 主选择键（原版 icon-park 的 Peoples）：两个人形。
+	iconPeoples = icon(`<circle cx="6" cy="5.6" r="2.3"/><path d="M2.2 13.2c0-2.1 1.7-3.7 3.8-3.7s3.8 1.6 3.8 3.7"/><circle cx="11.6" cy="4.6" r="1.7"/><path d="M10.9 10c1.6.2 2.9 1.6 2.9 3.2"/>`)
 	// 定位当前（FocusOne）。
 	iconLocate = icon(`<circle cx="8" cy="8" r="3"/><path d="M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2"/>`)
 	// 播放列表：播放模式 / 删除 / 添加 / 已添加 / 上移下移。

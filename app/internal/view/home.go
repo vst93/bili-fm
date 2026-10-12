@@ -482,55 +482,85 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				if name.Clicked() {
 					a.openUp()
 				}
-				// 合作视频角标（原版只在详情页有 staff 字段时显示）。
+				// 合作视频：UP 主名字旁的选择键（原版只有 staff 非空、
+				// creators.length > 1 时才画）。
 				if a.Info != nil && len(a.Info.Staff) > 1 {
-					a.collabBadge(c)
+					a.collabPicker(c)
 				}
 			})
 		})
 	})
 }
 
-// collabBadge 是合作视频角标：点击展开参与 UP 主列表，选一个进 TA 的空间
-// （原版 videoInfo 的选择合作 UP 主菜单）。
-func (a *App) collabBadge(c *ui.Context) {
-	b := ui.Box(c).Height(20).Padding(0, 7).Radius(4).Center().
-		Background(ui.Hex("#0284c7").Alpha(0.14)).
-		Border(1, ui.Hex("#0284c7").Alpha(0.30)).
-		Cursor(ui.CursorPointer).
-		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", len(a.Info.Staff)))
-	if hover := b.Hovered(); hover {
-		b.Background(ui.Hex("#0284c7").Alpha(0.24))
-	}
+// collabPicker 是合作视频的「选择合作 UP 主」键（原版 videoInfo 的
+// `.nav-icon-btn.video-owner-picker-button`：32×32 图标钮 + Peoples size 18，
+// 悬停铺 `--glass-bg-hover`；点开列出全部参与者，选一个就把面板显示的
+// UP 主换成 TA 并打开 TA 的空间）。
+func (a *App) collabPicker(c *ui.Context) {
+	t := a.Theme
+	n := len(a.Info.Staff)
+	// 原版 .nav-icon-btn：32×32、圆角 7、常态透明、hover 玻璃底 + 图标变蓝。
+	b := ui.ButtonBase(c.Key("owner-picker")).Size(32, 32).Radius(DockIconR).Center().
+		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", n))
+	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	pressPose(b)
 	b.Children(func() {
-		ui.Text(c, fmt.Sprintf("合作 %d 人", len(a.Info.Staff))).FontSize(10).Bold().
-			TextColor(ui.Hex("#0369a1"))
+		// 原版 .nav-icon-btn 常态图标色 #475569，悬停只换底色、不改图标色
+		//（只有菜单展开时 [aria-expanded] 才转蓝，mygo 拿不到菜单开合状态）。
+		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(ui.Hex("#475569"))
 	})
 	b.Menu(func(m *ui.Menu) {
 		for _, st := range a.Info.Staff {
-			st := st
 			label := st.Name
 			if st.Title != "" {
 				label = st.Title + " · " + st.Name
 			}
-			if m.Item(label).Chosen() && a.Act.OpenUp != nil {
-				a.Act.OpenUp(st.Mid, st.Name)
+			// 原版菜单选中项是蓝字（.video-owner-picker-item[aria-checked]）。
+			if st.Mid == a.CollabMid && a.CollabFor == a.Info.Bvid {
+				label = "✓ " + label
+			}
+			if m.Item(label).Chosen() {
+				// 选中后显示的是 TA（原版 setSelectedOwner），并立刻打开空间。
+				a.CollabMid, a.CollabFor = st.Mid, a.Info.Bvid
+				if a.Act.OpenUp != nil {
+					a.Act.OpenUp(st.Mid, st.Name)
+				}
 			}
 		}
 	})
 }
 
-// openUp 打开当前视频 UP 主的空间。没有 mid 就什么都不做。
+// collabOwner 返回用户在合作视频里选中的参与 UP 主。没选过、选的不在当前
+// 视频里（换了视频）都不算，退回主 UP —— 对应原版 videoInfo 的 displayedOwner
+// （`creators.find(c => c.mid === selectedOwner?.mid) || creators[0]`）。
+func (a *App) collabOwner() (Collaborator, bool) {
+	if a.Info == nil || a.CollabMid == 0 || a.CollabFor != a.Info.Bvid {
+		return Collaborator{}, false
+	}
+	for _, st := range a.Info.Staff {
+		if st.Mid == a.CollabMid {
+			return st, true
+		}
+	}
+	return Collaborator{}, false
+}
+
+// openUp 打开当前面板显示的那个 UP 主的空间（合作视频里选过就是选中的那位）。
+// 没有 mid 就提示一下。
 func (a *App) openUp() {
 	var mid int64
-	if a.Info != nil {
+	name := a.ownerName()
+	if st, ok := a.collabOwner(); ok {
+		mid = st.Mid
+		name = st.Name
+	} else if a.Info != nil {
 		mid = a.Info.OwnerMid
 	}
 	if mid == 0 || a.Act.OpenUp == nil {
 		a.NotifyType("warning", "该视频没有可用的 UP 主空间")
 		return
 	}
-	a.Act.OpenUp(mid, a.ownerName())
+	a.Act.OpenUp(mid, name)
 }
 
 // partPill 是选集胶囊（.video-part-pill）：小圆点 + 来源 + 分集标题。
@@ -572,9 +602,9 @@ func (a *App) contentActions(c *ui.Context) {
 	// 不看计数：计数 0 是完全正常的状态（新视频的投币数就是 0），
 	// 之前用「计数文案为空」当禁用判据，会把 0 币的视频的投币键锁死。
 	var bvid string
-	var aid int64
+	var aid, cid int64
 	if a.Info != nil {
-		bvid, aid = a.Info.Bvid, a.Info.Aid
+		bvid, aid, cid = a.Info.Bvid, a.Info.Aid, a.Info.Cid
 	}
 	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
 	// 底部 14px 是给绝对定位的计数留的位置（这里用等高的计数行实现）。
@@ -603,7 +633,7 @@ func (a *App) contentActions(c *ui.Context) {
 			// 否则会用上一条视频的状态误操作。
 			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
 		})
-		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 20, func() {
+		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 20, bvid == "", func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
@@ -617,7 +647,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.contentIconButton(c, "video", "视频播放", iconVideo, 20, func() {
+		a.contentIconButton(c, "video", "视频播放", iconVideo, 20, bvid == "", func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {
 					a.Act.CloseVideo()
@@ -626,7 +656,8 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenVideo()
 			}
 		})
-		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 20, a.openDanmaku)
+		// 弹幕/评论按 `!cid` 置灰（原版 disabled={!cid}）。
+		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 20, cid == 0, a.openDanmaku)
 	})
 }
 
@@ -634,6 +665,11 @@ func (a *App) contentActions(c *ui.Context) {
 // 搜索结果 / 选集 / 合集 / 播放列表（旧版四个）。
 func (a *App) contextDock(c *ui.Context) {
 	t := a.Theme
+	// 原版 `bvid = displayVideoInfo?.bvid`：没有视频详情时「选集」是禁用态。
+	var bvid string
+	if a.Info != nil {
+		bvid = a.Info.Bvid
+	}
 	ui.Row(c).Margin(12, 0, 0, 0).Padding(3).Radius(10).Gap(2).AlignItems(ui.Center).
 		Background(ui.Hex("#0f172a").Alpha(0.03)).
 		Border(1, ui.Hex("#64748b").Alpha(0.14)).
@@ -645,11 +681,13 @@ func (a *App) contextDock(c *ui.Context) {
 		})
 		disableNav(sr, len(a.ListFor(DrawerSearch).Cards) == 0)
 		// 选集：非播放列表模式且有视频时图标是蓝色（原版 fill 逻辑）。
+		// 禁用判据同原版 `disabled={!bvid}`。
 		partsInk := ui.Color{}
 		if a.PlayingPlaylist == "" && a.Track != nil {
 			partsInk = t.Blue
 		}
-		a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, a.openParts)
+		parts := a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, a.openParts)
+		disableNav(parts, bvid == "")
 		// 合集：还没选过合集时禁用。
 		series := a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.openSeries)
 		disableNav(series, a.SeriesID == 0)
@@ -843,11 +881,13 @@ func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, size floa
 }
 
 // contentIconButton 是内容操作行的图标钮（.video-content-actions .nav-icon-btn）：
-// 34×34、圆角 8（比工具条的 7 大）。
-func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, fn func()) ui.Element {
+// 34×34、圆角 8（比工具条的 7 大）。off 为真时按原版 `.nav-icon-btn:disabled`
+// 置灰（浏览器打开 / 视频播放按 `!bvid`、弹幕/评论按 `!cid`）。
+func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, off bool, fn func()) ui.Element {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ContentIcon, ContentIcon).Radius(ContentIconR).
 		Center().Label(label).Tooltip(label)
+	disableNav(b, off)
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
 	if b.Clicked() && fn != nil {
@@ -896,6 +936,10 @@ func (a *App) infoDesc() string {
 }
 
 func (a *App) ownerName() string {
+	// 合作视频里选过参与者就显示 TA（原版 displayedOwner）。
+	if st, ok := a.collabOwner(); ok && st.Name != "" {
+		return st.Name
+	}
 	if a.Info != nil && a.Info.OwnerName != "" {
 		return a.Info.OwnerName
 	}
@@ -906,6 +950,9 @@ func (a *App) ownerName() string {
 }
 
 func (a *App) ownerFace() string {
+	if st, ok := a.collabOwner(); ok && st.Face != "" {
+		return st.Face
+	}
 	if a.Info != nil {
 		return a.Info.OwnerFace
 	}

@@ -323,10 +323,14 @@ rotate 传给 `drawIcon`，`kindImage`（位图）走 `p.image()` 完全不带�
 
 ### 还没做（下一批）
 
-- **玻璃材质**：mygo 有 `plugins/glass`（真 Liquid Glass），现在还是「半透明
-  填充 + 1px 亮边 + `glass.Blur` 氛围光」的近似。抽屉/药丸可以再换真的。
-- **合作视频 badge / 选择合作 UP 主**：仅详情页有判据（staff 非空），未做。
-- **播放缓冲指示**：`media` 是按需 Range 读，没有现成的 buffered 区间。
+- **玻璃材质**：已用上 `plugins/glass`（真 Liquid Glass）——搜索药丸、播放栏、
+  弹窗、toast、迷你窗都是 `glass.Glass{}`；只有抽屉面板为性能降级成半透明填充
+  （原版那层 `backdrop-filter` 在软件光栅下每帧重算，见「材质策略」一节）。
+- ~~**合作视频 badge / 选择合作 UP 主**~~：**已完成**（`collabPicker`）：详情页
+  `staff > 1` 时在 UP 名字旁画 `Peoples` 图标键，菜单列出全部参与者（主 UP +
+  联合投稿者），选一个就把面板显示的 UP 主换成 TA 并打开 TA 的空间 —— 对齐原版
+  `videoInfo` 的 `displayedOwner`。
+- ~~**播放缓冲指示**~~：**已完成**（`Player.Buffered()` + 进度条缓冲层）。
 
 ### 调试开关（为了截图对照）
 

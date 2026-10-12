@@ -1746,6 +1746,7 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 		info.Staff = append(info.Staff, view.Collaborator{
 			Mid:  int64(vi.OwnerMid),
 			Name: vi.OwnerName,
+			Face: vi.OwnerFace,
 		})
 	}
 	for _, st := range vi.Staff {
@@ -1754,7 +1755,7 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 			continue
 		}
 		seenMid[mid] = true
-		info.Staff = append(info.Staff, view.Collaborator{Mid: mid, Name: st.Name, Title: st.Title})
+		info.Staff = append(info.Staff, view.Collaborator{Mid: mid, Name: st.Name, Title: st.Title, Face: st.Face})
 	}
 	if len(vi.Pages) > 0 {
 		info.Cid = int64(vi.Pages[0].Cid)
