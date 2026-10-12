@@ -161,9 +161,10 @@ func (a *App) openSection(key string) {
 // 点击登录；已登录时显示头像。
 func (a *App) userButton(c *ui.Context) {
 	t := a.Theme
-	// 圆形头像键：材质用框架玻璃（头像图盖在上面时玻璃只做边缘）。
+	// 圆形头像键：半透明填充 + 白边（原版 .home-user-button 无 backdrop-filter）。
 	b := ui.ButtonBase(c.Key("user")).Size(AvatarSize, AvatarSize).Radius(RadiusPill).
-		Center().Clip().Material(glass.Glass{}).
+		Center().Clip().Background(ui.Hex("#ffffff").Alpha(0.32)).
+		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
 		Label(pick(a.LoggedIn, "已登录", "扫码登录")).
 		Tooltip(pick(a.LoggedIn, "已登录 "+a.UName, "扫码登录"))
 	b.Children(func() {
@@ -317,15 +318,19 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active b
 	// 原版：深色半透明圆（rgba(15,23,42,.35)）+ 1px 白边；
 	// 激活改蓝底 rgba(14,165,233,.28) + 浅蓝边 rgba(125,211,252,.45)；
 	// 悬停底色加深到 .55。
-	// 这几个键浮在封面上：用 Clear 玻璃（几乎不染色、只做轻微折射），
-	// 底色靠深色 Tint —— 正是 Clear 这个材质的用途（玻璃压在照片/视频上）。
+	// 这几个键浮在封面上：深色半透明填充 + 1px 白边（原版
+	// .cover-mode-toggle 也没有 backdrop-filter，之前用 Clear 玻璃多算了
+	// 三次 backdrop 重算）。
 	switch {
 	case active:
-		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0ea5e9").Alpha(0.45)})
+		b.Background(ui.Hex("#0ea5e9").Alpha(0.45)).
+			Border(1, ui.Hex("#7dd3fc").Alpha(0.45))
 	case b.Hovered():
-		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.60)})
+		b.Background(ui.Hex("#0f172a").Alpha(0.60)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.28))
 	default:
-		b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.42)})
+		b.Background(ui.Hex("#0f172a").Alpha(0.35)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.20))
 	}
 	b.Children(func() {
 		ink := ui.Hex("#ffffff").Alpha(0.70)
@@ -513,9 +518,13 @@ func (a *App) partPill(c *ui.Context) {
 	// 原版 .video-part-pill：min-height 36、margin-top 12、padding 5 11、
 	// 薄玻璃底 rgba(255,255,255,.15) + 1px 白边（.38）、外侧 0 2px 10px
 	// rgba(15,23,42,.035)、内侧顶部一线高光。
+	// 半透明填充（原版 .video-part-pill 没有 backdrop-filter）：薄白底 +
+	// 1px 白边 + 顶部一线内高光，见上方注释。
 	ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).
-		Material(glass.Glass{}).
+		Background(ui.Hex("#ffffff").Alpha(0.15)).
+		Border(1, ui.Hex("#ffffff").Alpha(0.38)).
+		InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.50)).
 		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
@@ -760,7 +769,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label(spec.Label).Tooltip(spec.Label)
 		disableNav(b, spec.Off)
-		// 材质走框架玻璃；激活（已赞/已投币/已收藏）用该状态的强调色做 Tint。
+		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
 		switch {
 		case spec.Off:
 			b.Background(ui.Transparent)

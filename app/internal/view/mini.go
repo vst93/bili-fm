@@ -146,8 +146,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
-					next.Material(glassTint(false, next.Hovered(),
-						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+					buttonSurface(next, false, next.Hovered(),
+						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
 					next.Children(func() { ui.Icon(c, iconNext).Size(13, 13).TextColor(ui.Hex("#334155")) })
 					if next.Clicked() && a.Act.Next != nil {
 						a.Act.Next()
@@ -170,8 +170,8 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					vol.Material(glassTint(false, vol.Hovered(),
-						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+					buttonSurface(vol, false, vol.Hovered(),
+						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
 					vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume

@@ -91,6 +91,28 @@ func drawerExitDone(exitAt, now time.Time, transitioning bool) bool {
 	return !exitAt.Equal(now) && !transitioning
 }
 
+// drawerStartPose 给出面板这一帧的起始 pose（Y 偏移）以及要不要请框架再建
+// 一帧（`Context.AnimationFrame`）。
+//
+// 入场（entering）：把手面摆到窗口下方 h 处，并请框架多建一帧——下一帧
+// entering 已为假，目标才会变成 0，AnimatePose 于是从 h 弹回 0（只走重绘）。
+//
+// 退场（closing）：目标直接设成 h（AnimatePose 从当前位置续走下滑）。**千万
+// 不能在这里也请 AnimationFrame**：`Context.AnimationFrame` 会把帧标成
+// 「整个视图要重建」（ui/context.go:358 置 rt.animating），而退场期间
+// closing 每帧都为真，于是每一帧都重建整个抽屉视图 + 全窗重绘——退场比入场
+// 还慢（实测无头：退场 16 帧 avg present 897ms、每帧 passes=1）。AnimatePose
+// 自己会走只重绘的 repose 路径（ui/pose.go:124 置 rt.repainting），不需要请帧。
+func drawerStartPose(entering, closing bool, h float32) (y float32, animationFrame bool) {
+	switch {
+	case entering:
+		return h, true
+	case closing:
+		return h, false
+	}
+	return 0, false
+}
+
 // 同一时刻只有一个抽屉打开（App.Drawer）。
 func (a *App) drawer(c *ui.Context) {
 	// 关抽屉时 a.Drawer 被清空，但面板不能瞬间消失：先进入退场（用最后显示
@@ -103,6 +125,12 @@ func (a *App) drawer(c *ui.Context) {
 		}
 		if !a.drawerClosing {
 			a.drawerClosing, a.drawerExitAt = true, c.Now()
+			// 退场一开始就把「已起步的抽屉」清掉：退场走 AnimatePose 的
+			// 只重绘路径（见 drawerStartPose），动效停稳前不会再有 build 帧，
+			// `drawerExitDone` 的收尾会晚一帧。若不在这里清 drawerOpenKey，
+			// 同一抽屉关掉后马上重开会被 drawerEnterStep 当成「不是新抽屉」
+			// 而丢掉入场动画。
+			a.drawerOpenKey = ""
 		}
 	} else {
 		a.drawerShown, a.drawerClosing = a.Drawer, false
@@ -139,15 +167,13 @@ func (a *App) drawer(c *ui.Context) {
 		// **用 AnimatePose，不要用 Translate(AnimateTo)**：AnimateTo 的值要在
 		// 视图里读，意味着动画的每一帧都要重建整个抽屉视图——抽屉正文很重，
 		// 这正是之前入场卡顿的根因（机制同 home.go 唱片那段注释）。
-		// AnimatePose 从第一帧给的 pose 起步，所以起手这一帧先把面板摆到
-		// 底部外，再请框架多建一帧把目标设成 0，之后就只在重绘帧里弹上来。
-		// 退场反过来：目标设成 h，面板滑下去（AnimatePose 从当前位置续走）。
-		enterY := float32(0)
-		if entering || a.drawerClosing {
-			enterY = h
+		// 起始 pose 与「要不要请框架再建一帧」由 drawerStartPose 决定（入场要、
+		// 退场**不要**，否则退场每帧重建，见那里的注释）。
+		y, animFrame := drawerStartPose(entering, a.drawerClosing, h)
+		if animFrame {
 			c.AnimationFrame()
 		}
-		panel.AnimatePose(ui.Pose{Y: enterY}, ui.Snappy)
+		panel.AnimatePose(ui.Pose{Y: y}, ui.Snappy)
 		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
 		// 更内层的交互元素，不会抢走手势）往下拖，松手弹回或被甩到底关闭。
 		// 偏移叠在入场 Pose 之上，所以入场动画不受影响。
@@ -230,7 +256,7 @@ func (a *App) drawerHeader(c *ui.Context) {
 		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(ToolButtonR).Center().
 			Label("关闭").Tooltip("关闭")
 		if b.Hovered() {
-			b.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.30)})
+			buttonSurface(b, false, true, ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 		}
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
@@ -309,8 +335,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
-			b.Material(glassTint(false, b.Hovered(),
-				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+			buttonSurface(b, false, b.Hovered(),
+				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 					ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
@@ -342,8 +368,8 @@ func (a *App) upHeader(c *ui.Context) {
 	label := pick(a.UpFollowed, "已关注", "关注")
 	b := ui.ButtonBase(c.Key("up-follow")).MinWidth(70).Height(32).Padding(0, 12).
 		Radius(Radius).Center().Label(label)
-	b.Material(glassTint(false, b.Hovered(),
-		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+	buttonSurface(b, false, b.Hovered(),
+		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// 原版：关注态是 Close #666 + 默认字色；未关注是 Add + text-primary。
@@ -374,9 +400,9 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(92).Height(32).Padding(0, 8).
 		Radius(Radius).Label("隐身").Tooltip("开启后不读取或上报云端播放记录与进度")
-	// 材质走框架玻璃；开启隐身时用青色 Tint 表达（原版是 rgba(207,250,254,.5) 底）。
-	b.Material(glassTint(a.Incognito, b.Hovered(),
-		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30))).
+	// 半透明填充；开启隐身时用青色底表达（原版是 rgba(207,250,254,.5) 底）。
+	buttonSurface(b, a.Incognito, b.Hovered(),
+		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
 		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
 	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
 	b.Children(func() {
@@ -452,9 +478,9 @@ func (a *App) tabs(c *ui.Context, group string, items []tabItem, selected string
 func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect func(string)) {
 	b := ui.ButtonBase(c.Key("tab-"+group+"-"+it.Key)).Height(32).Padding(0, 14).
 		Radius(Radius).Center().Label(it.Label)
-	// 材质交给框架玻璃（选中态更实一点 = Tint 更亮），不再手搓半透明白 + 描边。
-	b.Material(glassTint(active, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30)))
+	// 半透明填充（选中态更实一点 = 底色更亮），不再用 Backdrop 真玻璃。
+	buttonSurface(b, active, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
 	pressPose(b)
 	b.Children(func() {
 		// 原版 tab：13px / 600；选中 #0369a1，悬停（未选中）#334155。
@@ -485,8 +511,8 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 	label := fmt.Sprintf("%s (%d)", f.Title, f.Count)
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("folder-%d", f.ID))).Height(32).Padding(0, 14).
 		Radius(Radius).Center().Label(label)
-	b.Material(glassTint(active, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30)))
+	buttonSurface(b, active, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).Bold().SingleLine().MaxWidth(180).
 			TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))
@@ -502,8 +528,8 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 // 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
 func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
-	b.Material(glassTint(false, b.Hovered(),
-		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+	buttonSurface(b, false, b.Hovered(),
+		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	pressPose(b)
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
 	if b.Clicked() {
@@ -621,20 +647,22 @@ func (a *App) seriesListBody(c *ui.Context) {
 func (a *App) seriesChip(c *ui.Context, s Series) {
 	t := a.Theme
 	active := s.ID == a.SeriesID
-	// 原版是抽屉里的 Card（与视频卡片同一套玻璃材质），当前合集加 2px 主色边。
+	// 原版是抽屉里的 Card（与视频卡片同一套半透明填充），当前合集加 2px 主色边。
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("series-%d", s.ID))).FillWidth().
 		Padding(8).Radius(12).AlignItems(ui.Start)
-	// 与列表卡片同一套：框架玻璃 + 当前项 2px 主色边。
+	// 与列表卡片同一套半透明填充（不是 Backdrop 真玻璃）+ 当前项 2px 主色边。
 	switch {
 	case active:
-		b.Material(glass.Glass{Tint: ui.Hex("#006FEE").Alpha(0.18)}).
+		b.Background(ui.Hex("#006FEE").Alpha(0.18)).
 			Border(2, ui.Hex("#006FEE"))
 	case b.Hovered():
-		b.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)}).
+		b.Background(t.GlassHover).
 			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		b.Material(glass.Glass{}).
+		b.Background(t.Glass).
+			Border(1, t.GlassBorder).
+			InsetShadow(0, 1, 1, 0, t.Highlight).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 	b.Children(func() {
@@ -689,7 +717,7 @@ func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
 // cardGridCols 张卡，行高由框架量（卡片封面 100 + 单行标题，所以每排等高）。
 //
 // 之前这里是 ui.Column 逐行构建：滚动时视图每帧重建，会把**所有**卡片（含
-// 几百张）连同玻璃材质一起重建——这是「订阅/动态」等列表滚动卡顿的根因
+// 几百张）连同各自的材质一起重建——这是「订阅/动态」等列表滚动卡顿的根因
 // （与上一轮弹幕列表恢复 ui.List 同一机制，见 danmakuBody）。ui.List 只建
 // 可见的几排。
 func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
@@ -850,8 +878,9 @@ func (a *App) card(c *ui.Context, index int) {
 				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
 			b.Disabled(pending)
 			b.Absolute().Right(4).Top(4)
-			b.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
-				pick(b.Hovered(), float32(0.62), float32(0.45)))})
+			b.Background(ui.Hex("#0f172a").Alpha(
+				pick(b.Hovered(), float32(0.62), float32(0.45)))).
+				Border(1, ui.Hex("#ffffff").Alpha(0.20))
 			b.Children(func() {
 				ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
 			})
@@ -978,22 +1007,38 @@ type cardSpec struct {
 func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	t := a.Theme
 	// 原版抽屉卡片（globals.css 的 [role=button][class*=bg-content]）：
-	// 圆角 12、玻璃底、封面通栏（.img-container 高 100）、页脚另有一层浅底。
+	// 圆角 12、半透明填充（近似玻璃底）、封面通栏（.img-container 高 100）、
+	// 页脚另有一层浅底。
 	box := ui.Column(c).Key(spec.Key).Grow(1).Basis(0).
 		Radius(12).Clip().Cursor(ui.CursorPointer)
+	// 卡片是**半透明填充**，不是真玻璃（每张卡一次 backdrop 重算）。
+	//
+	// 原版 globals.css `[data-slot="wrapper"] [role="button"][class*="bg-content"]`
+	// 用的是 `background: var(--glass-bg)`（半透明白 0.24）+ 1px 玻璃边 +
+	// inset 高光/内影 + 小投影，**整条规则里没有 backdrop-filter**——卡片浮在抽屉
+	// 面板（面板才是有 backdrop-filter 的真玻璃）的模糊之上。
+	// 之前这里误用了框架的 `glass.Glass{}`（Backdrop 后处理）：每张可见卡都多出
+	// 一次 backdrop 采样/模糊（macOS 上每次一个 render pass + 目标 reload），
+	// 一屏 12 张卡就是 12 次——这是抽屉滚动/入场卡顿的主要来源（实测抽屉帧的
+	// Backdrop 效果 24 个里 12 个来自卡片）。改回原版的填充近似后与抽屉面板的
+	// 模糊叠一起，观感一致而少 12 次 backdrop 重算。
 	switch {
 	case spec.Active:
 		// 原版选集卡片的在播态就是 border-2 border-[#0284c7]。
-		box.Material(glass.Glass{Tint: t.Blue.Alpha(0.20)}).
+		box.Background(t.Blue.Alpha(0.22)).
 			Border(2, ui.Hex("#0284c7")).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	case box.Hovered():
-		box.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.20)}).
+		box.Background(t.GlassHover).
 			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.80)).
 			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		box.Material(glass.Glass{}).
+		box.Background(t.Glass).
+			Border(1, t.GlassBorder).
+			InsetShadow(0, 1, 1, 0, t.Highlight).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
@@ -1129,7 +1174,8 @@ func pubdateFit(c *ui.Context, value string, avail float32, now time.Time) strin
 func (a *App) playingBadge(c *ui.Context) {
 	ui.Row(c).Absolute().Left(6).Top(6).Height(22).Padding(0, 8, 0, 7).
 		Radius(RadiusPill).Gap(5).AlignItems(ui.Center).
-		Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(0.58)}).Children(func() {
+		Background(ui.Hex("#0f172a").Alpha(0.55)).
+		Border(1, ui.Hex("#ffffff").Alpha(0.20)).Children(func() {
 		ui.Row(c).Gap(2).AlignItems(ui.End).Height(10).Children(func() {
 			for _, h := range []float32{4, 9, 6} {
 				ui.Box(c).Width(2).Height(h).Radius(1).
@@ -1187,8 +1233,8 @@ func (a *App) partsHeader(c *ui.Context) {
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加")
-		b.Material(glassTint(false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+		buttonSurface(b, false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconAdd).Size(16, 16).TextColor(ui.Hex("#475569"))
@@ -1267,9 +1313,10 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			add := ui.ButtonBase(c.Key(fmt.Sprintf("part-add-%d", p.Cid))).
 				Size(24, 24).Radius(RadiusPill).Center().Label(label).Tooltip(label)
 			add.Absolute().Right(4).Top(4)
-			// 压在封面上：Clear 玻璃 + 深色 Tint（与封面上的三个开关同一套）。
-			add.Material(glass.Glass{Style: glass.Clear, Tint: ui.Hex("#0f172a").Alpha(
-				pick(add.Hovered(), float32(0.62), float32(0.45)))})
+			// 压在封面上：深色半透明填充（不是 backdrop 真玻璃）。
+			add.Background(ui.Hex("#0f172a").Alpha(
+				pick(add.Hovered(), float32(0.62), float32(0.45)))).
+				Border(1, ui.Hex("#ffffff").Alpha(0.20))
 			add.Children(func() {
 				ui.Icon(c, pick(inList, iconCheck, iconAdd)).Size(13, 13).
 					TextColor(pick(inList, ui.Hex("#4ade80"), ui.Hex("#ffffff")))
@@ -1340,13 +1387,13 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 		Center().Label(label).Tooltip(label)
 	if a.DanmakuAutoScroll {
 		// .danmaku-follow-btn.is-active：蓝边 + 淡蓝渐变底 + 蓝字 + 2px 蓝晕。
-		b.Material(glassTint(true, b.Hovered(),
-			ui.Hex("#0ea5e9").Alpha(0.24), ui.Hex("#0ea5e9").Alpha(0.24))).
+		buttonSurface(b, true, b.Hovered(),
+			ui.Hex("#0ea5e9").Alpha(0.24), ui.Hex("#0ea5e9").Alpha(0.24)).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
 			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
 	} else {
-		b.Material(glassTint(false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))).
+		buttonSurface(b, false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)).
 			Border(1, ui.Hex("#64748b").Alpha(0.22))
 	}
 	pressPose(b)
@@ -1597,16 +1644,17 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 					Height(27).Padding(3, 7, 3, 9).Gap(5).
 					Radius(8).AlignItems(ui.Center).
-					// 材质走框架玻璃（原版是白色半透明小胶囊）。
-					Material(glass.Glass{}).
+					// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
+					Background(ui.Hex("#ffffff").Alpha(0.42)).
+					Border(1, ui.Hex("#ffffff").Alpha(0.50)).
 					Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
 				switch {
 				case isCur:
-					chip.Material(glass.Glass{Tint: ui.Hex("#0ea5e9").Alpha(0.20)}).
+					chip.Background(ui.Hex("#0ea5e9").Alpha(0.20)).
 						Border(1, t.Blue.Alpha(0.48)).
 						Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
 				case box.Hovered():
-					chip.Material(glass.Glass{Tint: ui.Hex("#ffffff").Alpha(0.22)})
+					chip.Background(ui.Hex("#ffffff").Alpha(0.22))
 				}
 				chip.Children(func() {
 					// .danmaku-message-text：13px / 650 / 单行截断。

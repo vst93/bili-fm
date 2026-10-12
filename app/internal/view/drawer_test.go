@@ -339,3 +339,89 @@ func TestCardGridVirtualized(t *testing.T) {
 		t.Fatal("滚走后顶部卡片应被虚拟化回收")
 	}
 }
+
+// TestDrawerStartPose 钉住入/退场的起手 pose 与「要不要请框架再建一帧」。
+//
+// 入场要 AnimationFrame：起手帧把面板摆到 h，请框架再建一帧，下一帧目标才
+// 变成 0，AnimatePose 从 h 弹回 0。
+//
+// 退场**绝不能**要 AnimationFrame：`Context.AnimationFrame` 会把帧标成
+// 「整个视图要重建」（它会置 rt.animating），而退场期间 `a.drawerClosing`
+// 每帧都为真——一旦每帧都请帧，退场就会每帧重建整个抽屉视图（实测无头退场
+// 每帧 passes=1、avg present 897ms）。退场只设目标，交给 AnimatePose 走
+// 只重绘的 repose 路径。
+func TestDrawerStartPose(t *testing.T) {
+	const h float32 = 400
+	cases := []struct {
+		entering, closing bool
+		wantY             float32
+		wantFrame         bool
+	}{
+		{true, false, h, true},   // 入场：摆到底部外 + 请帧
+		{false, true, h, false},  // 退场：目标设到 h，但不请帧（关键）
+		{false, false, 0, false}, // 稳定在贴底
+	}
+	for _, c := range cases {
+		y, frame := drawerStartPose(c.entering, c.closing, h)
+		if y != c.wantY || frame != c.wantFrame {
+			t.Errorf("drawerStartPose(%v, %v, %v) = (%v, %v), want (%v, %v)",
+				c.entering, c.closing, h, y, frame, c.wantY, c.wantFrame)
+		}
+	}
+}
+
+// TestDrawerExitKeepsPanel 钉住「退场有过渡、不瞬间消失」：关掉抽屉后的
+// 第一帧，面板还要继续渲染（下滑淡出），而不是当即被移出视图。之前退场
+// 有一个更严重的 bug——退场每帧都请 `AnimationFrame`，导致每帧重建整个
+// 抽屉视图（见 drawerStartPose 注释）；这条测试至少锁住「不瞬间消失」。
+func TestDrawerExitKeepsPanel(t *testing.T) {
+	a := NewApp(func() {})
+	l := a.ListFor("feed")
+	l.Cards = make([]Card, 6)
+	for i := range l.Cards {
+		l.Cards[i] = Card{Bvid: fmt.Sprintf("BV%02d", i), Title: fmt.Sprintf("标题%d", i)}
+	}
+	a.Drawer = "feed"
+
+	// 小窗口让每帧足够快：退场动画按真实时钟走，settle 的 20 帧远达不到
+	// 动效时长，所以帧末面板仍在过渡中。
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 500, 400)
+	tst.Frame()
+	if !tst.HasText("标题0") {
+		t.Fatal("抽屉打开时应有卡片")
+	}
+	a.Drawer = ""
+	tst.Frame()
+	if !tst.HasText("标题0") {
+		t.Fatal("关抽屉后第一帧面板就消失（退场过渡丢失）")
+	}
+}
+
+// TestDrawerExitState 钉住退场的状态收尾：退场一开始就清掉 drawerOpenKey
+// （否则同一抽屉关掉后马上重开会没有入场动画——退场走只重绘路径后，收尾会
+// 晚一帧，见 drawerStartPose），并且面板停稳后最终真的被移出视图
+// （drawerShown 清空），不会一直留在场景里。
+func TestDrawerExitState(t *testing.T) {
+	a := NewApp(func() {})
+	l := a.ListFor("feed")
+	l.Cards = []Card{{Bvid: "BV1", Title: "标题"}}
+	a.Drawer = "feed"
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 500, 400)
+	tst.Frame()
+
+	a.Drawer = ""
+	tst.Frame()
+	if a.drawerOpenKey != "" {
+		t.Fatal("退场开始后 drawerOpenKey 应为空，否则同一抽屉重开没有入场动画")
+	}
+	// 再跑几帧，退场应停稳并收尾（drawerShown 清空）。动效按真实时钟走：
+	// ui.Snappy 的弹簧约 500ms 的程、~1.1s 停稳，每帧之间等一下让它真的停下。
+	for i := 0; i < 20 && a.drawerShown != ""; i++ {
+		time.Sleep(80 * time.Millisecond)
+		tst.Frame()
+	}
+	if a.drawerShown != "" {
+		t.Fatal("退场停稳后没有收尾，面板会一直留在场景里")
+	}
+}

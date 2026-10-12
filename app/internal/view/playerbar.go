@@ -73,27 +73,42 @@ func (a *App) playerBar(c *ui.Context) {
 	}
 }
 
-// glassTint 按「激活 / 悬停 / 常态」给按钮选玻璃的 Tint —— 播放栏里的小按钮
-// 统一走框架玻璃，状态差异只体现在 Tint 上（原版是用半透明白底 + 蓝底表达的）。
-func glassTint(active, hovered bool, activeTint, hoverTint ui.Color) glass.Glass {
+// buttonSurface 给按钮上「半透明填充」材质：半透明底 + 1px 玻璃边 +
+// inset 顶部高光 + 一点点外投影，状态差异只体现在底色（激活 / 悬停用各自的
+// Tint，常态用 --liquid-bg）。
+//
+// **这不是 Backdrop 真玻璃**：原版这些按钮的 CSS（`#player .player-button`、
+// HeroUI Tabs、`.up-follow-btn` …）只有 `background` / `border` / `box-shadow`，
+// 没有 `backdrop-filter`——按钮浮在播放栏（那层才是有 blur 的真玻璃）之上。
+// 之前用 `glass.Glass{}`（Backdrop 后处理）给每个按钮多算一次 backdrop，
+// macOS 上每次按钮一个 render pass + 重读目标，一排按钮就是十几次——
+// 与卡片同一个坑（见 renderCard 的注释），也是抽屉每帧 backdrop 数目
+// 居高不下的另一半。填充分法与原版一致，观感不变。
+func buttonSurface(b ui.Element, active, hovered bool, activeTint, hoverTint ui.Color) ui.Element {
+	fill := ui.Hex("#ffffff").Alpha(0.22) // --liquid-bg
 	switch {
-	case active:
-		return glass.Glass{Tint: activeTint}
-	case hovered:
-		return glass.Glass{Tint: hoverTint}
+	case active && activeTint.A > 0:
+		fill = activeTint
+	case hovered && hoverTint.A > 0:
+		fill = hoverTint
 	}
-	return glass.Glass{}
+	return b.Background(fill).
+		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
+		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
 }
 
-// glassOn 给「常态无框」的小图标按钮上材质：只有激活/悬停才铺玻璃面，
+// glassOn 给「常态无框」的小图标按钮上材质：只有激活/悬停才铺半透明面，
 // 常态保持透明 —— 原版 .nav-icon-btn 常态就是透明 + 一点径向高光，
-// 每颗都铺一块玻璃会显得"每个图标都套了个盒子"。
+// 每颗都铺一块面会显得"每个图标都套了个盒子"。激活/悬停同样是填充而非
+// Backdrop 真玻璃（原版没有 backdrop-filter，且每次 backdrop 都是一次
+// render pass）。
 func glassOn(b ui.Element, active, hovered bool, activeTint, hoverTint ui.Color) ui.Element {
 	switch {
-	case active:
-		return b.Material(glass.Glass{Tint: activeTint})
-	case hovered:
-		return b.Material(glass.Glass{Tint: hoverTint})
+	case active && activeTint.A > 0:
+		return buttonSurface(b, true, hovered, activeTint, hoverTint)
+	case hovered && hoverTint.A > 0:
+		return buttonSurface(b, false, true, activeTint, hoverTint)
 	}
 	return b.Background(ui.Transparent)
 }
@@ -144,8 +159,8 @@ func (a *App) transport(c *ui.Context) {
 			// 原版 .player-button:disabled 是 opacity .42（mygo 已乘 .5）。
 			next.Opacity(0.84)
 		}
-		next.Material(glassTint(false, next.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
+		buttonSurface(next, false, next.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
 		pressPose(next)
 		next.Children(func() { ui.Icon(c, iconNext).Size(15, 15).TextColor(ui.Hex("#334155")) })
 		if next.Clicked() && a.Act.Next != nil {
@@ -336,8 +351,8 @@ func (a *App) volumeButton(c *ui.Context) {
 		Label("音量").Tooltip("音量")
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	b.Material(glassTint(a.ShowVolume, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
+	buttonSurface(b, a.ShowVolume, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18))
 	// 原版：音量键图标随音量变化（0 视为静音）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -358,8 +373,8 @@ func (a *App) speedButton(c *ui.Context) {
 		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	b.Material(glassTint(a.ShowSpeed, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
+	buttonSurface(b, a.ShowSpeed, b.Hovered(),
+		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18))
 	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).TextColor(ui.Hex("#334155"))
@@ -378,8 +393,8 @@ func (a *App) eqButton(c *ui.Context) {
 		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	b.Material(glassTint(a.EQ, b.Hovered(),
-		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
+	buttonSurface(b, a.EQ, b.Hovered(),
+		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18))
 	pressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconEQ).Size(15, 15).TextColor(pick(a.EQ, ui.Hex("#0369a1"), ui.Hex("#334155")))
@@ -396,8 +411,8 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label(sponsorTip()).Tooltip(sponsorTip())
-	b.Material(glassTint(a.Sponsor, b.Hovered(),
-		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
+	buttonSurface(b, a.Sponsor, b.Hovered(),
+		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18))
 	pressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).

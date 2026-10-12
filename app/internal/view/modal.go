@@ -173,8 +173,8 @@ func (a *App) modalButton(c *ui.Context, label string, primary bool, fn func()) 
 		b.Material(glass.Glass{Tint: pick(b.Hovered(), t.Blue.Alpha(0.85), t.Blue.Alpha(0.75))}).
 			Shadow(0, 4, 12, 0, ui.Hex("#0ea5e9").Alpha(0.22))
 	} else {
-		b.Material(glassTint(false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
+		buttonSurface(b, false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	}
 	pressPose(b)
 	b.Children(func() {
