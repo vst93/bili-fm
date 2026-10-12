@@ -81,14 +81,10 @@ func (a *App) drawerHeader(c *ui.Context) {
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 24).
 		Gap(8).AlignItems(ui.Center).Children(func() {
 		a.drawerTabs(c)
-		// 收藏抽屉的收藏夹 tab 自己占满剩余宽度（可横向滚动），不再放弹性占位。
-		if a.Drawer != "favorite" {
-			ui.Box(c).Grow(1)
-		}
-		// 原版只有搜索抽屉不显示条数（排序 tab 占满了表头）。
-		if a.Drawer == DrawerSearch {
-			ui.Text(c, fmt.Sprintf("%d 条", len(a.list().Cards))).FontSize(11).TextColor(t.Faint)
-		}
+		// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
+		// 组件又不加 spacer，所以表头内容全部靠左排（刷新键紧跟在 tab 后面，
+		// 不是被推到右边）。收藏抽屉例外：横向滚动的收藏夹 tab 自己 flex:1，
+		// 把右侧的滚动键与刷新键顶到右边。
 		if a.refreshable() {
 			// 原版刷新键：20px #333（弹幕抽屉是 18px，见下）。
 			refreshSize := float32(20)
@@ -100,6 +96,10 @@ func (a *App) drawerHeader(c *ui.Context) {
 					a.Act.Reload()
 				}
 			})
+		}
+		// 原版历史抽屉的顺序是「tab」「刷新」「隐身」，隐身开关在刷新键右边。
+		if a.Drawer == "history" && a.HistTab == HistHistory {
+			a.incognitoSwitch(c)
 		}
 	})
 	// 分割线：灰蓝暗线 + 下方 1px 白高光，模拟玻璃截面（原版 header 的
@@ -127,6 +127,9 @@ func (a *App) drawerHeader(c *ui.Context) {
 func (a *App) drawerTabs(c *ui.Context) {
 	switch a.Drawer {
 	case DrawerSearch:
+		// 原版 searchList 表头：「搜索」标题 + 排序 tab。
+		ui.Text(c, "搜索").FontSize(14).FontWeight(600).
+			TextColor(ui.Hex("#334155")).Shrink(0)
 		a.tabs(c, "sort", []tabItem{
 			{Key: SortTotal, Label: "综合"},
 			{Key: SortClick, Label: "最多播放"},
@@ -151,13 +154,12 @@ func (a *App) drawerTabs(c *ui.Context) {
 			a.HistTab = k
 			a.reload()
 		})
-		// 隐身开关只在「观看历史」这一页（原版如此）。
-		if a.HistTab == HistHistory {
-			a.incognitoSwitch(c)
-		}
+		// 隐身开关（只在「观看历史」页）由 drawerHeader 在刷新键右边渲染，
+		// 顺序与原版一致（tab → 刷新 → 隐身）。
 	case "favorite":
-		// 原版 collectList 表头文案是「收藏列表」，字重是默认 400（text-sm 无 weight 类）。
-		ui.Text(c, "收藏列表").FontSize(14).FontWeight(400).
+		// 原版 collectList 表头文案「收藏列表」（14/600 #334155，字重由 header 的
+		// 全局规则统一给出）。
+		ui.Text(c, "收藏列表").FontSize(14).FontWeight(600).
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		if len(a.Folders) == 0 {
 			a.emptyNote(c, "暂无收藏内容")
@@ -176,7 +178,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		})
 		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
-		ui.Text(c, "动态列表").FontSize(14).FontWeight(400).TextColor(ui.Hex("#334155"))
+		ui.Text(c, "动态列表").FontSize(14).FontWeight(600).TextColor(ui.Hex("#334155"))
 	case DrawerUp:
 		a.upHeader(c)
 	case DrawerParts:
@@ -186,7 +188,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 	case DrawerPlaylist:
 		a.playlistTabs(c)
 	case DrawerSeries:
-		ui.Text(c, a.seriesLabel()).FontSize(14).FontWeight(400).SingleLine().
+		ui.Text(c, a.seriesLabel()).FontSize(14).FontWeight(600).SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
@@ -204,7 +206,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 			}
 		}
 	default:
-		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(400).
+		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(600).
 			TextColor(ui.Hex("#334155"))
 	}
 }
@@ -212,12 +214,12 @@ func (a *App) drawerTabs(c *ui.Context) {
 // upHeader 是 UP 空间抽屉的表头（原版 upVideoList.tsx）：
 // 「{名字}」的空间 + 关注 / 已关注 + 视频 / 合集 tab。
 func (a *App) upHeader(c *ui.Context) {
-	// 原版 upVideoList 表头：「name」的空间（14/500）+ 粉丝数（12 default-500）
-	// + 关注键（min-w 70、图标 14）。
-	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(500).
+	// 原版 upVideoList 表头：「name」的空间（14/600 #334155，见 header 全局规则）
+	// + 粉丝数（12 default-500）+ 关注键（min-w 70、图标 14）。
+	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(600).
 		SingleLine().MaxWidth(200).TextColor(ui.Hex("#334155")).Shrink(0)
 	if a.UpFans > 0 {
-		ui.Text(c, "粉丝 "+compactCount(a.UpFans)).FontSize(12).
+		ui.Text(c, "粉丝 "+fanCount(a.UpFans)).FontSize(12).
 			TextColor(ui.Hex("#71717a")).Shrink(0)
 	}
 
@@ -294,10 +296,12 @@ func (a *App) seriesLabel() string {
 	return "合集"
 }
 
-// refreshable 返回这个抽屉的表头有没有刷新键（原版每个列表抽屉都有）。
+// refreshable 返回这个抽屉的表头有没有刷新键。原版里搜索抽屉（searchList）、
+// 选集（pageList）、合集（seriesList）、播放列表（playlist）都没有刷新键，
+// 其余列表抽屉有。
 func (a *App) refreshable() bool {
 	switch a.Drawer {
-	case DrawerParts, DrawerPlaylist:
+	case DrawerSearch, DrawerParts, DrawerSeries, DrawerPlaylist:
 		return false
 	}
 	return a.Drawer != ""
@@ -315,6 +319,8 @@ func (a *App) reload() {
 type tabItem struct {
 	Key   string
 	Label string
+	// Icon 是可选的前置图标（原版弹幕/评论 tab 有 14px 图标，其余 tab 纯文字）。
+	Icon *ui.SVG
 }
 
 // tabs 是一排胶囊 tab（原版抽屉表头的 HeroUI Tabs）：
@@ -341,6 +347,14 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 			ink = ui.Hex("#0369a1")
 		} else if b.Hovered() {
 			ink = ui.Hex("#334155")
+		}
+		if it.Icon != nil {
+			// 原版是 flex items-center gap-1（4px）+ 14px 图标。
+			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, it.Icon).Size(14, 14).TextColor(ink)
+				ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink)
+			})
+			return
 		}
 		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink)
 	})
@@ -409,7 +423,9 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
 	l := a.ListFor(a.Drawer)
 	if a.Drawer == DrawerDanmaku {
-		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).
+		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
+		// （上下不对称，底部多留 16 给最后一行）。
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).
 			Children(func() { a.danmakuBody(c) })
 		if a.DanmakuTab == TabReply && a.RepliesHasMore && !a.RepliesLoading &&
 			l.Scroll.MaxY > 0 && l.Scroll.Y >= l.Scroll.MaxY-100 && a.Act.LoadComments != nil {
@@ -567,12 +583,12 @@ func (a *App) skeletonGrid(c *ui.Context) {
 	})
 }
 
-// emptyNote 是列表空态/加载中的提示行：居中、上下各 32px 留白、zinc-400
-// （原版是 text-center text-default-400 py-8）。之前是左对齐一行小字，
-// 在抽屉里显得很空。
+// emptyNote 是列表空态/加载中的提示行：居中、上下各 32px 留白、slate-400
+// （原版是 text-center text-default-400 py-8，而 default-400 在抽屉里被
+// globals.css 覆写成 #94a3b8）。之前是左对齐一行小字，在抽屉里显得很空。
 func (a *App) emptyNote(c *ui.Context, text string) {
 	ui.Row(c).FillWidth().Padding(32, 0).Justify(ui.Center).Children(func() {
-		ui.Text(c, text).FontSize(14).TextColor(ui.Hex("#a1a1aa"))
+		ui.Text(c, text).FontSize(14).TextColor(ui.Hex("#94a3b8"))
 	})
 }
 
@@ -855,8 +871,8 @@ func (a *App) partsHeader(c *ui.Context) {
 	if a.Info != nil {
 		n = len(a.Info.Parts)
 	}
-	// 原版 pageList 表头：「选集(N)」是 text-sm（14/400）。
-	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(400).
+	// 原版 pageList 表头：「选集(N)」是 text-sm（14/600，见 header 全局规则）。
+	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(600).
 		TextColor(ui.Hex("#334155")).Shrink(0)
 
 	if a.Track != nil {
@@ -994,20 +1010,23 @@ func (a *App) playlistHas(cid int64) bool {
 
 // ---------------------------------------------------------------- 弹幕 / 评论抽屉
 
-// danmakuTabs 是表头（原版 danmakuList.tsx）：弹幕(N) / 评论(total) 两个 tab，
-// 后面是「定位当前」（弹幕）与刷新。
+// danmakuTabs 是表头（原版 danmakuList.tsx）：弹幕(N) / 评论(total) 两个 tab
+// （各自带 14px 图标），后面是「定位当前」（弹幕）与刷新。
 func (a *App) danmakuTabs(c *ui.Context) {
 	tabs := []tabItem{{
 		Key:   TabDanmaku,
 		Label: fmt.Sprintf("弹幕 (%d)", len(a.Danmaku)),
+		Icon:  iconText,
 	}}
+	// 原版评论 tab 文案：有 total_count 时是「评论 (共N条)」，否则「评论 (N)」，
+	// 没有评论时就是「评论」。
 	replyLabel := "评论"
 	if a.ReplyTotal > 0 {
-		replyLabel = fmt.Sprintf("评论 (%d)", a.ReplyTotal)
+		replyLabel = fmt.Sprintf("评论 (共%d条)", a.ReplyTotal)
 	} else if len(a.Comments) > 0 {
 		replyLabel = fmt.Sprintf("评论 (%d)", len(a.Comments))
 	}
-	tabs = append(tabs, tabItem{Key: TabReply, Label: replyLabel})
+	tabs = append(tabs, tabItem{Key: TabReply, Label: replyLabel, Icon: iconDanmaku})
 
 	a.tabs(c, "dm", tabs, a.DanmakuTab, func(k string) {
 		a.DanmakuTab = k
@@ -1018,12 +1037,36 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	})
 
 	if a.DanmakuTab == TabDanmaku {
-		a.headerButton(c, "dm-autoscroll",
-			pick(a.DanmakuAutoScroll, "关闭自动跟随", "开启自动跟随"),
-			iconLocate, 18, ui.Hex("#888888"), func() {
-				a.DanmakuAutoScroll = !a.DanmakuAutoScroll
-				a.danmakuScrollIdx = -1
-			})
+		a.danmakuFollowButton(c)
+	}
+}
+
+// danmakuFollowButton 是弹幕 tab 的「自动跟随」键（原版 .danmaku-follow-btn）：
+// 32×32 图标钮，未开启是灰玻璃、开启是蓝边 + 蓝字 + 一圈光晕。
+// 它不走通用 headerButton —— 原版给了单独的 is-active 态，通用键没有。
+func (a *App) danmakuFollowButton(c *ui.Context) {
+	label := pick(a.DanmakuAutoScroll, "暂停跟随", "开始跟随")
+	b := ui.ButtonBase(c.Key("dm-autoscroll")).Size(32, 32).Radius(Radius).
+		Center().Label(label).Tooltip(label)
+	if a.DanmakuAutoScroll {
+		// .danmaku-follow-btn.is-active：蓝边 + 淡蓝渐变底 + 蓝字 + 2px 蓝晕。
+		b.Material(glassTint(true, b.Hovered(),
+			ui.Hex("#0ea5e9").Alpha(0.24), ui.Hex("#0ea5e9").Alpha(0.24))).
+			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	} else {
+		b.Material(glassTint(false, b.Hovered(),
+			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))).
+			Border(1, ui.Hex("#64748b").Alpha(0.22))
+	}
+	pressPose(b)
+	b.Children(func() {
+		ink := pick(a.DanmakuAutoScroll, ui.Hex("#0369a1"), ui.Hex("#64748b"))
+		ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+	})
+	if b.Clicked() {
+		a.DanmakuAutoScroll = !a.DanmakuAutoScroll
+		a.danmakuScrollIdx = -1
 	}
 }
 
@@ -1113,6 +1156,45 @@ func danmakuInk(color int) ui.Color {
 	return ui.RGB(uint8(r), uint8(g), uint8(b))
 }
 
+// nearestGroup 返回当前播放时间最近的弹幕组下标（原版 danmakuList 的
+// currentIndex）：先二分找到第一个 second ≥ pos 的组，再和它前一组比距离，
+// 取更近的那个。不是「最后一个不超过 pos 的组」。
+func nearestGroup(groups []danmakuGroup, pos float64) int {
+	n := len(groups)
+	if n == 0 {
+		return -1
+	}
+	low, high := 0, n
+	for low < high {
+		mid := (low + high) >> 1
+		if float64(groups[mid].Second) < pos {
+			low = mid + 1
+		} else {
+			high = mid
+		}
+	}
+	if low == 0 {
+		return 0
+	}
+	if low == n {
+		return n - 1
+	}
+	if pos-float64(groups[low-1].Second) <= float64(groups[low].Second)-pos {
+		return low - 1
+	}
+	return low
+}
+
+// fmtClock 把秒格式化成弹幕时间标签的 mm:ss（原版 formatTime 用
+// padStart(2, "0") 把分秒都补到两位；分钟不进位，超过 60 分就是 62:05）。
+func fmtClock(sec float64) string {
+	if sec < 0 || sec != sec {
+		sec = 0
+	}
+	s := int(sec)
+	return fmt.Sprintf("%02d:%02d", s/60, s%60)
+}
+
 // danmakuBody 画弹幕或评论列表。
 // 弹幕按秒分组：组头「时间 + N 条」，组内去重、按次数排序、重复显示 ×N，
 // 文字用弹幕自身颜色（太亮/太暗换对比色）——对齐原版 danmakuList。
@@ -1131,13 +1213,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 	// 自动跟随：把当前时间所在的组滚进视野（只在下标变化时滚，不干扰手滑）。
 	cur := -1
 	if a.DanmakuAutoScroll && a.Pos > 0 {
-		for i, g := range groups {
-			if float64(g.Second) <= a.Pos {
-				cur = i
-			} else {
-				break
-			}
-		}
+		cur = nearestGroup(groups, a.Pos)
 	}
 
 	// 原版 .danmaku-time-group：整行 grid（64px 时间列 + 1fr 消息列）、gap 10、
@@ -1147,6 +1223,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 		for i, g := range groups {
 			isCur := i == cur
 			box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
+				Margin(2, 0).
 				Padding(11, 12, 13).Gap(10).AlignItems(ui.Start).
 				Cursor(ui.CursorPointer).
 				InsetShadow(0, -1, 0, 0, sep)
@@ -1162,9 +1239,10 @@ func (a *App) danmakuBody(c *ui.Context) {
 			}
 			box.Children(func() {
 				// 左列 64：时间标签 + 「N 条」，右缘一线分隔（.danmaku-time-head）。
+				// 右缘用 x=-1 的内影（正 x 画的是左缘）。
 				ui.Column(c).Width(64).Shrink(0).Gap(4).Justify(ui.Center).
-					InsetShadow(1, 0, 0, 0, sep).Children(func() {
-					lbl := ui.Text(c, fmtTime(float64(g.Second))).FontSize(13).
+					InsetShadow(-1, 0, 0, 0, sep).Children(func() {
+					lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
 						FontWeight(700).Padding(3, 5).Radius(6)
 					if isCur {
 						// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
@@ -1182,8 +1260,9 @@ func (a *App) danmakuBody(c *ui.Context) {
 					}
 				})
 
-				// 右列：消息横排换行的一串小胶囊（.danmaku-message-list）。
-				ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).Children(func() {
+				// 右列：消息横排换行的一串小胶囊（.danmaku-message-list，
+				// align-items/align-content 都是 center）。
+				ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
 					for _, e := range g.Entries {
 						chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 							Height(27).Padding(3, 7, 3, 9).Gap(5).
@@ -1224,10 +1303,9 @@ func (a *App) danmakuBody(c *ui.Context) {
 	a.danmakuScrollIdx = cur
 }
 
-// repliesBody 画评论列表（原版 danmakuList 的评论 tab）：热评 + 楼中楼预览 +
-// 加载更多。
+// repliesBody 画评论列表（原版 danmakuList 的评论 tab）：玻璃卡片行 + 楼中楼
+// 预览，滚到底自动加载下一页（原版 handleScroll，不是「加载更多」按钮）。
 func (a *App) repliesBody(c *ui.Context) {
-	t := a.Theme
 	if len(a.Comments) == 0 {
 		if a.RepliesLoading {
 			a.emptyNote(c, "加载中…")
@@ -1244,94 +1322,90 @@ func (a *App) repliesBody(c *ui.Context) {
 			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
 		}
 	}
-	// 原版评论行配色走 HeroUI 的 default 调色板（zinc）。
+	// 原版把 HeroUI 的 default 调色板整套覆写成 slate 系（globals.css 里
+	// [data-slot="wrapper"] .text-default-*），所以昵称/时间/正文都不是 zinc。
 	const (
-		def100 = "#f4f4f5" // 分隔线
-		def200 = "#e4e4e7" // 头像底 / 楼中楼左线
-		def400 = "#a1a1aa" // 时间、点赞
-		def600 = "#52525b" // 正文
-		def700 = "#3f3f46" // 昵称
-		prim   = "#006FEE" // primary-500
+		ink700 = "#0f172a" // 昵称（.text-default-700 → 0f172a/600）
+		ink400 = "#475569" // 时间、点赞、查看更多（.text-default-400 → 475569）
+		body   = "#142033" // 正文（.leading-relaxed → 142033/14.5px）
+		prim   = "#0284c7" // 楼中楼昵称（.text-primary-500 → 0284c7）
+		muted  = "#94a3b8" // 空态/加载中
 	)
 	ui.Column(c).Children(func() {
 		for i, cm := range sorted {
-			// 原版行：py-2 px-8 + 底部分隔线（border-default-100）。
+			// 原版行：py-2 px-8 border-b，但 globals.css 又把它覆写成玻璃卡片：
+			// margin 4px 6px、圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
 			row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
-				Padding(8, 32).Gap(8).InsetShadow(0, -1, 0, 0, ui.Hex(def100))
+				Margin(4, 6).Padding(8, 32).Gap(8).Radius(10)
 			if row.Hovered() {
-				row.Background(ui.Hex("#fafafa"))
+				// :hover 底更实、边转蓝、抬起一层淡投影。
+				row.Background(ui.Hex("#ffffff").Alpha(0.58)).
+					Border(1, ui.Hex("#0ea5e9").Alpha(0.22)).
+					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.58)).
+					Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
+			} else {
+				row.Background(ui.Hex("#ffffff").Alpha(0.32)).
+					Border(1, ui.Hex("#ffffff").Alpha(0.32)).
+					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.42))
 			}
 			row.Children(func() {
 				// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					// 原版 .bg-default-200 被覆写成 rgba(226,232,240,.5)。
 					face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
-						Background(ui.Hex(def200)).Clip()
+						Background(ui.Hex("#e2e8f0").Alpha(0.5)).Clip()
 					face.Children(func() {
 						if bmp := a.Images.Bitmap(cm.Avatar); bmp != nil {
 							ui.Image(c, bmp).Fill().Fit(ui.Cover)
 						}
 					})
 					ui.Column(c).Children(func() {
-						// text-sm font-medium text-default-700。
-						ui.Text(c, cm.User).FontSize(14).FontWeight(500).
-							TextColor(ui.Hex(def700)).SingleLine()
+						ui.Text(c, cm.User).FontSize(14).FontWeight(600).
+							TextColor(ui.Hex(ink700)).SingleLine()
 						// text-xs text-default-400：Lv.N · 时间。
 						meta := cm.Time
 						if cm.Level > 0 {
 							meta = fmt.Sprintf("Lv.%d · %s", cm.Level, cm.Time)
 						}
-						ui.Text(c, meta).FontSize(12).TextColor(ui.Hex(def400)).SingleLine()
+						ui.Text(c, meta).FontSize(12).TextColor(ui.Hex(ink400)).SingleLine()
 					})
 				})
 				// 正文区左缩进 40（原版 pl-10，与头像同宽）。
 				ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
-					// text-sm leading-relaxed text-default-600。
-					ui.Text(c, cm.Content).FontSize(14).TextColor(ui.Hex(def600)).MaxLines(10)
+					// text-sm leading-relaxed → 14.5px / #142033。
+					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(body)).MaxLines(10)
 					if cm.Likes > 0 {
 						ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
-							Margin(4, 0, 0, 0).TextColor(ui.Hex(def400))
+							Margin(4, 0, 0, 0).TextColor(ui.Hex(ink400))
 					}
-					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线。
+					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border 覆写成 slate）。
 					if len(cm.Replies) > 0 {
 						ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
-							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex(def200)).Children(func() {
+							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.18)).Children(func() {
 							for j, rp := range cm.Replies {
 								ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
 									FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
 									ui.Text(c, rp.User+":").FontSize(12).
 										FontWeight(500).TextColor(ui.Hex(prim)).Shrink(0)
 									ui.Text(c, rp.Content).FontSize(12).
-										TextColor(ui.Hex(def600)).Grow(1).MaxLines(4)
+										TextColor(ui.Hex(body)).Grow(1).MaxLines(4)
 								})
 							}
 							if cm.RepliesMore || len(cm.Replies) >= 3 {
 								ui.Text(c, "查看更多回复...").FontSize(12).
-									TextColor(ui.Hex(def400))
+									TextColor(ui.Hex(muted))
 							}
 						})
 					}
 				})
 			})
 		}
-		if a.RepliesHasMore {
-			// 原版是 HeroUI 的 <Button isLoading>，加载时按钮里带一个 spinner；
-			// mygo 的 Spinner 从 v0.4.2 起跟着 TextColor 上色。
-			more := ui.ButtonBase(c.Key("reply-more")).FillWidth().Height(32).Radius(Radius).
-				Center().Label("加载更多评论")
-			more.Material(glassTint(false, more.Hovered(),
-				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)))
-			more.Children(func() {
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					if a.RepliesLoading {
-						ui.Spinner(c).Size(14, 14).TextColor(t.Muted)
-					}
-					ui.Text(c, pick(a.RepliesLoading, "加载中", "加载更多评论")).
-						FontSize(12).TextColor(t.Muted)
-				})
+		// 原版没有「加载更多」按钮：滚到底自动翻页（见 drawerBody），
+		// 加载中在末尾提示一行「加载中...」。
+		if a.RepliesLoading && len(sorted) > 0 {
+			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
+				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(muted))
 			})
-			if more.Clicked() && !a.RepliesLoading && a.Act.LoadComments != nil {
-				a.Act.LoadComments(a.ReplyPage + 1)
-			}
 		}
 	})
 }

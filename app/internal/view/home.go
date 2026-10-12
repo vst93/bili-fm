@@ -277,7 +277,9 @@ func (a *App) coverDisc(c *ui.Context) {
 			}
 			group.Opacity(group.AnimateTo("cover-toggles", target,
 				ui.Animation{Duration: 200 * time.Millisecond})).Children(func() {
-				a.coverToggle(c, "cover-mode", "切换封面模式",
+				// tooltip 文案与原版一致（碟片/封面模式、封面背景、高级质感）。
+				a.coverToggle(c, "cover-mode",
+					pick(a.CoverMode == "square", "切换为碟片模式", "切换为封面模式"),
 					iconRefresh, true, func() {
 						if a.Act.SetCoverMode == nil {
 							return
@@ -288,16 +290,20 @@ func (a *App) coverDisc(c *ui.Context) {
 							a.Act.SetCoverMode("square")
 						}
 					})
-				a.coverToggle(c, "ambient", "封面背景", iconHalo, a.Ambient, func() {
-					if a.Act.ToggleAmbient != nil {
-						a.Act.ToggleAmbient()
-					}
-				})
-				a.coverToggle(c, "premium", "高级质感", iconSparkles, a.Premium, func() {
-					if a.Act.TogglePremium != nil {
-						a.Act.TogglePremium()
-					}
-				})
+				a.coverToggle(c, "ambient",
+					pick(a.Ambient, "关闭封面背景", "开启封面背景"),
+					iconHalo, a.Ambient, func() {
+						if a.Act.ToggleAmbient != nil {
+							a.Act.ToggleAmbient()
+						}
+					})
+				a.coverToggle(c, "premium",
+					pick(a.Premium, "关闭高级质感（更省电）", "开启高级质感"),
+					iconSparkles, a.Premium, func() {
+						if a.Act.TogglePremium != nil {
+							a.Act.TogglePremium()
+						}
+					})
 			})
 		})
 	})

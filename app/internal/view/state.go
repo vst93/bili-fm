@@ -675,6 +675,10 @@ var (
 	iconMute  = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M10.8 6.4l3.4 3.2M14.2 6.4l-3.4 3.2" stroke-width="1.6"/>`)
 	// 弹幕/评论：Comment（气泡 + 三点）。
 	iconDanmaku = icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`)
+	// 弹幕 tab 的文字图标（原版 danmakuList 用 icon-park 的 Text）。
+	iconText = icon(`<path d="M3.2 3.8h9.6"/><path d="M8 3.8v8.4"/>`)
+	// 弹幕抽屉的「自动跟随」键（原版用 icon-park 的 Connection，两段链环）。
+	iconConnection = icon(`<path d="M6.6 9.4l2.8-2.8"/><path d="M5.6 7.1l-1 1a2.7 2.7 0 0 0 3.8 3.8l1-1"/><path d="M10.4 8.9l1-1a2.7 2.7 0 0 0-3.8-3.8l-1 1"/>`)
 	// 选集：DoubleUp（双层人字形向上）。
 	iconList   = icon(`<path d="M3.4 8.6L8 4.2l4.6 4.4M3.4 12.2L8 7.8l4.6 4.4" stroke-width="1.7"/>`)
 	iconSearch = icon(`<circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/>`)
@@ -757,6 +761,16 @@ func compactCount(n int64) string {
 	default:
 		return fmt.Sprint(n)
 	}
+}
+
+// fanCount 是 UP 空间表头的粉丝数（原版 upVideoList 的 formatNumber）：
+// ≥1万 显示「x.x万」——注意这里用的是「万」，与 compactCount 的「w」不同，
+// 原版两个函数就是两套写法。
+func fanCount(n int64) string {
+	if n >= 10000 {
+		return fmt.Sprintf("%.1f万", float64(n)/1e4)
+	}
+	return fmt.Sprint(n)
 }
 
 // iconDiscSheen 是唱片高光：一条穿过圆心的宽光带 + 两道细弧（旋转时像

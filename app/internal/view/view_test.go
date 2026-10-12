@@ -236,3 +236,12 @@ func TestProgressPlan(t *testing.T) {
 		}
 	})
 }
+
+func TestFanCount(t *testing.T) {
+	cases := map[int64]string{0: "0", 123: "123", 9999: "9999", 10000: "1.0万", 12345: "1.2万", 123456: "12.3万"}
+	for in, want := range cases {
+		if got := fanCount(in); got != want {
+			t.Errorf("fanCount(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
