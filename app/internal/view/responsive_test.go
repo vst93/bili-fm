@@ -196,3 +196,123 @@ func TestTitleBarHidesBrandOnNarrowWindow(t *testing.T) {
 		t.Error("900px 宽没有显示标题栏品牌")
 	}
 }
+
+// TestDrawerNarrowLayouts 钉住抽屉里此前还没接的两条宽度媒体查询
+// （原版 globals.css）：隐身开关 ≤520 收窄并隐藏文字、弹幕分组 ≤420 收窄左列。
+func TestDrawerNarrowLayouts(t *testing.T) {
+	// 隐身开关：断点 520（含 520 走窄分支）。
+	for _, c := range []struct {
+		w     float32
+		minW  float32
+		label bool
+	}{
+		{980, 92, true},
+		{521, 92, true},
+		{520, 66, false},
+		{400, 66, false},
+	} {
+		minW, label := incognitoLayout(c.w)
+		if minW != c.minW || label != c.label {
+			t.Errorf("incognitoLayout(%v) = (%v, %v), want (%v, %v)",
+				c.w, minW, label, c.minW, c.label)
+		}
+	}
+
+	// 弹幕分组：断点 420（含 420 走窄分支）。
+	for _, c := range []struct{ w, col, gap, pad float32 }{
+		{980, 64, 10, 12},
+		{421, 64, 10, 12},
+		{420, 54, 8, 10},
+		{320, 54, 8, 10},
+	} {
+		l := danmakuRowLayoutFor(c.w)
+		if l.Col != c.col || l.Gap != c.gap || l.PadInline != c.pad {
+			t.Errorf("danmakuRowLayoutFor(%v) = %+v, want col=%v gap=%v pad=%v",
+				c.w, l, c.col, c.gap, c.pad)
+		}
+	}
+}
+
+// historyDrawerApp 造一个打开历史抽屉（观看历史 tab）的 App，用来量隐身开关。
+func historyDrawerApp() *App {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = "history"
+	a.HistTab = HistHistory
+	a.ListFor("history").Cards = []Card{
+		{Bvid: "BV1", Title: "看过的视频", Up: "UP主", Views: "1.2万", Pubdate: "09-22"},
+	}
+	return a
+}
+
+// TestIncognitoSwitchNarrowWidth 是无头实测：>520 时隐身开关是「图标 + 文字 +
+// 轨道」（min-width 92），≤520 时原版隐藏文字标签并把 min-width 收到 66 ——
+// 此前原生版没有这条媒体查询，窄窗里开关一直占着 92px 把表头挤爆。
+func TestIncognitoSwitchNarrowWidth(t *testing.T) {
+	wide := historyDrawerApp()
+	tw := shellTesterSize(t, wide, 600, 700)
+	rw, ok := tw.Find("隐身")
+	if !ok {
+		t.Fatal("历史抽屉表头找不到隐身开关")
+	}
+	if rw.W < 88 {
+		t.Errorf(">520 时隐身开关宽 = %v，应为 92（图标 + 文字 + 轨道）", rw.W)
+	}
+
+	narrow := historyDrawerApp()
+	tn := shellTesterSize(t, narrow, 500, 700)
+	rn, ok := tn.Find("隐身")
+	if !ok {
+		t.Fatal("窄窗历史抽屉表头找不到隐身开关")
+	}
+	if rn.W > 70 {
+		t.Errorf("<=520 时隐身开关宽 = %v，应为 66（文字隐藏、min-width 收到 66）", rn.W)
+	}
+	// 反证：两态必须有可观测差异，否则这条断点等于没接。
+	if !(rn.W < rw.W) {
+		t.Errorf("窄窗开关宽 %v 未小于宽窗 %v", rn.W, rw.W)
+	}
+}
+
+// danmakuDrawerApp 造一个打开弹幕抽屉的 App。
+func danmakuDrawerApp() *App {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Pos = 0 // 不自动跟随，停在列表顶部
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabDanmaku
+	a.Danmaku = []Danmaku{
+		{Time: 1, Text: "第一条弹幕"},
+		{Time: 5, Text: "第二条弹幕"},
+	}
+	return a
+}
+
+// TestDanmakuGroupNarrowColumn 是无头实测：弹幕分组的消息列左缘随窗口宽度
+// 收窄（原版 .danmaku-time-group 的 ≤420：左列 64→54、gap 10→8、
+// padding-inline 12→10，共内收 8px）。这里量第一条弹幕文字的左缘：
+// 宽窗 ≈ 10(list pad) + 12 + 64 + 10 + 9(chip pad) = 105，窄窗 ≈ 91。
+func TestDanmakuGroupNarrowColumn(t *testing.T) {
+	wide := danmakuDrawerApp()
+	tw := shellTesterSize(t, wide, 980, 700)
+	rw, ok := tw.Find("第一条弹幕")
+	if !ok {
+		t.Fatal("宽窗弹幕抽屉里找不到第一条弹幕")
+	}
+	if rw.X < 103 || rw.X > 107 {
+		t.Errorf("宽窗弹幕文字左缘 x = %v，应 ≈ 105（64/10/12 基线）", rw.X)
+	}
+
+	narrow := danmakuDrawerApp()
+	tn := shellTesterSize(t, narrow, 400, 700)
+	rn, ok := tn.Find("第一条弹幕")
+	if !ok {
+		t.Fatal("窄窗弹幕抽屉里找不到第一条弹幕")
+	}
+	if rn.X < 89 || rn.X > 93 {
+		t.Errorf("窄窗弹幕文字左缘 x = %v，应 ≈ 91（≤420 的 54/8/10 分支）", rn.X)
+	}
+	if !(rn.X < rw.X) {
+		t.Errorf("窄窗消息列左缘 %v 未内收于宽窗 %v", rn.X, rw.X)
+	}
+}

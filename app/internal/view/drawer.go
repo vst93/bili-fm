@@ -409,6 +409,53 @@ func (a *App) upHeader(c *ui.Context) {
 	})
 }
 
+// ---------------------------------------------------------- 抽屉内的窄窗响应式
+//
+// 原版 globals.css 还有两条宽度媒体查询此前没接（上一轮补了主区的 ≤680）：
+//
+//	@media (max-width: 520px)  历史抽屉的隐身开关 min-width 92→66、文字标签隐藏
+//	@media (max-width: 420px)  弹幕分组左列 64→54、gap 10→8、inline 内边距 12→10
+//
+// 两条断点都是**视口**宽度（媒体查询作用于窗口，不是抽屉面板），所以取
+// c.Size() 的宽。抽成纯函数便于单测断点与取值。
+
+const (
+	// incognitoNarrowWidth / danmakuNarrowWidth 与 globals.css 的媒体查询阈值一致。
+	incognitoNarrowWidth = 520
+	danmakuNarrowWidth   = 420
+)
+
+// windowWidth 是这一帧的窗口宽度（DIP）——抽屉里的媒体查询断点按视口宽度判定。
+func windowWidth(c *ui.Context) float32 {
+	w, _ := c.Size()
+	return w
+}
+
+// incognitoLayout 给出隐身开关这一帧的 min-width 与是否画「隐身」文字标签
+// （原版 .history-incognito-switch / .history-incognito-label 的 ≤520 分支：
+// min-width 收到 66，文字 display:none，只剩图标 + 轨道）。
+func incognitoLayout(width float32) (minWidth float32, showLabel bool) {
+	if width <= incognitoNarrowWidth {
+		return 66, false
+	}
+	return 92, true
+}
+
+// danmakuRowLayout 是弹幕分组行（.danmaku-time-group）在某个窗口宽度下的
+// 左列宽 / 元素间距 / 左右内边距取值。
+type danmakuRowLayout struct {
+	Col, Gap, PadInline float32
+}
+
+// danmakuRowLayoutFor 按窗口宽度给出弹幕分组行的布局：基线 grid-template-columns
+// 64px / gap 10 / padding-inline 12；≤420 时 54 / 8 / 10。
+func danmakuRowLayoutFor(width float32) danmakuRowLayout {
+	if width <= danmakuNarrowWidth {
+		return danmakuRowLayout{Col: 54, Gap: 8, PadInline: 10}
+	}
+	return danmakuRowLayout{Col: 64, Gap: 10, PadInline: 12}
+}
+
 // incognitoTip 是隐身开关的 tooltip（原版 historyList 的 Tooltip content）：
 // 开着时提示关掉的后果，关着时提示打开的效果。
 func incognitoTip(on bool) string {
@@ -431,7 +478,9 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 原版 .history-incognito-switch：min-width 92、高 32、gap 7、padding 0 8、
 	// 圆角 8、1px 边 rgba(100,116,139,.2)、底 rgba(255,255,255,.34)，
 	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
-	b := ui.ButtonBase(c.Key("incognito")).MinWidth(92).Height(32).Padding(0, 8).
+	// ≤520 时原版把 min-width 收到 66 并隐藏文字标签（只剩图标 + 轨道）。
+	minW, showLabel := incognitoLayout(windowWidth(c))
+	b := ui.ButtonBase(c.Key("incognito")).MinWidth(minW).Height(32).Padding(0, 8).
 		Radius(Radius).Label("隐身").Tooltip(incognitoTip(a.Incognito))
 	// 半透明填充；开启隐身时用青色底表达（原版是 rgba(207,250,254,.5) 底）。
 	buttonSurface(b, a.Incognito, b.Hovered(),
@@ -441,8 +490,11 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, iconMask).Size(15, 15).TextColor(ink)
-			// .history-incognito-label：12px / 650 / line-height 1。
-			ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(ink)
+			// .history-incognito-label：12px / 650 / line-height 1；≤520 时不画
+			//（原版 display:none，min-width 同步收到 66）。
+			if showLabel {
+				ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(ink)
+			}
 			// 轨道 27×16（padding 2、圆角 999、内凹影），滑块 12，打开时右移 11。
 			ui.Box(c).Width(27).Height(16).Shrink(0).Radius(RadiusPill).Padding(2).
 				InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.10)).
@@ -1845,8 +1897,11 @@ func (a *App) danmakuBody(c *ui.Context) {
 	// 十几行。
 	theme := a.Theme
 	sep := ui.Hex("#64748b").Alpha(0.14)
+	// 弹幕分组行的列宽/间距随窗口宽度收窄（原版 .danmaku-time-group 的
+	// @media (max-width: 420px)）：这一帧算一次，传给每行复用。
+	row := danmakuRowLayoutFor(windowWidth(c))
 	ui.List(c, &a.danmakuList, len(groups), func(i int) {
-		a.danmakuGroupRow(c, groups[i], i == cur, sep, theme)
+		a.danmakuGroupRow(c, groups[i], i == cur, sep, theme, row)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
 	// 只在下标变化时滚，不干扰手滑。
@@ -1857,12 +1912,13 @@ func (a *App) danmakuBody(c *ui.Context) {
 }
 
 // danmakuGroupRow 画一个弹幕分组行（原版 .danmaku-time-group）：整行 grid
-// （64px 时间列 + 1fr 消息列）、gap 10、padding 11 12 13、底部 1px 分隔线；
-// 组之间没有间距，靠这条线分开。由 danmakuBody 的虚拟列表按需构建。
-func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.Color, t Theme) {
+// （时间列 + 1fr 消息列）、底部 1px 分隔线；组之间没有间距，靠这条线分开。
+// 列宽/间距/inline 内边距由 l 给出（宽窗 64/10/12，≤420 时 54/8/10）。
+// 由 danmakuBody 的虚拟列表按需构建。
+func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.Color, t Theme, l danmakuRowLayout) {
 	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
 		Margin(2, 0).
-		Padding(11, 12, 13).Gap(10).AlignItems(ui.Start).
+		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start).
 		Cursor(ui.CursorPointer).
 		InsetShadow(0, -1, 0, 0, sep)
 	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
@@ -1873,9 +1929,9 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 		box.InsetShadow(0, -1, 0, 0, t.Blue.Alpha(0.24))
 	}
 	box.Children(func() {
-		// 左列 64：时间标签 + 「N 条」，右缘一线分隔（.danmaku-time-head）。
-		// 右缘用 x=-1 的内影（正 x 画的是左缘）。
-		ui.Column(c).Width(64).Shrink(0).Gap(4).Justify(ui.Center).
+		// 左列（宽窗 64 / ≤420 时 54）：时间标签 + 「N 条」，右缘一线分隔
+		//（.danmaku-time-head）。右缘用 x=-1 的内影（正 x 画的是左缘）。
+		ui.Column(c).Width(l.Col).Shrink(0).Gap(4).Justify(ui.Center).
 			InsetShadow(-1, 0, 0, 0, sep).Children(func() {
 			lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
 				FontWeight(700).Padding(3, 5).Radius(6)
