@@ -111,6 +111,7 @@ func disablePlayerButton(b ui.Element, off bool) ui.Element {
 // transport 是第 1 列（80px）：播放/暂停（42） + 下一集（32）。
 func (a *App) transport(c *ui.Context) {
 	t := a.Theme
+	src := a.hasSource()
 	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
 		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569，
 		// 内亮线（inset 0 1px 1px rgba(255,255,255,.82)）。
@@ -118,7 +119,9 @@ func (a *App) transport(c *ui.Context) {
 		//（macOS 27 的 NSGlassEffectView 行为），这正是原版那套手搓
 		// inset 阴影想表达而做不到的"液态"感。播放中用 Tint 上蓝。
 		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
-			Label(pick(a.Playing, "暂停", "播放")).Tooltip(pick(a.Playing, "暂停", "播放"))
+			Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
+		// 原版 disabled={!src}：还没有曲目时整个播放栏是禁用态。
+		disablePlayerButton(play, !src)
 		pg := glass.Glass{Interactive: true}
 		if a.Playing {
 			pg.Tint = pick(play.Hovered(), t.Blue.Alpha(0.34), t.Blue.Alpha(0.22))
@@ -135,7 +138,7 @@ func (a *App) transport(c *ui.Context) {
 		}
 
 		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(Radius).Center().
-			Label("下一集").Tooltip("下一集")
+			Label(nextTip()).Tooltip(nextTip())
 		next.Disabled(!a.canNavigate())
 		if !a.canNavigate() {
 			// 原版 .player-button:disabled 是 opacity .42（mygo 已乘 .5）。
@@ -331,6 +334,8 @@ func (a *App) volumeButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
 		Label("音量").Tooltip("音量")
+	// 原版 disabled={!src}。
+	disablePlayerButton(b, !a.hasSource())
 	b.Material(glassTint(a.ShowVolume, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
 	// 原版：音量键图标随音量变化（0 视为静音）。
@@ -348,8 +353,11 @@ func (a *App) volumeButton(c *ui.Context) {
 // speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
 func (a *App) speedButton(c *ui.Context) {
 	// 原版 .player-speed-button：40×32（列宽同为 40）。
+	// tooltip 是「播放速度 X 倍」（用原始数值，不是 1.0x 的标签）。
 	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
-		Label("倍速").Tooltip("倍速")
+		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
+	// 原版 disabled={!src}。
+	disablePlayerButton(b, !a.hasSource())
 	b.Material(glassTint(a.ShowSpeed, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.30), ui.Hex("#ffffff").Alpha(0.18)))
 	pressPose(b)
@@ -365,9 +373,11 @@ func (a *App) speedButton(c *ui.Context) {
 // eqButton 是第 7 列（34px）：均衡开关。
 func (a *App) eqButton(c *ui.Context) {
 	t := a.Theme
-	// 原版 .player-eq-button：34×32（列宽 34）。
+	// 原版 .player-eq-button：34×32（列宽 34），tooltip「音量均衡: 开/关」。
 	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
-		Label("均衡").Tooltip("均衡")
+		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
+	// 原版 disabled={!src}。
+	disablePlayerButton(b, !a.hasSource())
 	b.Material(glassTint(a.EQ, b.Hovered(),
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
 	pressPose(b)
@@ -383,19 +393,25 @@ func (a *App) eqButton(c *ui.Context) {
 func (a *App) sponsorButton(c *ui.Context) {
 	t := a.Theme
 	// 原版 .player-sponsor-button：34×32（列宽 40，留 6px 余量）。
+	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
-		Label("跳过赞助").Tooltip("跳过赞助片段")
+		Label(sponsorTip()).Tooltip(sponsorTip())
 	b.Material(glassTint(a.Sponsor, b.Hovered(),
 		t.Blue.Alpha(0.34), ui.Hex("#ffffff").Alpha(0.18)))
 	pressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(15, 15).
 			TextColor(pick(a.Sponsor, ui.Hex("#0369a1"), ui.Hex("#334155")))
-		// 状态点（原版按钮右上角的小圆）：绿=有分段，黄=查询中，红=失败，灰=无/未启用。
-		if a.Sponsor {
-			ui.Box(c).Size(6, 6).Radius(RadiusPill).Absolute().Right(4).Top(4).
-				Background(sponsorDotColor(a.SponsorStatus))
-		}
+		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
+		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
+		// tooltip 是原版那串状态文案（ok 时带段数、有原因时附在冒号后）。
+		dot := ui.Box(c).Size(6, 6).Radius(RadiusPill).Absolute().Right(3).Top(3).
+			Background(sponsorDotColor(a.SponsorStatus)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.75)).
+			Tooltip(sponsorStatusTitle(a.SponsorStatus,
+				pick(a.Sponsor, a.SponsorCount, 0), a.SponsorReason))
+		// 纯视觉，不能吃掉按钮的点击。
+		dot.PassThrough()
 	})
 	if b.Clicked() && a.Act.ToggleSponsor != nil {
 		a.Act.ToggleSponsor()
@@ -415,6 +431,62 @@ func sponsorDotColor(status string) ui.Color {
 		return ui.Hex("#94a3b8")
 	}
 }
+
+// ---------------------------------------------------------------- 文案
+//
+// 播放栏控件的 aria-label / title 都按原版（main:src/components/player.tsx）。
+// 文案抽成纯函数：既让界面与测试共用同一个事实源，也避免两边各写一份字符串
+// 又慢慢漂开（"下一集" / "跳过赞助片段" 就是这么遗留的）。
+
+// playTip 是播放/暂停键的文案（原版 isPlaying ? "暂停" : "播放"）。
+func playTip(playing bool) string { return pick(playing, "暂停", "播放") }
+
+// nextTip 是下一集键的文案。原版是「下一个视频」（不是「下一集」）。
+func nextTip() string { return "下一个视频" }
+
+// speedTip 是倍速键的文案（原版 `播放速度 ${playbackRate} 倍`）——
+// 用**原始数值**（1 → "播放速度 1 倍"），不是 "1.0x" 那个显示标签。
+func speedTip(rate float64) string { return fmt.Sprintf("播放速度 %g 倍", rate) }
+
+// eqTip 是均衡键的文案（原版「音量均衡: 开/关」）。
+func eqTip(on bool) string { return pick(on, "音量均衡: 开", "音量均衡: 关") }
+
+// sponsorTip 是恰饭跳过键的文案（原版「自动跳过恰饭片段（SponsorBlock）」）。
+func sponsorTip() string { return "自动跳过恰饭片段（SponsorBlock）" }
+
+// sponsorStatusLabel 是状态点 tooltip 的前缀（原版 SPONSOR_STATUS_LABEL）。
+// Go 内部把「未启用」叫 off（原版叫 disabled），只差这个名字。
+func sponsorStatusLabel(status string) string {
+	switch status {
+	case "loading":
+		return "SponsorBlock 查询中…"
+	case "ok":
+		return "SponsorBlock 已加载"
+	case "empty":
+		return "SponsorBlock 无片段"
+	case "error":
+		return "SponsorBlock 查询失败"
+	default:
+		return "SponsorBlock 未启用"
+	}
+}
+
+// sponsorStatusTitle 是状态点的 tooltip，复刻原版那串拼接：
+// 状态文案 [+ " (N 段)"（仅 ok）] [+ ": 原因"（有原因时）]。
+func sponsorStatusTitle(status string, count int, reason string) string {
+	s := sponsorStatusLabel(status)
+	if status == "ok" {
+		s += fmt.Sprintf(" (%d 段)", count)
+	}
+	if reason != "" {
+		s += ": " + reason
+	}
+	return s
+}
+
+// hasSource 报告播放栏是否有可操作的媒体，对应原版播放键/音量/倍速/均衡
+// 的 `disabled={!src}`：队列空（还没选过任何视频）时整排控件是禁用态。
+func (a *App) hasSource() bool { return a.Current() != nil }
 
 // ---------------------------------------------------------------- 弹层
 

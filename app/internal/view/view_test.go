@@ -187,6 +187,89 @@ func TestSponsorDotColor(t *testing.T) {
 	}
 }
 
+// TestHasSource 钉住播放栏的禁用判据：原版是 `disabled={!src}`（还没有任何
+// 曲目时播放/音量/倍速/均衡整排禁用），Go 侧对应「队列里没有当前曲目」。
+func TestHasSource(t *testing.T) {
+	empty := &App{}
+	if empty.hasSource() {
+		t.Error("空队列不应有 source")
+	}
+	// Index 越界（刚清空队列、还没选曲）也不该算有 source。
+	oob := &App{Queue: []Track{{Cid: 1}}, Index: 3}
+	if oob.hasSource() {
+		t.Error("Index 越界不应有 source")
+	}
+	set := &App{Queue: []Track{{Cid: 1}}, Index: 0}
+	if !set.hasSource() {
+		t.Error("队列里有当前曲目就应有 source")
+	}
+}
+
+// TestPlayerBarTips 钉住播放栏控件的文案（原版 main:src/components/player.tsx
+// 的 aria-label / title）。之前这里是另一套文案：下一集 / 倍速 / 均衡 /
+// 跳过赞助片段，与原版都对不上。
+func TestPlayerBarTips(t *testing.T) {
+	if got := playTip(true); got != "暂停" {
+		t.Errorf("playTip(true) = %q, want 暂停", got)
+	}
+	if got := playTip(false); got != "播放" {
+		t.Errorf("playTip(false) = %q, want 播放", got)
+	}
+	// 原版是「下一个视频」，不是「下一集」。
+	if got := nextTip(); got != "下一个视频" {
+		t.Errorf("nextTip() = %q, want 下一个视频", got)
+	}
+	// 倍速用原始数值（1 → "播放速度 1 倍"），不是 1.0x 的显示标签。
+	speed := map[float64]string{
+		1:    "播放速度 1 倍",
+		0.75: "播放速度 0.75 倍",
+		1.25: "播放速度 1.25 倍",
+		3:    "播放速度 3 倍",
+	}
+	for rate, want := range speed {
+		if got := speedTip(rate); got != want {
+			t.Errorf("speedTip(%v) = %q, want %q", rate, got, want)
+		}
+	}
+	if got := eqTip(true); got != "音量均衡: 开" {
+		t.Errorf("eqTip(true) = %q", got)
+	}
+	if got := eqTip(false); got != "音量均衡: 关" {
+		t.Errorf("eqTip(false) = %q", got)
+	}
+	if got := sponsorTip(); got != "自动跳过恰饭片段（SponsorBlock）" {
+		t.Errorf("sponsorTip() = %q", got)
+	}
+}
+
+// TestSponsorStatusTitle 钉住状态点 tooltip 的拼接（原版 SPONSOR_STATUS_LABEL
+// 与 `label [+ " (N 段)"] [+ ": " + reason]`）。
+func TestSponsorStatusTitle(t *testing.T) {
+	cases := []struct {
+		status string
+		count  int
+		reason string
+		want   string
+	}{
+		{"off", 0, "", "SponsorBlock 未启用"},
+		{"loading", 0, "", "SponsorBlock 查询中…"},
+		{"ok", 3, "", "SponsorBlock 已加载 (3 段)"},
+		{"ok", 0, "", "SponsorBlock 已加载 (0 段)"}, // ok 一定带段数
+		{"empty", 0, "", "SponsorBlock 无片段"},
+		{"error", 0, "sponsorblock 返回 500", "SponsorBlock 查询失败: sponsorblock 返回 500"},
+		// 非 ok 状态即使带 count 也不显示段数。
+		{"empty", 7, "", "SponsorBlock 无片段"},
+		// 未知状态按「未启用」处理，不能渲染成空 tooltip。
+		{"", 0, "", "SponsorBlock 未启用"},
+	}
+	for _, c := range cases {
+		if got := sponsorStatusTitle(c.status, c.count, c.reason); got != c.want {
+			t.Errorf("sponsorStatusTitle(%q, %d, %q) = %q, want %q",
+				c.status, c.count, c.reason, got, c.want)
+		}
+	}
+}
+
 func TestNeedsLogin(t *testing.T) {
 	a := &App{Drawer: "history"}
 	if !a.needsLogin() {

@@ -167,6 +167,7 @@ func main() {
 	c.sponsorOn = app.Sponsor
 	if app.Sponsor {
 		app.SponsorStatus = "loading"
+		app.SponsorCount = 0
 	} else {
 		app.SponsorStatus = "off"
 	}
@@ -302,6 +303,8 @@ func main() {
 			app.SponsorSegments = list
 			app.Sponsor = true
 			app.SponsorStatus = "ok"
+			app.SponsorCount = len(list)
+			app.SponsorReason = ""
 			// 无头环境里媒体不会真的加载，Dur 一直是 0 —— 标记按比例画，
 			// 所以给个假总时长才能看到效果。
 			app.Dur = 600
@@ -757,6 +760,15 @@ func toViewSegments(segs []bilibili.SponsorSegment) []view.Segment {
 		out = append(out, view.Segment{Start: s.Start, End: s.End, VideoDuration: s.VideoDuration})
 	}
 	return out
+}
+
+// sponsorReason 把查询错误转成状态点 tooltip 里那段失败原因
+// （原版 sponsorStatus.reason）。成功 / 无需查询时是空串。
+func sponsorReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // currentMedia 返回互动操作的目标：优先用主区正在展示的视频（a.Info，和原版
@@ -1759,6 +1771,8 @@ func (c *controller) startCurrent() {
 	c.app.Danmaku = nil
 	c.sponsor, c.skipped = nil, map[int]bool{}
 	c.app.SponsorSegments = nil
+	// 状态点的段数/原因属于上一条视频，换歌时清掉（开关重开后会重新查）。
+	c.app.SponsorCount, c.app.SponsorReason = 0, ""
 	// seek 状态机复位（换歌后跟随新进度）；丢弃起播期间排队的 seek。
 	c.app.ResetSeek()
 	c.app.HasPendingSeek = false
@@ -1888,7 +1902,11 @@ func (c *controller) startCurrent() {
 			c.app.Win.Update(func() { c.app.Danmaku = list })
 		}
 		if c.sponsorOn {
-			c.app.Win.Update(func() { c.app.SponsorStatus = "loading" })
+			c.app.Win.Update(func() {
+				c.app.SponsorStatus = "loading"
+				c.app.SponsorCount = 0
+				c.app.SponsorReason = ""
+			})
 			segs, err := c.bl.FetchSponsorSegments(t.Bvid, cid)
 			status := "empty"
 			switch {
@@ -1901,6 +1919,8 @@ func (c *controller) startCurrent() {
 				c.sponsor = segs
 				c.app.SponsorSegments = toViewSegments(segs)
 				c.app.SponsorStatus = status
+				c.app.SponsorCount = len(segs)
+				c.app.SponsorReason = sponsorReason(err)
 			})
 		}
 	}()
@@ -2038,6 +2058,8 @@ func (c *controller) toggleSponsor() {
 	if a.Sponsor {
 		_ = c.kv.SetString("sponsor_skip", "1")
 		a.SponsorStatus = "loading"
+		a.SponsorCount = 0
+		a.SponsorReason = ""
 		if t := a.Current(); t != nil && t.Cid != 0 {
 			bvid, cid := t.Bvid, t.Cid
 			go func() {
@@ -2053,12 +2075,16 @@ func (c *controller) toggleSponsor() {
 					c.sponsor = segs
 					a.SponsorSegments = toViewSegments(segs)
 					a.SponsorStatus = status
+					a.SponsorCount = len(segs)
+					a.SponsorReason = sponsorReason(err)
 				})
 			}()
 		}
 	} else {
 		_ = c.kv.SetString("sponsor_skip", "0")
 		a.SponsorStatus = "off"
+		a.SponsorCount = 0
+		a.SponsorReason = ""
 	}
 	a.Win.Update(func() {})
 }

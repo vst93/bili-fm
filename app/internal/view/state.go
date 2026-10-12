@@ -388,6 +388,12 @@ type App struct {
 	// SponsorStatus 是 SponsorBlock 查询状态：off/loading/ok/empty/error，
 	// 用于播放栏按钮上的状态点（原版解 SponsorStatusInfo）。
 	SponsorStatus string
+	// SponsorCount 是本次查询拿到（或确认没有）的分段数；ok 时进状态点
+	// 的 tooltip（原版 sponsorStatus.count）。
+	SponsorCount int
+	// SponsorReason 是查询失败的原因，进状态点的 tooltip
+	//（原版 sponsorStatus.reason，error 时显示）。
+	SponsorReason string
 	// SponsorSegments 是当前曲目的跳过分段（进度条上的广告段标记）。
 	SponsorSegments []Segment
 	// Buffering 表示正在起播（网络 + 解码初始化）。

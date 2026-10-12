@@ -123,8 +123,10 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				// 59px：播放 28 + 3 + 下一集 28。
 				ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
 					// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
+					// 禁用态与文案与主窗同一套（原版 mini 用的是同一个 Player 组件）。
 					play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
-						Label(pick(a.Playing, "暂停", "播放"))
+						Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
+					disablePlayerButton(play, !a.hasSource())
 					// 框架 Interactive 玻璃；播放中用蓝 Tint 表达"正在播"。
 					mg := glass.Glass{Interactive: true}
 					if a.Playing {
@@ -142,7 +144,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 					}
 
 					next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
-						Label("下一集")
+						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
 					next.Material(glassTint(false, next.Hovered(),
 						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
@@ -165,7 +167,9 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
 				ui.Box(c).Width(34).Shrink(0).Children(func() {
 					vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
-						Label("音量")
+						Label("音量").Tooltip("音量")
+					// 原版 disabled={!src}。
+					disablePlayerButton(vol, !a.hasSource())
 					vol.Material(glassTint(false, vol.Hovered(),
 						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18)))
 					vol.Children(func() { ui.Icon(c, iconVolume).Size(13, 13).TextColor(ui.Hex("#334155")) })

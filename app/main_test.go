@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -21,6 +22,17 @@ func TestParseDurText(t *testing.T) {
 		if got := parseDurText(in); got != want {
 			t.Errorf("parseDurText(%q) = %d, want %d", in, got, want)
 		}
+	}
+}
+
+func TestSponsorReason(t *testing.T) {
+	// 成功 / 无需查询：tooltip 里不附原因。
+	if got := sponsorReason(nil); got != "" {
+		t.Errorf("sponsorReason(nil) = %q, want empty", got)
+	}
+	// 失败：原版 sponsorStatus.reason 就是错误文案。
+	if got := sponsorReason(errors.New("sponsorblock 返回 500")); got != "sponsorblock 返回 500" {
+		t.Errorf("sponsorReason(err) = %q", got)
 	}
 }
 
