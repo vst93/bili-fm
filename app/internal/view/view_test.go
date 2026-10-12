@@ -437,3 +437,120 @@ func TestAdvanceDiscContinuous(t *testing.T) {
 		t.Fatalf("23s 后角度 = %v, want ~376（一直累加）", a.discAngle)
 	}
 }
+
+// TestCoverToggleActive 钉住封面三个小开关的激活态判据：原版 CSS 只给
+// 「封面背景」（.cover-background-toggle）与「高级质感」（.cover-premium-toggle）
+// 定义了 is-active；模式切换键（.cover-mode-toggle）从来没有 is-active。
+// 之前统一传 true，模式键被误画成了蓝色激活态。
+func TestCoverToggleActive(t *testing.T) {
+	cases := []struct {
+		key              string
+		ambient, premium bool
+		want             bool
+	}{
+		{"cover-mode", true, true, false},
+		{"cover-mode", false, false, false},
+		{"ambient", true, false, true},
+		{"ambient", false, false, false},
+		{"premium", false, true, true},
+		{"premium", true, false, false},
+	}
+	for _, c := range cases {
+		if got := coverToggleActive(c.key, c.ambient, c.premium); got != c.want {
+			t.Errorf("coverToggleActive(%q, %v, %v) = %v, want %v",
+				c.key, c.ambient, c.premium, got, c.want)
+		}
+	}
+}
+
+// TestCoverToggleStyle 钉住封面小开关的底色/边色/图标色（原版
+// .cover-mode-toggle 的三条规则）。关键点：激活态**不改图标色**（原版 is-active
+// 只改底色与描边，图标亮度仍由 hover 决定）；激活底色是 .28 而不是旧值 .45。
+func TestCoverToggleStyle(t *testing.T) {
+	eq := func(got, want ui.Color) bool {
+		return got.R == want.R && got.G == want.G && got.B == want.B && got.A == want.A
+	}
+	// 激活：蓝底 .28 + 浅蓝边 .45，图标色仍 .70（不因激活变亮）。
+	bg, border, ink := coverToggleStyle(true, false)
+	if !eq(bg, ui.Hex("#0ea5e9").Alpha(0.28)) {
+		t.Errorf("激活底色 = %+v, want %+v", bg, ui.Hex("#0ea5e9").Alpha(0.28))
+	}
+	if !eq(border, ui.Hex("#7dd3fc").Alpha(0.45)) {
+		t.Errorf("激活边色 = %+v, want %+v", border, ui.Hex("#7dd3fc").Alpha(0.45))
+	}
+	if !eq(ink, ui.Hex("#ffffff").Alpha(0.70)) {
+		t.Errorf("激活图标色 = %+v, want %+v（is-active 不改图标色）", ink, ui.Hex("#ffffff").Alpha(0.70))
+	}
+	// 激活 + 悬停：is-active 规则在 CSS 里更靠后，底色/描边仍是激活态；
+	// 只有图标色由 hover 规则抬高到 .95。
+	bg, border, ink = coverToggleStyle(true, true)
+	if !eq(bg, ui.Hex("#0ea5e9").Alpha(0.28)) {
+		t.Errorf("激活+悬停底色 = %+v, want %+v（is-active 盖过 hover）", bg, ui.Hex("#0ea5e9").Alpha(0.28))
+	}
+	if !eq(border, ui.Hex("#7dd3fc").Alpha(0.45)) {
+		t.Errorf("激活+悬停边色 = %+v, want %+v", border, ui.Hex("#7dd3fc").Alpha(0.45))
+	}
+	if !eq(ink, ui.Hex("#ffffff").Alpha(0.95)) {
+		t.Errorf("激活+悬停图标色 = %+v, want %+v", ink, ui.Hex("#ffffff").Alpha(0.95))
+	}
+	// 未激活：深底 .35、白边 .25、图标 .70。
+	bg, border, ink = coverToggleStyle(false, false)
+	if !eq(bg, ui.Hex("#0f172a").Alpha(0.35)) || !eq(border, ui.Hex("#ffffff").Alpha(0.25)) ||
+		!eq(ink, ui.Hex("#ffffff").Alpha(0.70)) {
+		t.Errorf("默认态 = (%+v, %+v, %+v)，want (%+v, %+v, %+v)",
+			bg, border, ink,
+			ui.Hex("#0f172a").Alpha(0.35), ui.Hex("#ffffff").Alpha(0.25), ui.Hex("#ffffff").Alpha(0.70))
+	}
+}
+
+// TestIncognitoTip 钉住历史抽屉隐身开关的 tooltip 随开关态切换（原版
+// historyList 的 Tooltip content）。之前无论开关都写着「开启后…」。
+func TestIncognitoTip(t *testing.T) {
+	if got := incognitoTip(true); got != "关闭后恢复云端播放记录与进度同步" {
+		t.Errorf("隐身开启时的 tooltip = %q", got)
+	}
+	if got := incognitoTip(false); got != "开启后不读取或上报云端播放记录与进度" {
+		t.Errorf("隐身关闭时的 tooltip = %q", got)
+	}
+}
+
+// TestHistoryRefreshLabel 钉住历史抽屉刷新键的文案随 tab 变（原版 aria-label）。
+func TestHistoryRefreshLabel(t *testing.T) {
+	if got := historyRefreshLabel(HistHistory); got != "刷新历史记录" {
+		t.Errorf("观看历史 tab 的刷新文案 = %q, want 刷新历史记录", got)
+	}
+	if got := historyRefreshLabel(HistWatchLater); got != "刷新稍后再看" {
+		t.Errorf("稍后再看 tab 的刷新文案 = %q, want 刷新稍后再看", got)
+	}
+}
+
+// TestUserButtonLabels 钉住搜索药丸最右端头像键的文案（原版 searchForm）：
+// 未登录是「登录账号」/「点击登录账号」，已登录是「切换登录账号」/
+// 「点击登录其他账号」。之前原生版写的是「扫码登录」/「已登录 <名字>」。
+func TestUserButtonLabels(t *testing.T) {
+	a := NewApp(func() {})
+	logins := 0
+	a.Act.Login = func() { logins++ }
+	tt := shellTester(t, a)
+	if err := tt.Click("登录账号"); err != nil {
+		t.Fatalf("未登录时找不到「登录账号」按钮：%v", err)
+	}
+	tt.Frame()
+	if logins != 1 {
+		t.Fatalf("点未登录头像：logins=%d，想 1", logins)
+	}
+
+	b := NewApp(func() {})
+	b.LoggedIn = true
+	b.UName = "某人"
+	logins = 0
+	b.Act.Login = func() { logins++ }
+	tt2 := shellTester(t, b)
+	if err := tt2.Click("切换登录账号"); err != nil {
+		t.Fatalf("已登录时找不到「切换登录账号」按钮：%v", err)
+	}
+	tt2.Frame()
+	if logins != 1 {
+		t.Fatalf("点已登录头像：logins=%d，想 1", logins)
+	}
+}

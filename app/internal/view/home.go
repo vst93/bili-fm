@@ -162,11 +162,13 @@ func (a *App) openSection(key string) {
 func (a *App) userButton(c *ui.Context) {
 	t := a.Theme
 	// 圆形头像键：半透明填充 + 白边（原版 .home-user-button 无 backdrop-filter）。
+	// 文案与原版一致：未登录是「登录账号」，已登录是「切换登录账号」（aria-label），
+	// title 分别提示「点击登录账号」/「点击登录其他账号」。
 	b := ui.ButtonBase(c.Key("user")).Size(AvatarSize, AvatarSize).Radius(RadiusPill).
 		Center().Clip().Background(ui.Hex("#ffffff").Alpha(0.32)).
 		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
-		Label(pick(a.LoggedIn, "已登录", "扫码登录")).
-		Tooltip(pick(a.LoggedIn, "已登录 "+a.UName, "扫码登录"))
+		Label(pick(a.LoggedIn, "切换登录账号", "登录账号")).
+		Tooltip(pick(a.LoggedIn, "点击登录其他账号", "点击登录账号"))
 	b.Children(func() {
 		if bmp := a.Images.Bitmap(a.Face); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
@@ -281,7 +283,7 @@ func (a *App) coverDisc(c *ui.Context) {
 				// tooltip 文案与原版一致（碟片/封面模式、封面背景、高级质感）。
 				a.coverToggle(c, "cover-mode",
 					pick(a.CoverMode == "square", "切换为碟片模式", "切换为封面模式"),
-					iconRefresh, true, func() {
+					iconRefresh, func() {
 						if a.Act.SetCoverMode == nil {
 							return
 						}
@@ -293,14 +295,14 @@ func (a *App) coverDisc(c *ui.Context) {
 					})
 				a.coverToggle(c, "ambient",
 					pick(a.Ambient, "关闭封面背景", "开启封面背景"),
-					iconHalo, a.Ambient, func() {
+					iconHalo, func() {
 						if a.Act.ToggleAmbient != nil {
 							a.Act.ToggleAmbient()
 						}
 					})
 				a.coverToggle(c, "premium",
 					pick(a.Premium, "关闭高级质感（更省电）", "开启高级质感"),
-					iconSparkles, a.Premium, func() {
+					iconSparkles, func() {
 						if a.Act.TogglePremium != nil {
 							a.Act.TogglePremium()
 						}
@@ -310,35 +312,62 @@ func (a *App) coverDisc(c *ui.Context) {
 	})
 }
 
-// coverToggle 是封面上的一个小开关（原版 .cover-mode-toggle）。active 为真时
-// 底色更亮、图标用强调色，与旧版的 is-active 一致。
-func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
+// coverToggleActive 报告封面上的某个小开关这一帧是不是激活态。
+//
+// 原版 CSS 只给两个键定义了 `is-active` —— `.cover-background-toggle.is-active`
+// 与 `.cover-premium-toggle.is-active`；模式切换键就是 `.cover-mode-toggle`
+// 本身（没有后缀、也没有 is-active 规则），它的底色一直是中性深色。之前这里
+// 给三个键统一传 true，模式键被误画成了蓝色激活态。
+func coverToggleActive(key string, ambient, premium bool) bool {
+	switch key {
+	case "ambient":
+		return ambient
+	case "premium":
+		return premium
+	default:
+		return false
+	}
+}
+
+// coverToggleStyle 返回封面小开关这一帧的底色、边色与图标色，对应原版
+// `.cover-mode-toggle` 的几条规则（按 CSS 里出现的先后与特异度定优先级）：
+//
+//	默认   background rgba(15,23,42,.35)  border rgba(255,255,255,.25)  color rgba(255,255,255,.70)
+//	悬停   background rgba(15,23,42,.55)  color rgba(255,255,255,.95)
+//	激活   background rgba(14,165,233,.28) border rgba(125,211,252,.45)
+//
+// `.x-toggle.is-active` 与 `.cover-mode-toggle:hover` 特异度相同（都是两个类），
+// 但 is-active 规则在 CSS 里更靠后，所以**激活态的底色/描边盖过悬停**，而
+// 图标色只有 base 与 :hover 在写 —— 即激活态图标亮度仍由 hover 决定
+//（之前激活直接把图标提到 .95，是多余的偏差）。
+func coverToggleStyle(active, hovered bool) (bg, border, ink ui.Color) {
+	switch {
+	case active:
+		bg, border = ui.Hex("#0ea5e9").Alpha(0.28), ui.Hex("#7dd3fc").Alpha(0.45)
+	case hovered:
+		bg, border = ui.Hex("#0f172a").Alpha(0.55), ui.Hex("#ffffff").Alpha(0.25)
+	default:
+		bg, border = ui.Hex("#0f172a").Alpha(0.35), ui.Hex("#ffffff").Alpha(0.25)
+	}
+	ink = ui.Hex("#ffffff").Alpha(0.70)
+	if hovered {
+		ink = ui.Hex("#ffffff").Alpha(0.95)
+	}
+	return bg, border, ink
+}
+
+// coverToggle 是封面上的一个小开关（原版 .cover-mode-toggle）。激活态由
+// coverToggleActive 按 key 决定（只有封面背景 / 高级质感有 is-active）。
+func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
 	b := ui.ButtonBase(c.Key("cover-"+key)).Size(28, 28).Radius(RadiusPill).
 		Center().Label(label).Tooltip(label)
-	// 原版：深色半透明圆（rgba(15,23,42,.35)）+ 1px 白边；
-	// 激活改蓝底 rgba(14,165,233,.28) + 浅蓝边 rgba(125,211,252,.45)；
-	// 悬停底色加深到 .55。
 	// 这几个键浮在封面上：深色半透明填充 + 1px 白边（原版
 	// .cover-mode-toggle 也没有 backdrop-filter，之前用 Clear 玻璃多算了
 	// 三次 backdrop 重算）。
-	switch {
-	case active:
-		b.Background(ui.Hex("#0ea5e9").Alpha(0.45)).
-			Border(1, ui.Hex("#7dd3fc").Alpha(0.45))
-	case b.Hovered():
-		b.Background(ui.Hex("#0f172a").Alpha(0.60)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.28))
-	default:
-		b.Background(ui.Hex("#0f172a").Alpha(0.35)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.20))
-	}
+	active := coverToggleActive(key, a.Ambient, a.Premium)
+	bg, border, ink := coverToggleStyle(active, b.Hovered())
+	b.Background(bg).Border(1, border)
 	b.Children(func() {
-		ink := ui.Hex("#ffffff").Alpha(0.70)
-		if active {
-			ink = ui.Hex("#ffffff").Alpha(0.95)
-		} else if b.Hovered() {
-			ink = ui.Hex("#ffffff").Alpha(0.95)
-		}
 		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
 	})
 	if b.Clicked() {

@@ -238,7 +238,14 @@ func (a *App) drawerHeader(c *ui.Context) {
 			if a.Drawer == DrawerDanmaku {
 				refreshSize = 18
 			}
-			a.headerButton(c, "drawer-refresh", "刷新", iconRefresh, refreshSize, ui.Hex("#333333"), func() {
+			// 历史抽屉的刷新键文案随 tab 变（原版 aria-label「刷新历史记录」/
+			// 「刷新稍后再看」），且刷新中禁用（原版 isDisabled={isRefreshing}）。
+			label, off := "刷新", false
+			if a.Drawer == "history" {
+				label = historyRefreshLabel(a.HistTab)
+				off = a.list().Loading
+			}
+			a.headerButtonOff(c, "drawer-refresh", label, iconRefresh, refreshSize, ui.Hex("#333333"), off, func() {
 				if a.Act.Reload != nil {
 					a.Act.Reload()
 				}
@@ -397,6 +404,22 @@ func (a *App) upHeader(c *ui.Context) {
 	})
 }
 
+// incognitoTip 是隐身开关的 tooltip（原版 historyList 的 Tooltip content）：
+// 开着时提示关掉的后果，关着时提示打开的效果。
+func incognitoTip(on bool) string {
+	return pick(on,
+		"关闭后恢复云端播放记录与进度同步",
+		"开启后不读取或上报云端播放记录与进度")
+}
+
+// historyRefreshLabel 是历史抽屉刷新键的文案（原版按 tab 切换 aria-label）。
+func historyRefreshLabel(tab string) string {
+	if tab == HistWatchLater {
+		return "刷新稍后再看"
+	}
+	return "刷新历史记录"
+}
+
 // incognitoSwitch 是历史抽屉表头里的「隐身」开关（原版 .history-incognito-switch）：
 // 32 高、图标 + 文字 + 一个小轨道。打开后不读也不写云端进度。
 func (a *App) incognitoSwitch(c *ui.Context) {
@@ -404,7 +427,7 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 圆角 8、1px 边 rgba(100,116,139,.2)、底 rgba(255,255,255,.34)，
 	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(92).Height(32).Padding(0, 8).
-		Radius(Radius).Label("隐身").Tooltip("开启后不读取或上报云端播放记录与进度")
+		Radius(Radius).Label("隐身").Tooltip(incognitoTip(a.Incognito))
 	// 半透明填充；开启隐身时用青色底表达（原版是 rgba(207,250,254,.5) 底）。
 	buttonSurface(b, a.Incognito, b.Hovered(),
 		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
@@ -532,12 +555,18 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 // headerButton 是抽屉表头的图标按钮。原版各按钮的图标尺寸/颜色并不统一：
 // 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
 func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
+	a.headerButtonOff(c, key, label, ic, size, ink, false, fn)
+}
+
+// headerButtonOff 同 headerButton，但可置为禁用（原版部分刷新键在请求中禁用）。
+func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, off bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
+	disableNav(b, off)
 	buttonSurface(b, false, b.Hovered(),
 		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	pressPose(b)
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
-	if b.Clicked() {
+	if !off && b.Clicked() {
 		fn()
 	}
 }

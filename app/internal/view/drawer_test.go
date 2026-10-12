@@ -484,3 +484,35 @@ func TestDrawerExitState(t *testing.T) {
 		t.Fatal("退场停稳后没有收尾，面板会一直留在场景里")
 	}
 }
+
+// TestHistoryRefreshDisabledWhileLoading 钉住历史抽屉的刷新键在刷新中禁用
+// （原版 historyList 的 isDisabled={isRefreshing}）。之前原生版的通用刷新键
+// 任何时候都能点，连点会重复触发 Reload。
+func TestHistoryRefreshDisabledWhileLoading(t *testing.T) {
+	a := NewApp(func() {})
+	a.Drawer = "history"
+	a.HistTab = HistHistory
+	reloads := 0
+	a.Act.Reload = func() { reloads++ }
+
+	l := a.ListFor("history")
+	l.Loading = true
+	tt := shellTester(t, a)
+	// 刷新中：点击应被禁用挡住（找不到可点元素也不该触发 Reload）。
+	_ = tt.Click("刷新历史记录")
+	tt.Frame()
+	if reloads != 0 {
+		t.Fatalf("刷新中点击刷新键触发了 Reload：reloads=%d，想 0", reloads)
+	}
+
+	// 加载结束：刷新键恢复可点。
+	l.Loading = false
+	tt.Frame()
+	if err := tt.Click("刷新历史记录"); err != nil {
+		t.Fatalf("加载结束后点不到刷新键：%v", err)
+	}
+	tt.Frame()
+	if reloads != 1 {
+		t.Fatalf("刷新结束后点击刷新键：reloads=%d，想 1", reloads)
+	}
+}
