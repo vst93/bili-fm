@@ -1232,6 +1232,13 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	}
 	box.Translate(0, box.AnimateTo("lift", lift, ui.Snappy))
 
+	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
+	// 的那张挂上：PointerPosition 会让引擎在指针每次移动时补帧，全网格都挂就
+	// 成了「鼠标一动重建整窗」。
+	if box.Hovered() {
+		cardGlow(box)
+	}
+
 	box.Children(func() {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
 		ui.Box(c).FillWidth().Height(100).Shrink(0).
