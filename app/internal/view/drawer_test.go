@@ -348,6 +348,130 @@ func TestCardGridVirtualized(t *testing.T) {
 	}
 }
 
+// newPartsInfo 造一个带 n 个分集的视频详情，分集封面为首帧图（cover 作为地址前缀）。
+func newPartsInfo(n int, cover string) *Info {
+	parts := make([]Part, n)
+	for i := range parts {
+		parts[i] = Part{
+			Cid: int64(1000 + i), Page: i + 1,
+			Part:       fmt.Sprintf("选集标题%d", i),
+			FirstFrame: fmt.Sprintf("%s/part%d.png", cover, i),
+		}
+	}
+	return &Info{Bvid: "BVtest", Cid: 1000, Title: "视频", Pic: cover + "/main.png", Parts: parts}
+}
+
+// TestPartsGridVirtualized 钉住选集抽屉也走虚拟化 ui.List：多 P 视频只构建可见
+// 的那几排分集卡片。之前 partsBody 是 ui.Column 逐张全建——一集几百 P 时每帧
+// 都重建全部卡片，滚动直接卡死。
+func TestPartsGridVirtualized(t *testing.T) {
+	a := NewApp(func() {})
+	a.Images = newRecordingCache()
+	a.Info = newPartsInfo(300, "cover")
+	a.Drawer = DrawerParts
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	if !tst.HasText("选集标题0") {
+		t.Fatal("首屏应构建第一排分集卡片")
+	}
+	if tst.HasText("选集标题299") {
+		t.Fatal("屏外分集不该构建（说明又退回 ui.Column 每帧全建）")
+	}
+
+	tst.Scroll(490, 400, 0, 100000)
+	tst.Frame()
+	if !tst.HasText("选集标题299") {
+		t.Fatal("滚到底应构建末尾分集")
+	}
+	if tst.HasText("选集标题0") {
+		t.Fatal("滚走后顶部分集应被虚拟化回收")
+	}
+}
+
+// TestPartsLocateRow 钉住「定位到当前 / 选集搜索」目标行的换算：
+// 优先选集搜索匹配的那一集，否则回退到正在播放的那一集，都没有返回 -1。
+func TestPartsLocateRow(t *testing.T) {
+	parts := make([]Part, 10)
+	for i := range parts {
+		parts[i] = Part{Cid: int64(i + 1)}
+	}
+	// 搜索匹配优先于正在播放（两者不同时看搜索）。
+	if got := partsLocateRow(parts, &Track{Cid: 1}, 7); got != 7/cardGridCols {
+		t.Errorf("搜索匹配行 = %d, want %d", got, 7/cardGridCols)
+	}
+	if got := partsLocateRow(parts, &Track{Cid: 4}, -1); got != 4/cardGridCols {
+		t.Errorf("当前播放行 = %d, want %d", got, 4/cardGridCols)
+	}
+	if got := partsLocateRow(parts, nil, -1); got != -1 {
+		t.Errorf("无目标 = %d, want -1", got)
+	}
+	if got := partsLocateRow(parts, &Track{Cid: 999}, -1); got != -1 {
+		t.Errorf("当前播放不在列表 = %d, want -1", got)
+	}
+	if got := partsLocateRow(parts, nil, 99); got != -1 {
+		t.Errorf("越界下标 = %d, want -1", got)
+	}
+}
+
+// TestPartsLocateScrollsGrid 钉住选集搜索的滚动：目标行在屏外时不构建，
+// 所以不能再靠卡片自己的 ScrollIntoView，必须把目标**行**交给 ListState。
+func TestPartsLocateScrollsGrid(t *testing.T) {
+	a := NewApp(func() {})
+	a.Images = newRecordingCache()
+	a.Info = newPartsInfo(300, "cover")
+	a.Drawer = DrawerParts
+	a.locateNow = true
+	a.locatePartIndex = 250 // 第 83 行，远在屏外
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	if !tst.HasText("选集标题250") {
+		t.Fatal("定位应把目标分集滚进视野")
+	}
+	if a.locateNow || a.locatePartIndex != -1 {
+		t.Fatalf("定位标志应在构建后清掉：locateNow=%v idx=%d", a.locateNow, a.locatePartIndex)
+	}
+}
+
+// TestPartsGridLazyLoadsVisibleCovers 钉住选集封面也只按可见窗口预取：
+// 之前 partCard 在构建期直接 Bitmap()，而 List 未量高前会多铺行，一开抽屉
+// 就并发抓取所有屏外分集的封面。
+func TestPartsGridLazyLoadsVisibleCovers(t *testing.T) {
+	cs := newCoverServer(t)
+	a := NewApp(func() {})
+	a.Info = newPartsInfo(300, cs.URL)
+	a.Drawer = DrawerParts
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tst.Frame()
+		if cs.count() > 0 && a.Images.Pending() == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	n := cs.count()
+	if n == 0 {
+		t.Fatal("首屏可见封面一张都没请求")
+	}
+	if n > 60 {
+		t.Fatalf("首屏请求了 %d 张封面（屏外分集也被请求，懒加载失效）", n)
+	}
+	if cs.requested("/part250.png") {
+		t.Fatal("第 250 集在屏外，不该被请求")
+	}
+
+	tst.Scroll(700, 700, 0, 100000)
+	for i := 0; i < 5; i++ {
+		tst.Frame()
+	}
+	if !cs.requested("/part299.png") {
+		t.Fatal("滚到底后最后一集的封面应被请求")
+	}
+}
+
 // TestCardTitleBadge 钉住标题前的小胶囊（原版 feedList 的 titlePrefix「充电专属」）：
 // 卡片带 Badge 时标题行把胶囊画出来，没有时不画。
 func TestCardTitleBadge(t *testing.T) {

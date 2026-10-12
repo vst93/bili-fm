@@ -620,6 +620,12 @@ func (a *App) drawerBody(c *ui.Context) {
 		return
 	}
 
+	// 选集也是三列卡片网格，同样用虚拟化 ui.List（只是不翻页）。
+	if a.Drawer == DrawerParts {
+		a.partsBody(c)
+		return
+	}
+
 	// 其余抽屉内容不多，统一套一层滚动。
 	//
 	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
@@ -627,8 +633,6 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
 	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).Children(func() {
 		switch a.Drawer {
-		case DrawerParts:
-			a.partsBody(c)
 		case DrawerUp:
 			// UP 空间有两个 tab：视频是卡片列表（上面已处理），合集是一排胶囊。
 			a.seriesListBody(c)
@@ -639,7 +643,8 @@ func (a *App) drawerBody(c *ui.Context) {
 }
 
 // usesCardGrid 报告当前抽屉是否是三列卡片网格（搜索/分区/UP 视频/合集）。
-// 选集、合集列表、播放列表内容少，仍走 ui.Scroll。
+// 合集列表、播放列表内容少，仍走 ui.Scroll；选集也是三列网格，但单独走
+// partsGrid（它用同一个虚拟化 List，只是不翻页）。
 func (a *App) usesCardGrid() bool {
 	switch a.Drawer {
 	case DrawerParts, DrawerPlaylist, DrawerDanmaku:
@@ -790,21 +795,31 @@ const initialCardRows = 6
 // 构建只 Get（读缓存），请求只按上一帧的可见窗口发。首帧还没布局
 // （Visible 返回 0,-1）时只预取头几行，绝不铺开屏外的图。
 func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
+	first, last := prefetchWindow(st, len(cards))
+	for i := first; i < last; i++ {
+		a.Images.Bitmap(cards[i].Cover)
+	}
+}
+
+// prefetchPartCovers 是选集网格版的封面预取（同一套窗口，封面地址走 partCover）。
+func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part) {
+	first, last := prefetchWindow(st, len(parts))
+	for i := first; i < last; i++ {
+		a.Images.Bitmap(a.partCover(parts[i]))
+	}
+}
+
+// prefetchWindow 返回网格列表应当预取的卡片下标区间 [first, last)。
+// 未布局（Visible 返回 0,-1）时只覆盖初始几行；布局后覆盖可见行上下各一行。
+func prefetchWindow(st *ui.ListState, n int) (first, last int) {
 	firstRow, lastRow := st.Visible()
 	if lastRow < firstRow {
 		// 还没布局过：只预取预估的首屏。lastRow 是闭区间上界。
 		firstRow, lastRow = 0, initialCardRows-1
 	}
-	first := max(0, firstRow-1) * cardGridCols
-	last := min(len(cards), (lastRow+2)*cardGridCols)
-	a.prefetchCovers(cards, first, last)
-}
-
-// prefetchCovers 为 [first, last) 的卡片发起封面抓取（异步、有并发上限）。
-func (a *App) prefetchCovers(cards []Card, first, last int) {
-	for i := max(0, first); i < last && i < len(cards); i++ {
-		a.Images.Bitmap(cards[i].Cover)
-	}
+	first = max(0, firstRow-1) * cardGridCols
+	last = min(n, (lastRow+2)*cardGridCols)
+	return first, last
 }
 
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
@@ -1063,10 +1078,8 @@ type cardSpec struct {
 	// Cover2 是叠在封面上的附加内容（添加键、移除键…）。
 	Cover2  func(*ui.Context)
 	OnClick func()
-	// Scroll 为真时把卡片滚进视野（定位当前播放）。
-	Scroll bool
 	// Lazy 为真时只读缓存、不发起抓取：封面由调用方按可见窗口预取
-	//（虚拟化卡片网格）。非虚拟化的短列表（选集、播放列表）为假，
+	//（虚拟化卡片网格 / 选集网格）。非虚拟化的短列表（播放列表）为假，
 	// 它们每帧都建全部卡片，直接请求就行。
 	Lazy bool
 }
@@ -1121,9 +1134,6 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		lift = -3
 	}
 	box.Translate(0, box.AnimateTo("lift", lift, ui.Snappy))
-	if spec.Scroll {
-		box.ScrollIntoView()
-	}
 
 	box.Children(func() {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
@@ -1337,44 +1347,92 @@ func (a *App) partsHeader(c *ui.Context) {
 	}
 }
 
-// partsBody 是选集抽屉正文：三列卡片网格，每张卡片右上角一个「添加到播放列表」。
+// partsBody 是选集抽屉正文：三列卡片网格（虚拟化 ui.List）。
 func (a *App) partsBody(c *ui.Context) {
-	var parts []Part
-	if a.Info != nil {
-		parts = a.Info.Parts
-	}
-	if len(parts) == 0 {
-		a.emptyNote(c, "没有分集信息")
+	if a.Info == nil || len(a.Info.Parts) == 0 {
+		a.scrollBody(c, a.list(), func() { a.emptyNote(c, "没有分集信息") })
 		return
 	}
+	a.partsGrid(c)
+}
 
-	const cols = 3
-	ui.Column(c).Gap(8).Children(func() {
-		for i := 0; i < len(parts); i += cols {
-			end := min(i+cols, len(parts))
-			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-				for j := i; j < end; j++ {
-					a.partCard(c, j, parts[j])
-				}
-				for j := end; j < i+cols; j++ {
-					ui.Box(c).Grow(1).Basis(0)
-				}
-			})
+// partsGrid 用与 cardGrid 相同的虚拟化 ui.List 画选集三列网格。
+//
+// 之前 partsBody 是 ui.Column 逐张构建：多 P 视频每帧都会把**全部**分集卡片
+// 连同各自的材质重建一遍，而且卡片封面在构建期直接 Bitmap() 抓取（每帧重发
+// 一遍屏外请求）。改成 List 后只建可见行，封面也走「可见窗口预取」——与卡片
+// 网格同一套（见 prefetchCardCovers / prefetchPartCovers）。
+func (a *App) partsGrid(c *ui.Context) {
+	parts := a.Info.Parts
+	l := a.list()
+	st := &l.Grid
+	// 行键取首张分集的 cid：换视频 / 刷新分集时不沿用旧锚点。
+	st.Key = func(r int) any {
+		if i := r * cardGridCols; i < len(parts) {
+			return parts[i].Cid
 		}
-	})
+		return r
+	}
+	// 定位（「定位到当前」 / 选集搜索）：屏外的行不构建，不能再靠卡片自己的
+	// ScrollIntoView，得把目标**行**交给 ListState，让它布局时滚过去。
+	if a.locateNow {
+		if row := partsLocateRow(parts, a.Track, a.locatePartIndex); row >= 0 {
+			st.ScrollTo(row, ui.Start)
+		}
+	}
+	rows := (len(parts) + cardGridCols - 1) / cardGridCols
+	a.prefetchPartCovers(st, parts)
+	ui.List(c, st, rows, func(r int) {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
+			start := r * cardGridCols
+			end := min(start+cardGridCols, len(parts))
+			for j := start; j < end; j++ {
+				a.partCard(c, j, parts[j])
+			}
+			for j := end; j < start+cardGridCols; j++ {
+				ui.Box(c).Grow(1).Basis(0)
+			}
+		})
+	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
+
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false
 	a.locatePartIndex = -1
+}
+
+// partsLocateRow 返回选集定位要滚到的行号：优先选集搜索匹配的分集，
+// 否则回退到正在播放的那一集；都没有返回 -1。
+func partsLocateRow(parts []Part, track *Track, locateIndex int) int {
+	if locateIndex >= 0 && locateIndex < len(parts) {
+		return locateIndex / cardGridCols
+	}
+	if track != nil {
+		for i := range parts {
+			if parts[i].Cid == track.Cid {
+				return i / cardGridCols
+			}
+		}
+	}
+	return -1
+}
+
+// partCover 返回一张选集卡片的封面地址：分集有自己的首帧图就用它，
+// 否则回退到整支视频的封面。
+func (a *App) partCover(p Part) string {
+	if p.FirstFrame != "" {
+		return p.FirstFrame
+	}
+	if a.Info != nil {
+		return a.Info.Pic
+	}
+	return ""
 }
 
 // partCard 是一张选集卡片。
 func (a *App) partCard(c *ui.Context, index int, p Part) {
 	active := a.Track != nil && a.Track.Cid == p.Cid
 	inList := a.playlistHas(p.Cid)
-	cover := p.FirstFrame
-	if cover == "" && a.Info != nil {
-		cover = a.Info.Pic
-	}
+	cover := a.partCover(p)
 	dur := ""
 	if p.Duration > 0 {
 		dur = fmtTime(float64(p.Duration))
@@ -1388,12 +1446,13 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		Duration: dur,
 		Active:   active,
 		Playing:  active,
+		// 封面走「可见窗口预取」（partsGrid 的 prefetchPartCovers），构建只读缓存。
+		Lazy: true,
 		Fields: []cardField{
 			{Kind: fieldViews, Text: statText(a.Info, func(i *Info) int64 { return i.View })},
 			{Kind: fieldDuration, Text: dur},
 		},
-		// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
-		Scroll: (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex),
+		// 定位由 partsGrid 交给 ListState 滚动（屏外的卡片不构建）。
 		Cover2: func(c *ui.Context) {
 			// 右上角的添加键。
 			label := "添加到播放列表"

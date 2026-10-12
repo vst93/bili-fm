@@ -115,8 +115,9 @@ type List struct {
 	HasMore bool
 	// Scroll 记录这个抽屉滚动到哪（同时用来判断「到底了」自动翻页）。
 	Scroll ui.ScrollState
-	// Grid 是卡片网格（listBody）的虚拟化列表状态：mygo 的 ui.List 只构建
-	// 可见的行，取代了之前「每帧重建整张网格」的做法（见 cardGrid）。
+	// Grid 是卡片网格（listBody）与选集网格（partsBody）的虚拟化列表状态：
+	// mygo 的 ui.List 只构建可见的行，取代了之前「每帧重建整张网格」的做法
+	// （见 cardGrid / partsGrid）。同一个 List 只服务一个抽屉 key，两者不会同时用。
 	Grid ui.ListState
 }
 
