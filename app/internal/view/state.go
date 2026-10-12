@@ -414,14 +414,18 @@ type App struct {
 	PlayMode string
 	// PlaylistTab 是播放列表抽屉当前显示的 tab。
 	PlaylistTab string
-	// SearchRequestID 是搜索请求的代号：慢的旧响应不得覆盖新的搜索结果
-	// （原版 searchRequestIdRef）。
-	// PlaybackRequestID 同理，用于起播（原版 playbackRequestIdRef）。
+	// PlaybackRequestID 是起播请求的代号：慢的旧响应不得覆盖新的起播
+	// （原版 playbackRequestIdRef）。
 	PlaybackRequestID int
 
 	// SearchRequestID 是搜索请求的代号：慢的旧响应不得覆盖新的搜索结果
 	// （原版 searchRequestIdRef）。
 	SearchRequestID int
+
+	// InteractionReqID 是互动状态（点赞/投币/收藏/关注）请求的代号：
+	// 切歌后旧响应不得覆盖新视频的状态，提交收藏也不得把上一条的状态写过来
+	// （原版 favoriteRequestIdRef）。
+	InteractionReqID int
 
 	// CollectScroll 是收藏夹表头横向滚动的位置（左右键拨动它）。
 	CollectScroll ui.ScrollState
@@ -456,6 +460,9 @@ type App struct {
 	Coined   bool
 	Faved    bool
 	Followed bool
+	// FavPending 是收藏状态「正在查 / 正在提交」：原版 isFavoriteUpdating，
+	// 期间收藏键禁用（避免用上一条视频的状态误操作 / 连点重复请求）。
+	FavPending bool
 
 	// 视频弹窗
 	VideoOpen bool

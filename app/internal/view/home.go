@@ -500,15 +500,42 @@ func (a *App) partPill(c *ui.Context) {
 // contentActions 是操作行（.video-content-actions）：点赞 / 投币 / 收藏
 // 三个带计数的按钮，再加浏览器打开 / 视频 / 弹幕三个纯图标按钮。
 func (a *App) contentActions(c *ui.Context) {
+	// 原版 videoInfo 里 bvid = displayVideoInfo?.bvid、aid = displayVideoInfo?.aid。
+	// 三个互动键的禁用只看**有没有视频**（like/coin 用 bvid、收藏用 aid），
+	// 不看计数：计数 0 是完全正常的状态（新视频的投币数就是 0），
+	// 之前用「计数文案为空」当禁用判据，会把 0 币的视频的投币键锁死。
+	var bvid string
+	var aid int64
+	if a.Info != nil {
+		bvid, aid = a.Info.Bvid, a.Info.Aid
+	}
 	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
 	// 底部 14px 是给绝对定位的计数留的位置（这里用等高的计数行实现）。
 	ui.Row(c).Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
 		AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
-		// 原版这三个是 size={20}。
-		a.statButton(c, "like", iconLike, 20, a.Liked, ui.Hex("#e11d48"), a.statLike(), a.Act.Like)
-		a.statButton(c, "coin", iconCoin, 20, a.Coined, ui.Hex("#ca8a04"), a.statCoin(), a.Act.Coin)
-		a.statButton(c, "fav", iconStar, 20, a.Faved, ui.Hex("#eab308"), a.statFav(), a.Act.Favorite)
+		// 原版这三个是 size={20}，tooltip（title）随激活态变文案。
+		a.statButton(c, statSpec{
+			Key: "like", Label: pick(a.Liked, "取消点赞", "点赞"),
+			Icon: iconLike, Size: 20, Active: a.Liked,
+			ActiveInk: ui.Hex("#e11d48"), Count: a.statLike(),
+			Off: bvid == "", OnClick: a.Act.Like,
+		})
+		a.statButton(c, statSpec{
+			// 原版投的是一次两币（coin_video 的 multiply: 2）。
+			Key: "coin", Label: pick(a.Coined, "已投币", "投币(2个)"),
+			Icon: iconCoin, Size: 20, Active: a.Coined,
+			ActiveInk: ui.Hex("#ca8a04"), Count: a.statCoin(),
+			Off: bvid == "", OnClick: a.Act.Coin,
+		})
+		a.statButton(c, statSpec{
+			Key: "fav", Label: pick(a.Faved, "取消收藏", "收藏"),
+			Icon: iconStar, Size: 20, Active: a.Faved,
+			ActiveInk: ui.Hex("#eab308"), Count: a.statFav(),
+			// 原版收藏键在「收藏状态还在查」时也禁用（isFavoriteUpdating），
+			// 否则会用上一条视频的状态误操作。
+			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
+		})
 		a.iconButton(c, "browser", "浏览器打开", iconBrowser, 18, func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
@@ -560,28 +587,36 @@ func (a *App) contextDock(c *ui.Context) {
 		series := a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.openSeries)
 		disableNav(series, a.SeriesID == 0)
 		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
-		plist := a.iconButton(c, "dock-playlist", "播放列表", iconMusicList, 20, func() {
-			if a.Drawer == DrawerPlaylist {
-				a.Drawer = ""
-			} else {
-				a.Drawer = DrawerPlaylist
-			}
-		})
+		// 图标染色用 inkButton —— 原版是
+		// fill={isPlaylistMode ? (series ? 紫 : 蓝) : 灰}，之前这里算出了 ink
+		// 却用 iconButton 丢掉了（`_ = ink`），播放列表在播时图标一直是灰的。
+		plistInk := ui.Color{}
 		if a.PlayingPlaylist != "" {
-			ink := t.Blue
+			plistInk = t.Blue
 			if a.PlayingPlaylist == ListSeries {
-				ink = ui.Hex("#a855f7") // 合集来源是紫色（原版）
+				plistInk = ui.Hex("#a855f7") // 合集来源是紫色（原版）
 			}
-			disableNav(plist, false)
-			_ = ink
 		}
+		a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, 20,
+			plistInk, func() {
+				if a.Drawer == DrawerPlaylist {
+					a.Drawer = ""
+				} else {
+					a.Drawer = DrawerPlaylist
+				}
+			})
 		if n := a.playlistBadgeCount(); n > 0 {
+			// 原版 .nav-badge：14 高、圆角 7、1px 白边 + 内高光 +
+			// 一层玫红投影（合集来源才换紫底）。
 			badge := ui.Text(c, a.playlistBadgeText()).FontSize(9).Bold().
 				TextColor(ui.Hex("#ffffff")).
 				Absolute().Right(-4).Top(-4).Padding(1, 4).Radius(RadiusPill).
-				Background(a.playlistBadgeInk())
+				Background(a.playlistBadgeInk()).
+				Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
+				InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.08)).
+				Shadow(0, 2, 6, 0, t.Rose.Alpha(0.20))
 			badge.Label("播放列表数量")
-			disableNav(plist, false)
 		}
 	})
 }
@@ -603,12 +638,13 @@ func (a *App) playlistBadgeText() string {
 	return fmt.Sprint(n)
 }
 
-// playlistBadgeInk 是角标底色：合集来源紫、我的列表蓝。
+// playlistBadgeInk 是角标底色：只有「正在放合集」时是紫色，其余（含不在播放
+// 列表模式）都是原版 .nav-badge 的玫红 rgba(225,29,72,.72)，不是蓝色。
 func (a *App) playlistBadgeInk() ui.Color {
 	if a.PlayingPlaylist == ListSeries {
 		return ui.Hex("#a855f7")
 	}
-	return ui.Hex("#0284c7")
+	return a.Theme.Rose.Alpha(0.72)
 }
 
 // openSeries 打开当前合集（旧版：还没选过合集就提示先去 UP 空间选一个）。
@@ -665,40 +701,58 @@ func (a *App) openDanmaku() {
 	}
 }
 
-// statButton 是互动按钮（原版 .nav-stat-btn）：32×32 图标钮，9px 计数
-// 挂在按钮正下方；激活时图标按动作变色——点赞红、投币黄、收藏黄。
-// 计数为空（没有在播）时整钮禁用（原版 disabled）。
+// statSpec 是一个互动按钮（点赞 / 投币 / 收藏）的参数。
 //
 // 计数用「独立文本 + 固定行高」实现而不是 Absolute（原版用 absolute 是
 // CSS 里避免计数撑高行高的手法；mygo 的 Absolute 需要父级显式定位，
 // 在 Button 的 Center 布局里取不到整行宽，居中不了）。整列高度
-// statColumn 高：按钮 32 + 间隔 1 + 计数 12。
-func (a *App) statButton(c *ui.Context, key string, ic *ui.SVG, size float32, active bool, activeInk ui.Color, count string, fn func()) {
-	off := count == ""
+// 整列高：按钮 32 + 间隔 1 + 计数 12。
+type statSpec struct {
+	Key string
+	// Label 同时作为 tooltip 与无障碍标签（原版按钮的 title）。
+	Label string
+	Icon  *ui.SVG
+	// Size 是图标尺寸（原版这三个是 20）。
+	Size float32
+	// Active 是已点赞 / 已投币 / 已收藏。
+	Active    bool
+	ActiveInk ui.Color
+	// Count 是按钮下方的计数文案（原版 formatCompactCount，0 也显示）。
+	Count string
+	// Off 为真时整钮禁用（没有视频 / 收藏状态请求中）。
+	Off     bool
+	OnClick func()
+}
+
+// statButton 是互动按钮（原版 .nav-stat-btn）：32×32 图标钮，9px 计数
+// 挂在按钮正下方；激活时图标按动作变色——点赞红、投币黄、收藏黄。
+func (a *App) statButton(c *ui.Context, spec statSpec) {
 	col := ui.Column(c).Width(ToolButton).Height(ToolButton + 13).
 		AlignItems(ui.Center).Shrink(0)
 	col.Children(func() {
-		b := ui.ButtonBase(c.Key("stat-"+key)).Size(ToolButton, ToolButton).
-			Radius(ToolButtonR).Center().Label(key).Tooltip(key)
-		disableNav(b, off)
+		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ToolButton, ToolButton).
+			Radius(ToolButtonR).Center().Label(spec.Label).Tooltip(spec.Label)
+		disableNav(b, spec.Off)
 		// 材质走框架玻璃；激活（已赞/已投币/已收藏）用该状态的强调色做 Tint。
 		switch {
-		case off:
+		case spec.Off:
 			b.Background(ui.Transparent)
-		case active:
-			glassOn(b, true, b.Hovered(), activeInk.Alpha(0.26), activeInk.Alpha(0.26))
+		case spec.Active:
+			glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
 		default:
 			glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 		}
 		b.Children(func() {
-			ui.Icon(c, ic).Size(size, size).TextColor(pick(active, activeInk, ui.Hex("#475569")))
+			ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
+				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
 		})
-		if b.Clicked() && fn != nil {
-			fn()
+		if b.Clicked() && spec.OnClick != nil {
+			spec.OnClick()
 		}
-		if count != "" {
-			ui.Text(c, count).FontSize(9).
-				TextColor(pick(active, activeInk, ui.Hex("#64748b"))).
+		// 原版这一格始终有值（没有视频时是 "0"，禁用态用 inherit 颜色）。
+		if spec.Count != "" {
+			ui.Text(c, spec.Count).FontSize(9).
+				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))).
 				SingleLine().MaxWidth(ToolButton)
 		}
 	})
@@ -815,14 +869,15 @@ func (a *App) statLike() string { return statText(a.Info, func(i *Info) int64 { 
 func (a *App) statCoin() string { return statText(a.Info, func(i *Info) int64 { return i.Coin }) }
 func (a *App) statFav() string  { return statText(a.Info, func(i *Info) int64 { return i.Favorite }) }
 
+// statText 是操作行里的计数文案（原版 formatCompactCount(stat?.like ?? 0)）：
+// 原版这一格**始终有值** —— 没有视频、没有统计、计数为 0 时都是 "0"。
+// 之前把 0 当成空串，后果不只是少画一个数字：投币数 0 的视频投币键会被
+// 一起禁用（不能用）。
 func statText(info *Info, pick func(*Info) int64) string {
 	if info == nil {
-		return ""
+		return "0"
 	}
-	if n := pick(info); n > 0 {
-		return compactCount(n)
-	}
-	return ""
+	return compactCount(pick(info))
 }
 
 // coverOrLogo 画封面，没有封面时退回 logo（原版 cover || "/logo.png"）。

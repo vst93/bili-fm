@@ -83,12 +83,47 @@ func TestStatText(t *testing.T) {
 	if got := statText(info, func(i *Info) int64 { return i.Like }); got != "3956" {
 		t.Errorf("like = %q", got)
 	}
-	// 0 值不显示（原版空值不渲染）。
-	if got := statText(info, func(i *Info) int64 { return i.Coin }); got != "" {
-		t.Errorf("coin = %q, want empty", got)
+	// 0 值要显示成 "0"（原版 formatCompactCount(stat?.coin ?? 0)）——
+	// 不能拿「计数为空」当禁用判据，否则 0 币的视频投币键会被锁死。
+	if got := statText(info, func(i *Info) int64 { return i.Coin }); got != "0" {
+		t.Errorf("coin = %q, want \"0\"", got)
 	}
-	if got := statText(nil, func(i *Info) int64 { return i.Like }); got != "" {
-		t.Errorf("nil info = %q, want empty", got)
+	// 没有视频时原版也是 "0"（stat 未定义 → ?? 0）。
+	if got := statText(nil, func(i *Info) int64 { return i.Like }); got != "0" {
+		t.Errorf("nil info = %q, want \"0\"", got)
+	}
+}
+
+// TestPlaylistBadgeInk 钉住角标底色：只有正在放合集才是紫色，其余是原版
+// .nav-badge 的玫红（之前默认给了蓝色）。
+func TestPlaylistBadgeInk(t *testing.T) {
+	a := &App{Theme: Theme{Rose: ui.Hex("#e11d48")}}
+	if got := a.playlistBadgeInk(); got != ui.Hex("#e11d48").Alpha(0.72) {
+		t.Errorf("默认角标色 = %v，应为玫红 72%%", got)
+	}
+	a.PlayingPlaylist = ListUser
+	if got := a.playlistBadgeInk(); got != ui.Hex("#e11d48").Alpha(0.72) {
+		t.Errorf("我的列表角标色 = %v，应为玫红", got)
+	}
+	a.PlayingPlaylist = ListSeries
+	if got := a.playlistBadgeInk(); got != ui.Hex("#a855f7") {
+		t.Errorf("合集角标色 = %v，应为紫", got)
+	}
+}
+
+// TestPlaylistBadgeCount 角标数字来源：正在放合集用合集列表长度，其余用
+// 我的列表长度（原版 playingPlaylistType === "series" ? series : user）。
+func TestPlaylistBadgeCount(t *testing.T) {
+	a := &App{Playlist: []PlayItem{{ID: "u1"}, {ID: "u2"}}, SeriesPlaylist: []PlayItem{{ID: "s1"}}}
+	if got := a.playlistBadgeCount(); got != 2 {
+		t.Errorf("默认角标数 = %d，want 2", got)
+	}
+	if got := a.playlistBadgeText(); got != "2" {
+		t.Errorf("默认角标文案 = %q，want 2", got)
+	}
+	a.PlayingPlaylist = ListSeries
+	if got := a.playlistBadgeCount(); got != 1 {
+		t.Errorf("合集角标数 = %d，want 1", got)
 	}
 }
 

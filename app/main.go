@@ -636,6 +636,13 @@ func (c *controller) loadInteractionState(info *view.Info) {
 		return
 	}
 	bvid, aid, upMid := info.Bvid, info.Aid, info.OwnerMid
+	// 请求代号：切歌后旧响应不得覆盖新视频的状态（原版 favoriteRequestIdRef）。
+	c.app.InteractionReqID++
+	reqID := c.app.InteractionReqID
+	// 原版在 bvid/aid 变化时先把收藏状态置为「请求中」（isFavoriteUpdating），
+	// 期间收藏键禁用 —— 否则会用上一条视频的收藏态去点，点到错的方向。
+	c.app.FavPending = aid != 0
+	c.app.Win.Update(func() {})
 	go func() {
 		liked, _ := c.bl.HasLiked(bvid)
 		coined := false
@@ -651,7 +658,11 @@ func (c *controller) loadInteractionState(info *view.Info) {
 			}
 		}
 		c.app.Win.Update(func() {
+			if c.app.InteractionReqID != reqID {
+				return // 已经切到下一条了，旧结果丢掉
+			}
 			c.app.Liked, c.app.Coined, c.app.Faved, c.app.Followed = liked, coined, faved, followed
+			c.app.FavPending = false
 		})
 	}()
 }
@@ -782,7 +793,8 @@ func (c *controller) coin() {
 		return
 	}
 	go func() {
-		if _, err := c.bl.CoinVideo(bvid, 1); err != nil {
+		// 原版投的是一次两币（handleCoin 传 multiply: 2），不是一币。
+		if _, err := c.bl.CoinVideo(bvid, 2); err != nil {
 			c.app.NotifyType("error", "投币失败："+err.Error())
 			return
 		}
@@ -792,16 +804,29 @@ func (c *controller) coin() {
 
 func (c *controller) favorite() {
 	_, aid := c.currentMedia()
-	if aid == 0 {
+	// 请求中的连点直接用正在查/正在提交的状态拦掉（原版 isFavoriteUpdating）。
+	if aid == 0 || c.app.FavPending {
 		return
 	}
+	reqID := c.app.InteractionReqID
+	c.app.FavPending = true
+	c.app.Win.Update(func() {})
 	want := !c.app.Faved
 	go func() {
-		if err := c.bl.SetFavorite(aid, want); err != nil {
+		err := c.bl.SetFavorite(aid, want)
+		c.app.Win.Update(func() {
+			// 提交期间切了歌：这次提交属于上一条，别把结果写过来。
+			if c.app.InteractionReqID != reqID {
+				return
+			}
+			c.app.FavPending = false
+			if err == nil {
+				c.app.Faved = want
+			}
+		})
+		if err != nil {
 			c.app.NotifyType("error", "收藏失败："+err.Error())
-			return
 		}
-		c.app.Win.Update(func() { c.app.Faved = want })
 	}()
 }
 
