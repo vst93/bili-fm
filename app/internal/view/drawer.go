@@ -1841,21 +1841,15 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 		// align-items/align-content 都是 center）。
 		ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
 			for _, e := range g.Entries {
+				paint := danmakuChipPaint(isCur, box.Hovered())
 				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
-					Height(27).Padding(3, 7, 3, 9).Gap(5).
+					Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
 					Radius(8).AlignItems(ui.Center).
 					// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
-					Background(ui.Hex("#ffffff").Alpha(0.42)).
-					Border(1, ui.Hex("#ffffff").Alpha(0.50)).
-					Shadow(0, 2, 6, 0, ui.Hex("#0f172a").Alpha(0.045))
-				switch {
-				case isCur:
-					chip.Background(ui.Hex("#0ea5e9").Alpha(0.20)).
-						Border(1, t.Blue.Alpha(0.48)).
-						Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.10))
-				case box.Hovered():
-					chip.Background(ui.Hex("#ffffff").Alpha(0.22))
-				}
+					Background(paint.BG).
+					Border(1, paint.Border).
+					InsetShadow(0, 1, 0, 0, paint.Inset).
+					Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
 				chip.Children(func() {
 					// .danmaku-message-text：13px / 650 / 单行截断。
 					ui.Text(c, e.Text).FontSize(13).FontWeight(650).
@@ -1878,6 +1872,75 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 	})
 }
 
+// chipPaint 是一种弹幕小胶囊（.danmaku-message-row）的底色 / 边 / 内高光 / 投影。
+type chipPaint struct {
+	BG, Border, Inset, Shadow ui.Color
+	ShadowBlur                float32
+}
+
+// danmakuChipPaint 返回弹幕小胶囊在某状态下的配色，逐条对应原版
+// globals.css 里 .danmaku-message-row 的三条规则：
+//
+//	基础        底 rgba(255,255,255,.48) 边 .52 内高光 .72 投影 15,23,42 .045
+//	:hover      底 rgba(255,255,255,.58) 边 .68（比基础**更实**，不是更淡）
+//	.is-current 底 rgba(240,249,255,.76) 边 rgba(14,165,233,.48) 投影 2,132,199 .1
+//
+// 之前悬停写成白 .22（比基础 .42 更淡），当前组又用了饱和的 rgba(14,165,233,.2)
+// —— 两个状态都与原版相反（悬停该变实、当前组该是极淡的蓝白）。
+func danmakuChipPaint(isCur, hovered bool) chipPaint {
+	const white = "#ffffff"
+	switch {
+	case isCur:
+		return chipPaint{
+			BG:         ui.Hex("#f0f9ff").Alpha(0.76),
+			Border:     ui.Hex("#0ea5e9").Alpha(0.48),
+			Inset:      ui.Hex(white).Alpha(0.82),
+			Shadow:     ui.Hex("#0284c7").Alpha(0.10),
+			ShadowBlur: 7,
+		}
+	case hovered:
+		return chipPaint{
+			BG:         ui.Hex(white).Alpha(0.58),
+			Border:     ui.Hex(white).Alpha(0.68),
+			Inset:      ui.Hex(white).Alpha(0.72),
+			Shadow:     ui.Hex("#0f172a").Alpha(0.045),
+			ShadowBlur: 6,
+		}
+	default:
+		return chipPaint{
+			BG:         ui.Hex(white).Alpha(0.48),
+			Border:     ui.Hex(white).Alpha(0.52),
+			Inset:      ui.Hex(white).Alpha(0.72),
+			Shadow:     ui.Hex("#0f172a").Alpha(0.045),
+			ShadowBlur: 6,
+		}
+	}
+}
+
+// 评论列表的配色。原版把 HeroUI 的 default 调色板整套覆写成 slate 系
+// （globals.css 里 [data-slot="wrapper"] .text-default-*），取名与选择器对齐：
+//
+//	replyInkName  昵称            .text-default-700 → #0f172a（字重 600）
+//	replyInkMeta  时间/点赞/更多   .text-xs.text-default-400 → #64748b
+//	              （基础 .text-default-400 是 #475569，但 .text-xs 那条更特异）
+//	replyInkBody  正文            .leading-relaxed → #142033
+//	replyInkPrim  楼中楼昵称      .text-primary-500 → #0284c7（字重 600）
+//	replyInkSub   楼中楼正文      .text-default-600 → #1e293b
+//	replyInkMuted 空态/加载中     .text-center.text-default-400 → #94a3b8
+const (
+	replyInkName  = "#0f172a"
+	replyInkMeta  = "#64748b"
+	replyInkBody  = "#142033"
+	replyInkPrim  = "#0284c7"
+	replyInkSub   = "#1e293b"
+	replyInkMuted = "#94a3b8"
+)
+
+// replyMetaText 是评论用户名下方的「Lv.N · 时间」（原版恒带 Lv，0 级也显示）。
+func replyMetaText(level int, when string) string {
+	return fmt.Sprintf("Lv.%d · %s", level, when)
+}
+
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：玻璃卡片行 + 楼中楼
 // 预览，滚到底自动加载下一页（原版 handleScroll，不是「加载更多」按钮）。
 func (a *App) repliesBody(c *ui.Context) {
@@ -1892,15 +1955,6 @@ func (a *App) repliesBody(c *ui.Context) {
 	// 评论按时间倒序（原版 danmakuList 的 sortedReplies：b.ctime - a.ctime）。
 	// 带缓存：排序带拷贝，滚动时每帧重排会白白分配 + 吃 CPU（见 sortedComments）。
 	sorted := a.sortedComments()
-	// 原版把 HeroUI 的 default 调色板整套覆写成 slate 系（globals.css 里
-	// [data-slot="wrapper"] .text-default-*），所以昵称/时间/正文都不是 zinc。
-	const (
-		ink700 = "#0f172a" // 昵称（.text-default-700 → 0f172a/600）
-		ink400 = "#475569" // 时间、点赞、查看更多（.text-default-400 → 475569）
-		body   = "#142033" // 正文（.leading-relaxed → 142033/14.5px）
-		prim   = "#0284c7" // 楼中楼昵称（.text-primary-500 → 0284c7）
-		muted  = "#94a3b8" // 空态/加载中
-	)
 	ui.Column(c).Children(func() {
 		for i, cm := range sorted {
 			// 原版行：py-2 px-8 border-b，但 globals.css 又把它覆写成玻璃卡片：
@@ -1921,9 +1975,9 @@ func (a *App) repliesBody(c *ui.Context) {
 			row.Children(func() {
 				// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					// 原版 .bg-default-200 被覆写成 rgba(226,232,240,.5)。
+					// 原版 .bg-default-200 有两条覆写，后者生效：rgba(203,213,225,.6)。
 					face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
-						Background(ui.Hex("#e2e8f0").Alpha(0.5)).Clip()
+						Background(ui.Hex("#cbd5e1").Alpha(0.6)).Clip()
 					face.Children(func() {
 						if bmp := a.Images.Bitmap(cm.Avatar); bmp != nil {
 							ui.Image(c, bmp).Fill().Fit(ui.Cover)
@@ -1931,39 +1985,41 @@ func (a *App) repliesBody(c *ui.Context) {
 					})
 					ui.Column(c).Children(func() {
 						ui.Text(c, cm.User).FontSize(14).FontWeight(600).
-							TextColor(ui.Hex(ink700)).SingleLine()
-						// text-xs text-default-400：Lv.N · 时间。
-						meta := cm.Time
-						if cm.Level > 0 {
-							meta = fmt.Sprintf("Lv.%d · %s", cm.Level, cm.Time)
-						}
-						ui.Text(c, meta).FontSize(12).TextColor(ui.Hex(ink400)).SingleLine()
+							TextColor(ui.Hex(replyInkName)).SingleLine()
+						// text-xs text-default-400 → #64748b（见 replyInkMeta）。
+						ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
+							TextColor(ui.Hex(replyInkMeta)).SingleLine()
 					})
 				})
 				// 正文区左缩进 40（原版 pl-10，与头像同宽）。
 				ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
 					// text-sm leading-relaxed → 14.5px / #142033。
-					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(body)).MaxLines(10)
+					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody)).MaxLines(10)
 					if cm.Likes > 0 {
 						ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
-							Margin(4, 0, 0, 0).TextColor(ui.Hex(ink400))
+							Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))
 					}
-					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border 覆写成 slate）。
+					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
 					if len(cm.Replies) > 0 {
 						ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
-							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.18)).Children(func() {
+							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
 							for j, rp := range cm.Replies {
 								ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
 									FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
+									// .text-primary-500 同时覆写成 600 字重。
 									ui.Text(c, rp.User+":").FontSize(12).
-										FontWeight(500).TextColor(ui.Hex(prim)).Shrink(0)
+										FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0)
 									ui.Text(c, rp.Content).FontSize(12).
-										TextColor(ui.Hex(body)).Grow(1).MaxLines(4)
+										TextColor(ui.Hex(replyInkSub)).Grow(1).MaxLines(4)
 								})
 							}
 							if cm.RepliesMore || len(cm.Replies) >= 3 {
-								ui.Text(c, "查看更多回复...").FontSize(12).
-									TextColor(ui.Hex(muted))
+								// .text-xs.text-default-400，悬停转 .text-primary-500。
+								more := ui.Text(c, "查看更多回复...").FontSize(12).
+									TextColor(ui.Hex(replyInkMeta))
+								if more.Hovered() {
+									more.TextColor(ui.Hex(replyInkPrim))
+								}
 							}
 						})
 					}
@@ -1974,7 +2030,7 @@ func (a *App) repliesBody(c *ui.Context) {
 		// 加载中在末尾提示一行「加载中...」。
 		if a.RepliesLoading && len(sorted) > 0 {
 			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
-				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(muted))
+				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted))
 			})
 		}
 	})

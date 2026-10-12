@@ -165,3 +165,66 @@ func TestDanmakuListVirtualized(t *testing.T) {
 		t.Fatal("最后一组在屏外，虚拟化列表不该构建它（说明又退回每帧全建）")
 	}
 }
+
+// TestDanmakuChipPaint 钉住弹幕小胶囊三种状态的配色（原版 .danmaku-message-row）。
+// 重点是悬停比基础**更实**、当前组是极淡的蓝白 —— 之前这两处都写反了。
+func TestDanmakuChipPaint(t *testing.T) {
+	base := danmakuChipPaint(false, false)
+	hover := danmakuChipPaint(false, true)
+	cur := danmakuChipPaint(true, false)
+
+	if base.BG != ui.Hex("#ffffff").Alpha(0.48) {
+		t.Errorf("基础底色 = %v, want 白 .48", base.BG)
+	}
+	if hover.BG != ui.Hex("#ffffff").Alpha(0.58) {
+		t.Errorf("悬停底色 = %v, want 白 .58", hover.BG)
+	}
+	if hover.BG.A <= base.BG.A {
+		t.Errorf("悬停应比基础更实：base.A=%d hover.A=%d", base.BG.A, hover.BG.A)
+	}
+	if hover.Border.A <= base.Border.A {
+		t.Errorf("悬停描边应比基础更亮：base=%d hover=%d", base.Border.A, hover.Border.A)
+	}
+	if cur.BG != ui.Hex("#f0f9ff").Alpha(0.76) {
+		t.Errorf("当前组底色 = %v, want #f0f9ff .76", cur.BG)
+	}
+	if cur.Border != ui.Hex("#0ea5e9").Alpha(0.48) {
+		t.Errorf("当前组描边 = %v, want #0ea5e9 .48", cur.Border)
+	}
+	// 当前组优先于悬停（原版 .is-current 规则排在 :hover 之后）。
+	if got := danmakuChipPaint(true, true); got != cur {
+		t.Errorf("当前组的胶囊不应被悬停覆盖：%+v", got)
+	}
+}
+
+// TestReplyMetaText 钉住评论用户名下的「Lv.N · 时间」恒带 Lv（原版即使是 0 级也显示）。
+func TestReplyMetaText(t *testing.T) {
+	if got := replyMetaText(0, "2026-10-01 12:00"); got != "Lv.0 · 2026-10-01 12:00" {
+		t.Errorf("0 级也要显示 Lv：%q", got)
+	}
+	if got := replyMetaText(6, "刚刚"); got != "Lv.6 · 刚刚" {
+		t.Errorf("replyMetaText(6) = %q", got)
+	}
+}
+
+// TestReplyInkMatchesSlateOverride 锁定评论列表的配色（原版 globals.css 的
+// [data-slot="wrapper"] 覆写）。时间 / 点赞 / 查看更多都带 text-xs，走更特异的
+// .text-xs.text-default-400 → #64748b，而不是基础 .text-default-400 的 #475569。
+func TestReplyInkMatchesSlateOverride(t *testing.T) {
+	cases := []struct{ name, got, want string }{
+		{"昵称", replyInkName, "#0f172a"},
+		{"时间/点赞/查看更多", replyInkMeta, "#64748b"},
+		{"正文", replyInkBody, "#142033"},
+		{"楼中楼昵称", replyInkPrim, "#0284c7"},
+		{"楼中楼正文", replyInkSub, "#1e293b"},
+		{"空态/加载中", replyInkMuted, "#94a3b8"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
+	}
+	if replyInkMeta == "#475569" {
+		t.Error("时间/点赞应走 .text-xs.text-default-400 的 #64748b，不是基础的 #475569")
+	}
+}
