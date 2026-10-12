@@ -391,25 +391,35 @@ func TestPartsGridVirtualized(t *testing.T) {
 
 // TestPartsLocateRow 钉住「定位到当前 / 选集搜索」目标行的换算：
 // 优先选集搜索匹配的那一集，否则回退到正在播放的那一集，都没有返回 -1。
+// 列数是参数（窄窗 2 / ≥640 3），同一分集在两种列数下落在不同的行上。
 func TestPartsLocateRow(t *testing.T) {
 	parts := make([]Part, 10)
 	for i := range parts {
 		parts[i] = Part{Cid: int64(i + 1)}
 	}
 	// 搜索匹配优先于正在播放（两者不同时看搜索）。
-	if got := partsLocateRow(parts, &Track{Cid: 1}, 7); got != 7/cardGridCols {
-		t.Errorf("搜索匹配行 = %d, want %d", got, 7/cardGridCols)
+	if got, want := partsLocateRow(parts, &Track{Cid: 1}, 7, 3), 7/3; got != want {
+		t.Errorf("三列：搜索匹配行 = %d, want %d", got, want)
 	}
-	if got := partsLocateRow(parts, &Track{Cid: 4}, -1); got != 4/cardGridCols {
-		t.Errorf("当前播放行 = %d, want %d", got, 4/cardGridCols)
+	// Cid 5 是下标 4（Cid = i+1）：三列在第 1 行。
+	if got, want := partsLocateRow(parts, &Track{Cid: 5}, -1, 3), 4/3; got != want {
+		t.Errorf("三列：当前播放行 = %d, want %d", got, want)
 	}
-	if got := partsLocateRow(parts, nil, -1); got != -1 {
+	// 窄窗两列：第 7 集（下标 7）落在第 3 行而不是第 2 行，
+	// 第 4 集（下标 4）落在第 2 行而不是第 1 行。
+	if got, want := partsLocateRow(parts, &Track{Cid: 1}, 7, 2), 7/2; got != want {
+		t.Errorf("两列：搜索匹配行 = %d, want %d", got, want)
+	}
+	if got, want := partsLocateRow(parts, &Track{Cid: 5}, -1, 2), 4/2; got != want {
+		t.Errorf("两列：当前播放行 = %d, want %d", got, want)
+	}
+	if got := partsLocateRow(parts, nil, -1, 3); got != -1 {
 		t.Errorf("无目标 = %d, want -1", got)
 	}
-	if got := partsLocateRow(parts, &Track{Cid: 999}, -1); got != -1 {
+	if got := partsLocateRow(parts, &Track{Cid: 999}, -1, 3); got != -1 {
 		t.Errorf("当前播放不在列表 = %d, want -1", got)
 	}
-	if got := partsLocateRow(parts, nil, 99); got != -1 {
+	if got := partsLocateRow(parts, nil, 99, 3); got != -1 {
 		t.Errorf("越界下标 = %d, want -1", got)
 	}
 }

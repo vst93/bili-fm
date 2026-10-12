@@ -679,7 +679,7 @@ func (a *App) drawerBody(c *ui.Context) {
 			// 内容超过一屏且滚到底（first>0）才翻页：与旧逻辑的 MaxY>0 一致，
 			// 避免首屏不满却反复请求空页。canAutoLoadMore 还会拦住「上一次翻页
 			// 失败」的情况，否则会每帧重发。
-			if first, last := l.Grid.Visible(); canAutoLoadMore(l, first, last, a.gridRows()) {
+			if first, last := l.Grid.Visible(); canAutoLoadMore(l, first, last, a.gridRows(c)) {
 				a.Act.LoadMore()
 			}
 		}
@@ -721,10 +721,12 @@ func (a *App) usesCardGrid() bool {
 	return true
 }
 
-// gridRows 是当前卡片网格的行数（每行 cardGridCols 张）。
-func (a *App) gridRows() int {
+// gridRows 是当前卡片网格的行数（每行 gridColsFor 张）。宽度断点见
+// cardGridBreakpoint：窄窗两列时行数翻倍，翻页判定必须跟着变。
+func (a *App) gridRows(c *ui.Context) int {
 	n := len(a.list().Cards)
-	return (n + cardGridCols - 1) / cardGridCols
+	cols := gridColsFor(windowWidth(c))
+	return (n + cols - 1) / cols
 }
 
 // seriesListBody 是 UP 空间的「合集」tab（原版 upVideoList.tsx 的合集列表）：
@@ -791,9 +793,23 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 
 // ---------------------------------------------------------------- 列表抽屉
 
-// cardGridCols 是卡片网格的列数（原版抽屉网格 grid-cols-2 sm:grid-cols-3；
-// 抽屉里卡片窄，始终按 3 列排）。
-const cardGridCols = 3
+// cardGridBreakpoint 是原版所有列表抽屉网格的 Tailwind `sm` 断点
+// （min-width: 640px）。原版抽屉里的网格一律是
+// `gap-2 grid grid-cols-2 sm:grid-cols-3`（searchList / collectList /
+// recommendList / upVideoList / feedList / historyList / seriesList /
+// pageList 全都是这一行），骨架屏 .list-skeleton-grid 用的也是同一对
+// （globals.css 里单独写了一条 `@media (min-width: 640px)`）。Tailwind 的
+// `sm:` 判定的是**视口**宽度（不是容器宽度），所以这里取窗口宽度：窄窗两列、
+// ≥640 三列。
+const cardGridBreakpoint = 640
+
+// gridColsFor 返回卡片网格的列数：<640 两列、≥640 三列（原版 sm 断点）。
+func gridColsFor(winW float32) int {
+	if winW < cardGridBreakpoint {
+		return 2
+	}
+	return 3
+}
 
 // listBody 是搜索结果 / 分区 / UP 视频 / 合集等卡片网格。返回是否画了真正的
 // 卡片（供 drawerBody 决定要不要检查翻页；骨架/空态不算）。
@@ -817,8 +833,9 @@ func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
 		Children(body)
 }
 
-// cardGrid 用 mygo 的虚拟化 ui.List 画三列卡片网格：每个 List 行是一排最多
-// cardGridCols 张卡，行高由框架量（卡片封面 100 + 单行标题，所以每排等高）。
+// cardGrid 用 mygo 的虚拟化 ui.List 画卡片网格（列数按窗口宽度的 sm 断点，见
+// gridColsFor）：每个 List 行是一排最多 cols 张卡，行高由框架量（卡片封面
+// 100 + 单行标题，所以每排等高）。
 //
 // 之前这里是 ui.Column 逐行构建：滚动时视图每帧重建，会把**所有**卡片（含
 // 几百张）连同各自的材质一起重建——这是「订阅/动态」等列表滚动卡顿的根因
@@ -826,7 +843,9 @@ func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
 // 可见的几排。
 func (a *App) cardGrid(c *ui.Context, l *List) {
 	st, cards := &l.Grid, l.Cards
-	rows := (len(cards) + cardGridCols - 1) / cardGridCols
+	// 列数按窗口宽度的 sm 断点（原版 grid-cols-2 sm:grid-cols-3）。
+	cols := gridColsFor(windowWidth(c))
+	rows := (len(cards) + cols - 1) / cols
 	// 翻页失败时在网格末尾多铺一行「加载失败，点击重试」（原版 historyList
 	// 的 .history-load-more-retry）——它是列表的最后一个虚拟行，跟着一起滚。
 	extra := 0
@@ -835,7 +854,7 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 	}
 	// 行键取首张卡的 bvid：翻页追加 / 滑动窗口裁掉头部时锚点不跳。
 	st.Key = func(r int) any {
-		if i := r * cardGridCols; i < len(cards) && cards[i].Bvid != "" {
+		if i := r * cols; i < len(cards) && cards[i].Bvid != "" {
 			return cards[i].Bvid
 		}
 		if r == rows && extra == 1 {
@@ -843,19 +862,19 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 		}
 		return r
 	}
-	a.prefetchCardCovers(st, cards)
+	a.prefetchCardCovers(st, cards, cols)
 	ui.List(c, st, rows+extra, func(r int) {
 		if r == rows {
 			a.loadMoreRetry(c, l)
 			return
 		}
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-			start := r * cardGridCols
-			end := min(start+cardGridCols, len(cards))
+			start := r * cols
+			end := min(start+cols, len(cards))
 			for j := start; j < end; j++ {
 				a.card(c, j)
 			}
-			for j := end; j < start+cardGridCols; j++ {
+			for j := end; j < start+cols; j++ {
 				ui.Box(c).Grow(1).Basis(0)
 			}
 		})
@@ -916,22 +935,24 @@ const initialCardRows = 6
 //
 // 可见行先 Touch 再 Bitmap：抓取队列优先服务当前可见的图，滚动时新可见的
 // 卡片不会被先到的屏外预取插队（原版浏览器 loading=lazy 的可见优先语义）。
-func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
-	a.prefetchWindowCovers(st, len(cards),
+func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card, cols int) {
+	a.prefetchWindowCovers(st, len(cards), cols,
 		func(i int) string { return cards[i].Cover })
 }
 
 // prefetchPartCovers 是选集网格版的封面预取（同一套窗口，封面地址走 partCover）。
-func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part) {
-	a.prefetchWindowCovers(st, len(parts),
+func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part, cols int) {
+	a.prefetchWindowCovers(st, len(parts), cols,
 		func(i int) string { return a.partCover(parts[i]) })
 }
 
 // prefetchWindowCovers 是两个网格预取的公共实现：本帧窗口内的图 Touch（可见
 // 行）+ Bitmap（发起/命中），上一帧在窗口内、本帧已滚出的 Cancel 退队。
-func (a *App) prefetchWindowCovers(st *ui.ListState, n int, cover func(int) string) {
-	first, last := prefetchWindow(st, n)
-	visFirst, visLast := visibleCards(st, n)
+// cols 是这一帧的网格列数（见 gridColsFor）——行→卡片下标的换算必须与
+// cardGrid / partsGrid 的构建用同一个值，否则窄窗下预取窗口会错位。
+func (a *App) prefetchWindowCovers(st *ui.ListState, n, cols int, cover func(int) string) {
+	first, last := prefetchWindow(st, n, cols)
+	visFirst, visLast := visibleCards(st, n, cols)
 	for i := first; i < last; i++ {
 		if i >= visFirst && i < visLast {
 			a.Images.Touch(cover(i), imagecache.WidthCard)
@@ -957,24 +978,24 @@ func (a *App) cancelOffscreen(n, first, last int, cover func(int) string) {
 
 // visibleCards 把上一帧的可见**行**换算成卡片下标区间 [first, last)。
 // 未布局过（Visible 返回 0,-1）时按初始几行算。
-func visibleCards(st *ui.ListState, n int) (first, last int) {
+func visibleCards(st *ui.ListState, n, cols int) (first, last int) {
 	firstRow, lastRow := st.Visible()
 	if lastRow < firstRow {
 		firstRow, lastRow = 0, initialCardRows-2
 	}
-	return min(n, max(0, firstRow)*cardGridCols), min(n, (lastRow+1)*cardGridCols)
+	return min(n, max(0, firstRow)*cols), min(n, (lastRow+1)*cols)
 }
 
 // prefetchWindow 返回网格列表应当预取的卡片下标区间 [first, last)。
 // 未布局（Visible 返回 0,-1）时只覆盖初始几行；布局后覆盖可见行上下各一行。
-func prefetchWindow(st *ui.ListState, n int) (first, last int) {
+func prefetchWindow(st *ui.ListState, n, cols int) (first, last int) {
 	firstRow, lastRow := st.Visible()
 	if lastRow < firstRow {
 		// 还没布局过：只预取预估的首屏。lastRow 是闭区间上界。
 		firstRow, lastRow = 0, initialCardRows-1
 	}
-	first = max(0, firstRow-1) * cardGridCols
-	last = min(n, (lastRow+2)*cardGridCols)
+	first = max(0, firstRow-1) * cols
+	last = min(n, (lastRow+2)*cols)
 	return first, last
 }
 
@@ -986,7 +1007,9 @@ func (a *App) skeletonGrid(c *ui.Context) {
 	cover := ui.Hex("#64748b").Alpha(0.16)
 	line := ui.Hex("#64748b").Alpha(0.16)
 	card := ui.Hex("#ffffff").Alpha(0.40)
-	const cols = 3
+	// 骨架屏与真卡片共用同一个 sm 断点：.list-skeleton-grid 基线是
+	// repeat(2, 1fr)，globals.css 单独写一条 @media (min-width: 640px) 才变三列。
+	cols := gridColsFor(windowWidth(c))
 	ui.Column(c).Gap(8).Children(func() {
 		for row := 0; row < 3; row++ {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
@@ -1448,14 +1471,16 @@ func (a *App) playingBadge(c *ui.Context) {
 	})
 }
 
-// estimateCardWidth 估一张卡片的内容宽度：抽屉正文左右各 24，三列网格间距 8，
-// 卡片自身内边距 6。只在首帧（Bounds 还没有值）用。
+// estimateCardWidth 估一张卡片的内容宽度：抽屉正文左右各 24，网格间距 8，
+// 卡片自身内边距 6。只在首帧（Bounds 还没有值）用；列数跟着 sm 断点走，
+// 窄窗两列时每张卡宽得多（meta 行的容器查询就靠这个宽度）。
 func estimateCardWidth(c *ui.Context) float32 {
 	winW, _ := c.Size()
 	if winW <= 0 {
 		winW = 800
 	}
-	return (winW-48-16)/3 - 12
+	cols := float32(gridColsFor(winW))
+	return (winW-48-8*(cols-1))/cols - 12
 }
 
 // ---------------------------------------------------------------- 分集抽屉
@@ -1527,9 +1552,10 @@ func (a *App) partsGrid(c *ui.Context) {
 	parts := a.Info.Parts
 	l := a.list()
 	st := &l.Grid
+	cols := gridColsFor(windowWidth(c))
 	// 行键取首张分集的 cid：换视频 / 刷新分集时不沿用旧锚点。
 	st.Key = func(r int) any {
-		if i := r * cardGridCols; i < len(parts) {
+		if i := r * cols; i < len(parts) {
 			return parts[i].Cid
 		}
 		return r
@@ -1537,20 +1563,20 @@ func (a *App) partsGrid(c *ui.Context) {
 	// 定位（「定位到当前」 / 选集搜索）：屏外的行不构建，不能再靠卡片自己的
 	// ScrollIntoView，得把目标**行**交给 ListState，让它布局时滚过去。
 	if a.locateNow {
-		if row := partsLocateRow(parts, a.Track, a.locatePartIndex); row >= 0 {
+		if row := partsLocateRow(parts, a.Track, a.locatePartIndex, cols); row >= 0 {
 			st.ScrollTo(row, ui.Start)
 		}
 	}
-	rows := (len(parts) + cardGridCols - 1) / cardGridCols
-	a.prefetchPartCovers(st, parts)
+	rows := (len(parts) + cols - 1) / cols
+	a.prefetchPartCovers(st, parts, cols)
 	ui.List(c, st, rows, func(r int) {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-			start := r * cardGridCols
-			end := min(start+cardGridCols, len(parts))
+			start := r * cols
+			end := min(start+cols, len(parts))
 			for j := start; j < end; j++ {
 				a.partCard(c, j, parts[j])
 			}
-			for j := end; j < start+cardGridCols; j++ {
+			for j := end; j < start+cols; j++ {
 				ui.Box(c).Grow(1).Basis(0)
 			}
 		})
@@ -1562,15 +1588,16 @@ func (a *App) partsGrid(c *ui.Context) {
 }
 
 // partsLocateRow 返回选集定位要滚到的行号：优先选集搜索匹配的分集，
-// 否则回退到正在播放的那一集；都没有返回 -1。
-func partsLocateRow(parts []Part, track *Track, locateIndex int) int {
+// 否则回退到正在播放的那一集；都没有返回 -1。cols 是当前网格列数
+// （见 gridColsFor），窄窗两列时同一分集落在不同的行上。
+func partsLocateRow(parts []Part, track *Track, locateIndex, cols int) int {
 	if locateIndex >= 0 && locateIndex < len(parts) {
-		return locateIndex / cardGridCols
+		return locateIndex / cols
 	}
 	if track != nil {
 		for i := range parts {
 			if parts[i].Cid == track.Cid {
-				return i / cardGridCols
+				return i / cols
 			}
 		}
 	}

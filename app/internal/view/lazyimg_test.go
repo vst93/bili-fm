@@ -133,9 +133,10 @@ func TestCardGridPrefetchWindow(t *testing.T) {
 	a.ListFor("feed").Cards = cards
 
 	// 未布局（Visible 返回 0,-1）：只预取初始行（含 overscan 余量）。
-	a.prefetchCardCovers(&st, cards)
+	const cols = 3
+	a.prefetchCardCovers(&st, cards, cols)
 	got := asked.unique()
-	want := (initialCardRows + 1) * cardGridCols
+	want := (initialCardRows + 1) * cols
 	if got != want {
 		t.Fatalf("未布局时预取 %d 张，want %d", got, want)
 	}
