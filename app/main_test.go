@@ -338,6 +338,10 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 	if len(c) != 1 || c[0].Views != "1.2万" {
 		t.Errorf("danmaku 回退 = %+v", c)
 	}
+	// 回退要标记出来，meta 行才会用评论图标（原版 viewsMetaField 的 icon）。
+	if len(c) != 1 || !c[0].ViewsDanmaku {
+		t.Errorf("danmaku 回退未标记 ViewsDanmaku = %+v", c)
+	}
 
 	// 收藏夹的 ctime / 推荐的 pubdate 都要变成相对时间（>1 年回落绝对日期，只要求非空）。
 	items = []any{map[string]any{
@@ -377,10 +381,10 @@ func TestRelTimeLadder(t *testing.T) {
 	if got := relTime(target.Unix()); got != target.Format("01-02") {
 		t.Errorf("relTime(当年-20天) = %q, want %q", got, target.Format("01-02"))
 	}
-	// 跨年（>1 年）→ N年前。
+	// 跨年 → 具体日期 yyyy-MM-DD（原版轮 30 的「具体日期优先」，不再压到 N年前）。
 	old := now.AddDate(-2, 0, 0)
-	if got := relTime(old.Unix()); got != "2年前" {
-		t.Errorf("relTime(2年前) = %q, want 2年前", got)
+	if got := relTime(old.Unix()); got != old.Format("2006-01-02") {
+		t.Errorf("relTime(2年前) = %q, want %q", got, old.Format("2006-01-02"))
 	}
 	// 相对旧的（>1 个月、同年）→ MM-DD（比「N个月前」更具体）。
 	lastMonth := now.AddDate(0, -2, 0)

@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,13 @@ type Card struct {
 	Duration string // 封面右下角角标，空则不画
 	// meta 行按旧版 CardMeta 的字段类型分开存，视图按卡片宽度决定显示哪几列
 	// （作者 40% / 播放量 30% / 发布时间 30%，窄了从末尾隐藏）。
-	Up      string // 作者
-	Views   string // 播放量
-	Pubdate string // 发布时间（相对或短的绝对形式）
-	Extra   string // 附加（稍后再看的「已看 30%」等）
+	Up    string // 作者
+	Views string // 播放量
+	// ViewsDanmaku 为真表示 Views 展示的其实是弹幕数（播放量缺失时的回退，
+	// 原版 viewsMetaField）：meta 行的前导图标要用评论图标而不是播放图标。
+	ViewsDanmaku bool
+	Pubdate      string // 发布时间（具体日期或短的相对形式）
+	Extra        string // 附加（稍后再看的「已看 30%」等）
 	// Track 是点击这张卡片要播放的内容。
 	Track Track
 }
@@ -375,9 +379,9 @@ type App struct {
 	// audio.buffered；0 表示未知/未开始）。
 	Buffered float64
 	Speed    float64
-	EQ      bool
-	Sponsor bool
-	Volume  float64
+	EQ       bool
+	Sponsor  bool
+	Volume   float64
 	// Muted 是静音状态（原版音量弹层里的独立静音键）。
 	Muted bool
 
@@ -784,6 +788,51 @@ func fanCount(n int64) string {
 		return fmt.Sprintf("%.1f万", float64(n)/1e4)
 	}
 	return fmt.Sprint(n)
+}
+
+// pubdateCandidates 把卡片里的发布时间字符串展开成「具体 → 抽象」的候选阶梯
+// （原版 pubdateCandidates / dateFormLadder，轮 30）。
+//
+// 只有完整的 yyyy-MM-DD 可能放不下、需要按列宽降级；其余形态（今天 / 昨天 /
+// N天前 / MM-DD / 无法解析的原串）都足够短，作为唯一候选原样显示。
+func pubdateCandidates(value string, now time.Time) []string {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return nil
+	}
+	target, err := time.ParseInLocation("2006-01-02", raw, now.Location())
+	if err != nil {
+		return []string{raw} // 已是相对形态 / 短形态：原样作唯一候选
+	}
+	// 自然月差（当月同日没到就少算一个月），夹到 ≥1。
+	monthDiff := (now.Year()-target.Year())*12 + int(now.Month()-target.Month())
+	if now.Day() < target.Day() {
+		monthDiff--
+	}
+	if monthDiff < 1 {
+		monthDiff = 1
+	}
+	cands := []string{raw, target.Format("2006-01")}
+	// N个月前 / N年前 是「必定放得下」的兜底（原版 dateFormLadder 的 floor）。
+	cands = append(cands, fmt.Sprintf("%d个月前", monthDiff))
+	if years := now.Year() - target.Year(); years >= 1 {
+		cands = append(cands, fmt.Sprintf("%d年前", years))
+	}
+	return cands
+}
+
+// pickDateForm 取候选阶梯里第一个 fits 的形态；都不满足时取最后一档（兜底，
+// 保证绝不返回空）。原版 pickDateForm 的 Go 版。
+func pickDateForm(candidates []string, fits func(string) bool) string {
+	for _, c := range candidates {
+		if fits(c) {
+			return c
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[len(candidates)-1]
 }
 
 // iconDiscSheen 是唱片高光：一条穿过圆心的宽光带 + 两道细弧（旋转时像

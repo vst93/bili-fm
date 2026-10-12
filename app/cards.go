@@ -108,19 +108,21 @@ func toCards(items []any) []view.Card {
 		if p := pickInt(m, "progress"); p != 0 {
 			extra = progressLabel(p, dur)
 		}
-		// 播放量缺了用弹幕数顶上（原版 viewsMetaField 的回退）。
+		// 播放量缺了用弹幕数顶上（原版 viewsMetaField 的回退）；这时 meta 行的
+		// 前导图标要换成评论图标，否则「弹幕数挂播放图标」语义错位。
+		viewsFromDanmaku := false
 		if views == "" {
 			if d := pickInt(m, "danmaku"); d > 0 {
-				views = fmtViews(d)
+				views, viewsFromDanmaku = fmtViews(d), true
 			}
 			if st := subMap(m, "stat"); st != nil && views == "" {
 				if d := pickInt(st, "danmaku", "reply"); d > 0 {
-					views = fmtViews(d)
+					views, viewsFromDanmaku = fmtViews(d), true
 				}
 			}
 			if ci := subMap(m, "cnt_info"); ci != nil && views == "" {
 				if d := pickInt(ci, "danmaku"); d > 0 {
-					views = fmtViews(d)
+					views, viewsFromDanmaku = fmtViews(d), true
 				}
 			}
 		}
@@ -130,14 +132,15 @@ func toCards(items []any) []view.Card {
 			aid = pickInt(hist, "oid")
 		}
 		out = append(out, view.Card{
-			Bvid:     bvid,
-			Cover:    cover,
-			Title:    title,
-			Duration: fmtDur(dur),
-			Up:       up,
-			Views:    views,
-			Pubdate:  pubdate,
-			Extra:    extra,
+			Bvid:         bvid,
+			Cover:        cover,
+			Title:        title,
+			Duration:     fmtDur(dur),
+			Up:           up,
+			Views:        views,
+			ViewsDanmaku: viewsFromDanmaku,
+			Pubdate:      pubdate,
+			Extra:        extra,
 			Track: view.Track{
 				Aid:      aid,
 				Bvid:     bvid,
@@ -191,7 +194,7 @@ func toUpCards(items []any) []view.Card {
 			Duration: pickStr(arch, "duration_text"),
 			Up:       up,
 			Views:    views,
-			Pubdate:  pickStr(author, "pub_time"),
+			Pubdate:  metaDateText(pickStr(author, "pub_time")),
 			Track: view.Track{
 				Aid:   pickInt(arch, "aid"),
 				Bvid:  bvid,
@@ -242,8 +245,11 @@ func progressLabel(progress, duration int64) string {
 // relTime 把 unix 秒变成相对时间，对齐原版 dateFormLadder 的「最具体形态」：
 //
 //	≤0 天 → 今天；1 天 → 昨天；≤7 天 → N天前；
-//	当年 → MM-DD（比相对形态更具体）；跨年 → yyyy-MM-DD；
-//	兜底 → N个月前 / N年前。
+//	当年 → MM-DD（比相对形态更具体）；跨年 → yyyy-MM-DD（原版轮 30 的「具体
+//	日期优先」，不再一律压到 N个月前/N年前）。
+//
+// 放不下时的逐档降级（yyyy-MM-DD → yyyy-MM → N个月前 → N年前）由卡片 meta
+// 层按实测列宽完成（见 view.pubdateCandidates）。
 func relTime(unix int64) string {
 	if unix <= 0 {
 		return ""
@@ -262,27 +268,11 @@ func relTime(unix int64) string {
 		return fmt.Sprintf("%d天前", dayDiff)
 	}
 
-	// 自然月差（当月同日没到就少算一个月），夹到 ≥1。
-	monthDiff := (now.Year()-target.Year())*12 + int(now.Month()-target.Month())
-	if now.Day() < target.Day() {
-		monthDiff--
-	}
-	if monthDiff < 1 {
-		monthDiff = 1
-	}
-	yearDiff := now.Year() - target.Year()
-
-	mmdd := fmt.Sprintf("%02d-%02d", target.Month(), target.Day())
 	if target.Year() == now.Year() {
-		return mmdd
+		return target.Format("01-02")
 	}
-	if yearDiff >= 1 && monthDiff >= 12 {
-		return fmt.Sprintf("%d年前", yearDiff)
-	}
-	if yearDiff >= 2 {
-		return fmt.Sprintf("%d年前", yearDiff)
-	}
-	return fmt.Sprintf("%d个月前", monthDiff)
+	// 跨年：尽量给出完整年月日，列放不下时由 meta 层降级。
+	return target.Format("2006-01-02")
 }
 
 // fmtDur 把秒转成 mm:ss / h:mm:ss。

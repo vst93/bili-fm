@@ -703,10 +703,10 @@ func (a *App) card(c *ui.Context, index int) {
 		// 三列比例：作者 40% / 播放量 30% / 发布时间 30%；卡片窄了从末尾
 		// 依次隐藏（阈值与原版的容器查询一致）。
 		Fields: []cardField{
-			{Text: card.Up, Ratio: 40},
-			{Text: card.Views, Ratio: 30, MinW: 150},
-			{Text: card.Pubdate, Ratio: 30, MinW: 200},
-			{Text: card.Extra, Ratio: 30, MinW: 260},
+			{Kind: fieldAuthor, Text: card.Up},
+			{Kind: fieldViews, Text: card.Views, DanmakuIcon: card.ViewsDanmaku},
+			{Kind: fieldPubdate, Text: card.Pubdate},
+			{Kind: fieldExtra, Text: card.Extra},
 		},
 		OnClick: func() {
 			// 与原版一致：点卡片只是打开选集面板，不直接起播。
@@ -738,14 +738,93 @@ func (a *App) card(c *ui.Context, index int) {
 	a.renderCard(c, spec)
 }
 
+// cardFieldKind 是卡片 meta 行的字段类型。它决定列的比例 / 伸展 / 对齐与
+// 窄卡隐藏阈值——这些全部对齐原版 globals.css 的 .card-meta-field.is-* 规则。
+type cardFieldKind string
+
+const (
+	fieldAuthor   cardFieldKind = "author"
+	fieldViews    cardFieldKind = "views"
+	fieldPubdate  cardFieldKind = "pubdate"
+	fieldDuration cardFieldKind = "duration"
+	fieldExtra    cardFieldKind = "extra"
+)
+
 // cardField 是卡片 meta 行里的一个字段。
 type cardField struct {
+	Kind cardFieldKind
 	Text string
-	// Ratio 是该列占整行的比例（原版 4:3:3 那套）。
-	Ratio float32
-	// MinW 是显示该字段所需的最小卡片宽度（原版用容器查询，卡片窄了从
-	// 末尾依次隐藏）。0 表示总是显示。
-	MinW float32
+	// DanmakuIcon 为真表示这是「播放量缺失、用弹幕数顶上」的回退，前导图标
+	// 用评论图标（原版 viewsMetaField 的语义）。仅 views 字段有意义。
+	DanmakuIcon bool
+}
+
+// fieldStyle 返回某类字段的列样式，取自原版 globals.css：
+//
+//	author   40% / grow 4 / 左对齐 / 永不隐藏
+//	views    30% / grow 3 / 右对齐 / 窄于 150 隐藏
+//	pubdate  30% / grow 4 / 右对齐 / 窄于 200 隐藏（剩余宽可「借」给日期）
+//	duration 30% / grow 3 / 右对齐 / 窄于 240 隐藏
+//	extra    30% / grow 3 / 右对齐 / 窄于 260 隐藏
+func fieldStyle(kind cardFieldKind) (basis, grow, minW float32, align ui.Align) {
+	switch kind {
+	case fieldAuthor:
+		return 40, 4, 0, ui.Start
+	case fieldViews:
+		return 30, 3, 150, ui.End
+	case fieldPubdate:
+		return 30, 4, 200, ui.End
+	case fieldDuration:
+		return 30, 3, 240, ui.End
+	case fieldExtra:
+		return 30, 3, 260, ui.End
+	}
+	return 30, 3, 0, ui.End
+}
+
+// resolveFieldWidths 按 flex（basis% + grow 分配剩余空间）算出每个字段的
+// 实际列宽，供发布时间的「按实测宽度降级」使用。被隐藏的字段宽度为 0。
+func resolveFieldWidths(fields []cardField, rowW float32) []float32 {
+	widths := make([]float32, len(fields))
+	var basisSum, growSum float32
+	for i, f := range fields {
+		if f.Text == "" {
+			continue
+		}
+		basis, grow, minW, _ := fieldStyle(f.Kind)
+		if rowW < minW {
+			continue
+		}
+		w := rowW * basis / 100
+		widths[i] = w
+		basisSum += w
+		growSum += grow
+	}
+	free := rowW - basisSum
+	if free > 0 && growSum > 0 {
+		for i, f := range fields {
+			if widths[i] == 0 {
+				continue
+			}
+			_, grow, _, _ := fieldStyle(f.Kind)
+			widths[i] += free * grow / growSum
+		}
+		return widths
+	}
+	if free < 0 {
+		// 四列时 basis 之和 130% > 行宽：CSS flex-shrink 按 basis 比例收缩（
+		// 各列 shrink=1、min-width:0）到恰好填满行宽。
+		var shrinkSum float32
+		for _, w := range widths {
+			shrinkSum += w
+		}
+		if shrinkSum > 0 {
+			for i := range widths {
+				widths[i] *= rowW / shrinkSum
+			}
+		}
+	}
+	return widths
 }
 
 // cardSpec 是一张列表卡片的内容。
@@ -846,7 +925,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 // cardMeta 是卡片的 meta 行（原版 CardMeta + globals.css 里的容器查询）。
 //
 // 列间距进列自身的左内边距（原版 `+ .card-meta-field { padding-left: 8px }`），
-// 这样比例正好落在整行上。
+// 这样比例正好落在整行上。列比例 / 伸展 / 对齐 / 隐藏阈值均取自原版
+// `.card-meta-field.is-*` 规则；播放量带前导图标；发布时间按**实测列宽**
+// 在「具体 → 抽象」的形态阶梯里选第一个放得下的（原版轮 30 的 PubDateField）。
 //
 // 宽度取**上一帧的真实布局宽度**（Element.Bounds）；首帧还没有布局，
 // 按窗口宽度估一个。
@@ -856,22 +937,65 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 	if w <= 0 {
 		w = estimateCardWidth(c)
 	}
+	widths := resolveFieldWidths(fields, w)
+	now := time.Now()
+	ink := ui.Hex("#71717a") // 原版 text-default-500（zinc-500）
 	row.Children(func() {
 		first := true
-		for _, f := range fields {
-			if f.Text == "" || w < f.MinW {
+		for i, f := range fields {
+			if f.Text == "" {
 				continue
 			}
-			col := ui.Box(c).BasisPercent(f.Ratio).Shrink(1).MinWidth(0)
+			basis, grow, minW, align := fieldStyle(f.Kind)
+			if w < minW {
+				continue
+			}
+			avail := widths[i]
+			col := ui.Box(c).BasisPercent(basis).Grow(grow).Shrink(1).MinWidth(0)
+			if f.Kind == fieldAuthor {
+				// 原版 .is-author 的 max-width: 40%：两列行里作者列不得超四成。
+				col.MaxWidthPercent(40)
+			}
 			if !first {
 				col.Padding(0, 0, 0, 8)
+				avail -= 8
 			}
 			first = false
 			col.Children(func() {
-				// 原版 meta 用 text-default-500（zinc-500 #71717a）。
-				ui.Text(c, f.Text).FontSize(12).TextColor(ui.Hex("#71717a")).SingleLine()
+				switch f.Kind {
+				case fieldViews:
+					icon := iconPlay
+					if f.DanmakuIcon {
+						icon = iconDanmaku
+					}
+					ui.Row(c).FillWidth().Justify(ui.End).AlignItems(ui.Center).Gap(2).Children(func() {
+						// 原版 .card-meta-field svg { opacity: .72 }。
+						ui.Icon(c, icon).Size(12, 12).TextColor(ink.Alpha(0.72))
+						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine()
+					})
+				case fieldPubdate:
+					text := pubdateFit(c, f.Text, avail, now)
+					ui.Text(c, text).FontSize(12).TextColor(ink).SingleLine().
+						FillWidth().TextAlign(align)
+				default:
+					ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+						FillWidth().TextAlign(align)
+				}
 			})
 		}
+	})
+}
+
+// pubdateFit 在发布时间形态阶梯里挑第一个**实测宽度**放得下的形态
+// （原版 PubDateField 的降级）。avail 是该列的可用文本宽。
+func pubdateFit(c *ui.Context, value string, avail float32, now time.Time) string {
+	cands := pubdateCandidates(value, now)
+	if len(cands) <= 1 {
+		return value
+	}
+	return pickDateForm(cands, func(s string) bool {
+		w, _ := c.MeasureText(0, ui.Span{Text: s, Size: 12})
+		return w <= avail
 	})
 }
 
@@ -1004,8 +1128,8 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		Active:   active,
 		Playing:  active,
 		Fields: []cardField{
-			{Text: statText(a.Info, func(i *Info) int64 { return i.View }), Ratio: 40},
-			{Text: dur, Ratio: 30, MinW: 150},
+			{Kind: fieldViews, Text: statText(a.Info, func(i *Info) int64 { return i.View })},
+			{Kind: fieldDuration, Text: dur},
 		},
 		// 定位：点「定位到当前」滚到正在播的，选集搜索滚到匹配的。
 		Scroll: (active && a.locateNow) || (a.locateNow && index == a.locatePartIndex),
