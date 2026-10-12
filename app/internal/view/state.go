@@ -333,11 +333,24 @@ type Actions struct {
 	RemoveWatchLater func(aid int64)
 }
 
+// ImageStore 是 App 取封面图 / 氛围光图的方式。*imagecache.Cache 实现它；
+// 测试可注入计数 / 返回假图的实现，验证「屏外不请求」等行为。
+type ImageStore interface {
+	// Bitmap 取封面：命中返回位图，未命中返回 nil 并异步抓取。
+	Bitmap(url string) *ui.Bitmap
+	// Get 只读缓存、不发起抓取（懒加载的构建路径用它）。
+	Get(url string) *ui.Bitmap
+	// Ambient 取氛围光用的调色小图。
+	Ambient(url string, blur bool) *ui.Bitmap
+	// Pending 返回还在抓取的张数（占位状态 / 测试用）。
+	Pending() int
+}
+
 // App 是主窗口的全部状态。
 type App struct {
 	Win    *mygo.Window
 	Theme  Theme
-	Images *imagecache.Cache
+	Images ImageStore
 	Act    Actions
 
 	// 导航

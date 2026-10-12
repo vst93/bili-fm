@@ -762,6 +762,7 @@ func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
 		return r
 	}
 	rows := (len(cards) + cardGridCols - 1) / cardGridCols
+	a.prefetchCardCovers(st, cards)
 	ui.List(c, st, rows, func(r int) {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 			start := r * cardGridCols
@@ -774,6 +775,36 @@ func (a *App) cardGrid(c *ui.Context, st *ui.ListState, cards []Card) {
 			}
 		})
 	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
+}
+
+// initialCardRows 是列表还没布局过时预取的初始行数。一屏约放 5 行（1400×900
+// 抽屉展开后），给 6 留点余量。
+const initialCardRows = 6
+
+// prefetchCardCovers 只给可见行（外加几行 overscan）的卡片请求封面。
+//
+// 从前 renderCard 在构建时直接 Bitmap()：而 mygo 的 List 在行高还没量到之前，
+// 用主题 Space(8)（默认 Spacing 4 → 32px）当估计（mygo ui/list.go:381 的
+// heights.def），所以抽屉刚开、一屏实际只放得下 ~5 行时，它会先建 30+ 行，
+// 于是一次请求 90+ 张封面并立刻并发 decode/上传。这里把「请求」和「构建」拆开：
+// 构建只 Get（读缓存），请求只按上一帧的可见窗口发。首帧还没布局
+// （Visible 返回 0,-1）时只预取头几行，绝不铺开屏外的图。
+func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card) {
+	firstRow, lastRow := st.Visible()
+	if lastRow < firstRow {
+		// 还没布局过：只预取预估的首屏。lastRow 是闭区间上界。
+		firstRow, lastRow = 0, initialCardRows-1
+	}
+	first := max(0, firstRow-1) * cardGridCols
+	last := min(len(cards), (lastRow+2)*cardGridCols)
+	a.prefetchCovers(cards, first, last)
+}
+
+// prefetchCovers 为 [first, last) 的卡片发起封面抓取（异步、有并发上限）。
+func (a *App) prefetchCovers(cards []Card, first, last int) {
+	for i := max(0, first); i < last && i < len(cards); i++ {
+		a.Images.Bitmap(cards[i].Cover)
+	}
 }
 
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
@@ -887,6 +918,7 @@ func (a *App) card(c *ui.Context, index int) {
 		Duration: card.Duration,
 		Active:   playing,
 		Playing:  playing,
+		Lazy:     true,
 		// 三列比例：作者 40% / 播放量 30% / 发布时间 30%；卡片窄了从末尾
 		// 依次隐藏（阈值与原版的容器查询一致）。
 		Fields: []cardField{
@@ -1033,6 +1065,10 @@ type cardSpec struct {
 	OnClick func()
 	// Scroll 为真时把卡片滚进视野（定位当前播放）。
 	Scroll bool
+	// Lazy 为真时只读缓存、不发起抓取：封面由调用方按可见窗口预取
+	//（虚拟化卡片网格）。非虚拟化的短列表（选集、播放列表）为假，
+	// 它们每帧都建全部卡片，直接请求就行。
+	Lazy bool
 }
 
 // renderCard 画一张列表卡片。
@@ -1093,7 +1129,11 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
 		ui.Box(c).FillWidth().Height(100).Shrink(0).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {
-			if bmp := a.Images.Bitmap(spec.Cover); bmp != nil {
+			bmp := a.Images.Get(spec.Cover)
+			if !spec.Lazy {
+				bmp = a.Images.Bitmap(spec.Cover)
+			}
+			if bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。

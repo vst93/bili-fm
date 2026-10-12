@@ -119,3 +119,17 @@ func TestBlurRGBA(t *testing.T) {
 		t.Errorf("输入被修改，左上角 = %d", v)
 	}
 }
+
+// TestThumbURLLeavesNonBilibiliAlone 钉住：只有 B 站 hdslb 图床才被改写。
+// 从前把**所有** http:// 都升级成 https://，把本地代理 / 测试服务器改坏。
+func TestThumbURLLeavesNonBilibiliAlone(t *testing.T) {
+	for _, in := range []string{
+		"http://127.0.0.1:4654/image-proxy?url=x",
+		"http://localhost:8080/cover.png",
+		"http://example.com/bfs/archive/a.jpg",
+	} {
+		if got := ThumbURL(in); got != in {
+			t.Errorf("ThumbURL(%q) = %q，非 B 站地址应原样返回", in, got)
+		}
+	}
+}

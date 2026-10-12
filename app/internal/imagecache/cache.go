@@ -28,7 +28,9 @@ const (
 
 // Cache 是一组封面图，按 URL 索引，带容量上限。
 type Cache struct {
-	client *http.Client
+	// Client 抓图用的 HTTP 客户端。为 nil 时用带 15s 超时的默认客户端；
+	// 测试可替换它指向本地服务器（封面地址可以是任意图床）。
+	Client *http.Client
 
 	// limit 是缓存位图数上限，超出后按最近最少使用淘汰。
 	limit int
@@ -37,7 +39,12 @@ type Cache struct {
 	items   map[string]*entry
 	order   []string // 最近使用的在后
 	notify  func()   // 有新图时请求重绘
-	loading int
+	loading int      // 正在抓取的张数（Pending 用）
+
+	// sem 限制同时进行的抓取 + 解码数：打开抽屉会请求可见的一批图，
+	// 不设限就是几十个 goroutine 同时 decode，抢走渲染线程的 CPU，
+	// 也让 GPU 纹理一次性集中上传。
+	sem chan struct{}
 }
 
 type entry struct {
@@ -55,11 +62,23 @@ type entry struct {
 // 它可能在任意 goroutine 上被调用。
 func New(notify func()) *Cache {
 	return &Cache{
-		client: &http.Client{Timeout: 15 * time.Second},
+		Client: &http.Client{Timeout: 15 * time.Second},
 		limit:  300,
 		items:  map[string]*entry{},
 		notify: notify,
+		sem:    make(chan struct{}, maxConcurrentFetches),
 	}
+}
+
+// maxConcurrentFetches 是同时抓取 / 解码的封面数。
+const maxConcurrentFetches = 4
+
+// httpClient 返回抓图用的客户端，未显式设置时给出默认的。
+func (c *Cache) httpClient() *http.Client {
+	if c.Client != nil {
+		return c.Client
+	}
+	return http.DefaultClient
 }
 
 // 失败重试的冷却时间：太短会在每帧重发请求，太长则封面一直空着。
@@ -77,6 +96,7 @@ func (c *Cache) Bitmap(rawURL string) *ui.Bitmap {
 		// 之前失败过，过了冷却期就重新抓（原版 RetryImg 的重试）。
 		if e.failed && !e.pending && time.Since(e.failedAt) > retryFailedAfter {
 			e.failed, e.pending = false, true
+			c.loading++
 			c.touchLocked(rawURL)
 			c.mu.Unlock()
 			go c.fetch(rawURL)
@@ -90,6 +110,7 @@ func (c *Cache) Bitmap(rawURL string) *ui.Bitmap {
 	e = &entry{pending: true}
 	c.items[rawURL] = e
 	c.order = append(c.order, rawURL)
+	c.loading++
 	c.mu.Unlock()
 
 	go c.fetch(rawURL)
@@ -103,7 +124,26 @@ func (c *Cache) Pending() int {
 	return c.loading
 }
 
+// Get 只读缓存，不发起抓取：已加载的返回位图，其余（含正在抓 / 失败）
+// 返回 nil。视图用它画已就绪的封面（未就绪由调用方先跑一趟预取），
+// 这样屏外、未预取的图绝不会被 decode。
+func (c *Cache) Get(rawURL string) *ui.Bitmap {
+	if rawURL == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e := c.items[rawURL]
+	if e == nil {
+		return nil
+	}
+	c.touchLocked(rawURL)
+	return e.bitmap
+}
+
 func (c *Cache) fetch(rawURL string) {
+	c.sem <- struct{}{}
+	defer func() { <-c.sem }()
 	src := ThumbURL(rawURL)
 	req, err := http.NewRequest("GET", src, nil)
 	if err != nil {
@@ -114,7 +154,7 @@ func (c *Cache) fetch(rawURL string) {
 	req.Header.Set("Referer", referer)
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
 
-	resp, err := c.client.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		c.finish(rawURL, nil, nil, true)
 		return
@@ -130,20 +170,24 @@ func (c *Cache) fetch(rawURL string) {
 		c.finish(rawURL, nil, nil, true)
 		return
 	}
-	bmp, err := ui.DecodeBitmap(data)
-	var small *image.RGBA
-	if err == nil {
-		// 顺带留一张小图给氛围光调色用（同一份解码数据，不额外请求）。
-		if img, _, derr := image.Decode(bytes.NewReader(data)); derr == nil {
-			small = downscale(img, ambientSource)
-		}
+	// 只解码一次：位图和氛围光的小图都从同一张 image 派生。旧版先
+	// ui.DecodeBitmap 再 image.Decode，同一份数据解两遍（CPU 翻倍）；
+	// 这里用 image.Decode + ui.NewBitmap。代价是不再走 DecodeBitmap 的
+	// JPEG EXIF 旋转 —— B 站封面/头像都是服务端生成的无 EXIF 图，不受影响。
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		c.finish(rawURL, nil, nil, true)
+		return
 	}
-	c.finish(rawURL, bmp, small, err != nil)
+	c.finish(rawURL, ui.NewBitmap(img), downscale(img, ambientSource), false)
 }
 
 func (c *Cache) finish(rawURL string, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
 	c.mu.Lock()
 	if e := c.items[rawURL]; e != nil {
+		if e.pending {
+			c.loading--
+		}
 		e.bitmap, e.small, e.failed, e.pending = bmp, small, failed, false
 		if failed {
 			e.failedAt = time.Now()
@@ -188,18 +232,21 @@ func ThumbURL(raw string) string {
 	src := raw
 	if strings.HasPrefix(src, "//") {
 		src = "https:" + src
-	} else if strings.HasPrefix(src, "http://") {
-		// B 站的动态接口会返回 http 的图床地址，统一走 https。
-		src = "https://" + strings.TrimPrefix(src, "http://")
 	}
 	u, err := url.Parse(src)
 	if err != nil {
 		return src
 	}
-	if strings.HasSuffix(u.Hostname(), "hdslb.com") &&
-		strings.Contains(u.Path, "/bfs/") &&
-		!strings.Contains(u.Path, "@") {
-		u.Path += "@" + itoa(thumbWidth) + "w.webp"
+	// 只有 B 站图床才做规范化：先前这里把所有 http:// 都改成 https://，
+	// 非 B 站图床（本地代理 / 测试服务器）被改坏、图抓不到。
+	if strings.HasSuffix(u.Hostname(), "hdslb.com") {
+		// B 站的动态接口会返回 http 的图床地址，统一走 https。
+		if u.Scheme == "http" {
+			u.Scheme = "https"
+		}
+		if strings.Contains(u.Path, "/bfs/") && !strings.Contains(u.Path, "@") {
+			u.Path += "@" + itoa(thumbWidth) + "w.webp"
+		}
 	}
 	return u.String()
 }
