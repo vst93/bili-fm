@@ -211,15 +211,27 @@ func (a *App) nowPlaying(c *ui.Context) {
 // 右下角三个开关（原版 .cover-mode-toggle）：切换碟片/封面、封面背景、高级质感。
 func (a *App) coverDisc(c *ui.Context) {
 	ui.Row(c).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-		shell := ui.Box(c).Size(292, 292).Shrink(0)
+		shell := ui.Box(c).Size(292, 292).Shrink(0).Center()
+		// 原版 .cover-shell 是 `display:grid; place-items:center` —— 玻璃环与
+		// 封面都在 292 的 shell 里**两轴居中**。之前碟片模式只给了
+		// `AlignSelf(ui.Center)`（只居中横轴），玻璃环贴着 shell 顶边，
+		// 唱片整体比方形封面高 9px。
 		// 原版 .cover-mode-toggle 默认 opacity:0，.cover-shell:hover 才显形。
 		shellHovered := shell.Hovered()
 		shell.Children(func() {
 			if a.CoverMode == "square" {
-				sq := ui.ButtonBase(c.Key("disc")).Fill().Radius(14).Clip().
+				// 原版 #video-cover.cover-square 同样是 shell 的 90%（= 263），
+				// 而不是铺满 292 的整块 —— 之前用 Fill() 把方块封面放大到
+				// 292，比碟片模式（263）大了一圈，右下角三个开关也贴到了边上。
+				// 圆角 12（.cover-art-square / #video-cover.cover-square），不是正圆。
+				sq := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(12).Clip().
 					Background(ui.Hex("#0f172a")).
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Label(pick(a.Playing, "暂停", "播放"))
+				// 方形封面只有常态 / 悬停两态（原版没有 .cover-square.is-playing）。
+				cs := coverSurfaceFor(false, sq.Hovered())
+				sq.InsetShadow(0, 0, 0, 1, cs.Inset).
+					Shadow(0, cs.Dy, cs.Blur, 0, cs.Outer)
 				sq.Children(func() { a.coverOrLogo(c) })
 				if sq.Clicked() && a.Act.TogglePlay != nil {
 					a.Act.TogglePlay()
@@ -227,7 +239,7 @@ func (a *App) coverDisc(c *ui.Context) {
 			} else {
 				// 外圈玻璃环（原版 .cover-shell::before）：inset 3% →
 				// 292 × 0.94 ≈ 274，1px 白边 + 柔和投影；唱片 263 居中其内。
-				ring := ui.Box(c).Size(274, 274).AlignSelf(ui.Center).Radius(RadiusPill).
+				ring := ui.Box(c).Size(274, 274).Radius(RadiusPill).
 					Border(1, ui.Hex("#ffffff").Alpha(0.20)).
 					Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).Center()
 				ring.Children(func() {
@@ -236,8 +248,13 @@ func (a *App) coverDisc(c *ui.Context) {
 					disc := ui.ButtonBase(c.Key("disc")).Size(263, 263).Radius(RadiusPill).Clip().
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
-						InsetShadow(0, 0, 0, 1, ui.Hex("#ffffff").Alpha(0.10)).
 						Label(pick(a.Playing, "暂停", "播放"))
+					// #video-cover 的三态描边/投影：常态深色投影、悬停与播放中转
+					// 蓝色光晕。之前只画了内侧 1px 白线，唱片像平贴在玻璃环里，
+					// 播放时也没有那圈蓝光。
+					cs := coverSurfaceFor(a.Playing, disc.Hovered())
+					disc.InsetShadow(0, 0, 0, 1, cs.Inset).
+						Shadow(0, cs.Dy, cs.Blur, 0, cs.Outer)
 					disc.Children(func() {
 						// 唱片：播放时 22s 一圈（原版 #video-cover.record-disc）。
 						//
@@ -314,6 +331,43 @@ func (a *App) coverDisc(c *ui.Context) {
 	})
 }
 
+// coverSurface 是 #video-cover（碟片 / 方形封面）这一帧的描边与外投影。
+// 取值直接抄原版 globals.css 的三条规则：
+//
+//	常态    inset 0 0 0 1px rgba(255,255,255,.10) + 0 8px 24px rgba(15,23,42,.10)
+//	悬停    inset ... .15                        + 0 12px 32px rgba(14,165,233,.12)
+//	播放中  inset ... .15                        + 0 12px 36px rgba(14,165,233,.16)
+//
+// 描边色固定在 1px、不随态变（Inset 只是颜色）；Dy/Blur 是外投影的偏移与模糊。
+type coverSurface struct {
+	Inset    ui.Color
+	Dy, Blur float32
+	Outer    ui.Color
+}
+
+// coverSurfaceFor 给出 #video-cover 当前该用的描边/投影。
+//
+// playing 压过 hovered：`#video-cover.is-playing` 与 `#video-cover:hover`
+// 特异度相同（1,1,0），而前者在 globals.css 里排在后者之后。
+// （方形封面原版没有 .is-playing 规则，调用方传 playing=false。）
+func coverSurfaceFor(playing, hovered bool) coverSurface {
+	s := coverSurface{
+		Inset: ui.Hex("#ffffff").Alpha(0.10),
+		Dy:    8, Blur: 24, Outer: ui.Hex("#0f172a").Alpha(0.10),
+	}
+	if hovered {
+		s.Inset = ui.Hex("#ffffff").Alpha(0.15)
+		s.Dy, s.Blur = 12, 32
+		s.Outer = ui.Hex("#0ea5e9").Alpha(0.12)
+	}
+	if playing {
+		s.Inset = ui.Hex("#ffffff").Alpha(0.15)
+		s.Dy, s.Blur = 12, 36
+		s.Outer = ui.Hex("#0ea5e9").Alpha(0.16)
+	}
+	return s
+}
+
 // coverToggleActive 报告封面上的某个小开关这一帧是不是激活态。
 //
 // 原版 CSS 只给两个键定义了 `is-active` —— `.cover-background-toggle.is-active`
@@ -341,7 +395,7 @@ func coverToggleActive(key string, ambient, premium bool) bool {
 // `.x-toggle.is-active` 与 `.cover-mode-toggle:hover` 特异度相同（都是两个类），
 // 但 is-active 规则在 CSS 里更靠后，所以**激活态的底色/描边盖过悬停**，而
 // 图标色只有 base 与 :hover 在写 —— 即激活态图标亮度仍由 hover 决定
-//（之前激活直接把图标提到 .95，是多余的偏差）。
+// （之前激活直接把图标提到 .95，是多余的偏差）。
 func coverToggleStyle(active, hovered bool) (bg, border, ink ui.Color) {
 	switch {
 	case active:
