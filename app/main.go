@@ -1247,7 +1247,7 @@ func (c *controller) loadSection(section string, page int) {
 					a.NotifyType("error", "加载失败："+err.Error())
 					return
 				}
-				setCards(list, toUpCards(l.Items), page <= 1)
+				setCards(list, toFeedCards(l.Items), page <= 1)
 				list.Page = page
 				list.HasMore = l.HasMore
 				a.FeedOffset = l.Offset

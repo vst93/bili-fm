@@ -160,7 +160,16 @@ func toCards(items []any) []view.Card {
 // 这个接口返回的是**动态卡片**而不是视频对象：视频在
 // modules.module_dynamic.major.archive，作者与发布时间在 modules.module_author，
 // 播放量已经是格式化好的字符串（stat.play = "69.2万"），时长在 archive.duration_text。
-func toUpCards(items []any) []view.Card {
+//
+// UP 空间列表**不渲染**标题前胶囊（原版 upVideoList 的 ListCard 不传 titlePrefix），
+// 需要胶囊的推荐用 toFeedCards。
+func toUpCards(items []any) []view.Card { return upCards(items, false) }
+
+// toFeedCards 与 toUpCards 同源，但会额外解析动态卡片的「充电专属」标题胶囊
+// （原版只有 feedList 的 ListCard 传 titlePrefix）。
+func toFeedCards(items []any) []view.Card { return upCards(items, true) }
+
+func upCards(items []any, withBadge bool) []view.Card {
 	out := make([]view.Card, 0, len(items))
 	for _, it := range items {
 		m, ok := it.(map[string]any)
@@ -181,6 +190,12 @@ func toUpCards(items []any) []view.Card {
 		up := pickStr(author, "name")
 		cover := pickStr(arch, "cover")
 		title := pickStr(arch, "title")
+		// 标题前的小胶囊（原版 feedList 的 titlePrefix）：只有「充电专属」这一种
+		// 红色角标，判据就是 archive.badge.text。只有动态列表才会带上它。
+		badge := ""
+		if withBadge {
+			badge = pickStr(subMap(arch, "badge"), "text")
+		}
 
 		views := ""
 		if st := subMap(arch, "stat"); st != nil {
@@ -191,6 +206,7 @@ func toUpCards(items []any) []view.Card {
 			Bvid:     bvid,
 			Cover:    cover,
 			Title:    title,
+			Badge:    badge,
 			Duration: pickStr(arch, "duration_text"),
 			Up:       up,
 			Views:    views,

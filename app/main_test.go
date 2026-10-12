@@ -262,7 +262,8 @@ func TestToUpCards(t *testing.T) {
 						"archive": map[string]any{
 							"bvid": "BVup", "title": "空间视频", "cover": "c.jpg",
 							"duration_text": "03:20", "aid": float64(7),
-							"stat": map[string]any{"play": "69.2万"},
+							"stat":  map[string]any{"play": "69.2万"},
+							"badge": map[string]any{"text": "充电专属"},
 						},
 					},
 				},
@@ -280,8 +281,21 @@ func TestToUpCards(t *testing.T) {
 	if c.Bvid != "BVup" || c.Views != "69.2万" || c.Duration != "03:20" || c.Up != "UP主" {
 		t.Errorf("up card = %+v", c)
 	}
+	// UP 空间列表不带标题前胶囊（原版 upVideoList 不传 titlePrefix）。
+	if c.Badge != "" {
+		t.Errorf("toUpCards badge = %q, want 空", c.Badge)
+	}
 	if c.Track.Aid != 7 {
 		t.Errorf("track aid = %d", c.Track.Aid)
+	}
+
+	// 动态列表（feedList）才解析「充电专属」胶囊。
+	feed := toFeedCards(items)
+	if len(feed) != 1 {
+		t.Fatalf("toFeedCards 数量 = %d, want 1", len(feed))
+	}
+	if feed[0].Badge != "充电专属" {
+		t.Errorf("feed badge = %q, want 充电专属", feed[0].Badge)
 	}
 }
 

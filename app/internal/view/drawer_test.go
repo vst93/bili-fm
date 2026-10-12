@@ -340,6 +340,33 @@ func TestCardGridVirtualized(t *testing.T) {
 	}
 }
 
+// TestCardTitleBadge 钉住标题前的小胶囊（原版 feedList 的 titlePrefix「充电专属」）：
+// 卡片带 Badge 时标题行把胶囊画出来，没有时不画。
+func TestCardTitleBadge(t *testing.T) {
+	a := NewApp(func() {})
+	a.ListFor("feed").Cards = []Card{
+		{Bvid: "BV1", Title: "充电视频", Badge: "充电专属", Up: "UP主"},
+	}
+	a.Drawer = "feed"
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	if !tst.HasText("充电专属") {
+		t.Fatal("带 Badge 的卡片应画出标题前胶囊")
+	}
+	if !tst.HasText("充电视频") {
+		t.Fatal("胶囊不应吃掉标题")
+	}
+
+	b := NewApp(func() {})
+	b.ListFor("feed").Cards = []Card{{Bvid: "BV2", Title: "普通视频", Up: "UP主"}}
+	b.Drawer = "feed"
+	tst2 := ui.NewTester(func(c *ui.Context) { b.Shell(c) }, 980, 720)
+	tst2.Frame()
+	if tst2.HasText("充电专属") {
+		t.Fatal("没有 Badge 的卡片不该画出胶囊")
+	}
+}
+
 // TestDrawerStartPose 钉住入/退场的起手 pose 与「要不要请框架再建一帧」。
 //
 // 入场要 AnimationFrame：起手帧把面板摆到 h，请框架再建一帧，下一帧目标才

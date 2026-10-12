@@ -850,6 +850,7 @@ func (a *App) card(c *ui.Context, index int) {
 		Key:      fmt.Sprintf("card-%d-%s", index, card.Bvid),
 		Cover:    card.Cover,
 		Title:    card.Title,
+		Badge:    card.Badge,
 		Duration: card.Duration,
 		Active:   playing,
 		Playing:  playing,
@@ -983,9 +984,12 @@ func resolveFieldWidths(fields []cardField, rowW float32) []float32 {
 
 // cardSpec 是一张列表卡片的内容。
 type cardSpec struct {
-	Key      string
-	Cover    string
-	Title    string
+	Key   string
+	Cover string
+	Title string
+	// Badge 是标题前的小胶囊（原版 feedList 的 titlePrefix，如「充电专属」）；
+	// 空则不画。
+	Badge    string
 	Duration string
 	Fields   []cardField
 	// Active 表示「正在播放」：蓝 Tint + 2px 蓝边。
@@ -1080,8 +1084,21 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
 				// 原版标题：text-small（14）/ bold / 单行截断。
-				ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-					TextColor(t.Ink).SingleLine()
+				// 有标题前胶囊时（原版 feedList 的 titlePrefix）把标题行换成
+				// Row：胶囊在前（bg-red-400 / px-1 py-0.5 / rounded-lg /
+				// text-white / mr-1），标题在后并占满剩余宽度。
+				if spec.Badge != "" {
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+						ui.Text(c, spec.Badge).FontSize(14).FontWeight(700).
+							TextColor(ui.Hex("#ffffff")).Padding(2, 4).Radius(8).
+							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
+						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
+							TextColor(t.Ink).SingleLine().Grow(1).MinWidth(0)
+					})
+				} else {
+					ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
+						TextColor(t.Ink).SingleLine()
+				}
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
 					a.cardMeta(c, spec.Key, spec.Fields)
 				})

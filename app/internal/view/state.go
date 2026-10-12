@@ -15,9 +15,12 @@ import (
 // Card 是列表里的一张卡片要显示的内容。
 type Card struct {
 	// Bvid 用于和正在播放的曲目比对，判断是不是当前这条。
-	Bvid     string
-	Cover    string
-	Title    string
+	Bvid  string
+	Cover string
+	Title string
+	// Badge 是标题前的小胶囊文案（原版 feedList 的 titlePrefix，例如
+	// 「充电专属」的红色胶囊）；空则不画。
+	Badge    string
 	Duration string // 封面右下角角标，空则不画
 	// meta 行按旧版 CardMeta 的字段类型分开存，视图按卡片宽度决定显示哪几列
 	// （作者 40% / 播放量 30% / 发布时间 30%，窄了从末尾隐藏）。
