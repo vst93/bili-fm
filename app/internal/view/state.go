@@ -255,13 +255,27 @@ const (
 //	update     检查更新 / 下载进度
 //	message    通用提示（标题 + 正文）
 type Modal struct {
-	Kind    string
+	Kind string
+	// Type 是对话框类型（原版 DialogConfig.type），决定标题左侧的 28px 图标
+	// 与面板玻璃的强调色：info（默认）/ success / warning / error / question /
+	// loading。空与未知值都按 info。
+	Type    string
 	Title   string
 	Message string
 	// QR 是登录二维码的位图（Kind == "login"）。
 	QR *ui.Bitmap
 	// Link 是正文下方的可点链接（文案 + 地址）；空则不画。
 	LinkLabel, LinkURL string
+	// Buttons 是底部按钮（原版 DialogConfig.buttons）；留空则默认一个主按钮
+	// 「确定」。
+	Buttons []ModalButton
+}
+
+// ModalButton 是对话框底部的一个按钮。Label 是文案，Primary 决定它是不是
+// 蓝色渐变的那个主按钮（原版 DialogButton.primary）。
+type ModalButton struct {
+	Label   string
+	Primary bool
 }
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。

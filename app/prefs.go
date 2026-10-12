@@ -152,10 +152,12 @@ func (c *controller) showAbout() {
 	}
 	c.app.Modal = &view.Modal{
 		Kind:      "message",
+		Type:      "info",
 		Title:     "关于 bili-FM",
 		Message:   fmt.Sprintf("用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v%s", v),
 		LinkLabel: "项目地址：github.com/vst93/bili-fm",
 		LinkURL:   "https://github.com/vst93/bili-fm",
+		Buttons:   []view.ModalButton{{Label: "好的", Primary: true}},
 	}
 	c.app.Win.Update(func() {})
 }
@@ -164,6 +166,7 @@ func (c *controller) showAbout() {
 func (c *controller) showShortcuts() {
 	c.app.Modal = &view.Modal{
 		Kind:  "message",
+		Type:  "info",
 		Title: "快捷键",
 		Message: "播放 / 暂停：空格键\n" +
 			"上一首：←\n" +
@@ -171,6 +174,8 @@ func (c *controller) showShortcuts() {
 			"音量：↑ / ↓\n" +
 			"最小化：Ctrl/Cmd + W\n" +
 			"退出：Ctrl/Cmd + Q",
+		// 原版这一条主按钮文案是「知道了」。
+		Buttons: []view.ModalButton{{Label: "知道了", Primary: true}},
 	}
 	c.app.Win.Update(func() {})
 }
@@ -206,7 +211,7 @@ func (c *controller) login() {
 		url, err := c.bl.GetLoginQRCode()
 		if err != nil {
 			a.Win.Update(func() {
-				a.Modal = &view.Modal{Kind: "message", Title: "登录失败", Message: "取二维码失败：" + err.Error()}
+				a.Modal = &view.Modal{Kind: "message", Type: "error", Title: "登录失败", Message: "取二维码失败：" + err.Error()}
 			})
 			return
 		}
@@ -266,7 +271,7 @@ func (c *controller) login() {
 			if c.loginGen != gen {
 				return
 			}
-			a.Modal = &view.Modal{Kind: "message", Title: "登录超时", Message: "二维码已过期，请重新登录。"}
+			a.Modal = &view.Modal{Kind: "message", Type: "warning", Title: "登录超时", Message: "二维码已过期，请重新登录。"}
 		})
 	}()
 }

@@ -44,13 +44,19 @@ func (a *App) modal(c *ui.Context) {
 				Shadow(0, 2, 8, 0, ui.Hex("#0f172a").Alpha(0.14))
 		default:
 			// 原版 .liquid-dialog：min-width 360、padding 28 32 22、圆角 18、
-			// 1px 白边 .65 + 四层阴影，底色是 145° 白→浅白的渐变。
-			panel.MinWidth(360).Radius(18).
+			// 1px 白边 .65 + 两条 inset（顶部白高光 / 底部内影）+ 两条外投影，
+			// 底色是 backdrop-filter 玻璃，颜色渐变末尾接的是 accentForType(type)。
+			st := dialogTypeStyleFor(m.Type)
+			panel.MinWidth(360).MaxWidth(460).Radius(18).
 				Padding(28, 32, 22).
 				// 原版这里是 backdrop-filter: blur(24px) 的一层玻璃；用框架玻璃后
-				// 不再手搓底色与内影（Material 之后调 Background 是空操作，会被
-				// 静默忽略；LinearGradient 更会把 Material 整个顶掉）。
-				Material(glassLayer(glass.Glass{})).
+				// 不再手搓底色（Material 之后调 Background 是空操作，会被静默忽略；
+				// LinearGradient 更会把 Material 整个顶掉），类型强调色改从
+				// Glass.Tint 透出来。
+				Material(glassLayer(glass.Glass{Tint: st.Tint})).
+				Border(1, ui.Hex("#ffffff").Alpha(0.65)).
+				InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.85)).
+				InsetShadow(0, -1, 3, 0, ui.Hex("#0f172a").Alpha(0.05)).
 				Shadow(0, 24, 64, 0, ui.Hex("#0f172a").Alpha(0.22)).
 				Shadow(0, 4, 16, 0, ui.Hex("#0f172a").Alpha(0.06))
 		}
@@ -68,6 +74,8 @@ func (a *App) modal(c *ui.Context) {
 				a.modalLogin(c, m, t)
 			default:
 				a.modalMessage(c, m, t)
+				// ::after 光泽层是伪元素，天然画在内容之上。
+				dialogSheen(c)
 			}
 		})
 
@@ -131,58 +139,189 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	})
 }
 
-// modalMessage 是通用提示（关于 / 快捷键）。
+// modalMessage 是通用提示（关于 / 快捷键 / 消息）。
 func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
-	// .dialog-title：16px / 600 / #1e293b，下间距 8。
-	ui.Text(c, m.Title).FontSize(16).FontWeight(600).
-		TextColor(ui.Hex("#1e293b")).Margin(0, 0, 8, 0)
-	if m.Message != "" {
-		// .dialog-message：13.5px / #475569；多行文本按行拆开逐行画
-		//（原生 Text 不处理 \n）。
-		ui.Column(c).Margin(0, 0, 20, 0).Children(func() {
-			for _, line := range splitLines(m.Message) {
-				ui.Text(c, line).FontSize(13.5).TextColor(ui.Hex("#475569"))
+	st := dialogTypeStyleFor(m.Type)
+	// 原版 DialogProvider 的内容块：`flex items-start gap-4 mb-5` —— 左侧 28px
+	// 类型图标（mt-0.5），右侧标题 + 正文。图标不是装饰：原版每种对话框（关于 /
+	// 快捷键 / 更新成功 / 更新失败 / 发现新版本 / 检查更新中）都带它。
+	ui.Row(c).Gap(16).AlignItems(ui.Start).Margin(0, 0, 20, 0).Children(func() {
+		if st.Spinner {
+			ui.Spinner(c).Size(28, 28).Shrink(0).TextColor(st.Ink).
+				Margin(2, 0, 0, 0)
+		} else {
+			ui.Icon(c, st.Icon).Size(28, 28).Shrink(0).TextColor(st.Ink).
+				Margin(2, 0, 0, 0)
+		}
+		ui.Column(c).Children(func() {
+			// .dialog-title：16px / 600 / #1e293b，下间距 8。
+			ui.Text(c, m.Title).FontSize(16).FontWeight(600).
+				TextColor(ui.Hex("#1e293b")).Margin(0, 0, 8, 0)
+			if m.Message != "" {
+				// .dialog-message：13.5px / #475569；多行文本按行拆开逐行画
+				//（原生 Text 不处理 \n）。
+				ui.Column(c).Children(func() {
+					for _, line := range splitLines(m.Message) {
+						ui.Text(c, line).FontSize(13.5).TextColor(ui.Hex("#475569"))
+					}
+				})
 			}
-		})
-	}
-	if m.LinkURL != "" {
-		ui.Row(c).FillWidth().Margin(0, 0, 20, 0).Children(func() {
-			ui.Link(c, m.LinkLabel, m.LinkURL)
-		})
-	}
-	ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
-		a.modalButton(c, "好的", true, func() {
-			if a.Act.CloseModal != nil {
-				a.Act.CloseModal()
+			if m.LinkURL != "" {
+				ui.Row(c).Margin(8, 0, 0, 0).Children(func() {
+					ui.Link(c, m.LinkLabel, m.LinkURL)
+				})
 			}
 		})
 	})
+
+	// 底部按钮：原版默认是单个主按钮「确定」，调用点可以换成自己的文案 / 编号。
+	btns := m.Buttons
+	if len(btns) == 0 {
+		btns = []ModalButton{{Label: "确定", Primary: true}}
+	}
+	ui.Row(c).FillWidth().Justify(ui.End).Gap(8).Children(func() {
+		for _, btn := range btns {
+			b := btn
+			a.modalButton(c, b, func() {
+				if a.Act.CloseModal != nil {
+					a.Act.CloseModal()
+				}
+			})
+		}
+	})
 }
 
-// modalButton 是模态框里的按钮（原版 .liquid-dialog-btn）。
-// 主按钮是 135° 蓝色渐变 + 白字；普通按钮是半透明白底 + 1px 白边。
-func (a *App) modalButton(c *ui.Context, label string, primary bool, fn func()) {
-	t := a.Theme
-	// padding 8 22、圆角 10、13px / 500。
-	b := ui.ButtonBase(c.Key("modal-"+label)).Height(34).Padding(0, 22).
+// modalButton 是模态框里的按钮（原版 .liquid-dialog-btn / -primary）。
+// padding 8 22、圆角 10、13px / 500，悬停上浮 1px、按下缩到 .94（pressPose）。
+func (a *App) modalButton(c *ui.Context, btn ModalButton, fn func()) {
+	label := btn.Label
+	b := ui.ButtonBase(c.Key("modal-" + label)).Height(34).Padding(0, 22).
 		Radius(10).Center().Label(label)
-	// 材质走框架玻璃：主按钮用较实的蓝色 Tint 表达"强调"，普通按钮是素玻璃。
-	// （原版主按钮是 135° 蓝渐变 —— 那是手搓玻璃的做法，换成 Tint 更贴框架材质。）
-	if primary {
-		// Tint 要给足：玻璃本身会把颜色稀释，0.5 时白字对比度不够。
-		b.Material(glassLayer(glass.Glass{Tint: pick(b.Hovered(), t.Blue.Alpha(0.85), t.Blue.Alpha(0.75))})).
-			Shadow(0, 4, 12, 0, ui.Hex("#0ea5e9").Alpha(0.22))
+	hovered := b.Hovered()
+	if btn.Primary {
+		// 原版主按钮是纯 135° 蓝渐变（没有任何 backdrop-filter）——用渐变填充
+		// 既贴合原版，也少一层 backdrop（这里不需要玻璃）。
+		from, to := dialogPrimaryStops(hovered)
+		shY, shBlur, shInk := float32(4), float32(12), float32(0.22)
+		if hovered {
+			shY, shBlur, shInk = 6, 18, 0.30
+		}
+		b.LinearGradient(ui.LinearGradient{From: from, To: to, Angle: 135}).
+			Border(1, ui.Hex("#0ea5e9").Alpha(0.40)).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.40)).
+			Shadow(0, shY, shBlur, 0, ui.Hex("#0ea5e9").Alpha(shInk))
 	} else {
-		buttonSurface(b, false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+		st := dialogSecondaryStyleFor(hovered)
+		b.Background(st.Fill).Border(1, st.Border).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55))
+		if st.Shadow.A > 0 {
+			b.Shadow(0, 4, 12, 0, st.Shadow)
+		}
 	}
 	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).
-			TextColor(pick(primary, ui.Hex("#ffffff"), ui.Hex("#475569")))
+			TextColor(pick(btn.Primary, ui.Hex("#ffffff"), dialogSecondaryStyleFor(hovered).Ink))
 	})
 	if b.Clicked() {
 		fn()
+	}
+}
+
+// dialogSheen 画 .liquid-dialog::after 那层 135° 光泽：
+//
+//	linear-gradient(135deg, rgba(255,255,255,.35) 0%, transparent 35%,
+//	                 transparent 65%, rgba(255,255,255,.1) 100%)
+//
+// 原版是 `position:absolute; inset:0; pointer-events:none` 的伪元素，盖在内容
+// 之上（圆角由父级的 overflow:hidden 裁）。这里同样 Absolute 到父级内边距盒、
+// 用 Radius + Clip 裁圆角，整棵子树 PassThrough —— 它盖在正文与按钮上方，
+// 只要参与命中测试，面板里点任何东西都会落到它身上。
+func dialogSheen(c *ui.Context) {
+	ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
+		Radius(18).Clip().PassThrough().Children(func() {
+		for _, b := range gradBands(dialogSheenStops, 4) {
+			ui.Box(c).FillWidth().Grow(1).PassThrough().
+				LinearGradient(ui.LinearGradient{From: b[0], To: b[1], Angle: 135})
+		}
+	})
+}
+
+// dialogTypeStyle 是对话框类型的视觉参数（原版 DialogProvider 的 iconForType /
+// accentForType）：左侧 28px 图标的字形与颜色，以及面板玻璃的强调色。
+type dialogTypeStyle struct {
+	// Icon 是图标字形（Spinner 为真时不用）。
+	Icon *ui.SVG
+	// Ink 是图标颜色。
+	Ink ui.Color
+	// Tint 是面板玻璃的强调色（原版 145° 渐变末尾那个 stop）。
+	Tint ui.Color
+	// Spinner 为真时画加载转圈，而不是静态图标（原版 type: "loading"）。
+	Spinner bool
+}
+
+// dialogTypeStyleFor 按原版 iconForType / accentForType 取类型样式。
+// 空值与未知值都按 info（原版 default 分支）。
+func dialogTypeStyleFor(typ string) dialogTypeStyle {
+	switch typ {
+	case "success":
+		return dialogTypeStyle{Icon: iconCheck, Ink: ui.Hex("#22c55e"),
+			Tint: ui.Hex("#22c55e").Alpha(0.10)}
+	case "error":
+		return dialogTypeStyle{Icon: iconClose, Ink: ui.Hex("#ef4444"),
+			Tint: ui.Hex("#ef4444").Alpha(0.10)}
+	case "warning":
+		return dialogTypeStyle{Icon: iconWarn, Ink: ui.Hex("#f59e0b"),
+			Tint: ui.Hex("#f59e0b").Alpha(0.10)}
+	case "question":
+		return dialogTypeStyle{Icon: iconRefresh, Ink: ui.Hex("#0ea5e9"),
+			Tint: ui.Hex("#0ea5e9").Alpha(0.10)}
+	case "loading":
+		return dialogTypeStyle{Spinner: true, Ink: ui.Hex("#0ea5e9"),
+			Tint: ui.Hex("#0ea5e9").Alpha(0.06)}
+	default: // info
+		return dialogTypeStyle{Icon: iconInfo, Ink: ui.Hex("#0ea5e9"),
+			Tint: ui.Hex("#0ea5e9").Alpha(0.06)}
+	}
+}
+
+// dialogSheenStops 是 .liquid-dialog::after 的四个停靠点。
+var dialogSheenStops = []gradStop{
+	{0, ui.Hex("#ffffff").Alpha(0.35)},
+	{0.35, ui.Hex("#ffffff").Alpha(0)},
+	{0.65, ui.Hex("#ffffff").Alpha(0)},
+	{1, ui.Hex("#ffffff").Alpha(0.10)},
+}
+
+// dialogPrimaryStops 是 .liquid-dialog-btn-primary 的 135° 蓝渐变两态。
+func dialogPrimaryStops(hovered bool) (ui.Color, ui.Color) {
+	if hovered {
+		return ui.Hex("#0ea5e9").Alpha(0.95), ui.Hex("#38bdf8").Alpha(0.90)
+	}
+	return ui.Hex("#0ea5e9").Alpha(0.88), ui.Hex("#38bdf8").Alpha(0.82)
+}
+
+// dialogSecondaryStyle 是 .liquid-dialog-btn（非主按钮）的两态填充。
+type dialogSecondaryStyle struct {
+	Fill, Border, Ink ui.Color
+	// Shadow 是悬停时那点外投影（原版 .liquid-dialog-btn:hover 的
+	// `0 4px 12px rgba(15,23,42,.08)`）；常态无投影（A == 0）。
+	Shadow ui.Color
+}
+
+func dialogSecondaryStyleFor(hovered bool) dialogSecondaryStyle {
+	if hovered {
+		return dialogSecondaryStyle{
+			Fill:   ui.Hex("#ffffff").Alpha(0.65),
+			Border: ui.Hex("#ffffff").Alpha(0.85),
+			Ink:    ui.Hex("#1e293b"),
+			Shadow: ui.Hex("#0f172a").Alpha(0.08),
+		}
+	}
+	return dialogSecondaryStyle{
+		Fill:   ui.Hex("#ffffff").Alpha(0.45),
+		Border: ui.Hex("#ffffff").Alpha(0.50),
+		Ink:    ui.Hex("#475569"),
 	}
 }
 
