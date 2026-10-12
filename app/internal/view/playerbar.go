@@ -22,6 +22,8 @@ import (
 // 音量 / 倍速 / 均衡 / 跳过赞助。原版没有封面和标题 —— 那些在主区。
 func (a *App) playerBar(c *ui.Context) {
 	t := a.Theme
+	// 后四列里音量 / 倍速两列的句柄：弹层要挂在它们上面（见 playerBar 末尾）。
+	var volumeSlot, speedSlot ui.Element
 	// 栏顶的滚动边缘效果（原版 #player::before 那条 10px 渐变就是在手搓这个）：
 	// 内容滚到栏下时淡出/结霜，栏体上沿才不会是一条硬切线。
 	// 框架的 ScrollEdge 就是 macOS 26+ 的这个效果；软边缘淡出、硬边缘结霜。
@@ -57,19 +59,22 @@ func (a *App) playerBar(c *ui.Context) {
 				a.progress(c)
 				a.timeText(c, a.Dur)
 				// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
-				playerSlot(c, 34, func() { a.volumeButton(c) })
-				playerSlot(c, 40, func() { a.speedButton(c) })
+				// 音量 / 倍速这两列记下句柄：弹层挂在这两列上（原版
+				// .player-volume / .player-speed 就是弹层的定位上下文）。
+				volumeSlot = playerSlot(c, 34, func() { a.volumeButton(c) })
+				speedSlot = playerSlot(c, 40, func() { a.speedButton(c) })
 				playerSlot(c, 34, func() { a.eqButton(c) })
 				playerSlot(c, 40, func() { a.sponsorButton(c) })
 			})
 		})
 
-	// 倍速 / 音量弹层：从播放栏上方向上弹。
+	// 倍速 / 音量弹层：从播放栏上方向上弹，锚点是各自的列容器（见
+	// popoverEdgeGap 与 speedPopover / volumePopover 的注释）。
 	if a.ShowSpeed {
-		a.speedPopover(c)
+		a.speedPopover(c, speedSlot)
 	}
 	if a.ShowVolume {
-		a.volumePopover(c)
+		a.volumePopover(c, volumeSlot)
 	}
 }
 
@@ -331,8 +336,9 @@ func (a *App) timelinePaint(s ui.Element, frac float32, held bool) rangePaint {
 // playerSlot 是播放栏的定宽列——原版 #player .player-controls 是
 // grid-template-columns: 80px 56px 1fr 56px 34px 40px 34px 40px，
 // 列宽由列容器决定，**里面按钮一律 32×32**（.player-button）。
-func playerSlot(c *ui.Context, width float32, build func()) {
-	ui.Box(c).Width(width).Height(32).Shrink(0).Children(build)
+// 返回列容器本身：音量 / 倍速弹层要挂在它上面当锚点。
+func playerSlot(c *ui.Context, width float32, build func()) ui.Element {
+	return ui.Box(c).Width(width).Height(32).Shrink(0).Children(build)
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
@@ -496,153 +502,156 @@ func (a *App) hasSource() bool { return a.Current() != nil }
 
 // ---------------------------------------------------------------- 弹层
 
-// popoverScrim 在弹层之下铺一层全窗点击捕获：点到弹层以外的任何地方就关掉它
-// （原版 player.tsx 是 document mousedown 监听，落在弹层外就 setIsXOpen(false)）。
-//
-// 它必须排在弹层**之前**绘制，弹层才盖在它上面、点得到；又因为它是弹层的
-// **兄弟节点**而不是祖先，点弹层内部的滑块/面板空白时命中链里根本没有它，
-// 不会误关（这正是「点滑块弹层不关」的保证）。
-func (a *App) popoverScrim(c *ui.Context, close func()) {
-	b := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0)
-	if b.Clicked() {
-		close()
-	}
-}
+// 弹层右边与锚点列左侧的间距（原版 .player-volume-popover /
+// .player-speed-popover 都是 `right: calc(100% + 10px)`，挂在音量 / 倍速
+// 的**列容器**上；mini 下是 8px）。
+const (
+	speedPopoverEdgeGap      = 10
+	volumePopoverEdgeGap     = 10
+	miniVolumePopoverEdgeGap = 8
+)
 
-// speedPopover 是倍速弹层（原版 .player-speed-popover）：从倍速按钮
+// speedPopover 是倍速弹层（原版 .player-speed-popover）：从倍速列
 // **左侧横向弹出**的一排档位胶囊（min-width 36、11px/650、圆角 8，
 // 白玻璃 0.82 + 14 圆角 + 蓝底 16% 的激活态）。
-func (a *App) speedPopover(c *ui.Context) {
+//
+// 位置用 AttachTo 表达「挂在锚点列左侧、与栏垂直居中」（原版 top 50% +
+// translateY(-50%)、right calc(100% + 10px)），不再写死窗口坐标。
+// 「点弹层外关闭」交给框架的 PressedOutside：它只读这一帧的按下记录
+// （原版也是 document 的 pointerdown 判定），不像之前那块全窗捕获层那样
+// 参与命中测试 —— 弹层开着时整窗的悬停照常（捕获层会把 hover 全吃掉）。
+// 按下锚点（倍速列）不算外部，所以「先开音量再点倍速」不会被当成点外部
+// 而关掉刚开的倍速弹层。
+func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 	t := a.Theme
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
-		a.popoverScrim(c, func() { a.ShowSpeed = false })
-		// 原版 .player-speed-popover：速度列（右起 108..148）左侧 10px → 右边 158；
-		// 高 32（4 padding + 24 选项）居中于 56 的栏 → 距底 12。
-		// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
-		// 与音量弹层的薄玻璃不同（倍速弹层要压住下面的内容）。
-		ui.Row(c).Absolute().Right(158).Bottom(12).Padding(4).Gap(2).
-			Radius(14).
-			// 原版是近乎实白（rf.82）+ blur(10)；换成框架玻璃，抬一级投影
-			// 让它从播放栏上"浮起来"。
-			Material(glassLayer(glass.Glass{})).
-			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).
-			AlignItems(ui.Center).
-			Children(func() {
-				for _, opt := range speedOptions {
-					active := abs(opt-a.Speed) < 0.001
-					opt := opt
-					b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
-						MinWidth(36).Height(24).Padding(0, 8).Radius(8).
-						Center().Label(speedLabel(opt))
-					switch {
-					case active:
-						b.Background(t.Blue.Alpha(0.16))
-					case b.Hovered():
-						b.Background(t.Blue.Alpha(0.10))
-					}
-					b.Children(func() {
-						ui.Text(c, speedLabel(opt)).FontSize(11).FontWeight(650).
-							TextColor(pick(active, t.Blue, ui.Hex("#475569")))
-					})
-					if b.Clicked() {
-						a.Speed = opt
-						a.ShowSpeed = false
-						if a.Act.SetSpeed != nil {
-							a.Act.SetSpeed(opt)
-						}
-					}
-				}
+	// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
+	// 与音量弹层的薄玻璃不同（倍速弹层要压住下面的内容）。
+	// 原版是近乎实白（rf.82）+ blur(10)；换成框架玻璃，抬一级投影
+	// 让它从播放栏上"浮起来"。
+	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
+		Margin(0, speedPopoverEdgeGap, 0, 0).
+		Padding(4).Gap(2).Radius(14).
+		Material(glassLayer(glass.Glass{})).
+		Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.12)).
+		AlignItems(ui.Center)
+	if panel.PressedOutside() {
+		a.ShowSpeed = false
+	}
+	panel.Children(func() {
+		for _, opt := range speedOptions {
+			active := abs(opt-a.Speed) < 0.001
+			opt := opt
+			b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
+				MinWidth(36).Height(24).Padding(0, 8).Radius(8).
+				Center().Label(speedLabel(opt))
+			switch {
+			case active:
+				b.Background(t.Blue.Alpha(0.16))
+			case b.Hovered():
+				b.Background(t.Blue.Alpha(0.10))
+			}
+			b.Children(func() {
+				ui.Text(c, speedLabel(opt)).FontSize(11).FontWeight(650).
+					TextColor(pick(active, t.Blue, ui.Hex("#475569")))
 			})
+			if b.Clicked() {
+				a.Speed = opt
+				a.ShowSpeed = false
+				if a.Act.SetSpeed != nil {
+					a.Act.SetSpeed(opt)
+				}
+			}
+		}
 	})
 }
 
 // volumePopover 是音量滑块，从播放栏第 5 列上方弹出。
-func (a *App) volumePopover(c *ui.Context) {
+func (a *App) volumePopover(c *ui.Context, anchor ui.Element) {
 	// 原版 .player-volume-popover 挂在音量按钮的列容器上（right: calc(100%+10px)、
-	// top: 50% + translateY(-50%)）：弹层在按钮**左侧 10px**、并与播放栏垂直居中。
-	// 主窗右侧列宽 18(pad)+40+8+34+8+40+8+34 = 190 → 弹层右边 = 200；
-	// 高 42 居中于 56 的栏 → 距底 (56-42)/2 = 7。
-	a.volumePopoverAt(c, volumePopoverRight, volumePopoverBottom,
+	// top: 50% + translateY(-50%)）：弹层在列**左侧 10px**、并与播放栏垂直居中。
+	a.volumePopoverAt(c, anchor, volumePopoverEdgeGap,
 		volumePopoverW, volumePopoverH, volumePopoverRadius)
 }
 
-// 音量弹层的几何（原版 .player-volume-popover）：184×42 / 圆角 14，挂在音量列
-// 左侧 10px 并与播放栏垂直居中；内部 padding 0 10 0 8、gap 8、静音键 26×26。
-// 抽成常量：视图与测试按同一份几何取样，改一处就够。
+// 音量弹层的几何（原版 .player-volume-popover）：184×42 / 圆角 14，内部
+// padding 0 10 0 8、gap 8、静音键 26×26；挂在音量列左侧（间距见
+// volumePopoverEdgeGap）并与播放栏垂直居中。抽成常量：视图与测试按同一份
+// 几何取样，改一处就够。
 const (
 	volumePopoverW      = 184
 	volumePopoverH      = 42
 	volumePopoverRadius = 14
-	volumePopoverRight  = 200 // 主窗：弹层右边距
-	volumePopoverBottom = 7   // 主窗：弹层底边距
 	volumePopoverPadL   = 8
 	volumePopoverPadR   = 10
 	volumePopoverGap    = 8
 	volumeMuteSize      = 26
 )
 
-// volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量按钮
-// **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。
-func (a *App) volumePopoverAt(c *ui.Context, right, bottom, w, h, radius float32) {
+// volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量列
+// **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。位置与关闭方式同
+// speedPopover：AttachTo 挂列 + PressedOutside 点外部关。
+func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, radius float32) {
 	t := a.Theme
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Top(0).PassThrough().Children(func() {
-		a.popoverScrim(c, func() { a.ShowVolume = false })
-		// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
-		// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
-		ui.Row(c).Absolute().Right(right).Bottom(bottom).Width(w).Height(h).
-			Padding(0, volumePopoverPadR, 0, volumePopoverPadL).Radius(radius).
-			Material(glassLayer(glass.Glass{})).
-			Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(volumePopoverGap).
-			AlignItems(ui.Center).Children(func() {
-			// 静音键：独立的切换（原版 player-volume-mute-button）。
-			mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
-				Radius(RadiusSmall).
-				Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
-			if a.Muted {
-				mute.Background(t.Rose.Alpha(0.18))
-			} else if mute.Hovered() {
-				mute.Background(t.GlassHover)
-			} else {
-				mute.Background(ui.Transparent)
-			}
-			mute.Children(func() {
-				ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
-					TextColor(pick(a.Muted, t.Rose, t.Muted))
-			})
-			if mute.Clicked() && a.Act.ToggleMute != nil {
-				a.Act.ToggleMute()
-			}
-
-			v := a.Volume
-			// 音量条就是原版 input.player-volume-slider：轨道/滑块的 CSS 与
-			// 进度条逐字相同（同一组 thumb 规则 + 同样的 6px 渐变轨道），
-			// 所以这里也用 SliderBase + rangeslider.go 的同一份画法。
-			// 之前用的是框架默认滑杆（细轨道 + 实心旋钮），与原版完全不同。
-			sl := ui.SliderBase(c, &v, 0, 1).Grow(1).Height(timelineH).
-				PaddingX(timelineInset).Label("音量")
-			_, _, held := sl.Dragged()
-			sl.Draw(func(p *ui.Painter, r ui.Rect) {
-				paintRangeBar(p, r, rangePaint{
-					Frac:    float32(v),
-					Hovered: sl.Hovered(),
-					Held:    held,
-					Colors:  rangeColorsFor(a.Theme),
-					Geom:    volumeGeom,
-				})
-			})
-			if sl.Changed() {
-				a.Volume = v
-				// 拖动中只应用到音频，**不落盘**（原版注释：仅在拖动提交时写。
-				// 跟着每次 input 写的话，拖一次要写几十次盘）。
-				if a.Act.SetVolume != nil {
-					a.Act.SetVolume(v)
-				}
-			}
-			if a.wasVolHeld && !held && a.Act.PersistVolume != nil {
-				a.Act.PersistVolume(a.Volume)
-			}
-			a.wasVolHeld = held
+	// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
+	// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
+	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
+		Margin(0, edgeGap, 0, 0).Width(w).Height(h).
+		Padding(0, volumePopoverPadR, 0, volumePopoverPadL).Radius(radius).
+		Material(glassLayer(glass.Glass{})).
+		Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).Gap(volumePopoverGap).
+		AlignItems(ui.Center)
+	if panel.PressedOutside() {
+		a.ShowVolume = false
+	}
+	panel.Children(func() {
+		// 静音键：独立的切换（原版 player-volume-mute-button）。
+		mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
+			Radius(RadiusSmall).
+			Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
+		if a.Muted {
+			mute.Background(t.Rose.Alpha(0.18))
+		} else if mute.Hovered() {
+			mute.Background(t.GlassHover)
+		} else {
+			mute.Background(ui.Transparent)
+		}
+		mute.Children(func() {
+			ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
+				TextColor(pick(a.Muted, t.Rose, t.Muted))
 		})
+		if mute.Clicked() && a.Act.ToggleMute != nil {
+			a.Act.ToggleMute()
+		}
+
+		v := a.Volume
+		// 音量条就是原版 input.player-volume-slider：轨道/滑块的 CSS 与
+		// 进度条逐字相同（同一组 thumb 规则 + 同样的 6px 渐变轨道），
+		// 所以这里也用 SliderBase + rangeslider.go 的同一份画法。
+		// 之前用的是框架默认滑杆（细轨道 + 实心旋钮），与原版完全不同。
+		sl := ui.SliderBase(c, &v, 0, 1).Grow(1).Height(timelineH).
+			PaddingX(timelineInset).Label("音量")
+		_, _, held := sl.Dragged()
+		sl.Draw(func(p *ui.Painter, r ui.Rect) {
+			paintRangeBar(p, r, rangePaint{
+				Frac:    float32(v),
+				Hovered: sl.Hovered(),
+				Held:    held,
+				Colors:  rangeColorsFor(a.Theme),
+				Geom:    volumeGeom,
+			})
+		})
+		if sl.Changed() {
+			a.Volume = v
+			// 拖动中只应用到音频，**不落盘**（原版注释：仅在拖动提交时写。
+			// 跟着每次 input 写的话，拖一次要写几十次盘）。
+			if a.Act.SetVolume != nil {
+				a.Act.SetVolume(v)
+			}
+		}
+		if a.wasVolHeld && !held && a.Act.PersistVolume != nil {
+			a.Act.PersistVolume(a.Volume)
+		}
+		a.wasVolHeld = held
 	})
 }
 

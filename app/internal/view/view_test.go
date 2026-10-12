@@ -577,6 +577,36 @@ func TestPopoverClosesOnOutsideClick(t *testing.T) {
 	}
 }
 
+// TestPopoverKeepsHoverAlive 钉住「弹层开着时整窗的悬停仍然有效」。
+//
+// 之前的「点弹层外关闭」是靠一块盖满窗口的捕获层（popoverScrim）实现的 ——
+// 它是普通元素、参与命中测试，弹层开着时指针下最顶的就是它，于是标题栏、
+// 卡片、进度条…整窗的悬停全部失灵（只有弹层自己不在此列）。原版只用 document
+// 的 pointerdown 判定，hover 不受影响。现在改用框架的 PressedOutside
+// （只读这一帧的按下记录、不参与命中测试），悬停恢复。
+//
+// 判据：音量弹层开着时，悬停进度条仍要浮出与关闭时同一道蓝环（采样点与
+// TestPlayerBarTimelineHoverRing 相同）。
+func TestPopoverKeepsHoverAlive(t *testing.T) {
+	_, tst := playerBarProbe(t, func(a *App) { a.ShowVolume = true })
+	r, ok := tst.Find("播放进度")
+	if !ok {
+		t.Fatal("播放栏里找不到进度条")
+	}
+	tr := rangeTrackRect(r, timelineGeom)
+	// 轨道上沿外侧 2px：静息是播放栏玻璃，悬停时落在 2px 蓝环里。
+	x, y := int(tr.X+tr.W*0.25), int(tr.Y-2)
+	rest := rgbAt(tst.Image(), x, y)
+	tst.Move(r.X+r.W*0.25, r.Y+r.H/2)
+	tst.Frame()
+	hover := rgbAt(tst.Image(), x, y)
+	restBR, hoverBR := rest[2]-rest[0], hover[2]-hover[0]
+	t.Logf("弹层开着：轨道上方 静息=%v(B-R=%d) 悬停=%v(B-R=%d)", rest, restBR, hover, hoverBR)
+	if hoverBR-restBR < 8 {
+		t.Errorf("弹层开着时进度条的悬停被吃掉了：B-R %d → %d", restBR, hoverBR)
+	}
+}
+
 // TestUserButtonLabels 钉住搜索药丸最右端头像键的文案（原版 searchForm）：
 // 未登录是「登录账号」/「点击登录账号」，已登录是「切换登录账号」/
 // 「点击登录其他账号」。之前原生版写的是「扫码登录」/「已登录 <名字>」。

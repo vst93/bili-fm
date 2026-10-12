@@ -100,13 +100,13 @@ func (a *App) MiniShell(c *ui.Context) {
 		})
 
 		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
-		a.miniPlayerBar(c)
+		volAnchor := a.miniPlayerBar(c)
 
 		// 音量弹层（迷你窗里也要能弹出来，否则音量键点了没反应）。
 		if a.ShowVolume {
-			// 原版 mini：158×38、圆角 12，音量列（右起 10+34）左侧 8px → 右边 52；
-			// 高 38 居中于 43 的 mini 栏 → 距底 (43-38)/2 ≈ 2。
-			a.volumePopoverAt(c, 52, 2, 158, 38, 12)
+			// 原版 mini：158×38、圆角 12，挂在音量列左侧 8px、与栏垂直居中
+			//（body.mini-mode #player .player-volume-popover）。
+			a.volumePopoverAt(c, volAnchor, miniVolumePopoverEdgeGap, 158, 38, 12)
 		}
 		a.toastViewport(c)
 	})
@@ -114,8 +114,10 @@ func (a *App) MiniShell(c *ui.Context) {
 
 // miniPlayerBar 是迷你模式的播放栏（原版 body.mini-mode #player）：
 // 高 43、内边距 0 10，列宽 59 / 44 / 1fr / 44 / 34，间距 4。
-func (a *App) miniPlayerBar(c *ui.Context) {
+// 返回音量列的句柄：音量弹层挂在它上面当锚点。
+func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
+	var volSlot ui.Element
 	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
 		// 与主窗同一层框架玻璃 + 同一道向上投影。
 		Material(glassLayer(glass.Glass{})).
@@ -173,7 +175,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				a.timeTextAt(c, a.Dur, 9, 44)
 
 				// 列宽 34（原版 mini grid 最后一列），按钮本体 28×28 正圆。
-				ui.Box(c).Width(34).Shrink(0).Children(func() {
+				volSlot = ui.Box(c).Width(34).Shrink(0).Children(func() {
 					vol := ui.ButtonBase(c.Key("mini-volume")).Size(28, 28).Radius(RadiusPill).Center().
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
@@ -187,6 +189,7 @@ func (a *App) miniPlayerBar(c *ui.Context) {
 				})
 			})
 		})
+	return volSlot
 }
 
 // miniPlayStyle 返回迷你窗播放键的（填充, 描边, 图标色）。取自原版

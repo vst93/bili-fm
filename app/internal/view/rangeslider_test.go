@@ -32,14 +32,21 @@ func playerBarProbe(t *testing.T, mutate func(a *App)) (*App, *ui.Tester) {
 	return a, tst
 }
 
+// volumePopoverRect 按视图的挂法（AttachTo(音量列, AnchorLeft, AnchorRight)
+// + 右边距 volumePopoverEdgeGap、垂直居中）算出音量弹层矩形：弹层右边 =
+// 列左 - edgeGap、中缝对齐列中心。传音量列的矩形（无头测试里用音量键的矩形，
+// 它贴在列左侧，两者左边与中线一致）。
+func volumePopoverRect(anchor ui.Rect, w, h, edgeGap float32) ui.Rect {
+	return ui.Rect{X: anchor.X - edgeGap - w, Y: anchor.Y + anchor.H/2 - h/2, W: w, H: h}
+}
+
 // volumeTrackRect 按视图用的同一份几何算出音量弹层里的轨道矩形 ——
 // 弹层几何与内边距都是 view 里的常量，测试按同一份推导取样，改一处就够。
-func volumeTrackRect(winW, winH int) ui.Rect {
-	x0 := float32(winW) - volumePopoverRight - volumePopoverW
-	y0 := float32(winH) - volumePopoverBottom - volumePopoverH
-	sliderX := x0 + volumePopoverPadL + volumeMuteSize + volumePopoverGap
+func volumeTrackRect(anchor ui.Rect) ui.Rect {
+	panel := volumePopoverRect(anchor, volumePopoverW, volumePopoverH, volumePopoverEdgeGap)
+	sliderX := panel.X + volumePopoverPadL + volumeMuteSize + volumePopoverGap
 	sliderW := float32(volumePopoverW - volumePopoverPadL - volumePopoverPadR - volumeMuteSize - volumePopoverGap)
-	return rangeTrackRect(ui.Rect{X: sliderX, Y: y0, W: sliderW, H: volumePopoverH}, volumeGeom)
+	return rangeTrackRect(ui.Rect{X: sliderX, Y: panel.Y, W: sliderW, H: volumePopoverH}, volumeGeom)
 }
 
 // TestRangeColorsForTheme 钉住轨道那两个令牌随时段的取值（原版
@@ -160,7 +167,12 @@ func TestRangeTrackUsesThemeColors(t *testing.T) {
 func TestPlayerBarVolumeSliderPaint(t *testing.T) {
 	_, tst := playerBarProbe(t, func(a *App) { a.ShowVolume = true })
 	img := tst.Image()
-	tr := volumeTrackRect(1000, 700)
+	// 音量键贴在音量列左侧（两者左边/中线一致），拿它当弹层的锚点算几何。
+	anchor, ok := tst.Find("音量")
+	if !ok {
+		t.Fatal("播放栏里找不到音量键")
+	}
+	tr := volumeTrackRect(anchor)
 	cy := int(tr.Y + tr.H/2)
 
 	// 取值区间两端各内缩 7px（滑块半径），所以 frac 沿 tr.W 分布。

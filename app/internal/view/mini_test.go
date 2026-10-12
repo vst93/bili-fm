@@ -133,3 +133,39 @@ func TestMiniPinButtonState(t *testing.T) {
 		t.Errorf("置顶键底色偏蓝：(%d,...,%d) B-R=%d，应为中性的 --glass-bg-hover", r, b, b-r)
 	}
 }
+
+// TestMiniVolumePopoverGeometry 钉住迷你窗音量弹层的挂法与几何（原版
+// body.mini-mode #player .player-volume-popover：158×38、圆角 12，
+// right calc(100% + 8px)、top 50% + translateY(-50%)）：右边贴着音量列
+// 左侧 8px、与 43 高的 mini 栏垂直居中。
+//
+// 改成 AttachTo(音量列) 之后这份几何跟着锚点列走，不再是写死的窗口坐标
+// （旧实现是 right 52 / bottom 2），所以断言从「音量键」的位置推出来。
+func TestMiniVolumePopoverGeometry(t *testing.T) {
+	a := NewApp(func() {})
+	a.Mini = true
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+	a.ShowVolume = true
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, miniWidth, miniHeight)
+	tst.Frame()
+
+	vol, ok := tst.Find("音量") // 音量键贴在音量列左侧，可当锚点
+	if !ok {
+		t.Fatal("迷你窗里找不到音量键")
+	}
+	mute, ok := tst.Find("静音")
+	if !ok {
+		t.Fatal("音量弹层没打开（找不到静音键）")
+	}
+	// 弹层右边 = 音量列左边 - 8；静音键在弹层内再内缩 padding-left 8。
+	if want := vol.X - miniVolumePopoverEdgeGap - 158 + volumePopoverPadL; mute.X != want {
+		t.Errorf("静音键 X = %v，应为 %v（弹层右边贴音量列左侧 %v）",
+			mute.X, want, miniVolumePopoverEdgeGap)
+	}
+	// 垂直居中于锚点列。mini 窗只有 155 高，框架的 4px 窗口边距会把弹层
+	// 略微上推（构造上 over(p) > 0），所以留 4px 容差。
+	if d := mute.Y + mute.H/2 - (vol.Y + vol.H/2); d > 4 || d < -4 {
+		t.Errorf("静音键中心比音量列中心偏 %v，应基本居中", d)
+	}
+}
