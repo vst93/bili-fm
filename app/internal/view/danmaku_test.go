@@ -88,3 +88,54 @@ func TestFmtClock(t *testing.T) {
 		}
 	}
 }
+
+// TestDanmakuGroupsCache 钉住弹幕分组只在数据变了才重算：滚动时视图每帧
+// 重建，每帧重跑 groupDanmaku（建 map + 排序）就是卡顿来源。
+func TestDanmakuGroupsCache(t *testing.T) {
+	a := &App{Danmaku: []Danmaku{
+		{Time: 1, Text: "a"},
+		{Time: 1, Text: "b"},
+		{Time: 2, Text: "c"},
+	}}
+	g1 := a.danmakuGroups()
+	if len(g1) != 2 {
+		t.Fatalf("组数 = %d, want 2", len(g1))
+	}
+	g2 := a.danmakuGroups()
+	if &g1[0] != &g2[0] {
+		t.Fatal("同一弹幕再次读取应复用缓存，而不是重算")
+	}
+	// 换一份弹幕（新分配）→ 重算。
+	a.Danmaku = []Danmaku{{Time: 5, Text: "x"}}
+	g3 := a.danmakuGroups()
+	if len(g3) != 1 || g3[0].Second != 5 {
+		t.Fatalf("换弹幕后 = %+v, want 第二组为 5", g3)
+	}
+	// 清空 → 空分组（且不 panic）。
+	a.Danmaku = nil
+	if got := a.danmakuGroups(); len(got) != 0 {
+		t.Fatalf("清空后应得 0 组，得 %d", len(got))
+	}
+}
+
+// TestSortedCommentsCache 同理：评论排序带拷贝，缓存按「底层数组 + 长度」失效。
+func TestSortedCommentsCache(t *testing.T) {
+	a := &App{Comments: []Comment{
+		{User: "a", SendTime: 1},
+		{User: "b", SendTime: 3},
+		{User: "c", SendTime: 2},
+	}}
+	s1 := a.sortedComments()
+	if s1[0].User != "b" || s1[1].User != "c" || s1[2].User != "a" {
+		t.Fatalf("倒序 = %s,%s,%s, want b,c,a", s1[0].User, s1[1].User, s1[2].User)
+	}
+	s2 := a.sortedComments()
+	if &s1[0] != &s2[0] {
+		t.Fatal("同一评论再次读取应复用缓存")
+	}
+	// append 新评论（长度变）→ 重算。
+	a.Comments = append(a.Comments, Comment{User: "d", SendTime: 4})
+	if s3 := a.sortedComments(); s3[0].User != "d" {
+		t.Fatalf("append 后首条 = %s, want d", s3[0].User)
+	}
+}

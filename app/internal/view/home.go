@@ -348,19 +348,46 @@ const discSpinPeriod = 22 * time.Second
 // 500ms 会重建一次视图，这里取 1s 留余量（目标始终按挂钟算，早推不会跳）。
 const discSpinStep = time.Second
 
-// advanceDisc 把唱片角度按经过的时间推进；暂停时不推，停在原地。
+// discSeekThreshold 是判定「这是 seek 而不是正常播放」的最小异常位移（秒）：
+// 播放位置相对挂钟该到的位置偏出这么多，才当成跳转。
+const discSeekThreshold = 0.6
+
+// discSeekMax 是一次 seek 最多补偿的角度（度）：快进正转、快退倒转，都
+// 封顶，免得大跨度跳转把唱片甩好几圈。
+const discSeekMax = 180
+
+// discAdvance 返回这一帧唱片角度该推进的增量（度）。
+//
+// dt 是挂钟经过的秒数，posDelta 是这一帧播放位置的变化（秒），speed 是
+// 播放倍速。正常播放按挂钟匀速推进；位置相对挂钟出现异常位移（seek）时，
+// 按方向再补一笔：快进为正（往前冲一点）、快退为负（往回转），并封顶。
+func discAdvance(dt, posDelta, speed float64) float32 {
+	if dt <= 0 {
+		return 0
+	}
+	deg := dt / discSpinPeriod.Seconds() * 360
+	excess := posDelta - dt*speed
+	if excess > discSeekThreshold || excess < -discSeekThreshold {
+		bump := excess / discSpinPeriod.Seconds() * 360
+		bump = max(-discSeekMax, min(discSeekMax, bump))
+		deg += bump
+	}
+	return float32(deg)
+}
+
+// advanceDisc 把唱片角度按经过的时间推进；暂停 / 缓冲时不推，停在原地。
+//
+// 角度不取模（一直累加）：取模会让帧间目标突然倒退一整圈——看起来就是
+// 「唱片在倒转」，而且每一圈都会发生一次。
 func (a *App) advanceDisc(now time.Time) {
 	if a.discLast.IsZero() {
-		a.discLast = now
+		a.discLast, a.discLastPos = now, a.Pos
 		return
 	}
-	if dt := now.Sub(a.discLast); dt > 0 && a.Playing {
-		a.discAngle += float32(dt.Seconds()/discSpinPeriod.Seconds()) * 360
-		if a.discAngle > 360 {
-			a.discAngle -= 360
-		}
+	if dt := now.Sub(a.discLast); dt > 0 && a.Playing && !a.Buffering {
+		a.discAngle += discAdvance(dt.Seconds(), a.Pos-a.discLastPos, a.Speed)
 	}
-	a.discLast = now
+	a.discLast, a.discLastPos = now, a.Pos
 }
 
 // videoInfo 是右栏（原版 #video-info，固定 366 高）：

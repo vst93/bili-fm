@@ -301,3 +301,56 @@ func TestBufferedFrac(t *testing.T) {
 		}
 	}
 }
+
+// TestDiscAdvance 钉住唱片随播放位置变化的方向语义：正常播放按挂钟匀速；
+// 快进（正向跳变）正转多一点；快退（反向跳变）倒转；小抖动不当 seek。
+func TestDiscAdvance(t *testing.T) {
+	const period = 22.0 // discSpinPeriod
+	wantNormal := float32(0.5 / period * 360)
+
+	if got := discAdvance(0.5, 0.5, 1); got != wantNormal {
+		t.Errorf("正常播放 = %v, want %v（匀速）", got, wantNormal)
+	}
+	// 倍速：位置涨得跟挂钟 × speed 一致，仍是匀速、不算 seek。
+	if got := discAdvance(0.5, 1.0, 2); got != wantNormal {
+		t.Errorf("2x 正常播放 = %v, want %v", got, wantNormal)
+	}
+	// 快进：明显的正增量（比正常多）。
+	fwd := discAdvance(0.016, 30, 1)
+	if fwd <= wantNormal || fwd <= 0 {
+		t.Errorf("快进增量 = %v, 应明显大于正常 %v", fwd, wantNormal)
+	}
+	// 快退：负增量（倒转）。
+	back := discAdvance(0.016, -30, 1)
+	if back >= 0 {
+		t.Errorf("快退增量 = %v, 应为负（倒转）", back)
+	}
+	// 小位移（抖动 / 上报误差）不当 seek。
+	if got := discAdvance(0.5, 0.6, 1); got != wantNormal {
+		t.Errorf("小位移不该当 seek：%v, want %v", got, wantNormal)
+	}
+	// 大跨度 seek 封顶（不把唱片甩好几圈）：补偿部分封顶 180°，再加上
+	// 本帧正常的匀速增量。
+	capDeg := discAdvance(1, 1, 1) + 180
+	if got := discAdvance(1, 100000, 1); got > capDeg+0.001 {
+		t.Errorf("大跨度 seek = %v, 应封顶到 %v", got, capDeg)
+	}
+}
+
+// TestAdvanceDiscContinuous 钉住角度不取模：以前每转满一圈就 -=360，
+// 帧间目标突然倒退一整圈，看起来就是「唱片在倒转」。
+func TestAdvanceDiscContinuous(t *testing.T) {
+	a := &App{Playing: true, Speed: 1}
+	base := time.Unix(0, 0)
+	a.advanceDisc(base) // 建立基准
+	a.Pos = 22
+	a.advanceDisc(base.Add(22 * time.Second))
+	if a.discAngle < 359 || a.discAngle > 361 {
+		t.Fatalf("22s 后角度 = %v, want ~360（不能取模回 0）", a.discAngle)
+	}
+	a.Pos = 23
+	a.advanceDisc(base.Add(23 * time.Second))
+	if a.discAngle < 375 || a.discAngle > 377 {
+		t.Fatalf("23s 后角度 = %v, want ~376（一直累加）", a.discAngle)
+	}
+}

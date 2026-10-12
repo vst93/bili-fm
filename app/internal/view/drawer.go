@@ -19,16 +19,8 @@ import (
 //	头部    section > header
 //	        高 48、右侧留 44 给绝对定位的关闭键、下边框 1px rgba(100,116,139,0.14)
 //
-// drawerIn 是抽屉上滑入场的时长。
+// drawerIn 是抽屉上滑入场 / 遮罩淡入的时长。
 const drawerIn = 220 * time.Millisecond
-
-// drawerProgress 返回抽屉入场的进度（0→1），由打开时间算。
-func drawerProgress(a *App) float32 {
-	if age := time.Since(a.drawerOpenedAt); age < drawerIn {
-		return float32(age) / float32(drawerIn)
-	}
-	return 1
-}
 
 // drawerSnap 是抽屉下滑手势的落点（ui.Draggable 的 Snap）：松手时位置在上半
 // 就弹回原位（{}），被甩过中点就落到最底（{Y: h}）等着关闭。用
@@ -63,30 +55,39 @@ func (a *App) drawer(c *ui.Context) {
 	// min(92vh, 100vh - 54px)：54 是播放栏高度，抽屉不盖住它。
 	h := min(winH*0.92, winH-54)
 
-	// 换抽屉 / 重新打开时重置入场时间与下滑偏移（做上滑入场用）。
+	// 换抽屉 / 重新打开时重置入场状态与下滑偏移：面板这一帧先停在底部
+	// 之外（Y=h），下一帧再把目标设成 0 让它弹上来（见下）。
+	entering := false
 	if a.Drawer != a.drawerOpenKey {
-		a.drawerOpenKey, a.drawerOpenedAt = a.Drawer, time.Now()
-		a.drawerOffset = ui.Point{}
+		a.drawerOpenKey, a.drawerOffset = a.Drawer, ui.Point{}
+		entering = true
 	}
-	// 遮罩随入场渐显（原版抽屉的遮罩是过渡出来的，不是瞬间盖上）。
-	prog := drawerProgress(a)
 	overlay := ui.Box(c).Absolute().Fill()
 	overlay.Background(ui.Hex("#0f172a").Alpha(0.28))
 	var dragY float32
 	overlay.Children(func() {
 		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
 		// （--liquid-blur-thin：小面积用薄玻璃），所以面板本身也是真玻璃。
-		// 上滑入场（原版抽屉是从底部滑上来的）。进度由打开时间算，
-		// 位移交给 AnimateTo 平滑。
+		// 上滑入场（原版抽屉是从底部滑上来的），位移交给 AnimatePose。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(0).Height(h).
 			Radius(18, 18, 0, 0).
 			Material(glass.Glass{}).
 			// 玻璃自带顶缘聚光，不再叠原版那条手搓的 1px 顶线。
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
-		panel.Translate(0, panel.AnimateTo("drawer-in", (1-prog)*h, ui.Snappy))
+		// **用 AnimatePose，不要用 Translate(AnimateTo)**：AnimateTo 的值要在
+		// 视图里读，意味着动画的每一帧都要重建整个抽屉视图——抽屉正文很重，
+		// 这正是之前入场卡顿的根因（机制同 home.go 唱片那段注释）。
+		// AnimatePose 从第一帧给的 pose 起步，所以起手这一帧先把面板摆到
+		// 底部外，再请框架多建一帧把目标设成 0，之后就只在重绘帧里弹上来。
+		enterY := float32(0)
+		if entering {
+			enterY = h
+			c.AnimationFrame()
+		}
+		panel.AnimatePose(ui.Pose{Y: enterY}, ui.Snappy)
 		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
 		// 更内层的交互元素，不会抢走手势）往下拖，松手弹回或被甩到底关闭。
-		// 偏移叠在入场 Translate 之上，所以入场动画不受影响。
+		// 偏移叠在入场 Pose 之上，所以入场动画不受影响。
 		panel.Draggable(&a.drawerOffset, ui.DraggableOptions{
 			Axis:   ui.Vertical,
 			Bounds: &ui.Rect{Y: 0, H: h},
@@ -104,8 +105,12 @@ func (a *App) drawer(c *ui.Context) {
 			a.drawerOffset = ui.Point{}
 		}
 	})
-	overlay.Opacity(overlay.AnimateTo("drawer-bg", prog*drawerFade(dragY, h),
-		ui.Animation{Duration: drawerIn}))
+	// 遮罩是投影淡入（repaint-only），拖动时再跟着 DragOffset 变淡。
+	fade := drawerFade(dragY, h)
+	if entering {
+		fade = 0
+	}
+	overlay.AnimatePose(ui.Pose{Fade: fade}, ui.Animation{Duration: drawerIn})
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。
 	if overlay.Clicked() {
 		a.Drawer = ""
@@ -1302,6 +1307,33 @@ func groupDanmaku(list []Danmaku) []danmakuGroup {
 	return out
 }
 
+// danmakuGroups 返回按秒分组的弹幕，带缓存。
+//
+// 分组要建 map、排序，弹幕列表又长；滚动时视图每帧重建，每帧重算几十毫秒
+// 的分配 + 排序就是卡顿的来源。只在弹幕切片真的换了（换集 / 加载完成）时
+// 重算，用底层数组首地址 + 长度当身份键。
+func (a *App) danmakuGroups() []danmakuGroup {
+	if a.dmGroups == nil || !sameSlice(a.dmGroupsSrc, a.Danmaku) {
+		a.dmGroupsSrc, a.dmGroups = a.Danmaku, groupDanmaku(a.Danmaku)
+	}
+	return a.dmGroups
+}
+
+// sortedComments 返回按发送时间倒序的评论，带缓存（同 danmakuGroups）。
+func (a *App) sortedComments() []Comment {
+	if a.cmSorted == nil || !sameSlice(a.cmSortedSrc, a.Comments) {
+		sorted := make([]Comment, len(a.Comments))
+		copy(sorted, a.Comments)
+		for i := 1; i < len(sorted); i++ {
+			for j := i; j > 0 && sorted[j].SendTime > sorted[j-1].SendTime; j-- {
+				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+			}
+		}
+		a.cmSortedSrc, a.cmSorted = a.Comments, sorted
+	}
+	return a.cmSorted
+}
+
 // danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle
 // 的 YIQ 亮度逻辑；原生界面只有浅色主题，对应 isDarkMode = false 分支）。
 func danmakuInk(color int) ui.Color {
@@ -1373,7 +1405,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 		a.emptyNote(c, "暂无弹幕")
 		return
 	}
-	groups := groupDanmaku(a.Danmaku)
+	groups := a.danmakuGroups()
 
 	// 自动跟随：把当前时间所在的组滚进视野（只在下标变化时滚，不干扰手滑）。
 	cur := -1
@@ -1480,13 +1512,8 @@ func (a *App) repliesBody(c *ui.Context) {
 		return
 	}
 	// 评论按时间倒序（原版 danmakuList 的 sortedReplies：b.ctime - a.ctime）。
-	sorted := make([]Comment, len(a.Comments))
-	copy(sorted, a.Comments)
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && sorted[j].SendTime > sorted[j-1].SendTime; j-- {
-			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
-		}
-	}
+	// 带缓存：排序带拷贝，滚动时每帧重排会白白分配 + 吃 CPU（见 sortedComments）。
+	sorted := a.sortedComments()
 	// 原版把 HeroUI 的 default 调色板整套覆写成 slate 系（globals.css 里
 	// [data-slot="wrapper"] .text-default-*），所以昵称/时间/正文都不是 zinc。
 	const (

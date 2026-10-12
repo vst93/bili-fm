@@ -517,12 +517,21 @@ type App struct {
 
 	// Modal 是当前显示的模态对话框（nil 表示没有）。
 	Modal *Modal
-	// discAngle / discLast 是唱片的旋转角度与上次推进时间（见 advanceDisc）。
-	discAngle float32
-	discLast  time.Time
-	// drawerOpenKey / drawerOpenedAt 用来算抽屉的上滑入场进度。
-	drawerOpenKey  string
-	drawerOpenedAt time.Time
+	// discAngle / discLast / discLastPos 是唱片的旋转角度、上次推进时间，
+	// 以及那时的播放位置（用来识别 seek 造成的跳变，见 advanceDisc）。
+	discAngle   float32
+	discLast    time.Time
+	discLastPos float64
+	// drawerOpenKey 记住当前抽屉的入场是否已经起步（见 drawer）。
+	drawerOpenKey string
+	// dmGroups / cmSorted 缓存弹幕分组与评论排序：滚动时视图每帧重建，
+	// 每帧重算这些分组 / 排序就是卡顿的来源（见 danmakuGroups）。
+	// *Src 持有缓存依据的那份切片，既是身份判据，也防止旧数组被 GC 回收后
+	// 新切片复用同一地址造成误命中。
+	dmGroups    []danmakuGroup
+	dmGroupsSrc []Danmaku
+	cmSorted    []Comment
+	cmSortedSrc []Comment
 	// drawerOffset 是抽屉被拖拽的下滑偏移（v0.4.5 的 ui.Draggable）：
 	// 0 = 贴底完全展开，抽屉高度 = 甩到底、关闭。
 	drawerOffset ui.Point
@@ -874,8 +883,22 @@ func progressPlan(in progressInput, value float64, wasHeld bool, settle time.Dur
 	return seek, next
 }
 
-// ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度）。
-func (a *App) ResetSeek() { a.wasHeld, a.SeekBusy, a.SeekStableAt = false, false, time.Time{} }
+// ResetSeek 把进度条的 seek 状态机复位（换歌后跟随新进度），并让唱片
+// 重新取一次位置基准——否则换歌时 Pos 从旧位置跳到 0 会被当成快退。
+func (a *App) ResetSeek() {
+	a.wasHeld, a.SeekBusy, a.SeekStableAt = false, false, time.Time{}
+	a.discLast, a.discLastPos = time.Time{}, 0
+}
+
+// sameSlice 报告两个切片是不是同一段数据：长度相同且（非空时）底层数组首
+// 元素地址相同。配合调用方持有旧切片（续命，见 App.dmGroupsSrc），指针
+// 身份就不会被 GC 回收后的地址复用干扰。空切片一律视为相同。
+func sameSlice[T any](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	return len(a) == 0 || &a[0] == &b[0]
+}
 
 // Seeking 报告用户是否正在拖动进度条（供 OnProgress 跳过副作用）。
 // Seeking 表示用户正在操作进度条，或一次 seek 还在跑——这期间
