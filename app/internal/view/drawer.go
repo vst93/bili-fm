@@ -564,13 +564,20 @@ func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size fl
 }
 
 // headerButtonOff 同 headerButton，但可置为禁用（原版部分刷新键在请求中禁用）。
+// off 为真时（只有历史抽屉刷新键会在请求中置真）图标按原版
+// .history-refresh-spinning 800ms/圈 匀速旋转。
 func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, off bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	disableNav(b, off)
 	buttonSurface(b, false, b.Hovered(),
 		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	pressPose(b)
-	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ink) })
+	b.Children(func() {
+		icon := ui.Icon(c, ic).Size(size, size).TextColor(ink)
+		if off {
+			icon.Rotate(spinDegrees(off, b.Loop("spin", refreshSpinPeriod, ui.Linear)))
+		}
+	})
 	if !off && b.Clicked() {
 		fn()
 	}
@@ -1374,18 +1381,16 @@ func pubdateFit(c *ui.Context, value string, avail float32, now time.Time) strin
 }
 
 // playingBadge 是封面左上角的「正在播放」胶囊（原版 .part-playing-badge）：
-// 22 高、圆角 999、深玻璃底 rgba(15,23,42,.55) + 1px 白边，左侧三根均衡器小柱。
+// 22 高、圆角 999、深玻璃底 rgba(15,23,42,.55) + 1px 白边（.28），左侧三根
+// 均衡器小柱按 part-eq 关键帧上下伸缩（见 eqBars）。
 func (a *App) playingBadge(c *ui.Context) {
-	ui.Row(c).Absolute().Left(6).Top(6).Height(22).Padding(0, 8, 0, 7).
+	badge := ui.Row(c).Absolute().Left(6).Top(6).Height(22).Padding(0, 8, 0, 7).
 		Radius(RadiusPill).Gap(5).AlignItems(ui.Center).
 		Background(ui.Hex("#0f172a").Alpha(0.55)).
-		Border(1, ui.Hex("#ffffff").Alpha(0.20)).Children(func() {
-		ui.Row(c).Gap(2).AlignItems(ui.End).Height(10).Children(func() {
-			for _, h := range []float32{4, 9, 6} {
-				ui.Box(c).Width(2).Height(h).Radius(1).
-					Background(ui.Hex("#7dd3fc")).AlignSelf(ui.End)
-			}
-		})
+		Border(1, ui.Hex("#ffffff").Alpha(0.28))
+	badge.Children(func() {
+		// Loop 拿到循环进度并顺带请下一帧，三根柱的相位差在 eqBarScale 里。
+		eqBars(c, badge.Loop("eq", eqPeriod, ui.Linear))
 		ui.Text(c, "正在播放").FontSize(11).FontWeight(600).
 			TextColor(ui.Hex("#e2e8f0"))
 	})
