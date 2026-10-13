@@ -142,12 +142,21 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 只有图标在 play/pause 间切换；悬停时填充/描边略加深
 					//（#player .player-play-button:hover 的 (1,3,0) 盖过 mini 基态）。
 					playFill, playBorder, playInk := miniPlayStyle(play.Hovered())
-					play.Background(playFill).
-						Border(1, playBorder).
-						InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
-						InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
-						Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
-					pressPose(play)
+					// 按下（:active）时原版把 ::before 底色换成 --liquid-bg-active
+					// （白 .16）、box-shadow 换成更深的 `inset 0 1px 3px 墨 .1`
+					//（:active 规则特异度 (1,3,0) 盖过 mini 基态与 [data-playing]）。
+					if play.Pressed() {
+						play.Background(playerPressFill()).
+							Border(1, playBorder)
+						applyInsetShadows(play, playerPressShadowSpecs())
+					} else {
+						play.Background(playFill).
+							Border(1, playBorder).
+							InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
+							InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
+							Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
+					}
+					playerPressPose(play)
 					play.Children(func() {
 						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(16, 16).
 							TextColor(playInk).
@@ -161,7 +170,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
-					playerToolSurface(next, false, next.Hovered())
+					playerToolSurface(next, false, next.Hovered(), next.Pressed())
+					playerPressPose(next)
 					next.Children(func() {
 						ui.Icon(c, iconNext).Size(18, 18).
 							TextColor(pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
@@ -188,7 +198,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					playerToolSurface(vol, false, vol.Hovered())
+					playerToolSurface(vol, false, vol.Hovered(), vol.Pressed())
+					playerPressPose(vol)
 					vol.Children(func() {
 						ui.Icon(c, iconVolume).Size(18, 18).
 							TextColor(playerToolInk(false, vol.Hovered())).

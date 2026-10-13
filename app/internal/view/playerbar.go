@@ -107,10 +107,19 @@ func buttonSurface(b ui.Element, active, hovered bool, activeTint, hoverTint ui.
 // 对齐原版那条 tool 专用规则（`#player .player-next-button,
 // #player .player-volume-button, #player .player-speed-button,
 // #player .player-eq-button`）：这些键的玻璃边比通用 .player-button 更收敛
-//（`rgba(148,163,184,.2)` 而不是 `var(--glass-border)` 白 .55），内高光也更淡
-//（白 .44），否则一排工具键会亮成一圈白描边。三态颜色由 playerToolFill /
+// （`rgba(148,163,184,.2)` 而不是 `var(--glass-border)` 白 .55），内高光也更淡
+// （白 .44），否则一排工具键会亮成一圈白描边。三态颜色由 playerToolFill /
 // playerToolBorder / playerToolInset 给出（纯函数，便于测试钉住）。
-func playerToolSurface(b ui.Element, active, hovered bool) ui.Element {
+//
+// 按下（pressed）时原版 :active 把整条 box-shadow 换成更深的内压
+// （`inset 0 1px 3px rgba(15,23,42,.1)`）、底色转 `--liquid-bg-active`（白 .16），
+// 描边沿用悬停/激活态（:active 不改 border-color）。
+func playerToolSurface(b ui.Element, active, hovered, pressed bool) ui.Element {
+	if pressed {
+		return applyInsetShadows(
+			b.Background(playerPressFill()).Border(1, playerToolBorder(active, hovered)),
+			playerPressShadowSpecs())
+	}
 	b = b.Background(playerToolFill(active, hovered)).
 		Border(1, playerToolBorder(active, hovered)).
 		InsetShadow(0, 1, 1, 0, playerToolInset(hovered))
@@ -169,10 +178,65 @@ func playerToolInk(active, hovered bool) ui.Color {
 	return ui.Hex("#526174")
 }
 
+// playerButtonPressAnim 是 `#player .player-button` 的按压位移参数（原版
+// globals.css）：
+//
+//	transition: ... transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+//
+// 曲线与时长都与 `.nav-icon-btn` 不同（后者 160ms ease），也不是
+// pressPose（120ms/EaseOut 的立方缓出）。抽成 var 便于测试逐值钉住。
+var playerButtonPressAnim = ui.Animation{
+	Duration: 120 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.23, 1, 0.32, 1),
+}
+
+// playerButtonPressPose 给播放栏按钮（`.player-button`，含迷你窗）算按下位移：
+//
+//	#player .player-button:active              { transform: scale(0.93) }
+//	:active:not(:disabled) 的 play/next/volume/speed/eq 同上（只多一条内压阴影）
+//
+// 注意两点与 `.nav-icon-btn` 的 pressPose 不同：① 缩放是 **.93**（不是 .94）；
+// ② 原版 `#player .player-button:hover` **没有 transform** —— 悬停不上浮，只有
+// 按下才缩放。此前播放栏六颗键都错用了 pressPose，悬停凭空上浮 1px、按下缩放
+// 也差一档。拆成纯函数便于测试直接钉住。
+func playerButtonPressPose(pressed bool) ui.Pose {
+	if pressed {
+		return ui.Pose{Scale: 0.93}
+	}
+	return ui.Pose{}
+}
+
+// playerPressPose 把播放栏按钮的按压手感落到元素上（120ms + 原版贝塞尔曲线）。
+// 与 navIconPose 同形（只读 Pressed/Hovered），但播放栏悬停不上浮。
+func playerPressPose(b ui.Element) {
+	b.AnimatePose(playerButtonPressPose(b.Pressed()), playerButtonPressAnim)
+}
+
+// playerPressFill 是 `#player .player-button:active::before` 的底色
+// `--liquid-bg-active`（白 .16，逐值）。
+func playerPressFill() ui.Color { return ui.Hex("#ffffff").Alpha(0.16) }
+
+// playerPressShadowSpecs 是 `#player .player-button:active` 的那条内压阴影
+// `inset 0 1px 3px rgba(15,23,42,.1)`（play/next/volume/speed/eq 逐字相同）。
+// 抽成纯函数便于把值钉死（同 pressShadowSpecs）。
+func playerPressShadowSpecs() []shadowSpec {
+	return []shadowSpec{
+		{0, 1, 3, 0, ui.Hex("#0f172a").Alpha(0.10)},
+	}
+}
+
 // playerPlaySurface 是播放/暂停键的材质（原版 .player-play-button[data-playing]
 // 与 :not([data-playing]) 两条 + 各自的 hover）。键是 42 正圆，播放中走蓝调、
 // 暂停走中性灰蓝；三态颜色由 playerPlayFill / playerPlayBorder / playerPlayInk 给。
-func playerPlaySurface(b ui.Element, playing, hovered bool) ui.Element {
+//
+// 按下（pressed）时原版 :active 把整条 box-shadow 换成更深的内压
+// （`inset 0 1px 3px rgba(15,23,42,.1)`）、底色转 `--liquid-bg-active`（白 .16）。
+func playerPlaySurface(b ui.Element, playing, hovered, pressed bool) ui.Element {
+	if pressed {
+		return applyInsetShadows(
+			b.Background(playerPressFill()).Border(1, playerPlayBorder(playing, hovered)),
+			playerPressShadowSpecs())
+	}
 	b = b.Background(playerPlayFill(playing, hovered)).
 		Border(1, playerPlayBorder(playing, hovered))
 	switch {
@@ -248,11 +312,12 @@ func glassOn(b ui.Element, active, hovered bool, activeTint, hoverTint ui.Color)
 }
 
 // disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
-// 禁用 + opacity .42（mygo 的禁用态自己乘 .5，这里再乘 .84）。
+// 禁用 + opacity .42。mygo 的禁用节点会自己再乘 .5（ui/paint.go），所以元素值要写
+// disabledDim(.42)=.84 抵消掉（见 disabled.go 的总说明）。
 func disablePlayerButton(b ui.Element, off bool) ui.Element {
 	b.Disabled(off)
 	if off {
-		b.Opacity(0.84)
+		b.Opacity(disabledDim(playerButtonDisabledOpacity))
 	}
 	return b
 }
@@ -290,10 +355,10 @@ func (a *App) transport(c *ui.Context) {
 		// 原版 .player-play-button::before 只有 background-color/background-image，
 		// **没有** backdrop-filter——按键浮在已有 blur 的播放栏之上。之前误用了
 		// Interactive 真玻璃，于是每个播放键每帧多一个 backdrop。这里改回填充；
-		// 按下手感交给 pressPose（原版 :active 就是 scale(.93)）。
+		// 按下手感交给 playerPressPose（原版 :active 是 scale(.93)、悬停不上浮）。
 		// 三态（播放/悬停/常态）见 playerPlaySurface。
-		playerPlaySurface(play, a.Playing, play.Hovered())
-		pressPose(play)
+		playerPlaySurface(play, a.Playing, play.Hovered(), play.Pressed())
+		playerPressPose(play)
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
@@ -307,13 +372,11 @@ func (a *App) transport(c *ui.Context) {
 
 		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(RadiusPill).Center().
 			Label(nextTip()).Tooltip(nextTip())
-		next.Disabled(!a.canNavigate())
-		if !a.canNavigate() {
-			// 原版 .player-button:disabled 是 opacity .42（mygo 已乘 .5）。
-			next.Opacity(0.84)
-		}
-		playerToolSurface(next, false, next.Hovered())
-		pressPose(next)
+		// 原版 .player-button:disabled 是 opacity .42（disablePlayerButton 会补上
+		// mygo 禁用节点的减半）。
+		disablePlayerButton(next, !a.canNavigate())
+		playerToolSurface(next, false, next.Hovered(), next.Pressed())
+		playerPressPose(next)
 		next.Children(func() {
 			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
 			// tool 规则覆盖），悬停转蓝。
@@ -495,7 +558,8 @@ func (a *App) volumeButton(c *ui.Context) {
 		Label("音量").Tooltip("音量")
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(b, a.ShowVolume, b.Hovered())
+	playerToolSurface(b, a.ShowVolume, b.Hovered(), b.Pressed())
+	playerPressPose(b)
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -517,8 +581,8 @@ func (a *App) speedButton(c *ui.Context) {
 		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(b, a.ShowSpeed, b.Hovered())
-	pressPose(b)
+	playerToolSurface(b, a.ShowSpeed, b.Hovered(), b.Pressed())
+	playerPressPose(b)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
@@ -537,8 +601,8 @@ func (a *App) eqButton(c *ui.Context) {
 		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(b, a.EQ, b.Hovered())
-	pressPose(b)
+	playerToolSurface(b, a.EQ, b.Hovered(), b.Pressed())
+	playerPressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).TextColor(playerToolInk(a.EQ, b.Hovered())).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
@@ -554,8 +618,8 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label(sponsorTip()).Tooltip(sponsorTip())
-	playerToolSurface(b, a.Sponsor, b.Hovered())
-	pressPose(b)
+	playerToolSurface(b, a.Sponsor, b.Hovered(), b.Pressed())
+	playerPressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
 			TextColor(playerToolInk(a.Sponsor, b.Hovered()))
@@ -760,6 +824,9 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		} else {
 			mute.Background(ui.Transparent)
 		}
+		// 静音键也是 .player-button，原版通用 `:active { transform: scale(.93) }`
+		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
+		playerPressPose(mute)
 		mute.Children(func() {
 			ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
 				TextColor(pick(a.Muted, t.Rose, t.Muted))
