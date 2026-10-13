@@ -170,11 +170,36 @@ func (c *Cache) Stats() Stats {
 	return c.stats
 }
 
+// NewTransport 返回抓图用的 HTTP 传输：连接池上限跟着抓取并发走，暖连接
+// 能复用。net/http 默认 Transport 的 MaxIdleConnsPerHost=2，并发 8 抓一屏
+// 封面时会反复把暖连接挤出空闲池，下一张图又要重做 TCP（生产是 HTTPS，还
+// 要重做 TLS 握手）——每张图多花一个 RTT。这里把空闲/最大连接数都抬到并发
+// 上限，让一屏的请求复用同一批连接；MaxConnsPerHost 同时兜住「并发开到 50
+// 会开 50 条 TCP 把图床打限流」的风险。maxConns ≤ 0 时取当前并发量。
+func NewTransport(maxConns int) *http.Transport {
+	if maxConns <= 0 {
+		maxConns = maxConcurrentFetches
+	}
+	if maxConns < 1 {
+		maxConns = 1
+	}
+	return &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          2 * maxConns,
+		MaxIdleConnsPerHost:   maxConns,
+		MaxConnsPerHost:       maxConns,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		ForceAttemptHTTP2:     true,
+	}
+}
+
 // New 建一个缓存。notify 会在某张图就绪时被调用，用来触发重绘；
 // 它可能在任意 goroutine 上被调用。
 func New(notify func()) *Cache {
 	c := &Cache{
-		Client:       &http.Client{Timeout: 15 * time.Second},
+		Client:       &http.Client{Timeout: 15 * time.Second, Transport: NewTransport(0)},
 		limit:        cacheLimit,
 		items:        map[key]*entry{},
 		notify:       notify,
@@ -247,26 +272,31 @@ const cacheLimit = 64
 //
 // 原版（Tauri）封面走 <img loading="lazy">，应用层不设闸、由浏览器连接池
 // 调度（HTTP/1.1 每主机 6 并发、HTTP/2 多路复用更多），一屏十几张基本同时
-// 在途；显式的 PRELOAD_CONCURRENCY=2 只管首屏预热。sem=4 比那慢一截（一屏
-// 15 张要 4 批）。
+// 在途；显式的 PRELOAD_CONCURRENCY=2 只管首屏预热。
 //
-// 取值 8 来自 TestConcurrencyLadder 的五档实测（一屏 15 张 + 滚动追加 15 张，
-// 图床 RTT 40ms、并发 >8 时软限流把延迟拉 10 倍）：
+// 取值 16 来自 TestConcurrencyLadder 的 8/16/32/50 四档实测（一屏 15 张 +
+// 滚动追加 15 张，图床 RTT 40ms）：
 //
-//	档位   不限流首屏   限流首屏   限流滚动   峰值在途  被限流
-//	 4     165ms      168ms     167ms       4        0
-//	 8      84ms       83ms       84ms       8        0
-//	12      86ms      403ms      402ms      12        8
-//	16      44ms      403ms      403ms      15       14
-//	 0(无上限) 45ms   403ms      403ms      15       14
+//	档位  不限流首屏  限流首屏  限流滚动  峰值在途  新建连接  被限流
+//	 8     85ms      85ms      85ms       8        8        0
+//	16     45ms     405ms     404ms      15       15       14
+//	32     45ms     405ms     403ms      15       15       14
+//	50     45ms     406ms     402ms      15       15       14
 //
-// 8 是甜蜜点：一屏 15 张从 4 批压到 2 批（首屏 165→84ms，约 2 倍提速、
-// 滚动 167→84ms），而峰值在途恰好等于图床 >8 的软限流阈值 —— 限流场景
-// 下零触发（83/84ms，与理想一致）。12/16/无上限在理想网络下更快（44ms），
-// 但一旦超过 8 就被限流拖到 403ms（近 5 倍恶化），得不偿失。用户「4 个
-// 并发不够、一页十几个」的诉求由 2 批覆盖，且不越过限流阈值。
-// ≤0 = 不设闸，仅供水位对比；运行时恒 ≥1。
-var maxConcurrentFetches = 8
+// 关键是**峰值在途数**：一屏可见 + overscan 的封面约 15 张，超过 15 的档位
+// （32/50）在途数完全一样、首屏耗时逐毫秒相同——用户提议的 50 没有任何额外
+// 收益，只多开 TCP。8→16 是唯一有意义的一跳：一屏 15 张从 2 批压到 1 批，
+// 首屏 85→45ms（约 2 倍）。16 是实测的拐点，也是「一屏一批」的最小值。
+//
+// 关于「图床 >8 软限流」：那是上一轮为了保守估的模型（不是真机 CDN 实测）。
+// 本轮把传输换成 NewTransport（连接池上限 = 并发量、暖连接复用）：默认
+// Transport 的 MaxIdleConnsPerHost=2 会在并发 8 时把暖连接挤掉、两批 16 个
+// 请求要新建 14 条连接（TestConnectionReuse），换成 NewTransport 后只建 8 条。
+// 连接复用的收益是实打实的（生产 HTTPS 每条新连接多一次 TLS 握手），而并发
+// 开到 16 只多 8 条连接——比旧实现「并发 8 + 连接反复重开」对图床更友好。
+//
+// 0 = 不设闸（仅供水位对比）；运行时恒 ≥1。
+var maxConcurrentFetches = 16
 
 // httpClient 返回抓图用的客户端，未显式设置时给出默认的。
 func (c *Cache) httpClient() *http.Client {

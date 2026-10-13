@@ -4,6 +4,7 @@ package imagecache
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -13,7 +14,7 @@ import (
 )
 
 // TestConcurrencyLadder 是并发档位选择的**实证**：同一批请求（一屏 15 张 +
-// 滚动追加 15 张）在 4 / 8 / 12 / 16 / 无上限 五档下的表现，一次运行全部
+// 滚动追加 15 张）在 8 / 16 / 32 / 50 四档下的表现，一次运行全部
 // 打出来，选值直接对表：
 //
 //	go test -tags perfmeasure -run TestConcurrencyLadder -v ./internal/imagecache/
@@ -31,19 +32,19 @@ func TestConcurrencyLadder(t *testing.T) {
 	const scrollBatch = 15
 	data := coverPNG()
 
-	for _, conc := range []int{4, 8, 12, 16, 0} {
+	for _, conc := range []int{8, 16, 32, 50} {
 		conc := conc
 		t.Run(fmt.Sprintf("conc=%d", conc), func(t *testing.T) {
 			for _, throttle := range []bool{false, true} {
 				label := "无限制流"
 				if throttle {
-					label = "限流(>8并发回429)"
+					label = "限流(>8并发软限流)"
 				}
 				t.Run(label, func(t *testing.T) {
 					var mu sync.Mutex
 					inflight, maxInflight := 0, 0
-					var limited, served atomic.Int64
-					srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					var limited, served, conns atomic.Int64
+					srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						mu.Lock()
 						inflight++
 						if inflight > maxInflight {
@@ -68,13 +69,22 @@ func TestConcurrencyLadder(t *testing.T) {
 						inflight--
 						mu.Unlock()
 					}))
+					srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+						if s == http.StateNew {
+							conns.Add(1)
+						}
+					}
+					srv.Start()
 					t.Cleanup(func() { srv.Close() })
 
 					old := maxConcurrentFetches
 					maxConcurrentFetches = conc
 					defer func() { maxConcurrentFetches = old }()
 
-					tr := &http.Transport{MaxIdleConns: 64, MaxIdleConnsPerHost: 64, MaxConnsPerHost: 64}
+					// 生产口径的传输：连接池上限跟着并发走，暖连接可复用（不再每次
+					// 重开 TCP）。默认 Transport 的 MaxIdleConnsPerHost=2 会在并发
+					// 8 时反复丢弃暖连接、每张图重做握手——见 TestConnectionReuse。
+					tr := NewTransport(conc)
 					defer tr.CloseIdleConnections()
 					c := New(nil)
 					c.Client = &http.Client{Timeout: 15 * time.Second, Transport: tr}
@@ -117,9 +127,10 @@ func TestConcurrencyLadder(t *testing.T) {
 					if total := st.Ready + st.Failed; total > 0 {
 						failRate = float64(st.Failed) / float64(total)
 					}
-					t.Logf("档位=%2d 限流=%v: 首屏全显 %v、滚动显图 %v、失败率 %.1f%%（峰值在途 %d、被软限流 %d 次）",
+					t.Logf("档位=%2d 限流=%v: 首屏全显 %v、滚动显图 %v、失败率 %.1f%%、峰值在途 %d、新建连接 %d、被软限流 %d 次、内存 %.1f MB",
 						conc, throttle, first.Round(time.Millisecond), scroll.Round(time.Millisecond),
-						failRate*100, maxInflight, limited.Load())
+						failRate*100, maxInflight, conns.Load(), limited.Load(),
+						float64(c.Bytes())/1048576)
 				})
 			}
 		})
@@ -160,4 +171,57 @@ func (c *Cache) readyCount() int {
 		}
 	}
 	return n
+}
+
+// TestConnectionReuse 证明「连接池上限跟着并发走」这件事：连续两批各 8 个
+// 并发请求打到同一个主机，默认 Transport（MaxIdleConnsPerHost=2）第一批开
+// 8 条连接、完成后只留 2 条空闲，第二批又要重开 6 条；NewTransport(8) 两批
+// 复用同一批 8 条。生产是 HTTPS，每条新连接还多一次 TLS 握手 —— 这就是并发
+// 8 时「图片加载慢」里非网络 RTT 的那部分。
+//
+//	go test -tags perfmeasure -run TestConnectionReuse -v ./internal/imagecache/
+func TestConnectionReuse(t *testing.T) {
+	data := coverPNG()
+	newServer := func() (*httptest.Server, *atomic.Int64) {
+		var conns atomic.Int64
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			w.Write(data)
+		}))
+		srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+			if s == http.StateNew {
+				conns.Add(1)
+			}
+		}
+		srv.Start()
+		t.Cleanup(srv.Close)
+		return srv, &conns
+	}
+	burst := func(t *testing.T, cl *http.Client, url string) {
+		t.Helper()
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				resp, err := cl.Get(url)
+				if err != nil {
+					t.Errorf("GET: %v", err)
+					return
+				}
+				resp.Body.Close()
+			}()
+		}
+		wg.Wait()
+	}
+	measure := func(name string, tr *http.Transport) {
+		srv, conns := newServer()
+		cl := &http.Client{Timeout: 5 * time.Second, Transport: tr}
+		defer tr.CloseIdleConnections()
+		burst(t, cl, srv.URL+"/a.png")
+		burst(t, cl, srv.URL+"/b.png")
+		t.Logf("%s: 两批 8 并发共新建 %d 条连接", name, conns.Load())
+	}
+	measure("默认 Transport", &http.Transport{})
+	measure("NewTransport(8)", NewTransport(8))
 }

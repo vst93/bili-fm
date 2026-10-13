@@ -156,9 +156,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					next := ui.ButtonBase(c.Key("mini-next")).Size(28, 28).Radius(RadiusPill).Center().
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
-					buttonSurface(next, false, next.Hovered(),
-						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
-					next.Children(func() { ui.Icon(c, iconNext).Size(18, 18).TextColor(ui.Hex("#334155")) })
+					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
+					playerToolSurface(next, false, next.Hovered())
+					next.Children(func() {
+						ui.Icon(c, iconNext).Size(18, 18).
+							TextColor(pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))
+					})
 					if next.Clicked() && a.Act.Next != nil {
 						a.Act.Next()
 					}
@@ -180,9 +183,11 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					buttonSurface(vol, false, vol.Hovered(),
-						ui.Color{}, ui.Hex("#ffffff").Alpha(0.18))
-					vol.Children(func() { ui.Icon(c, iconVolume).Size(18, 18).TextColor(ui.Hex("#334155")) })
+					playerToolSurface(vol, false, vol.Hovered())
+					vol.Children(func() {
+						ui.Icon(c, iconVolume).Size(18, 18).
+							TextColor(playerToolInk(false, vol.Hovered()))
+					})
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume
 					}
