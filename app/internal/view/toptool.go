@@ -61,12 +61,52 @@ func topToolStyleFor(k topToolKind, hovered, pressed bool) topToolStyle {
 	return s
 }
 
-// topToolPose 给搜索药丸小键加原版的手感：悬停上浮 1px、按下缩到 .92。
-// 与 pressPose（.nav-icon-btn，缩 .94）分开 —— 原版 .top-tool-btn /
-// .search-submit-btn 的 :active 就是 .92。
-func topToolPose(b ui.Element) {
-	pressPoseScale(b, 0.92)
+// topToolPoseFor / topToolPose 给搜索药丸小键加原版的手感：悬停上浮 1px、
+// 按下缩到 .92。与 navIconPoseFor（.nav-icon-btn，缩 .94）同形、只差 :active
+// 缩放（原版 .top-tool-btn / .search-submit-btn 的 :active 就是 .92）。过渡参数
+// 与 .nav-icon-btn 逐字相同（`transform 0.16s ease`），所以共用 navIconAnim ——
+// 此前这里走 pressPoseScale 的 120ms/EaseOut，上浮/缩放比原版更快、更硬。
+func topToolPoseFor(pressed, hovered bool) ui.Pose {
+	switch {
+	case pressed:
+		return ui.Pose{Scale: 0.92}
+	case hovered:
+		return ui.Pose{Y: -1}
+	}
+	return ui.Pose{}
 }
+
+func topToolPose(b ui.Element) {
+	b.AnimatePose(topToolPoseFor(b.Pressed(), b.Hovered()), navIconAnim)
+}
+
+// topToolBgColor / topToolFadeValue / topToolBgTo / topToolFade 是
+// `.top-tool-btn` / `.search-submit-btn` 的**底色 / 不透明度过渡**。原版 transition
+// 与 `.nav-icon-btn` 逐字相同：
+//
+//	transition: color 0.18s ease, background-color 0.18s ease,
+//	            opacity 0.16s ease, transform 0.16s ease;
+//
+// 底色 180ms、不透明度 160ms，都是 CSS 默认缓动曲线。此前原生版两条都瞬时写入
+// （悬停时白底与不透明度「啪」地跳出），这里按原版补上。纯函数拆出来便于测试
+// 钉住「走的是过渡而非瞬时」；两个 var 便于测试独立冻结 / 反证（同 navIconBgTo /
+// navIconFade）。
+func topToolBgColor(b ui.Element, target ui.Color) ui.Color {
+	return b.AnimateColor("top-tool-bg", target, navIconBgAnim)
+}
+
+func topToolFadeValue(b ui.Element, target float32) float32 {
+	return b.AnimateTo("top-tool-fade", target, navIconFadeAnim)
+}
+
+var (
+	topToolBgTo = func(b ui.Element, target ui.Color) ui.Element {
+		return b.Background(topToolBgColor(b, target))
+	}
+	topToolFade = func(b ui.Element, target float32) ui.Element {
+		return b.Opacity(topToolFadeValue(b, target))
+	}
+)
 
 // shadowSpec 是一条 box-shadow（原版 CSS 里的 x y blur spread color）。
 type shadowSpec struct {

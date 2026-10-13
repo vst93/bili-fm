@@ -119,11 +119,13 @@ func (a *App) searchField(c *ui.Context) {
 		}
 		// 原版 .search-submit-btn：32×32、圆角 6、默认透明 + opacity .82、
 		// 图标 #64748b；悬停 opacity 1、图标转 #0284c7、底白 50%、上浮 1px；
-		// 按下缩到 .92。
+		// 按下缩到 .92。底色 0.18s / 不透明度 0.16s 淡入（topToolBgTo /
+		// topToolFade），不是瞬时切换。
 		submit := ui.ButtonBase(c.Key("search-submit")).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
 		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), submit.Pressed())
-		submit.Background(sub.Bg).Opacity(sub.Opacity)
+		topToolBgTo(submit, sub.Bg)
+		topToolFade(submit, sub.Opacity)
 		// 原版 .search-submit-btn 常态带左上角径向聚光，按下换成居中光。
 		if submit.Pressed() {
 			btnLightPress.draw(submit, ToolButtonR)
@@ -191,9 +193,11 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	b := ui.ButtonBase(c.Key("nav-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
 	// 原版 .top-tool-btn：基态透明 + opacity .82 + 图标 #64748b；悬停铺白 .65、
-	// 图标转 #0284c7、上浮 1px；按下缩到 .92。
+	// 图标转 #0284c7、上浮 1px；按下缩到 .92。底色 0.18s / 不透明度 0.16s
+	// 淡入（topToolBgTo / topToolFade），不是瞬时切换。
 	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
-	b.Background(s.Bg).Opacity(s.Opacity)
+	topToolBgTo(b, s.Bg)
+	topToolFade(b, s.Opacity)
 	// 原版 .top-tool-btn 常态带左上角径向聚光，按下换成居中光。
 	if b.Pressed() {
 		btnLightPress.draw(b, ToolButtonR)
