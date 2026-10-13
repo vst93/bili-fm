@@ -1,8 +1,6 @@
 package view
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -101,6 +99,48 @@ func applyShadows(e ui.Element, ss []shadowSpec) ui.Element {
 	return e
 }
 
+// navHoverShadowSpecs 是 .nav-icon-btn 悬停 ::after 的三条 box-shadow（原版
+// globals.css:2511-2518，逐值）。抽成纯函数便于把值钉死。
+func navHoverShadowSpecs() []shadowSpec {
+	return []shadowSpec{
+		{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}, // inset 0 1px 1px --glass-highlight
+		{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)},
+		{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)},
+	}
+}
+
+// topToolHoverShadowSpecs 是 .top-tool-btn / .search-submit-btn 悬停 ::after。
+// 与 nav 族只差顶缘那条内高光的模糊：top-tool 是 `inset 0 1px 0`（blur 0），
+// submit 是 `inset 0 1px 1px`（blur 1）。
+func topToolHoverShadowSpecs(k topToolKind) []shadowSpec {
+	topBlur := float32(1)
+	if k == topToolEntry {
+		topBlur = 0
+	}
+	return []shadowSpec{
+		{0, 1, topBlur, 0, ui.Hex("#ffffff").Alpha(0.90)},
+		{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)},
+		{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)},
+	}
+}
+
+// navHoverHighlight 给 .nav-icon-btn 补原版悬停时 ::after 的内高光 + 弱投影
+// （原版只描边、不铺底色；::after 在 :hover 时 opacity 0→1、按下/禁用时归 0）。
+// 之前原生版对 .nav-icon-btn 悬停只换底色（缺这道内高光），.top-tool-btn 虽有
+// 近似（白 .55 边 + inset .55）但值低一档、还多一道边框 —— 上一轮遗留的
+// 「下轮候选」。这里按原版逐值补齐三族。
+//
+// 声明成 var 是为了让无头测试能临时替换成 no-op，反证这层内高光确实来自这里
+// （同 btnlight 的作证方式）。
+var navHoverHighlight = func(b ui.Element) ui.Element {
+	return applyShadows(b, navHoverShadowSpecs())
+}
+
+// topToolHoverHighlight 同 navHoverHighlight，作用于搜索药丸两类小键。
+var topToolHoverHighlight = func(b ui.Element, k topToolKind) ui.Element {
+	return applyShadows(b, topToolHoverShadowSpecs(k))
+}
+
 // avatarShadow 给头像键补原版 .home-user-avatar 的两态投影：
 // 常态 0 6px 16px rgba(15,23,42,.08)；悬停 0 12px 28px rgba(14,165,233,.2)。
 // mygo 的投影是累加的，所以两态必须二选一（不能用「先铺常态再叠悬停」）。
@@ -112,11 +152,12 @@ func avatarShadow(b ui.Element) {
 	b.Shadow(0, 6, 16, 0, shadowInk.Alpha(0.08))
 }
 
-// avatarLift 是原版 .home-user-avatar:hover 的 translateY(-1px)。
+// avatarLift 是原版 .home-user-avatar:hover 的 translateY(-1px)，
+// 走 `transition: transform 0.18s ease`（与 UP 头像同一时长/曲线）。
 // 头像键没有 :active 缩放，所以只上浮。
 func avatarLift(b ui.Element) {
 	if !b.Hovered() {
 		return
 	}
-	b.AnimatePose(ui.Pose{Y: -1}, ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut})
+	b.AnimatePose(ui.Pose{Y: -1}, faceHoverAnim)
 }

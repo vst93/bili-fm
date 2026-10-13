@@ -89,7 +89,6 @@ func (c *controller) playPlaylist(list string, index int, keepDrawer bool) {
 	a.Index = index
 	a.PlayingPlaylist = list
 	a.PlaylistTab = list
-	c.saveQueue()
 	c.startCurrent()
 	if keepDrawer {
 		// startCurrent 会把抽屉关掉；从抽屉点进来的要让它保持打开。
@@ -194,7 +193,6 @@ func (c *controller) deletePlaylistItem(list, id string) {
 		a.Index--
 	}
 	c.savePlaylists()
-	c.saveQueue()
 	a.Win.Update(func() {})
 }
 

@@ -8,6 +8,7 @@ replace github.com/tphakala/go-m4a => github.com/vst93/go-m4a v0.5.1
 
 require (
 	github.com/ebitengine/oto/v3 v3.5.1
+	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.4.8
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/tphakala/simd v1.11.0 // indirect

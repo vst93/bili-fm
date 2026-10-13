@@ -23,6 +23,17 @@ import (
 // drawerIn 是抽屉上滑入场 / 遮罩淡入的时长。
 const drawerIn = 220 * time.Millisecond
 
+// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：原版
+// `[data-slot="wrapper"] [role="button"][class*="bg-content"]` 的
+// `transition: ... transform 0.16s ease`（globals.css:3662），上浮
+// `translateY(-3px)`、移开回落，全程 160ms。之前用 500ms 的 Snappy 弹簧，
+// 用户报「浮动动画太慢、移开回落不利落」。CSS 的 `ease` 即
+// cubic-bezier(0.25, 0.1, 0.25, 1)，用 mygo 的同名曲线逐字对齐。
+var cardLiftAnim = ui.Animation{
+	Duration: 160 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // drawerSnap 是抽屉下滑手势的落点（ui.Draggable 的 Snap）：松手时位置在上半
 // 就弹回原位（{}），被甩过中点就落到最底（{Y: h}）等着关闭。用
 // ui.Nearest 而不是自己判阈值：它拿的是**带速度投影**后的位置，
@@ -287,7 +298,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 	switch a.Drawer {
 	case DrawerSearch:
 		// 原版 searchList 表头：「搜索」标题 + 排序 tab。
-		ui.Text(c, "搜索").FontSize(14).FontWeight(600).
+		ui.Text(c, "搜索").FontSize(14).FontWeight(600).SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		a.tabs(c, "sort", []tabItem{
 			{Key: SortTotal, Label: "综合"},
@@ -318,7 +329,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 	case "favorite":
 		// 原版 collectList 表头文案「收藏列表」（14/600 #334155，字重由 header 的
 		// 全局规则统一给出）。
-		ui.Text(c, "收藏列表").FontSize(14).FontWeight(600).
+		ui.Text(c, "收藏列表").FontSize(14).FontWeight(600).SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		// 原版表头**不判空**：收藏夹还没回来（或一个都没有）时照样画左右滚动键
 		// 与（空的）胶囊容器，空态只出现在正文里（.history-empty-tip）。之前这里
@@ -334,7 +345,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		})
 		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
-		ui.Text(c, "动态列表").FontSize(14).FontWeight(600).TextColor(ui.Hex("#334155"))
+		ui.Text(c, "动态列表").FontSize(14).FontWeight(600).SingleLine().TextColor(ui.Hex("#334155")).Shrink(0)
 	case DrawerUp:
 		a.upHeader(c)
 	case DrawerParts:
@@ -362,8 +373,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 			}
 		}
 	default:
-		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(600).
-			TextColor(ui.Hex("#334155"))
+		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(600).SingleLine().
+			TextColor(ui.Hex("#334155")).Shrink(0)
 	}
 }
 
@@ -375,7 +386,7 @@ func (a *App) upHeader(c *ui.Context) {
 	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(600).
 		SingleLine().MaxWidth(200).TextColor(ui.Hex("#334155")).Shrink(0)
 	if a.UpFans > 0 {
-		ui.Text(c, "粉丝 "+fanCount(a.UpFans)).FontSize(12).
+		ui.Text(c, "粉丝 "+fanCount(a.UpFans)).FontSize(12).SingleLine().
 			TextColor(ui.Hex("#71717a")).Shrink(0)
 	}
 
@@ -558,8 +569,13 @@ func (a *App) tabs(c *ui.Context, group string, items []tabItem, selected string
 }
 
 func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect func(string)) {
+	// 原版 header 是单行 flex：tab 不参与收缩（globals.css:4055 的
+	// `header [data-slot="base"]:has([data-slot="tabList"]) { flex: 0 0 auto }`
+	// 与 `[data-slot="tab"] { white-space: nowrap }`）——长标签（如条数变大后的
+	// 「我的列表(12345)」）会把 tab 挤窄、文字折行。这里按钮 Shrink(0)、文字
+	// SingleLine，宽度随标签内容快速变化，永不换行。
 	b := ui.ButtonBase(c.Key("tab-"+group+"-"+it.Key)).Height(32).Padding(0, 14).
-		Radius(Radius).Center().Label(it.Label)
+		Shrink(0).Radius(Radius).Center().Label(it.Label)
 	// 半透明填充（选中态更实一点 = 底色更亮），不再用 Backdrop 真玻璃。
 	buttonSurface(b, active, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
@@ -576,11 +592,11 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 			// 原版是 flex items-center gap-1（4px）+ 14px 图标。
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, it.Icon).Size(14, 14).TextColor(ink)
-				ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink)
+				ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink).SingleLine()
 			})
 			return
 		}
-		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink)
+		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink).SingleLine()
 	})
 	if b.Clicked() && !active {
 		onSelect(it.Key)
@@ -592,7 +608,7 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 	active := f.ID == a.FolderID
 	label := fmt.Sprintf("%s (%d)", f.Title, f.Count)
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("folder-%d", f.ID))).Height(32).Padding(0, 14).
-		Radius(Radius).Center().Label(label)
+		Shrink(0).Radius(Radius).Center().Label(label)
 	buttonSurface(b, active, b.Hovered(),
 		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
 	b.Children(func() {
@@ -689,6 +705,13 @@ func (a *App) drawerBody(c *ui.Context) {
 		return
 	}
 
+	// 播放列表记录行也用虚拟化 ui.List（可能上百条，逐行全建会把上百张
+	// 缩略图每帧抢缓存、互相挤出 LRU，用户报「左侧图标不显示」）。
+	if a.Drawer == DrawerPlaylist {
+		a.playlistBody(c)
+		return
+	}
+
 	// 其余抽屉内容不多，统一套一层滚动。
 	//
 	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
@@ -699,8 +722,6 @@ func (a *App) drawerBody(c *ui.Context) {
 		case DrawerUp:
 			// UP 空间有两个 tab：视频是卡片列表（上面已处理），合集是一排胶囊。
 			a.seriesListBody(c)
-		case DrawerPlaylist:
-			a.playlistBody(c)
 		}
 	})
 }
@@ -1269,7 +1290,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 圆角 12、半透明填充（近似玻璃底）、封面通栏（.img-container 高 100）、
 	// 页脚另有一层浅底。
 	box := ui.Column(c).Key(spec.Key).Grow(1).Basis(0).
-		Radius(12).Clip().Cursor(ui.CursorPointer)
+		Radius(12).Clip()
 	// 卡片是**半透明填充**，不是真玻璃（每张卡一次 backdrop 重算）。
 	//
 	// 原版 globals.css `[data-slot="wrapper"] [role="button"][class*="bg-content"]`
@@ -1301,12 +1322,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
 	}
 	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
-	// v0.4.3 的 Transforms 对任意元素生效，用弹簧做，中途移开会顺着速度回去。
+	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
 	lift := float32(0)
 	if box.Hovered() || spec.Active {
 		lift = -3
 	}
-	box.Translate(0, box.AnimateTo("lift", lift, ui.Snappy))
+	box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim))
 
 	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
 	// 的那张挂上：PointerPosition 会让引擎在指针每次移动时补帧，全网格都挂就
@@ -1325,6 +1346,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 			if bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
+			} else if spec.Cover != "" && placeholderCover != nil {
+				// 有封面地址但还没解码好：先画占位图（原版 RetryImg 的
+				// /cover.png），解码完的下一帧再被上面的真图盖掉 —— 渐进式
+				// 加载，不是等下载完才画。地址为空（本来就没封面）不铺，
+				// 保持卡片玻璃与悬停光晕。
+				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
 			if spec.Duration != "" {
@@ -1488,7 +1515,7 @@ func (a *App) partsHeader(c *ui.Context) {
 		n = len(a.Info.Parts)
 	}
 	// 原版 pageList 表头：「选集(N)」是 text-sm（14/600，见 header 全局规则）。
-	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(600).
+	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(600).SingleLine().
 		TextColor(ui.Hex("#334155")).Shrink(0)
 
 	if a.Track != nil {
@@ -1661,7 +1688,8 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			if a.Act.Play != nil {
 				a.Act.Play(index)
 			}
-			a.Drawer = ""
+			// 原版从选集面板点一集不会关面板（handleVideoSelect 不动
+			// showPageList）；抽屉保持打开，方便接着往下挑。
 		},
 	}
 	a.renderCard(c, spec)
@@ -1941,7 +1969,6 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
 		Margin(2, 0).
 		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start).
-		Cursor(ui.CursorPointer).
 		InsetShadow(0, -1, 0, 0, sep)
 	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
 	switch {

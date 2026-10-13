@@ -80,28 +80,68 @@ func (a *App) playModeButton(c *ui.Context) {
 }
 
 // playlistBody 画记录列表。
+//
+// 用虚拟化 ui.List（同卡片网格）：播放列表可能上百条，逐行全建会让每行都
+// 调一次 Bitmap，上百张 192w 缩略图每帧争抢缓存、互相把对方挤出 64 条 LRU
+// （实测 100 行 352 次重复抓取、可见缩略图只剩 1 张），用户报「左侧图标不
+// 显示」。改成只建可见行 + 只预取可见窗口后，抓取次数回落到与可见行同阶。
 func (a *App) playlistBody(c *ui.Context) {
 	t := a.Theme
 	items := a.playlistActive(a.PlaylistTab)
 	if len(items) == 0 {
-		if a.PlaylistTab == ListSeries {
-			ui.Text(c, "合集列表为空（在合集里点「播放全部」加载）").FontSize(12).TextColor(t.Faint)
-		} else {
-			// 原版 playlist.tsx 的空态：主副两行。
-			ui.Column(c).FillWidth().Center().Margin(20, 0, 0, 0).Gap(4).Children(func() {
-				ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint)
-				ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).TextColor(t.Faint)
-			})
-		}
+		// 空态内容少，仍套一层滚动容器（与之前一致）。
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
+			if a.PlaylistTab == ListSeries {
+				ui.Text(c, "合集列表为空（在合集里点「播放全部」加载）").FontSize(12).TextColor(t.Faint)
+			} else {
+				// 原版 playlist.tsx 的空态：主副两行。
+				ui.Column(c).FillWidth().Center().Margin(20, 0, 0, 0).Gap(4).Children(func() {
+					ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint)
+					ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).TextColor(t.Faint)
+				})
+			}
+		})
 		return
 	}
-	ui.Column(c).Gap(4).Children(func() {
-		for i := range items {
-			a.playlistRow(c, i, items[i])
-		}
-	})
+	l := a.list()
+	st := &l.Rows
+	// 行键取记录 ID：拖拽排序 / 删除后，行状态跟着记录走。
+	st.Key = func(i int) any { return items[i].ID }
+	// 定位当前：屏外的行不构建，把目标行交给 ListState 让它布局时滚过去。
+	if a.locateNow && a.Index >= 0 && a.Index < len(items) {
+		st.ScrollTo(a.Index, ui.Start)
+	}
+	a.prefetchPlaylistCovers(st, items)
+	ui.List(c, st, len(items), func(i int) { a.playlistRow(c, i, items[i]) }).
+		FillWidth().Grow(1).Gap(4).Padding(8, 24)
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false
+}
+
+// playlistCoverURL 是一条播放列表记录要显示的缩略图地址：分集首帧优先，
+// 否则视频封面（原版 `graftingImage(item.first_frame || item.pic, 192)`）。
+func playlistCoverURL(it PlayItem) string {
+	if it.FirstFrame != "" {
+		return it.FirstFrame
+	}
+	return it.Pic
+}
+
+// playlistInitialRows 是播放列表还没布局过时预取的初始行数。
+const playlistInitialRows = 8
+
+// prefetchPlaylistCovers 只给可见行（外加上下几行 overscan）预取缩略图。
+// 与 prefetchCardCovers 同一思路：构建只 Get，请求只按上一帧的可见窗口发。
+func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
+	first, last := st.Visible()
+	if last < first {
+		first, last = 0, min(len(items), playlistInitialRows)
+	}
+	first = max(0, first-2)
+	last = min(len(items), last+3)
+	for i := first; i < last; i++ {
+		a.Images.Bitmap(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+	}
 }
 
 // playlistRowPaint 是播放列表一行的配色与字重，逐条对应原版 globals.css 里
@@ -226,7 +266,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		padL = 0
 	}
 	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(8, 8, 8, padL).
-		Radius(playlistRowRadius).Gap(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+		Radius(playlistRowRadius).Gap(8).AlignItems(ui.Center)
 
 	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。
 	editable := a.PlaylistTab == ListUser
@@ -258,9 +298,8 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		pose = ui.Pose{Scale: 0.985}
 	}
 	row.AnimatePose(pose, ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut})
-	if current && a.locateNow {
-		row.ScrollIntoView()
-	}
+	// 定位已交给 playlistBody 的 ListState.ScrollTo（屏外的行不构建，
+	// 行自己的 ScrollIntoView 对虚拟列表无效）。
 
 	row.Children(func() {
 		// 原版 .playlist-current 的 border-left 4px 强调条。
@@ -275,12 +314,13 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		// 缩略图 64×36。原版 .bg-gray-200 被覆写成 rgba(226,232,240,.6)。
 		ui.Box(c).Width(64).Height(36).Shrink(0).Radius(4).
 			Background(ui.Hex("#e2e8f0").Alpha(0.6)).Clip().Children(func() {
-			src := item.FirstFrame
-			if src == "" {
-				src = item.Pic
-			}
-			if bmp := a.Images.Bitmap(src, imagecache.WidthPlaylist); bmp != nil {
+			src := playlistCoverURL(item)
+			// 构建只读缓存：缩略图由 playlistBody 的可见窗口预取负责抓。
+			if bmp := a.Images.Get(src, imagecache.WidthPlaylist); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
+			} else if src != "" && placeholderCover != nil {
+				// 未就绪先画占位图，与列表卡片同一套渐进式加载。
+				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 			}
 		})
 

@@ -4,7 +4,8 @@
 //
 //	Linux   MPRIS（org.mpris.MediaPlayer2），桌面环境的「正在播放」卡片、
 //	        媒体键、锁屏控件都读它。
-//	macOS   mygo 目前没有 Now Playing 的绑定，暂为 no-op。
+//	macOS   MPNowPlayingInfoCenter + MPRemoteCommandCenter（Now Playing 席位，
+//	        媒体键 / 蓝牙耳机键由系统路由过来）。
 //	Windows 同上（SMTC），暂为 no-op。
 //
 // 界面只通过这个接口调用，平台差异都收在实现文件里。

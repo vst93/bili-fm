@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -475,5 +477,42 @@ func TestRelTimeLadder(t *testing.T) {
 	lastMonth := now.AddDate(0, -2, 0)
 	if got := relTime(lastMonth.Unix()); got == "" {
 		t.Errorf("relTime(2个月前) 为空")
+	}
+}
+
+// TestKeepDrawerOnPlay 钉住「切换播放项不强制关抽屉」：原版从选集面板点一集
+// （handleVideoSelect）不关面板，播放列表模式下手动/自动切歌也不关
+// （handlePlaylistVideoSelect 的 preserveUi）；其余抽屉起播时关掉。
+func TestKeepDrawerOnPlay(t *testing.T) {
+	keep := map[string]bool{
+		view.DrawerParts:    true,
+		view.DrawerPlaylist: true,
+		view.DrawerSearch:   false,
+		"feed":              false,
+		"favorite":          false,
+		"":                  false,
+	}
+	for drawer, want := range keep {
+		if got := keepDrawerOnPlay(drawer); got != want {
+			t.Errorf("keepDrawerOnPlay(%q) = %v, want %v", drawer, got, want)
+		}
+	}
+}
+
+// TestNoStartupQueueRestore 钉住「去掉启动时的历史播放项恢复」：启动路径
+// （main.go / playlist.go）不得再引用 restoreQueue / mygo_queue —— 用户明确
+// 要求不再自动恢复上次播放项（原版也不在启动时恢复）。这是回归闸门：谁再把
+// 恢复逻辑加回来，这条会红。
+func TestNoStartupQueueRestore(t *testing.T) {
+	for _, file := range []string{"main.go", "playlist.go"} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("读 %s 失败：%v", file, err)
+		}
+		for _, banned := range []string{"restoreQueue", "mygo_queue", "mygo_index"} {
+			if bytes.Contains(src, []byte(banned)) {
+				t.Errorf("%s 仍引用 %q（启动恢复应已移除）", file, banned)
+			}
+		}
 	}
 }

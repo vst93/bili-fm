@@ -37,6 +37,15 @@ type homeLayout struct {
 // homeNarrowWidth 是主区单列的断点（原版 @media (max-width: 680px)）。
 const homeNarrowWidth = 680
 
+// faceHoverAnim 是主区 UP 主头像悬停放大 / 回落的动画：原版 #video-owner-face 的
+// `transition: box-shadow 0.2s ease, transform 0.18s ease`（globals.css:2178），
+// 用 CSS `ease` = cubic-bezier(.25,.1,.25,1)。之前用 ui.Snappy 弹簧（约 500ms），
+// 悬停放大/回落偏黏。
+var faceHoverAnim = ui.Animation{
+	Duration: 180 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // homeLayoutFor 按窗口宽度算出主区这一帧的布局。抽成纯函数便于单测断点与取值。
 func homeLayoutFor(width float32) homeLayout {
 	l := homeLayout{StagePadY: 20, StagePadX: 28, CoverShell: 292}
@@ -121,6 +130,10 @@ func (a *App) searchField(c *ui.Context) {
 		} else {
 			btnLightTool.draw(submit, ToolButtonR)
 		}
+		// 原版 .search-submit-btn::after：悬停才显形的内高光 + 弱投影（不是描边）。
+		if submit.Hovered() && !submit.Pressed() {
+			topToolHoverHighlight(submit, topToolSubmit)
+		}
 		topToolPose(submit)
 		searching := a.list().Loading
 		submit.Disabled(searching)
@@ -184,10 +197,10 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	} else {
 		btnLightTool.draw(b, ToolButtonR)
 	}
-	if s.Bg.A > 0 {
-		b.Border(1, ui.Hex("#ffffff").Alpha(0.55)).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
-			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+	// 原版 .top-tool-btn::after：悬停才显形的内高光 + 弱投影（不是描边）。
+	// 之前这里用「白 .55 描边 + inset .55」近似，比原版（白 .9 / 10px）低一档。
+	if b.Hovered() && !b.Pressed() {
+		topToolHoverHighlight(b, topToolEntry)
 	}
 	topToolPose(b)
 	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(s.Ink) })
@@ -228,6 +241,9 @@ func (a *App) userButton(c *ui.Context) {
 	avatarShadow(b)
 	avatarLift(b)
 	b.Children(func() {
+		// 头像一直挂在药丸最右端（抽屉开着时也可见），每帧重申「常驻」，
+		// 免得被抽屉里一轮封面抓取挤出 LRU 后重抓（表现为头像不定期闪动）。
+		a.Images.Retain(a.Face, imagecache.WidthAvatar)
 		if bmp := a.Images.Bitmap(a.Face, imagecache.WidthAvatar); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
 		} else {
@@ -601,8 +617,13 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				Label("UP 主空间")
 			paint := ownerFacePaintFor(face.Hovered())
 			applyShadows(face, paint.Shadows)
-			face.AnimatePose(ui.Pose{Scale: paint.Scale}, ui.Snappy)
+			// 原版 #video-owner-face 的 `transition: box-shadow 0.2s ease,
+			// transform 0.18s ease`：悬停 scale(1.06) 走 180ms 曲线。之前用
+			// ui.Snappy（500ms 弹簧），比原版慢近三倍，悬停放大/回落显得黏。
+			face.AnimatePose(ui.Pose{Scale: paint.Scale}, faceHoverAnim)
 			face.Children(func() {
+				// UP 头像与登录头像同理：主区右栏一直可见，别被抽屉封面挤走。
+				a.Images.Retain(a.ownerFace(), imagecache.WidthAvatar)
 				if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
 				}
@@ -669,6 +690,13 @@ func (a *App) openUp() {
 	a.Act.OpenUp(mid, name)
 }
 
+// partDotSize 是 .video-part-pill 里小圆点的边长（原版 7px）。
+const partDotSize float32 = 7
+
+// partTitleInk 是 .video-part-title 的文本色（原版 #475569，比胶囊本体的
+// #0369a1 浅一档）。
+var partTitleInk = ui.Hex("#475569")
+
 // partPill 是选集胶囊（.video-part-pill）：小圆点 + 来源 + 分集标题。
 // 从播放列表播入时前缀显示「播放列表」（原版 isPlaylistMode）。
 func (a *App) partPill(c *ui.Context) {
@@ -694,9 +722,13 @@ func (a *App) partPill(c *ui.Context) {
 		InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.50)).
 		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
 		Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Box(c).Size(6, 6).Shrink(0).Radius(RadiusPill).Background(dotInk)
+		// .video-part-dot：7px（不是 6）——比原版小 1px 时圆点在胶囊里显得发飘。
+		ui.Box(c).Size(partDotSize, partDotSize).Shrink(0).Radius(RadiusPill).Background(dotInk)
+		// .video-part-source 继承胶囊的 #0369a1 / 700。
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
-		ui.Text(c, a.partTitle()).FontSize(13).Bold().TextColor(blue).SingleLine()
+		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
+		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
+		ui.Text(c, a.partTitle()).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
 	})
 }
 
@@ -952,10 +984,15 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		case spec.Active:
 			glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
 		default:
-			glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+			// 原版 .nav-icon-btn：常态透明，悬停 --glass-bg-hover（白 .38）、
+			// 按下 --glass-bg-active（白 .16）；悬停的内高光由下面 ::after 补齐。
+			b.Background(pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
 		}
 		// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
 		btnLightNav.draw(b, ContentIconR)
+		if b.Hovered() && !b.Pressed() {
+			navHoverHighlight(b)
+		}
 		b.Children(func() {
 			ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
 				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
@@ -1000,6 +1037,10 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
 	// 之前原生版只有填充、少了这道光（见 btnlight.go）。
 	btnLightNav.draw(b, ContentIconR)
+	// 悬停再叠 ::after 内高光（原版不是描边）。
+	if b.Hovered() && !b.Pressed() {
+		navHoverHighlight(b)
+	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
 	if b.Clicked() && fn != nil {
 		fn()
@@ -1022,6 +1063,10 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态的左上角径向聚光（见 btnlight.go）。
 	btnLightNav.draw(b, DockIconR)
+	// 悬停再叠 ::after 内高光（原版不是描边）。
+	if b.Hovered() && !b.Pressed() {
+		navHoverHighlight(b)
+	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(textInk) })
 	if b.Clicked() && fn != nil {
 		fn()

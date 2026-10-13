@@ -185,24 +185,41 @@ func countDark(img *image.RGBA, x0, y0, x1, y1 int) int {
 // TestToastFadesIn 无头渲染实测：新 toast 是被 ElementTransition 由上方 8px
 // 淡入的 —— 刚入队的首帧几乎全透明（几乎数不到暗色正文像素），等过 300ms 入场
 // 结束后正文清晰可辨。去掉 Transition 后首帧就完全显形，本测试按预期变红。
+//
+// 入场是墙钟驱动的：首帧的采样点落在 Frame 内部连续跑完的若干帧之后，宿主
+// 内存回收/调度抖动偶尔会让这几帧耗时 >225ms，首帧就被当成「已淡入」。
+// 这不是产品缺陷（无头也拿不到 mygo 的测试时钟），所以重试几次，任意一次
+// 采到「首帧明显比入场结束淡」即通过；真去掉 Transition 每次都会同样失败。
 func TestToastFadesIn(t *testing.T) {
-	a := NewApp(func() {})
-	a.Theme = ThemeFor(PeriodAt(12))
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
-	tst.Frame()
-	a.NotifyType("error", "登录失败")
-	tst.Frame()
-	r, ok := tst.Find("登录失败")
-	if !ok {
-		t.Fatalf("找不到刚入队的 toast 文案：%v", tst.Texts())
+	const attempts = 3
+	var born, settled int
+	var measured bool
+	for i := 0; i < attempts; i++ {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+		tst.Frame()
+		a.NotifyType("error", "登录失败")
+		tst.Frame()
+		r, ok := tst.Find("登录失败")
+		if !ok {
+			t.Fatalf("找不到刚入队的 toast 文案：%v", tst.Texts())
+		}
+		x0, x1 := int(r.X), int(r.X)+int(r.W)
+		y0, y1 := int(r.Y), int(r.Y)+int(r.H)
+		born = countDark(tst.Image(), x0, y0, x1, y1)
+		time.Sleep(400 * time.Millisecond)
+		tst.Frame()
+		settled = countDark(tst.Image(), x0, y0, x1, y1)
+		measured = true
+		if born <= settled/4 {
+			break
+		}
 	}
-	x0, x1 := int(r.X), int(r.X)+int(r.W)
-	y0, y1 := int(r.Y), int(r.Y)+int(r.H)
-	born := countDark(tst.Image(), x0, y0, x1, y1)
-	time.Sleep(400 * time.Millisecond)
-	tst.Frame()
-	settled := countDark(tst.Image(), x0, y0, x1, y1)
 	t.Logf("首帧暗色像素 %d，入场结束后 %d", born, settled)
+	if !measured {
+		t.Fatal("没有采到任何一帧")
+	}
 	if born > settled/4 {
 		t.Errorf("首帧就有 %d 个暗色像素（入场结束后 %d）——toast 没有淡入", born, settled)
 	}

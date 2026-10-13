@@ -187,7 +187,6 @@ func main() {
 	c.wireActions()
 	c.wirePlayer()
 	c.wireVideo()
-	c.restoreQueue()
 	c.setupMediaCenter()
 
 	// 视频弹窗页面用 Video.* 调这些方法，所以要显式绑定成 Video（类型名默认是 Service）。
@@ -640,7 +639,6 @@ func (c *controller) handleEnded() {
 func (c *controller) quit() {
 	c.quitting = true
 	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
-	c.saveQueue()
 	if c.media != nil {
 		c.media.Close()
 	}
@@ -1189,39 +1187,8 @@ func (c *controller) togglePin() {
 	c.app.Win.Update(func() {})
 }
 
-// saveQueue 把播放队列与当前位置写进本地存储（键名带 mygo_ 前缀，
-// 不与旧版 playlist 格式冲突）。
-func (c *controller) saveQueue() {
-	if len(c.app.Queue) == 0 {
-		return
-	}
-	b, err := json.Marshal(c.app.Queue)
-	if err != nil {
-		return
-	}
-	_ = c.kv.SetString("mygo_queue", string(b))
-	_ = c.kv.SetString("mygo_index", fmt.Sprint(c.app.Index))
-}
-
-// restoreQueue 启动时恢复上次的队列。
-func (c *controller) restoreQueue() {
-	raw := c.kv.String("mygo_queue")
-	if raw == "" {
-		return
-	}
-	var q []view.Track
-	if json.Unmarshal([]byte(raw), &q) != nil || len(q) == 0 {
-		return
-	}
-	idx := 0
-	fmt.Sscanf(c.kv.String("mygo_index"), "%d", &idx)
-	if idx < 0 || idx >= len(q) {
-		idx = 0
-	}
-	c.app.Queue, c.app.Index = q, idx
-	c.app.Track = &c.app.Queue[idx]
-	log.Printf("恢复播放列表 %d 条，当前第 %d 条", len(q), idx+1)
-}
+// 播放队列的落盘与启动恢复已移除：用户明确要求去掉「启动时恢复上次
+// 播放项」（原版也不在启动时自动恢复播放）。
 
 // ---------------------------------------------------------------- 列表
 
@@ -1779,6 +1746,14 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 	return info
 }
 
+// keepDrawerOnPlay 报告起播时该保留哪个抽屉。原版从选集面板点一集
+// （handleVideoSelect）不会关面板；播放列表模式下手动/自动切歌也不关
+// （handlePlaylistVideoSelect 的 preserveUi）。其余抽屉（搜索/分区/UP 空间…）
+// 点卡片会先被换成选集抽屉，起播时再关掉。
+func keepDrawerOnPlay(drawer string) bool {
+	return drawer == view.DrawerPlaylist || drawer == view.DrawerParts
+}
+
 // startCurrent 起播当前队列项：取播放地址 → 起播 → 拉弹幕与跳过分段。
 func (c *controller) startCurrent() {
 	t := c.app.Current()
@@ -1794,8 +1769,10 @@ func (c *controller) startCurrent() {
 	c.app.Buffering = true
 	c.app.Buffered = 0
 	c.app.Status = "起播中…"
-	// 从选集、搜索结果等进入时关掉抽屉；播放列表模式下要保留列表。
-	if c.app.Drawer != view.DrawerPlaylist {
+	// 从选集、搜索结果等进入时关掉抽屉；选集/播放列表模式下要保留面板——
+	// 原版在选集里点一集（handleVideoSelect）不会关选集面板，播放列表模式下
+	// 手动/自动切歌也不关（handlePlaylistVideoSelect 的 preserveUi）。
+	if !keepDrawerOnPlay(c.app.Drawer) {
 		c.app.Drawer = ""
 	}
 	c.app.Danmaku = nil
@@ -1814,8 +1791,6 @@ func (c *controller) startCurrent() {
 		Aid: t.Aid, Bvid: t.Bvid, Cid: t.Cid,
 		Title: t.Title, Pic: t.Cover, OwnerName: t.Up,
 	}
-	// 在主线程先把队列写盘（写盘要读 Queue/Index，不能在网络 goroutine 里读）。
-	c.saveQueue()
 	c.syncMediaTrack()
 	// 倍速/均衡/音量也在主线程取好，goroutine 里不读界面状态。
 	speed, eq, vol := c.app.Speed, c.app.EQ, c.app.Volume

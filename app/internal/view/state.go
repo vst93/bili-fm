@@ -124,6 +124,12 @@ type List struct {
 	// mygo 的 ui.List 只构建可见的行，取代了之前「每帧重建整张网格」的做法
 	// （见 cardGrid / partsGrid）。同一个 List 只服务一个抽屉 key，两者不会同时用。
 	Grid ui.ListState
+	// Rows 是播放列表记录行的虚拟化列表状态。播放列表可能很长（用户报
+	// 「历史添加的作品左侧图标不显示」），逐行全建会让上百张 192w 缩略图
+	// 每帧争抢缓存、互相把对方挤出 LRU（实测 100 行 352 次重复抓取、
+	// 可见缩略图只剩 1 张）；改用 ui.List 后只建可见行，缩略图也只预取
+	// 可见窗口（同 prefetchCardCovers 的思路）。
+	Rows ui.ListState
 }
 
 // ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，
@@ -368,6 +374,10 @@ type ImageStore interface {
 	// Touch 把一张图标记为「本轮可见」：fetch 队列优先服务它
 	//（原版浏览器 loading=lazy 的可见优先语义；实作用不到时是空操作）。
 	Touch(url string, width int)
+	// Retain 把一张图标记为「常驻」：缓存淘汰永不丢它。头像这类一直挂在
+	// 界面上的小图每帧重申一次，免得被列表封面的一轮抓取挤出 LRU（实作用
+	// 不到时是空操作）。
+	Retain(url string, width int)
 	// Cancel 取消一张图的抓取请求（滚出预取窗口时）：还在排队的退队
 	// 回滚并发名额，已拿到名额在途的照常完成（原版浏览器对滚出的
 	// loading=lazy 图取消加载；实作用不到时是空操作）。

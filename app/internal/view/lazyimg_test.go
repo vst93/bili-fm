@@ -157,6 +157,9 @@ type recordingCache struct {
 	// 氛围光 320）。
 	widths map[string]int
 	calls  []imgCall
+	// retains 记录被 Retain（常驻不淘汰）的 URL：头像这类一直挂在界面上的
+	// 小图每帧重申，验证它们真的接上了 Retain。
+	retains []string
 }
 
 type imgCall struct {
@@ -199,6 +202,15 @@ func (r *recordingCache) Get(url string, width int) *ui.Bitmap {
 func (r *recordingCache) Pending() int { return 0 }
 
 func (r *recordingCache) Touch(url string, width int) {}
+
+func (r *recordingCache) Retain(url string, width int) {
+	if url == "" {
+		return
+	}
+	r.mu.Lock()
+	r.retains = append(r.retains, url)
+	r.mu.Unlock()
+}
 
 func (r *recordingCache) Cancel(url string, width int) {
 	r.mu.Lock()

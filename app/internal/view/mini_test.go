@@ -179,6 +179,7 @@ type miniCoverCache struct{ bmp *ui.Bitmap }
 func (m *miniCoverCache) Bitmap(string, int) *ui.Bitmap        { return m.bmp }
 func (m *miniCoverCache) Get(string, int) *ui.Bitmap           { return m.bmp }
 func (m *miniCoverCache) Touch(string, int)                    {}
+func (m *miniCoverCache) Retain(string, int)                   {}
 func (m *miniCoverCache) Cancel(string, int)                   {}
 func (m *miniCoverCache) Ambient(string, int, bool) *ui.Bitmap { return nil }
 func (m *miniCoverCache) Pending() int                         { return 0 }

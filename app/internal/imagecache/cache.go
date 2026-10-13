@@ -92,6 +92,13 @@ type Cache struct {
 	// 可见窗口先交给 Touch 再 Bitmap，fetch 启动时查它决定排优先队还是
 	// 普通队（原版靠浏览器 loading=lazy 天然可见优先，这里显式给出）。
 	priority map[key]struct{}
+
+	// retained 是「常驻」的（URL, 宽度）：evictLocked 永不淘汰它们。
+	// 头像这类小图一直挂在界面上，列表封面的一轮抓取（一屏十几张）就会
+	// 把它们挤出 64 条的 LRU —— 下一帧 Bitmap 未命中又重抓，头像于是
+	// 「闪一下」（用户报的登录/UP 头像不定期闪动）。Retain 每帧重申一次，
+	// 让这些图钉在缓存里。
+	retained map[key]struct{}
 }
 
 type entry struct {
@@ -204,6 +211,7 @@ func New(notify func()) *Cache {
 		items:        map[key]*entry{},
 		notify:       notify,
 		priority:     map[key]struct{}{},
+		retained:     map[key]struct{}{},
 		transcodeURL: ThumbTranscoded,
 	}
 	c.slotCond = sync.NewCond(&c.mu)
@@ -413,6 +421,23 @@ func (c *Cache) Get(rawURL string, width int) *ui.Bitmap {
 	}
 	c.touchLocked(k)
 	return e.bitmap
+}
+
+// Retain 把（URL, 宽度）标记为「常驻」：evictLocked 永不淘汰它。头像这类
+// 一直挂在界面上的小图用它在每帧重申，免得被列表封面的一轮抓取挤出 LRU。
+// 幂等，可任意 goroutine 调用；只影响淘汰，不发起抓取。
+func (c *Cache) Retain(rawURL string, width int) {
+	if rawURL == "" {
+		return
+	}
+	k := key{rawURL, width}
+	c.mu.Lock()
+	if c.retained == nil {
+		c.retained = map[key]struct{}{}
+	}
+	c.retained[k] = struct{}{}
+	c.touchLocked(k)
+	c.mu.Unlock()
 }
 
 // Touch 把（URL, 宽度）标记为「本轮可见」：预取方每帧先对可见窗口调
@@ -711,12 +736,16 @@ func (c *Cache) touchLocked(k key) {
 // evictLocked 淘汰最久未用的条目，只丢已经加载完的（正在抓的不动）。
 //
 // 从队首往后找第一个非 pending 的淘汰；跳过 pending 的（它们就绪后会
-// 变回可淘汰）。这样即使一次涌入大量抓取请求，缓存也不会无界增长。
+// 变回可淘汰）与 Retain 过的常驻图（头像）。这样即使一次涌入大量抓取请求，
+// 缓存也不会无界增长，而界面上一直可见的小图不会被列表封面挤走。
 func (c *Cache) evictLocked() {
 	for len(c.order) > c.limit {
 		evicted := false
 		for i := 0; i < len(c.order) && len(c.order) > c.limit; i++ {
 			u := c.order[i]
+			if _, keep := c.retained[u]; keep {
+				continue // 常驻图（头像）不淘汰
+			}
 			if e := c.items[u]; e != nil && e.pending {
 				continue // 抓取中的先留着，就绪后下一轮淘汰
 			}

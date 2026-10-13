@@ -89,9 +89,9 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - [x] 迷你模式（400×155 置顶小窗，三平台都可用 —— 原生窗口不受
       webkit2gtk 无法运行时改尺寸的限制）
 - [x] 系统托盘 + 关闭到托盘
-- [x] 全局媒体键（macOS 上 mygo 的 Carbon 热键没有媒体键码，静默降级）
-- [x] 播放队列持久化（`mygo_queue` / `mygo_index`）
-- [ ] 系统媒体中心（macOS Now Playing / Windows SMTC / Linux MPRIS）
+- [x] 全局媒体键（macOS 走系统 Now Playing 派发，见下）
+- [x] ~~播放队列持久化（`mygo_queue` / `mygo_index`）~~（用户要求去掉启动恢复，已整体移除落盘/恢复）
+- [x] 系统媒体中心（macOS Now Playing + Linux MPRIS；Windows SMTC 待做）
 - [x] 播放进度上报到 B 站（见「界面还原」一节的第三批 / `app/progress.go`）
 
 ### M4 发版
