@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"image"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -226,5 +227,129 @@ func TestReplyInkMatchesSlateOverride(t *testing.T) {
 	}
 	if replyInkMeta == "#475569" {
 		t.Error("时间/点赞应走 .text-xs.text-default-400 的 #64748b，不是基础的 #475569")
+	}
+}
+
+// TestDanmakuCurrentIndexIndependentOfAutoScroll 钉住当前组高亮与「自动跟随」
+// 开关解耦：原版 is-current 由 currentIndex 决定，开关（isAutoScroll）只控制
+// 滚动。此前 danmakuBody 写成 `if a.DanmakuAutoScroll && a.Pos > 0`，一关跟随
+// 当前组就不再变蓝，也丢了停在 00:00 时高亮首组的行为。
+func TestDanmakuCurrentIndexIndependentOfAutoScroll(t *testing.T) {
+	a := NewApp(func() {})
+	a.Danmaku = []Danmaku{{Time: 0, Text: "a"}, {Time: 30, Text: "b"}, {Time: 60, Text: "c"}}
+	groups := a.danmakuGroups()
+	a.Pos = 31
+
+	a.DanmakuAutoScroll = true
+	if got := a.danmakuCurrentIndex(groups); got != 1 {
+		t.Errorf("自动跟随时当前组 = %d, want 1", got)
+	}
+	a.DanmakuAutoScroll = false
+	if got := a.danmakuCurrentIndex(groups); got != 1 {
+		t.Errorf("关闭跟随后当前组 = %d, want 1（高亮不该随开关消失）", got)
+	}
+
+	// 原版 currentTime 初始 0 → currentIndex 取首组，而不是 -1。
+	a.Pos = 0
+	if got := a.danmakuCurrentIndex(groups); got != 0 {
+		t.Errorf("Pos=0 当前组 = %d, want 0", got)
+	}
+	// 负时间（未就绪）不标当前组。
+	a.Pos = -1
+	if got := a.danmakuCurrentIndex(groups); got != -1 {
+		t.Errorf("Pos<0 当前组 = %d, want -1", got)
+	}
+	if got := a.danmakuCurrentIndex(nil); got != -1 {
+		t.Errorf("空分组当前组 = %d, want -1", got)
+	}
+}
+
+// blueLabelPixels 数某个矩形附近「#0284c7 实心蓝底」的像素（当前组的时间胶囊，
+// 原版 .danmaku-time-group.is-current .danmaku-time-label 的 background）。
+func blueLabelPixels(img *image.RGBA, r ui.Rect) int {
+	n := 0
+	x0, y0 := int(r.X)-6, int(r.Y)-3
+	x1, y1 := int(r.X+r.W)+6, int(r.Y+r.H)+3
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+				continue
+			}
+			i := img.PixOffset(x, y)
+			rr, gg, bb := int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])
+			// #0284c7 = (2,132,199)：蓝压倒红，且比绿更蓝。
+			if bb > 150 && gg > 90 && gg < bb && rr < 80 {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// TestDanmakuCurrentHighlightWired 无头反证：关闭自动跟随后，当前组的时间胶囊
+// 仍是实心蓝底（原版 is-current 与开关无关）。把 danmakuCurrentIndex 改回
+// `if a.DanmakuAutoScroll` 那条，这条即变红。
+func TestDanmakuCurrentHighlightWired(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{
+		{Time: 0, Text: "开头"},
+		{Time: 30, Text: "中间"},
+		{Time: 60, Text: "结尾"},
+	}
+	a.Drawer = DrawerDanmaku
+	a.DanmakuAutoScroll = false // 关键：关掉跟随
+	a.Pos = 30
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame()
+
+	r, ok := tst.Find("00:30")
+	if !ok {
+		t.Fatal("渲染帧里找不到当前组的时间标签 00:30")
+	}
+	if n := blueLabelPixels(tst.Image(), r); n == 0 {
+		t.Error("关闭自动跟随后当前组时间胶囊没有蓝底，is-current 高亮被开关吃掉了")
+	}
+	// 非当前组保持灰字（无蓝底）。
+	if r0, ok := tst.Find("00:00"); ok {
+		if n := blueLabelPixels(tst.Image(), r0); n != 0 {
+			t.Errorf("非当前组 00:00 不应有蓝底，数到 %d 个蓝像素", n)
+		}
+	}
+}
+
+// TestDanmakuAutoScrollResetOnClose 钉住关闭弹幕抽屉会把自动跟随重置为开
+// （原版 danmakuList 的 handleOpenChange(false)：setIsAutoScroll(true) +
+// lastScrollIndexRef.current = -1）。关掉跟随、关抽屉再打开，应重新跟随当前
+// 播放位置。
+func TestDanmakuAutoScrollResetOnClose(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{{Time: 0, Text: "a"}, {Time: 30, Text: "b"}}
+	a.Drawer = DrawerDanmaku
+	a.DanmakuAutoScroll = false
+	a.Pos = 30
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame() // 打开一帧，记下 drawerShown = danmaku
+	if a.DanmakuAutoScroll {
+		t.Fatal("打开期间不应被重置")
+	}
+
+	a.Drawer = "" // 关抽屉
+	tst.Frame()
+	if !a.DanmakuAutoScroll {
+		t.Error("关闭弹幕抽屉后应重置自动跟随为开（原版 handleOpenChange(false)）")
+	}
+
+	// 非弹幕抽屉关闭不受影响。
+	a.Drawer = DrawerPlaylist
+	a.DanmakuAutoScroll = false
+	tst.Frame()
+	a.Drawer = ""
+	tst.Frame()
+	if a.DanmakuAutoScroll {
+		t.Error("关闭其他抽屉不应动弹幕自动跟随开关")
 	}
 }

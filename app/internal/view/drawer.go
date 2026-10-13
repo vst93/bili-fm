@@ -138,6 +138,12 @@ func (a *App) drawer(c *ui.Context) {
 			// drawerEnterStep 当成「不是新抽屉」而丢掉入场动画。退场进度由
 			// drawerExitAt 独立计时（见 drawerAnimOffset），不依赖 pose 状态。
 			a.drawerOpenKey = ""
+			// 原版 danmakuList 的 handleOpenChange(false)：关抽屉时把自动跟随
+			// 重置为开、滚动锚点清掉，下次打开重新跟随当前播放位置。
+			if a.drawerShown == DrawerDanmaku {
+				a.DanmakuAutoScroll = true
+				a.danmakuScrollIdx = -1
+			}
 		} else if drawerExitDone(a.drawerExitAt, c.Now(), c.Now().Sub(a.drawerExitAt) < drawerIn) {
 			// 退场动画走完：面板已经滑到窗口外，这一帧起真正移出视图。放在构建
 			// 之前，省掉最后一帧的整窗重绘。
@@ -2070,6 +2076,19 @@ func nearestGroup(groups []danmakuGroup, pos float64) int {
 	return low
 }
 
+// danmakuCurrentIndex 返回当前播放位置最近的弹幕组下标（原版 danmakuList 的
+// currentIndex）。它与「自动跟随」开关**无关**：原版开关只决定要不要把当前组
+// 滚进视野（useEffect 里的 isAutoScroll），is-current 高亮只看 currentTime。
+// 此前两者被耦合成 `if a.DanmakuAutoScroll && a.Pos > 0`，于是关掉跟随、当前
+// 组的时间胶囊就不再变蓝；也丢了原版 currentTime 初始 0 时高亮首组的行为
+// （原版 currentIndex 在 currentTime >= 0 时就取最近组，0 对应首组）。
+func (a *App) danmakuCurrentIndex(groups []danmakuGroup) int {
+	if len(groups) == 0 || a.Pos < 0 {
+		return -1
+	}
+	return nearestGroup(groups, a.Pos)
+}
+
 // fmtClock 把秒格式化成弹幕时间标签的 mm:ss（原版 formatTime 用
 // padStart(2, "0") 把分秒都补到两位；分钟不进位，超过 60 分就是 62:05）。
 func fmtClock(sec float64) string {
@@ -2090,11 +2109,9 @@ func (a *App) danmakuBody(c *ui.Context) {
 	}
 	groups := a.danmakuGroups()
 
-	// 自动跟随：把当前时间所在的组滚进视野（只在下标变化时滚，不干扰手滑）。
-	cur := -1
-	if a.DanmakuAutoScroll && a.Pos > 0 {
-		cur = nearestGroup(groups, a.Pos)
-	}
+	// 当前组高亮：只跟播放位置走（见 danmakuCurrentIndex），与「自动跟随」
+	// 开关无关；滚动另受开关约束（见下方 ScrollIntoView）。
+	cur := a.danmakuCurrentIndex(groups)
 
 	// 换集时重置虚拟列表的滚动位置与行高，否则新一集会沿用上一集的锚点。
 	if a.Track != nil && a.Track.Cid != a.danmakuCid {
@@ -2115,8 +2132,8 @@ func (a *App) danmakuBody(c *ui.Context) {
 		a.danmakuGroupRow(c, groups[i], i == cur, sep, theme, row)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
-	// 只在下标变化时滚，不干扰手滑。
-	if cur >= 0 && a.danmakuScrollIdx != cur {
+	// 自动跟随：把当前组滚进视野，且只在下标变化时滚，不干扰手滑。
+	if a.DanmakuAutoScroll && cur >= 0 && a.danmakuScrollIdx != cur {
 		a.danmakuList.ScrollIntoView(cur)
 		a.danmakuScrollIdx = cur
 	}
