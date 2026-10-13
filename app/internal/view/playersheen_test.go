@@ -62,27 +62,43 @@ func TestPlayerSheenBitmapCached(t *testing.T) {
 	}
 }
 
-// TestPlayerSheenDarkWired 无头反证：sheen 只在深色时段画——亮色时段视图不碰
-// playerSheenPaint，深色时段每颗 `#player .player-button` 都碰。
-func TestPlayerSheenDarkWired(t *testing.T) {
+// TestPlayerSheenWired 无头反证：视图按当前时段选对了 `::before` 光泽位图——
+// 亮色时段每颗 `#player .player-button` 铺浅色 --glass-sheen-static，深色时段
+// 统一换成 --player-sheen。把两者混用（或浅色干脆不画）都会变红。
+func TestPlayerSheenWired(t *testing.T) {
 	orig := playerSheenPaint
 	defer func() { playerSheenPaint = orig }()
-	calls := 0
-	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32) {
-		calls++
-		orig(p, r, radius)
+	var got []*ui.Bitmap
+	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {
+		got = append(got, bmp)
+		orig(p, r, radius, bmp)
 	}
 
 	_, light := playerBarProbe(t, nil)
 	_ = light
-	if calls != 0 {
-		t.Errorf("亮色时段不应画深色 sheen，实测调用 %d 次", calls)
+	if len(got) == 0 {
+		t.Fatal("亮色时段应铺浅色 sheen（playerSheenPaint 没被调用）")
+	}
+	wantLight := sheenGlassBaked.bitmap()
+	for _, b := range got {
+		if b != wantLight {
+			t.Errorf("亮色时段铺的不是 --glass-sheen-static 位图")
+			break
+		}
 	}
 
+	got = nil
 	_, dark := playerBarProbe(t, func(a *App) { a.Theme = ThemeFor(PeriodAt(0)) })
 	_ = dark
-	if calls == 0 {
-		t.Error("深色时段应画 sheen（playerSheenPaint 没被调用）")
+	if len(got) == 0 {
+		t.Fatal("深色时段应铺 --player-sheen（playerSheenPaint 没被调用）")
+	}
+	wantDark := sheenDarkBaked.bitmap()
+	for _, b := range got {
+		if b != wantDark {
+			t.Errorf("深色时段铺的不是 --player-sheen 位图")
+			break
+		}
 	}
 }
 
@@ -112,7 +128,7 @@ func TestPlayerSheenBrightensDarkButton(t *testing.T) {
 
 	orig := playerSheenPaint
 	defer func() { playerSheenPaint = orig }()
-	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32) {}
+	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {}
 	_, off := playerBarProbe(t, dark)
 	off.Move(-1, -1)
 	off.Frame()

@@ -172,7 +172,9 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					}
 					playerPressPose(play)
 					// mini 也是 .player-button：补聚光描边（播放键 1.0）+ 图标压印。
-					playerRim(play, RadiusPill, t.Dark, false)
+					// ::before 光泽：浅色走 mini 专属渐变（悬停转主窗 hover 渐变），
+					// 深色统一 --player-sheen（见 playerSheenFor）。
+					playerRim(play, RadiusPill, t.Dark, false, sheenKindMiniPlay, a.Playing, play.Hovered())
 					play.Children(func() {
 						ic := pick(a.Playing, iconPause, iconPlay)
 						icon := ui.Icon(c, ic).Size(16, 16).
@@ -191,7 +193,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
 					playerToolSurface(t, next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
-					playerRim(next, RadiusPill, t.Dark, true)
+					playerRim(next, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					next.Children(func() {
 						icon := ui.Icon(c, iconNext).Size(18, 18).
 							TextColor(playerFadeColor(next, "mini-next-ink",
@@ -222,7 +224,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					disablePlayerButton(vol, !a.hasSource())
 					playerToolSurface(t, vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
-					playerRim(vol, RadiusPill, t.Dark, true)
+					playerRim(vol, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					vol.Children(func() {
 						icon := ui.Icon(c, iconVolume).Size(18, 18).
 							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(t, false, vol.Hovered()))).
