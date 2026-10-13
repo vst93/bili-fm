@@ -116,6 +116,10 @@ func modalScrimInk(kind string) ui.Color {
 
 // modalLogin 是扫码登录面板（原版 .login-glass + index.tsx 的登录块）。
 func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
+	// .login-glass::before 的 135° 光泽层：画在最前，落在面板底之上、内容之下
+	//（原版 `.login-glass > * { z-index: 1 }` 把内容抬到它上面）。
+	loginSheen(c)
+
 	// 关闭键：原版 .login-close-btn 是 absolute -right-4 top-4 的 32 圆键
 	//（半透明白底 + 白描边 + 顶部内高光 + 外投影，见 loginclose.go）。
 	close := ui.ButtonBase(c.Key("login-close")).Size(loginCloseSize, loginCloseSize).
