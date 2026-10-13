@@ -167,8 +167,9 @@ func (a *App) collabPicker(c *ui.Context) {
 	if st.InsetInk.A != 0 {
 		b.InsetShadow(0, st.InsetDy, st.InsetBlur, 0, st.InsetInk)
 	}
-	// .nav-icon-btn:hover 上浮 1px、:active 缩到 .94（pressPose）。
-	pressPose(b)
+	// .nav-icon-btn:hover 上浮 1px、:active 缩到 .94（原版 transition
+	// transform 0.16s ease），选择键属通用族、与三族同一套手感。
+	navIconPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(st.Ink)
 	})

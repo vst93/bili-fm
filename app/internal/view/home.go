@@ -819,21 +819,19 @@ func (a *App) contextDock(c *ui.Context) {
 		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.35)).Children(func() {
 		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
-		sr := a.iconButton(c, "dock-search", "搜索结果", iconSearch, 20, func() {
-			a.Drawer = DrawerSearch
-		})
-		disableNav(sr, len(a.ListFor(DrawerSearch).Cards) == 0)
+		a.iconButton(c, "dock-search", "搜索结果", iconSearch, 20,
+			len(a.ListFor(DrawerSearch).Cards) == 0, func() {
+				a.Drawer = DrawerSearch
+			})
 		// 选集：非播放列表模式且有视频时图标是蓝色（原版 fill 逻辑）。
 		// 禁用判据同原版 `disabled={!bvid}`。
 		partsInk := ui.Color{}
 		if a.PlayingPlaylist == "" && a.Track != nil {
 			partsInk = t.Blue
 		}
-		parts := a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, a.openParts)
-		disableNav(parts, bvid == "")
+		a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, bvid == "", a.openParts)
 		// 合集：还没选过合集时禁用。
-		series := a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.openSeries)
-		disableNav(series, a.SeriesID == 0)
+		a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.SeriesID == 0, a.openSeries)
 		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
 		// 图标染色用 inkButton —— 原版是
 		// fill={isPlaylistMode ? (series ? 紫 : 蓝) : 灰}，之前这里算出了 ink
@@ -846,7 +844,7 @@ func (a *App) contextDock(c *ui.Context) {
 			}
 		}
 		a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, 20,
-			plistInk, func() {
+			plistInk, false, func() {
 				if a.Drawer == DrawerPlaylist {
 					a.Drawer = ""
 				} else {
@@ -985,6 +983,9 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		// 禁用由 disableNav 覆盖成 .3。
 		b.Opacity(navIconRestOpacityFor(navIconContent))
 		disableNav(b, spec.Off)
+		// 原版数值是按钮的子元素，随按钮一起上浮 1px / 按下缩放；原生版数值画在
+		// 按钮**之外**的列里，这里只给按钮本身位移（数值少动 1px，见 .pending-bugs）。
+		navIconPose(b)
 		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
 		switch {
 		case spec.Off:
@@ -1036,8 +1037,9 @@ func disableNav(b ui.Element, off bool) ui.Element {
 }
 
 // iconButton 是 34×34 的纯图标按钮（.video-context-dock .nav-icon-btn）。
-func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, fn func()) ui.Element {
-	return a.inkButton(c, key, label, ic, size, ui.Color{}, fn)
+// off 为真时按原版 `.nav-icon-btn:disabled` 置灰（调用方给 disabled 判据）。
+func (a *App) iconButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, off bool, fn func()) ui.Element {
+	return a.inkButton(c, key, label, ic, size, ui.Color{}, off, fn)
 }
 
 // contentIconButton 是内容操作行的图标钮（.video-content-actions .nav-icon-btn）：
@@ -1051,6 +1053,7 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	// 禁用再由 disableNav 的 .6（→ mygo 乘 .5 得 .3）覆盖。
 	b.Opacity(navIconRestOpacityFor(navIconContent))
 	disableNav(b, off)
+	navIconPose(b)
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
 	// 之前原生版只有填充、少了这道光（见 btnlight.go）。
@@ -1067,7 +1070,9 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 }
 
 // inkButton 同 iconButton，ink 非零时用它做图标颜色（原版部分按钮是蓝色）。
-func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) ui.Element {
+// off 为真时置灰（`disableNav` 在函数内先做，这样 navIconPose 能正确跳过
+// 禁用按钮的上浮）。
+func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, off bool, fn func()) ui.Element {
 	t := a.Theme
 	textInk := ui.Hex("#475569")
 	if ink.A != 0 {
@@ -1077,10 +1082,12 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(DockIcon, DockIcon).Radius(DockIconR).
 		Center().Label(label).Tooltip(label)
 	// 原版 `.video-context-dock .nav-icon-btn { opacity: .78 }`（悬停也不回 1，
-	// 与内容行同理）。调用方的 disableNav 会以 .6 覆盖禁用态。
+	// 与内容行同理）。这里先铺基础透明度，再走 disableNav 覆盖禁用态。
 	b.Opacity(navIconRestOpacityFor(navIconDock))
-	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
-	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
+	disableNav(b, off)
+	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px、:active 再缩 .94；
+	// 底色/按压态见 pressFeedback，位移见 navIconPose。
+	navIconPose(b)
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态的左上角径向聚光（见 btnlight.go）。
 	btnLightNav.draw(b, DockIconR)

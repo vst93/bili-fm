@@ -431,3 +431,40 @@ func pressPoseScale(b ui.Element, scale float32) {
 	}
 	b.AnimatePose(pose, ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut})
 }
+
+// navIconAnim 是 `.nav-icon-btn` 的**自身过渡参数**：
+//
+//	transition: background-color 0.18s ease, transform 0.16s ease, opacity 0.16s ease
+//
+// 位移这一路是 160ms、CSS 默认缓动曲线 cubic-bezier(.25,.1,.25,1)。声明成
+// var 便于测试逐值钉住（与 pressPose 的 120ms/EaseOut 不同 —— 那是别的按钮族）。
+var navIconAnim = ui.Animation{
+	Duration: 160 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// navIconPoseFor 是 `.nav-icon-btn` 三态位移的**纯函数**（原版 globals.css）：
+//
+//	.nav-icon-btn:hover          transform: translateY(-1px)
+//	.nav-icon-btn:active         transform: scale(.94)
+//	.nav-icon-btn:disabled:hover transform: none
+//
+// 按下优先：原版 `:active` 规则源序在 `:hover` 之后，transform 被整条替换，
+// 所以按下**只有缩放、没有上浮**。禁用态的「不上浮」不在这里判 —— mygo 的
+// Hovered/Pressed 对禁用元素本就返回 false（等价 `:disabled:hover`），只要
+// 调用方在 Disabled 之后（或同帧稍后）调用即可。
+func navIconPoseFor(pressed, hovered bool) ui.Pose {
+	switch {
+	case pressed:
+		return ui.Pose{Scale: 0.94}
+	case hovered:
+		return ui.Pose{Y: -1}
+	}
+	return ui.Pose{}
+}
+
+// navIconPose 给三族 `.nav-icon-btn` 补上原版的位移手感（此前原生版只画了
+// 底色/透明度，位移一直没画）。声明成 var 便于测试换成 no-op 做反证。
+var navIconPose = func(b ui.Element) {
+	b.AnimatePose(navIconPoseFor(b.Pressed(), b.Hovered()), navIconAnim)
+}
