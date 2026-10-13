@@ -320,12 +320,9 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 全局规则统一给出）。
 		ui.Text(c, "收藏列表").FontSize(14).FontWeight(600).
 			TextColor(ui.Hex("#334155")).Shrink(0)
-		if len(a.Folders) == 0 {
-			a.emptyNote(c, "暂无收藏内容")
-			break
-		}
-		// 收藏夹可能很多：左右滚动键 + 横向滚动（原版 collect-scroll-btn，
-		// 每次 200px）。
+		// 原版表头**不判空**：收藏夹还没回来（或一个都没有）时照样画左右滚动键
+		// 与（空的）胶囊容器，空态只出现在正文里（.history-empty-tip）。之前这里
+		// 直接换成一行「暂无收藏内容」，既和正文的空态重复，也把两个滚动键藏掉了。
 		a.collectScrollBtn(c, "collect-left", "向左滚动", -200)
 		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(32).
 			TrackScroll(&a.CollectScroll).Children(func() {
@@ -734,10 +731,10 @@ func (a *App) gridRows(c *ui.Context) int {
 func (a *App) seriesListBody(c *ui.Context) {
 	switch {
 	case a.list().Loading && len(a.SeriesList) == 0:
-		a.emptyNote(c, "加载中…")
+		a.emptyState(c, "加载中…")
 		return
 	case len(a.SeriesList) == 0:
-		a.emptyNote(c, "暂无合集视频")
+		a.emptyState(c, "暂无合集视频")
 		return
 	}
 	// 原版 UP 空间的合集 tab：纵向排列的卡片（flex flex-col gap-2），
@@ -820,7 +817,7 @@ func (a *App) listBody(c *ui.Context) bool {
 		a.scrollBody(c, l, func() { a.skeletonGrid(c) })
 		return false
 	case len(l.Cards) == 0:
-		a.scrollBody(c, l, func() { a.emptyNote(c, a.emptyHint()) })
+		a.scrollBody(c, l, func() { a.emptyState(c, a.emptyHint()) })
 		return false
 	}
 	a.cardGrid(c, l)
@@ -1032,15 +1029,6 @@ func (a *App) skeletonGrid(c *ui.Context) {
 				}
 			})
 		}
-	})
-}
-
-// emptyNote 是列表空态/加载中的提示行：居中、上下各 32px 留白、slate-400
-// （原版是 text-center text-default-400 py-8，而 default-400 在抽屉里被
-// globals.css 覆写成 #94a3b8）。之前是左对齐一行小字，在抽屉里显得很空。
-func (a *App) emptyNote(c *ui.Context, text string) {
-	ui.Row(c).FillWidth().Padding(32, 0).Justify(ui.Center).Children(func() {
-		ui.Text(c, text).FontSize(14).TextColor(ui.Hex("#94a3b8"))
 	})
 }
 
@@ -1536,7 +1524,7 @@ func (a *App) partsHeader(c *ui.Context) {
 // partsBody 是选集抽屉正文：三列卡片网格（虚拟化 ui.List）。
 func (a *App) partsBody(c *ui.Context) {
 	if a.Info == nil || len(a.Info.Parts) == 0 {
-		a.scrollBody(c, a.list(), func() { a.emptyNote(c, "没有分集信息") })
+		a.scrollBody(c, a.list(), func() { a.emptyState(c, "没有分集信息") })
 		return
 	}
 	a.partsGrid(c)
