@@ -141,7 +141,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					//（mini 规则 (1,2,1) 的特异度盖过 [data-playing] 的 (1,2,0)），
 					// 只有图标在 play/pause 间切换；悬停时填充/描边略加深
 					//（#player .player-play-button:hover 的 (1,3,0) 盖过 mini 基态）。
-					playFill, playBorder, playInk := miniPlayStyle(play.Hovered())
+					// 底色/描边/墨色走与主窗同一条 140ms ease 过渡（原版 mini 的
+					// transition 没有覆盖 #player .player-button 的那条）。
+					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(play.Hovered())
+					playFill := playerFadeColor(play, "mini-play-bg", playFillRaw)
+					playBorder := playerFadeColor(play, "mini-play-border", playBorderRaw)
+					playInk := playerFadeColor(play, "mini-play-ink", playInkRaw)
 					// 按下（:active）时原版把 ::before 底色换成 --liquid-bg-active
 					// （白 .16）、box-shadow 换成更深的 `inset 0 1px 3px 墨 .1`
 					//（:active 规则特异度 (1,3,0) 盖过 mini 基态与 [data-playing]）。
@@ -174,7 +179,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerPressPose(next)
 					next.Children(func() {
 						ui.Icon(c, iconNext).Size(18, 18).
-							TextColor(pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
+							TextColor(playerFadeColor(next, "mini-next-ink",
+								pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))).
 							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 					})
 					if next.Clicked() && a.Act.Next != nil {
@@ -202,7 +208,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerPressPose(vol)
 					vol.Children(func() {
 						ui.Icon(c, iconVolume).Size(18, 18).
-							TextColor(playerToolInk(false, vol.Hovered())).
+							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 					})
 					if vol.Clicked() {

@@ -103,6 +103,26 @@ func buttonSurface(b ui.Element, active, hovered bool, activeTint, hoverTint ui.
 		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
 }
 
+// playerFadeAnim 是原版 `#player .player-button` 的
+// `transition: color/background-color/border-color 140ms ease`：底色 / 描边 /
+// 墨色此前都是瞬时切换（悬停时键面「啪」地换色），这里按原版补上 140ms
+// 过渡。box-shadow 也带 140ms，但 mygo 的阴影没有逐通道动画通道，这轮只补
+// 三条色值（内高光/投影随底色当帧切换，过渡期里差一帧级，远小于此前整面
+// 跳色）。CSS `ease` = CubicBezier(0.25, 0.1, 0.25, 1)，与 navIconBgAnim 同源
+//（时长不同：工具键族是 140ms，不是导航族的 180ms）。
+var playerFadeAnim = ui.Animation{
+	Duration: 140 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// playerFadeColor 返回这颗键这一帧该用的色值（带 140ms ease 过渡）。拆成
+// var 便于测试：AnimateColor 在目标变化的那一帧返回**上一帧的颜色**
+//（曲线 t=0），直接铺目标色会瞬时跳变——测试可换成「瞬时铺色」的桩做
+// 反证。key 在同一颗键内须唯一。
+var playerFadeColor = func(b ui.Element, key string, target ui.Color) ui.Color {
+	return b.AnimateColor(key, target, playerFadeAnim)
+}
+
 // playerToolSurface 是播放栏工具键（下一集/音量/倍速/均衡/恰饭）的材质，
 // 对齐原版那条 tool 专用规则（`#player .player-next-button,
 // #player .player-volume-button, #player .player-speed-button,
@@ -120,8 +140,8 @@ func playerToolSurface(b ui.Element, active, hovered, pressed bool) ui.Element {
 			b.Background(playerPressFill()).Border(1, playerToolBorder(active, hovered)),
 			playerPressShadowSpecs())
 	}
-	b = b.Background(playerToolFill(active, hovered)).
-		Border(1, playerToolBorder(active, hovered)).
+	b = b.Background(playerFadeColor(b, "player-tool-bg", playerToolFill(active, hovered))).
+		Border(1, playerFadeColor(b, "player-tool-border", playerToolBorder(active, hovered))).
 		InsetShadow(0, 1, 1, 0, playerToolInset(hovered))
 	if active {
 		return b.InsetShadow(0, 0, 0, 1, ui.Hex("#bae6fd").Alpha(0.70)).
@@ -401,7 +421,7 @@ func (a *App) transport(c *ui.Context) {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
 			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(playIconSize, playIconSize).
-				TextColor(playerPlayInk(a.Playing, play.Hovered())).
+				TextColor(playerFadeColor(play, "player-play-ink", playerPlayInk(a.Playing, play.Hovered()))).
 				Opacity(playerDisabledIconOpacityFor(!src))
 		})
 		if play.Clicked() && a.Act.TogglePlay != nil {
@@ -422,7 +442,8 @@ func (a *App) transport(c *ui.Context) {
 			if next.Hovered() {
 				ink = ui.Hex("#0284c7")
 			}
-			ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).TextColor(ink).
+			ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
+				TextColor(playerFadeColor(next, "player-next-ink", ink)).
 				Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 		})
 		if next.Clicked() && a.Act.Next != nil {
@@ -602,7 +623,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
 		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(volumeIconSize, volumeIconSize).
-			TextColor(playerToolInk(a.ShowVolume, b.Hovered())).
+			TextColor(playerFadeColor(b, "player-volume-ink", playerToolInk(a.ShowVolume, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 	})
 	if b.Clicked() {
@@ -624,7 +645,7 @@ func (a *App) speedButton(c *ui.Context) {
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
-			TextColor(playerToolInk(a.ShowSpeed, b.Hovered()))
+			TextColor(playerFadeColor(b, "player-speed-ink", playerToolInk(a.ShowSpeed, b.Hovered())))
 	})
 	if b.Clicked() {
 		a.ShowSpeed = !a.ShowSpeed
@@ -642,7 +663,8 @@ func (a *App) eqButton(c *ui.Context) {
 	playerToolSurface(b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	b.Children(func() {
-		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).TextColor(playerToolInk(a.EQ, b.Hovered())).
+		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
+			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.EQ, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 	})
 	if b.Clicked() && a.Act.ToggleEQ != nil {
@@ -660,7 +682,7 @@ func (a *App) sponsorButton(c *ui.Context) {
 	playerPressPose(b)
 	b.Children(func() {
 		ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
-			TextColor(playerToolInk(a.Sponsor, b.Hovered()))
+			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Sponsor, b.Hovered())))
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
 		// tooltip 是原版那串状态文案（ok 时带段数、有原因时附在冒号后）。
