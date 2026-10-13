@@ -707,7 +707,8 @@ const sponsorTolerance = 2.0
 // 之上，而是透过半透明底色显出来（原版就是这么叠的）。
 func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	track := rangeTrackRect(r, rp.Geom)
-	paintRangeShadow(p, track, rp.Hovered)
+	s := rangeSkinFor(rp.Dark, rp.Hovered)
+	paintRangeShadow(p, track, rp.Hovered, s)
 
 	buffered := clamp01(rp.Buffered)
 	// 缓冲层最先画：原版这一层 z-index 0，在轨道（z-index 1）之下，
@@ -742,8 +743,8 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 		}
 	}
 
-	paintRangeFill(p, track, rp.Frac, rp.Hovered, rp.Colors)
-	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held)
+	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
+	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, s)
 }
 
 func (a *App) progress(c *ui.Context) {
@@ -811,6 +812,7 @@ func (a *App) timelinePaint(s ui.Element, frac float32, held bool) rangePaint {
 		Dur:      a.Dur,
 		Hovered:  s.Hovered(),
 		Held:     held,
+		Dark:     a.Theme.Dark,
 		Colors:   rangeColorsFor(a.Theme),
 		Geom:     timelineGeom,
 	}
@@ -1151,6 +1153,7 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 				Frac:    float32(v),
 				Hovered: sl.Hovered(),
 				Held:    held,
+				Dark:    a.Theme.Dark,
 				Colors:  rangeColorsFor(a.Theme),
 				Geom:    volumeGeom,
 			})

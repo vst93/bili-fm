@@ -13,12 +13,17 @@ import (
 // 「一份画法、两处使用」来钉：令牌/几何用纯函数钉死，观感用无头渲染实测，
 // 每条实测都配一个会在改错时变红的判据。
 
-// playerBarProbe 建一个 1000×700 的主窗，装一条 200 秒的曲目并把进度停在
-// 正中（滑块落在轨道中央，便于按几何取样）。mutate 用来开弹层等。
+// playerBarProbe 建一个 1000×700 的主窗（默认亮色时段），装一条 200 秒的曲目
+// 并把进度停在正中（滑块落在轨道中央，便于按几何取样）。mutate 用来开弹层等。
 func playerBarProbe(t *testing.T, mutate func(a *App)) (*App, *ui.Tester) {
+	return playerBarProbeAt(t, PeriodAt(12), mutate)
+}
+
+// playerBarProbeAt 同上，但指定时段（烟熏玻璃时段用来验深色材质是否真的接上）。
+func playerBarProbeAt(t *testing.T, period Period, mutate func(a *App)) (*App, *ui.Tester) {
 	t.Helper()
 	a := NewApp(func() {})
-	a.Theme = ThemeFor(PeriodAt(12))
+	a.Theme = ThemeFor(period)
 	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
 	a.Dur = 200
 	a.Pos = 100
@@ -129,13 +134,14 @@ func TestRangeTrackGeometry(t *testing.T) {
 }
 
 // rangePaintProbe 在固定底色上画一条输入条，返回整张图 —— 用来把「同一条
-// 画法、不同令牌」的观感差异在受控背景上量出来。
-func rangePaintProbe(colors rangeColors, frac float32, hovered bool) *image.RGBA {
+// 画法、不同令牌」的观感差异在受控背景上量出来。dark 决定用哪一套材质
+// （见 rangeSkinFor）。
+func rangePaintProbe(colors rangeColors, frac float32, hovered, dark bool) *image.RGBA {
 	tst := ui.NewTester(func(c *ui.Context) {
 		ui.Box(c).Size(160, timelineH).Background(ui.Hex("#3b4a63")).Children(func() {
 			b := ui.Box(c).Fill()
 			b.Draw(func(p *ui.Painter, r ui.Rect) {
-				paintRangeBar(p, r, rangePaint{Frac: frac, Hovered: hovered, Colors: colors})
+				paintRangeBar(p, r, rangePaint{Frac: frac, Hovered: hovered, Dark: dark, Colors: colors})
 			})
 		})
 	}, 160, timelineH)
@@ -149,8 +155,8 @@ func rangePaintProbe(colors rangeColors, frac float32, hovered bool) *image.RGBA
 func TestRangeTrackUsesThemeColors(t *testing.T) {
 	cy := timelineH / 2
 	x := 130 // 未播部分（frac=0.2 之外）
-	light := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(12))), 0.2, false), x, cy)
-	dark := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(0))), 0.2, false), x, cy)
+	light := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(12))), 0.2, false, false), x, cy)
+	dark := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(0))), 0.2, false, true), x, cy)
 	t.Logf("未播部分 亮色=%v 深色=%v（底色 #3b4a63）", light, dark)
 	if light[0] <= dark[0] {
 		t.Errorf("亮色时段的轨道底色应比深色时段亮：%v vs %v", light, dark)
@@ -300,5 +306,151 @@ func TestPlayerTimeLabelWeight(t *testing.T) {
 	t.Logf("时间标签墨迹 600=%d 400=%d", bi, pi)
 	if bi <= pi {
 		t.Errorf("timeTextAt 的字重没有生效：墨迹 600=%d 普通=%d", bi, pi)
+	}
+}
+
+// TestRangeSkinForTokens 逐值钉住 rangeSkinForTheme 的两套材质：亮色取
+// `:root` 的字面量，深色取原版烟熏玻璃块对轨道/滑块的那组覆写；悬停只提亮
+// 轨道顶内高光与滑块外影，两个时段共用同一条（深色块不覆写 :hover）。
+func TestRangeSkinForTokens(t *testing.T) {
+	white := ui.Hex("#ffffff")
+	blue := ui.Hex("#0284c7")
+	teal := ui.Hex("#0ea5e9")
+	light := rangeSkinForTheme(false, false)
+	dark := rangeSkinForTheme(true, false)
+	hover := rangeSkinForTheme(false, true)
+	darkHover := rangeSkinForTheme(true, true)
+
+	check := func(name string, got, want ui.Color) {
+		t.Helper()
+		if got != want {
+			t.Errorf("%s = %v，应为 %v", name, got, want)
+		}
+	}
+	// 亮色（:root 字面量）。
+	check("亮色轨道顶内高光", light.TrackTop, white.Alpha(0.88))
+	check("亮色轨道底内影", light.TrackBottom, shadowInk.Alpha(0.08))
+	check("亮色轨道外影", light.TrackGlow, teal.Alpha(0.10))
+	check("亮色滑块描边", light.ThumbBorder, white.Alpha(0.90))
+	check("亮色滑块底色", light.ThumbFill, ui.Hex("#e0f2fe").Alpha(0.62))
+	check("亮色滑块高光", light.ThumbGlint, white.Alpha(0.86))
+	check("亮色滑块顶内高光", light.ThumbTop, white.Alpha(0.92))
+	check("亮色滑块底内影", light.ThumbBottom, blue.Alpha(0.10))
+	check("亮色滑块外影", light.ThumbGlow, blue.Alpha(0.24))
+	// 深色（烟熏玻璃块逐值）。
+	check("深色轨道顶内高光", dark.TrackTop, white.Alpha(0.30))
+	check("深色轨道底内影", dark.TrackBottom, shadowInk.Alpha(0.10))
+	check("深色轨道外影", dark.TrackGlow, teal.Alpha(0.07))
+	check("深色滑块描边", dark.ThumbBorder, white.Alpha(0.68))
+	check("深色滑块底色", dark.ThumbFill, ui.Hex("#e0f2fe").Alpha(0.48))
+	check("深色滑块高光", dark.ThumbGlint, white.Alpha(0.78))
+	check("深色滑块顶内高光", dark.ThumbTop, white.Alpha(0.58))
+	check("深色滑块底内影", dark.ThumbBottom, ui.Transparent)
+	check("深色滑块外影", dark.ThumbGlow, blue.Alpha(0.20))
+	// 悬停：提亮顶内高光 + 收底内影 + 加蓝外影，时段不参与。
+	check("悬停轨道顶内高光", hover.TrackTop, white.Alpha(0.94))
+	check("悬停轨道底内影", hover.TrackBottom, shadowInk.Alpha(0.08))
+	check("悬停滑块外影", hover.ThumbGlow, blue.Alpha(0.28))
+	check("深色+悬停轨道顶内高光", darkHover.TrackTop, white.Alpha(0.94))
+	check("深色+悬停轨道底内影", darkHover.TrackBottom, shadowInk.Alpha(0.08))
+	check("深色+悬停滑块外影", darkHover.ThumbGlow, blue.Alpha(0.28))
+
+	// 单调性：深色整套比亮色淡（否则就是把亮色值抄错了）。
+	if dark.TrackTop.A >= light.TrackTop.A ||
+		dark.ThumbBorder.A >= light.ThumbBorder.A ||
+		dark.ThumbFill.A >= light.ThumbFill.A ||
+		dark.ThumbTop.A >= light.ThumbTop.A {
+		t.Error("深色时段的轨道/滑块材质应整体比亮色淡")
+	}
+}
+
+// TestRangeTrackDarkInset 是受控背景上实测：同一条轨道（同一份 --player-track-*
+// 令牌）换成深色材质后，顶部那条内高光明显变淡 —— 证明 paintRangeInsets 真的
+// 用了深色的 TrackTop（而不是仍铺亮色的白 .88）。
+func TestRangeTrackDarkInset(t *testing.T) {
+	track := rangeTrackRect(ui.Rect{X: 0, Y: 0, W: 160, H: timelineH}, timelineGeom)
+	// frac=0.2，x=130 落在未播部分（不受青→蓝渐变影响）。
+	light := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(12))), 0.2, false, false),
+		130, int(track.Y)+1)
+	dark := rgbAt(rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(0))), 0.2, false, true),
+		130, int(track.Y)+1)
+	t.Logf("轨道顶内高光 亮色=%v 深色=%v", light, dark)
+	if light[0]-dark[0] < 40 {
+		t.Errorf("深色时段轨道顶内高光应明显变淡：%v vs %v", light, dark)
+	}
+}
+
+// TestRangeThumbDarkMaterial 是受控背景上实测：深色材质下整颗滑块（底色 .48 /
+// 高光 .78 / 描边 .68 / 外影 .2）应比亮色一档暗 —— 证明 paintRangeThumb 真的
+// 用了传进来的 rangeSkin。
+func TestRangeThumbDarkMaterial(t *testing.T) {
+	center := ui.Rect{X: 0, Y: 0, W: 160, H: timelineH}
+	track := rangeTrackRect(center, timelineGeom)
+	cx, cy := int(rangeThumbX(track, timelineGeom, 0.5)), timelineH/2
+	ink := func(dark bool) int {
+		img := rangePaintProbe(rangeColorsFor(ThemeFor(PeriodAt(0))), 0.5, false, dark)
+		sum := 0
+		for y := cy - 7; y <= cy+7; y++ {
+			for x := cx - 7; x <= cx+7; x++ {
+				c := rgbAt(img, x, y)
+				sum += c[0] + c[1] + c[2]
+			}
+		}
+		return sum
+	}
+	light, dark := ink(false), ink(true)
+	t.Logf("滑块区总亮度 亮色=%d 深色=%d", light, dark)
+	if light-dark < 2000 {
+		t.Errorf("深色时段滑块应整体暗一档：亮色=%d 深色=%d", light, dark)
+	}
+}
+
+// TestPlayerBarTimelineDarkWired 是整窗的反证：深色时段渲染时把 rangeSkinFor
+// 换成「永远取亮色材质」的桩，进度条顶内高光随之变亮 —— 证明 rangePaint.Dark
+// 真的从 timelinePaint / 音量弹层流到了绘制层（删掉任一处 Dark: a.Theme.Dark
+// 即变红）。
+func TestPlayerBarTimelineDarkWired(t *testing.T) {
+	topAt := func() [3]int {
+		_, tst := playerBarProbeAt(t, PeriodAt(0), nil)
+		r, ok := tst.Find("播放进度")
+		if !ok {
+			t.Fatal("播放栏里找不到进度条")
+		}
+		tr := rangeTrackRect(r, timelineGeom)
+		// tr.X + 25% 落在已播渐变里，取轨道顶内高光那一行。
+		return rgbAt(tst.Image(), int(tr.X+tr.W*0.25), int(tr.Y)+1)
+	}
+	dark := topAt()
+	saved := rangeSkinFor
+	rangeSkinFor = func(_, hovered bool) rangeSkin { return rangeSkinForTheme(false, hovered) }
+	defer func() { rangeSkinFor = saved }()
+	light := topAt()
+	t.Logf("深色时段进度条顶内高光 深色材质=%v 强制亮色材质=%v", dark, light)
+	if light[0]-dark[0] < 40 {
+		t.Errorf("深色时段没有换用深色轨道材质：%v vs %v", dark, light)
+	}
+}
+
+// TestPlayerBarVolumeDarkWired 与上一条同理，但钉的是音量弹层那条音量条
+// （volumePopoverAt 里另一处 Dark: a.Theme.Dark）。深色时段渲染时把
+// rangeSkinFor 换成亮色桩，音量条轨道顶内高光应随之变亮。
+func TestPlayerBarVolumeDarkWired(t *testing.T) {
+	topAt := func() [3]int {
+		_, tst := playerBarProbeAt(t, PeriodAt(0), func(a *App) { a.ShowVolume = true })
+		anchor, ok := tst.Find("音量")
+		if !ok {
+			t.Fatal("播放栏里找不到音量键")
+		}
+		tr := volumeTrackRect(anchor)
+		return rgbAt(tst.Image(), int(tr.X+tr.W*0.25), int(tr.Y)+1)
+	}
+	dark := topAt()
+	saved := rangeSkinFor
+	rangeSkinFor = func(_, hovered bool) rangeSkin { return rangeSkinForTheme(false, hovered) }
+	defer func() { rangeSkinFor = saved }()
+	light := topAt()
+	t.Logf("深色时段音量条顶内高光 深色材质=%v 强制亮色材质=%v", dark, light)
+	if light[0]-dark[0] < 40 {
+		t.Errorf("深色时段音量条没有换用深色轨道材质：%v vs %v", dark, light)
 	}
 }
