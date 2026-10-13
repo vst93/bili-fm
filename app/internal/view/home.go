@@ -375,7 +375,10 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 			}
 
 			// 三个小开关：碟片/封面、封面背景、高级质感。
-			// 原版底部右起 8px，彼此间距 6（28 + 6 = 34）；整组随封面悬停淡入。
+			// 原版三个键都是 absolute，靠各自的 `right` 贴边：模式键 right:8（最右）、
+			// 封面背景 right:42（中）、高级质感 right:76（最左）——间距 6（28 + 6 = 34）。
+			// 为了用一个 Row 表达同样的几何，**子元素从左到右的顺序要反过来**
+			// （premium → ambient → mode），否则三个键左右镜像（之前就是反的）。
 			// 整组随封面悬停淡入淡出（原版 .cover-mode-toggle 的
 			// opacity 0 ↔ .85 + 0.2s 过渡）。交给 AnimateTo 平滑。
 			group := ui.Row(c).Absolute().Right(8).Bottom(8).Gap(6)
@@ -386,6 +389,22 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 			group.Opacity(group.AnimateTo("cover-toggles", target,
 				ui.Animation{Duration: 200 * time.Millisecond})).Children(func() {
 				// tooltip 文案与原版一致（碟片/封面模式、封面背景、高级质感）。
+				// 顺序必须是「高级质感 / 封面背景 / 模式切换」——对应的 right 偏移
+				// 是 76 / 42 / 8。
+				a.coverToggle(c, "premium",
+					pick(a.Premium, "关闭高级质感（更省电）", "开启高级质感"),
+					iconSparkles, func() {
+						if a.Act.TogglePremium != nil {
+							a.Act.TogglePremium()
+						}
+					})
+				a.coverToggle(c, "ambient",
+					pick(a.Ambient, "关闭封面背景", "开启封面背景"),
+					iconHalo, func() {
+						if a.Act.ToggleAmbient != nil {
+							a.Act.ToggleAmbient()
+						}
+					})
 				a.coverToggle(c, "cover-mode",
 					pick(a.CoverMode == "square", "切换为碟片模式", "切换为封面模式"),
 					iconRefresh, func() {
@@ -396,20 +415,6 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 							a.Act.SetCoverMode("disc")
 						} else {
 							a.Act.SetCoverMode("square")
-						}
-					})
-				a.coverToggle(c, "ambient",
-					pick(a.Ambient, "关闭封面背景", "开启封面背景"),
-					iconHalo, func() {
-						if a.Act.ToggleAmbient != nil {
-							a.Act.ToggleAmbient()
-						}
-					})
-				a.coverToggle(c, "premium",
-					pick(a.Premium, "关闭高级质感（更省电）", "开启高级质感"),
-					iconSparkles, func() {
-						if a.Act.TogglePremium != nil {
-							a.Act.TogglePremium()
 						}
 					})
 			})
