@@ -420,11 +420,16 @@ type App struct {
 	UpMid      int64
 	UpName     string
 	UpFollowed bool
-	UpFans     int64  // 粉丝数，UP 空间表头显示
-	UpTab      string // UpTabVideos / UpTabSeries
-	SeriesList []Series
-	SeriesID   int64
-	SeriesName string
+	// UpFollowPending 为真表示「关注状态还没查回来」或「关注/取关请求在途」：
+	// UP 空间表头的关注键转圈并禁用（原版 upVideoList 的 isCheckingFollow /
+	// isFollowingLoading）。没有它时连点关注键会先关注再取关（每个 click 各起
+	// 一个请求），用户看到的是一闪而过的错误状态。
+	UpFollowPending bool
+	UpFans          int64  // 粉丝数，UP 空间表头显示
+	UpTab           string // UpTabVideos / UpTabSeries
+	SeriesList      []Series
+	SeriesID        int64
+	SeriesName      string
 
 	// UpOffset 是 UP 视频列表的翻页游标（旧版是 offset 而不是页码）。
 	UpOffset string

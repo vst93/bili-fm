@@ -390,12 +390,20 @@ func (a *App) upHeader(c *ui.Context) {
 			TextColor(ui.Hex("#71717a")).Shrink(0)
 	}
 
-	label := pick(a.UpFollowed, "已关注", "关注")
+	label, spinner := upFollowSpec(a.UpFollowPending, a.UpFollowed)
 	b := ui.ButtonBase(c.Key("up-follow")).MinWidth(70).Height(32).Padding(0, 12).
-		Radius(Radius).Center().Label(label)
-	buttonSurface(b, false, b.Hovered(),
+		Radius(Radius).Center().Label(label).Tooltip(label)
+	// 原版关注键在「查关注状态 / 关注请求在途」时禁用（isCheckingFollow /
+	// isFollowingLoading）：挡住连点，避免 follow 与 unfollow 各发一次。
+	b.Disabled(a.UpFollowPending)
+	buttonSurface(b, false, b.Hovered() && !a.UpFollowPending,
 		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 	b.Children(func() {
+		if spinner {
+			// 原版 <Spinner size="sm" />：转圈替代图标 + 文案。
+			ui.Spinner(c).Size(16, 16).TextColor(ui.Hex("#2563eb"))
+			return
+		}
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// 原版：关注态是 Close #666 + 默认字色；未关注是 Add + text-primary。
 			ui.Icon(c, pick(a.UpFollowed, iconFollowed, iconFollow)).Size(14, 14).
@@ -404,7 +412,7 @@ func (a *App) upHeader(c *ui.Context) {
 				TextColor(pick(a.UpFollowed, ui.Hex("#3f3f46"), ui.Hex("#2563eb")))
 		})
 	})
-	if b.Clicked() && a.Act.ToggleFollow != nil {
+	if b.Clicked() && !a.UpFollowPending && a.Act.ToggleFollow != nil {
 		a.Act.ToggleFollow()
 	}
 
@@ -415,6 +423,23 @@ func (a *App) upHeader(c *ui.Context) {
 		a.UpTab = k
 		a.reload()
 	})
+}
+
+// upFollowSpec 给出 UP 空间表头关注键这一帧的文案与是否转圈。
+//
+// 原版 upVideoList 的按钮：
+//
+//	isCheckingFollow（关注状态还在查）→ Spinner，禁用
+//	isFollowingLoading（关注 / 取关在途）→ isLoading，禁用
+//	已关注                              → Close 图标 + 「已关注」
+//	否则                                → Add 图标 + 「关注」
+//
+// pending 为真是前两种：转圈并禁用（文案保持「关注」，让 Find / tooltip 稳定）。
+func upFollowSpec(pending, followed bool) (label string, spinner bool) {
+	if pending {
+		return "关注", true
+	}
+	return pick(followed, "已关注", "关注"), false
 }
 
 // ---------------------------------------------------------- 抽屉内的窄窗响应式

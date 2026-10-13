@@ -516,3 +516,22 @@ func TestNoStartupQueueRestore(t *testing.T) {
 		}
 	}
 }
+
+// TestFollowBlocked 钉住「UP 空间里关注/取关在途时连点忽略」的闸门（对应原版
+// 关注键的 isFollowingLoading 禁用态）。没有这道闸门时，连点会先 follow 再
+// unfollow，各发一次请求、状态来回跳。
+func TestFollowBlocked(t *testing.T) {
+	cases := []struct {
+		up, pending, want bool
+	}{
+		{true, true, true},
+		{true, false, false},
+		{false, true, false},
+		{false, false, false},
+	}
+	for _, c := range cases {
+		if got := followBlocked(c.up, c.pending); got != c.want {
+			t.Errorf("followBlocked(%v,%v) = %v, want %v", c.up, c.pending, got, c.want)
+		}
+	}
+}

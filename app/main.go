@@ -857,6 +857,11 @@ func (c *controller) favorite() {
 	}()
 }
 
+// followBlocked 报告这次关注请求是否应该被忽略：在 UP 空间里已经有一次
+// 关注/取关在途时（UpFollowPending），连点忽略 —— 对应原版 upVideoList 的
+// 关注键在 isCheckingFollow / isFollowingLoading 时禁用。抽成纯函数便于单测。
+func followBlocked(up, pending bool) bool { return up && pending }
+
 // follow 关注 / 取关。
 //
 // 注意 mid 是**被关注的人**：UP 空间抽屉里是那个 UP 主，否则是当前视频的
@@ -874,9 +879,15 @@ func (c *controller) follow() {
 	if mid == 0 {
 		return
 	}
+	// 已经有一次关注/取关在途：连点忽略（原版关注键在 isFollowingLoading 时禁用，
+	// 否则 follow + unfollow 会各发一次请求，状态来回跳）。
+	if followBlocked(up, a.UpFollowPending) {
+		return
+	}
 	want := !a.Followed
 	if up {
 		want = !a.UpFollowed
+		a.UpFollowPending = true
 	}
 	go func() {
 		var err error
@@ -887,9 +898,14 @@ func (c *controller) follow() {
 		}
 		if err != nil {
 			log.Printf("关注操作失败: %v", err)
-			return
 		}
 		c.app.Win.Update(func() {
+			if up {
+				c.app.UpFollowPending = false
+			}
+			if err != nil {
+				return
+			}
 			c.app.Followed = want
 			c.app.UpFollowed = want
 		})
@@ -908,15 +924,20 @@ func (c *controller) openUp(mid int64, name string) {
 	a.ListFor(view.DrawerUp).Loading = true
 	a.SeriesList = nil
 	upTab := a.UpTab
+	// 关注状态查回来之前，表头关注键转圈且禁用（原版 isCheckingFollow）。
+	a.UpFollowPending = true
 	a.Win.Update(func() {})
 
 	go func() {
-		if st, err := c.bl.IsFollowing(int(mid)); err == nil && st != nil {
-			a.Win.Update(func() {
+		st, err := c.bl.IsFollowing(int(mid))
+		a.Win.Update(func() {
+			// 不管成败都要清掉 pending，否则查失败时关注键会永远转圈。
+			a.UpFollowPending = false
+			if err == nil && st != nil {
 				a.UpFollowed = st.IsFollowing
 				a.UpFans = st.Follower
-			})
-		}
+			}
+		})
 		series, _ := c.bl.GetSeriesList(int(mid))
 		list := make([]view.Series, 0, len(series))
 		for _, it := range series {
