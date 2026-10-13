@@ -146,11 +146,14 @@ var miniPlayerEdgeFade = func(t Theme) ui.Color {
 func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
 	var volSlot ui.Element
-	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
-		// 与主窗同一层框架玻璃 + 同一道向上投影；深色时段同样染上
-		// --player-surface 的烟熏色（见 playerBarTint）。
-		Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})).
-		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
+	applyShadows(
+		ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
+			// 与主窗同一层框架玻璃；深色时段同样染上 --player-surface 的
+			// 烟熏色（见 playerBarTint）。
+			Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})),
+		// 向上投影与主窗同一套令牌，但 mini 浅色的兜底更紧（22px，
+		// 见 playerBarShadowSpec）。
+		[]shadowSpec{playerBarShadowSpec(t, true)}).
 		Children(func() {
 			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).

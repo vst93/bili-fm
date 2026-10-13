@@ -44,12 +44,13 @@ func (a *App) playerBar(c *ui.Context) {
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。深色时段还要给玻璃染上
 	// --player-surface 的烟熏色（见 playerBarTint）。
-	ui.Column(c).FillWidth().Height(56).Shrink(0).
-		Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})).
-		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影
-		//（0 -10px 28px rgba(15,23,42,.05)，浅色/深色时段都是这个值）。
-		// 前两层内影由玻璃自己的描光承担。
-		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
+	applyShadows(
+		ui.Column(c).FillWidth().Height(56).Shrink(0).
+			Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})),
+		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
+		// 随时段变化（深色更淡），前两层 inset 内影由框架玻璃的 1px 描光
+		// 承担。见 playerBarShadowSpec。
+		[]shadowSpec{playerBarShadowSpec(t, false)}).
 		Children(func() {
 			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
 			// 内容区保持完整 56px。
@@ -95,6 +96,30 @@ var playerBarTint = func(t Theme) ui.Color {
 		return t.PlayerSurface
 	}
 	return ui.Transparent
+}
+
+// playerBarShadowSpec 是播放栏向**上**投到内容区的那道淡影（原版
+// `#player .player-controls` 与 `body.mini-mode #player .player-controls`
+// box-shadow 的第三层）。原版四个组合各不相同：
+//
+//	主窗浅色  0 -10px 28px rgba(15,23,42,.05)
+//	主窗深色  0 -10px 28px rgba(15,23,42,.045)  （烟熏玻璃 --player-shadow）
+//	mini 浅色 0 -10px 22px rgba(15,23,42,.05)   （mini 规则里的兜底值）
+//	mini 深色 0 -10px 28px rgba(15,23,42,.045)  （--player-shadow 盖过兜底）
+//
+// 前两层 inset 高光/暗线由框架 Liquid Glass 的 1px 描光承担（见 playerBarTint
+// 的说明），这里只补外投影。此前两层播放栏一律写死 `0 -10px 28px .05`，
+// mini 浅色的 22px 与深色时段的 .045 两个差异都丢了。声明成 var 便于测试换桩。
+var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
+	alpha := float32(0.05)
+	if t.Dark {
+		alpha = 0.045
+	}
+	blur := float32(28)
+	if mini && !t.Dark {
+		blur = 22
+	}
+	return shadowSpec{0, -10, blur, 0, shadowInk.Alpha(alpha)}
 }
 
 // buttonSurface 给按钮上「半透明填充」材质：半透明底 + 1px 玻璃边 +
