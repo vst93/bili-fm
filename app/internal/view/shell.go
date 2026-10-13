@@ -141,6 +141,10 @@ func (a *App) titleBar(c *ui.Context) {
 					b.InsetShadow(0, 1, 1, 0, t.Highlight).
 						Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
 				}
+				// 原版 .app-title-bar button:hover 的左上角径向聚光（按下换居中光）。
+				if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+					l.draw(b, RadiusSmall)
+				}
 				pressScale(b)
 				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(ink) })
 				if b.Clicked() && a.Act.SetMini != nil {
@@ -191,6 +195,11 @@ func (a *App) settingsButton(c *ui.Context) {
 	}
 	if a.ShowSettings {
 		b.Background(t.GlassHover)
+	}
+	// 原版 .app-title-bar button:hover 的左上角径向聚光（.settings-entry 也是
+	// .app-title-bar 里的 button，按下换居中光）。
+	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+		l.draw(b, 4)
 	}
 	b.Children(func() {
 		ui.Text(c, "设置").FontSize(14).TextColor(t.Ink)

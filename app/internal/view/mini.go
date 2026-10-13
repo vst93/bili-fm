@@ -231,6 +231,10 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 		b.InsetShadow(0, 1, 1, 0, t.Highlight).
 			Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
 	}
+	// 原版 .mini-window-controls button:hover 的左上角径向聚光（按下换居中光）。
+	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+		l.draw(b, RadiusSmall)
+	}
 	pressScale(b)
 	b.Children(func() {
 		ui.Icon(c, ic).Size(16, 16).TextColor(ink)

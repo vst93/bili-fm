@@ -115,6 +115,12 @@ func (a *App) searchField(c *ui.Context) {
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
 		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), submit.Pressed())
 		submit.Background(sub.Bg).Opacity(sub.Opacity)
+		// 原版 .search-submit-btn 常态带左上角径向聚光，按下换成居中光。
+		if submit.Pressed() {
+			btnLightPress.draw(submit, ToolButtonR)
+		} else {
+			btnLightTool.draw(submit, ToolButtonR)
+		}
 		topToolPose(submit)
 		searching := a.list().Loading
 		submit.Disabled(searching)
@@ -172,6 +178,12 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	// 图标转 #0284c7、上浮 1px；按下缩到 .92。
 	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
 	b.Background(s.Bg).Opacity(s.Opacity)
+	// 原版 .top-tool-btn 常态带左上角径向聚光，按下换成居中光。
+	if b.Pressed() {
+		btnLightPress.draw(b, ToolButtonR)
+	} else {
+		btnLightTool.draw(b, ToolButtonR)
+	}
 	if s.Bg.A > 0 {
 		b.Border(1, ui.Hex("#ffffff").Alpha(0.55)).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
@@ -942,6 +954,8 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		default:
 			glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
 		}
+		// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
+		btnLightNav.draw(b, ContentIconR)
 		b.Children(func() {
 			ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
 				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
@@ -983,6 +997,9 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 		Center().Label(label).Tooltip(label)
 	disableNav(b, off)
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
+	// 之前原生版只有填充、少了这道光（见 btnlight.go）。
+	btnLightNav.draw(b, ContentIconR)
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
 	if b.Clicked() && fn != nil {
 		fn()
@@ -1003,6 +1020,8 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
 	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	// 原版 .nav-icon-btn 常态的左上角径向聚光（见 btnlight.go）。
+	btnLightNav.draw(b, DockIconR)
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(textInk) })
 	if b.Clicked() && fn != nil {
 		fn()
