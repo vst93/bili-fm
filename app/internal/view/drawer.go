@@ -1534,7 +1534,6 @@ func estimateCardWidth(c *ui.Context) float32 {
 // partsHeader 是选集抽屉的表头（原版 pageList.tsx）：「选集(N)」+ 定位当前 +
 // 「全部添加」到播放列表。
 func (a *App) partsHeader(c *ui.Context) {
-	t := a.Theme
 	n := 0
 	if a.Info != nil {
 		n = len(a.Info.Parts)
@@ -1550,14 +1549,22 @@ func (a *App) partsHeader(c *ui.Context) {
 	}
 	// 选集搜索（原版 header .part-search）：flex 0 1 180px（不撑满）、
 	// 高 32、圆角 8、内边距 0 10、gap 6，内凹底（rgba(15,23,42,.035)）。
-	ui.Row(c).Width(180).MaxWidth(180).Shrink(1).Height(32).Radius(Radius).
-		Gap(6).Padding(0, 10).
-		Background(ui.Hex("#0f172a").Alpha(0.035)).
-		Border(1, ui.Hex("#475569").Alpha(0.50)).
-		AlignItems(ui.Center).Children(func() {
-		ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(t.Faint)
-		in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(12).
-			TextColor(ui.Hex("#334155")).Placeholder("搜索选集，回车跳转").Label("搜索选集")
+	// 悬停 / 聚焦三态见 partSearchPaintFor（原版 :hover / :focus-within）。
+	box := ui.Row(c).Width(180).MaxWidth(180).Shrink(1).Height(32).Radius(Radius).
+		Gap(6).Padding(0, 10).AlignItems(ui.Center)
+	paint := partSearchPaintFor(box.Hovered(), box.FocusWithin())
+	box.Background(paint.BG).Border(1, paint.Border)
+	if paint.Ring.A > 0 {
+		box.Shadow(0, 0, 0, 2, paint.Ring)
+	}
+	box.Children(func() {
+		ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(paint.Icon)
+		// 原版 input.part-search-input：13px / 500 / #0f172a，且 `outline: none`——
+		// 聚焦时只由外层 .part-search:focus-within 给蓝色描边与光环，输入框自己
+		// 不再画框架的聚焦环（否则会多出一圈内环）。
+		in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(13).FontWeight(500).
+			FocusRing(false).
+			TextColor(ui.Hex("#0f172a")).Placeholder("搜索选集，回车跳转").Label("搜索选集")
 		if in.Submitted() {
 			a.locatePart(a.PartSearch)
 		}
@@ -1577,6 +1584,44 @@ func (a *App) partsHeader(c *ui.Context) {
 			a.Act.AddAllToPlaylist()
 		}
 	}
+}
+
+// partSearchPaint 是选集搜索框在某一状态下解析好的样式（原版 header
+// `.part-search` 的三条规则）。Ring 的零值（A == 0）表示不画外圈光环。
+type partSearchPaint struct {
+	Border ui.Color // 1px 描边
+	BG     ui.Color // 内凹填充
+	Ring   ui.Color // 聚焦时的 2px 外圈光环
+	Icon   ui.Color // 左侧放大镜
+}
+
+// partSearchPaintFor 解析选集搜索框的三态，逐值对应原版 globals.css：
+//
+//	常态          边 rgba(71,85,105,.5)   底 rgba(15,23,42,.035)  图标 #475569
+//	:hover        边 rgba(71,85,105,.65)  底不变                  图标 #475569
+//	:focus-within 边 rgba(14,165,233,.4)  底 rgba(255,255,255,.05) 图标 #0284c7
+//	              外加 0 0 0 2px rgba(14,165,233,.14) 的蓝色光环
+//
+// 聚焦优先于悬停（原版 focus-within 的两条规则都排在 hover 之后）。此前
+// 原生版只画了常态度，悬停/聚焦完全没有反馈。
+//
+// 声明成变量是为了让测试能替换它做反证（同 navHoverHighlight）。
+var partSearchPaintFor = func(hovered, focused bool) partSearchPaint {
+	p := partSearchPaint{
+		Border: ui.Hex("#475569").Alpha(0.50),
+		BG:     ui.Hex("#0f172a").Alpha(0.035),
+		Icon:   ui.Hex("#475569"),
+	}
+	if hovered {
+		p.Border = ui.Hex("#475569").Alpha(0.65)
+	}
+	if focused {
+		p.Border = ui.Hex("#0ea5e9").Alpha(0.40)
+		p.BG = ui.Hex("#ffffff").Alpha(0.05)
+		p.Ring = ui.Hex("#0ea5e9").Alpha(0.14)
+		p.Icon = ui.Hex("#0284c7")
+	}
+	return p
 }
 
 // partsBody 是选集抽屉正文：三列卡片网格（虚拟化 ui.List）。
