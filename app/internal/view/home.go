@@ -567,48 +567,58 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 	})
 }
 
-// videoInfoHead 是 UP 主行（.video-info-head）：40px 圆头像 + 「UP 主」+ 名字。
-// 点头像或名字进 UP 主的空间（旧版的 onOwnerClick）。
+// videoInfoHead 是 UP 主行（.video-info-head）：44px 圆头像（带磨砂玻璃罩）+
+// 「UP 主」+ 名字。点头像或名字进 UP 主的空间（旧版的 onOwnerClick）。
 func (a *App) videoInfoHead(c *ui.Context) {
 	t := a.Theme
 	ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
-		face := ui.ButtonBase(c.Key("owner-face")).Size(40, 40).Radius(RadiusPill).Clip().
-			Background(t.CoverPlaceholder()).Label("UP 主空间")
-		// 悬停放大 5%（原版 #video-owner-face 的 hover:scale-105）。
-		// 用 AnimatePose：只重绘不重建视图，便宜。
-		scale := float32(1)
-		if face.Hovered() {
-			scale = 1.05
-		}
-		face.AnimatePose(ui.Pose{Scale: scale}, ui.Snappy)
-		face.Children(func() {
-			if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
-				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			}
-		})
-		if face.Clicked() {
-			a.openUp()
-		}
+		// .video-owner-wrap：头像 + 名字列，间距 11（原版 gap）。玻璃罩锚在这一层
+		// 的左上角，所以头像与名字必须同处一个 wrap。
+		wrap := ui.Row(c).Gap(ownerWrapGap).AlignItems(ui.Center).MinWidth(0)
+		wrap.Children(func() {
+			// .video-owner-wrap::before：48×48 磨砂玻璃罩，常态 opacity 1、
+			// 悬停 .7（原版）。盖在头像上但不吃指针。
+			ownerGlassOverlay(c, wrap.Hovered())
 
-		ui.Column(c).MinWidth(0).Children(func() {
-			ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6"))
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
-				name.Background(ui.Transparent)
-				name.Children(func() {
-					// 原版 #video-owner-name：15px / 650 / hover #0284c7。
-					ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
-						TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
-						SingleLine().MaxWidth(240)
+			// #video-owner-face：44×44 + 2px margin（外框 48）、1.5px 白描边、
+			// 蓝环 + 墨影；悬停换蓝影并 scale(1.06)。
+			face := ui.ButtonBase(c.Key("owner-face")).
+				Size(ownerFaceSize, ownerFaceSize).Margin(ownerFaceMargin).
+				Radius(RadiusPill).Clip().
+				Background(t.CoverPlaceholder()).Border(1.5, ownerFaceBorder()).
+				Label("UP 主空间")
+			paint := ownerFacePaintFor(face.Hovered())
+			applyShadows(face, paint.Shadows)
+			face.AnimatePose(ui.Pose{Scale: paint.Scale}, ui.Snappy)
+			face.Children(func() {
+				if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
+					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+				}
+			})
+			if face.Clicked() {
+				a.openUp()
+			}
+
+			ui.Column(c).MinWidth(0).Children(func() {
+				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6"))
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
+					name.Background(ui.Transparent)
+					name.Children(func() {
+						// 原版 #video-owner-name：15px / 650 / hover #0284c7。
+						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
+							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
+							SingleLine().MaxWidth(240)
+					})
+					if name.Clicked() {
+						a.openUp()
+					}
+					// 合作视频：UP 主名字旁的选择键（原版只有 staff 非空、
+					// creators.length > 1 时才画）。
+					if a.Info != nil && len(a.Info.Staff) > 1 {
+						a.collabPicker(c)
+					}
 				})
-				if name.Clicked() {
-					a.openUp()
-				}
-				// 合作视频：UP 主名字旁的选择键（原版只有 staff 非空、
-				// creators.length > 1 时才画）。
-				if a.Info != nil && len(a.Info.Staff) > 1 {
-					a.collabPicker(c)
-				}
 			})
 		})
 	})
