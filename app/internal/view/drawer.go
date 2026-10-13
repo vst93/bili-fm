@@ -1646,16 +1646,33 @@ func (a *App) partsHeader(c *ui.Context) {
 	}
 	// 选集搜索（原版 header .part-search）：flex 0 1 180px（不撑满）、
 	// 高 32、圆角 8、内边距 0 10、gap 6，内凹底（rgba(15,23,42,.035)）。
-	// 悬停 / 聚焦三态见 partSearchPaintFor（原版 :hover / :focus-within）。
+	// 悬停 / 聚焦三态见 partSearchPaintFor（原版 :hover / :focus-within）；
+	// ::before 的 --glass-sheen-static 与 ::after 的 --liquid-rim 见 partSearchGlass。
 	box := ui.Row(c).Width(180).MaxWidth(180).Shrink(1).Height(32).Radius(Radius).
 		Gap(6).Padding(0, 10).AlignItems(ui.Center)
 	paint := partSearchPaintFor(box.Hovered(), box.FocusWithin())
-	box.Background(paint.BG).Border(1, paint.Border)
+	// 原版 `.part-search` 的 `transition: border-color 0.2s ease, box-shadow 0.2s
+	// ease` 与 `::before` 的 `background-color 0.2s ease`：描边 / 填充走 200ms
+	// 曲线过渡。内影（box-shadow）无逐通道动画通道，仍当帧切换。
+	box.Background(partSearchFade(box, "ps-bg", paint.BG)).
+		Border(1, partSearchFade(box, "ps-border", paint.Border))
+	// ::before 的两条内影（内凹腔：顶暗底亮）。
+	box.InsetShadow(0, 1, 2, 0, paint.InsetTop)
+	box.InsetShadow(0, -0.5, 0, 0, paint.InsetBottom)
+	// 悬停 / 聚焦时整框抬起（原版 box-shadow: var(--liquid-shadow)）。
+	if paint.Lift {
+		box.Shadow(0, 8, 24, 0, shadowInk.Alpha(0.07))
+		box.Shadow(0, 1, 4, 0, shadowInk.Alpha(0.03))
+	}
 	if paint.Ring.A > 0 {
 		box.Shadow(0, 0, 0, 2, paint.Ring)
 	}
+	// ::after 的聚光描边做 0.2s 不透明度过渡（常态 .5、聚焦 1），再叠上
+	// ::before 的光泽。
+	box = partSearchGlass(box, partSearchRimOpacity(box, paint.Rim))
 	box.Children(func() {
-		ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(paint.Icon)
+		icon := ui.Icon(c, iconMagnifier).Size(15, 15)
+		icon.TextColor(partSearchIconFade(icon, "ps-icon", paint.Icon))
 		// field 把输入框与自绘占位文本收在一起，占位文本 Attach 到它的左缘。
 		field := ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center)
 		field.Children(func() {
@@ -1711,41 +1728,112 @@ func (a *App) partSearchPlaceholder(c *ui.Context) {
 }
 
 // partSearchPaint 是选集搜索框在某一状态下解析好的样式（原版 header
-// `.part-search` 的三条规则）。Ring 的零值（A == 0）表示不画外圈光环。
+// `.part-search` 的四条规则）。Ring 的零值（A == 0）表示不画外圈光环。
 type partSearchPaint struct {
 	Border ui.Color // 1px 描边
-	BG     ui.Color // 内凹填充
+	BG     ui.Color // ::before 的填充色（常态内凹底 / 悬停白底 / 聚焦薄白）
 	Ring   ui.Color // 聚焦时的 2px 外圈光环
 	Icon   ui.Color // 左侧放大镜
+	// Lift 为真时叠一层 --liquid-shadow（原版悬停 / 聚焦都把整个框抬起来）。
+	Lift bool
+	// Rim 是 ::after 聚光描边的整圈不透明度（原版常态 .5、聚焦 1）。
+	Rim float32
+	// InsetTop / InsetBottom 是 ::before 的两条内影（顶暗底亮 = 内凹腔）。
+	InsetTop, InsetBottom ui.Color
 }
 
 // partSearchPaintFor 解析选集搜索框的三态，逐值对应原版 globals.css：
 //
-//	常态          边 rgba(71,85,105,.5)   底 rgba(15,23,42,.035)  图标 #475569
-//	:hover        边 rgba(71,85,105,.65)  底不变                  图标 #475569
+//	常态          边 rgba(71,85,105,.5)   底 rgba(15,23,42,.035)   图标 #475569
+//	              内影 dark .08 / white .35，::after opacity .5
+//	:hover        边 rgba(71,85,105,.65)  底 --liquid-bg-hover(白 .30) 图标 #475569
+//	              叠 --liquid-shadow（抬起）
 //	:focus-within 边 rgba(14,165,233,.4)  底 rgba(255,255,255,.05) 图标 #0284c7
+//	              内影 dark .04 / white .40，::after opacity 1，叠 --liquid-shadow
 //	              外加 0 0 0 2px rgba(14,165,233,.14) 的蓝色光环
 //
-// 聚焦优先于悬停（原版 focus-within 的两条规则都排在 hover 之后）。此前
-// 原生版只画了常态度，悬停/聚焦完全没有反馈。
+// 聚焦优先于悬停（原版 focus-within 的两条规则都排在 hover 之后，且同特异度、
+// 源序在后 ⇒ 覆盖 hover 的白底）。此前原生版只画了常态度，悬停/聚焦都没有
+// 反馈；且悬停底误当「不变」，漏了原版 `:hover::before { background-color:
+// var(--liquid-bg-hover) }` 这一档（与 .liquid-glass / .home-searchbar / 表头
+// tab 的悬停填充同一档）。
 //
 // 声明成变量是为了让测试能替换它做反证（同 navHoverHighlight）。
 var partSearchPaintFor = func(hovered, focused bool) partSearchPaint {
 	p := partSearchPaint{
-		Border: ui.Hex("#475569").Alpha(0.50),
-		BG:     ui.Hex("#0f172a").Alpha(0.035),
-		Icon:   ui.Hex("#475569"),
+		Border:      ui.Hex("#475569").Alpha(0.50),
+		BG:          ui.Hex("#0f172a").Alpha(0.035),
+		Icon:        ui.Hex("#475569"),
+		Rim:         0.5,
+		InsetTop:    ui.Hex("#0f172a").Alpha(0.08),
+		InsetBottom: ui.Hex("#ffffff").Alpha(0.35),
 	}
 	if hovered {
 		p.Border = ui.Hex("#475569").Alpha(0.65)
+		// 原版 `.part-search:hover::before { background-color: var(--liquid-bg-hover) }`
+		// —— 悬停把内凹底换成 --liquid-bg-hover（白 .30）。
+		p.BG = ui.Hex("#ffffff").Alpha(0.30)
+		p.Lift = true
 	}
 	if focused {
 		p.Border = ui.Hex("#0ea5e9").Alpha(0.40)
 		p.BG = ui.Hex("#ffffff").Alpha(0.05)
 		p.Ring = ui.Hex("#0ea5e9").Alpha(0.14)
 		p.Icon = ui.Hex("#0284c7")
+		p.Rim = 1
+		p.InsetTop = ui.Hex("#0f172a").Alpha(0.04)
+		p.InsetBottom = ui.Hex("#ffffff").Alpha(0.40)
+		p.Lift = true
 	}
 	return p
+}
+
+// partSearchAnim 是选集搜索框状态切换的过渡：原版 `.part-search` 的
+// `transition: border-color 0.2s ease, box-shadow 0.2s ease` 与 `::before` 的
+// `background-color 0.2s ease`（CSS ease = cubic-bezier(0.25,0.1,0.25,1)）。
+var partSearchAnim = ui.Animation{
+	Duration: 200 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// partSearchFade 把框体的一处色值交给动画层做过渡。拆成 var 便于测试换桩 /
+// 冻结：AnimateColor 在目标变化的那一帧返回**上一帧的颜色**（曲线 t=0），
+// 直接铺目标色会瞬时跳变。key 在同一元素内须唯一。
+var partSearchFade = func(b ui.Element, key string, target ui.Color) ui.Color {
+	return b.AnimateColor(key, target, partSearchAnim)
+}
+
+// partSearchRimOpacity 把 ::after 聚光描边的整圈不透明度做 0.2s 过渡（原版
+// `::after { transition: opacity 0.2s ease }`）。
+var partSearchRimOpacity = func(b ui.Element, target float32) float32 {
+	return b.AnimateTo("ps-rim", target, partSearchAnim)
+}
+
+// partSearchIconAnim 是左侧放大镜换色的过渡：原版 `.part-search-icon` 单写一条
+// `transition: color 0.16s ease`，比框体的 0.2s 略快，别并到 partSearchAnim。
+var partSearchIconAnim = ui.Animation{
+	Duration: 160 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// partSearchIconFade 把放大镜的墨色做 160ms 过渡（原版 `.part-search-icon {
+// transition: color 0.16s ease }`）。拆成 var 便于测试冻结动画相位。
+var partSearchIconFade = func(b ui.Element, key string, target ui.Color) ui.Color {
+	return b.AnimateColor(key, target, partSearchIconAnim)
+}
+
+// partSearchGlass 画 `.part-search::before` 的 --glass-sheen-static 光泽与
+// `::after` 的 1px 聚光描边（--liquid-rim）。mygo 没有径向渐变接口、也画不了
+// conic-gradient，光泽复用播放栏那套烘焙位图（sheenGlassBaked 就是
+// --glass-sheen-static），描边复用播放栏的四边线性近似（paintPlayerRim）。
+// 声明成 var 便于测试换桩做反证。
+var partSearchGlass = func(b ui.Element, rimOpacity float32) ui.Element {
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintPlayerSheen(p, r, Radius, sheenGlassBaked.bitmap())
+		if rimOpacity > 0 {
+			paintPlayerRim(p, r, Radius, rimOpacity)
+		}
+	})
 }
 
 // partsBody 是选集抽屉正文：三列卡片网格（虚拟化 ui.List）。

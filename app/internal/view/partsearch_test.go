@@ -15,7 +15,8 @@ func sameInk(a, b ui.Color) bool {
 // `[data-slot="wrapper"] header .part-search` 的 :hover / :focus-within 规则）。
 //
 // 此前原生版只画了常态度：悬停与聚焦都没有任何反馈，放大镜也偏浅（用了主题的
-// Faint #64748b，而不是原版的 #475569）。
+// Faint #64748b，而不是原版的 #475569）；且悬停底误当「不变」，漏了原版
+// `:hover::before { background-color: var(--liquid-bg-hover) }`（白 .30）。
 func TestPartSearchPaintFor(t *testing.T) {
 	cases := []struct {
 		name             string
@@ -23,38 +24,57 @@ func TestPartSearchPaintFor(t *testing.T) {
 		border, bg, icon ui.Color
 		ring             ui.Color
 		hasRing          bool
+		rim              float32
+		lift             bool
+		insetTop         ui.Color
+		insetBottom      ui.Color
 	}{
 		{
-			name:   "常态",
-			border: ui.Hex("#475569").Alpha(0.50),
-			bg:     ui.Hex("#0f172a").Alpha(0.035),
-			icon:   ui.Hex("#475569"),
+			name:        "常态",
+			border:      ui.Hex("#475569").Alpha(0.50),
+			bg:          ui.Hex("#0f172a").Alpha(0.035),
+			icon:        ui.Hex("#475569"),
+			rim:         0.5,
+			insetTop:    ui.Hex("#0f172a").Alpha(0.08),
+			insetBottom: ui.Hex("#ffffff").Alpha(0.35),
 		},
 		{
-			name:    "悬停",
-			hovered: true,
-			border:  ui.Hex("#475569").Alpha(0.65),
-			bg:      ui.Hex("#0f172a").Alpha(0.035),
-			icon:    ui.Hex("#475569"),
+			name:        "悬停",
+			hovered:     true,
+			border:      ui.Hex("#475569").Alpha(0.65),
+			bg:          ui.Hex("#ffffff").Alpha(0.30),
+			icon:        ui.Hex("#475569"),
+			rim:         0.5,
+			lift:        true,
+			insetTop:    ui.Hex("#0f172a").Alpha(0.08),
+			insetBottom: ui.Hex("#ffffff").Alpha(0.35),
 		},
 		{
-			name:    "聚焦",
-			focused: true,
-			border:  ui.Hex("#0ea5e9").Alpha(0.40),
-			bg:      ui.Hex("#ffffff").Alpha(0.05),
-			icon:    ui.Hex("#0284c7"),
-			ring:    ui.Hex("#0ea5e9").Alpha(0.14),
-			hasRing: true,
+			name:        "聚焦",
+			focused:     true,
+			border:      ui.Hex("#0ea5e9").Alpha(0.40),
+			bg:          ui.Hex("#ffffff").Alpha(0.05),
+			icon:        ui.Hex("#0284c7"),
+			ring:        ui.Hex("#0ea5e9").Alpha(0.14),
+			hasRing:     true,
+			rim:         1,
+			lift:        true,
+			insetTop:    ui.Hex("#0f172a").Alpha(0.04),
+			insetBottom: ui.Hex("#ffffff").Alpha(0.40),
 		},
 		{
-			name:    "聚焦+悬停",
-			hovered: true,
-			focused: true,
-			border:  ui.Hex("#0ea5e9").Alpha(0.40),
-			bg:      ui.Hex("#ffffff").Alpha(0.05),
-			icon:    ui.Hex("#0284c7"),
-			ring:    ui.Hex("#0ea5e9").Alpha(0.14),
-			hasRing: true,
+			name:        "聚焦+悬停",
+			hovered:     true,
+			focused:     true,
+			border:      ui.Hex("#0ea5e9").Alpha(0.40),
+			bg:          ui.Hex("#ffffff").Alpha(0.05),
+			icon:        ui.Hex("#0284c7"),
+			ring:        ui.Hex("#0ea5e9").Alpha(0.14),
+			hasRing:     true,
+			rim:         1,
+			lift:        true,
+			insetTop:    ui.Hex("#0f172a").Alpha(0.04),
+			insetBottom: ui.Hex("#ffffff").Alpha(0.40),
 		},
 	}
 	for _, c := range cases {
@@ -68,6 +88,18 @@ func TestPartSearchPaintFor(t *testing.T) {
 			}
 			if !sameInk(p.Icon, c.icon) {
 				t.Errorf("放大镜 = %v，应为 %v", p.Icon, c.icon)
+			}
+			if !sameInk(p.InsetTop, c.insetTop) {
+				t.Errorf("顶部内影 = %v，应为 %v", p.InsetTop, c.insetTop)
+			}
+			if !sameInk(p.InsetBottom, c.insetBottom) {
+				t.Errorf("底部内影 = %v，应为 %v", p.InsetBottom, c.insetBottom)
+			}
+			if p.Rim != c.rim {
+				t.Errorf("::after 不透明度 = %v，应为 %v", p.Rim, c.rim)
+			}
+			if p.Lift != c.lift {
+				t.Errorf("抬起 = %v，应为 %v", p.Lift, c.lift)
 			}
 			if c.hasRing {
 				if !sameInk(p.Ring, c.ring) {
@@ -90,6 +122,9 @@ func TestPartSearchFocusRing(t *testing.T) {
 	// bluenessFor 渲染一对「常态度 / 聚焦态」的帧，返回各自的框域蓝度。stub 为真时
 	// 在渲染期间把 paint helper 固定成常态度。
 	bluenessFor := func(stub bool) (offBlue, onBlue int) {
+		// 本轮给框体描边 / 填充 / 放大镜 / ::after 不透明度补了 0.2s 过渡；
+		// 像素对照要比较「状态 → 颜色」，不是动画相位，先冻结成瞬时写入。
+		freezePartSearchFades(t)
 		saved := partSearchPaintFor
 		if stub {
 			partSearchPaintFor = func(hovered, focused bool) partSearchPaint {
