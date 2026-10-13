@@ -43,21 +43,38 @@ func sampleFill(img *image.RGBA, r ui.Rect) [][3]int {
 // 以及一个关键否定：`[data-active]` **不换底色**（始终是 --liquid-bg 白 .22），
 // 之前原生版给静音态铺了 Rose 底/墨，整键泛红。
 func TestPlayerMuteSurfaceTokens(t *testing.T) {
-	if got := playerMuteBorder(false); got != ui.Hex("#94a3b8").Alpha(0.20) {
+	lt := ThemeFor(PeriodAt(12))
+	if got := playerMuteBorder(lt, false); got != ui.Hex("#94a3b8").Alpha(0.20) {
 		t.Errorf("常态描边 = %v，应为 slate .2", got)
 	}
-	if got := playerMuteBorder(true); got != ui.Hex("#0284c7").Alpha(0.28) {
+	if got := playerMuteBorder(lt, true); got != ui.Hex("#0284c7").Alpha(0.28) {
 		t.Errorf("已静音描边 = %v，应为 studio-blue .28", got)
 	}
-	if got := playerMuteInk(false); got != ui.Hex("#526174") {
+	if got := playerMuteInk(lt, false); got != ui.Hex("#526174") {
 		t.Errorf("常态墨色 = %v，应为 #526174", got)
 	}
-	if got := playerMuteInk(true); got != ui.Hex("#0284c7") {
+	if got := playerMuteInk(lt, true); got != ui.Hex("#0284c7") {
 		t.Errorf("已静音墨色 = %v，应为 studio-blue #0284c7", got)
 	}
 	// 明确不是 Rose（上一版整键泛红的根因）。
-	if playerMuteInk(true) == ui.Hex("#e11d48") {
+	if playerMuteInk(lt, true) == ui.Hex("#e11d48") {
 		t.Error("已静音墨色仍是 Rose，应转 studio-blue")
+	}
+	// 深色（烟熏玻璃）时段：静音键也是 .player-button，基态换成白 .15 边 /
+	// Theme.PlayerButton 墨；`[data-active]` (1,2,0) 输给深色基态 (1,2,1)，
+	// 所以深色下已静音**不转蓝**。
+	dt := ThemeFor(PeriodAt(0))
+	if got := playerMuteBorder(dt, false); got != ui.Hex("#ffffff").Alpha(0.15) {
+		t.Errorf("深色常态描边 = %v，应为白 .15", got)
+	}
+	if got := playerMuteBorder(dt, true); got != ui.Hex("#ffffff").Alpha(0.15) {
+		t.Errorf("深色已静音描边 = %v，应为白 .15（不转蓝）", got)
+	}
+	if got := playerMuteInk(dt, false); got != dt.PlayerButton {
+		t.Errorf("深色常态墨色 = %v，应为 Theme.PlayerButton", got)
+	}
+	if got := playerMuteInk(dt, true); got != dt.PlayerButton {
+		t.Errorf("深色已静音墨色 = %v，应为 Theme.PlayerButton（不转蓝）", got)
 	}
 }
 
@@ -96,9 +113,9 @@ func TestPlayerMuteSurfaceWired(t *testing.T) {
 	orig := playerMuteSurface
 	defer func() { playerMuteSurface = orig }()
 	var got []bool
-	playerMuteSurface = func(b ui.Element, muted bool) ui.Element {
+	playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
 		got = append(got, muted)
-		return orig(b, muted)
+		return orig(t, b, muted)
 	}
 	_, tst := playerBarProbe(t, func(a *App) {
 		a.ShowVolume = true

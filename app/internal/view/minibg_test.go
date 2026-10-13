@@ -130,17 +130,31 @@ func TestMiniBackgroundRendered(t *testing.T) {
 }
 
 // TestMiniPlayStyle 钉住迷你窗播放键的三色取自原版
-// body.mini-mode #player .player-play-button。
+// body.mini-mode #player .player-play-button（深色时段换成主窗深色面）。
 func TestMiniPlayStyle(t *testing.T) {
-	fill, border, ink := miniPlayStyle(false)
+	lt := ThemeFor(PeriodAt(12))
+	fill, border, ink := miniPlayStyle(lt, false)
 	if fill != ui.Hex("#bae6fd").Alpha(0.35) ||
 		border != ui.Hex("#0284c7").Alpha(0.20) || ink != ui.Hex("#0284c7") {
 		t.Errorf("常态 = %v / %v / %v", fill, border, ink)
 	}
-	fill, border, ink = miniPlayStyle(true)
+	fill, border, ink = miniPlayStyle(lt, true)
 	if fill != ui.Hex("#bae6fd").Alpha(0.50) ||
 		border != ui.Hex("#0284c7").Alpha(0.28) || ink != ui.Hex("#0284c7") {
 		t.Errorf("悬停 = %v / %v / %v", fill, border, ink)
+	}
+	// 深色时段：主窗那条 `#player .player-play-button` 深色规则 (1,2,1) 源序在
+	// mini 基态之后，盖过它——mini 播放键换成深色面；悬停仍按浅色值。
+	dt := ThemeFor(PeriodAt(0))
+	fill, border, ink = miniPlayStyle(dt, false)
+	if fill != ui.Hex("#e0f2fe").Alpha(0.24) ||
+		border != ui.Hex("#e0f2fe").Alpha(0.48) || ink != ui.Hex("#0369a1") {
+		t.Errorf("深色常态 = %v / %v / %v", fill, border, ink)
+	}
+	fill, border, ink = miniPlayStyle(dt, true)
+	if fill != ui.Hex("#bae6fd").Alpha(0.50) ||
+		border != ui.Hex("#0284c7").Alpha(0.28) || ink != ui.Hex("#0284c7") {
+		t.Errorf("深色悬停 = %v / %v / %v", fill, border, ink)
 	}
 }
 

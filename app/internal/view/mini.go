@@ -143,7 +143,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					//（#player .player-play-button:hover 的 (1,3,0) 盖过 mini 基态）。
 					// 底色/描边/墨色走与主窗同一条 140ms ease 过渡（原版 mini 的
 					// transition 没有覆盖 #player .player-button 的那条）。
-					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(play.Hovered())
+					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(t, play.Hovered())
 					playFill := playerFadeColor(play, "mini-play-bg", playFillRaw)
 					playBorder := playerFadeColor(play, "mini-play-border", playBorderRaw)
 					playInk := playerFadeColor(play, "mini-play-ink", playInkRaw)
@@ -154,6 +154,15 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						play.Background(playerPressFill()).
 							Border(1, playBorder)
 						applyInsetShadows(play, playerPressShadowSpecs())
+					} else if t.Dark {
+						// 深色时段原版另给一条 `#player .player-play-button` 深色基态
+						// （(1,2,1)，源序在 mini 规则之后），mini 也跟着换面；
+						// 悬停规则 (1,3,0) 仍然胜出（miniPlayStyle 已处理）。
+						play.Background(playFill).
+							Border(1, playBorder).
+							InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)).
+							InsetShadow(0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)).
+							Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10))
 					} else {
 						play.Background(playFill).
 							Border(1, playBorder).
@@ -180,13 +189,13 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
-					playerToolSurface(next, false, next.Hovered(), next.Pressed())
+					playerToolSurface(t, next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
 					playerRim(next, RadiusPill, playerRimOpacityFn(t.Dark, true))
 					next.Children(func() {
 						icon := ui.Icon(c, iconNext).Size(18, 18).
 							TextColor(playerFadeColor(next, "mini-next-ink",
-								pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))).
+								playerButtonInk(t, next.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 						playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
 					})
@@ -211,12 +220,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					playerToolSurface(vol, false, vol.Hovered(), vol.Pressed())
+					playerToolSurface(t, vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
 					playerRim(vol, RadiusPill, playerRimOpacityFn(t.Dark, true))
 					vol.Children(func() {
 						icon := ui.Icon(c, iconVolume).Size(18, 18).
-							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(false, vol.Hovered()))).
+							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(t, false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 						playerIconShadowFn(icon, iconVolume, 0, 1, playerIconShadowInk)
 					})
@@ -236,13 +245,19 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 //	悬停  background rgba(186,230,253,.50); border rgba(2,132,199,.28); color #0284c7
 //
 // 注意 mini 的基态规则特异度 (1,2,1) 盖过主窗 [data-playing] 的 (1,2,0)，
-// 所以 mini 播放键与是否播放无关（只有 play/pause 图标变）。
-func miniPlayStyle(hovered bool) (fill, border, ink ui.Color) {
-	fill, border, ink = ui.Hex("#bae6fd").Alpha(0.35), ui.Hex("#0284c7").Alpha(0.20), ui.Hex("#0284c7")
+// 所以 mini 播放键与是否播放无关（只有 play/pause 图标变）。深色时段主窗那条
+// 深色 `#player .player-play-button` 规则 (1,2,1) 源序更晚，会盖过 mini 基态，
+// 所以深色下 mini 播放键换成主窗的深色面（#e0f2fe .24 / .48 / #0369a1）；
+// 悬停规则 (1,3,0) 仍然胜出，两时段同值。
+func miniPlayStyle(t Theme, hovered bool) (fill, border, ink ui.Color) {
 	if hovered {
-		fill, border = ui.Hex("#bae6fd").Alpha(0.50), ui.Hex("#0284c7").Alpha(0.28)
+		return ui.Hex("#bae6fd").Alpha(0.50), ui.Hex("#0284c7").Alpha(0.28), ui.Hex("#0284c7")
 	}
-	return
+	if t.Dark {
+		return ui.Hex("#e0f2fe").Alpha(playerPlayDarkFillA),
+			ui.Hex("#e0f2fe").Alpha(playerPlayDarkBorderA), ui.Hex("#0369a1")
+	}
+	return ui.Hex("#bae6fd").Alpha(0.35), ui.Hex("#0284c7").Alpha(0.20), ui.Hex("#0284c7")
 }
 
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标
