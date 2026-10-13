@@ -64,6 +64,10 @@ func (a *App) modal(c *ui.Context) {
 		if age := time.Since(a.modalOpenedAt); age < modalIn {
 			prog = float32(age) / float32(modalIn)
 		}
+		// 全窗遮罩：原版对话框/登录覆盖层都会把整窗压暗（对话框 slate .2、
+		// 登录纯黑 .25），此前 DialogBase 的 backdrop 一直没上色——弹窗浮在
+		// 亮背景上、没有任何压暗。alpha 乘入场进度，跟面板一起淡入。
+		backdrop.Background(modalScrimInk(m.Kind).Alpha(prog))
 		sc := panel.AnimateTo("modal-in", 0.96+0.04*prog, ui.Snappy)
 		panel.Scale(sc, sc).
 			Opacity(panel.AnimateTo("modal-fade", prog,
@@ -93,17 +97,40 @@ func (a *App) modal(c *ui.Context) {
 	})
 }
 
+// modalScrimInk 是模态遮罩的压暗层底色（原版对话框/登录面板铺满全窗的那层）：
+//
+//	对话框  DialogProvider 覆盖层 `background: rgba(15,23,42,0.2)`
+//	登录    index.tsx 覆盖层 `bg-black/25`（纯黑 .25）
+//
+// 原版两层都还带 `backdrop-filter: blur(...)`；原生版按抽屉遮罩的既定做法只铺
+// 纯色压暗（见 drawer.go 的「覆盖层 rgba(15,23,42,.28)，不模糊」）——面板自己
+// 已经是真玻璃（会模糊它背后的这一层），再给全窗加一层 backdrop 是每帧最贵的
+// 那类开销，观感收益却只是 6px 模糊。返回的颜色已带最终 alpha，调用点用
+// `.Alpha(prog)` 让它随入场淡入。
+func modalScrimInk(kind string) ui.Color {
+	if kind == "login" {
+		return ui.Hex("#000000").Alpha(0.25)
+	}
+	return ui.Hex("#0f172a").Alpha(0.20)
+}
+
 // modalLogin 是扫码登录面板（原版 .login-glass + index.tsx 的登录块）。
 func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
-	// 关闭键：原版是 absolute -right-4 top-4 的 32 圆键，图标 18px #475569。
-	close := ui.ButtonBase(c.Key("login-close")).Size(32, 32).Radius(RadiusPill).
-		Center().Label("关闭登录").Tooltip("关闭登录")
+	// 关闭键：原版 .login-close-btn 是 absolute -right-4 top-4 的 32 圆键
+	//（半透明白底 + 白描边 + 顶部内高光 + 外投影，见 loginclose.go）。
+	close := ui.ButtonBase(c.Key("login-close")).Size(loginCloseSize, loginCloseSize).
+		Radius(RadiusPill).Center().Label("关闭登录").Tooltip("关闭登录")
 	close.Absolute().Right(-16).Top(16)
-	if close.Hovered() {
-		close.Background(ui.Hex("#0f172a").Alpha(0.08))
+	p := loginClosePaintFor(close.Hovered(), close.Pressed())
+	close.Background(p.BG).Border(1, p.Border)
+	for _, s := range p.Inset {
+		close.InsetShadow(s.X, s.Y, s.Blur, s.Spread, s.C)
 	}
+	applyShadows(close, p.Outer)
+	close.AnimatePose(ui.Pose{Scale: p.Scale}, ui.Snappy)
 	close.Children(func() {
-		ui.Icon(c, iconClose).Size(18, 18).TextColor(ui.Hex("#475569"))
+		ui.Icon(c, iconClose).Size(loginCloseIconSize, loginCloseIconSize).
+			TextColor(ui.Hex("#475569"))
 	})
 	if close.Clicked() {
 		if a.Act.CloseLogin != nil {
