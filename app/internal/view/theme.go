@@ -66,6 +66,13 @@ type Theme struct {
 	// 浅色时段的时间比原版暗一档。
 	PlayerTime ui.Color
 
+	// HighContrast 为真表示桌面要求更高对比（原版 CSS 的
+	// `@media (prefers-contrast: more)`，mygo 的 ui.Preferences.HighContrast）。
+	// 原版在 globals.css **末尾**有一条 `html:root #player { … }` 覆写块
+	//（特异度 1,1,1，压过烟熏玻璃时段那条 1,1,0），只改播放栏的四个令牌。
+	// 由 withHighContrast 叠加，**只影响播放栏**。
+	HighContrast bool
+
 	// 进度条 / 音量条那一对变量（原版 --player-track-border /
 	// --player-track-rest）：亮色时段是白 .68 / 白 .32，烟熏玻璃时段收成
 	// 白 .28 / 白 .20——轨道在深色玻璃上再铺原来那么亮就会糊成一条白带。
@@ -140,6 +147,35 @@ func ThemeFor(p Period) Theme {
 		t.PlayerTrackBorder = ui.Hex("#ffffff").Alpha(0.28)
 		t.PlayerTrackRest = ui.Hex("#ffffff").Alpha(0.20)
 	}
+	return t
+}
+
+// withHighContrast 把桌面的高对比偏好叠在时段令牌之上（原版
+// `@media (prefers-contrast: more)` 里的 `html:root #player` 块）：
+//
+//	html:root #player {
+//	    --player-time-color: #334155;
+//	    --player-border: rgba(51, 65, 85, 0.52);
+//	    --player-track-border: rgba(51, 65, 85, 0.58);
+//	    --player-track-rest: rgba(51, 65, 85, 0.3);
+//	}
+//
+// 幂等：状态没变时原样返回；从高对比退回普通时按**时段**重新推导（HC 只
+// 覆写播放栏那四个令牌，其余令牌与时段一一对应，所以 ThemeFor(Period) 就是
+// 基态）。这条块在 CSS 里排在最末、又是 html:root + #player，所以浅色与
+// 烟熏玻璃时段的高对比值完全一样（都覆盖成这一套不透明的 slate）。
+func (t Theme) withHighContrast(hc bool) Theme {
+	if t.HighContrast == hc {
+		return t
+	}
+	if !hc {
+		return ThemeFor(t.Period)
+	}
+	t.HighContrast = true
+	t.PlayerTime = ui.Hex("#334155")
+	t.PlayerBorder = ui.Hex("#334155").Alpha(0.52)
+	t.PlayerTrackBorder = ui.Hex("#334155").Alpha(0.58)
+	t.PlayerTrackRest = ui.Hex("#334155").Alpha(0.30)
 	return t
 }
 

@@ -191,7 +191,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
-					playerToolSurface(t, next, false, next.Hovered(), next.Pressed())
+					playerToolSurface(t, toolNext, next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
 					playerRim(next, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					next.Children(func() {
@@ -222,12 +222,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					playerToolSurface(t, vol, false, vol.Hovered(), vol.Pressed())
+					playerToolSurface(t, toolVolume, vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
 					playerRim(vol, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					vol.Children(func() {
 						icon := ui.Icon(c, iconVolume).Size(18, 18).
-							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(t, false, vol.Hovered()))).
+							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 						playerIconShadowFn(icon, iconVolume, 0, 1, playerIconShadowInk)
 					})

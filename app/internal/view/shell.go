@@ -17,6 +17,12 @@ import (
 //	播放栏 56px     #player（单行）
 //	抽屉   覆盖层   [data-slot="wrapper"] > section（底部滑入）
 func (a *App) Shell(c *ui.Context) {
+	// 桌面的高对比偏好（原版 globals.css 末尾的 `@media (prefers-contrast:
+	// more)`）叠在时段令牌之上。只在状态真的变了的那一帧写回 a.Theme
+	//（withHighContrast 幂等），避免每帧无谓地写共享状态。
+	if hc := c.Preferences().HighContrast; hc != a.Theme.HighContrast {
+		a.Theme = a.Theme.withHighContrast(hc)
+	}
 	if a.Mini {
 		a.MiniShell(c)
 		return

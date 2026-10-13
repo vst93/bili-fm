@@ -145,6 +145,48 @@ const (
 	playerPlayDarkInsetA    float32 = 0.46  // inset 0 1px 1px 白 .46
 )
 
+// playerToolKey 标识一排工具键里的哪一颗。颜色函数需要知道键的身份，因为
+// 原版 `@media (prefers-contrast: more)` 块里只有 EQ / 恰饭的**激活态**被
+// 单独重声明为蓝调（它们的 `[data-active]` 规则 (1,2,0) 输给高对比那条通用
+// `.player-button` 规则 (1,3,1)）；音量 / 倍速的 `[data-open]` 没有被重声明，
+// 所以高对比下反而跟普通键一样走灰蓝（原版如此，照抄）。
+type playerToolKey int
+
+const (
+	toolNext playerToolKey = iota
+	toolVolume
+	toolSpeed
+	toolEq
+	toolSponsor
+)
+
+// hcBlueActive 报告这颗键的激活态在原版高对比块里被单独重声明为蓝调。
+func (k playerToolKey) hcBlueActive(active bool) bool {
+	return active && (k == toolEq || k == toolSponsor)
+}
+
+// 高对比（`prefers-contrast: more`）下 `.player-button` 的描边 / 墨色。原版：
+//
+//	html:root #player .player-controls .player-button {
+//	    border-color: rgba(51, 65, 85, 0.44); color: #1e293b; }
+//
+// 这条特异度 (1,3,1) 压过通用基态、tool 规则、`[data-playing]`、
+// `[data-open]`、悬停、烟熏玻璃基态（都 ≤(1,3,0)/(1,2,1)），所以在高对比下
+// 几乎所有 `.player-button`（播放 / 下一集 / 音量 / 倍速 / 均衡 / 恰饭 / 静音）
+// 的基态与悬停态都收成这一对值；底 / 内高光 / 投影不受影响（原版这条只写
+// border-color 与 color）。**两个例外**：① EQ / 恰饭的激活态被高对比块用
+// (1,4,1) 单独重声明为蓝调（见 playerHCActive*）；② 播放键的「播放中悬停」
+// 那条 (1,4,0) 也高过这条，仍走浅色悬停的蓝 .40 / #0369a1。
+var (
+	playerHCBorder = ui.Hex("#334155").Alpha(0.44)
+	playerHCInk    = ui.Hex("#1e293b")
+	// 原版另给 EQ / 恰饭的激活态重声明了蓝调 (1,4,1)（否则会被上面那条盖成
+	// 灰色）；它同时压过 EQ 激活悬停 (1,4,0)，所以这两颗键激活时悬停与否
+	// 都是这一对值。
+	playerHCActiveBorder = ui.Hex("#0369a1")
+	playerHCActiveInk    = ui.Hex("#075985")
+)
+
 // playerToolSurface 是播放栏工具键（下一集/音量/倍速/均衡/恰饭）的材质，
 // 对齐原版那条 tool 专用规则（`#player .player-next-button,
 // #player .player-volume-button, #player .player-speed-button,
@@ -160,14 +202,14 @@ const (
 // 按下（pressed）时原版 :active 把整条 box-shadow 换成更深的内压
 // （`inset 0 1px 3px rgba(15,23,42,.1)`）、底色转 `--liquid-bg-active`（白 .16），
 // 描边沿用悬停/激活态（:active 不改 border-color）。
-func playerToolSurface(t Theme, b ui.Element, active, hovered, pressed bool) ui.Element {
+func playerToolSurface(t Theme, key playerToolKey, b ui.Element, active, hovered, pressed bool) ui.Element {
 	if pressed {
 		return applyInsetShadows(
-			b.Background(playerPressFill()).Border(1, playerToolBorder(t, active, hovered)),
+			b.Background(playerPressFill()).Border(1, playerToolBorder(t, key, active, hovered)),
 			playerPressShadowSpecs())
 	}
 	b = b.Background(playerFadeColor(b, "player-tool-bg", playerToolFill(t, active, hovered))).
-		Border(1, playerFadeColor(b, "player-tool-border", playerToolBorder(t, active, hovered))).
+		Border(1, playerFadeColor(b, "player-tool-border", playerToolBorder(t, key, active, hovered))).
 		InsetShadow(0, 1, 1, 0, playerToolInset(t, active, hovered))
 	if active {
 		// 深色激活态原版整条 box-shadow 只有「顶内高光白 .32 + 外蓝 .12」，
@@ -204,7 +246,15 @@ func playerToolFill(t Theme, active, hovered bool) ui.Color {
 
 // playerToolBorder 是工具键三态的描边：常态 slate .2、悬停 slate .32、
 // 激活 rgba(2,132,199,.28)；深色时段常态转白 .15、激活转 rgba(125,211,252,.42)。
-func playerToolBorder(t Theme, active, hovered bool) ui.Color {
+// 高对比下由高对比块覆写：EQ / 恰饭激活走蓝调 (1,4,1)，其余走
+// slate .44 (1,3,1)。
+func playerToolBorder(t Theme, key playerToolKey, active, hovered bool) ui.Color {
+	if t.HighContrast {
+		if key.hcBlueActive(active) {
+			return playerHCActiveBorder
+		}
+		return playerHCBorder
+	}
 	switch {
 	case active:
 		if t.Dark {
@@ -237,8 +287,15 @@ func playerToolInset(t Theme, active, hovered bool) ui.Color {
 // 沿用 .player-button 的 #334155，因为它没被那条 tool 规则覆盖 color），
 // 悬停与激活都是 --studio-blue #0284c7，激活且悬停时加深到 #0369a1。
 // 深色时段常态换成 Theme.PlayerButton（rgba(51,65,85,.84)，那份令牌此前
-// 没有任何使用点），悬停/激活不变（规则更特异）。
-func playerToolInk(t Theme, active, hovered bool) ui.Color {
+// 没有任何使用点），悬停/激活不变（规则更特异）。高对比下由高对比块覆写
+// （EQ / 恰饭激活走蓝调，其余走 #1e293b）。
+func playerToolInk(t Theme, key playerToolKey, active, hovered bool) ui.Color {
+	if t.HighContrast {
+		if key.hcBlueActive(active) {
+			return playerHCActiveInk
+		}
+		return playerHCInk
+	}
 	switch {
 	case active && hovered:
 		return ui.Hex("#0369a1")
@@ -252,7 +309,11 @@ func playerToolInk(t Theme, active, hovered bool) ui.Color {
 
 // playerButtonInk 是通用 `.player-button` 的墨色（下一集键用；它没被 tool 规则
 // 覆盖 color）：常态 #334155、悬停 --studio-blue；深色常态走 Theme.PlayerButton。
+// 高对比下统一收成 #1e293b。
 func playerButtonInk(t Theme, hovered bool) ui.Color {
+	if t.HighContrast {
+		return playerHCInk
+	}
 	switch {
 	case hovered:
 		return ui.Hex("#0284c7")
@@ -282,37 +343,44 @@ func playerButtonInk(t Theme, hovered bool) ui.Color {
 // 白 .22 内高光），而且 `[data-active]` (1,2,0) 输给深色基态 (1,2,1)——原版在
 // 深色下已静音也**不转蓝**，只靠图标形状区分。
 var playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
+	// 描边走 playerMuteBorder（它自己处理高对比 / 烟熏玻璃的覆写）。
+	border := playerMuteBorder(t, muted)
 	if t.Dark {
 		return b.Background(ui.Hex("#ffffff").Alpha(playerDarkFillA)).
-			Border(1, ui.Hex("#ffffff").Alpha(playerDarkBorderA)).
+			Border(1, border).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerDarkInsetA)).
 			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(playerDarkShadowA))
 	}
 	return b.Background(ui.Hex("#ffffff").Alpha(0.22)).
-		Border(1, playerMuteBorder(t, muted)).
+		Border(1, border).
 		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.44)).
 		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
 }
 
 // playerMuteBorder 是静音键的描边：常态 slate .2、已静音 studio-blue .28；
-// 深色常态转白 .15（`[data-active]` 在深色下不生效）。
+// 深色常态转白 .15（`[data-active]` 在深色下不生效）。高对比下收成 slate .44
+//（高对比通用规则压过 `[data-active]`，所以已静音也不转蓝）。
 func playerMuteBorder(t Theme, muted bool) ui.Color {
-	if t.Dark {
+	switch {
+	case t.HighContrast:
+		return playerHCBorder
+	case t.Dark:
 		return ui.Hex("#ffffff").Alpha(playerDarkBorderA)
-	}
-	if muted {
+	case muted:
 		return ui.Hex("#0284c7").Alpha(0.28)
 	}
 	return ui.Hex("#94a3b8").Alpha(0.20)
 }
 
 // playerMuteInk 是静音键图标的墨色：常态 #526174、已静音 studio-blue；
-// 深色常态走 Theme.PlayerButton（已静音不转蓝）。
+// 深色常态走 Theme.PlayerButton（已静音不转蓝）。高对比下统一 #1e293b。
 func playerMuteInk(t Theme, muted bool) ui.Color {
-	if t.Dark {
+	switch {
+	case t.HighContrast:
+		return playerHCInk
+	case t.Dark:
 		return t.PlayerButton
-	}
-	if muted {
+	case muted:
 		return ui.Hex("#0284c7")
 	}
 	return ui.Hex("#526174")
@@ -424,7 +492,13 @@ func playerPlayFill(t Theme, playing, hovered bool) ui.Color {
 }
 
 // playerPlayBorder 是播放键三态的描边；深色基态是 rgba(224,242,254,.48)。
+// 高对比下通用 `.player-button` 规则 (1,3,1) 压过 `[data-playing]` (1,2,0)
+// 与悬停 (1,3,0)，收成 slate .44；唯独「播放中悬停」那条 (1,4,0) 更高，
+// 仍走浅色悬停值（见 playerHCBorder 的说明）。
 func playerPlayBorder(t Theme, playing, hovered bool) ui.Color {
+	if t.HighContrast && !(playing && hovered) {
+		return playerHCBorder
+	}
 	switch {
 	case playing && hovered:
 		return ui.Hex("#0284c7").Alpha(0.40)
@@ -440,7 +514,11 @@ func playerPlayBorder(t Theme, playing, hovered bool) ui.Color {
 
 // playerPlayInk 是播放键图标的颜色（原版播放中 #0369a1、暂停 #475569、
 // 暂停悬停转 #0284c7）；深色基态是 #0369a1（与播放中同色）。
+// 高对比下统一 #1e293b；播放中悬停例外（(1,4,0) 更高，仍 #0369a1）。
 func playerPlayInk(t Theme, playing, hovered bool) ui.Color {
+	if t.HighContrast && !(playing && hovered) {
+		return playerHCInk
+	}
 	switch {
 	case playing:
 		return ui.Hex("#0369a1")
@@ -918,7 +996,7 @@ func (a *App) transport(c *ui.Context) {
 		// 原版 .player-button:disabled 是 opacity .42（disablePlayerButton 会补上
 		// mygo 禁用节点的减半）。
 		disablePlayerButton(next, !a.canNavigate())
-		playerToolSurface(a.Theme, next, false, next.Hovered(), next.Pressed())
+		playerToolSurface(a.Theme, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
 		// 下一集是工具键：原版 ::after opacity .52。
 		playerRim(next, RadiusPill, a.Theme.Dark, true, sheenKindStatic, false, false)
@@ -1109,7 +1187,7 @@ func (a *App) volumeButton(c *ui.Context) {
 		Label("音量").Tooltip("音量")
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, b, a.ShowVolume, b.Hovered(), b.Pressed())
+	playerToolSurface(a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
@@ -1117,7 +1195,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	b.Children(func() {
 		ic := pick(muted, iconMute, iconVolume)
 		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
-			TextColor(playerFadeColor(b, "player-volume-ink", playerToolInk(a.Theme, a.ShowVolume, b.Hovered()))).
+			TextColor(playerFadeColor(b, "player-volume-ink", playerToolInk(a.Theme, toolVolume, a.ShowVolume, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 		playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 	})
@@ -1135,14 +1213,14 @@ func (a *App) speedButton(c *ui.Context) {
 		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, b, a.ShowSpeed, b.Hovered(), b.Pressed())
+	playerToolSurface(a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
-			TextColor(playerFadeColor(b, "player-speed-ink", playerToolInk(a.Theme, a.ShowSpeed, b.Hovered())))
+			TextColor(playerFadeColor(b, "player-speed-ink", playerToolInk(a.Theme, toolSpeed, a.ShowSpeed, b.Hovered())))
 	})
 	if b.Clicked() {
 		a.ShowSpeed = !a.ShowSpeed
@@ -1157,12 +1235,12 @@ func (a *App) eqButton(c *ui.Context) {
 		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, b, a.EQ, b.Hovered(), b.Pressed())
+	playerToolSurface(a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.Theme, a.EQ, b.Hovered()))).
+			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.Theme, toolEq, a.EQ, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 		playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
 	})
@@ -1177,13 +1255,13 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label(sponsorTip()).Tooltip(sponsorTip())
-	playerToolSurface(a.Theme, b, a.Sponsor, b.Hovered(), b.Pressed())
+	playerToolSurface(a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Theme, a.Sponsor, b.Hovered())))
+			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, b.Hovered())))
 		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。

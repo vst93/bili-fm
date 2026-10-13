@@ -51,13 +51,13 @@ func TestPlayerToolPaint(t *testing.T) {
 		t.Errorf("工具键激活底 = %v，应为 #bae6fd .30", got)
 	}
 	// 描边：常态 slate .2（**不是**通用 .player-button 的白 .55）。
-	if got := playerToolBorder(lt, false, false); got != ui.Hex("#94a3b8").Alpha(0.20) {
+	if got := playerToolBorder(lt, toolNext, false, false); got != ui.Hex("#94a3b8").Alpha(0.20) {
 		t.Errorf("工具键常态边 = %v，应为 slate .2", got)
 	}
-	if got := playerToolBorder(lt, false, true); got != ui.Hex("#94a3b8").Alpha(0.32) {
+	if got := playerToolBorder(lt, toolNext, false, true); got != ui.Hex("#94a3b8").Alpha(0.32) {
 		t.Errorf("工具键悬停边 = %v，应为 slate .32", got)
 	}
-	if got := playerToolBorder(lt, true, false); got != ui.Hex("#0284c7").Alpha(0.28) {
+	if got := playerToolBorder(lt, toolNext, true, false); got != ui.Hex("#0284c7").Alpha(0.28) {
 		t.Errorf("工具键激活边 = %v，应为蓝 .28", got)
 	}
 	// 内高光：常态白 .44、悬停白 .56。
@@ -68,16 +68,16 @@ func TestPlayerToolPaint(t *testing.T) {
 		t.Errorf("工具键悬停内高光 = %v，应为白 .56", got)
 	}
 	// 图标色：常态 #526174、悬停/激活 #0284c7、激活且悬停 #0369a1。
-	if got := playerToolInk(lt, false, false); got != ui.Hex("#526174") {
+	if got := playerToolInk(lt, toolNext, false, false); got != ui.Hex("#526174") {
 		t.Errorf("工具键常态图标 = %v，应为 #526174", got)
 	}
-	if got := playerToolInk(lt, false, true); got != ui.Hex("#0284c7") {
+	if got := playerToolInk(lt, toolNext, false, true); got != ui.Hex("#0284c7") {
 		t.Errorf("工具键悬停图标 = %v，应为 #0284c7", got)
 	}
-	if got := playerToolInk(lt, true, false); got != ui.Hex("#0284c7") {
+	if got := playerToolInk(lt, toolNext, true, false); got != ui.Hex("#0284c7") {
 		t.Errorf("工具键激活图标 = %v，应为 #0284c7", got)
 	}
-	if got := playerToolInk(lt, true, true); got != ui.Hex("#0369a1") {
+	if got := playerToolInk(lt, toolNext, true, true); got != ui.Hex("#0369a1") {
 		t.Errorf("工具键激活悬停图标 = %v，应为 #0369a1", got)
 	}
 }
@@ -94,13 +94,13 @@ func TestPlayerToolPaintDark(t *testing.T) {
 	if got := playerToolFill(dt, false, false); got != ui.Hex("#ffffff").Alpha(0.085) {
 		t.Errorf("深色工具键常态底 = %v，应为白 .085", got)
 	}
-	if got := playerToolBorder(dt, false, false); got != ui.Hex("#ffffff").Alpha(0.15) {
+	if got := playerToolBorder(dt, toolNext, false, false); got != ui.Hex("#ffffff").Alpha(0.15) {
 		t.Errorf("深色工具键常态边 = %v，应为白 .15", got)
 	}
 	if got := playerToolInset(dt, false, false); got != ui.Hex("#ffffff").Alpha(0.22) {
 		t.Errorf("深色工具键常态内高光 = %v，应为白 .22", got)
 	}
-	if got := playerToolInk(dt, false, false); got != dt.PlayerButton {
+	if got := playerToolInk(dt, toolNext, false, false); got != dt.PlayerButton {
 		t.Errorf("深色工具键常态图标 = %v，应为 Theme.PlayerButton", got)
 	}
 	if dt.PlayerButton != ui.Hex("#334155").Alpha(0.84) {
@@ -110,20 +110,20 @@ func TestPlayerToolPaintDark(t *testing.T) {
 	if got := playerToolFill(dt, false, true); got != ui.Hex("#ffffff").Alpha(0.34) {
 		t.Errorf("深色工具键悬停底 = %v，应为白 .34", got)
 	}
-	if got := playerToolBorder(dt, false, true); got != ui.Hex("#94a3b8").Alpha(0.32) {
+	if got := playerToolBorder(dt, toolNext, false, true); got != ui.Hex("#94a3b8").Alpha(0.32) {
 		t.Errorf("深色工具键悬停边 = %v，应为 slate .32", got)
 	}
 	if got := playerToolInset(dt, false, true); got != ui.Hex("#ffffff").Alpha(0.56) {
 		t.Errorf("深色工具键悬停内高光 = %v，应为白 .56", got)
 	}
-	if got := playerToolInk(dt, false, true); got != ui.Hex("#0284c7") {
+	if got := playerToolInk(dt, toolNext, false, true); got != ui.Hex("#0284c7") {
 		t.Errorf("深色工具键悬停图标 = %v，应为 #0284c7", got)
 	}
 	// 激活：原版深色激活态 rgba(125,211,252,.16) 底 / .42 边 / 白 .32 内高光。
 	if got := playerToolFill(dt, true, false); got != ui.Hex("#7dd3fc").Alpha(0.16) {
 		t.Errorf("深色工具键激活底 = %v，应为 #7dd3fc .16", got)
 	}
-	if got := playerToolBorder(dt, true, false); got != ui.Hex("#7dd3fc").Alpha(0.42) {
+	if got := playerToolBorder(dt, toolNext, true, false); got != ui.Hex("#7dd3fc").Alpha(0.42) {
 		t.Errorf("深色工具键激活边 = %v，应为 #7dd3fc .42", got)
 	}
 	if got := playerToolInset(dt, true, false); got != ui.Hex("#ffffff").Alpha(0.32) {
