@@ -1559,15 +1559,25 @@ func (a *App) partsHeader(c *ui.Context) {
 	}
 	box.Children(func() {
 		ui.Icon(c, iconMagnifier).Size(15, 15).TextColor(paint.Icon)
-		// 原版 input.part-search-input：13px / 500 / #0f172a，且 `outline: none`——
-		// 聚焦时只由外层 .part-search:focus-within 给蓝色描边与光环，输入框自己
-		// 不再画框架的聚焦环（否则会多出一圈内环）。
-		in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(13).FontWeight(500).
-			FocusRing(false).
-			TextColor(ui.Hex("#0f172a")).Placeholder("搜索选集，回车跳转").Label("搜索选集")
-		if in.Submitted() {
-			a.locatePart(a.PartSearch)
-		}
+		// field 把输入框与自绘占位文本收在一起，占位文本 Attach 到它的左缘。
+		field := ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center)
+		field.Children(func() {
+			// 原版 input.part-search-input：13px / 500 / #0f172a，且 `outline: none`——
+			// 聚焦时只由外层 .part-search:focus-within 给蓝色描边与光环，输入框自己
+			// 不再画框架的聚焦环（否则会多出一圈内环）。占位文本见
+			// partSearchPlaceholder：框架占位色固定走主题 TextMuted（#94a3b8），
+			// 与原版 #475569 / 400 不符，故自己叠一层。
+			in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(13).FontWeight(500).
+				FocusRing(false).
+				TextColor(ui.Hex("#0f172a")).Label("搜索选集").
+				Description("搜索选集，回车跳转")
+			if in.Submitted() {
+				a.locatePart(a.PartSearch)
+			}
+			if a.PartSearch == "" {
+				a.partSearchPlaceholder(c)
+			}
+		})
 	})
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
@@ -1584,6 +1594,23 @@ func (a *App) partsHeader(c *ui.Context) {
 			a.Act.AddAllToPlaylist()
 		}
 	}
+}
+
+// 原版 `input.part-search-input::placeholder`：color #475569、font-weight 400
+// （输入框正文是 500）。框架的占位符固定用主题 TextMuted（#94a3b8）并继承元素
+// 字重，无法按元素覆写，所以这里不交框架画，自己叠一层同字号文本。声明成变量
+// 是为了让测试能替换它做反证（同 partSearchPaintFor）。
+var (
+	partSearchPlaceholderInk    = ui.Hex("#475569")
+	partSearchPlaceholderWeight = 400
+)
+
+// partSearchPlaceholder 在输入框左缘叠一层原版配色的占位文本：Attach 到输入框
+// 所在的 field（不参与布局、不撑高容器），PassThrough 让点击落到输入框上。
+func (a *App) partSearchPlaceholder(c *ui.Context) {
+	ui.Text(c, "搜索选集，回车跳转").FontSize(13).FontWeight(partSearchPlaceholderWeight).
+		TextColor(partSearchPlaceholderInk).SingleLine().PassThrough().
+		Attach(ui.AnchorLeft, ui.AnchorLeft)
 }
 
 // partSearchPaint 是选集搜索框在某一状态下解析好的样式（原版 header

@@ -25,7 +25,7 @@ func TestPartSearchPaintFor(t *testing.T) {
 		hasRing          bool
 	}{
 		{
-			name: "常态",
+			name:   "常态",
 			border: ui.Hex("#475569").Alpha(0.50),
 			bg:     ui.Hex("#0f172a").Alpha(0.035),
 			icon:   ui.Hex("#475569"),
@@ -173,5 +173,109 @@ func TestPartSearchFocusRing(t *testing.T) {
 	if normalGain-stubGain < 20000 {
 		t.Errorf("聚焦带来的额外蓝度只有 %d（正常 +%d、stub +%d）：聚焦态的蓝色描边/光环/放大镜没接上？",
 			normalGain-stubGain, normalGain, stubGain)
+	}
+}
+
+// TestPartSearchPlaceholderInk 钉住占位文本的两项属性：原版
+// `input.part-search-input::placeholder` 的 color #475569 与 font-weight 400
+// （框架占位固定走主题 TextMuted #94a3b8 且继承元素字重 500，两者都不对）。
+func TestPartSearchPlaceholderInk(t *testing.T) {
+	if !sameInk(partSearchPlaceholderInk, ui.Hex("#475569")) {
+		t.Errorf("占位色 = %v，应为 #475569", partSearchPlaceholderInk)
+	}
+	if partSearchPlaceholderWeight != 400 {
+		t.Errorf("占位字重 = %d，应为 400", partSearchPlaceholderWeight)
+	}
+}
+
+// partSearchFrame 造一帧选集抽屉，PartSearch 为 want 时的输入值。
+func partSearchFrame(want string) *ui.Tester {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Info = newPartsInfo(3, "cover")
+	a.Track = &Track{Bvid: "BV1", Cid: 1000, Title: "视频"}
+	a.Drawer = DrawerParts
+	a.PartSearch = want
+	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tt.Frame()
+	return tt
+}
+
+// TestPartSearchPlaceholderRendering 无头实测：输入为空时占位文本出现、且左缘与
+// 输入框对齐（Attach 到输入框所在 field 的左中）；一旦有输入就消失。
+func TestPartSearchPlaceholderRendering(t *testing.T) {
+	empty := partSearchFrame("")
+	in, ok := empty.Find("搜索选集")
+	if !ok {
+		t.Fatal("找不到选集搜索框（label「搜索选集」）")
+	}
+	ph, ok := empty.Find("搜索选集，回车跳转")
+	if !ok {
+		t.Fatal("空输入时找不到自绘占位文本（此前交框架 Placeholder 画，色/重都不对）")
+	}
+	if ph.W <= 0 || ph.H <= 0 {
+		t.Fatalf("占位文本尺寸异常：%v", ph)
+	}
+	if ph.X-in.X > 1.5 || in.X-ph.X > 1.5 {
+		t.Errorf("占位文本没有贴输入框左缘：占位 x=%.1f、输入框 x=%.1f", ph.X, in.X)
+	}
+	if ph.X < in.X || ph.X+ph.W > in.X+in.W {
+		t.Errorf("占位文本横向越出输入框：占位 %v、输入框 %v", ph, in)
+	}
+
+	filled := partSearchFrame("abc")
+	if _, ok := filled.Find("搜索选集，回车跳转"); ok {
+		t.Error("有输入时仍画着占位文本")
+	}
+}
+
+// TestPartSearchPlaceholderColor 无头实测：占位文本真的用 #475569 画，而不是框架
+// 主题的 TextMuted #94a3b8。量的是占位矩形内最深的像素亮度（笔画核心最接近该
+// 颜色，反锯齿只会更浅）。
+//
+// 行为级反证：把 partSearchPlaceholderInk 换成框架的 #94a3b8 后，最深像素应明显
+// 变浅；若占位改回交框架 Placeholder 画（色即 TextMuted），本测试同样变浅而红。
+func TestPartSearchPlaceholderColor(t *testing.T) {
+	darkest := func(stub bool) int {
+		saved := partSearchPlaceholderInk
+		if stub {
+			partSearchPlaceholderInk = ui.Hex("#94a3b8")
+			defer func() { partSearchPlaceholderInk = saved }()
+		}
+		tt := partSearchFrame("")
+		r, ok := tt.Find("搜索选集，回车跳转")
+		if !ok {
+			t.Fatal("找不到占位文本")
+		}
+		img := tt.Image()
+		x0, y0 := int(r.X), int(r.Y)
+		x1, y1 := int(r.X+r.W), int(r.Y+r.H)
+		if x1 > img.Bounds().Max.X {
+			x1 = img.Bounds().Max.X
+		}
+		if y1 > img.Bounds().Max.Y {
+			y1 = img.Bounds().Max.Y
+		}
+		best := 255
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				i := img.PixOffset(x, y)
+				lum := (int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])) / 3
+				if lum < best {
+					best = lum
+				}
+			}
+		}
+		return best
+	}
+
+	normal, stub := darkest(false), darkest(true)
+	t.Logf("占位最深像素亮度：正常 %d（#475569），stub %d（#94a3b8）", normal, stub)
+	if stub-normal < 20 {
+		t.Errorf("占位色差不足：正常 %d、stub %d（差 %d）：占位是不是又用了主题 TextMuted？",
+			normal, stub, stub-normal)
+	}
+	if normal > 140 {
+		t.Errorf("占位最深像素亮度 %d 偏浅，不像 #475569（灰度 ~87）", normal)
 	}
 }
