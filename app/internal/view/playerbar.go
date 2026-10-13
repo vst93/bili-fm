@@ -109,7 +109,7 @@ func buttonSurface(b ui.Element, active, hovered bool, activeTint, hoverTint ui.
 // 过渡。box-shadow 也带 140ms，但 mygo 的阴影没有逐通道动画通道，这轮只补
 // 三条色值（内高光/投影随底色当帧切换，过渡期里差一帧级，远小于此前整面
 // 跳色）。CSS `ease` = CubicBezier(0.25, 0.1, 0.25, 1)，与 navIconBgAnim 同源
-//（时长不同：工具键族是 140ms，不是导航族的 180ms）。
+// （时长不同：工具键族是 140ms，不是导航族的 180ms）。
 var playerFadeAnim = ui.Animation{
 	Duration: 140 * time.Millisecond,
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
@@ -117,7 +117,7 @@ var playerFadeAnim = ui.Animation{
 
 // playerFadeColor 返回这颗键这一帧该用的色值（带 140ms ease 过渡）。拆成
 // var 便于测试：AnimateColor 在目标变化的那一帧返回**上一帧的颜色**
-//（曲线 t=0），直接铺目标色会瞬时跳变——测试可换成「瞬时铺色」的桩做
+// （曲线 t=0），直接铺目标色会瞬时跳变——测试可换成「瞬时铺色」的桩做
 // 反证。key 在同一颗键内须唯一。
 var playerFadeColor = func(b ui.Element, key string, target ui.Color) ui.Color {
 	return b.AnimateColor(key, target, playerFadeAnim)
@@ -400,6 +400,119 @@ const (
 	eqIconSize     = 17
 )
 
+// ---------------------------------------------------------------- 聚光描边 / 图标压印
+//
+// 原版每颗 `#player .player-button` 上还有两层此前原生版没画：
+//
+//	::after  1px 聚光描边（--liquid-rim 的白色 conic-gradient 蒙在 1px 边框上，
+//	         光聚在上边、往下渐淡）+ --liquid-chromatic 色散边；
+//	svg      filter: drop-shadow(0 1px 0 rgba(255,255,255,.7))（图标下方 1px 的
+//	         白色压印；play 键是 drop-shadow(0 1px 1px rgba(255,255,255,.6))
+//	         + transform: translateX(.5px)）。
+//
+// mygo 画不了 conic-gradient，也没有 svg 滤镜，这里各取一个等价近似：描边用
+// 「上边最亮、左右次之、下边最淡」四条边带（圆角裁剪收尾）；图标压印用 paintFn
+// 在下方 1px 先画一份白图标（paintFn 跑在真图标之前，白色副本被真图标盖住，
+// 只从下缘露出约 1px 的白边，正是 drop-shadow 的效果）。
+
+// playerRimOpacity 是聚光描边整圈的不透明度：工具键（下一集/音量/倍速/均衡/
+// 恰饭）原版 `::after { opacity: .52 }`；播放键与静音键不吃这条覆写（1.0）；
+// 烟熏玻璃（深色）时段原版把所有 `#player .player-button::after` 统一压到 .3
+// （那条规则特异度 (1,2,2) 盖过 .52 的 (1,2,1)）。
+func playerRimOpacity(dark, tool bool) float32 {
+	switch {
+	case dark:
+		return 0.30
+	case tool:
+		return 0.52
+	}
+	return 1.0
+}
+
+// playerRimPaint 是一圈聚光描边的上/侧/下颜色与宽度。
+//
+// 原版 --liquid-rim 是 conic-gradient（最亮点落在按钮上缘），mygo 只有线性
+// 渐变，用「上边最亮、左右次之、下边最淡」三段近似：上白 .85、侧白 .40→.10
+// （竖直渐变）、下白 .08，再乘整圈 opacity。
+type playerRimPaint struct {
+	Top, SideTop, SideBottom, Bottom ui.Color
+	Width                            float32
+}
+
+// playerRimPaintFor 由整圈 opacity 算出描边四边色。抽成纯函数便于测试钉值。
+func playerRimPaintFor(opacity float32) playerRimPaint {
+	return playerRimPaint{
+		Top:        ui.Hex("#ffffff").Alpha(0.85 * opacity),
+		SideTop:    ui.Hex("#ffffff").Alpha(0.40 * opacity),
+		SideBottom: ui.Hex("#ffffff").Alpha(0.10 * opacity),
+		Bottom:     ui.Hex("#ffffff").Alpha(0.08 * opacity),
+		Width:      1,
+	}
+}
+
+// paintPlayerRim 画一圈聚光描边：在 1px 边框之上，上边最亮、左右次之、
+// 下边最淡。用四条实心/渐变边带（框架的 Fill/FillGradient 会吸附到设备像素，
+// 覆盖完整，不像路径描边在半像素位置上被摊薄），四角由圆角裁剪自然收尾。
+func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
+	if r.W < 2 || r.H < 2 {
+		return
+	}
+	paint := playerRimPaintFor(opacity)
+	w := paint.Width
+	p.Clip(r, radius, func() {
+		// 上边：光最聚处（原版 conic 的 0deg/360deg 白 1）。
+		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: w}, paint.Top, 0)
+		// 左右：从靠近上边的 .40 竖直淡到下边的 .10。
+		for _, x := range [2]float32{r.X, r.X + r.W - w} {
+			p.FillGradient(ui.Rect{X: x, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{
+				From:  paint.SideTop,
+				To:    paint.SideBottom,
+				Angle: 180,
+			}, 0)
+		}
+		// 下边：最淡。
+		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - w, W: r.W, H: w}, paint.Bottom, 0)
+	})
+}
+
+// playerRimOpacityFn 是视图取整圈 opacity 的入口（测试可换桩关掉描边做反证）。
+var playerRimOpacityFn = playerRimOpacity
+
+// playerRim 把聚光描边接在按钮上（画在 1px 边框之上）。radius 必须与按钮
+// 自己的圆角一致，否则描边会离边框错位。
+func playerRim(b ui.Element, radius, opacity float32) ui.Element {
+	if opacity <= 0 {
+		return b
+	}
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintPlayerRim(p, r, radius, opacity)
+	})
+}
+
+// 图标压印的白色不透明度（原版 svg 的 drop-shadow 颜色）。
+const (
+	playerIconShadowInk     = 0.70 // #player .player-button svg
+	playerPlayIconShadowInk = 0.60 // #player .player-play-button svg
+)
+
+// playerIconShadowFn 是视图给图标挂压印的入口（测试可换桩做反证）。
+var playerIconShadowFn = playerIconShadow
+
+// playerIconShadow 给图标补原版 `filter: drop-shadow(...)` 的白色压印：在真图标
+// 画出来之前，先在 (dx, dy) 处画一份白图标（paintFn 跑在图标之前）。白色副本被
+// 真图标盖住，只从下缘露出约 1px 的白边。paintFn 在元素自己的 world 变换下绘制，
+// 所以图标自身的 Translate（play 键的 translateX(.5px)）会一并作用到副本上，
+// dx/dy 只需表达 drop-shadow 的偏移（play 与其余键都是 (0, 1)）。
+func playerIconShadow(b ui.Element, svg *ui.SVG, dx, dy, opacity float32) ui.Element {
+	if opacity <= 0 || svg == nil {
+		return b
+	}
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		shadow := ui.Rect{X: r.X + dx, Y: r.Y + dy, W: r.W, H: r.H}
+		p.Icon(svg, shadow, ui.Hex("#ffffff").Alpha(opacity))
+	})
+}
+
 // transport 是第 1 列（80px）：播放/暂停（42） + 下一集（32）。
 func (a *App) transport(c *ui.Context) {
 	src := a.hasSource()
@@ -417,12 +530,18 @@ func (a *App) transport(c *ui.Context) {
 		// 三态（播放/悬停/常态）见 playerPlaySurface。
 		playerPlaySurface(play, a.Playing, play.Hovered(), play.Pressed())
 		playerPressPose(play)
+		// 原版播放键的 ::after 不吃 .52 覆写（整圈 opacity 1）；深色时段压 .3。
+		playerRim(play, RadiusPill, playerRimOpacityFn(a.Theme.Dark, false))
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
-			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(playIconSize, playIconSize).
+			ic := pick(a.Playing, iconPause, iconPlay)
+			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
 				TextColor(playerFadeColor(play, "player-play-ink", playerPlayInk(a.Playing, play.Hovered()))).
-				Opacity(playerDisabledIconOpacityFor(!src))
+				Opacity(playerDisabledIconOpacityFor(!src)).
+				// 原版 .player-play-button svg { transform: translateX(.5px) }。
+				Translate(0.5, 0)
+			playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
 		})
 		if play.Clicked() && a.Act.TogglePlay != nil {
 			a.Act.TogglePlay()
@@ -435,6 +554,8 @@ func (a *App) transport(c *ui.Context) {
 		disablePlayerButton(next, !a.canNavigate())
 		playerToolSurface(next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
+		// 下一集是工具键：原版 ::after opacity .52。
+		playerRim(next, RadiusPill, playerRimOpacityFn(a.Theme.Dark, true))
 		next.Children(func() {
 			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
 			// tool 规则覆盖），悬停转蓝。
@@ -442,9 +563,10 @@ func (a *App) transport(c *ui.Context) {
 			if next.Hovered() {
 				ink = ui.Hex("#0284c7")
 			}
-			ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
+			icon := ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
 				TextColor(playerFadeColor(next, "player-next-ink", ink)).
 				Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
+			playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
 		})
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
@@ -619,12 +741,15 @@ func (a *App) volumeButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(b, a.ShowVolume, b.Hovered(), b.Pressed())
 	playerPressPose(b)
+	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
-		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(volumeIconSize, volumeIconSize).
+		ic := pick(muted, iconMute, iconVolume)
+		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
 			TextColor(playerFadeColor(b, "player-volume-ink", playerToolInk(a.ShowVolume, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
+		playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 	})
 	if b.Clicked() {
 		a.ShowVolume = !a.ShowVolume
@@ -642,6 +767,8 @@ func (a *App) speedButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(b, a.ShowSpeed, b.Hovered(), b.Pressed())
 	playerPressPose(b)
+	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
+	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
@@ -662,10 +789,12 @@ func (a *App) eqButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
+	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
 	b.Children(func() {
-		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
+		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.EQ, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
+		playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
 	})
 	if b.Clicked() && a.Act.ToggleEQ != nil {
 		a.Act.ToggleEQ()
@@ -680,9 +809,12 @@ func (a *App) sponsorButton(c *ui.Context) {
 		Label(sponsorTip()).Tooltip(sponsorTip())
 	playerToolSurface(b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
+	// 恰饭开关是工具键：原版 ::after opacity .52。
+	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
 	b.Children(func() {
-		ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
+		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Sponsor, b.Hovered())))
+		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
 		// tooltip 是原版那串状态文案（ok 时带段数、有原因时附在冒号后）。
@@ -882,9 +1014,13 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 静音键也是 .player-button，原版通用 `:active { transform: scale(.93) }`
 		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
 		playerPressPose(mute)
+		// 静音键不在 .52 名单里（继承 .player-button::after 的 1.0）。
+		playerRim(mute, RadiusSmall, playerRimOpacityFn(a.Theme.Dark, false))
 		mute.Children(func() {
-			ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
+			ic := pick(a.Muted, iconMute, iconVolume)
+			icon := ui.Icon(c, ic).Size(16, 16).
 				TextColor(playerMuteInk(a.Muted))
+			playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 		})
 		if mute.Clicked() && a.Act.ToggleMute != nil {
 			a.Act.ToggleMute()

@@ -162,10 +162,15 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 							Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
 					}
 					playerPressPose(play)
+					// mini 也是 .player-button：补聚光描边（播放键 1.0）+ 图标压印。
+					playerRim(play, RadiusPill, playerRimOpacityFn(t.Dark, false))
 					play.Children(func() {
-						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(16, 16).
+						ic := pick(a.Playing, iconPause, iconPlay)
+						icon := ui.Icon(c, ic).Size(16, 16).
 							TextColor(playInk).
-							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
+							Opacity(playerDisabledIconOpacityFor(!a.hasSource())).
+							Translate(0.5, 0)
+						playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
 					})
 					if play.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
@@ -177,11 +182,13 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
 					playerToolSurface(next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
+					playerRim(next, RadiusPill, playerRimOpacityFn(t.Dark, true))
 					next.Children(func() {
-						ui.Icon(c, iconNext).Size(18, 18).
+						icon := ui.Icon(c, iconNext).Size(18, 18).
 							TextColor(playerFadeColor(next, "mini-next-ink",
 								pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))).
 							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
+						playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
 					})
 					if next.Clicked() && a.Act.Next != nil {
 						a.Act.Next()
@@ -206,10 +213,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					disablePlayerButton(vol, !a.hasSource())
 					playerToolSurface(vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
+					playerRim(vol, RadiusPill, playerRimOpacityFn(t.Dark, true))
 					vol.Children(func() {
-						ui.Icon(c, iconVolume).Size(18, 18).
+						icon := ui.Icon(c, iconVolume).Size(18, 18).
 							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
+						playerIconShadowFn(icon, iconVolume, 0, 1, playerIconShadowInk)
 					})
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume
