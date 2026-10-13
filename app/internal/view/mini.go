@@ -102,6 +102,14 @@ func (a *App) MiniShell(c *ui.Context) {
 			})
 		})
 
+		// 播放栏上沿那 10px 的淡出（原版 `body.mini-mode #player::before`）：
+		// 主窗早就用框架 ScrollEdge 画了这一层，mini 一直漏着 —— 栏顶于是是
+		// 一条硬切线（1px 亮描边直接切在信息区上）。盒子与主窗同一手法：
+		// 「栏高 + 10」的 Absolute 层、Bottom: true（效果自栏向上生），
+		// 必须画在播放栏**之前**（在下层），并且 PassThrough 不挡指针。
+		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(miniPlayerH+10).
+			PassThrough().Material(glass.ScrollEdge{Background: miniPlayerEdgeFade(t), Bottom: true})
+
 		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
 		volAnchor := a.miniPlayerBar(c)
 
@@ -113,6 +121,23 @@ func (a *App) MiniShell(c *ui.Context) {
 		}
 		a.toastViewport(c)
 	})
+}
+
+// miniPlayerEdgeFade 是迷你播放栏上沿那 10px 淡出的颜色，对应原版
+// `body.mini-mode #player::before`：
+//
+//	background: linear-gradient(to bottom, transparent,
+//	    var(--player-edge-fade, rgba(244,248,252,.52)));
+//
+// 浅色时段**没有**定义 --player-edge-fade，所以 mini 落到规则里的兜底
+// rgba(244,248,252,.52)——比主窗那条 rgba(186,230,253,.24) 更白更实（mini
+// 的背景是固定的浅色渐变）。五个烟熏玻璃时段把 --player-edge-fade 覆写成
+// rgba(71,85,105,.11)，mini 与主窗就都吃这个值。声明成 var 便于测试换桩。
+var miniPlayerEdgeFade = func(t Theme) ui.Color {
+	if t.Dark {
+		return t.PlayerEdgeFade
+	}
+	return ui.Hex("#f4f8fc").Alpha(0.52)
 }
 
 // miniPlayerBar 是迷你模式的播放栏（原版 body.mini-mode #player）：
