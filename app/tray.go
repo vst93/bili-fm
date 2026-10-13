@@ -3,20 +3,50 @@ package main
 import (
 	_ "embed"
 	"log"
+	"runtime"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 )
 
+// trayIconColored 是 Windows / Linux 用的彩色托盘图（白底圆角方块 + 青色台标）。
+//
 //go:embed resources/tray.png
-var trayIcon []byte
+var trayIconColored []byte
+
+// trayIconTemplate 是 macOS 用的**模板图**（black + alpha）：整张图是黑色的，
+// 形状由 alpha 给出（logo 的电视机轮廓 + 两只眼睛 + 嘴，无背景方块）。macOS
+// 会按菜单栏明暗把它染成黑或白。
+//
+//go:embed resources/tray-template.png
+var trayIconTemplate []byte
+
+// trayIcon 选托盘图标与是否当作 macOS 模板图。
+//
+// 为什么 macOS 不能用那张彩色图：mygo 把它整张发给 NSImage 并设 isTemplate，
+// 而模板图 macOS **只看 alpha 通道**。彩色 tray.png 是一块几乎全不透明的白色
+// 圆角方块，alpha 下就是一个实心方块 —— 台标全被抹平，用户看到的是「空白」；
+// 台标本体只占方块 ~37%，缩到菜单栏高度后更显小。换成本图后 logo 占画布 ~92%
+// 宽、轮廓清晰。
+func trayIcon() (data []byte, template bool) {
+	return trayIconFor(runtime.GOOS)
+}
+
+// trayIconFor 是 trayIcon 的纯函数形式，把平台作为参数便于跨平台断言。
+func trayIconFor(goos string) (data []byte, template bool) {
+	if goos == "darwin" {
+		return trayIconTemplate, true
+	}
+	return trayIconColored, false
+}
 
 // setupTray 装系统托盘。关闭窗口是隐藏到托盘而不是退出（与旧版一致），
 // 所以托盘是唯一的恢复入口，必须装成功。
 func (c *controller) setupTray() {
+	icon, template := trayIcon()
 	tray, err := mygo.NewTray(mygo.TrayOptions{
-		Icon:           trayIcon,
-		IconIsTemplate: true, // macOS 会按菜单栏明暗着色
+		Icon:           icon,
+		IconIsTemplate: template, // macOS 会按菜单栏明暗着色
 		ToolTip:        "bili-FM",
 		Menu: mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.showWindow() }},

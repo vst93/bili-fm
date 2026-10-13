@@ -478,6 +478,11 @@ func main() {
 		}
 	})
 
+	// macOS 原生菜单栏（编辑 / 设置），对齐 Tauri 原版；其他平台是 no-op。
+	// 在 Run 之前装：这样 mygo 就不会先装上它自带的英文默认菜单
+	// （App / File / Edit / View / Window）。
+	c.setupAppMenu()
+
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}

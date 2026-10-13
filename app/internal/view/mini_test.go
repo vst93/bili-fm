@@ -1,6 +1,8 @@
 package view
 
 import (
+	"image"
+	"image/color"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -167,5 +169,59 @@ func TestMiniVolumePopoverGeometry(t *testing.T) {
 	// 略微上推（构造上 over(p) > 0），所以留 4px 容差。
 	if d := mute.Y + mute.H/2 - (vol.Y + vol.H/2); d > 4 || d < -4 {
 		t.Errorf("静音键中心比音量列中心偏 %v，应基本居中", d)
+	}
+}
+
+// miniCoverCache 是一个返回固定封面位图的假 Images（实现 ImageStore），
+// 用来无头实测迷你窗封面的取景/适配。
+type miniCoverCache struct{ bmp *ui.Bitmap }
+
+func (m *miniCoverCache) Bitmap(string, int) *ui.Bitmap        { return m.bmp }
+func (m *miniCoverCache) Get(string, int) *ui.Bitmap           { return m.bmp }
+func (m *miniCoverCache) Touch(string, int)                    {}
+func (m *miniCoverCache) Cancel(string, int)                   {}
+func (m *miniCoverCache) Ambient(string, int, bool) *ui.Bitmap { return nil }
+func (m *miniCoverCache) Pending() int                         { return 0 }
+
+// TestMiniCoverFillsBox 是无头渲染实测的回归：迷你窗封面（原版
+// `#min-video-info-cover`，64×64）里的图必须**铺满整格**（background-size:
+// cover），不能只占上面一条、下半是空的。
+//
+// 真发生过：高光层 `.mini-cover-shine` 在 mygo 里漏了 `position:absolute`，
+// 作为封面的第二个兄弟参与列布局 —— 封面被挤回自然高度（一张 16:9 封面在
+// 64 宽下只有 36 高），下半格露出占位白，用户看到「封面一半是空白」。
+//
+// 反证：把 mini.go 高光层的 `.Absolute()` 去掉，本测试红（覆盖行数从 64 掉到
+// 约 36）。
+func TestMiniCoverFillsBox(t *testing.T) {
+	// 一张 16:9 的封面（64×36，纯红），和 B 站封面的比例一致。
+	img := image.NewRGBA(image.Rect(0, 0, 64, 36))
+	for y := 0; y < 36; y++ {
+		for x := 0; x < 64; x++ {
+			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	a := NewApp(func() {})
+	a.Mini = true
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP", Cover: "cover"}
+	a.Images = &miniCoverCache{bmp: ui.NewBitmap(img)}
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, miniWidth, miniHeight)
+	tst.Frame()
+	out := tst.Image()
+
+	// 封面位于 x 12..76、y 36..100（64×64）。逐行取靠下、避开高光强区的
+	// 采样点 x=44，数出「是封面红」的行数。
+	covered := 0
+	for y := 36; y < 100; y++ {
+		i := out.PixOffset(44, y)
+		r, g := int(out.Pix[i]), int(out.Pix[i+1])
+		if r > 200 && g < 80 {
+			covered++
+		}
+	}
+	t.Logf("封面列 x=44 被图覆盖的行数 = %d / 64", covered)
+	if covered < 60 {
+		t.Fatalf("封面只覆盖了 %d/64 行 —— 下半格是空白（高光层不能参与布局）", covered)
 	}
 }

@@ -60,7 +60,10 @@ func (a *App) MiniShell(c *ui.Context) {
 					ui.Image(c, Logo).Fill().Fit(ui.Cover)
 				}
 				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
-				ui.Box(c).Fill().PassThrough().LinearGradient(ui.LinearGradient{
+				// 必须 Absolute：原版是 position:absolute; inset:0，不参与布局。
+				// 否则它作为封面的第二个兄弟参与列布局，把封面挤回自然高度
+				// （64 宽的 16:9 封面只剩 ~36 高），下半张就是空的。
+				ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
 					From:  ui.Hex("#ffffff").Alpha(0.28),
 					To:    ui.Transparent,
 					Angle: 135,
