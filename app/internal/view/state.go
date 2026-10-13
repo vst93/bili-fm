@@ -459,8 +459,15 @@ type App struct {
 	// videoInfo 在 bvid 变化时 `setSelectedOwner(null)`。
 	CollabMid int64
 	CollabFor string
-	Danmaku   []Danmaku
-	Comments  []Comment
+	// CollabOpen 是合作 UP 主选择器面板是否展开（原版 videoInfo 的
+	// isOwnerMenuOpen）。展开时触发键按原版 [aria-expanded] 转蓝底/蓝图标。
+	// CollabOpenFor 记它是在哪条视频（bvid）上打开的：换视频后展开态自动失效
+	// —— 对应原版 videoInfo 的 useEffect 在 bvid 变化时 setIsOwnerMenuOpen(false)
+	// （mygo 没有 bvid 变化钩子，靠比对 bvid 等价实现）。
+	CollabOpen    bool
+	CollabOpenFor string
+	Danmaku       []Danmaku
+	Comments      []Comment
 
 	// 弹幕/评论抽屉：DanmakuTab 是当前 tab；DanmakuAutoScroll 是自动跟随
 	// 当前播放时间；Reply* 是评论分页状态。

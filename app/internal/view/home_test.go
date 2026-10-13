@@ -109,9 +109,11 @@ func TestCollabOwnerFallback(t *testing.T) {
 
 // TestCollabPickerMenu 无头点开合作 UP 主选择键，钉住：
 //  1. 只有 staff > 1（合作视频）才出现该键；
-//  2. 菜单里列出全部参与者（含主 UP），带角色的写成「角色 · 名字」；
+//  2. 面板里列出全部参与者（含主 UP），每人一行名字 +（有的话）角色；
 //  3. 选一个就把面板显示的 UP 主换成 TA，并以 TA 的 mid/名字打开空间
-//     （原版 onAction 的 setSelectedOwner + onOwnerClick）。
+//     （原版 onAction 的 setSelectedOwner + onOwnerClick），面板随即收起。
+//
+// 视觉细节（玻璃面板 / 三态 / 蓝字选中）在 collabpicker_test.go 里无头实测。
 func TestCollabPickerMenu(t *testing.T) {
 	// 单 UP 视频：不画选择键。
 	single := NewApp(func() {})
@@ -139,11 +141,14 @@ func TestCollabPickerMenu(t *testing.T) {
 		t.Fatalf("点不到合作 UP 主选择键：%v", err)
 	}
 	tt.Frame()
-	menu := tt.Menu()
-	if len(menu) != 2 || menu[0] != "主UP" || menu[1] != "联合投稿 · 合作者" {
-		t.Fatalf("菜单项不对：%#v", menu)
+	if !a.CollabOpen {
+		t.Fatal("点选择键后面板没打开")
 	}
-	if err := tt.ChooseMenuItem("联合投稿 · 合作者"); err != nil {
+	// 角色文案只出现在面板里，用它判定面板是否在屏上。
+	if _, ok := tt.Find("联合投稿"); !ok {
+		t.Fatal("面板里看不到参与者「合作者」的角色")
+	}
+	if err := tt.Click("合作者"); err != nil {
 		t.Fatalf("选不中合作者：%v", err)
 	}
 	tt.Frame()
@@ -153,15 +158,23 @@ func TestCollabPickerMenu(t *testing.T) {
 	if a.ownerName() != "合作者" || a.ownerFace() != "face-2" {
 		t.Fatalf("选中后面板应显示合作者，得到 %q / %q", a.ownerName(), a.ownerFace())
 	}
+	if a.CollabOpen {
+		t.Fatal("选中条目后面板没收起")
+	}
+	if _, ok := tt.Find("联合投稿"); ok {
+		t.Fatal("面板收起后角色文案还在屏上")
+	}
 
-	// 再打开菜单：选中项带勾（原版 [aria-checked] 的视觉提示）。
+	// 再打开：选中的那一条就是当前显示的合作者（原版 selectedKeys）。
 	if err := tt.Click("选择合作 UP 主"); err != nil {
 		t.Fatalf("再次点不到选择键：%v", err)
 	}
 	tt.Frame()
-	menu = tt.Menu()
-	if len(menu) != 2 || menu[1] != "✓ 联合投稿 · 合作者" {
-		t.Fatalf("选中项应有勾：%#v", menu)
+	checked := a.collabChecker()
+	if !checked(a.Info.Staff[1]) {
+		t.Fatal("重开面板后合作者应是选中项")
 	}
-	tt.CloseMenu()
+	if checked(a.Info.Staff[0]) {
+		t.Fatal("主 UP 不该是选中项")
+	}
 }

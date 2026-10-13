@@ -609,44 +609,6 @@ func (a *App) videoInfoHead(c *ui.Context) {
 	})
 }
 
-// collabPicker 是合作视频的「选择合作 UP 主」键（原版 videoInfo 的
-// `.nav-icon-btn.video-owner-picker-button`：32×32 图标钮 + Peoples size 18，
-// 悬停铺 `--glass-bg-hover`；点开列出全部参与者，选一个就把面板显示的
-// UP 主换成 TA 并打开 TA 的空间）。
-func (a *App) collabPicker(c *ui.Context) {
-	t := a.Theme
-	n := len(a.Info.Staff)
-	// 原版 .nav-icon-btn：32×32、圆角 7、常态透明、hover 玻璃底 + 图标变蓝。
-	b := ui.ButtonBase(c.Key("owner-picker")).Size(32, 32).Radius(DockIconR).Center().
-		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", n))
-	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
-	pressPose(b)
-	b.Children(func() {
-		// 原版 .nav-icon-btn 常态图标色 #475569，悬停只换底色、不改图标色
-		//（只有菜单展开时 [aria-expanded] 才转蓝，mygo 拿不到菜单开合状态）。
-		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(ui.Hex("#475569"))
-	})
-	b.Menu(func(m *ui.Menu) {
-		for _, st := range a.Info.Staff {
-			label := st.Name
-			if st.Title != "" {
-				label = st.Title + " · " + st.Name
-			}
-			// 原版菜单选中项是蓝字（.video-owner-picker-item[aria-checked]）。
-			if st.Mid == a.CollabMid && a.CollabFor == a.Info.Bvid {
-				label = "✓ " + label
-			}
-			if m.Item(label).Chosen() {
-				// 选中后显示的是 TA（原版 setSelectedOwner），并立刻打开空间。
-				a.CollabMid, a.CollabFor = st.Mid, a.Info.Bvid
-				if a.Act.OpenUp != nil {
-					a.Act.OpenUp(st.Mid, st.Name)
-				}
-			}
-		}
-	})
-}
-
 // collabOwner 返回用户在合作视频里选中的参与 UP 主。没选过、选的不在当前
 // 视频里（换了视频）都不算，退回主 UP —— 对应原版 videoInfo 的 displayedOwner
 // （`creators.find(c => c.mid === selectedOwner?.mid) || creators[0]`）。
