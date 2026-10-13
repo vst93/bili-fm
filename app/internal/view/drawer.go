@@ -1171,10 +1171,15 @@ func (a *App) card(c *ui.Context, index int) {
 			b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).
 				Size(wlRemoveSize, wlRemoveSize).Radius(wlRemoveRadius).
 				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
-			b.Disabled(pending)
-			// 原版 .watchlater-remove-btn：贴封面右上角 6px。
+			// 原版 .watchlater-remove-btn:disabled 是 opacity .55（绝对值）。
+			// mygo 的禁用节点会再乘 .5（ui/paint.go），.55 会被压到 .275，
+			// 而元素不透明度封顶 1 最多只能补到 .5，补不回来（见 disabled.go）。
+			// 所以这里不借框架的 Disabled，改用原版同样的语义「自己挡住交互」
+			//（下面 Clicked 已带 !pending），只把那层绝对值落到 Opacity 上。
+			// 原版 .watchlater-remove-btn:disabled 同时把 transform 归零，所以
+			// 悬停放大在请求中也关掉。
 			b.Absolute().Right(wlRemoveInset).Top(wlRemoveInset)
-			b.Background(wlRemoveFill(b.Hovered())).
+			b.Background(wlRemoveFill(b.Hovered() && !pending)).
 				Border(1, wlRemoveBorder())
 			b.Opacity(wlRemoveOpacity(pending))
 			// 悬停放大 1.04（原版 :hover transform: scale(1.04)）；禁用时不放大。

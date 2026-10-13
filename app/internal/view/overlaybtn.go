@@ -79,7 +79,9 @@ func wlRemoveScale(hovered bool) float32 {
 }
 
 // wlRemoveOpacity 是移除键请求中的整体透明度（原版 :disabled opacity .55；
-// 按钮置灰但保留位置，避免布局跳动）。
+// 按钮置灰但保留位置，避免布局跳动）。.55 > .5，mygo 的禁用节点再乘 .5 就变成了
+// .275（比原版暗一半），元素不透明度封顶 1 也补不回来，所以这颗键不借框架的
+// Disabled，改由调用点自己挡住点击（见 drawer.go 里 wl-remove 的注释）。
 func wlRemoveOpacity(pending bool) float32 {
 	return pick(pending, float32(0.55), float32(1))
 }

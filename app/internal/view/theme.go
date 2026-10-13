@@ -279,12 +279,12 @@ var navIconRestOpacityFor = func(k navIconKind) float32 {
 
 // navIconStatValueOpacity 是 `.nav-stat-value`（按钮下方的计数）的透明度。原版
 // 数值是 `.nav-icon-btn` 的子元素，随按钮一起吃到 `.video-content-actions
-// .nav-icon-btn` 的 .82 与 `:disabled` 的 .3；原生版把数值画在按钮**之外**
-//（34×(34+13) 的列里），所以要显式补上同一层。禁用时按钮那边是 .6（mygo 的
-// 禁用再乘 .5 得 .3），数值不是禁用元素，直接给 .3。
+// .nav-icon-btn` 的 .82 与 `:disabled` 的 .34；原生版把数值画在按钮**之外**
+//（34×(34+13) 的列里），所以要显式补上同一层。数值自己不是禁用节点，不吃框架
+// 那层减半，所以直接给原版的绝对值 .34（按钮那边由 disabledDim 补到 .68）。
 var navIconStatValueOpacity = func(off bool) float32 {
 	if off {
-		return 0.3
+		return navIconDisabledOpacity
 	}
 	return navIconRestOpacityFor(navIconContent)
 }
@@ -478,14 +478,10 @@ func navIconFadeValue(b ui.Element, target float32) float32 {
 }
 
 // navIconFade 是 `.nav-icon-btn` 的不透明度过渡：目标由常态度与是否禁用决定
-// （禁用走 `disableNav` 的 .6，见那里的说明）。必须在 `disableNav` 之后调用，
-// 末次写入生效。
+// （禁用的 .34 经 disabledDim 抵消框架对禁用节点的减半，见 disabled.go）。
+// 必须在 `disableNav` 之后调用，末次写入生效。
 var navIconFade = func(b ui.Element, off bool, rest float32) ui.Element {
-	target := rest
-	if off {
-		target = 0.6
-	}
-	return b.Opacity(navIconFadeValue(b, target))
+	return b.Opacity(navIconFadeValue(b, navIconOpacityTarget(off, rest)))
 }
 
 // navIconPoseFor 是 `.nav-icon-btn` 三态位移的**纯函数**（原版 globals.css）：

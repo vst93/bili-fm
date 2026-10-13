@@ -26,7 +26,7 @@ func diffInRect(a, b *image.RGBA, r ui.Rect) (diff, total int) {
 //	.nav-icon-btn                                .92
 //	.video-content-actions .nav-icon-btn         .82
 //	.video-context-dock .nav-icon-btn            .78
-//	.nav-icon-btn:disabled                       .3
+//	.nav-icon-btn:disabled                       .34
 //	.video-owner-picker-button 悬停/展开回到 1
 //	#player .player-button:disabled svg          .34
 func TestNavIconOpacityTokens(t *testing.T) {
@@ -43,12 +43,13 @@ func TestNavIconOpacityTokens(t *testing.T) {
 		}
 	}
 
-	// 计数条随内容行基础透明度 / 禁用（.3）一起淡出。
+	// 计数条随内容行基础透明度 / 禁用（.34）一起淡出。
 	if got := navIconStatValueOpacity(false); got != 0.82 {
 		t.Errorf("计数常态透明度 = %v，应为 .82", got)
 	}
-	if got := navIconStatValueOpacity(true); got != 0.3 {
-		t.Errorf("计数禁用透明度 = %v，应为 .3", got)
+	if got := navIconStatValueOpacity(true); got != navIconDisabledOpacity {
+		t.Errorf("计数禁用透明度 = %v，应为 %v（原版 .nav-icon-btn:disabled）",
+			got, navIconDisabledOpacity)
 	}
 
 	// 合作 UP 主选择键：通用 .92，悬停或展开（aria-expanded）回到 1。

@@ -91,6 +91,9 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 // 白底、圆角 8、内边距 4，右端一个 32×32 的放大镜提交键。
 func (a *App) searchField(c *ui.Context) {
 	t := a.Theme
+	// 搜索中：原版给输入框与提交键都挂 `disabled={isSearching}`，Enter 与点击
+	// 都提前 return（searchForm.tsx 的 handleKeyDown / onClick），挡住连点重复搜。
+	searching := a.list().Loading
 	// 原版内腔：padding-left 10（文字视觉起点）/ padding-right 1（提交键
 	// 离右 1px、离上下 1px，四周等距）；内凹 = 顶部深影 + 底部亮高光。
 	// 原版 [data-slot="input-wrapper"]：高 36、左内边距 10、右 1；
@@ -114,7 +117,7 @@ func (a *App) searchField(c *ui.Context) {
 		in = ui.TextInputBase(c, &a.Query).Grow(1).FontSize(14).
 			TextColor(ui.Hex("#334155")).
 			Placeholder("B站 / 关键词 / 视频链接").Label("搜索")
-		if in.Submitted() {
+		if in.Submitted() && !searching {
 			a.runSearch()
 		}
 		// 原版 .search-submit-btn：32×32、圆角 6、默认透明 + opacity .82、
@@ -123,25 +126,37 @@ func (a *App) searchField(c *ui.Context) {
 		// （topToolBgTo / topToolInk / topToolFade），不是瞬时切换。
 		submit := ui.ButtonBase(c.Key("search-submit")).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
-		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), submit.Pressed())
+		// 搜索中这颗键在原版是 `disabled`：不响应点击，也吃不到 `:active`（但仍吃
+		// `:hover`）。原生版不再借框架的 Disabled（见下面的说明），所以显式把「按下」
+		// 这一路在搜索中掐掉。
+		pressed := submit.Pressed() && !searching
+		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), pressed)
 		topToolBgTo(submit, sub.Bg)
 		topToolFade(submit, sub.Opacity)
 		// 原版 .search-submit-btn 常态带左上角径向聚光，按下换成居中光。
-		if submit.Pressed() {
+		if pressed {
 			btnLightPress.draw(submit, ToolButtonR)
 		} else {
 			btnLightTool.draw(submit, ToolButtonR)
 		}
 		// 原版 .search-submit-btn::after：悬停才显形的内高光 + 弱投影（不是描边）；
-		// 按下时 ::after 归零、换成 :active 的内压阴影。
-		if submit.Pressed() {
+		// 按下时 ::after 归零、换成 :active 的内压阴影；搜索中（`disabled`）原版
+		// `.search-submit-btn:disabled::after { opacity: 0 }` 把它整层关掉，所以
+		// 即便悬停在键上也不再铺（悬停的底色 / 图标色仍照旧生效）。
+		if searching {
+			// 搜索中 ::after 归零。
+		} else if pressed {
 			navPressShadow(submit)
 		} else if submit.Hovered() {
 			topToolHoverHighlight(submit, topToolSubmit)
 		}
 		topToolPose(submit)
-		searching := a.list().Loading
-		submit.Disabled(searching)
+		// 原版 `.search-submit-btn:disabled` **不改**不透明度（只把 ::after 归零），
+		// 所以搜索中这颗键仍是常态度 .82、悬停也照样生效——但 mygo 的禁用节点会把
+		// 整棵子树再乘 .5（ui/paint.go），.82 会被压到 .41，转圈比原版暗一半，而元
+		// 素不透明度封顶 1 最多只能补到 .5，补不回 .82。所以这里不借框架的 Disabled，
+		// 改用原版同样语义「自己挡住交互」：下面 Submitted / Clicked 都带 !searching
+		//（disable.go 里有这条例外的说明）。
 		submit.Children(func() {
 			if searching {
 				// 搜索中：用框架的 Spinner（原版是自己写 CSS 关键帧做
@@ -152,7 +167,7 @@ func (a *App) searchField(c *ui.Context) {
 				topToolInk(ui.Icon(c, iconMagnifier).Size(18, 18), sub.Ink)
 			}
 		})
-		if submit.Clicked() {
+		if submit.Clicked() && !searching {
 			a.runSearch()
 		}
 	})
@@ -990,8 +1005,8 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
 			Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
 		// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
-		// 禁用由 disableNav 覆盖成 .3；两条都走 0.16s 过渡（navIconFade 在
-		// disableNav 之后，末次写入生效）。
+		// 禁用由 disableNav 覆盖成原版的 .34；两条都走 0.16s 过渡
+		// （navIconFade 在 disableNav 之后，末次写入生效）。
 		disableNav(b, spec.Off)
 		navIconFade(b, spec.Off, navIconRestOpacityFor(navIconContent))
 		// 原版数值是按钮的子元素，随按钮一起上浮 1px / 按下缩放；原生版数值画在
@@ -1026,7 +1041,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		}
 		// 原版这一格始终有值（没有视频时是 "0"）。数值是 `.nav-icon-btn` 的
 		// 子元素：随内容行基础透明度（.82）与禁用（.nav-stat-btn:disabled 的
-		// .3）一起淡出，且禁用时 `.nav-stat-value { color: inherit }` 继承按钮的
+		// .34）一起淡出，且禁用时 `.nav-stat-value { color: inherit }` 继承按钮的
 		// #475569。原生版数值画在按钮外，这三层都得手动补齐。
 		if spec.Count != "" {
 			valueInk := pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))
@@ -1041,12 +1056,12 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 }
 
 // disableNav 把按钮设成原版 `.nav-icon-btn:disabled` 的样子：禁用 +
-// opacity .3。mygo 的禁用态自己会乘 .5，这里再乘 .6 补到 .3
-// （注意 IsDisabled 查不到「之后才调用 Disabled」的情况，所以显式传参）。
+// opacity .34。mygo 的禁用节点会自己再乘 .5（ui/paint.go），所以元素值要写
+// disabledDim(.34)=.68 抵消掉（见 disabled.go 的总说明）。
 func disableNav(b ui.Element, off bool) ui.Element {
 	b.Disabled(off)
 	if off {
-		b.Opacity(0.6)
+		b.Opacity(disabledDim(navIconDisabledOpacity))
 	}
 	return b
 }
