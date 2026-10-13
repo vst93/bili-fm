@@ -119,8 +119,8 @@ func (a *App) searchField(c *ui.Context) {
 		}
 		// 原版 .search-submit-btn：32×32、圆角 6、默认透明 + opacity .82、
 		// 图标 #64748b；悬停 opacity 1、图标转 #0284c7、底白 50%、上浮 1px；
-		// 按下缩到 .92。底色 0.18s / 不透明度 0.16s 淡入（topToolBgTo /
-		// topToolFade），不是瞬时切换。
+		// 按下缩到 .92。底色/图标色 0.18s、不透明度 0.16s 淡入
+		// （topToolBgTo / topToolInk / topToolFade），不是瞬时切换。
 		submit := ui.ButtonBase(c.Key("search-submit")).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
 		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), submit.Pressed())
@@ -149,7 +149,7 @@ func (a *App) searchField(c *ui.Context) {
 				// TextColor 上色，所以能直接染成主题蓝。
 				ui.Spinner(c).Size(18, 18).TextColor(t.Blue)
 			} else {
-				ui.Icon(c, iconMagnifier).Size(18, 18).TextColor(sub.Ink)
+				topToolInk(ui.Icon(c, iconMagnifier).Size(18, 18), sub.Ink)
 			}
 		})
 		if submit.Clicked() {
@@ -193,8 +193,8 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	b := ui.ButtonBase(c.Key("nav-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
 	// 原版 .top-tool-btn：基态透明 + opacity .82 + 图标 #64748b；悬停铺白 .65、
-	// 图标转 #0284c7、上浮 1px；按下缩到 .92。底色 0.18s / 不透明度 0.16s
-	// 淡入（topToolBgTo / topToolFade），不是瞬时切换。
+	// 图标转 #0284c7、上浮 1px；按下缩到 .92。底色/图标色 0.18s、不透明度
+	// 0.16s 淡入（topToolBgTo / topToolInk / topToolFade），不是瞬时切换。
 	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
 	topToolBgTo(b, s.Bg)
 	topToolFade(b, s.Opacity)
@@ -213,7 +213,7 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 		topToolHoverHighlight(b, topToolEntry)
 	}
 	topToolPose(b)
-	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(s.Ink) })
+	b.Children(func() { topToolInk(ui.Icon(c, ic).Size(18, 18), s.Ink) })
 	if b.Clicked() {
 		a.openSection(key)
 	}

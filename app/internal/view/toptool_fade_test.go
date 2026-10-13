@@ -126,6 +126,82 @@ func TestTopToolFadeWired(t *testing.T) {
 	}
 }
 
+// TestTopToolInkFadeWired 钉住搜索药丸小键的第三条非位移动画：`color 0.18s ease`
+// （图标 #64748b → #0284c7 的淡变），并实测它以**过渡**而非瞬时的方式落到
+// AnimateColor 上。判据与底色/不透明度相同：换目标后的第一帧应返回上一帧的值。
+func TestTopToolInkFadeWired(t *testing.T) {
+	// 与原版 `color 0.18s ease` 同一条（时长 + CSS 默认缓动）。
+	if navIconBgAnim.Duration != 180*time.Millisecond {
+		t.Errorf("图标色过渡时长 = %v, want 180ms（原版 color 0.18s）", navIconBgAnim.Duration)
+	}
+	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
+	if navIconBgAnim.Ease == nil {
+		t.Fatal("缺少缓动曲线")
+	}
+	for _, x := range []float32{0.1, 0.3, 0.5, 0.8, 0.95} {
+		if d := math.Abs(float64(navIconBgAnim.Ease(x) - want(x))); d > 1e-6 {
+			t.Errorf("缓动在 %.2f 处 = %v, want %v", x, navIconBgAnim.Ease(x), want(x))
+		}
+	}
+
+	inkA, inkB := ui.Hex("#64748b"), ui.Hex("#0284c7")
+	cur := inkA
+	var samples []ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		b := ui.Box(c)
+		samples = append(samples, topToolInkColor(b, cur))
+	}, 60, 60)
+	tt.Frame()
+	if len(samples) == 0 {
+		t.Fatal("探针视图没有被构建")
+	}
+	if samples[0] != inkA {
+		t.Fatalf("首帧应直接取目标：%v", samples[0])
+	}
+
+	// 换目标，只取换目标后的第一帧。
+	samples = nil
+	cur = inkB
+	tt.Frame()
+	if len(samples) == 0 {
+		t.Fatal("换目标后探针视图没有被构建")
+	}
+	if samples[0] == inkB {
+		t.Errorf("图标色换目标的当帧就跳到新值 %v —— 没走 0.18s 过渡", inkB)
+	}
+	if !colorNear(samples[0], inkA) {
+		t.Errorf("图标色过渡应从上一帧 %v 起步，得到 %v", inkA, samples[0])
+	}
+}
+
+// TestTopToolInkWired 无头实测：图标色确实经 topToolInk 落到两类小键的图标上。
+// 把 topToolInk 换成只记录目标色、仍写 TextColor 的桩，悬停入口键后应记录到目标
+// 色 #0284c7 —— 反证这条过渡真的接在按钮图标上，而不只是孤立的 helper。
+func TestTopToolInkWired(t *testing.T) {
+	saved := topToolInk
+	var seenBlue bool
+	topToolInk = func(b ui.Element, target ui.Color) ui.Element {
+		if target == ui.Hex("#0284c7") {
+			seenBlue = true
+		}
+		return b.TextColor(target)
+	}
+	defer func() { topToolInk = saved }()
+
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	tt := shellTester(t, a)
+	r, ok := tt.Find("动态")
+	if !ok {
+		t.Fatal("找不到「动态」入口键")
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	if !seenBlue {
+		t.Errorf("悬停入口键后没见过目标色 #0284c7 —— topToolInk 没接在图标上？")
+	}
+}
+
 // TestTopToolPoseFor 钉住搜索药丸小键的位移取值（原版 globals.css）：
 //
 //	.top-tool-btn:hover   translateY(-1px)

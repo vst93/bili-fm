@@ -99,12 +99,24 @@ func topToolFadeValue(b ui.Element, target float32) float32 {
 	return b.AnimateTo("top-tool-fade", target, navIconFadeAnim)
 }
 
+// topToolInkColor / topToolInk 是第三条非位移动画：`color 0.18s ease`
+// （图标 #64748b → #0284c7 的淡变）。原版 transition 里这条比底色还靠前，
+// 但此前原生版一直瞬时写入 —— 悬停时图标「啪」地变蓝。时长与底色同为 180ms、
+// 同一条 CSS 默认缓动，所以复用 navIconBgAnim；拆纯函数便于测试钉住「走的是过渡
+// 而非瞬时」，var 便于无头测试冻结 / 反证。
+func topToolInkColor(b ui.Element, target ui.Color) ui.Color {
+	return b.AnimateColor("top-tool-ink", target, navIconBgAnim)
+}
+
 var (
 	topToolBgTo = func(b ui.Element, target ui.Color) ui.Element {
 		return b.Background(topToolBgColor(b, target))
 	}
 	topToolFade = func(b ui.Element, target float32) ui.Element {
 		return b.Opacity(topToolFadeValue(b, target))
+	}
+	topToolInk = func(b ui.Element, target ui.Color) ui.Element {
+		return b.TextColor(topToolInkColor(b, target))
 	}
 )
 
