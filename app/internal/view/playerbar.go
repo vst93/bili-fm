@@ -2,6 +2,9 @@ package view
 
 import (
 	"fmt"
+	"image"
+	"math"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
@@ -573,14 +576,109 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 // playerRimOpacityFn 是视图取整圈 opacity 的入口（测试可换桩关掉描边做反证）。
 var playerRimOpacityFn = playerRimOpacity
 
-// playerRim 把聚光描边接在按钮上（画在 1px 边框之上）。radius 必须与按钮
-// 自己的圆角一致，否则描边会离边框错位。
-func playerRim(b ui.Element, radius, opacity float32) ui.Element {
-	if opacity <= 0 {
+// ---------------------------------------------------------------- 深色 ::before 的 --player-sheen
+//
+// 深色（烟熏玻璃）时段原版 `#player .player-button::before` 除了
+// `background-color: rgba(255,255,255,.085)` 之外，还铺了一层
+// `background-image: var(--player-sheen)`：
+//
+//	radial-gradient(120% 90% at 18% -20%, rgba(255,255,255,.2), transparent 48%),
+//	linear-gradient(170deg, rgba(255,255,255,.055), transparent 56%)
+//
+// （`--player-sheen` 定义在深色 `#player` 令牌块里。浅色时段 `::before` 用的是
+// 另一套 `--glass-sheen-static`，不在本轮范围。）原生版此前只画了那层纯色
+// 白 .085，深色键面比原版平一档——本轮把这条光泽补上。
+//
+// mygo 没有径向渐变接口（见 bloom.go），所以整条 sheen 在这里按像素算成一张
+// 白-透明位图，进程内只烘焙一次（渐变按盒比例定义，与按钮尺寸无关，画时拉伸
+// 即可）。两条渐变都是白色、列表靠前的径向在上层，合成后仍是白色，只差 alpha。
+const playerSheenSide = 128
+
+var (
+	playerSheenOnce sync.Once
+	playerSheenBmp  *ui.Bitmap
+)
+
+// playerSheenBitmap 返回烘焙好的 sheen 位图（懒加载、进程内共用一张）。
+func playerSheenBitmap() *ui.Bitmap {
+	playerSheenOnce.Do(func() {
+		playerSheenBmp = ui.NewBitmap(playerSheenPixels(playerSheenSide, playerSheenSide))
+	})
+	return playerSheenBmp
+}
+
+// playerSheenPixels 把 `--player-sheen` 算成一张 white-alpha 的 NRGBA 位图。
+// 几何与 CSS 一致：径向是「椭圆尺寸 120%×90%、中心 (18%, -20%)、48% 处淡到
+// 透明」；线性 170°（几乎朝下、略偏右）、0% 白 .055 → 56% 透明。
+func playerSheenPixels(w, h int) *image.NRGBA {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	if w <= 0 || h <= 0 {
+		return img
+	}
+	fw, fh := float32(w), float32(h)
+	// 径向层。
+	rcx, rcy := 0.18*fw, -0.20*fh
+	rrx, rry := 1.20*fw, 0.90*fh
+	// 线性层：方向向量与 mygo 的 LinearGradient 同约定（0° 朝上、90° 向右）。
+	la := 170 * math.Pi / 180
+	ldx, ldy := float32(math.Sin(la)), float32(-math.Cos(la))
+	lhalf := (abs32(fw*ldx) + abs32(fh*ldy)) / 2
+	lx0, ly0 := fw/2-ldx*lhalf, fh/2-ldy*lhalf
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			px, py := float32(x)+0.5, float32(y)+0.5
+			// 线性层 alpha。
+			lt := ((px-lx0)*ldx + (py-ly0)*ldy) / (2 * lhalf)
+			lAlpha := float32(0)
+			if lt < 0.56 {
+				lAlpha = 0.055 * (1 - max(lt, 0)/0.56)
+			}
+			// 径向层 alpha。
+			rdx, rdy := (px-rcx)/rrx, (py-rcy)/rry
+			rd := float32(math.Hypot(float64(rdx), float64(rdy)))
+			rAlpha := float32(0)
+			if rd < 0.48 {
+				rAlpha = 0.2 * (1 - rd/0.48)
+			}
+			// 径向在上、线性在下，两层都是白。
+			a := rAlpha + lAlpha*(1-rAlpha)
+			i := img.PixOffset(x, y)
+			img.Pix[i+0], img.Pix[i+1], img.Pix[i+2] = 255, 255, 255
+			img.Pix[i+3] = to8(a)
+		}
+	}
+	return img
+}
+
+// playerSheenPaint 是视图画 sheen 的入口（测试可换桩关掉做反证）。
+var playerSheenPaint = paintPlayerSheen
+
+// paintPlayerSheen 把 sheen 位图裁到按钮圆角内、拉满整个矩形。
+func paintPlayerSheen(p *ui.Painter, r ui.Rect, radius float32) {
+	if r.W < 2 || r.H < 2 {
+		return
+	}
+	p.Clip(r, radius, func() {
+		p.Image(playerSheenBitmap(), r, ui.FillBox)
+	})
+}
+
+// playerRim 把聚光描边（以及深色时段 `::before` 的 --player-sheen 光泽）接在
+// 按钮上，画在 1px 边框之上。radius 必须与按钮自己的圆角一致，否则描边会离
+// 边框错位。深色时先铺 sheen（纯色底之上、描边与图标之下），浅色时只画描边。
+// 整圈 opacity 由 playerRimOpacityFn 按（dark, tool）给出。
+func playerRim(b ui.Element, radius float32, dark, tool bool) ui.Element {
+	opacity := playerRimOpacityFn(dark, tool)
+	if opacity <= 0 && !dark {
 		return b
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintPlayerRim(p, r, radius, opacity)
+		if dark {
+			playerSheenPaint(p, r, radius)
+		}
+		if opacity > 0 {
+			paintPlayerRim(p, r, radius, opacity)
+		}
 	})
 }
 
@@ -626,7 +724,7 @@ func (a *App) transport(c *ui.Context) {
 		playerPlaySurface(a.Theme, play, a.Playing, play.Hovered(), play.Pressed())
 		playerPressPose(play)
 		// 原版播放键的 ::after 不吃 .52 覆写（整圈 opacity 1）；深色时段压 .3。
-		playerRim(play, RadiusPill, playerRimOpacityFn(a.Theme.Dark, false))
+		playerRim(play, RadiusPill, a.Theme.Dark, false)
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
@@ -650,7 +748,7 @@ func (a *App) transport(c *ui.Context) {
 		playerToolSurface(a.Theme, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
 		// 下一集是工具键：原版 ::after opacity .52。
-		playerRim(next, RadiusPill, playerRimOpacityFn(a.Theme.Dark, true))
+		playerRim(next, RadiusPill, a.Theme.Dark, true)
 		next.Children(func() {
 			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
 			// tool 规则覆盖），悬停转蓝；深色常态转 Theme.PlayerButton。
@@ -834,7 +932,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(a.Theme, b, a.ShowVolume, b.Hovered(), b.Pressed())
 	playerPressPose(b)
-	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
+	playerRim(b, Radius, a.Theme.Dark, true)
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -861,7 +959,7 @@ func (a *App) speedButton(c *ui.Context) {
 	playerToolSurface(a.Theme, b, a.ShowSpeed, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
-	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
+	playerRim(b, Radius, a.Theme.Dark, true)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
@@ -882,7 +980,7 @@ func (a *App) eqButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(a.Theme, b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
-	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
+	playerRim(b, Radius, a.Theme.Dark, true)
 	b.Children(func() {
 		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.Theme, a.EQ, b.Hovered()))).
@@ -903,7 +1001,7 @@ func (a *App) sponsorButton(c *ui.Context) {
 	playerToolSurface(a.Theme, b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
-	playerRim(b, Radius, playerRimOpacityFn(a.Theme.Dark, true))
+	playerRim(b, Radius, a.Theme.Dark, true)
 	b.Children(func() {
 		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Theme, a.Sponsor, b.Hovered())))
@@ -1129,7 +1227,7 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
 		playerPressPose(mute)
 		// 静音键不在 .52 名单里（继承 .player-button::after 的 1.0）。
-		playerRim(mute, RadiusSmall, playerRimOpacityFn(a.Theme.Dark, false))
+		playerRim(mute, RadiusSmall, a.Theme.Dark, false)
 		mute.Children(func() {
 			ic := pick(a.Muted, iconMute, iconVolume)
 			icon := ui.Icon(c, ic).Size(16, 16).
