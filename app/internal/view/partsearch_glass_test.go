@@ -25,11 +25,12 @@ import (
 // TestPartSearchFadeWired 单独钉住。
 func freezePartSearchFades(t *testing.T) {
 	t.Helper()
-	fade, rim, icon := partSearchFade, partSearchRimOpacity, partSearchIconFade
+	fade, rim, icon, shadow := partSearchFade, partSearchRimOpacity, partSearchIconFade, partSearchShadow
 	partSearchFade = func(b ui.Element, key string, target ui.Color) ui.Color { return target }
 	partSearchRimOpacity = func(b ui.Element, target float32) float32 { return target }
 	partSearchIconFade = func(b ui.Element, key string, target ui.Color) ui.Color { return target }
-	t.Cleanup(func() { partSearchFade, partSearchRimOpacity, partSearchIconFade = fade, rim, icon })
+	partSearchShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec { return s }
+	t.Cleanup(func() { partSearchFade, partSearchRimOpacity, partSearchIconFade, partSearchShadow = fade, rim, icon, shadow })
 }
 
 // TestPartSearchAnimTokens 钉住过渡参数：0.2s + CSS ease。
@@ -174,6 +175,97 @@ func TestPartSearchIconFadeWiring(t *testing.T) {
 	for _, k := range boxKeys {
 		if k == "ps-icon" {
 			t.Errorf("ps-icon 走了框体的 partSearchFade（%v）—— 应用 0.16s 的 partSearchIconFade", k)
+		}
+	}
+}
+
+// TestPartSearchShadowInflightWired 实测「抬起」与聚焦光环的 box-shadow 真的以
+// 0.2s 过渡（几何 + 色值一起动），而不是像此前那样当帧切。判据同
+// TestPartSearchFadeWired：目标变化的那一帧，曲线 t=0 ⇒ 返回**上一帧的整套
+// shadowSpec**（五项逐字段相等）。
+func TestPartSearchShadowInflightWired(t *testing.T) {
+	start := shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}
+	next := shadowSpec{0, 16, 38, 0, shadowInk.Alpha(0.11)}
+	cur := start
+	var got []shadowSpec
+	tt := ui.NewTester(func(c *ui.Context) {
+		b := ui.Box(c)
+		got = append(got, partSearchShadow(b, "probe", cur))
+	}, 60, 60)
+	tt.Frame()
+	if len(got) == 0 {
+		t.Fatal("探针视图没有被构建")
+	}
+	if got[0] != start {
+		t.Fatalf("首帧应直接取目标 %+v，得到 %+v", start, got[0])
+	}
+
+	got = nil
+	cur = next
+	tt.Frame()
+	if got[0] == next {
+		t.Errorf("换目标的当帧就跳到新影 %+v —— 没走 200ms 过渡", next)
+	}
+	if got[0] != start {
+		t.Errorf("box-shadow 过渡应从上一帧 %+v 起步（五项逐字段相等），得到 %+v", start, got[0])
+	}
+}
+
+// TestPartSearchShadowGrowsFromNone 实测常态（box-shadow: none）→ 抬起时几何真的
+// 从零长出来：从全零目标切到 --liquid-shadow，换目标那一帧应仍是零几何，而不是
+// 当帧就带上 0 8 24。
+func TestPartSearchShadowGrowsFromNone(t *testing.T) {
+	cur := shadowSpec{}
+	var got []shadowSpec
+	tt := ui.NewTester(func(c *ui.Context) {
+		b := ui.Box(c)
+		got = append(got, partSearchShadow(b, "probe", cur))
+	}, 60, 60)
+	tt.Frame() // 首帧：零
+	cur = shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}
+	got = nil
+	tt.Frame()
+	if len(got) == 0 {
+		t.Fatal("探针视图没有被构建")
+	}
+	if got[0] != (shadowSpec{}) {
+		t.Errorf("常态 → 抬起应仍为零几何起步，得到 %+v", got[0])
+	}
+}
+
+// TestPartSearchShadowWiring 反证 partsHeader 真的把抬起 / 光环接到
+// partSearchShadow，把内影的颜色接到 partSearchFade（而不是直接铺当帧值）。
+func TestPartSearchShadowWiring(t *testing.T) {
+	savedShadow, savedFade := partSearchShadow, partSearchFade
+	var shadowKeys, fadeKeys []string
+	partSearchShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec {
+		shadowKeys = append(shadowKeys, key)
+		return savedShadow(b, key, s)
+	}
+	partSearchFade = func(b ui.Element, key string, target ui.Color) ui.Color {
+		fadeKeys = append(fadeKeys, key)
+		return savedFade(b, key, target)
+	}
+	defer func() { partSearchShadow, partSearchFade = savedShadow, savedFade }()
+
+	partSearchBoxFrame(t)
+
+	has := func(keys []string, want string) bool {
+		for _, k := range keys {
+			if k == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, k := range []string{"ps-lift-lg", "ps-lift-sm", "ps-ring"} {
+		if !has(shadowKeys, k) {
+			t.Errorf("抬起 / 光环 %q 没走 partSearchShadow（拿到 %v）", k, shadowKeys)
+		}
+	}
+	for _, k := range []string{"ps-inset-top", "ps-inset-bot"} {
+		if !has(fadeKeys, k) {
+			t.Errorf("内影 %q 没走 partSearchFade（拿到 %v）", k, fadeKeys)
 		}
 	}
 }

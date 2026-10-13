@@ -1652,21 +1652,31 @@ func (a *App) partsHeader(c *ui.Context) {
 		Gap(6).Padding(0, 10).AlignItems(ui.Center)
 	paint := partSearchPaintFor(box.Hovered(), box.FocusWithin())
 	// 原版 `.part-search` 的 `transition: border-color 0.2s ease, box-shadow 0.2s
-	// ease` 与 `::before` 的 `background-color 0.2s ease`：描边 / 填充走 200ms
-	// 曲线过渡。内影（box-shadow）无逐通道动画通道，仍当帧切换。
+	// ease` 与 `::before` 的 `background-color 0.2s ease`：描边 / 填充 / 内影 /
+	// 抬起全部走 200ms 曲线过渡（见 partSearchShadow 的说明）。
 	box.Background(partSearchFade(box, "ps-bg", paint.BG)).
 		Border(1, partSearchFade(box, "ps-border", paint.Border))
-	// ::before 的两条内影（内凹腔：顶暗底亮）。
-	box.InsetShadow(0, 1, 2, 0, paint.InsetTop)
-	box.InsetShadow(0, -0.5, 0, 0, paint.InsetBottom)
-	// 悬停 / 聚焦时整框抬起（原版 box-shadow: var(--liquid-shadow)）。
+	// ::before 的两条内影（内凹腔：顶暗底亮）。三态的几何（0 1 2 / 0 -.5 0）
+	// 完全一致，只有色值在变，所以直接交给 partSearchFade 做 0.2s 颜色过渡
+	// （原版 ::before 的 `transition: box-shadow 0.2s ease`）。
+	box.InsetShadow(0, 1, 2, 0, partSearchFade(box, "ps-inset-top", paint.InsetTop))
+	box.InsetShadow(0, -0.5, 0, 0, partSearchFade(box, "ps-inset-bot", paint.InsetBottom))
+	// 悬停 / 聚焦时整框抬起（原版 box-shadow: var(--liquid-shadow)）。常态
+	// box-shadow 为 none —— CSS 把 none 当成一组「0 长度 + 透明」的影子参与
+	// 插值，所以几何也得从零长出来，交给 partSearchShadow 一起动几何与色值。
 	if paint.Lift {
-		box.Shadow(0, 8, 24, 0, shadowInk.Alpha(0.07))
-		box.Shadow(0, 1, 4, 0, shadowInk.Alpha(0.03))
+		partSearchShadowInto(box, "ps-lift-lg", shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)})
+		partSearchShadowInto(box, "ps-lift-sm", shadowSpec{0, 1, 4, 0, shadowInk.Alpha(0.03)})
+	} else {
+		partSearchShadowInto(box, "ps-lift-lg", shadowSpec{})
+		partSearchShadowInto(box, "ps-lift-sm", shadowSpec{})
 	}
+	// 聚焦光环 0 0 0 2px rgba(14,165,233,.14)：同样从零长出来。
+	ring := shadowSpec{}
 	if paint.Ring.A > 0 {
-		box.Shadow(0, 0, 0, 2, paint.Ring)
+		ring = shadowSpec{0, 0, 0, 2, paint.Ring}
 	}
+	partSearchShadowInto(box, "ps-ring", ring)
 	// ::after 的聚光描边做 0.2s 不透明度过渡（常态 .5、聚焦 1），再叠上
 	// ::before 的光泽。
 	box = partSearchGlass(box, partSearchRimOpacity(box, paint.Rim))
@@ -1801,6 +1811,29 @@ var partSearchAnim = ui.Animation{
 // 直接铺目标色会瞬时跳变。key 在同一元素内须唯一。
 var partSearchFade = func(b ui.Element, key string, target ui.Color) ui.Color {
 	return b.AnimateColor(key, target, partSearchAnim)
+}
+
+// partSearchShadow 把一个 box-shadow 的四项几何（x/y/blur/spread）与颜色一起
+// 交给 0.2s 过渡，返回本帧的解析值。此前认为「mygo 的 Shadow 没有逐通道动画
+// 通道、只能当帧切」——其实 AnimateTo / AnimateColor 就是逐通道通道：原版
+// `.part-search { transition: border-color 0.2s ease, box-shadow 0.2s ease }`，
+// CSS 把 `box-shadow: none` 当成一组「0 长度 + 透明」的影子参与插值，所以常态 →
+// 悬停 / 聚焦时几何与颜色都从零起步，而不是当帧抬起。声明成 var 便于测试冻结
+// 动画相位（同 partSearchFade）。
+var partSearchShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec {
+	return shadowSpec{
+		X:      b.AnimateTo(key+"-x", s.X, partSearchAnim),
+		Y:      b.AnimateTo(key+"-y", s.Y, partSearchAnim),
+		Blur:   b.AnimateTo(key+"-blur", s.Blur, partSearchAnim),
+		Spread: b.AnimateTo(key+"-spread", s.Spread, partSearchAnim),
+		C:      b.AnimateColor(key+"-ink", s.C, partSearchAnim),
+	}
+}
+
+// partSearchShadowInto 把一条过渡中的 box-shadow 画到框体上。
+func partSearchShadowInto(b ui.Element, key string, s shadowSpec) {
+	r := partSearchShadow(b, key, s)
+	b.Shadow(r.X, r.Y, r.Blur, r.Spread, r.C)
 }
 
 // partSearchRimOpacity 把 ::after 聚光描边的整圈不透明度做 0.2s 过渡（原版
