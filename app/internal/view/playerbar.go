@@ -178,6 +178,44 @@ func playerToolInk(active, hovered bool) ui.Color {
 	return ui.Hex("#526174")
 }
 
+// playerMuteSurface 是音量弹层里静音键（原版 `#player .player-volume-mute-button`）
+// 的材质。这颗键虽然也叫 `.player-button`，原版却为它另开了一条规则：尺寸 26、
+// 圆角 8、描边 slate .2、内高光白 .44（比通用 `:hover`/常态的白 .7 收敛）、
+// 墨色 #526174。两处此前踩错：
+//
+//   - 它**不在**工具键的悬停名单（next / volume / speed / eq）里，所以原版
+//     `:hover` 不换面——之前原生版误铺了 GlassHover，静音键一悬停就亮一块；
+//   - `[data-active]`（已静音）只改墨色与描边为蓝调（studio-blue / 蓝 .28），
+//     **不动底色**：底色始终是 `--liquid-bg` 白 .22（之前用了 Rose 底/墨，整键泛红）。
+//
+// `:active` 只吃通用 `.player-button:active { transform: scale(.93) }`（缩放由
+// volumePopover 里的 playerPressPose 给），不换阴影也不换底——它不在 `:active`
+// 改内压/底色的名单里。
+// 改写成 var：测试可换成记录参数的桩，无头反证视图真的把这份材质接在静音键上
+// （同 topToolInk 的手法）。
+var playerMuteSurface = func(b ui.Element, muted bool) ui.Element {
+	return b.Background(ui.Hex("#ffffff").Alpha(0.22)).
+		Border(1, playerMuteBorder(muted)).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.44)).
+		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+}
+
+// playerMuteBorder 是静音键的描边：常态 slate .2、已静音 studio-blue .28。
+func playerMuteBorder(muted bool) ui.Color {
+	if muted {
+		return ui.Hex("#0284c7").Alpha(0.28)
+	}
+	return ui.Hex("#94a3b8").Alpha(0.20)
+}
+
+// playerMuteInk 是静音键图标的墨色：常态 #526174、已静音 studio-blue。
+func playerMuteInk(muted bool) ui.Color {
+	if muted {
+		return ui.Hex("#0284c7")
+	}
+	return ui.Hex("#526174")
+}
+
 // playerButtonPressAnim 是 `#player .player-button` 的按压位移参数（原版
 // globals.css）：
 //
@@ -800,7 +838,6 @@ const (
 // **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。位置与关闭方式同
 // speedPopover：AttachTo 挂列 + PressedOutside 点外部关。
 func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, radius float32) {
-	t := a.Theme
 	// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
 	// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
@@ -817,19 +854,15 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
 			Radius(RadiusSmall).
 			Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
-		if a.Muted {
-			mute.Background(t.Rose.Alpha(0.18))
-		} else if mute.Hovered() {
-			mute.Background(t.GlassHover)
-		} else {
-			mute.Background(ui.Transparent)
-		}
+		// 原版静音键材质：常态白 .22 底 + slate .2 描边 + 白 .44 内高光（悬停不换面），
+		// 已静音只转蓝调墨色/描边（见 playerMuteSurface）。
+		playerMuteSurface(mute, a.Muted)
 		// 静音键也是 .player-button，原版通用 `:active { transform: scale(.93) }`
 		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
 		playerPressPose(mute)
 		mute.Children(func() {
 			ui.Icon(c, pick(a.Muted, iconMute, iconVolume)).Size(16, 16).
-				TextColor(pick(a.Muted, t.Rose, t.Muted))
+				TextColor(playerMuteInk(a.Muted))
 		})
 		if mute.Clicked() && a.Act.ToggleMute != nil {
 			a.Act.ToggleMute()
