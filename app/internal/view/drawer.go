@@ -1122,15 +1122,21 @@ func (a *App) card(c *ui.Context, index int) {
 		spec.Cover2 = func(c *ui.Context) {
 			// 请求中的置灰防连点（原版 pendingAids）。
 			pending := a.WLRemovePending != nil && a.WLRemovePending[aid]
-			b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).Size(22, 22).Radius(4).
+			b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).
+				Size(wlRemoveSize, wlRemoveSize).Radius(wlRemoveRadius).
 				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
 			b.Disabled(pending)
-			b.Absolute().Right(4).Top(4)
-			b.Background(ui.Hex("#0f172a").Alpha(
-				pick(b.Hovered(), float32(0.62), float32(0.45)))).
-				Border(1, ui.Hex("#ffffff").Alpha(0.20))
+			// 原版 .watchlater-remove-btn：贴封面右上角 6px。
+			b.Absolute().Right(wlRemoveInset).Top(wlRemoveInset)
+			b.Background(wlRemoveFill(b.Hovered())).
+				Border(1, wlRemoveBorder())
+			b.Opacity(wlRemoveOpacity(pending))
+			// 悬停放大 1.04（原版 :hover transform: scale(1.04)）；禁用时不放大。
+			b.AnimatePose(ui.Pose{Scale: wlRemoveScale(b.Hovered() && !pending)},
+				ui.Animation{Duration: 160 * time.Millisecond, Ease: ui.EaseOut})
 			b.Children(func() {
-				ui.Icon(c, iconClose).Size(12, 12).TextColor(ui.Hex("#ffffff"))
+				ui.Icon(c, iconClose).Size(wlRemoveIconSize, wlRemoveIconSize).
+					TextColor(wlRemoveInk(b.Hovered()))
 			})
 			if b.Clicked() && !pending && a.Act.RemoveWatchLater != nil {
 				a.Act.RemoveWatchLater(aid)
@@ -1630,21 +1636,22 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		},
 		// 定位由 partsGrid 交给 ListState 滚动（屏外的卡片不构建）。
 		Cover2: func(c *ui.Context) {
-			// 右上角的添加键。
+			// 右上角的添加键（原版 pageList 的 className：absolute top-1
+			// right-1 min-w-6 w-6 h-6 rounded-full bg-black/30 border-0）。
 			label := "添加到播放列表"
 			if inList {
 				label = "已在播放列表中"
 			}
 			add := ui.ButtonBase(c.Key(fmt.Sprintf("part-add-%d", p.Cid))).
-				Size(24, 24).Radius(RadiusPill).Center().Label(label).Tooltip(label)
-			add.Absolute().Right(4).Top(4)
-			// 压在封面上：深色半透明填充（不是 backdrop 真玻璃）。
-			add.Background(ui.Hex("#0f172a").Alpha(
-				pick(add.Hovered(), float32(0.62), float32(0.45)))).
-				Border(1, ui.Hex("#ffffff").Alpha(0.20))
+				Size(partAddSize, partAddSize).Radius(RadiusPill).
+				Center().Label(label).Tooltip(label)
+			add.Absolute().Right(partAddInset).Top(partAddInset)
+			// 压在封面上：纯黑半透明填充、无边框（bg-black/30 + border-0）。
+			add.Background(partAddFill(add.Hovered()))
 			add.Children(func() {
-				ui.Icon(c, pick(inList, iconCheck, iconAdd)).Size(13, 13).
-					TextColor(pick(inList, ui.Hex("#4ade80"), ui.Hex("#ffffff")))
+				ui.Icon(c, pick(inList, iconCheck, iconAdd)).
+					Size(partAddIconSize, partAddIconSize).
+					TextColor(partAddInk(inList))
 			})
 			if add.Clicked() && a.Act.AddToPlaylist != nil {
 				a.Act.AddToPlaylist(p)
