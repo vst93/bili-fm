@@ -257,6 +257,17 @@ func disablePlayerButton(b ui.Element, off bool) ui.Element {
 	return b
 }
 
+// playerDisabledIconOpacityFor 是 `#player .player-button:disabled svg` 的**额外**
+// 压暗（原版 .34）。按钮自身已由 disablePlayerButton 压到 .42，图标再叠一层
+// 即 .42×.34≈.14——没有媒体时整排控件应该几乎看不见（倍速键是文字不是 svg，
+// 不吃这层，保持 .42）。
+var playerDisabledIconOpacityFor = func(off bool) float32 {
+	if off {
+		return 0.34
+	}
+	return 1
+}
+
 // 播放栏图标尺寸（原版 player.tsx 的 icon-park size 属性）：播放/暂停 24、
 // 下一集 18、音量 20、均衡 17、恰饭 17。集中一处便于测试钉住。
 const (
@@ -285,8 +296,10 @@ func (a *App) transport(c *ui.Context) {
 		pressPose(play)
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
+			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
 			ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(playIconSize, playIconSize).
-				TextColor(playerPlayInk(a.Playing, play.Hovered()))
+				TextColor(playerPlayInk(a.Playing, play.Hovered())).
+				Opacity(playerDisabledIconOpacityFor(!src))
 		})
 		if play.Clicked() && a.Act.TogglePlay != nil {
 			a.Act.TogglePlay()
@@ -308,7 +321,8 @@ func (a *App) transport(c *ui.Context) {
 			if next.Hovered() {
 				ink = ui.Hex("#0284c7")
 			}
-			ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).TextColor(ink)
+			ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).TextColor(ink).
+				Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 		})
 		if next.Clicked() && a.Act.Next != nil {
 			a.Act.Next()
@@ -486,7 +500,8 @@ func (a *App) volumeButton(c *ui.Context) {
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
 		ui.Icon(c, pick(muted, iconMute, iconVolume)).Size(volumeIconSize, volumeIconSize).
-			TextColor(playerToolInk(a.ShowVolume, b.Hovered()))
+			TextColor(playerToolInk(a.ShowVolume, b.Hovered())).
+			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 	})
 	if b.Clicked() {
 		a.ShowVolume = !a.ShowVolume
@@ -525,7 +540,8 @@ func (a *App) eqButton(c *ui.Context) {
 	playerToolSurface(b, a.EQ, b.Hovered())
 	pressPose(b)
 	b.Children(func() {
-		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).TextColor(playerToolInk(a.EQ, b.Hovered()))
+		ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).TextColor(playerToolInk(a.EQ, b.Hovered())).
+			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 	})
 	if b.Clicked() && a.Act.ToggleEQ != nil {
 		a.Act.ToggleEQ()

@@ -247,6 +247,48 @@ const (
 	titleBarBrandWidth = 600
 )
 
+// navIconKind 区分三族 .nav-icon-btn 的**基础透明度**（原版 globals.css 各写一条）：
+//
+//	.nav-icon-btn                                opacity .92
+//	.video-content-actions .nav-icon-btn         opacity .82
+//	.video-context-dock .nav-icon-btn            opacity .78
+//
+// 内容行 / 工具条的覆盖规则与 `.nav-icon-btn:hover { opacity: 1 }` 同特异度
+//（0,2,0）但源序在后，所以这两族的按钮**悬停时也不会回到 1**——是个常量；
+// 禁用走 `.nav-icon-btn:disabled { opacity: .3 }`（源序最末、同特异度，赢），
+// 由 disableNav 负责。
+type navIconKind int
+
+const (
+	navIconGeneric navIconKind = iota // 通用 .nav-icon-btn（如合作 UP 主选择键）
+	navIconContent                    // .video-content-actions .nav-icon-btn
+	navIconDock                       // .video-context-dock .nav-icon-btn
+)
+
+// navIconRestOpacityFor 给出某族 `.nav-icon-btn` 的常态度。声明成变量便于测试
+// 换成直通（1.0）做反证。
+var navIconRestOpacityFor = func(k navIconKind) float32 {
+	switch k {
+	case navIconContent:
+		return 0.82
+	case navIconDock:
+		return 0.78
+	}
+	return 0.92
+}
+
+// navIconStatValueOpacity 是 `.nav-stat-value`（按钮下方的计数）的透明度。原版
+// 数值是 `.nav-icon-btn` 的子元素，随按钮一起吃到 `.video-content-actions
+// .nav-icon-btn` 的 .82 与 `:disabled` 的 .3；原生版把数值画在按钮**之外**
+//（34×(34+13) 的列里），所以要显式补上同一层。禁用时按钮那边是 .6（mygo 的
+// 禁用再乘 .5 得 .3），数值不是禁用元素，直接给 .3。
+var navIconStatValueOpacity = func(off bool) float32 {
+	if off {
+		return 0.3
+	}
+	return navIconRestOpacityFor(navIconContent)
+}
+
 // titleBarShowsBrand 报告某窗口宽度下标题栏是否显示品牌（logo + bili-FM + 设置）。
 func titleBarShowsBrand(width float32) bool { return width > titleBarBrandWidth }
 

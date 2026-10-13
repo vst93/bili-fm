@@ -981,6 +981,9 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 	col.Children(func() {
 		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
 			Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
+		// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
+		// 禁用由 disableNav 覆盖成 .3。
+		b.Opacity(navIconRestOpacityFor(navIconContent))
 		disableNav(b, spec.Off)
 		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
 		switch {
@@ -1005,10 +1008,17 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		if b.Clicked() && spec.OnClick != nil {
 			spec.OnClick()
 		}
-		// 原版这一格始终有值（没有视频时是 "0"，禁用态用 inherit 颜色）。
+		// 原版这一格始终有值（没有视频时是 "0"）。数值是 `.nav-icon-btn` 的
+		// 子元素：随内容行基础透明度（.82）与禁用（.nav-stat-btn:disabled 的
+		// .3）一起淡出，且禁用时 `.nav-stat-value { color: inherit }` 继承按钮的
+		// #475569。原生版数值画在按钮外，这三层都得手动补齐。
 		if spec.Count != "" {
-			ui.Text(c, spec.Count).FontSize(9).
-				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))).
+			valueInk := pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))
+			if spec.Off {
+				valueInk = ui.Hex("#475569")
+			}
+			ui.Text(c, spec.Count).FontSize(9).TextColor(valueInk).
+				Opacity(navIconStatValueOpacity(spec.Off)).
 				SingleLine().MaxWidth(ContentIcon)
 		}
 	})
@@ -1037,6 +1047,9 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ContentIcon, ContentIcon).Radius(ContentIconR).
 		Center().Label(label).Tooltip(label)
+	// 原版 `.video-content-actions .nav-icon-btn { opacity: .82 }`：先铺基础透明度，
+	// 禁用再由 disableNav 的 .6（→ mygo 乘 .5 得 .3）覆盖。
+	b.Opacity(navIconRestOpacityFor(navIconContent))
 	disableNav(b, off)
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
@@ -1063,6 +1076,9 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	// 原版 .video-context-dock .nav-icon-btn：34×34、圆角 7、无边框、径向高光底。
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(DockIcon, DockIcon).Radius(DockIconR).
 		Center().Label(label).Tooltip(label)
+	// 原版 `.video-context-dock .nav-icon-btn { opacity: .78 }`（悬停也不回 1，
+	// 与内容行同理）。调用方的 disableNav 会以 .6 覆盖禁用态。
+	b.Opacity(navIconRestOpacityFor(navIconDock))
 	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px；mygo 没有位移变换，
 	// 悬停给玻璃底、按住给实一点的底（见 pressFeedback）。
 	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))

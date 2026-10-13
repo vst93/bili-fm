@@ -150,7 +150,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					pressPose(play)
 					play.Children(func() {
 						ui.Icon(c, pick(a.Playing, iconPause, iconPlay)).Size(16, 16).
-							TextColor(playInk)
+							TextColor(playInk).
+							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 					})
 					if play.Clicked() && a.Act.TogglePlay != nil {
 						a.Act.TogglePlay()
@@ -163,7 +164,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerToolSurface(next, false, next.Hovered())
 					next.Children(func() {
 						ui.Icon(c, iconNext).Size(18, 18).
-							TextColor(pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))
+							TextColor(pick(next.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
+							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 					})
 					if next.Clicked() && a.Act.Next != nil {
 						a.Act.Next()
@@ -189,7 +191,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerToolSurface(vol, false, vol.Hovered())
 					vol.Children(func() {
 						ui.Icon(c, iconVolume).Size(18, 18).
-							TextColor(playerToolInk(false, vol.Hovered()))
+							TextColor(playerToolInk(false, vol.Hovered())).
+							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 					})
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume

@@ -122,6 +122,15 @@ func collabTriggerStyleFor(t Theme, expanded, hovered, pressed bool) collabItemS
 	return s
 }
 
+// collabTriggerOpacity 是选择键的整体透明度：通用 `.nav-icon-btn` 常态 .92，
+// 悬停或展开（aria-expanded）回到 1（原版两条较高特异度规则）。
+func collabTriggerOpacity(expanded, hovered bool) float32 {
+	if expanded || hovered {
+		return 1
+	}
+	return navIconRestOpacityFor(navIconGeneric)
+}
+
 // collabChecker 报告某位参与者是否就是当前面板显示的那位（原版 DropdownMenu
 // 的 selectedKeys = displayedOwner.mid）。换视频后 CollabFor 不匹配 → 没有选中项。
 func (a *App) collabChecker() func(Collaborator) bool {
@@ -152,6 +161,9 @@ func (a *App) collabPicker(c *ui.Context) {
 		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", n))
 	st := collabTriggerStyleFor(t, a.CollabOpen, b.Hovered(), b.Pressed())
 	b.Background(st.Bg)
+	// 原版 `.nav-icon-btn` 基础 opacity .92；这个键没被 content/dock 两族的
+	// 覆盖规则命中，但 `.nav-icon-btn:hover` / `[aria-expanded=true]` 会回到 1。
+	b.Opacity(collabTriggerOpacity(a.CollabOpen, b.Hovered()))
 	if st.InsetInk.A != 0 {
 		b.InsetShadow(0, st.InsetDy, st.InsetBlur, 0, st.InsetInk)
 	}
