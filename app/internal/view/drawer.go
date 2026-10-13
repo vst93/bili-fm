@@ -34,6 +34,34 @@ var cardLiftAnim = ui.Animation{
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
+// 抽屉列表里几处悬停 / 当前态的色值过渡，逐条取自原版 globals.css：
+//
+//	评论行 .py-2.px-8.border-b     transition: background-color/border-color
+//	                                /box-shadow 140ms ease
+//	弹幕小胶囊 .danmaku-message-row 同上 140ms ease
+//	弹幕时间标签 .danmaku-time-label background-color/color/box-shadow 140ms ease
+//	弹幕分组行 .danmaku-time-group   border-color 150ms ease
+//
+// 此前这些状态都是瞬时切换（悬停时整行 / 整颗胶囊「啪」地换色）。mygo 的
+// 阴影没有逐通道动画通道，box-shadow 仍随底色当帧切换；这里只补色值。
+var (
+	drawerFadeAnim = ui.Animation{
+		Duration: 140 * time.Millisecond,
+		Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+	}
+	danmakuBorderAnim = ui.Animation{
+		Duration: 150 * time.Millisecond,
+		Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+	}
+)
+
+// drawerFadeColor 把一处色值交给动画层做过渡。拆成 var 便于测试换桩做反证：
+// AnimateColor 在目标变化的那一帧返回**上一帧的颜色**（曲线 t=0），直接铺
+// 目标色会瞬时跳变。key 在同一元素内须唯一。
+var drawerFadeColor = func(b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
+	return b.AnimateColor(key, target, a)
+}
+
 // drawerSnap 是抽屉下滑手势的落点（ui.Draggable 的 Snap）：松手时位置在上半
 // 就弹回原位（{}），被甩过中点就落到最底（{Y: h}）等着关闭。用
 // ui.Nearest 而不是自己判阈值：它拿的是**带速度投影**后的位置，
@@ -2146,15 +2174,17 @@ func (a *App) danmakuBody(c *ui.Context) {
 func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.Color, t Theme, l danmakuRowLayout) {
 	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
 		Margin(2, 0).
-		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start).
-		InsetShadow(0, -1, 0, 0, sep)
-	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）。
+		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start)
+	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）；原版
+	// `.danmaku-time-group` 是 `transition: border-color 150ms ease`。
+	sepTarget := sep
 	switch {
 	case isCur:
-		box.InsetShadow(0, -1, 0, 0, ui.Hex("#0284c7").Alpha(0.30))
+		sepTarget = ui.Hex("#0284c7").Alpha(0.30)
 	case box.Hovered():
-		box.InsetShadow(0, -1, 0, 0, t.Blue.Alpha(0.24))
+		sepTarget = t.Blue.Alpha(0.24)
 	}
+	box.InsetShadow(0, -1, 0, 0, drawerFadeColor(box, "dmg-sep", sepTarget, danmakuBorderAnim))
 	box.Children(func() {
 		// 左列（宽窗 64 / ≤420 时 54）：时间标签 + 「N 条」，右缘一线分隔
 		//（.danmaku-time-head）。右缘用 x=-1 的内影（正 x 画的是左缘）。
@@ -2162,13 +2192,21 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 			InsetShadow(-1, 0, 0, 0, sep).Children(func() {
 			lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
 				FontWeight(700).Padding(3, 5).Radius(6)
+			// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
+			// 原版 `.danmaku-time-label` 的
+			// `transition: background-color 140ms ease, color 140ms ease`——
+			// 底色 / 墨色都走过渡（阴影无动画通道，当帧切换）。
+			labelBG := ui.Transparent
+			labelInk := ui.Hex("#334155")
 			if isCur {
-				// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
-				lbl.Background(ui.Hex("#0284c7")).TextColor(ui.Hex("#ffffff")).
-					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
+				labelBG = ui.Hex("#0284c7")
+				labelInk = ui.Hex("#ffffff")
+			}
+			lbl.Background(drawerFadeColor(lbl, "dmg-label-bg", labelBG, drawerFadeAnim)).
+				TextColor(drawerFadeColor(lbl, "dmg-label-ink", labelInk, drawerFadeAnim))
+			if isCur {
+				lbl.InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
 					Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
-			} else {
-				lbl.TextColor(ui.Hex("#334155"))
 			}
 			// .danmaku-time-total：11px #64748b（当前组转蓝加粗）。
 			tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
@@ -2185,10 +2223,12 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 				paint := danmakuChipPaint(isCur, box.Hovered())
 				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 					Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
-					Radius(8).AlignItems(ui.Center).
-					// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
-					Background(paint.BG).
-					Border(1, paint.Border).
+					Radius(8).AlignItems(ui.Center)
+				// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
+				// 原版 `.danmaku-message-row` 的
+				// `transition: background-color/border-color 140ms ease`。
+				chip.Background(drawerFadeColor(chip, "dmg-chip-bg", paint.BG, drawerFadeAnim)).
+					Border(1, drawerFadeColor(chip, "dmg-chip-border", paint.Border, drawerFadeAnim)).
 					InsetShadow(0, 1, 0, 0, paint.Inset).
 					Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
 				chip.Children(func() {
@@ -2302,16 +2342,25 @@ func (a *App) repliesBody(c *ui.Context) {
 			// margin 4px 6px、圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
 			row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
 				Margin(4, 6).Padding(8, 32).Gap(8).Radius(10)
-			if row.Hovered() {
-				// :hover 底更实、边转蓝、抬起一层淡投影。
-				row.Background(ui.Hex("#ffffff").Alpha(0.58)).
-					Border(1, ui.Hex("#0ea5e9").Alpha(0.22)).
-					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.58)).
-					Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
-			} else {
-				row.Background(ui.Hex("#ffffff").Alpha(0.32)).
-					Border(1, ui.Hex("#ffffff").Alpha(0.32)).
-					InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.42))
+			// 悬停换底 / 换边：原版 `.py-2.px-8.border-b` 的
+			// `transition: background-color .14s ease, border-color .14s ease,
+			// box-shadow .14s ease`——底与边走 140ms 过渡（阴影无逐通道
+			// 动画，仍当帧切换）。
+			targetBG := ui.Hex("#ffffff").Alpha(0.32)
+			targetBorder := ui.Hex("#ffffff").Alpha(0.32)
+			inset := ui.Hex("#ffffff").Alpha(0.42)
+			hovered := row.Hovered()
+			if hovered {
+				// :hover 底更实、边转蓝，抬起一层淡投影。
+				targetBG = ui.Hex("#ffffff").Alpha(0.58)
+				targetBorder = ui.Hex("#0ea5e9").Alpha(0.22)
+				inset = ui.Hex("#ffffff").Alpha(0.58)
+			}
+			row.Background(drawerFadeColor(row, "cm-row-bg", targetBG, drawerFadeAnim)).
+				Border(1, drawerFadeColor(row, "cm-row-border", targetBorder, drawerFadeAnim)).
+				InsetShadow(0, 1, 0, 0, inset)
+			if hovered {
+				row.Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
 			}
 			row.Children(func() {
 				// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
