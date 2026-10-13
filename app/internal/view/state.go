@@ -567,6 +567,9 @@ type App struct {
 	// ShowSpeed / ShowVolume 表示播放栏的倍速、音量弹层展开着。
 	ShowSpeed  bool
 	ShowVolume bool
+	// ShowSettings 表示标题栏的「设置」下拉（原版 titleBar.tsx 的 showMenu）
+	// 展开着。
+	ShowSettings bool
 
 	// Mini 表示处于迷你模式（400×155 置顶小窗）。
 	Mini bool

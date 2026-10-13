@@ -178,6 +178,8 @@ func titleBarLayer(c *ui.Context, stops []gradStop, height, opacity float32) {
 // 原版 Tailwind 类：`hover:bg-gray-200 px-2 py-1 rounded transition-colors
 // text-sm ml-2` —— px-2/py-1（8/4）、rounded（4px）、text-sm（14px）、ml-2（8px）；
 // 悬停底色被 `.app-title-bar button:hover { … !important }` 顶成 --glass-bg-hover。
+//
+// 下拉面板不是系统菜单，是原版手搓的液态玻璃面板（见 settingsMenu）。
 func (a *App) settingsButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, 8).Radius(4).
@@ -187,24 +189,17 @@ func (a *App) settingsButton(c *ui.Context) {
 	} else {
 		b.Background(ui.Transparent)
 	}
+	if a.ShowSettings {
+		b.Background(t.GlassHover)
+	}
 	b.Children(func() {
 		ui.Text(c, "设置").FontSize(14).TextColor(t.Ink)
 	})
-	b.Menu(func(m *ui.Menu) {
-		if m.Item("关于应用").Chosen() && a.Act.ShowAbout != nil {
-			a.Act.ShowAbout()
-		}
-		if m.Item("快捷键").Chosen() && a.Act.ShowShortcuts != nil {
-			a.Act.ShowShortcuts()
-		}
-		if m.Item("检查更新").Chosen() && a.Act.CheckUpdate != nil {
-			a.Act.CheckUpdate()
-		}
-		m.Separator()
-		if m.Item("退出应用").Chosen() && a.Act.Quit != nil {
-			a.Act.Quit()
-		}
-	})
+	// 点击开合（原版 toggleMenu）；面板由 PopoverBase 放进 Overlay，画在最上层。
+	if b.Clicked() {
+		a.ShowSettings = !a.ShowSettings
+	}
+	a.settingsMenu(c, b)
 }
 
 // ambient 是「氛围光」：把当前封面铺满整窗、压到 31% 不透明度，再叠一层

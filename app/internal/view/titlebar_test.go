@@ -2,7 +2,6 @@ package view
 
 import (
 	"image"
-	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -211,13 +210,15 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 			t.Fatalf("指针移到 (%v,%v) 后设置键失焦（reveal 那两层不能按需增删）", p[0], p[1])
 		}
 	}
-	// 悬停（已唤出）时点设置键，菜单照样打得开。
+	// 悬停（已唤出）时点设置键，玻璃面板照样打得开（面板是自定义 Popover，
+	// 不再是框架的系统菜单）。
 	if err := tst.Click("设置"); err != nil {
 		t.Fatalf("点设置键失败：%v", err)
 	}
 	tst.Frame()
-	want := []string{"关于应用", "快捷键", "检查更新", "-", "退出应用"}
-	if got := tst.Menu(); !slices.Equal(got, want) {
-		t.Fatalf("设置菜单 = %v，应为 %v", got, want)
+	for _, item := range settingsItems() {
+		if _, ok := tst.Find(item); !ok {
+			t.Fatalf("设置菜单打开后看不到条目 %q", item)
+		}
 	}
 }
