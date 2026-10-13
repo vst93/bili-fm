@@ -70,41 +70,42 @@ func TestPartPillDotSizeAndTitleInk(t *testing.T) {
 	}
 }
 
-// TestHoverHighlightSpecs 钉住悬停 ::after 三条 box-shadow 的取值（不含 inset
-// 标志，几何逐值）：
+// TestHoverHighlightSpecs 钉住悬停 ::after 三条 box-shadow 的取值，并确认按
+// 原版分成 inset / 外投影两组（前两条 `inset`、第三条是外层）：
 //
 //	.nav-icon-btn / .search-submit-btn  inset 0 1px 1px 白 .9 / inset 0 -1px 1px 墨 .03 / 0 2px 10px 墨 .045
 //	.top-tool-btn                       inset 0 1px 0    白 .9（顶缘 blur 0，其余同上）
 func TestHoverHighlightSpecs(t *testing.T) {
-	nav := navHoverShadowSpecs()
-	if len(nav) != 3 {
-		t.Fatalf("nav 悬停高光应 3 条，得到 %d", len(nav))
+	nav := navHoverHighlightSpecs()
+	if len(nav.Inset) != 2 || len(nav.Outer) != 1 {
+		t.Fatalf("nav 悬停高光应 2 条内影 + 1 条外投影，得到 inset=%d outer=%d", len(nav.Inset), len(nav.Outer))
 	}
-	if nav[0] != (shadowSpec{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
-		t.Errorf("nav 第 1 条 = %+v, want inset 0 1px 1px 白 .9", nav[0])
+	if nav.Inset[0] != (shadowSpec{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
+		t.Errorf("nav 内影第 1 条 = %+v, want inset 0 1px 1px 白 .9", nav.Inset[0])
 	}
-	if nav[1] != (shadowSpec{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)}) {
-		t.Errorf("nav 第 2 条 = %+v, want inset 0 -1px 1px 墨 .03", nav[1])
+	if nav.Inset[1] != (shadowSpec{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)}) {
+		t.Errorf("nav 内影第 2 条 = %+v, want inset 0 -1px 1px 墨 .03", nav.Inset[1])
 	}
-	if nav[2] != (shadowSpec{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)}) {
-		t.Errorf("nav 第 3 条 = %+v, want 0 2px 10px 墨 .045", nav[2])
+	if nav.Outer[0] != (shadowSpec{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)}) {
+		t.Errorf("nav 外投影 = %+v, want 0 2px 10px 墨 .045", nav.Outer[0])
 	}
 
 	// 入口键顶缘是 `inset 0 1px 0`（blur 0）。
-	entry := topToolHoverShadowSpecs(topToolEntry)
-	if entry[0] != (shadowSpec{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
-		t.Errorf("入口键顶缘 = %+v, want inset 0 1px 0 白 .9（blur 0）", entry[0])
+	entry := topToolHoverHighlightSpecs(topToolEntry)
+	if entry.Inset[0] != (shadowSpec{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
+		t.Errorf("入口键顶缘 = %+v, want inset 0 1px 0 白 .9（blur 0）", entry.Inset[0])
 	}
 	// 提交键顶缘是 `inset 0 1px 1px`（blur 1）。
-	submit := topToolHoverShadowSpecs(topToolSubmit)
-	if submit[0] != (shadowSpec{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
-		t.Errorf("提交键顶缘 = %+v, want inset 0 1px 1px 白 .9（blur 1）", submit[0])
+	submit := topToolHoverHighlightSpecs(topToolSubmit)
+	if submit.Inset[0] != (shadowSpec{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}) {
+		t.Errorf("提交键顶缘 = %+v, want inset 0 1px 1px 白 .9（blur 1）", submit.Inset[0])
 	}
 	// 两类键的后两条一致，且都比旧的近似值（白 .55 / blur 7）高一档。
-	for i := 1; i < 3; i++ {
-		if entry[i] != nav[i] || submit[i] != nav[i] {
-			t.Errorf("两类小键第 %d 条应与 nav 族一致：entry=%+v submit=%+v", i, entry[i], submit[i])
-		}
+	if entry.Inset[1] != nav.Inset[1] || submit.Inset[1] != nav.Inset[1] {
+		t.Errorf("两类小键内影第 2 条应与 nav 族一致：entry=%+v submit=%+v", entry.Inset[1], submit.Inset[1])
+	}
+	if entry.Outer[0] != nav.Outer[0] || submit.Outer[0] != nav.Outer[0] {
+		t.Errorf("两类小键外投影应与 nav 族一致")
 	}
 }
 
@@ -112,6 +113,7 @@ func TestHoverHighlightSpecs(t *testing.T) {
 // 悬停时真的叠上了 ::after 内高光 —— 把 navHoverHighlight 临时换成 no-op 后，
 // 同一按钮区域里有像素跟着变，反证它来自这个 helper。
 func TestNavHoverHighlightWired(t *testing.T) {
+	freezeNavIconFades(t)
 	render := func() (*image.RGBA, ui.Rect) {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
@@ -156,6 +158,7 @@ func TestNavHoverHighlightWired(t *testing.T) {
 // TestTopToolHoverHighlightWired 同上，针对搜索药丸的内容入口键（.top-tool-btn）。
 // 它此前用的是「白 .55 描边 + inset .55」近似，本轮换成原版逐值的 ::after。
 func TestTopToolHoverHighlightWired(t *testing.T) {
+	freezeNavIconFades(t)
 	render := func() (*image.RGBA, ui.Rect) {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))

@@ -130,8 +130,11 @@ func (a *App) searchField(c *ui.Context) {
 		} else {
 			btnLightTool.draw(submit, ToolButtonR)
 		}
-		// 原版 .search-submit-btn::after：悬停才显形的内高光 + 弱投影（不是描边）。
-		if submit.Hovered() && !submit.Pressed() {
+		// 原版 .search-submit-btn::after：悬停才显形的内高光 + 弱投影（不是描边）；
+		// 按下时 ::after 归零、换成 :active 的内压阴影。
+		if submit.Pressed() {
+			navPressShadow(submit)
+		} else if submit.Hovered() {
 			topToolHoverHighlight(submit, topToolSubmit)
 		}
 		topToolPose(submit)
@@ -199,7 +202,10 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	}
 	// 原版 .top-tool-btn::after：悬停才显形的内高光 + 弱投影（不是描边）。
 	// 之前这里用「白 .55 描边 + inset .55」近似，比原版（白 .9 / 10px）低一档。
-	if b.Hovered() && !b.Pressed() {
+	// 按下时 ::after 归零、换成 :active 的内压阴影。
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if b.Hovered() {
 		topToolHoverHighlight(b, topToolEntry)
 	}
 	topToolPose(b)
@@ -980,26 +986,31 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
 			Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
 		// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
-		// 禁用由 disableNav 覆盖成 .3。
-		b.Opacity(navIconRestOpacityFor(navIconContent))
+		// 禁用由 disableNav 覆盖成 .3；两条都走 0.16s 过渡（navIconFade 在
+		// disableNav 之后，末次写入生效）。
 		disableNav(b, spec.Off)
+		navIconFade(b, spec.Off, navIconRestOpacityFor(navIconContent))
 		// 原版数值是按钮的子元素，随按钮一起上浮 1px / 按下缩放；原生版数值画在
 		// 按钮**之外**的列里，这里只给按钮本身位移（数值少动 1px，见 .pending-bugs）。
 		navIconPose(b)
 		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
 		switch {
 		case spec.Off:
-			b.Background(ui.Transparent)
+			navIconBgTo(b, ui.Transparent)
 		case spec.Active:
 			glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
 		default:
 			// 原版 .nav-icon-btn：常态透明，悬停 --glass-bg-hover（白 .38）、
-			// 按下 --glass-bg-active（白 .16）；悬停的内高光由下面 ::after 补齐。
-			b.Background(pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
+			// 按下 --glass-bg-active（白 .16）；底色淡入（background-color
+			// 0.18s ease），悬停的内高光由下面 ::after 补齐。
+			navIconBgTo(b, pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
 		}
 		// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
 		btnLightNav.draw(b, ContentIconR)
-		if b.Hovered() && !b.Pressed() {
+		// 悬停 ::after 内高光；按下时它归零、换成 :active 的内压阴影。
+		if b.Pressed() {
+			navPressShadow(b)
+		} else if b.Hovered() {
 			navHoverHighlight(b)
 		}
 		b.Children(func() {
@@ -1049,17 +1060,20 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(ContentIcon, ContentIcon).Radius(ContentIconR).
 		Center().Label(label).Tooltip(label)
-	// 原版 `.video-content-actions .nav-icon-btn { opacity: .82 }`：先铺基础透明度，
-	// 禁用再由 disableNav 的 .6（→ mygo 乘 .5 得 .3）覆盖。
-	b.Opacity(navIconRestOpacityFor(navIconContent))
+	// 原版 `.video-content-actions .nav-icon-btn { opacity: .82 }`：基础透明度与
+	// 禁用态（disableNav 的 .6 → mygo 乘 .5 得 .3）都走 0.16s 淡入淡出。
 	disableNav(b, off)
+	navIconFade(b, off, navIconRestOpacityFor(navIconContent))
 	navIconPose(b)
-	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	// 底色淡入（background-color 0.18s ease），不是瞬时切换。
+	navIconBgTo(b, pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
 	// 之前原生版只有填充、少了这道光（见 btnlight.go）。
 	btnLightNav.draw(b, ContentIconR)
-	// 悬停再叠 ::after 内高光（原版不是描边）。
-	if b.Hovered() && !b.Pressed() {
+	// 悬停叠 ::after 内高光（原版不是描边）；按下换成 :active 的内压阴影。
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if b.Hovered() {
 		navHoverHighlight(b)
 	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
@@ -1082,17 +1096,19 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	b := ui.ButtonBase(c.Key("icon-"+key)).Size(DockIcon, DockIcon).Radius(DockIconR).
 		Center().Label(label).Tooltip(label)
 	// 原版 `.video-context-dock .nav-icon-btn { opacity: .78 }`（悬停也不回 1，
-	// 与内容行同理）。这里先铺基础透明度，再走 disableNav 覆盖禁用态。
-	b.Opacity(navIconRestOpacityFor(navIconDock))
+	// 与内容行同理）。基础透明度与禁用态（disableNav 的 .6）都走 0.16s 过渡。
 	disableNav(b, off)
-	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px、:active 再缩 .94；
-	// 底色/按压态见 pressFeedback，位移见 navIconPose。
+	navIconFade(b, off, navIconRestOpacityFor(navIconDock))
+	// 原版 .nav-icon-btn:hover 是玻璃底 + 上浮 1px、:active 再缩 .94；底色
+	// 0.18s 淡入，位移见 navIconPose。
 	navIconPose(b)
-	b.Background(pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
+	navIconBgTo(b, pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态的左上角径向聚光（见 btnlight.go）。
 	btnLightNav.draw(b, DockIconR)
-	// 悬停再叠 ::after 内高光（原版不是描边）。
-	if b.Hovered() && !b.Pressed() {
+	// 悬停叠 ::after 内高光（原版不是描边）；按下换成 :active 的内压阴影。
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if b.Hovered() {
 		navHoverHighlight(b)
 	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(textInk) })

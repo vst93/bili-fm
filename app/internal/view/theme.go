@@ -443,6 +443,51 @@ var navIconAnim = ui.Animation{
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
+// navIconBgAnim / navIconFadeAnim 是 `.nav-icon-btn` 另外两条过渡：底色 180ms、
+// 不透明度 160ms，都是 CSS 默认缓动。此前原生版底色与不透明度都是瞬时切换
+// （悬停时底色「啪」地跳出来），这里按原版补上。
+var (
+	navIconBgAnim = ui.Animation{
+		Duration: 180 * time.Millisecond,
+		Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+	}
+	navIconFadeAnim = ui.Animation{
+		Duration: 160 * time.Millisecond,
+		Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+	}
+)
+
+// navIconBgColor 返回按钮这一帧该铺的底色（带 `background-color 0.18s ease`
+// 过渡）。拆成纯函数便于测试：AnimateColor 在目标变化的那一帧返回**上一帧的
+// 颜色**（曲线 t=0），而直接铺目标色会瞬时跳变。
+func navIconBgColor(b ui.Element, target ui.Color) ui.Color {
+	return b.AnimateColor("nav-icon-bg", target, navIconBgAnim)
+}
+
+// navIconBgTo 把 `.nav-icon-btn` 的底色过渡落到按钮上。target 是本帧该走的
+// 底色（常/悬停/按下由调用方用 pressFeedback 算好）。声明成 var 便于测试换成
+// 「直接铺色」的桩做反证。
+var navIconBgTo = func(b ui.Element, target ui.Color) ui.Element {
+	return b.Background(navIconBgColor(b, target))
+}
+
+// navIconFadeValue 返回按钮这一帧该用的不透明度（带 `opacity 0.16s ease`
+// 过渡），与底色同理拆出纯函数便于测试。
+func navIconFadeValue(b ui.Element, target float32) float32 {
+	return b.AnimateTo("nav-icon-opacity", target, navIconFadeAnim)
+}
+
+// navIconFade 是 `.nav-icon-btn` 的不透明度过渡：目标由常态度与是否禁用决定
+// （禁用走 `disableNav` 的 .6，见那里的说明）。必须在 `disableNav` 之后调用，
+// 末次写入生效。
+var navIconFade = func(b ui.Element, off bool, rest float32) ui.Element {
+	target := rest
+	if off {
+		target = 0.6
+	}
+	return b.Opacity(navIconFadeValue(b, target))
+}
+
 // navIconPoseFor 是 `.nav-icon-btn` 三态位移的**纯函数**（原版 globals.css）：
 //
 //	.nav-icon-btn:hover          transform: translateY(-1px)

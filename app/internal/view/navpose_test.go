@@ -130,6 +130,7 @@ func renderNavPose(t *testing.T, s navPoseSubject, hover bool) (*image.RGBA, ui.
 // 静止 = 悬停但把 navIconPose 换成 no-op（同一背景、同一位置），悬停真实态应
 // 恰好高 1px；换成 no-op 后与静止态完全一致 —— 反证这 1px 来自 navIconPose。
 func TestNavIconHoverLiftWired(t *testing.T) {
+	freezeNavIconFades(t)
 	saved := navIconPose
 	defer func() { navIconPose = saved }()
 

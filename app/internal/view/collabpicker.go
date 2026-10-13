@@ -160,11 +160,16 @@ func (a *App) collabPicker(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("owner-picker")).Size(32, 32).Radius(DockIconR).Center().
 		Label("选择合作 UP 主").Tooltip(fmt.Sprintf("选择合作 UP 主 (%d)", n))
 	st := collabTriggerStyleFor(t, a.CollabOpen, b.Hovered(), b.Pressed())
-	b.Background(st.Bg)
+	// 底色 0.18s 淡入（与三族 .nav-icon-btn 同一过渡）。
+	navIconBgTo(b, st.Bg)
 	// 原版 `.nav-icon-btn` 基础 opacity .92；这个键没被 content/dock 两族的
-	// 覆盖规则命中，但 `.nav-icon-btn:hover` / `[aria-expanded=true]` 会回到 1。
-	b.Opacity(collabTriggerOpacity(a.CollabOpen, b.Hovered()))
-	if st.InsetInk.A != 0 {
+	// 覆盖规则命中，但 `.nav-icon-btn:hover` / `[aria-expanded=true]` 会回到 1，
+	// 走 0.16s 过渡。
+	navIconFade(b, false, collabTriggerOpacity(a.CollabOpen, b.Hovered()))
+	// 悬停/展开的内高光；按下时 ::after 归零、换成 :active 的内压阴影。
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if st.InsetInk.A != 0 {
 		b.InsetShadow(0, st.InsetDy, st.InsetBlur, 0, st.InsetInk)
 	}
 	// .nav-icon-btn:hover 上浮 1px、:active 缩到 .94（原版 transition

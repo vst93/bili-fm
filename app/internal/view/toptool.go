@@ -91,7 +91,7 @@ func searchPillShadows(hovered bool) []shadowSpec {
 	}
 }
 
-// applyShadows 按顺序把一串 box-shadow 落到元素上。
+// applyShadows 按顺序把一串**外投影** box-shadow 落到元素上。
 func applyShadows(e ui.Element, ss []shadowSpec) ui.Element {
 	for _, s := range ss {
 		e.Shadow(s.X, s.Y, s.Blur, s.Spread, s.C)
@@ -99,28 +99,66 @@ func applyShadows(e ui.Element, ss []shadowSpec) ui.Element {
 	return e
 }
 
-// navHoverShadowSpecs 是 .nav-icon-btn 悬停 ::after 的三条 box-shadow（原版
-// globals.css:2511-2518，逐值）。抽成纯函数便于把值钉死。
-func navHoverShadowSpecs() []shadowSpec {
-	return []shadowSpec{
-		{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}, // inset 0 1px 1px --glass-highlight
-		{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)},
-		{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)},
+// applyInsetShadows 同 applyShadows，但落的是**内影**（原版 CSS 的 `inset`）。
+// 两者走不同原语（InsetShadow / Shadow），不能混在一起 —— 之前把
+// `.nav-icon-btn::after` 的前两条 `inset` 误当外投影铺了，按钮周围多出一圈原版
+// 没有的光晕，而按钮内部的顶/底缘高光反而没画。这里按原版拆成两组。
+func applyInsetShadows(e ui.Element, ss []shadowSpec) ui.Element {
+	for _, s := range ss {
+		e.InsetShadow(s.X, s.Y, s.Blur, s.Spread, s.C)
+	}
+	return e
+}
+
+// hoverHighlight 是原版 `::after` 那组 box-shadow，按 inset / 外投影分成两组
+// （前两条 `inset`、第三条是外层）。
+type hoverHighlight struct {
+	Inset []shadowSpec
+	Outer []shadowSpec
+}
+
+// applyHighlight 按原版层级铺一组 ::after 阴影：先内影、再外投影。
+func applyHighlight(e ui.Element, h hoverHighlight) ui.Element {
+	applyInsetShadows(e, h.Inset)
+	return applyShadows(e, h.Outer)
+}
+
+// navHoverHighlightSpecs 是 .nav-icon-btn 悬停 ::after 的 box-shadow（原版
+// globals.css:2511-2518，逐值）：
+//
+//	inset 0 1px 1px 白 .9 / inset 0 -1px 1px 墨 .03 / 0 2px 10px 墨 .045
+func navHoverHighlightSpecs() hoverHighlight {
+	return hoverHighlight{
+		Inset: []shadowSpec{
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}, // inset 0 1px 1px --glass-highlight
+			{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)},
+		},
+		Outer: []shadowSpec{
+			{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)},
+		},
 	}
 }
 
-// topToolHoverShadowSpecs 是 .top-tool-btn / .search-submit-btn 悬停 ::after。
+// topToolHoverHighlightSpecs 是 .top-tool-btn / .search-submit-btn 悬停 ::after。
 // 与 nav 族只差顶缘那条内高光的模糊：top-tool 是 `inset 0 1px 0`（blur 0），
 // submit 是 `inset 0 1px 1px`（blur 1）。
-func topToolHoverShadowSpecs(k topToolKind) []shadowSpec {
+func topToolHoverHighlightSpecs(k topToolKind) hoverHighlight {
 	topBlur := float32(1)
 	if k == topToolEntry {
 		topBlur = 0
 	}
+	h := navHoverHighlightSpecs()
+	h.Inset[0].Blur = topBlur
+	return h
+}
+
+// pressShadowSpecs 是 `.nav-icon-btn:active` / `.top-tool-btn:active` /
+// `.search-submit-btn:active` 逐字相同的那条内压阴影（原版 globals.css）：
+// `inset 0 2px 4px rgba(15,23,42,.08)` —— 按下时 ::after 的内高光归零、换成这条
+// 更深的内压。抽成纯函数便于把值钉死。
+func pressShadowSpecs() []shadowSpec {
 	return []shadowSpec{
-		{0, 1, topBlur, 0, ui.Hex("#ffffff").Alpha(0.90)},
-		{0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.03)},
-		{0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.045)},
+		{0, 2, 4, 0, ui.Hex("#0f172a").Alpha(0.08)},
 	}
 }
 
@@ -133,12 +171,20 @@ func topToolHoverShadowSpecs(k topToolKind) []shadowSpec {
 // 声明成 var 是为了让无头测试能临时替换成 no-op，反证这层内高光确实来自这里
 // （同 btnlight 的作证方式）。
 var navHoverHighlight = func(b ui.Element) ui.Element {
-	return applyShadows(b, navHoverShadowSpecs())
+	return applyHighlight(b, navHoverHighlightSpecs())
 }
 
 // topToolHoverHighlight 同 navHoverHighlight，作用于搜索药丸两类小键。
 var topToolHoverHighlight = func(b ui.Element, k topToolKind) ui.Element {
-	return applyShadows(b, topToolHoverShadowSpecs(k))
+	return applyHighlight(b, topToolHoverHighlightSpecs(k))
+}
+
+// navPressShadow 在按钮按下时铺原版 `:active` 的内压阴影（`inset 0 2px 4px`）。
+// 三族（.nav-icon-btn / .top-tool-btn / .search-submit-btn）与选择键逐字相同，
+// 调用点都用 `Pressed()` 排掉了同帧的悬停内高光（原版 `:active::after { opacity: 0 }`）。
+// 声明成 var 便于无头测试换成 no-op 做反证（同 navHoverHighlight）。
+var navPressShadow = func(b ui.Element) ui.Element {
+	return applyInsetShadows(b, pressShadowSpecs())
 }
 
 // avatarShadow 给头像键补原版 .home-user-avatar 的两态投影：
