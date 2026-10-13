@@ -784,8 +784,14 @@ func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56
 // 主窗与迷你窗共用，字重与颜色只有一处。
 func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
 	ui.Text(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
-		TextColor(ui.Hex("#334155").Alpha(0.72)).Width(width).Shrink(0).Center()
+		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).Center()
 }
+
+// playerTimeInk 是 #player .player-time 的墨色，即原版
+// `color: var(--player-time-color, #64748b)`：浅色时段该令牌未定义，落到兜底
+// #64748b；烟熏玻璃时段定义为 rgba(51,65,85,.72)。拆成 var 便于测试换桩，
+// 无头反证视图真的把按时段取的令牌送到两处时间文本（主窗 11px + mini 9px）。
+var playerTimeInk = func(t Theme) ui.Color { return t.PlayerTime }
 
 // progress 是第 3 列（1fr）的可拖动进度条，上面叠广告段标记。
 // seekSettle 是松手/seek 完成后滑块停在目标值、不跟随播放位置的时长。

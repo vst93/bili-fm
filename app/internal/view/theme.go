@@ -60,6 +60,11 @@ type Theme struct {
 	// 会得到一条明显的灰带（两者不是一个用处）。
 	PlayerEdgeFade ui.Color
 	PlayerButton   ui.Color
+	// PlayerTime 是播放栏时间标签的墨色（原版 --player-time-color）：
+	// 浅色时段**没有**定义该令牌，落到规则里的兜底 #64748b；烟熏玻璃时段
+	// 才覆写成 rgba(51,65,85,.72)。之前视图把深色值硬编码进两处时间文本，
+	// 浅色时段的时间比原版暗一档。
+	PlayerTime ui.Color
 
 	// 进度条 / 音量条那一对变量（原版 --player-track-border /
 	// --player-track-rest）：亮色时段是白 .68 / 白 .32，烟熏玻璃时段收成
@@ -119,6 +124,7 @@ func ThemeFor(p Period) Theme {
 		PlayerBorder:      ui.Hex("#ffffff").Alpha(0.72),
 		PlayerEdgeFade:    ui.Hex("#bae6fd").Alpha(0.24),
 		PlayerButton:      ui.Hex("#334155").Alpha(0.72),
+		PlayerTime:        ui.Hex("#64748b"),
 		PlayerTrackBorder: ui.Hex("#ffffff").Alpha(0.68),
 		PlayerTrackRest:   ui.Hex("#ffffff").Alpha(0.32),
 	}
@@ -130,6 +136,7 @@ func ThemeFor(p Period) Theme {
 		t.PlayerBorder = ui.Hex("#ffffff").Alpha(0.22)
 		t.PlayerEdgeFade = ui.Hex("#475569").Alpha(0.11)
 		t.PlayerButton = ui.Hex("#334155").Alpha(0.84)
+		t.PlayerTime = ui.Hex("#334155").Alpha(0.72)
 		t.PlayerTrackBorder = ui.Hex("#ffffff").Alpha(0.28)
 		t.PlayerTrackRest = ui.Hex("#ffffff").Alpha(0.20)
 	}
