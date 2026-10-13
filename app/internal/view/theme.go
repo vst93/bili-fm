@@ -373,10 +373,17 @@ func pressScale(b ui.Element) {
 // 悬停上浮 1px、按下缩到 0.94。用 AnimatePose —— 只重绘不重建视图，
 // 比在视图里算值便宜得多，所以这类微动效可以铺开用。
 func pressPose(b ui.Element) {
+	pressPoseScale(b, 0.94)
+}
+
+// pressPoseScale 同 pressPose，但按下缩放可指定。原版各按钮的 :active 缩放
+// 并不统一（.nav-icon-btn / .nav-stat-btn 是 .94，.top-tool-btn /
+// .search-submit-btn 是 .92）。
+func pressPoseScale(b ui.Element, scale float32) {
 	pose := ui.Pose{}
 	switch {
 	case b.Pressed():
-		pose = ui.Pose{Scale: 0.94}
+		pose = ui.Pose{Scale: scale}
 	case b.Hovered():
 		pose = ui.Pose{Y: -1}
 	}

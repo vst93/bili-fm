@@ -66,13 +66,10 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
 		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			Material(glassLayer(glass.Glass{})).
-			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.07)).
-			Shadow(0, 1, 4, 0, ui.Hex("#0f172a").Alpha(0.03))
-		if pill.Hovered() {
-			pill.Shadow(0, 16, 38, 0, ui.Hex("#0f172a").Alpha(0.11)).
-				Shadow(0, 1, 4, 0, ui.Hex("#0f172a").Alpha(0.03))
-		}
+			Material(glassLayer(glass.Glass{}))
+		// 原版 box-shadow 走 --liquid-shadow / --liquid-shadow-lifted 二选一（
+		// mygo 的 Shadow 累加，见 searchPillShadows）。
+		applyShadows(pill, searchPillShadows(pill.Hovered()))
 		pill.Children(func() {
 			a.searchField(c)
 			a.sectionButtons(c)
@@ -112,14 +109,13 @@ func (a *App) searchField(c *ui.Context) {
 			a.runSearch()
 		}
 		// 原版 .search-submit-btn：32×32、圆角 6、默认透明 + opacity .82、
-		// 图标 #64748b；悬停 opacity 1、图标转 #0284c7、底白 50%。
+		// 图标 #64748b；悬停 opacity 1、图标转 #0284c7、底白 50%、上浮 1px；
+		// 按下缩到 .92。
 		submit := ui.ButtonBase(c.Key("search-submit")).Size(ToolButton, ToolButton).
 			Radius(ToolButtonR).Center().Label("搜索").Tooltip("搜索")
-		if submit.Hovered() {
-			submit.Background(ui.Hex("#ffffff").Alpha(0.50)).Opacity(1)
-		} else {
-			submit.Background(ui.Transparent).Opacity(0.82)
-		}
+		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), submit.Pressed())
+		submit.Background(sub.Bg).Opacity(sub.Opacity)
+		topToolPose(submit)
 		searching := a.list().Loading
 		submit.Disabled(searching)
 		submit.Children(func() {
@@ -129,8 +125,7 @@ func (a *App) searchField(c *ui.Context) {
 				// TextColor 上色，所以能直接染成主题蓝。
 				ui.Spinner(c).Size(18, 18).TextColor(t.Blue)
 			} else {
-				ui.Icon(c, iconMagnifier).Size(18, 18).
-					TextColor(pick(submit.Hovered(), ui.Hex("#0284c7"), ui.Hex("#64748b")))
+				ui.Icon(c, iconMagnifier).Size(18, 18).TextColor(sub.Ink)
 			}
 		})
 		if submit.Clicked() {
@@ -171,12 +166,19 @@ func (a *App) sectionButtons(c *ui.Context) {
 }
 
 func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
-	t := a.Theme
 	b := ui.ButtonBase(c.Key("nav-"+key)).Size(ToolButton, ToolButton).Radius(ToolButtonR).
 		Center().Label(label).Tooltip(label)
-	glassOn(b, false, b.Hovered(), ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
-	pressPose(b)
-	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(t.Muted) })
+	// 原版 .top-tool-btn：基态透明 + opacity .82 + 图标 #64748b；悬停铺白 .65、
+	// 图标转 #0284c7、上浮 1px；按下缩到 .92。
+	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
+	b.Background(s.Bg).Opacity(s.Opacity)
+	if s.Bg.A > 0 {
+		b.Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55)).
+			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+	}
+	topToolPose(b)
+	b.Children(func() { ui.Icon(c, ic).Size(18, 18).TextColor(s.Ink) })
 	if b.Clicked() {
 		a.openSection(key)
 	}
@@ -202,7 +204,8 @@ func (a *App) openSection(key string) {
 // 点击登录；已登录时显示头像。
 func (a *App) userButton(c *ui.Context) {
 	t := a.Theme
-	// 圆形头像键：半透明填充 + 白边（原版 .home-user-button 无 backdrop-filter）。
+	// 圆形头像键：半透明填充 + 白边 + 两态投影（原版 .home-user-avatar 无
+	// backdrop-filter，但常态有 0 6px 16px 的墨色投影、悬停上浮并转蓝调投影）。
 	// 文案与原版一致：未登录是「登录账号」，已登录是「切换登录账号」（aria-label），
 	// title 分别提示「点击登录账号」/「点击登录其他账号」。
 	b := ui.ButtonBase(c.Key("user")).Size(AvatarSize, AvatarSize).Radius(RadiusPill).
@@ -210,6 +213,8 @@ func (a *App) userButton(c *ui.Context) {
 		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
 		Label(pick(a.LoggedIn, "切换登录账号", "登录账号")).
 		Tooltip(pick(a.LoggedIn, "点击登录其他账号", "点击登录账号"))
+	avatarShadow(b)
+	avatarLift(b)
 	b.Children(func() {
 		if bmp := a.Images.Bitmap(a.Face, imagecache.WidthAvatar); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
