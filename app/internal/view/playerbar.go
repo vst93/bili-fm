@@ -42,9 +42,10 @@ func (a *App) playerBar(c *ui.Context) {
 		Material(glass.ScrollEdge{Background: t.PlayerEdgeFade, Bottom: true})
 	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
-	// （原版那套 inset 亮线/暗线是在手搓同一件事）。
+	// （原版那套 inset 亮线/暗线是在手搓同一件事）。深色时段还要给玻璃染上
+	// --player-surface 的烟熏色（见 playerBarTint）。
 	ui.Column(c).FillWidth().Height(56).Shrink(0).
-		Material(glassLayer(glass.Glass{})).
+		Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})).
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影
 		//（0 -10px 28px rgba(15,23,42,.05)，浅色/深色时段都是这个值）。
 		// 前两层内影由玻璃自己的描光承担。
@@ -79,6 +80,21 @@ func (a *App) playerBar(c *ui.Context) {
 	if a.ShowVolume {
 		a.volumePopover(c, volumeSlot)
 	}
+}
+
+// playerBarTint 是播放栏那层 Liquid Glass 的染色，对应原版
+// `#player .player-controls { background-color: var(--player-surface, …) }`。
+//
+// 浅色时段的 --player-surface 是近白的 rgba(241,248,253,.36)：框架的 Liquid
+// Glass 在浅色下已把背后大幅提亮（Regular 材质把黑抬到 54%、白留 100%），再叠
+// 一层近白只会把栏体推得比原版更实，所以浅色**不着色**。五个烟熏玻璃时段把它
+// 覆写成 rgba(30,41,59,.16)，是**压暗**：必须染上去，否则深色时段的播放栏和
+// 浅色长得一模一样（此前正是如此）。声明成 var 便于测试换桩做反证。
+var playerBarTint = func(t Theme) ui.Color {
+	if t.Dark {
+		return t.PlayerSurface
+	}
+	return ui.Transparent
 }
 
 // buttonSurface 给按钮上「半透明填充」材质：半透明底 + 1px 玻璃边 +

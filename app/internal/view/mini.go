@@ -122,8 +122,9 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
 	var volSlot ui.Element
 	ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
-		// 与主窗同一层框架玻璃 + 同一道向上投影。
-		Material(glassLayer(glass.Glass{})).
+		// 与主窗同一层框架玻璃 + 同一道向上投影；深色时段同样染上
+		// --player-surface 的烟熏色（见 playerBarTint）。
+		Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})).
 		Shadow(0, -10, 28, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		Children(func() {
 			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
