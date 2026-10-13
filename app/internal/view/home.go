@@ -744,14 +744,17 @@ func (a *App) partPill(c *ui.Context) {
 	// 薄玻璃底 rgba(255,255,255,.15) + 1px 白边（.38）、外侧 0 2px 10px
 	// rgba(15,23,42,.035)、内侧顶部一线高光。
 	// 半透明填充（原版 .video-part-pill 没有 backdrop-filter）：薄白底 +
-	// 1px 白边 + 顶部一线内高光，见上方注释。
-	ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
+	// 1px 白边 + 顶部一线内高光；::before 的 --glass-sheen-static 光泽与
+	// ::after 的 --liquid-rim 聚光描边见 partPillGlass。
+	pill := ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).
 		Background(ui.Hex("#ffffff").Alpha(0.15)).
 		Border(1, ui.Hex("#ffffff").Alpha(0.38)).
 		InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.50)).
 		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
-		Gap(8).AlignItems(ui.Center).Children(func() {
+		Gap(8).AlignItems(ui.Center)
+	pill = partPillGlass(pill)
+	pill.Children(func() {
 		// .video-part-dot：7px（不是 6）——比原版小 1px 时圆点在胶囊里显得发飘。
 		ui.Box(c).Size(partDotSize, partDotSize).Shrink(0).Radius(RadiusPill).Background(dotInk)
 		// .video-part-source 继承胶囊的 #0369a1 / 700。
@@ -759,6 +762,29 @@ func (a *App) partPill(c *ui.Context) {
 		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
 		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
 		ui.Text(c, a.partTitle()).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
+	})
+}
+
+// partPillGlass 画 `.video-part-pill` 的两层液态玻璃（原版 globals.css）：
+//
+//	::before  inset:0 + border-radius:inherit，铺 --glass-sheen-static（低透明度
+//	          斜向洗光：径向 140%×80% @22% -5% 白 .24 + 线性 170deg 白 .07→.015）
+//	::after   inset:0 + padding 1px + mask exclude，背景 --liquid-rim
+//	          （1px 聚光描边，上缘最亮）
+//
+// 两层此前都没画：胶囊只有一层平铺的白 .15 底，比原版平一档。mygo 没有径向 /
+// conic 渐变接口，光泽复用播放栏那套逐像素烘焙的 --glass-sheen-static 位图
+// （sheenGlassBaked），描边复用播放栏的四边线性近似（paintPlayerRim）——
+// 与 .part-search 的 partSearchGlass 同一套。整个函数声明成 var 便于测试换桩反证。
+//
+// 视觉近似：位图按正方形烘焙、绘制时拉伸到胶囊矩形，径向（按盒的百分比定义）
+// 拉伸后与 CSS 完全一致，线性那层（角度是设备空间固定值）会被拉偏——但它只是
+// 白 .07 起的极淡底纹，量级远小于径向主光。
+var partPillGlass = func(b ui.Element) ui.Element {
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintPlayerSheen(p, r, RadiusPill, sheenGlassBaked.bitmap())
+		// ::after 没有 opacity 规则 ⇒ 整圈 opacity 1。
+		paintPlayerRim(p, r, RadiusPill, 1)
 	})
 }
 
