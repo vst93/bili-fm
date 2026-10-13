@@ -212,3 +212,146 @@ func TestModalButtons(t *testing.T) {
 		t.Errorf("不给按钮时应画默认主按钮「确定」：%v", tst.Texts())
 	}
 }
+
+// TestDialogLinkPaint 钉住 .dialog-link 的两态取值（原版 globals.css）：
+// 文字常态 #0284c7、悬停转 #0ea5e9；1px 底边常态 rgba(2,132,199,.30)、
+// 悬停 rgba(14,165,233,.60)。此前原生版用框架 ui.Link 的 accent 蓝 + 悬停
+// text-decoration 下划线，两项都对不上。
+func TestDialogLinkPaint(t *testing.T) {
+	cases := []struct {
+		name    string
+		hovered bool
+		ink     ui.Color
+		edge    ui.Color
+	}{
+		{"常态", false, ui.Hex("#0284c7"), ui.Hex("#0284c7").Alpha(0.30)},
+		{"悬停", true, ui.Hex("#0ea5e9"), ui.Hex("#0ea5e9").Alpha(0.60)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := dialogLinkInk(c.hovered); !sameInk(got, c.ink) {
+				t.Errorf("文字色 = %v，应为 %v", got, c.ink)
+			}
+			if got := dialogLinkEdge(c.hovered); !sameInk(got, c.edge) {
+				t.Errorf("底边色 = %v，应为 %v", got, c.edge)
+			}
+		})
+	}
+}
+
+// TestDialogLinkOpensURL 无头实测：关于对话框里的项目链接点一下就开系统浏览器，
+// 打开的是配置里的 URL（自绘 Row 的 OnClick 接线，替代了原先 ui.Link 的内建行为）。
+func TestDialogLinkOpensURL(t *testing.T) {
+	const url = "https://github.com/vst93/bili-fm"
+	label := "项目地址：" + url
+	tst := modalProbe(t, &Modal{
+		Kind: "message", Type: "info", Title: "关于 bili-FM",
+		Message:   "用音频聆听 B 站内容。",
+		LinkLabel: label, LinkURL: url,
+	})
+	if !slices.Contains(tst.Texts(), label) {
+		t.Fatalf("对话框没有链接文案：%v", tst.Texts())
+	}
+	if err := tst.Click(label); err != nil {
+		t.Fatalf("点链接失败：%v", err)
+	}
+	tst.Frame()
+	if got := tst.OpenedURLs(); !slices.Contains(got, url) {
+		t.Errorf("点链接没有打开 %q：%v", url, got)
+	}
+}
+
+// TestDialogLinkHoverInk 无头实测：链接悬停后真的换成更亮的 #0ea5e9（原版
+// .dialog-link:hover）。量的是链接矩形内的「蓝度」Σ(B−R)——悬停色比常态色蓝
+// 通道高约 22，底边也从 .30 加深到 .60，整块的蓝度应明显上升。
+func TestDialogLinkHoverInk(t *testing.T) {
+	const url = "https://github.com/vst93/bili-fm"
+	label := "项目地址：" + url
+	blueFor := func(hover bool) (int, ui.Rect) {
+		tst := modalProbe(t, &Modal{
+			Kind: "message", Type: "info", Title: "关于 bili-FM",
+			Message:   "用音频聆听 B 站内容。",
+			LinkLabel: label, LinkURL: url,
+		})
+		r, ok := tst.Find(label)
+		if !ok {
+			t.Fatalf("找不到链接：%v", tst.Texts())
+		}
+		if hover {
+			// 悬停到链接中心：先移动指针，再重画一帧让 Hovered() 生效。
+			tst.Move(r.X+r.W/2, r.Y+r.H/2)
+			tst.Frame()
+		}
+		img := tst.Image()
+		x0, y0 := int(r.X)-3, int(r.Y)-3
+		x1, y1 := int(r.X+r.W)+3, int(r.Y+r.H)+5
+		if x0 < 0 {
+			x0 = 0
+		}
+		if y0 < 0 {
+			y0 = 0
+		}
+		if x1 > img.Rect.Dx() {
+			x1 = img.Rect.Dx()
+		}
+		if y1 > img.Rect.Dy() {
+			y1 = img.Rect.Dy()
+		}
+		total := 0
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				i := img.PixOffset(x, y)
+				total += int(img.Pix[i+2]) - int(img.Pix[i])
+			}
+		}
+		return total, r
+	}
+	off, r := blueFor(false)
+	on, _ := blueFor(true)
+	t.Logf("链接矩形 %+v 蓝度：常态 %d → 悬停 %d（+%d）", r, off, on, on-off)
+	if on-off < 2000 {
+		t.Errorf("悬停后链接蓝度只涨了 %d（常态 %d、悬停 %d）：悬停态没接上？", on-off, off, on)
+	}
+}
+
+// TestDialogLinkBottomEdge 无头实测：链接下方画了一条 1px 的「底边」（原版
+// .dialog-link 的 border-bottom），且不是 text-decoration 下划线——它在链接
+// 文字之下多留 1px、横贯整条链接宽度。扫文字底边往下几行，找那条「整行泛蓝」
+// 的像素带；把 BorderWidth(0,0,1,0) 去掉（回到纯文字）后这条带子应消失。
+func TestDialogLinkBottomEdge(t *testing.T) {
+	const url = "https://github.com/vst93/bili-fm"
+	label := "项目地址：" + url
+	tst := modalProbe(t, &Modal{
+		Kind: "message", Type: "info", Title: "关于 bili-FM",
+		Message:   "用音频聆听 B 站内容。",
+		LinkLabel: label, LinkURL: url,
+	})
+	r, ok := tst.Find(label)
+	if !ok {
+		t.Fatalf("找不到链接：%v", tst.Texts())
+	}
+	img := tst.Image()
+	width := int(r.W)
+	best, bestY := 0, -1
+	for y := int(r.Y); y <= int(r.Y+r.H)+4; y++ {
+		if y < 0 || y >= img.Rect.Dy() {
+			continue
+		}
+		bluish := 0
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			i := img.PixOffset(x, y)
+			if int(img.Pix[i+2])-int(img.Pix[i]) > 20 {
+				bluish++
+			}
+		}
+		if bluish > best {
+			best, bestY = bluish, y
+		}
+	}
+	t.Logf("链接矩形 %+v：最蓝的一行在 y=%d，覆盖 %d/%d 像素", r, bestY, best, width)
+	// 文字本身有反锯齿，某些行也会泛蓝；底边要求几乎横贯整条链接宽度。
+	if best < width*4/5 {
+		t.Errorf("链接下方没有横贯的 1px 底边：最蓝一行只覆盖 %d/%d 像素（y=%d）",
+			best, width, bestY)
+	}
+}

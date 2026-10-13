@@ -199,7 +199,7 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 			}
 			if m.LinkURL != "" {
 				ui.Row(c).Margin(8, 0, 0, 0).Children(func() {
-					ui.Link(c, m.LinkLabel, m.LinkURL)
+					a.dialogLink(c, m.LinkLabel, m.LinkURL)
 				})
 			}
 		})
@@ -354,6 +354,44 @@ func dialogSecondaryStyleFor(hovered bool) dialogSecondaryStyle {
 		Border: ui.Hex("#ffffff").Alpha(0.50),
 		Ink:    ui.Hex("#475569"),
 	}
+}
+
+// dialogLink 画对话框正文里的可点链接（原版 .dialog-link）。
+//
+// 原版是 `.dialog-message` 里内联的 <a>：字号继承正文 13.5px，只覆写颜色与底边
+// —— 常态 #0284c7 + 1px rgba(2,132,199,.3) 底边、且无 text-decoration；:hover
+// 转 #0ea5e9 且底边加深到 rgba(14,165,233,.6)。此前原生版直接用了框架的
+// ui.Link：accent 蓝 + 悬停画的是 text-decoration 下划线，颜色与装饰两处都对不上。
+//
+// 自绘成「文字 + 1px 底边」的 Row，靠 OnClick 走 ui.Context.OpenURL（与 ui.Link
+// 同一条打开路径，键盘聚焦后回车/空格也能触发）。
+func (a *App) dialogLink(c *ui.Context, label, url string) {
+	if url == "" {
+		return
+	}
+	link := ui.Row(c).AlignItems(ui.Center).Cursor(ui.CursorPointer).
+		Focusable().BorderWidth(0, 0, 1, 0)
+	// 悬停或键盘聚焦（:focus-visible）都算激活态，给键盘用户同样的提示。
+	active := link.Hovered() || link.FocusVisible()
+	link.BorderColor(dialogLinkEdge(active))
+	link.Children(func() {
+		ui.Text(c, label).FontSize(13.5).TextColor(dialogLinkInk(active))
+	})
+	link.OnClick(func() { c.OpenURL(url) })
+}
+
+// dialogLinkInk 是链接文字色（原版 .dialog-link / :hover）。
+func dialogLinkInk(hovered bool) ui.Color {
+	return pick(hovered, ui.Hex("#0ea5e9"), ui.Hex("#0284c7"))
+}
+
+// dialogLinkEdge 是链接 1px 底边的颜色（原版 .dialog-link / :hover）：
+// 常态 rgba(2,132,199,.30)，悬停 rgba(14,165,233,.60)。
+func dialogLinkEdge(hovered bool) ui.Color {
+	if hovered {
+		return ui.Hex("#0ea5e9").Alpha(0.60)
+	}
+	return ui.Hex("#0284c7").Alpha(0.30)
 }
 
 // splitLines 按换行拆文本，空行保留（用来画段落间距）。
