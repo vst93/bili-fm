@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -124,12 +125,22 @@ type List struct {
 	// mygo 的 ui.List 只构建可见的行，取代了之前「每帧重建整张网格」的做法
 	// （见 cardGrid / partsGrid）。同一个 List 只服务一个抽屉 key，两者不会同时用。
 	Grid ui.ListState
+	// GridScroll 给卡片/选集网格的 ui.List 挂上 ScrollState：滚动偏移以
+	// DIP 写在 GridScroll.Y，「滚动时锁住上浮」靠它感知滚动（TrackScroll
+	// 只额外暴露偏移，不改变列表行为）。
+	GridScroll ui.ScrollState
 	// Rows 是播放列表记录行的虚拟化列表状态。播放列表可能很长（用户报
 	// 「历史添加的作品左侧图标不显示」），逐行全建会让上百张 192w 缩略图
 	// 每帧争抢缓存、互相把对方挤出 LRU（实测 100 行 352 次重复抓取、
 	// 可见缩略图只剩 1 张）；改用 ui.List 后只建可见行，缩略图也只预取
 	// 可见窗口（同 prefetchCardCovers 的思路）。
 	Rows ui.ListState
+	// RowsScroll 同 GridScroll，给播放列表的 ui.List 用。
+	RowsScroll ui.ScrollState
+	// liftHold 是卡片网格（Grid）的「滚动时锁住上浮」状态机：滚动进行中
+	// renderCard 不重建 lift 动画 / 悬停光晕，停下后再恢复（见 drawer.go
+	// renderCard 与 scrollHold）。
+	liftHold scrollHold
 }
 
 // ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，
@@ -401,7 +412,18 @@ type App struct {
 	Lists map[string]*List
 	// listsMu 保护 Lists 这个 map：网络 goroutine 与界面线程都会调 ListFor，
 	// 而 Go 的 map 并发读写会直接 panic。
-	listsMu  sync.Mutex
+	listsMu sync.Mutex
+
+	// scrollHoldHeld 是「滚动时锁住选中/悬停上浮」的开关：drawerBody 每帧
+	// 根据含卡容器的滚动状态更新，renderCard 据此跳过 lift 动画重建。
+	scrollHoldHeld bool
+	// partsHold / playlistHold 是选集网格与播放列表的滚动锁状态机
+	//（它们共用 List.Grid / List.Rows 滚动，但 key 不同，状态机分开记）。
+	partsHold    scrollHold
+	playlistHold scrollHold
+	// liftChannels 统计本帧有多少张卡把 lift 交给了 AnimateTo：无头测量
+	//「滚动时锁住上浮」是否真的让动画重算清零（见 liftscroll_hold_test.go）。
+	liftChannels atomic.Int64
 	Status   string
 	LoggedIn bool
 	UName    string
@@ -1040,3 +1062,58 @@ func pressFeedback(e ui.Element, rest, hover, pressed ui.Color) ui.Color {
 	}
 	return rest
 }
+
+// scrollHoldEnabled 是「滚动时锁住上浮」的总开关。生产恒为 true；测试把它
+// 置 false 复现改动前的行为（每帧都重建 lift 动画），供无头计数器做改前/
+// 改后对照（见 liftscroll_hold_test.go）。测试改完必须还原。
+var scrollHoldEnabled = true
+
+// scrollHold 是「滚动进行中锁住选中/悬停上浮」的状态机：滚动期间不渲染
+// 卡片上浮（renderCard 不再重建 lift 动画 / 悬停光晕）。位置一变就按住；
+// 位置连续不变的第一帧就松开，本帧 renderCard 把上浮画回来并结束求帧。
+//
+// 连续滚动（滚轮/触摸板每帧都有位移）时位置每帧都变，锁一直按住；只在
+// 真正停下后的那一帧恢复。不设「落定窗口」是为了不空转帧：停下后既能
+// 立刻恢复上浮，又只需多求一帧。
+type scrollHold struct {
+	last float64 // 上一帧的滚动位置（float64：长列表首行 * 2^20 + 偏移不失真）
+	set  bool    // last 是否有效（容器上一帧在不在视图里）
+	held bool    // 当前是否按住（滚动中）
+}
+
+// observe 上报这一帧容器的滚动位置与可见性，返回 locked（这一帧要不要锁
+// 住上浮）与 needFrame（是否要再求一帧）。
+//
+// 位置一变就立刻锁住：滚轮/拖拽的偏移在事件里已同步写回 ScrollState，
+// 本帧构建就能读到（见 ui.scrollBy → state.scrollTo），所以滚动的第一帧
+// 也拿得到锁定，无需再等一帧。位置恢复不变的那一帧返回 unlocked 并停帧，
+// 让 renderCard 在同一帧把上浮画回去。
+//
+// needFrame 为真时调用方必须 c.AnimationFrame()：位移帧要主动求下一帧，
+// 否则滚动停下后没有自然帧来到，锁会挂住不解除。
+func (s *scrollHold) observe(offset float64, shown bool) (locked, needFrame bool) {
+	locked = s.held
+	if !shown {
+		// 容器不在视图里（抽屉关着 / 换 tab）：位置观测无效，但保持锁定
+		// 状态 —— 下次出现时若位置没变就当从未滚动，变了立刻按住。
+		s.set = false
+		return locked, false
+	}
+	switch {
+	case !s.set:
+		// 首次观测只建基线，不算滚动。
+		s.last, s.set = offset, true
+	case offset != s.last:
+		// 位移发生的本帧就锁住，并求下一帧来判定「停下 & 恢复」。
+		s.last, s.held = offset, true
+		locked, needFrame = true, true
+	case s.held:
+		// 位置不再变：滚动停下，本帧就恢复渲染上浮（不再求帧）。
+		s.held = false
+		locked = false
+	}
+	return locked, needFrame
+}
+
+// holding 报告状态机当前是否按住（供测试断言）。
+func (s *scrollHold) holding() bool { return s.held }

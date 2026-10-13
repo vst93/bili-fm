@@ -694,6 +694,9 @@ func (a *App) drawerTitle() string {
 // 滚动（只建可见行）；其余内容不多，统一套一层 ui.Scroll。
 func (a *App) drawerBody(c *ui.Context) {
 	l := a.ListFor(a.Drawer)
+	// 「滚动时锁住上浮」的帧首闸门：默认松开，下面哪个含卡片的滚动容器
+	// 在滚，就把它按住（滚动停下当帧自动恢复，见 scrollHold）。
+	a.scrollHoldHeld = false
 	if a.Drawer == DrawerDanmaku {
 		if a.DanmakuTab == TabDanmaku {
 			// 弹幕 tab 自己用虚拟化 ui.List 当滚动容器（见 danmakuBody）。
@@ -702,6 +705,7 @@ func (a *App) drawerBody(c *ui.Context) {
 		}
 		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
 		// （上下不对称，底部多留 16 给最后一行）。
+		a.holdScrollBody(c, l)
 		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).
 			Children(func() { a.repliesBody(c) })
 		if a.RepliesHasMore && !a.RepliesLoading &&
@@ -742,6 +746,7 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 注意 TrackScroll 是双向绑定：容器每帧从这个状态读位置、滚动时写回。
 	// 所以必须传**稳定地址**（List 常驻在 map 里），不能按值拷进出 ——
 	// 拷贝会让容器每帧被旧位置拽回去，表现为触摸板/滚轮滚不动。
+	a.holdScrollBody(c, l)
 	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).Children(func() {
 		switch a.Drawer {
 		case DrawerUp:
@@ -872,8 +877,50 @@ func (a *App) listBody(c *ui.Context) bool {
 
 // scrollBody 把短小的内容（骨架屏 / 空态）套一层 ui.Scroll。
 func (a *App) scrollBody(c *ui.Context, l *List, body func()) {
+	a.holdScrollBody(c, l)
 	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).
 		Children(body)
+}
+
+// holdScrollBody 观测普通 ui.Scroll 容器的滚动（评论 / 骨架屏等），滚动
+// 中按住上浮锁。ScrollTo 动画或偏移变化都算「在滚」。
+func (a *App) holdScrollBody(c *ui.Context, l *List) {
+	if !scrollHoldEnabled {
+		return
+	}
+	locked, needFrame := l.liftHold.observe(float64(l.Scroll.Y), true)
+	if l.Scroll.Scrolling() {
+		locked, needFrame = true, true
+	}
+	if needFrame {
+		c.AnimationFrame()
+	}
+	a.scrollHoldHeld = a.scrollHoldHeld || locked
+}
+
+// holdListScroll 观测虚拟化 ui.List（卡片网格 / 选集网格 / 播放列表）的
+// 滚动。滚轮/拖拽的偏移在事件里已同步写回 ScrollState（ui.scrollBy →
+// state.scrollTo），本帧构建就能读到；再叠上首行号，把 List 自己重排
+// （行高变化改锚点）引起的偏移变化也一并算进去。首行号左移 20 位与偏移
+// 拼成一个 float64：偏移精度不受首行大小影响（float32 会在长列表里丢掉
+// 个位数的慢速滚动）。
+func (a *App) holdListScroll(c *ui.Context, hold *scrollHold, st *ui.ListState, sc *ui.ScrollState, shown bool) {
+	if !scrollHoldEnabled {
+		return
+	}
+	offset := float64(0)
+	if shown {
+		first, _ := st.Visible()
+		offset = float64(first)*1048576 + float64(sc.Y)
+	}
+	locked, needFrame := hold.observe(offset, shown)
+	if sc.Scrolling() {
+		locked, needFrame = true, true
+	}
+	if needFrame {
+		c.AnimationFrame()
+	}
+	a.scrollHoldHeld = a.scrollHoldHeld || locked
 }
 
 // cardGrid 用 mygo 的虚拟化 ui.List 画卡片网格（列数按窗口宽度的 sm 断点，见
@@ -906,6 +953,7 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 		return r
 	}
 	a.prefetchCardCovers(st, cards, cols)
+	a.holdListScroll(c, &l.liftHold, st, &l.GridScroll, true)
 	ui.List(c, st, rows+extra, func(r int) {
 		if r == rows {
 			a.loadMoreRetry(c, l)
@@ -921,7 +969,7 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 				ui.Box(c).Grow(1).Basis(0)
 			}
 		})
-	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
+	}).FillWidth().Grow(1).Gap(8).Padding(8, 24).TrackScroll(&l.GridScroll)
 }
 
 // canAutoLoadMore 报告卡片网格这一帧该不该自动翻页：有更多、不在加载中、
@@ -1353,16 +1401,26 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	}
 	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
 	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
-	lift := float32(0)
-	if box.Hovered() || spec.Active {
-		lift = -3
+	//
+	// 滚动时锁住：在播卡片的 -3px 是常驻的，ui.List 滚动时可见行重建，
+	// 每帧都把 lift 动画重设目标（rested 动画仍在动画列表里，引擎每帧
+	// 照常 build/layout/paint 整窗）——用户报快速滚动卡顿正是来自这里。
+	// 滚动进行中不挂动画、停下当帧再恢复：
+	// 悬停 / 在播的上浮效果只在静止时渲染，与原版 :hover 观感一致。
+	locked := a.scrollHoldHeld
+	if !locked {
+		lift := float32(0)
+		if box.Hovered() || spec.Active {
+			lift = -3
+		}
+		a.liftChannels.Add(1)
+		box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim))
 	}
-	box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim))
 
 	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
 	// 的那张挂上：PointerPosition 会让引擎在指针每次移动时补帧，全网格都挂就
 	// 成了「鼠标一动重建整窗」。
-	if box.Hovered() {
+	if !locked && box.Hovered() {
 		cardGlow(box)
 	}
 
@@ -1692,6 +1750,7 @@ func (a *App) partsGrid(c *ui.Context) {
 	}
 	rows := (len(parts) + cols - 1) / cols
 	a.prefetchPartCovers(st, parts, cols)
+	a.holdListScroll(c, &a.partsHold, st, &l.GridScroll, true)
 	ui.List(c, st, rows, func(r int) {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 			start := r * cols
@@ -1703,7 +1762,7 @@ func (a *App) partsGrid(c *ui.Context) {
 				ui.Box(c).Grow(1).Basis(0)
 			}
 		})
-	}).FillWidth().Grow(1).Gap(8).Padding(8, 24)
+	}).FillWidth().Grow(1).Gap(8).Padding(8, 24).TrackScroll(&l.GridScroll)
 
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false

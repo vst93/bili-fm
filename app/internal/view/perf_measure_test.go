@@ -191,3 +191,47 @@ func perfNoCovers(t *testing.T, scale float32) {
 	steady.log(t, "steady")
 	scroll.log(t, "scroll")
 }
+
+// TestPerfScrollHold 对照「滚动时锁住上浮」开关的连续滚动成本：用 ScrollTo
+// 滑到 1200（每帧偏移都在变，模拟触摸板连续滚动），量滑行期间的构建 pass 数、
+// lift 动画重建次数与墙钟耗时。锁开关走 scrollHoldEnabled（生产恒真）。
+//
+//	MYGO_FRAME_STATS=all go test -tags perfmeasure -run TestPerfScrollHold -v ./internal/view/
+func TestPerfScrollHold(t *testing.T) {
+	for _, lock := range []bool{false, true} {
+		scrollHoldEnabled = lock
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		cards := make([]Card, 300)
+		for i := range cards {
+			cards[i] = Card{Bvid: fmt.Sprintf("BV%04d", i), Title: fmt.Sprintf("标题%d", i),
+				Up: "UP主", Views: "1万", Pubdate: "09-11"}
+		}
+		a.ListFor("feed").Cards = cards
+		a.Drawer = "feed"
+		var pass, held, lift int64
+		tst := ui.NewTester(func(c *ui.Context) {
+			pass++
+			a.liftChannels.Store(0)
+			a.Shell(c)
+			if a.scrollHoldHeld {
+				held++
+			}
+			lift += a.liftChannels.Load()
+		}, 800, 600)
+		tst.Frame()
+		tst.Move(400, 300)
+		for i := 0; i < 10; i++ {
+			tst.Frame()
+		}
+		sc := &a.ListFor("feed").GridScroll
+		sc.ScrollTo(0, 1200, ui.Smooth)
+		pass, held, lift = 0, 0, 0
+		start := time.Now()
+		tst.Frame()
+		elapsed := time.Since(start)
+		t.Logf("lock=%v: glide pass=%d held=%d lift=%d elapsed=%.1fms",
+			lock, pass, held, lift, float64(elapsed.Microseconds())/1000)
+	}
+	scrollHoldEnabled = true
+}

@@ -112,8 +112,9 @@ func (a *App) playlistBody(c *ui.Context) {
 		st.ScrollTo(a.Index, ui.Start)
 	}
 	a.prefetchPlaylistCovers(st, items)
+	a.holdListScroll(c, &a.playlistHold, st, &l.RowsScroll, true)
 	ui.List(c, st, len(items), func(i int) { a.playlistRow(c, i, items[i]) }).
-		FillWidth().Grow(1).Gap(4).Padding(8, 24)
+		FillWidth().Grow(1).Gap(4).Padding(8, 24).TrackScroll(&l.RowsScroll)
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false
 }
