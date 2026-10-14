@@ -2538,9 +2538,15 @@ func (a *App) sortedComments() []Comment {
 
 // danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle
 // 的 YIQ 亮度逻辑；原生界面只有浅色主题，对应 isDarkMode = false 分支）。
+//
+// 原版逻辑（isDarkMode = false）：
+//   brightness > 200               → #1a1a1a
+//   160 < brightness < 200 且 < 170 → #333333
+//   其他                           → 原色 hex
+//   color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
 func danmakuInk(color int) ui.Color {
 	if color <= 0 {
-		return ui.Hex("#1e293b")
+		return ui.Hex("#000000")
 	}
 	r := (color >> 16) & 0xff
 	g := (color >> 8) & 0xff
@@ -2549,7 +2555,7 @@ func danmakuInk(color int) ui.Color {
 	if brightness > 200 {
 		return ui.Hex("#1a1a1a")
 	}
-	if brightness > 160 {
+	if brightness > 160 && brightness < 170 {
 		return ui.Hex("#333333")
 	}
 	return ui.RGB(uint8(r), uint8(g), uint8(b))
