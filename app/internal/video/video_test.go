@@ -68,6 +68,52 @@ func TestVideoPageAutoplayContract(t *testing.T) {
 	}
 }
 
+// TestVideoPageCloseButtonMatchesOriginal 钉住弹窗关闭键的样式契约。原版浮层
+// 的 .player-video-close（main:src/styles/globals.css）是 38×38 正圆、墨色
+// 45% 底，悬停转 70% 并放大 1.06、按下缩 .92；图标是 icon-park 的 Close
+// （playerVideo.tsx 的 `<Close theme="outline" size="20" fill="#f1f5f9"/>`）。
+// 原生版此前是一枚 26×22 圆角矩形、还塞在悬停才出现的 #bar 里，鼠标一移开
+// 就消失。
+func TestVideoPageCloseButtonMatchesOriginal(t *testing.T) {
+	data, err := os.ReadFile("../../frontend/video.html")
+	if err != nil {
+		t.Fatalf("读不到 video.html：%v", err)
+	}
+	html := string(data)
+
+	for _, want := range []string{
+		"width: 38px; height: 38px",             // 原版 38×38
+		"border-radius: 50%",                    // 正圆
+		"background: rgba(15,23,42,.45)",        // 常态墨色 45%
+		"background: rgba(15,23,42,.7)",         // 悬停墨色 70%
+		"transform: scale(1.06)",                // 悬停放大
+		"#close:active { transform: scale(.92)", // 按下缩 .92
+		"top: 44px; right: 10px",                // 原版 body.video-open 的 36+8
+		`d="M8 8L40 40"`,                        // icon-park Close 两条 path
+		`d="M8 40L40 8"`,
+		`stroke="#f1f5f9"`,       // 图标色
+		`width="20" height="20"`, // 原版 size=20
+		`stroke-width="4"`,       // icon-park 48 画布原始描边
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("关闭键缺少 %q（原版 .player-video-close）", want)
+		}
+	}
+
+	// 关闭键必须常驻：不能还留在 #bar 里（那条只在 #wrap:hover 时显形）。
+	bar := strings.Index(html, `<div id="bar">`)
+	if bar < 0 {
+		t.Fatal("找不到 #bar")
+	}
+	end := strings.Index(html[bar:], "</div>")
+	if end < 0 {
+		t.Fatal("#bar 未闭合")
+	}
+	if strings.Contains(html[bar:bar+end], `id="close"`) {
+		t.Error("关闭键仍在 #bar 里，会随标题条一起隐去")
+	}
+}
+
 // TestVideoPageCloseTitle 钉住弹窗上关闭键的工具提示：原版视频浮层
 // （playerVideo.tsx 的 .player-video-close）是 title="关闭视频"，原生版此前
 // 写的是「关闭」——悬停时看不出关的是视频还是整个播放。

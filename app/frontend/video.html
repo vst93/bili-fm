@@ -8,7 +8,8 @@
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #wrap { position: absolute; inset: 0; }
   video { width: 100%; height: 100%; background: #000; display: block; }
-  /* 顶部自绘标题栏：无边框窗口下用来拖动和关闭。鼠标移入才显示。 */
+  /* 顶部自绘标题栏：无边框窗口下用来拖动窗口。鼠标移入才显示（关闭键不在这里，
+     它常驻可见，见下面的 #close）。 */
   #bar {
     position: absolute; top: 0; left: 0; right: 0; height: 32px;
     display: flex; align-items: center; gap: 10px; padding: 0 10px;
@@ -19,12 +20,24 @@
   }
   #wrap:hover #bar, #bar.pinned { opacity: 1; }
   #title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 关闭键：对齐原版浮层的 .player-video-close（globals.css:5466）——
+     38×38 正圆、墨色 45% 底，悬停 70% + 放大 1.06、按下缩 .92；图标是
+     icon-park 的 Close（outline / 20 / #f1f5f9）。它**常驻可见**：原版那颗键
+     是浮层右上一个独立按钮，不随会自动隐去的标题栏消失；原生版此前把它塞进
+     悬停才出现的 #bar 里、还是 26×22 圆角矩形，鼠标一移开就找不到了。
+     top 44 = 原版 body.video-open 的 calc(titlebar-height 36px + 8px)，
+     避开顶部拖拽条。 */
   #close {
     --app-region: no-drag;
-    width: 26px; height: 22px; border: 0; border-radius: 6px; cursor: pointer;
-    background: rgba(255,255,255,.14); color: #e8eef7; font-size: 13px; line-height: 1;
+    position: absolute; top: 44px; right: 10px; z-index: 999;
+    width: 38px; height: 38px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 50%; cursor: pointer;
+    background: rgba(15,23,42,.45);
+    transition: background .16s ease, transform .1s ease;
   }
-  #close:hover { background: rgba(251,113,133,.55); }
+  #close:hover { background: rgba(15,23,42,.7); transform: scale(1.06); }
+  #close:active { transform: scale(.92); }
   #state {
     position: absolute; left: 10px; bottom: 10px;
     color: #cbd5e1; font: 11px/1.5 ui-monospace, Consolas, monospace;
@@ -37,7 +50,13 @@
 <body>
 <div id="wrap">
   <video id="v" controls playsinline preload="auto"></video>
-  <div id="bar"><span id="title"></span><button id="close" title="关闭视频">✕</button></div>
+  <div id="bar"><span id="title"></span></div>
+  <button id="close" title="关闭视频" aria-label="关闭视频">
+    <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M8 8L40 40" stroke="#f1f5f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 40L40 8" stroke="#f1f5f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
   <div id="state">准备中…</div>
 </div>
 <script>
