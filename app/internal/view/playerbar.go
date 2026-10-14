@@ -1846,42 +1846,67 @@ func (a *App) miniProgress(c *ui.Context) {
 	a.seekBubble(c, s, a.Dur)
 }
 
+// seekBubbleFadeAnim 是悬停时间气泡的淡入淡出过渡：原版 .player-seek-bubble 的
+// `transition: opacity 120ms ease`（globals.css:3182）。声明成 var 便于测试换桩反证。
+var seekBubbleFadeAnim = ui.Animation{
+	Duration: 120 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // seekBubble 是悬停时间气泡（原版 .player-seek-bubble）：指针停在轨道上时，
 // 在对应位置的上方 6px 显示那个点的时间。原版只在精确指针下启用（触摸不显示），
 // mygo 拿不到指针类型，就一视同仁。
+//
+// 入场 / 退场走 opacity 过渡（原版 `transition: opacity 120ms ease`）：气泡始终
+// 在视图里，over=true 时 opacity 目标 1、否则 0，由 AnimateTo 逐帧逼近。
+//
+// 文案与位置只在**悬停时**更新（原版 handleTimelineHover 才写 textContent /
+// style.left，hideTimelineHover 只翻 data-visible）：移开指针后气泡停在最后
+// 悬停的点上原样淡出，不会跟着指针滑走、也不会因为文案清空而缩窄。
 func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
 	px, _, over := s.PointerPosition()
-	if !over || dur <= 0 {
-		return
-	}
+	show := over && dur > 0
 	w := s.Bounds().W
 	span := w - 2*timelineInset
-	if span <= 0 {
-		return
+	if show && span > 0 {
+		ratio := clampF(float64((px-timelineInset)/span), 0, 1)
+		a.seekBubbleLabel = fmtTime(dur * ratio)
+		bw := float32(len(a.seekBubbleLabel))*6.2 + 14
+		left := px - bw/2
+		if left < 0 {
+			left = 0
+		}
+		if max := w - bw; left > max {
+			left = max
+		}
+		a.seekBubbleLeft = left
 	}
-	ratio := clampF(float64((px-timelineInset)/span), 0, 1)
-	label := fmtTime(dur * ratio)
 	// 气泡宽度按字符数估（原版靠 CSS 自适应，mygo 要自己算才能居中）。
+	label := a.seekBubbleLabel
 	bw := float32(len(label))*6.2 + 14
-	left := px - bw/2
-	if left < 0 {
-		left = 0
-	}
-	if max := w - bw; left > max {
-		left = max
-	}
+	left := a.seekBubbleLeft
 	// 作为进度条的**子元素**挂上去：Absolute 的定位基准是父级的 padding box，
 	// 直接建在这里会以「播放栏那一行」为父级，整块位置会偏掉。
 	// PassThrough：气泡只是显示，不能把进度条的指针事件吃掉。
 	s.Children(func() {
-		ui.Text(c, label).FontSize(10).FontWeight(650).
-			TextColor(ui.Hex("#0f172a")).
+		box := ui.Box(c).Key("seek-bubble").
 			Absolute().Left(left).Bottom(timelineH+6).
-			Width(bw).Center().PassThrough().
+			Width(bw).Height(18).Center().PassThrough().
 			Padding(2, 6).Radius(7).
 			Background(ui.Hex("#ffffff").Alpha(0.86)).
 			Border(1, ui.Hex("#ffffff").Alpha(0.72)).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.14))
+		target := float32(0)
+		if show {
+			target = 1
+		}
+		box.Opacity(box.AnimateTo("seek-bubble-fade", target, seekBubbleFadeAnim))
+		if label != "" {
+			box.Children(func() {
+				ui.Text(c, label).FontSize(10).FontWeight(650).
+					TextColor(ui.Hex("#0f172a"))
+			})
+		}
 	})
 }
 
