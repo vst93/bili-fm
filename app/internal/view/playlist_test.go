@@ -286,3 +286,82 @@ func TestPlaylistDeleteFadesIn(t *testing.T) {
 		t.Fatalf("悬停后删除键仍不可见（亮度=%d），淡入没接上", hoverLum)
 	}
 }
+
+// TestPlaylistRowDragTokens 钉住拖拽态的两个纯函数：
+//   - playlistRowOpacity：被拖的源行带 `opacity-40`（0.4），其余 1；
+//   - playlistDragOver：原版 isDragOver 只在 dragIndex !== index 时置位，
+//     所以被拖的源行即使指针回到自己身上也不切成 bg-blue-50。
+func TestPlaylistRowDragTokens(t *testing.T) {
+	if got := playlistRowOpacity(true); got != 0.4 {
+		t.Errorf("拖拽中的行不透明度 = %v，应为 0.4（Tailwind opacity-40）", got)
+	}
+	if got := playlistRowOpacity(false); got != 1 {
+		t.Errorf("静息行不透明度 = %v，应为 1", got)
+	}
+	if playlistDragOver(true, true) {
+		t.Error("被拖的源行不该带拖拽悬停高亮（原版 isDragOver 排除 dragIndex）")
+	}
+	if !playlistDragOver(false, true) {
+		t.Error("别的行被悬停时应带拖拽悬停高亮")
+	}
+	if playlistDragOver(false, false) {
+		t.Error("没有拖拽悬停时不该高亮")
+	}
+}
+
+// TestPlaylistRowDimsWhileDragging 无头实测：拖起某一行后，源行整行降到 40%
+// 不透明度（分集名从深色变淡），而没被拖的行保持深色。
+//
+// 反证：把 `row.Opacity(playlistRowOpacity(selfDragging))` 去掉 → 拖拽中源行的
+// 分集名亮度仍是静息值，本测试红。
+func TestPlaylistRowDimsWhileDragging(t *testing.T) {
+	a := NewApp(func() {})
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "P0", Title: "T0"},
+		{ID: "b", Part: "P1", Title: "T1"},
+		{ID: "c", Part: "P2", Title: "T2"},
+	}
+	a.PlayingPlaylist = ListUser
+	a.Index = -1 // 无当前项，排除强调条/当前项配色的干扰
+	a.Drawer = DrawerPlaylist
+	tt := shellTester(t, a)
+
+	p1, ok := tt.Find("P1")
+	if !ok {
+		t.Fatal("找不到分集名 P1")
+	}
+	t1, ok := tt.Find("T1")
+	if !ok {
+		t.Fatal("找不到视频名 T1")
+	}
+	p0, ok := tt.Find("P0")
+	if !ok {
+		t.Fatal("找不到分集名 P0")
+	}
+	lum := func(r ui.Rect) int {
+		c := darkestIn(tt.Image(), int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H))
+		return (c[0]*299 + c[1]*587 + c[2]*114) / 1000
+	}
+	rest := lum(p1)
+	// 起拖：按在封面（非可选文本）上，横向拖 >4 DIP。拖到窗口右缘，避开
+	// 跟着指针的拖拽副本对测量区域的覆盖。
+	tt.Press(p1.X-40, (p1.Y+t1.Y+t1.H)/2)
+	tt.Move(790, (p1.Y+t1.Y+t1.H)/2)
+	tt.Frame()
+	p1b, ok := tt.Find("P1")
+	if !ok {
+		t.Fatal("拖拽中找不到分集名 P1")
+	}
+	dragging := lum(p1b)
+	other := lum(p0)
+	t.Logf("分集名亮度 静息=%d 拖拽中=%d；未拖行=%d", rest, dragging, other)
+	if rest > 90 {
+		t.Fatalf("静息分集名不够深（亮度=%d），测试前提不成立", rest)
+	}
+	if other > 90 {
+		t.Fatalf("未拖的行也变淡了（亮度=%d），不该受影响", other)
+	}
+	if dragging < 120 {
+		t.Fatalf("拖拽中源行没变淡（亮度=%d），opacity-40 没接上", dragging)
+	}
+}

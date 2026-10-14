@@ -275,6 +275,27 @@ func playlistDeleteOpacity(rowHovered bool) float32 {
 	return 0
 }
 
+// playlistRowOpacity 是记录行**自身**这一帧的不透明度：原版被拖的那一行
+// 带 `opacity-40`（Tailwind 40% = 0.4），其余 1。它是瞬时切换 —— 行上的
+// transition 只有 `transition-colors`，不含 opacity，所以不淡出。
+//
+// 拖拽副本不受影响：框架画副本时会临时清掉源元素自身的 opacity
+// （`ui/paintDrag` 里 `e.opacitySet = false`）。
+func playlistRowOpacity(selfDragging bool) float32 {
+	if selfDragging {
+		return 0.4
+	}
+	return 1
+}
+
+// playlistDragOver 把框架的 DragOver 结果映射成原版的 `isDragOver`：原版
+// `handleDragOver` 只在 `dragIndex !== index` 时置位，所以被拖的那一行即使
+// 指针回到自己身上也只带 `opacity-40`、不会切成 bg-blue-50。mygo 的
+// ui.DragOver 不排除源行，这里显式压掉。
+func playlistDragOver(selfDragging, over bool) bool {
+	return over && !selfDragging
+}
+
 // playlistRow 是一条记录。我的列表支持拖拽排序（拖到别的行上即插入到那个位置）。
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
@@ -296,6 +317,15 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	}
 	_, dragOver := ui.DragOver[string](row)
 	droppedID, dropped := ui.Drop[string](row)
+
+	// 原版把「拖拽悬停」与「自身正在被拖」分开：`isDragOver` 只在
+	// dragIndex !== index 时置位，所以被拖的那一行即使指针回到自己身上也
+	// 不会切成 bg-blue-50；它只带 `opacity-40`。mygo 的 DragOver 不排除
+	// 源行，这里显式压掉。
+	selfDragging := editable && row.Dragging()
+	dragOver = playlistDragOver(selfDragging, dragOver)
+	// 原版 `${isDragging ? "opacity-40" : ""}`：被拖的整行瞬时变 40% 不透明。
+	row.Opacity(playlistRowOpacity(selfDragging))
 
 	p := playlistRowPaint(current, row.Hovered(), dragOver, row.Pressed())
 	if p.Gradient {
