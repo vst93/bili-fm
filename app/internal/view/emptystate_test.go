@@ -208,3 +208,27 @@ func TestCollectHeaderKeepsScrollButtons(t *testing.T) {
 		t.Errorf("「暂无收藏内容」出现 %d 次，应恰好 1 次（正文），表头不该再放一份", n)
 	}
 }
+
+// TestSeriesDrawerEmptyHint 钉住「点进某个合集后没有视频」的空态文案：原版
+// seriesList.tsx 的 role="status" 写死「暂无合集视频」，而 emptyHint 此前漏了
+// DrawerSeries 这一支，回落到通用「没有内容」。
+//
+// **反证**：去掉 emptyHint 里 `if a.Drawer == DrawerSeries` 那段 → 正文变成
+// 「没有内容」，测试红。
+func TestSeriesDrawerEmptyHint(t *testing.T) {
+	a, tt := emptyProbe(t, func(a *App) {
+		a.Drawer = DrawerSeries
+		a.SeriesName = "被清空的合集"
+	})
+	if len(a.ListFor(DrawerSeries).Cards) != 0 {
+		t.Fatalf("前提：合集列表为空，实际 %d 条", len(a.ListFor(DrawerSeries).Cards))
+	}
+	if _, ok := tt.Find("暂无合集视频"); !ok {
+		t.Error("合集抽屉空态应为「暂无合集视频」")
+	}
+	for _, s := range tt.Texts() {
+		if s == "没有内容" {
+			t.Error("合集抽屉空态不该是通用的「没有内容」")
+		}
+	}
+}

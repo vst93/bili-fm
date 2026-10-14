@@ -1521,6 +1521,11 @@ func (a *App) emptyHint() string {
 		}
 		return "该UP主暂无视频"
 	}
+	// 点进某个合集后的空态（原版 seriesList 的 role="status" 文案）——
+	// 此前漏了这一支，回落到通用「没有内容」。
+	if a.Drawer == DrawerSeries {
+		return "暂无合集视频"
+	}
 	return "没有内容"
 }
 
@@ -2540,10 +2545,11 @@ func (a *App) sortedComments() []Comment {
 // 的 YIQ 亮度逻辑；原生界面只有浅色主题，对应 isDarkMode = false 分支）。
 //
 // 原版逻辑（isDarkMode = false）：
-//   brightness > 200               → #1a1a1a
-//   160 < brightness < 200 且 < 170 → #333333
-//   其他                           → 原色 hex
-//   color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
+//
+//	brightness > 200               → #1a1a1a
+//	160 < brightness < 200 且 < 170 → #333333
+//	其他                           → 原色 hex
+//	color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
 func danmakuInk(color int) ui.Color {
 	if color <= 0 {
 		return ui.Hex("#000000")

@@ -323,6 +323,47 @@ func TestToUpCards(t *testing.T) {
 	}
 }
 
+// TestSeriesCardMeta 钉住合集（series）抽屉卡片的 meta 数据（原版
+// seriesList 的 ListCard fields = [views, pubdate]）：播放量、发布时间都要有，
+// 作者列留空（合集里都是同一个 UP，原版不显示作者）。
+//
+// 真发生过：这里此前只填了 Views / Duration，漏了 Pubdate —— 合集卡片的 meta
+// 行只剩一个播放量。
+func TestSeriesCardMeta(t *testing.T) {
+	ar := bilibili.SeriesVideosResponse_Archive{
+		Aid: 9, Bvid: "BVseries", Title: "合集里的视频",
+		Pic: "p.jpg", Duration: 125, Pubdate: 1700000000,
+	}
+	ar.Stat.View = 42000
+	c := seriesCard(ar, "某UP")
+	if c.Bvid != "BVseries" || c.Title != "合集里的视频" || c.Cover != "p.jpg" {
+		t.Errorf("seriesCard = %+v", c)
+	}
+	if c.Views != "4.2万" {
+		t.Errorf("views = %q, want 4.2万", c.Views)
+	}
+	if c.Pubdate == "" {
+		t.Errorf("pubdate 为空，合集卡片应有发布时间（原版 fields 含 pubdate）")
+	}
+	if c.Duration != "2:05" {
+		t.Errorf("duration = %q, want 2:05", c.Duration)
+	}
+	// 原版合集卡片没有作者列：Up 必须留空，meta 行才会跳过作者列。
+	if c.Up != "" {
+		t.Errorf("up = %q, 合集卡片不该有作者列", c.Up)
+	}
+	// Track 仍要带上 UP 名，正在播放的信息才完整。
+	if c.Track.Up != "某UP" || c.Track.Aid != 9 {
+		t.Errorf("track = %+v", c.Track)
+	}
+
+	// pubdate 为 0（接口没给）时不显示（原版 `video?.pubdate ? … : null`）。
+	ar.Pubdate = 0
+	if got := seriesCard(ar, "某UP").Pubdate; got != "" {
+		t.Errorf("pubdate=0 时 = %q, want 空", got)
+	}
+}
+
 // TestSpecialBadge 钉住「普通视频不打标签，只有特殊徽标才打」：
 // B 站的 archive.badge.text 对普通投稿会给出「投稿视频」「动态视频」这类
 // 来源分类，原版 feedList 只在 text == "充电专属" 时才渲染胶囊，本构建

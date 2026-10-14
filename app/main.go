@@ -1253,17 +1253,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			}
 			cards := make([]view.Card, 0, len(archives))
 			for _, ar := range archives {
-				cards = append(cards, view.Card{
-					Bvid:     ar.Bvid,
-					Cover:    ar.Pic,
-					Title:    ar.Title,
-					Duration: fmtDur(int64(ar.Duration)),
-					Views:    fmtViews(int64(ar.Stat.View)),
-					Track: view.Track{
-						Aid: int64(ar.Aid), Bvid: ar.Bvid, Title: ar.Title,
-						Up: c.app.UpName, Cover: ar.Pic, Duration: int64(ar.Duration),
-					},
-				})
+				cards = append(cards, seriesCard(ar, c.app.UpName))
 			}
 			setCards(list, cards, page <= 1)
 			list.Page = page
@@ -1273,6 +1263,27 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
+}
+
+// seriesCard 把合集接口的一条 archive 转成卡片（原版 seriesList 的 ListCard）。
+//
+// 原版 fields 是 `[views, pubdate]`：**没有作者列**（合集里的视频都属同一个
+// UP，作者冗余），此前这里只填了 Views / Duration，漏了 Pubdate —— 合集卡片
+// 的 meta 行因此只剩播放量，发布时间空着。补上 relTime（原版对 pubdate 走
+// formatRelativeTime）。Up 留空让 meta 行自动隐去作者列。
+func seriesCard(ar bilibili.SeriesVideosResponse_Archive, upName string) view.Card {
+	return view.Card{
+		Bvid:     ar.Bvid,
+		Cover:    ar.Pic,
+		Title:    ar.Title,
+		Duration: fmtDur(int64(ar.Duration)),
+		Views:    fmtViews(int64(ar.Stat.View)),
+		Pubdate:  relTime(int64(ar.Pubdate)),
+		Track: view.Track{
+			Aid: int64(ar.Aid), Bvid: ar.Bvid, Title: ar.Title,
+			Up: upName, Cover: ar.Pic, Duration: int64(ar.Duration),
+		},
+	}
 }
 
 // removeWatchLater 把一条从「稍后再看」移除，然后刷新列表。
