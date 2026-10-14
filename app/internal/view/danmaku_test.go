@@ -788,3 +788,114 @@ func TestDanmakuRepeatCountNotFogged(t *testing.T) {
 		t.Errorf("胶囊中心像素 (%d,%d,%d) 接近中性白 252：白层盖住了 ×N 胶囊", cr, cg, cb)
 	}
 }
+
+// TestDanmakuViewportCaps 钉住弹幕分组与消息列的两个 dvh 上限（原版
+// `.danmaku-time-group { max-height: 80dvh }` 与
+// `.danmaku-message-list { max-height: calc(80dvh - 20px) }`）。
+func TestDanmakuViewportCaps(t *testing.T) {
+	cases := []struct{ h, group, list float32 }{
+		{400, 320, 300},
+		{720, 576, 556},
+		{1000, 800, 780},
+	}
+	for _, c := range cases {
+		if got := danmakuGroupMaxHeight(c.h); got < c.group-0.05 || got > c.group+0.05 {
+			t.Errorf("danmakuGroupMaxHeight(%v) = %v，应 ≈%v（80dvh）", c.h, got, c.group)
+		}
+		if got := danmakuMessageListMaxHeight(c.h); got < c.list-0.05 || got > c.list+0.05 {
+			t.Errorf("danmakuMessageListMaxHeight(%v) = %v，应 ≈%v（80dvh-20）", c.h, got, c.list)
+		}
+	}
+	// 极小视口：calc 会算成负数，钳到 0。
+	if got := danmakuMessageListMaxHeight(10); got != 0 {
+		t.Errorf("danmakuMessageListMaxHeight(10) = %v，应钳到 0", got)
+	}
+}
+
+// TestDanmakuTimeTotalLineHeight 钉住 `.danmaku-time-total` 的
+// `font-size:11px; line-height:1.2`（行盒 13.2px）。mygo 的行高硬底约 17px，
+// 显式 Height + Translate 后「N 条」的盒高应回到 13 附近；改回不设 Height
+// 这条会量到约 17。
+func TestDanmakuTimeTotalLineHeight(t *testing.T) {
+	a := &App{
+		Danmaku:           []Danmaku{{Time: 0, Text: "a"}, {Time: 0.5, Text: "b"}},
+		Drawer:            DrawerDanmaku,
+		DanmakuTab:        TabDanmaku,
+		DanmakuAutoScroll: false,
+	}
+	a.Theme = ThemeFor(PeriodAt(12))
+	tt := ui.NewTester(func(c *ui.Context) { a.danmakuBody(c) }, 500, 400)
+	tt.Frame()
+	r, ok := tt.Find("2 条")
+	if !ok {
+		t.Fatal("弹幕抽屉里找不到「2 条」总数")
+	}
+	t.Logf("「2 条」rect = %+v", r)
+	if r.H < 13 || r.H > 13.5 {
+		t.Errorf("「2 条」盒高 = %v，应 ≈13.2（原版 line-height:1.2）", r.H)
+	}
+}
+
+// danmakuOverflowApp 造一个直接跑 danmakuBody 的 App：第一组同一秒塞 120 条
+// 互不相同的弹幕（远超 80dvh-20 的消息列上限），第二组一条，用来验证分组内
+// 滚动而不是把整行无限拉长。
+func danmakuOverflowApp() *App {
+	list := make([]Danmaku, 0, 121)
+	for i := 0; i < 120; i++ {
+		list = append(list, Danmaku{Time: 0, Text: fmt.Sprintf("弹幕%03d", i)})
+	}
+	list = append(list, Danmaku{Time: 1, Text: "第二组"})
+	a := &App{
+		Danmaku:           list,
+		Drawer:            DrawerDanmaku,
+		DanmakuTab:        TabDanmaku,
+		DanmakuAutoScroll: false,
+	}
+	a.Theme = ThemeFor(PeriodAt(12))
+	return a
+}
+
+// TestDanmakuMessageListInnerScroll 无头实测两件事：
+//  1. 第一组被 80dvh 封顶：第二组不会因为 120 条弹幕被推到很下面；
+//  2. 在消息列上滚轮时，内滚动先动（第一条弹幕上移），第二组不动
+//     （外层列表没被带着滚）——对应原版 `.danmaku-message-list` 的
+//     `overflow-y:auto`。
+func TestDanmakuMessageListInnerScroll(t *testing.T) {
+	a := danmakuOverflowApp()
+	tt := ui.NewTester(func(c *ui.Context) { a.danmakuBody(c) }, 500, 400)
+	tt.Frame()
+
+	second, ok := tt.Find("第二组")
+	if !ok {
+		t.Fatal("找不到第二组（第一组可能没有被 80dvh 封顶，把第二组推出了视口）")
+	}
+	// 第一组封顶后，第二组应还在 400px 视口内；不封顶时 120 条会把第二组
+	// 推到 y≈700（Find 也找不到）。这里留一点 List 行高量测的余量。
+	if second.Y > 360 {
+		t.Errorf("第二组 y = %v，第一组没有被 80dvh 封顶", second.Y)
+	}
+
+	// 用一条滚后仍在视口内的弹幕（024）当探针：内滚动生效时它会上移，
+	// 外层分组（第二组）不动。
+	probe, ok := tt.Find("弹幕024")
+	if !ok {
+		t.Fatal("找不到探针弹幕 024")
+	}
+	beforeProbe, beforeSecond := probe.Y, second.Y
+	tt.Scroll(probe.X+probe.W/2, probe.Y+probe.H/2, 0, 80)
+
+	afterProbe, ok := tt.Find("弹幕024")
+	if !ok {
+		t.Fatal("滚动后找不到探针弹幕 024")
+	}
+	afterSecond, ok := tt.Find("第二组")
+	if !ok {
+		t.Fatal("滚动后找不到第二组")
+	}
+	if afterProbe.Y >= beforeProbe-40 {
+		t.Errorf("消息列内滚动没生效：探针弹幕 y %v → %v", beforeProbe, afterProbe.Y)
+	}
+	if afterSecond.Y != beforeSecond {
+		t.Errorf("内滚动把外层列表也带着动了：第二组 y %v → %v", beforeSecond, afterSecond.Y)
+	}
+}

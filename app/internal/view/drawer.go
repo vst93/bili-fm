@@ -514,12 +514,33 @@ const (
 	// 的自然行盒约 20px），压不到 13，所以给标签显式 Height 固定胶囊高度；
 	// 横向 padding 保留 5px，竖向 padding 去掉（否则文字会在 19px 盒里下坠）。
 	danmakuLabelHeight = 19
+
+	// danmakuTotalHeight / danmakuTotalShift 对应 `.danmaku-time-total` 的
+	// `font-size:11px; line-height:1.2`（行盒 13.2px）。mygo 的行高硬底是
+	// 11px 字体的自然行盒约 17px，压不到 13.2，所以固定元素盒高；原版行盒
+	// 比自然行盒矮，字形在上下各溢出约 1.9px（负 half-leading），再把字形
+	// 上移同样的量，让「N 条」的落点与原版一致。
+	danmakuTotalHeight = 13.2
+	danmakuTotalShift  = -1.9
 )
 
 // windowWidth 是这一帧的窗口宽度（DIP）——抽屉里的媒体查询断点按视口宽度判定。
 func windowWidth(c *ui.Context) float32 {
 	w, _ := c.Size()
 	return w
+}
+
+// danmakuGroupMaxHeight 是 `.danmaku-time-group` 的 `max-height: 80dvh`。
+// viewportH 是窗口（视口）高度。
+func danmakuGroupMaxHeight(viewportH float32) float32 {
+	return max(0, 0.8*viewportH)
+}
+
+// danmakuMessageListMaxHeight 是 `.danmaku-message-list` 的
+// `max-height: calc(80dvh - 20px)`：同一秒里弹幕很多时，消息列不跟着分组
+// 无限长高，而是在分组内滚动（原版 overflow-y:auto）。
+func danmakuMessageListMaxHeight(viewportH float32) float32 {
+	return max(0, 0.8*viewportH-20)
 }
 
 // incognitoLayout 给出隐身开关这一帧的 min-width 与是否画「隐身」文字标签
@@ -2618,8 +2639,10 @@ func (a *App) danmakuBody(c *ui.Context) {
 	// 弹幕分组行的列宽/间距随窗口宽度收窄（原版 .danmaku-time-group 的
 	// @media (max-width: 420px)）：这一帧算一次，传给每行复用。
 	row := danmakuRowLayoutFor(windowWidth(c))
+	// 分组与消息列的 max-height 用 dvh（视口高度）：这一帧取一次。
+	_, viewportH := c.Size()
 	ui.List(c, &a.danmakuList, len(groups), func(i int) {
-		a.danmakuGroupRow(c, groups[i], i == cur, theme, row, linux)
+		a.danmakuGroupRow(c, groups[i], i == cur, theme, row, linux, viewportH)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
 	// 自动跟随：把当前组滚进视野，且只在下标变化时滚，不干扰手滑。
@@ -2632,11 +2655,20 @@ func (a *App) danmakuBody(c *ui.Context) {
 // danmakuGroupRow 画一个弹幕分组行（原版 .danmaku-time-group）：整行 grid
 // （时间列 + 1fr 消息列）、底部 1px 分隔线；组之间没有间距，靠这条线分开。
 // 列宽/间距/inline 内边距由 l 给出（宽窗 64/10/12，≤420 时 54/8/10）。
+// viewportH 是窗口高度，用来算 .danmaku-time-group 的 80dvh 上限与
+// .danmaku-message-list 的 calc(80dvh - 20px) 内滚动高度。
 // 由 danmakuBody 的虚拟列表按需构建。
-func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme, l danmakuRowLayout, linux bool) {
+func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme, l danmakuRowLayout, linux bool, viewportH float32) {
 	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
 		Margin(2, 0).
 		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start)
+	// 原版 `.danmaku-time-group` 是 `max-height:80dvh; overflow:hidden`：
+	// 消息列的内滚动高度是 80dvh-20，再加分组上下 padding 24，会比 80dvh
+	// 多 4px，原版由 overflow:hidden 裁掉；这里同样封顶并裁剪。
+	if h := danmakuGroupMaxHeight(viewportH); h > 0 {
+		box.MaxHeight(h)
+		box.Clip()
+	}
 	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）；原版
 	// `.danmaku-time-group` 是 `transition: border-color 150ms ease`。
 	sep, hoverSep, curSep := danmakuSepColors(linux)
@@ -2676,66 +2708,74 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 				lbl.InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
 					Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
 			}
-			// .danmaku-time-total：11px #64748b（当前组转蓝加粗）。
+			// .danmaku-time-total：11px #64748b（当前组转蓝加粗），
+			// `line-height:1.2`（11×1.2=13.2）由显式盒高 + 字形上移复现，
+			// 否则框架的自然行盒（约 17）会把左列撑高约 4px。
 			tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
-				TextColor(ui.Hex("#64748b"))
+				TextColor(ui.Hex("#64748b")).
+				Height(danmakuTotalHeight).Translate(0, danmakuTotalShift)
 			if isCur {
 				tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
 			}
 		})
 
 		// 右列：消息横排换行的一串小胶囊（.danmaku-message-list，
-		// align-items/align-content 都是 center）。
-		ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
-			for _, e := range g.Entries {
-				paint := danmakuChipPaint(isCur, box.Hovered(), linux)
-				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
-					Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
-					Radius(8).AlignItems(ui.Center)
-				// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
-				// 原版 `.danmaku-message-row` 的
-				// `transition: background-color/border-color 140ms ease`。
-				chip.Background(drawerFadeColor(c, chip, "dmg-chip-bg", paint.BG, drawerFadeAnim)).
-					Border(1, drawerFadeColor(c, chip, "dmg-chip-border", paint.Border, drawerFadeAnim)).
-					InsetShadow(0, 1, 0, 0, paint.Inset).
-					Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
-				chip.Children(func() {
-					// 透明占位撑开 chip 宽度：下面两层都是 Absolute（脱离 flow），
-					// chip 的宽度全靠这个透明文字；×N 胶囊保持 flow，免得被
-					// 白层盖住。
-					ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-						TextColor(ui.Transparent).SingleLine()
-					// 白色柔光阴影（原版 .danmaku-message-text 的
-					// `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。框架没有
-					// 文字阴影 API：白层是一块文字行盒大小的白 .68， Absolute
-					// 垫在原文字下方 1px。Absolute 元素总在 flow 兄弟之上，所以
-					// 原色文字也改成 Absolute 盖回来（后声明在上层）；白层右缘
-					// 让开 ×N 的 39px（gap 5 + 胶囊 34），只覆盖文字行盒区域。
-					right := float32(7) // chip padding-right
-					if e.Count > 1 {
-						right += 39
+		// align-items/align-content 都是 center）。原版给这列
+		// `max-height: calc(80dvh - 20px); overflow-y: auto`：同一秒弹幕很多时
+		// 在分组内滚动，而不是把整行无限拉长（此前原生版就是后者）。
+		ui.Scroll(c).Grow(1).MinWidth(0).
+			MaxHeight(danmakuMessageListMaxHeight(viewportH)).Children(func() {
+			ui.Row(c).Wrap().Gap(6).AlignItems(ui.Center).AlignContent(ui.Center).Children(func() {
+				for _, e := range g.Entries {
+					paint := danmakuChipPaint(isCur, box.Hovered(), linux)
+					chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
+						Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
+						Radius(8).AlignItems(ui.Center)
+					// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
+					// 原版 `.danmaku-message-row` 的
+					// `transition: background-color/border-color 140ms ease`。
+					chip.Background(drawerFadeColor(c, chip, "dmg-chip-bg", paint.BG, drawerFadeAnim)).
+						Border(1, drawerFadeColor(c, chip, "dmg-chip-border", paint.Border, drawerFadeAnim)).
+						InsetShadow(0, 1, 0, 0, paint.Inset).
+						Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
+					chip.Children(func() {
+						// 透明占位撑开 chip 宽度：下面两层都是 Absolute（脱离 flow），
+						// chip 的宽度全靠这个透明文字；×N 胶囊保持 flow，免得被
+						// 白层盖住。
+						ui.Text(c, e.Text).FontSize(13).FontWeight(650).
+							TextColor(ui.Transparent).SingleLine()
+						// 白色柔光阴影（原版 .danmaku-message-text 的
+						// `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。框架没有
+						// 文字阴影 API：白层是一块文字行盒大小的白 .68， Absolute
+						// 垫在原文字下方 1px。Absolute 元素总在 flow 兄弟之上，所以
+						// 原色文字也改成 Absolute 盖回来（后声明在上层）；白层右缘
+						// 让开 ×N 的 39px（gap 5 + 胶囊 34），只覆盖文字行盒区域。
+						right := float32(7) // chip padding-right
+						if e.Count > 1 {
+							right += 39
+						}
+						ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
+							Background(ui.Hex("#ffffff").Alpha(0.68)).Translate(0, 1)
+						ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
+							Children(func() {
+								ui.Text(c, e.Text).FontSize(13).FontWeight(650).
+									TextColor(danmakuInk(e.Color)).SingleLine()
+							})
+						if e.Count > 1 {
+							// .danmaku-repeat-count：小蓝胶囊 ×N。
+							numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
+								FontWeight(700).TextColor(ui.Hex("#0369a1")).
+								Padding(0, 5).Radius(7).MinWidth(24).
+								Background(ui.Hex("#e0f2fe").Alpha(0.70)).
+								Border(1, t.Blue.Alpha(0.20))
+						}
+					})
+					// 点一条弹幕跳到它出现的时间（原版没有，但弹幕播放器都这么做）。
+					if chip.Clicked() && a.Act.Seek != nil {
+						a.Act.Seek(float64(g.Second))
 					}
-					ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
-						Background(ui.Hex("#ffffff").Alpha(0.68)).Translate(0, 1)
-					ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
-						Children(func() {
-							ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-								TextColor(danmakuInk(e.Color)).SingleLine()
-						})
-					if e.Count > 1 {
-						// .danmaku-repeat-count：小蓝胶囊 ×N。
-						numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
-							FontWeight(700).TextColor(ui.Hex("#0369a1")).
-							Padding(0, 5).Radius(7).MinWidth(24).
-							Background(ui.Hex("#e0f2fe").Alpha(0.70)).
-							Border(1, t.Blue.Alpha(0.20))
-					}
-				})
-				// 点一条弹幕跳到它出现的时间（原版没有，但弹幕播放器都这么做）。
-				if chip.Clicked() && a.Act.Seek != nil {
-					a.Act.Seek(float64(g.Second))
 				}
-			}
+			})
 		})
 	})
 }
