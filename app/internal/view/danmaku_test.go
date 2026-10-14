@@ -170,9 +170,9 @@ func TestDanmakuListVirtualized(t *testing.T) {
 // TestDanmakuChipPaint 钉住弹幕小胶囊三种状态的配色（原版 .danmaku-message-row）。
 // 重点是悬停比基础**更实**、当前组是极淡的蓝白 —— 之前这两处都写反了。
 func TestDanmakuChipPaint(t *testing.T) {
-	base := danmakuChipPaint(false, false)
-	hover := danmakuChipPaint(false, true)
-	cur := danmakuChipPaint(true, false)
+	base := danmakuChipPaint(false, false, false)
+	hover := danmakuChipPaint(false, true, false)
+	cur := danmakuChipPaint(true, false, false)
 
 	if base.BG != ui.Hex("#ffffff").Alpha(0.48) {
 		t.Errorf("基础底色 = %v, want 白 .48", base.BG)
@@ -193,8 +193,118 @@ func TestDanmakuChipPaint(t *testing.T) {
 		t.Errorf("当前组描边 = %v, want #0ea5e9 .48", cur.Border)
 	}
 	// 当前组优先于悬停（原版 .is-current 规则排在 :hover 之后）。
-	if got := danmakuChipPaint(true, true); got != cur {
+	if got := danmakuChipPaint(true, true, false); got != cur {
 		t.Errorf("当前组的胶囊不应被悬停覆盖：%+v", got)
+	}
+}
+
+// TestDanmakuChipPaintLinux 钉住原版 `body.platform-linux .danmaku-message-row`
+// 那条平台覆写：基础态底换白 .9、边换 slate-400 .28、box-shadow none；悬停态
+// 的底/边被更特异的 `.danmaku-time-group:hover .danmaku-message-row` 盖回白
+// .58 / 白 .68，但 box-shadow 仍归 Linux 的 none；当前组特异度同为 (0,3,0)，
+// Linux 下与其它平台完全一样。
+func TestDanmakuChipPaintLinux(t *testing.T) {
+	base := danmakuChipPaint(false, false, true)
+	if base.BG != ui.Hex("#ffffff").Alpha(0.90) {
+		t.Errorf("Linux 基础底色 = %v, want 白 .9", base.BG)
+	}
+	if base.Border != ui.Hex("#94a3b8").Alpha(0.28) {
+		t.Errorf("Linux 基础描边 = %v, want slate-400 .28", base.Border)
+	}
+	if base.Inset.A != 0 || base.Shadow.A != 0 || base.ShadowBlur != 0 {
+		t.Errorf("Linux 基础态应 box-shadow:none（无内高光/投影）：%+v", base)
+	}
+
+	hover := danmakuChipPaint(false, true, true)
+	if hover.BG != ui.Hex("#ffffff").Alpha(0.58) || hover.Border != ui.Hex("#ffffff").Alpha(0.68) {
+		t.Errorf("Linux 悬停态底/边应盖回白 .58 / 白 .68：%+v", hover)
+	}
+	if hover.Inset.A != 0 || hover.Shadow.A != 0 || hover.ShadowBlur != 0 {
+		t.Errorf("Linux 悬停态仍应 box-shadow:none：%+v", hover)
+	}
+
+	// 当前组不受 Linux 覆写影响。
+	if got, want := danmakuChipPaint(true, false, true), danmakuChipPaint(true, false, false); got != want {
+		t.Errorf("Linux 当前组 = %+v, want 与非 Linux 一致 %+v", got, want)
+	}
+}
+
+// TestDanmakuSepColorsLinux 钉住原版 `body.platform-linux .danmaku-time-group`
+// 的分隔线覆写：基础 rgba(100,116,139,.18)、当前组 rgba(2,132,199,.34)；悬停的
+// 蓝线被 Linux 规则按特异度盖掉（(0,2,1) > (0,2,0)），所以悬停 == 基础。
+func TestDanmakuSepColorsLinux(t *testing.T) {
+	base, hover, cur := danmakuSepColors(true)
+	if base != ui.Hex("#64748b").Alpha(0.18) {
+		t.Errorf("Linux 基础分隔线 = %v, want #64748b .18", base)
+	}
+	if hover != base {
+		t.Errorf("Linux 悬停分隔线 = %v, want == 基础 %v（原版特异度盖掉）", hover, base)
+	}
+	if cur != ui.Hex("#0284c7").Alpha(0.34) {
+		t.Errorf("Linux 当前组分隔线 = %v, want #0284c7 .34", cur)
+	}
+
+	// 非 Linux：基础 .14、悬停 sky-500 .24、当前组 studio-blue .30。
+	nb, nh, nc := danmakuSepColors(false)
+	if nb != ui.Hex("#64748b").Alpha(0.14) {
+		t.Errorf("非 Linux 基础分隔线 = %v, want .14", nb)
+	}
+	if nh != ui.Hex("#0ea5e9").Alpha(0.24) {
+		t.Errorf("非 Linux 悬停分隔线 = %v, want sky-500 .24", nh)
+	}
+	if nc != ui.Hex("#0284c7").Alpha(0.30) {
+		t.Errorf("非 Linux 当前组分隔线 = %v, want .30", nc)
+	}
+}
+
+// countChipBorderPixels 数弹幕胶囊左缘一条竖带上的「灰描边」像素（原版 Linux
+// 覆写的 slate-400 .28 over 白底 ≈ (224,228,234)，R 明显低于白 253）。非 Linux
+// 的胶囊描边是白 .52，在近白面板上约 253，数不到。
+func countChipBorderPixels(img *image.RGBA, r ui.Rect) int {
+	y := int(r.Y + r.H/2)
+	n := 0
+	for x := int(r.X) - 12; x < int(r.X); x++ {
+		if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+			continue
+		}
+		i := img.PixOffset(x, y)
+		if int(img.Pix[i]) < 242 { // 灰描边（≈224）vs 白 .52（≈253）
+			n++
+		}
+	}
+	return n
+}
+
+// TestDanmakuChipLinuxOpaqueWired 是无头渲染实测：把平台切成 Linux，弹幕胶囊
+// 左缘应出现 slate-400 灰描边（原版 body.platform-linux .danmaku-message-row 的
+// border-color）；切回非 Linux 时描边是白 .52、在近白面板上不可见。反证：
+// danmakuGroupRow 不把 isLinux() 传给 danmakuChipPaint，Linux 帧就数不到灰边。
+func TestDanmakuChipLinuxOpaqueWired(t *testing.T) {
+	orig := viewGOOS
+	defer func() { viewGOOS = orig }()
+
+	render := func() int {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.Danmaku = []Danmaku{{Time: 0, Text: "平台配色测试"}}
+		a.Pos = -1 // 不标当前组：当前组胶囊不受 Linux 覆写影响
+		a.Drawer = DrawerDanmaku
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+		tst.Frame()
+		r, ok := tst.Find("平台配色测试")
+		if !ok {
+			t.Fatal("渲染帧里找不到弹幕文字")
+		}
+		return countChipBorderPixels(tst.Image(), r)
+	}
+
+	viewGOOS = "linux"
+	if n := render(); n == 0 {
+		t.Error("Linux 下胶囊左缘没有灰描边（platform-linux 覆写没接上）")
+	}
+	viewGOOS = "darwin"
+	if n := render(); n != 0 {
+		t.Errorf("非 Linux 下胶囊描边应是白 .52（不可见），却数到 %d 个灰像素", n)
 	}
 }
 

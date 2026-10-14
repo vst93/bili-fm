@@ -2606,12 +2606,14 @@ func (a *App) danmakuBody(c *ui.Context) {
 	// **所有**分组行（分组上千时是主要开销之一）。恢复 ui.List 后只建可见的
 	// 十几行。
 	theme := a.Theme
-	sep := ui.Hex("#64748b").Alpha(0.14)
+	// 弹幕分组行与胶囊的配色按平台选值（原版 body.platform-linux 那组覆写）：
+	// 原生版主平台就是 Linux，无 backdrop-filter 时要用不透明兜底。
+	linux := isLinux()
 	// 弹幕分组行的列宽/间距随窗口宽度收窄（原版 .danmaku-time-group 的
 	// @media (max-width: 420px)）：这一帧算一次，传给每行复用。
 	row := danmakuRowLayoutFor(windowWidth(c))
 	ui.List(c, &a.danmakuList, len(groups), func(i int) {
-		a.danmakuGroupRow(c, groups[i], i == cur, sep, theme, row)
+		a.danmakuGroupRow(c, groups[i], i == cur, theme, row, linux)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
 	// 自动跟随：把当前组滚进视野，且只在下标变化时滚，不干扰手滑。
@@ -2625,25 +2627,28 @@ func (a *App) danmakuBody(c *ui.Context) {
 // （时间列 + 1fr 消息列）、底部 1px 分隔线；组之间没有间距，靠这条线分开。
 // 列宽/间距/inline 内边距由 l 给出（宽窗 64/10/12，≤420 时 54/8/10）。
 // 由 danmakuBody 的虚拟列表按需构建。
-func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.Color, t Theme, l danmakuRowLayout) {
+func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme, l danmakuRowLayout, linux bool) {
 	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
 		Margin(2, 0).
 		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start)
 	// 悬停/当前态只改底部分隔线的颜色（原版如此，不铺底色）；原版
 	// `.danmaku-time-group` 是 `transition: border-color 150ms ease`。
+	sep, hoverSep, curSep := danmakuSepColors(linux)
 	sepTarget := sep
 	switch {
 	case isCur:
-		sepTarget = ui.Hex("#0284c7").Alpha(0.30)
+		sepTarget = curSep
 	case box.Hovered():
-		sepTarget = t.Blue.Alpha(0.24)
+		sepTarget = hoverSep
 	}
 	box.InsetShadow(0, -1, 0, 0, drawerFadeColor(c, box, "dmg-sep", sepTarget, danmakuBorderAnim))
 	box.Children(func() {
 		// 左列（宽窗 64 / ≤420 时 54）：时间标签 + 「N 条」，右缘一线分隔
 		//（.danmaku-time-head）。右缘用 x=-1 的内影（正 x 画的是左缘）。
+		// `.danmaku-time-head` 的 border-right 是写死的 rgba(100,116,139,.14)，
+		// Linux 覆写只动分组自身的 border-color，不动这条，所以它不随平台变。
 		ui.Column(c).Width(l.Col).Shrink(0).Gap(4).Justify(ui.Center).
-			InsetShadow(-1, 0, 0, 0, sep).Children(func() {
+			InsetShadow(-1, 0, 0, 0, ui.Hex("#64748b").Alpha(0.14)).Children(func() {
 			lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
 				FontWeight(700).Padding(3, 5).Radius(6)
 			// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
@@ -2674,7 +2679,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 		// align-items/align-content 都是 center）。
 		ui.Row(c).Grow(1).MinWidth(0).Wrap().Gap(6).AlignItems(ui.Center).Children(func() {
 			for _, e := range g.Entries {
-				paint := danmakuChipPaint(isCur, box.Hovered())
+				paint := danmakuChipPaint(isCur, box.Hovered(), linux)
 				chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 					Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
 					Radius(8).AlignItems(ui.Center)
@@ -2726,6 +2731,27 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 	})
 }
 
+// danmakuSepColors 给出弹幕分组行分隔线（.danmaku-time-group 的 border-bottom）
+// 在基础 / 悬停 / 当前组三态下的颜色。
+//
+// 原版对 Linux 有一组覆写（body.platform-linux .danmaku-time-group）：
+// 基础 rgba(100,116,139,.18)、当前组 rgba(2,132,199,.34)。注意 Linux 下悬停
+// **不改**分隔线：`.danmaku-time-group:hover` 的蓝线特异度是 (0,2,0)，被
+// `body.platform-linux .danmaku-time-group` (0,2,1) 盖掉 —— 原版如此（悬停反馈
+// 改由胶囊底色承担），这里如实照搬。
+//
+// 其它平台：基础 rgba(100,116,139,.14)、悬停 sky-500 rgba(14,165,233,.24)、
+// 当前组 studio-blue rgba(2,132,199,.30)。
+func danmakuSepColors(linux bool) (base, hover, cur ui.Color) {
+	if linux {
+		base = ui.Hex("#64748b").Alpha(0.18)
+		return base, base, ui.Hex("#0284c7").Alpha(0.34)
+	}
+	return ui.Hex("#64748b").Alpha(0.14),
+		ui.Hex("#0ea5e9").Alpha(0.24),
+		ui.Hex("#0284c7").Alpha(0.30)
+}
+
 // chipPaint 是一种弹幕小胶囊（.danmaku-message-row）的底色 / 边 / 内高光 / 投影。
 type chipPaint struct {
 	BG, Border, Inset, Shadow ui.Color
@@ -2733,7 +2759,7 @@ type chipPaint struct {
 }
 
 // danmakuChipPaint 返回弹幕小胶囊在某状态下的配色，逐条对应原版
-// globals.css 里 .danmaku-message-row 的三条规则：
+// globals.css 里 .danmaku-message-row 的规则：
 //
 //	基础        底 rgba(255,255,255,.48) 边 .52 内高光 .72 投影 15,23,42 .045
 //	:hover      底 rgba(255,255,255,.58) 边 .68（比基础**更实**，不是更淡）
@@ -2741,7 +2767,14 @@ type chipPaint struct {
 //
 // 之前悬停写成白 .22（比基础 .42 更淡），当前组又用了饱和的 rgba(14,165,233,.2)
 // —— 两个状态都与原版相反（悬停该变实、当前组该是极淡的蓝白）。
-func danmakuChipPaint(isCur, hovered bool) chipPaint {
+//
+// linux 为真时叠上原版 `body.platform-linux .danmaku-message-row` 那条覆写：
+// 底换近乎不透明的白 .9、边换 slate-400 .28、box-shadow none（Linux 没有
+// backdrop-filter，不透明底才读得清，原版自己就这么兜底）。悬停态走
+// `.danmaku-time-group:hover .danmaku-message-row`，特异度 (0,3,0) 高于 Linux
+// 规则的 (0,2,1)，所以底/边盖回白 .58 / 白 .68，但 box-shadow 仍归 Linux 的
+// none；is-current 也是 (0,3,0)，Linux 下与其它平台完全一样。
+func danmakuChipPaint(isCur, hovered, linux bool) chipPaint {
 	const white = "#ffffff"
 	switch {
 	case isCur:
@@ -2753,21 +2786,33 @@ func danmakuChipPaint(isCur, hovered bool) chipPaint {
 			ShadowBlur: 7,
 		}
 	case hovered:
-		return chipPaint{
+		p := chipPaint{
 			BG:         ui.Hex(white).Alpha(0.58),
 			Border:     ui.Hex(white).Alpha(0.68),
 			Inset:      ui.Hex(white).Alpha(0.72),
 			Shadow:     ui.Hex("#0f172a").Alpha(0.045),
 			ShadowBlur: 6,
 		}
+		if linux {
+			// box-shadow: none —— 内高光与投影都去掉。
+			p.Inset, p.Shadow, p.ShadowBlur = ui.Transparent, ui.Transparent, 0
+		}
+		return p
 	default:
-		return chipPaint{
+		p := chipPaint{
 			BG:         ui.Hex(white).Alpha(0.48),
 			Border:     ui.Hex(white).Alpha(0.52),
 			Inset:      ui.Hex(white).Alpha(0.72),
 			Shadow:     ui.Hex("#0f172a").Alpha(0.045),
 			ShadowBlur: 6,
 		}
+		if linux {
+			// 底白 .9、边 slate-400 .28、box-shadow none。
+			p.BG = ui.Hex(white).Alpha(0.90)
+			p.Border = ui.Hex("#94a3b8").Alpha(0.28)
+			p.Inset, p.Shadow, p.ShadowBlur = ui.Transparent, ui.Transparent, 0
+		}
+		return p
 	}
 }
 

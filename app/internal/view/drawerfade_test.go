@@ -84,10 +84,17 @@ func TestDrawerFadeColorTransitions(t *testing.T) {
 }
 
 // fadeProbe 换桩 drawerFadeColor，渲染一帧并把「键名 → 本帧目标色」记下来。
+//
+// 断言钉的是原版的**基础** CSS 值（非平台覆写），所以强制按非 Linux 渲染：
+// Linux 有 body.platform-linux 那组覆写（见 platform.go / danmakuSepColors），
+// 底/边会换成不透明兜底，与基础值不同。
 func fadeProbe(t *testing.T, seed func(a *App)) map[string]ui.Color {
 	t.Helper()
 	orig := drawerFadeColor
 	t.Cleanup(func() { drawerFadeColor = orig })
+	origGOOS := viewGOOS
+	viewGOOS = "darwin"
+	t.Cleanup(func() { viewGOOS = origGOOS })
 	got := map[string]ui.Color{}
 	drawerFadeColor = func(c *ui.Context, b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
 		got[key] = target

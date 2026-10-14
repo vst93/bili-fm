@@ -1,8 +1,6 @@
 package view
 
 import (
-	"runtime"
-
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/imagecache"
@@ -100,7 +98,7 @@ func (a *App) titleBar(c *ui.Context) {
 		// 也是常驻的（只是 opacity 0）。
 		titleBarLayer(c, "tb-edge", titleBarEdgeStops, TitleBarHeight*1.7, edge)
 		titleBarLayer(c, "tb-wash", titleBarWashStops, TitleBarHeight*1.4, wash)
-		mac := runtime.GOOS == "darwin"
+		mac := viewGOOS == "darwin"
 		// 品牌：macOS 居中（红绿灯在左），Windows/Linux 靠左 + 设置在旁
 		// （原版 .title-bar-brand 的 isMac 分支）。≤600px 时隐藏（原版如此）。
 		//
@@ -145,7 +143,7 @@ func (a *App) titleBar(c *ui.Context) {
 		actions.Opacity(titleBarFade(actions, "tb-child", child))
 		actions.Children(func() {
 			// 迷你入口：原版在 Linux 上不提供（webkit2gtk 改不了窗口尺寸）。
-			if runtime.GOOS != "linux" {
+			if viewGOOS != "linux" {
 				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
 				// 它在 .app-title-bar-actions 里面，而那一层已经乘了子元素的
 				// .32/.82，所以这里只出自己的 .72（静息时合计 .72×.32 ≈ .23）。
