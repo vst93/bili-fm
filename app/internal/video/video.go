@@ -62,6 +62,12 @@ type Manager struct {
 	onState func(State)
 	onClose func(State)
 	onEnded func()
+	onQuit  func()
+
+	// minimize 是最小化弹窗自身的函数：Open 时绑定到窗口的 Minimize，
+	// Close / 窗口关闭时清空。抽成字段便于单测验证 Service.Minimize 的接线
+	// （测试里没有真实窗口，注入一个计数函数即可）。
+	minimize func()
 }
 
 // New 建一个管理器。
@@ -75,6 +81,9 @@ func (m *Manager) OnClose(fn func(State)) { m.onClose = fn }
 
 // OnEnded 设置播放结束回调。
 func (m *Manager) OnEnded(fn func()) { m.onEnded = fn }
+
+// OnQuit 设置退出回调（弹窗里按 Ctrl/Cmd+Q）。
+func (m *Manager) OnQuit(fn func()) { m.onQuit = fn }
 
 // IsOpen 报告弹窗是否开着。
 func (m *Manager) IsOpen() bool {
@@ -139,14 +148,14 @@ func (m *Manager) Open(o Options) error {
 	}
 
 	m.mu.Lock()
-	m.win = w
+	m.win, m.minimize = w, w.Minimize
 	m.st = State{Speed: o.Speed}
 	m.mu.Unlock()
 
 	w.OnClosed(func() {
 		m.mu.Lock()
 		if m.win == w {
-			m.win = nil
+			m.win, m.minimize = nil, nil
 		}
 		st := m.st
 		cb := m.onClose
@@ -162,7 +171,7 @@ func (m *Manager) Open(o Options) error {
 func (m *Manager) Close() {
 	m.mu.Lock()
 	w := m.win
-	m.win = nil
+	m.win, m.minimize = nil, nil
 	m.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -211,6 +220,31 @@ func (s *Service) Report(t, dur float64, paused, muted bool, speed float64, read
 	s.m.mu.Unlock()
 	if cb != nil {
 		cb(s.m.st)
+	}
+}
+
+// Minimize 最小化视频弹窗（弹窗里按 Ctrl/Cmd+W）。最小化的是弹窗自身 ——
+// 它是当前获得键盘焦点的窗口，与主窗 Ctrl/Cmd+W（最小化主窗）的语义一致，
+// 都是「最小化当前窗口」。弹窗最小化后视频仍在播放（音频不停），可从
+// 任务栏 / Dock 还原；不开窗时静默忽略。
+func (s *Service) Minimize() {
+	s.m.mu.Lock()
+	fn := s.m.minimize
+	s.m.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// Quit 退出整个应用（弹窗里按 Ctrl/Cmd+Q）。原版 index.tsx 的快捷键
+// listener 在 `isPlayVideo` 分支之前执行，所以视频模式下 Ctrl/Cmd+Q 同样
+// 生效；原生版的弹窗是独立窗口，主窗快捷键到不了这里，必须由弹窗页面接。
+func (s *Service) Quit() {
+	s.m.mu.Lock()
+	cb := s.m.onQuit
+	s.m.mu.Unlock()
+	if cb != nil {
+		go cb()
 	}
 }
 

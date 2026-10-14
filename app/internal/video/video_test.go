@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestPageURL 钉住弹窗页面地址里的起播参数：位置 / 倍速 / 静音。这些值决定
@@ -449,5 +450,99 @@ func TestVideoPageKeyboardShortcutsMatchOriginal(t *testing.T) {
 		if !strings.Contains(spaceBlk, want) {
 			t.Errorf("空格分支缺少 %q（要真的切播放 / 暂停，不是把事件吞掉）", want)
 		}
+	}
+}
+
+// TestVideoPageModifierShortcutsMatchOriginal 钉住弹窗里的 Ctrl/Cmd+W（最小化）
+// 与 Ctrl/Cmd+Q（退出）。
+//
+// 原版 index.tsx 有**两个** keydown listener：听 Ctrl/Cmd+W/Q 的这个注册在
+// handleKeyPress 之前、且不受 `isPlayVideo` 分支的 `return` 影响 —— 所以视频
+// 浮层打开时这两条照样生效（前者 minimize_window、后者 quit_app）。原生版的
+// 视频是独立窗口，主窗那套快捷键到不了这里，必须由弹窗页面自己接一份。
+func TestVideoPageModifierShortcutsMatchOriginal(t *testing.T) {
+	code := videoPageCode(t)
+
+	const handlerStart = "document.addEventListener('keydown', (e) => {"
+	i := strings.Index(code, handlerStart)
+	if i < 0 {
+		t.Fatal("弹窗没有注册 keydown 监听")
+	}
+	body := code[i+len(handlerStart):]
+	if j := strings.Index(body, "\n});"); j >= 0 {
+		body = body[:j]
+	}
+
+	// 修饰键分支（Ctrl/Cmd）要同时看 metaKey 与 ctrlKey（macOS / 其他平台）。
+	if !strings.Contains(body, "e.metaKey || e.ctrlKey") {
+		t.Fatal("缺少 Ctrl/Cmd 修饰键分支")
+	}
+	// W = 最小化弹窗、Q = 退出应用，都调到 Video.* 服务方法。
+	for _, want := range []string{
+		"e.key === 'w' || e.key === 'W'",
+		"call('Video.Minimize')",
+		"e.key === 'q' || e.key === 'Q'",
+		"call('Video.Quit')",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("缺少 %q", want)
+		}
+	}
+	// 命中后要 preventDefault 并 return，不能继续落进 Esc/空格分支去切播放。
+	mod := strings.Index(body, "e.metaKey || e.ctrlKey")
+	esc := strings.Index(body, "e.code === 'Escape'")
+	if mod < 0 || esc < 0 || mod > esc {
+		t.Fatal("Ctrl/Cmd 分支必须在 Escape / 空格之前")
+	}
+	modBlk := body[mod:esc]
+	if strings.Count(modBlk, "return;") < 2 {
+		t.Error("Ctrl/Cmd+W·+Q 命中后应各自 return，不再落入播放 / 暂停分支")
+	}
+}
+
+// TestServiceMinimizeCallsWindow 钉住 Service.Minimize 的接线：它要调用
+// Manager 上绑定的「最小化弹窗」函数（Open 时 = 窗口的 Minimize）。
+// 测试里没有真实窗口，注入一个计数函数即可；没开窗（nil）时必须静默忽略。
+func TestServiceMinimizeCallsWindow(t *testing.T) {
+	m := New()
+	called := 0
+	m.minimize = func() { called++ }
+
+	NewService(m).Minimize()
+	if called != 1 {
+		t.Fatalf("Service.Minimize 调用弹窗最小化 %d 次，想要 1 次", called)
+	}
+
+	// 没开窗：minimize 为 nil，不能 panic。
+	m.minimize = nil
+	NewService(m).Minimize()
+}
+
+// TestServiceQuitCallsHandler 钉住 Service.Quit 的接线：它要触发 OnQuit
+// 回调（主程序里接到 c.quit）。回调是异步的，用 channel 等它。
+func TestServiceQuitCallsHandler(t *testing.T) {
+	m := New()
+	done := make(chan struct{}, 1)
+	m.onQuit = func() { done <- struct{}{} }
+
+	NewService(m).Quit()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Service.Quit 没有触发 OnQuit 回调")
+	}
+
+	// 没设置回调时不能 panic。
+	NewService(New()).Quit()
+}
+
+// TestManagerCloseClearsMinimize 钉住 Close / 窗口关闭后不再持有最小化函数，
+// 避免关窗后误调到已销毁的窗口。
+func TestManagerCloseClearsMinimize(t *testing.T) {
+	m := New()
+	m.minimize = func() {}
+	m.Close()
+	if m.minimize != nil {
+		t.Error("Close 后仍持有最小化函数")
 	}
 }

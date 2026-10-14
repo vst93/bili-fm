@@ -250,14 +250,33 @@ setInterval(() => {
 }, 1000);
 
 // 视频模式下的键盘快捷键（原版 index.tsx 的 handleKeyPress，isPlayVideo 分支）：
-//   Esc   关闭视频浮层（原版 setIsPlayVideo(false)）
-//   空格  播放 / 暂停视频（原版 setIsPlayVideoStop）
-// 原版在这个分支里对其余快捷键直接 return（「播放视频时屏蔽快捷键」）。弹窗是
-// 独立窗口，主窗那套快捷键本来也到不了这里。此前原生版没有这一段：弹窗聚焦时
-// 按 Esc 关不掉、按空格也不一定切得了播放（只有 <video> 恰好有焦点时由原生控件
-// 接管）。用 !event.repeat 去抖（按住不放不该连发关闭 / 反复切换）。
+//   Esc        关闭视频浮层（原版 setIsPlayVideo(false)）
+//   空格       播放 / 暂停视频（原版 setIsPlayVideoStop）
+//   Ctrl/Cmd+W 最小化（原版 listener 的 minimize_window）
+//   Ctrl/Cmd+Q 退出（原版 listener 的 quit_app）
+// 原版在这个分支里对其余快捷键直接 return（「播放视频时屏蔽快捷键」）。
+//
+// Ctrl/Cmd+W/Q 由原版**另一个** keydown listener 处理，它在 isPlayVideo 分支
+// 之前执行，所以视频模式下这两条照样生效。弹窗是独立窗口，主窗那套快捷键本来
+// 也到不了这里，必须在这里补一份。此前原生版没有这一段：弹窗聚焦时按 Esc 关不掉、
+// 按空格也不一定切得了播放（只有 <video> 恰好有焦点时由原生控件接管）。
+// 用 !event.repeat 去抖（按住不放不该连发关闭 / 反复切换）。
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  // 修饰键先判：Ctrl/Cmd+W·+Q 要在 Esc/空格 之前，且命中后直接 return，
+  // 不再落进下面播放/暂停的分支。
+  if (e.metaKey || e.ctrlKey) {
+    if (e.key === 'w' || e.key === 'W') {
+      e.preventDefault();
+      call('Video.Minimize');
+      return;
+    }
+    if (e.key === 'q' || e.key === 'Q') {
+      e.preventDefault();
+      call('Video.Quit');
+      return;
+    }
+  }
   if (e.code === 'Escape') {
     e.preventDefault();
     call('Video.Close');

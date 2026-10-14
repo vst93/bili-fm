@@ -2530,6 +2530,12 @@ func (c *controller) wireVideo() {
 		}
 		c.app.Win.Update(func() { c.handleEnded() })
 	})
+	// 弹窗里按 Ctrl/Cmd+Q 退出整个应用。原版单窗下视频浮层与主窗共用同一个
+	// keydown listener，这条在视频模式下也生效；原生版弹窗是独立窗口，所以由
+	// 弹窗页面调 Video.Quit 回到这里。回调跑在窗口事件 goroutine 上，丢回主线程。
+	c.vid.OnQuit(func() {
+		c.app.Win.Update(func() { c.quit() })
+	})
 }
 
 func (c *controller) openVideo() {
