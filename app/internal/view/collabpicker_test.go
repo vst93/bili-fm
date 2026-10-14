@@ -242,6 +242,61 @@ func TestCollabMenuCheckedIsBlue(t *testing.T) {
 	}
 }
 
+// TestCollabMenuCheckedDefaultsToOwner 钉住「没选过合作者时默认给主 UP 打勾」：
+// 原版 selectedKeys = displayedOwner.mid，而 displayedOwner 在 selectedOwner
+// 为空时退回 creators[0]（主 UP）—— 所以下拉一打开，主 UP 那一条就是选中项。
+// mygo 此前只在 CollabMid 命中时才算选中，默认一个勾都没有。
+// **反证**：把 collabChecker 的 Staff[0] 回退去掉 → 首条目不再有蓝字，测试红。
+func TestCollabMenuCheckedDefaultsToOwner(t *testing.T) {
+	a, tt := collabProbe(t, 12)
+	// 没选过：CollabMid/CollabFor 都是零值。
+	checked := a.collabChecker()
+	if !checked(a.Info.Staff[0]) {
+		t.Fatal("默认应给主 UP（首条目）打勾")
+	}
+	if checked(a.Info.Staff[1]) || checked(a.Info.Staff[2]) {
+		t.Fatal("默认只该给主 UP 打勾，其它参与者不该是选中项")
+	}
+	// 无头实测：首条目应显蓝（选中），「乙」仍灰。
+	_, first := openCollab(t, tt)
+	blue := maxBlueMinusRed(tt.Image(),
+		int(first.X), int(first.Y), int(first.X+first.W), int(first.Y+first.H))
+	r, ok := tt.Find("乙")
+	if !ok {
+		t.Fatal("面板里看不到「乙」")
+	}
+	gray := maxBlueMinusRed(tt.Image(), int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H))
+	t.Logf("默认主 UP B-R=%d，未选中「乙」B-R=%d", blue, gray)
+	if blue < 100 {
+		t.Fatalf("默认主 UP 应是蓝字（选中）：B-R=%d", blue)
+	}
+	if blue <= gray {
+		t.Fatalf("主 UP 应比未选中项更蓝：选中=%d 未选中=%d", blue, gray)
+	}
+}
+
+// TestCollabCheckerFallsBackAfterVideoChange 钉住「换视频后选中项失效 → 勾回主 UP」：
+// CollabFor 不再等于当前 bvid 时，原版 displayedOwner 退回 creators[0]，
+// 选中标记也应跟着回主 UP。
+func TestCollabCheckerFallsBackAfterVideoChange(t *testing.T) {
+	a, _ := collabProbe(t, 12)
+	// 选中合作者「甲」，但属于另一条视频 → 失效。
+	a.CollabMid, a.CollabFor = 200, "BV1other"
+	checked := a.collabChecker()
+	if !checked(a.Info.Staff[0]) {
+		t.Fatal("换视频后应把勾退回主 UP")
+	}
+	if checked(a.Info.Staff[1]) {
+		t.Fatal("换视频后旧选中项不该还是选中态")
+	}
+	// 选中项仍在当前视频里 → 就是它。
+	a.CollabFor = "BV1collab"
+	checked = a.collabChecker()
+	if !checked(a.Info.Staff[1]) || checked(a.Info.Staff[0]) {
+		t.Fatal("选中项属于当前视频时应勾在它身上")
+	}
+}
+
 // TestCollabMenuHover 无头实测条目悬停底色：指针挪到「乙」右半（避开文字）后，
 // 白玻璃底铺上来，像素应比静息更亮。用烟熏（晚间）主题做底。
 // **反证**：把悬停分支去掉（只留 transparent），两次采样相等。

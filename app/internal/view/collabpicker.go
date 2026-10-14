@@ -132,10 +132,20 @@ func collabTriggerOpacity(expanded, hovered bool) float32 {
 }
 
 // collabChecker 报告某位参与者是否就是当前面板显示的那位（原版 DropdownMenu
-// 的 selectedKeys = displayedOwner.mid）。换视频后 CollabFor 不匹配 → 没有选中项。
+// 的 selectedKeys = displayedOwner.mid）。
+//
+// 原版 displayedOwner = `creators.find(c => c.mid === selectedOwner?.mid) ||
+// creators[0]`——没选过（或换了视频、选中项失效）时**退回参与者里的第一位**，
+// 而 selectedKeys 恒等于 displayedOwner.mid，所以默认就给主 UP（creators[0]）
+// 打勾。mygo 此前只在 CollabMid 命中时才打勾，没选过时一个人都不选中，
+// 下拉里看不到原版那条默认勾。
 func (a *App) collabChecker() func(Collaborator) bool {
+	displayed, ok := a.collabOwner()
+	if !ok && a.Info != nil && len(a.Info.Staff) > 0 {
+		displayed, ok = a.Info.Staff[0], true
+	}
 	return func(st Collaborator) bool {
-		return a.Info != nil && st.Mid == a.CollabMid && a.CollabFor == a.Info.Bvid
+		return ok && st.Mid == displayed.Mid
 	}
 }
 
