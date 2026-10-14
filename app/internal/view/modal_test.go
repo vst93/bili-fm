@@ -193,6 +193,35 @@ func TestModalMaxWidth(t *testing.T) {
 	}
 }
 
+// TestDialogMessageLineHeight 钉住 .dialog-message 的行高（原版 globals.css:5679
+// 的 `font-size:13.5px; line-height:1.7`，即每行 13.5×1.7=22.95px）。原生版
+// 此前只写了 FontSize(13.5)，框架取字体自然行盒（本机实测约 20px），每行少
+// 约 3px，多行正文与 `\n\n` 段间距都会明显比原版挤。
+func TestDialogMessageLineHeight(t *testing.T) {
+	tst := modalProbe(t, &Modal{
+		Kind: "message", Type: "info", Title: "关于 bili-FM",
+		Message: "第一行正文\n\n第二行正文",
+	})
+	one, ok := tst.Find("第一行正文")
+	if !ok {
+		t.Fatalf("找不到第一行正文：%v", tst.Texts())
+	}
+	two, ok := tst.Find("第二行正文")
+	if !ok {
+		t.Fatalf("找不到第二行正文：%v", tst.Texts())
+	}
+	t.Logf("第一行 %+v，第二行 %+v", one, two)
+	// 单行行盒 ≈22.95（不给 LineHeight 时实测约 20）。
+	if one.H < 22 || one.H > 23.5 {
+		t.Errorf("正文行高 = %v，应 ≈22.95（原版 line-height:1.7）", one.H)
+	}
+	// 「第一行 + 空行 + 第二行」两行间距 = 2×22.95 = 45.9（原版）。
+	gap := two.Y - one.Y
+	if gap < 45 || gap > 47 {
+		t.Errorf("两行（含中间空行）的间距 = %v，应 ≈45.9（2×22.95）", gap)
+	}
+}
+
 // TestModalButtons 钉住底部按钮：调用点给什么就画什么（原版 DialogConfig.buttons），
 // 不给时是默认主按钮「确定」。
 func TestModalButtons(t *testing.T) {

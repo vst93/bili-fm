@@ -189,11 +189,15 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 			ui.Text(c, m.Title).FontSize(16).FontWeight(600).
 				TextColor(ui.Hex("#1e293b")).Margin(0, 0, 8, 0)
 			if m.Message != "" {
-				// .dialog-message：13.5px / #475569；多行文本按行拆开逐行画
-				//（原生 Text 不处理 \n）。
+				// .dialog-message：13.5px / #475569 / `line-height:1.7`
+				//（globals.css:5679，即 13.5×1.7=22.95px）；多行文本按行拆开逐行画
+				//（原生 Text 不处理 \n，空行保留成一条只占行高的空 Text）。
+				// 行高必须显式给：框架默认取字体自然行盒（13.5px 时约 20px），
+				// 比原版每行少约 3px，多行/空行会明显更挤（`\n\n` 的段间距尤其）。
 				ui.Column(c).Children(func() {
 					for _, line := range splitLines(m.Message) {
-						ui.Text(c, line).FontSize(13.5).TextColor(ui.Hex("#475569"))
+						ui.Text(c, line).FontSize(13.5).LineHeight(1.7).
+							TextColor(ui.Hex("#475569"))
 					}
 				})
 			}
