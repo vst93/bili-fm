@@ -520,6 +520,12 @@ type App struct {
 	CollabOpenFor string
 	Danmaku       []Danmaku
 	Comments      []Comment
+	// DanmakuCid / ReplyOid 记录当前 Danmaku / Comments 属于哪条视频
+	// （原版 danmakuCid / replyOid）。打开弹幕抽屉或切 tab 时用它判断
+	// 「已经是这条视频的数据了吗」，不是就重拉；没有它就只能靠
+	// len(...)==0 判断，换一条视频后会继续显示上一条的弹幕 / 评论。
+	DanmakuCid int64
+	ReplyOid   int64
 
 	// 弹幕/评论抽屉：DanmakuTab 是当前 tab；DanmakuAutoScroll 是自动跟随
 	// 当前播放时间；Reply* 是评论分页状态。
@@ -696,12 +702,13 @@ type App struct {
 	toasts  []ui.Toast
 
 	// danmakuList 是弹幕列表的虚拟化状态（mygo 的 ui.List 只构建可见行）；
-	// danmakuCid 用于换集时重置它。
+	// danmakuCid 记录上次构建用的是哪条弹幕数据（DanmakuCid），换了就重置它。
 	danmakuList ui.ListState
 	danmakuCid  int64
 
-	// repliesList 是评论列表的虚拟化状态（同 danmakuList）；repliesCid 用于
-	// 换集时重置。评论列表也带 ui.List 的行键，滑动窗口从头部释放已读那批时
+	// repliesList 是评论列表的虚拟化状态（同 danmakuList）；repliesCid 记录上次
+	// 构建用的是哪条评论数据（ReplyOid），换了就重置。评论列表也带 ui.List 的行键，
+	// 滑动窗口从头部释放已读那批时
 	// （见 main.go 的 retainComments）锚点行跟着挪下标，视口停在原评论上不跳。
 	repliesList ui.ListState
 	repliesCid  int64

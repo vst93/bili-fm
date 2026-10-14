@@ -476,3 +476,39 @@ func TestRepliesListKeyIdentity(t *testing.T) {
 		t.Fatalf("第 2 行的键 = %#v, want %#v", got, want)
 	}
 }
+
+// TestDanmakuListResetsOnDataChange 钉住弹幕虚拟列表在**数据来源**变化
+// （DanmakuCid 变化）时重置滚动位置。抽屉跟的是「浏览中」那条（原版
+// videoInfo），不再是正在播放的 Track：播放 A 时浏览 B，B 的弹幕列表不该沿用
+// A 的滚动锚点。改前这里比的是 a.Track.Cid，播放 A 期间浏览 B 不会触发重置。
+func TestDanmakuListResetsOnDataChange(t *testing.T) {
+	a := NewApp(func() {})
+	dms := make([]Danmaku, 200)
+	for i := range dms {
+		dms[i] = Danmaku{Time: float64(i), Text: fmt.Sprintf("弹幕编号%03d", i)}
+	}
+	a.Danmaku = dms
+	a.DanmakuCid = 20
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabDanmaku
+	a.DanmakuAutoScroll = false // 关掉跟随，免得它把列表滚回当前组
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	tst.Scroll(490, 400, 0, 4000)
+	tst.Frame()
+
+	if _, last := a.danmakuList.Visible(); last <= 0 {
+		t.Fatalf("滚动后末可见行应不在顶部：last=%d", last)
+	}
+
+	// 换了数据来源（浏览到另一条视频）：滚动位置与行锚点重置。
+	a.DanmakuCid = 70
+	tst.Frame()
+	if first, _ := a.danmakuList.Visible(); first != 0 {
+		t.Fatalf("换数据来源后弹幕列表应回到顶部：first=%d", first)
+	}
+	if a.danmakuCid != 70 {
+		t.Fatalf("重置后应记住新的来源 cid：%d", a.danmakuCid)
+	}
+}

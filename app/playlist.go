@@ -89,6 +89,13 @@ func (c *controller) playPlaylist(list string, index int, keepDrawer bool) {
 	a.Index = index
 	a.PlayingPlaylist = list
 	a.PlaylistTab = list
+	// 手动从播放列表点一条：原版 handlePlaylistVideoSelect 在 !preserveUi 时
+	// setVideoInfo（浏览中 = 这条），弹幕 / 评论抽屉与选集抽屉都跟着它。
+	// 自动切歌（preserveUi，keepDrawer=false）不动 videoInfo，这里也不动。
+	if keepDrawer {
+		it := items[index]
+		a.BrowseInfo = browseInfoFromPlayItem(it)
+	}
 	c.startCurrent()
 	if keepDrawer {
 		// startCurrent 会把抽屉关掉；从抽屉点进来的要让它保持打开。
@@ -102,6 +109,16 @@ func trackFromPlayItem(it view.PlayItem) view.Track {
 	return view.Track{
 		Aid: it.Aid, Bvid: it.Bvid, Cid: it.Cid,
 		Title: it.Title, Cover: it.Pic, Part: it.Part,
+	}
+}
+
+// browseInfoFromPlayItem 把播放列表记录转成「浏览中」的信息。手动从播放列表
+// 点一条时写 BrowseInfo（原版 handlePlaylistVideoSelect 的 setVideoInfo），
+// 弹幕 / 评论抽屉与选集抽屉都跟着它；自动切歌不写。
+func browseInfoFromPlayItem(it view.PlayItem) *view.Info {
+	return &view.Info{
+		Bvid: it.Bvid, Aid: it.Aid, Cid: it.Cid,
+		Title: it.Title, Pic: it.Pic,
 	}
 }
 

@@ -2590,10 +2590,13 @@ func (a *App) danmakuBody(c *ui.Context) {
 	// 开关无关；滚动另受开关约束（见下方 ScrollIntoView）。
 	cur := a.danmakuCurrentIndex(groups)
 
-	// 换集时重置虚拟列表的滚动位置与行高，否则新一集会沿用上一集的锚点。
-	if a.Track != nil && a.Track.Cid != a.danmakuCid {
+	// 弹幕数据换了来源（换集 / 浏览到另一条视频）就重置虚拟列表的滚动位置与
+	// 行高，否则新一集会沿用上一条的锚点。来源以 DanmakuCid（已加载数据属于
+	// 谁）为准，不再看正在播放的 Track —— 抽屉跟的是浏览中那条（原版
+	// videoInfo），两者可能不是同一条。
+	if a.DanmakuCid != 0 && a.DanmakuCid != a.danmakuCid {
 		a.danmakuList = ui.ListState{}
-		a.danmakuCid = a.Track.Cid
+		a.danmakuCid = a.DanmakuCid
 		a.danmakuScrollIdx = -1
 	}
 
@@ -2801,10 +2804,12 @@ func (a *App) repliesBody(c *ui.Context) {
 	// 带缓存：排序带拷贝，滚动时每帧重排会白白分配 + 吃 CPU（见 sortedComments）。
 	sorted := a.sortedComments()
 
-	// 换集时重置虚拟列表的滚动位置与行锚点，否则新一集会沿用上一集的锚点。
-	if a.Track != nil && a.Track.Cid != a.repliesCid {
+	// 评论数据换了来源（换集 / 浏览到另一条视频）就重置虚拟列表的滚动位置与
+	// 行锚点，否则新一集会沿用上一条的锚点。来源以 ReplyOid（已加载评论属于
+	// 谁）为准，不再看正在播放的 Track。
+	if a.ReplyOid != 0 && a.ReplyOid != a.repliesCid {
 		a.repliesList = ui.ListState{}
-		a.repliesCid = a.Track.Cid
+		a.repliesCid = a.ReplyOid
 	}
 	st := &a.repliesList
 	st.Key = func(r int) any {

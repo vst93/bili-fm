@@ -84,6 +84,12 @@ type controller struct {
 	// lastSponsorToast 是「已跳过恰饭片段」toast 的频控时间点。
 	lastSponsorToast time.Time
 
+	// danmakuReqID / danmakuInflightCid 是弹幕拉取的请求代号与在途 cid：
+	// 起播预取与打开抽屉可能交错，用它们保证只有最新一次的结果落地、同一条
+	// 视频的重复请求才挡（见 startDanmakuFetch）。
+	danmakuReqID       int
+	danmakuInflightCid int64
+
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
 	miniPoll chan struct{}
 	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
@@ -714,10 +720,13 @@ func (c *controller) loadInteractionState(info *view.Info) {
 }
 
 // loadComments 拉一页评论追加到列表（原版回复分页）。page 从 1 开始。
+//
+// 目标是**浏览中**的那条视频（原版 loadReplyList 读 videoInfo.aid），不是正在
+// 播放的曲目：播放 A 时点列表卡片浏览 B，抽屉里的评论应当换成 B 的。
 func (c *controller) loadComments(page int) {
 	a := c.app
-	t := a.Current()
-	if t == nil {
+	t := danmakuTarget(a)
+	if t == nil || t.Aid == 0 {
 		return
 	}
 	a.RepliesLoading = true
@@ -727,6 +736,10 @@ func (c *controller) loadComments(page int) {
 		r, err := c.bl.GetReplyList(aid, page)
 		a.Win.Update(func() {
 			a.RepliesLoading = false
+			// 目标可能在拉取期间又换了（用户点了别的视频），过期结果丢掉。
+			if bt := danmakuTarget(a); bt == nil || bt.Aid != aid {
+				return
+			}
 			if err != nil || r == nil {
 				return
 			}
@@ -769,6 +782,7 @@ func (c *controller) loadComments(page int) {
 			// 那几行；上限现在主要约束内存驻留。超上限时从**头部**释放已读的那批
 			//（见 retainComments）。
 			a.Comments = retainComments(a.Comments, list, page, maxComments)
+			a.ReplyOid = aid
 			a.ReplyPage = page
 			a.RepliesHasMore = r.HasMore
 			a.ReplyTotal = r.TotalCount
@@ -817,7 +831,7 @@ func retainComments(prev, page []view.Comment, pageNo, limit int) []view.Comment
 // switchDanmakuTab 切换「弹幕/评论」tab；切到评论时按需拉第一页。
 func (c *controller) switchDanmakuTab(tab string) {
 	a := c.app
-	if tab == view.TabReply && len(a.Comments) == 0 && !a.RepliesLoading {
+	if tab == view.TabReply && needLoadComments(a) && !a.RepliesLoading {
 		c.loadComments(1)
 	}
 	// 切回弹幕：重新跟随当前时间。
@@ -825,6 +839,27 @@ func (c *controller) switchDanmakuTab(tab string) {
 		a.DanmakuAutoScroll = true
 		a.Win.Update(func() {})
 	}
+}
+
+// danmakuTarget 是弹幕 / 评论抽屉的数据来源：原版 loadDanmakuList /
+// loadReplyList 都读 videoInfo（**浏览中**的那条），不是正在播放的曲目。
+// Browse() 在没有浏览信息时回退到正在播放那条，所以「播放 == 浏览」的常见
+// 路径不受影响；只有「播放 A、浏览 B」时抽屉才跟着 B（原版行为）。
+func danmakuTarget(a *view.App) *view.Info {
+	return a.Browse()
+}
+
+// needLoadDanmaku 报告弹幕是否需要为当前目标重拉：目标没有 cid、数据属于
+// 别的视频、或还没拉过，都要拉（原版 loadDanmakuList 比 danmakuCid）。
+func needLoadDanmaku(a *view.App) bool {
+	t := danmakuTarget(a)
+	return t != nil && t.Cid != 0 && (a.DanmakuCid != t.Cid || len(a.Danmaku) == 0)
+}
+
+// needLoadComments 同上（原版 loadReplyList 比 replyOid）。
+func needLoadComments(a *view.App) bool {
+	t := danmakuTarget(a)
+	return t != nil && t.Aid != 0 && (a.ReplyOid != t.Aid || len(a.Comments) == 0)
 }
 
 // toViewSegments 把 bilibili 的跳过分段转成视图用的标记。
@@ -2113,17 +2148,10 @@ func (c *controller) startCurrent() {
 
 		// 弹幕与跳过分段：可选增强，失败不影响播放。弹幕预取同样置
 		// isLoadingDanmaku —— 若此时用户打开弹幕抽屉，表头刷新键会转圈，
-		// 且 toggleDanmaku 不会重复拉一份。
-		c.app.Win.Update(func() { c.app.DanmakuLoading = true })
-		if d, err := c.bl.GetDanmakuList(int(cid)); err == nil && d != nil {
-			list := toDanmakuList(d.Items)
-			c.app.Win.Update(func() {
-				c.app.DanmakuLoading = false
-				c.app.Danmaku = list
-			})
-		} else {
-			c.app.Win.Update(func() { c.app.DanmakuLoading = false })
-		}
+		// 且同一条视频的抽屉拉取不会重复发。预取的是**正在播放**这条；
+		// 抽屉跟的是「浏览中」那条（原版 videoInfo），目标不同时打开抽屉
+		// 会按请求代号重新拉（见 startDanmakuFetch）。
+		c.startDanmakuFetch(cid)
 		if c.sponsorOn {
 			c.app.Win.Update(func() {
 				c.app.SponsorStatus = "loading"
@@ -2317,43 +2345,65 @@ func (c *controller) toggleDanmaku() {
 	if a.Drawer != view.DrawerDanmaku {
 		return
 	}
+	// 弹幕 / 评论都跟「浏览中」的那条（原版 videoInfo），不是正在播放的曲目。
+	t := danmakuTarget(a)
 	if a.DanmakuTab == view.TabReply {
-		if len(a.Comments) == 0 && !a.RepliesLoading {
+		if needLoadComments(a) && !a.RepliesLoading {
 			c.loadComments(1)
 		}
 		return
 	}
-	if len(a.Danmaku) > 0 {
+	if !needLoadDanmaku(a) {
 		return
 	}
-	t := a.Current()
 	if t == nil || t.Cid == 0 {
 		return
 	}
-	// 已经有一次弹幕拉取在途：连点忽略（原版刷新键 isLoading 期间禁用，
-	// 起播预取与打开抽屉都共用同一个 isLoadingDanmaku）。
-	if danmakuLoadBlocked(a.DanmakuLoading) {
+	// 已经有一次**同一条视频**的弹幕拉取在途：连点忽略（原版刷新键 isLoading
+	// 期间禁用）。起播预取与打开抽屉共用；目标不同的拉取不互相挡（各起请求，
+	// 由请求代号决定谁的结果落地）。
+	if danmakuLoadBlocked(c.danmakuInflightCid, t.Cid) {
 		return
 	}
-	a.DanmakuLoading = true
-	cid := t.Cid
-	a.Win.Update(func() {})
+	c.startDanmakuFetch(t.Cid)
+}
+
+// startDanmakuFetch 起一次弹幕拉取（起播预取与打开抽屉都走它）。
+//
+// 用请求代号保证只有最新一次的结果落地：预取 A 与抽屉 B 可能交错，旧结果
+// 不能把用户正在看的那条盖回去。同时维护 DanmakuLoading（表头刷新键的转圈态）
+// 与在途 cid（同一条视频的重复请求才挡）。
+func (c *controller) startDanmakuFetch(cid int64) {
+	a := c.app
+	c.danmakuReqID++
+	reqID := c.danmakuReqID
+	c.danmakuInflightCid = cid
+	a.Win.Update(func() { a.DanmakuLoading = true })
 	go func() {
 		d, err := c.bl.GetDanmakuList(int(cid))
 		// 不管成败都要清 loading，否则表头刷新键会永远转圈。
 		c.app.Win.Update(func() {
+			if c.danmakuReqID != reqID {
+				return // 已被更新的请求取代，别清也别写
+			}
+			c.danmakuInflightCid = 0
 			c.app.DanmakuLoading = false
 			if err != nil || d == nil {
 				return
 			}
 			c.app.Danmaku = toDanmakuList(d.Items)
+			c.app.DanmakuCid = cid
 		})
 	}()
 }
 
-// danmakuLoadBlocked 报告这次弹幕拉取是否该被忽略：已经有一次在途时忽略
-// （原版 isLoadingDanmaku 期间刷新键禁用，实际不会发第二次）。抽成纯函数便于单测。
-func danmakuLoadBlocked(pending bool) bool { return pending }
+// danmakuLoadBlocked 报告这次弹幕拉取是否该被忽略：已经有一次**同一条 cid**
+// 的拉取在途时忽略（原版 isLoadingDanmaku 期间刷新键禁用，同一 cid 实际不会
+// 发第二次）。目标不同的在途请求不挡（见 startDanmakuFetch 的请求代号）。
+// 抽成纯函数便于单测。
+func danmakuLoadBlocked(inflightCid, targetCid int64) bool {
+	return inflightCid != 0 && inflightCid == targetCid
+}
 
 // maxDanmaku / maxComments 是内存里保留的弹幕/评论条数上限（原版也是这个量级）。
 // 两个列表都走虚拟化 ui.List，每帧成本只跟可见行数有关，所以上限现在约束的是
