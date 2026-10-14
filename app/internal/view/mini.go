@@ -173,9 +173,9 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 底色/描边/墨色走与主窗同一条 140ms ease 过渡（原版 mini 的
 					// transition 没有覆盖 #player .player-button 的那条）。
 					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(t, play.Hovered())
-					playFill := playerFadeColor(play, "mini-play-bg", playFillRaw)
-					playBorder := playerFadeColor(play, "mini-play-border", playBorderRaw)
-					playInk := playerFadeColor(play, "mini-play-ink", playInkRaw)
+					playFill := playerFadeColor(c, play, "mini-play-bg", playFillRaw)
+					playBorder := playerFadeColor(c, play, "mini-play-border", playBorderRaw)
+					playInk := playerFadeColor(c, play, "mini-play-ink", playInkRaw)
 					// 按下（:active）时原版把 ::before 底色换成 --liquid-bg-active
 					// （白 .16）、box-shadow 换成更深的 `inset 0 1px 3px 墨 .1`
 					//（:active 规则特异度 (1,3,0) 盖过 mini 基态与 [data-playing]）。
@@ -220,12 +220,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label(nextTip()).Tooltip(nextTip())
 					disablePlayerButton(next, !a.canNavigate())
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
-					playerToolSurface(t, toolNext, next, false, next.Hovered(), next.Pressed())
+					playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
 					playerRim(next, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					next.Children(func() {
 						icon := ui.Icon(c, iconNext).Size(18, 18).
-							TextColor(playerFadeColor(next, "mini-next-ink",
+							TextColor(playerFadeColor(c, next, "mini-next-ink",
 								playerButtonInk(t, next.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 						playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
@@ -251,12 +251,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						Label("音量").Tooltip("音量")
 					// 原版 disabled={!src}。
 					disablePlayerButton(vol, !a.hasSource())
-					playerToolSurface(t, toolVolume, vol, false, vol.Hovered(), vol.Pressed())
+					playerToolSurface(c, t, toolVolume, vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
 					playerRim(vol, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					vol.Children(func() {
 						icon := ui.Icon(c, iconVolume).Size(18, 18).
-							TextColor(playerFadeColor(vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered()))).
+							TextColor(playerFadeColor(c, vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 						playerIconShadowFn(icon, iconVolume, 0, 1, playerIconShadowInk)
 					})

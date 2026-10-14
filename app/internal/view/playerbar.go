@@ -163,7 +163,14 @@ var playerFadeAnim = ui.Animation{
 // var 便于测试：AnimateColor 在目标变化的那一帧返回**上一帧的颜色**
 // （曲线 t=0），直接铺目标色会瞬时跳变——测试可换成「瞬时铺色」的桩做
 // 反证。key 在同一颗键内须唯一。
-var playerFadeColor = func(b ui.Element, key string, target ui.Color) ui.Color {
+//
+// 桌面要求减少动态效果时原版对 `#player .player-button` / 音量弹层 /
+// 滑杆拇指写了 `transition: none`（globals.css 的 prefers-reduced-motion
+// 块），这里直接铺目标色（当帧到位）。
+var playerFadeColor = func(c *ui.Context, b ui.Element, key string, target ui.Color) ui.Color {
+	if reduceMotion(c) {
+		return target
+	}
 	return b.AnimateColor(key, target, playerFadeAnim)
 }
 
@@ -243,14 +250,14 @@ var (
 // 按下（pressed）时原版 :active 把整条 box-shadow 换成更深的内压
 // （`inset 0 1px 3px rgba(15,23,42,.1)`）、底色转 `--liquid-bg-active`（白 .16），
 // 描边沿用悬停/激活态（:active 不改 border-color）。
-func playerToolSurface(t Theme, key playerToolKey, b ui.Element, active, hovered, pressed bool) ui.Element {
+func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, active, hovered, pressed bool) ui.Element {
 	if pressed {
 		return applyInsetShadows(
 			b.Background(playerPressFill()).Border(1, playerToolBorder(t, key, active, hovered)),
 			playerPressShadowSpecs())
 	}
-	b = b.Background(playerFadeColor(b, "player-tool-bg", playerToolFill(t, active, hovered))).
-		Border(1, playerFadeColor(b, "player-tool-border", playerToolBorder(t, key, active, hovered))).
+	b = b.Background(playerFadeColor(c, b, "player-tool-bg", playerToolFill(t, active, hovered))).
+		Border(1, playerFadeColor(c, b, "player-tool-border", playerToolBorder(t, key, active, hovered))).
 		InsetShadow(0, 1, 1, 0, playerToolInset(t, active, hovered))
 	if active {
 		// 深色激活态原版整条 box-shadow 只有「顶内高光白 .32 + 外蓝 .12」，
@@ -1128,7 +1135,7 @@ func (a *App) transport(c *ui.Context) {
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
 			ic := pick(a.Playing, iconPause, iconPlay)
 			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
-				TextColor(playerFadeColor(play, "player-play-ink", playerPlayInk(a.Theme, a.Playing, play.Hovered()))).
+				TextColor(playerFadeColor(c, play, "player-play-ink", playerPlayInk(a.Theme, a.Playing, play.Hovered()))).
 				Opacity(playerDisabledIconOpacityFor(!src)).
 				// 原版 .player-play-button svg { transform: translateX(.5px) }。
 				Translate(0.5, 0)
@@ -1143,7 +1150,7 @@ func (a *App) transport(c *ui.Context) {
 		// 原版 .player-button:disabled 是 opacity .42（disablePlayerButton 会补上
 		// mygo 禁用节点的减半）。
 		disablePlayerButton(next, !a.canNavigate())
-		playerToolSurface(a.Theme, toolNext, next, false, next.Hovered(), next.Pressed())
+		playerToolSurface(c, a.Theme, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
 		// 下一集是工具键：原版 ::after opacity .52。
 		playerRim(next, RadiusPill, a.Theme.Dark, true, sheenKindStatic, false, false)
@@ -1151,7 +1158,7 @@ func (a *App) transport(c *ui.Context) {
 			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
 			// tool 规则覆盖），悬停转蓝；深色常态转 Theme.PlayerButton。
 			icon := ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
-				TextColor(playerFadeColor(next, "player-next-ink", playerButtonInk(a.Theme, next.Hovered()))).
+				TextColor(playerFadeColor(c, next, "player-next-ink", playerButtonInk(a.Theme, next.Hovered()))).
 				Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 			playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
 		})
@@ -1338,7 +1345,7 @@ func (a *App) volumeButton(c *ui.Context) {
 		Label("音量").Tooltip("音量")
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
+	playerToolSurface(c, a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
@@ -1346,7 +1353,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	b.Children(func() {
 		ic := pick(muted, iconMute, iconVolume)
 		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
-			TextColor(playerFadeColor(b, "player-volume-ink", playerToolInk(a.Theme, toolVolume, a.ShowVolume, b.Hovered()))).
+			TextColor(playerFadeColor(c, b, "player-volume-ink", playerToolInk(a.Theme, toolVolume, a.ShowVolume, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 		playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 	})
@@ -1364,14 +1371,14 @@ func (a *App) speedButton(c *ui.Context) {
 		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
+	playerToolSurface(c, a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
-			TextColor(playerFadeColor(b, "player-speed-ink", playerToolInk(a.Theme, toolSpeed, a.ShowSpeed, b.Hovered())))
+			TextColor(playerFadeColor(c, b, "player-speed-ink", playerToolInk(a.Theme, toolSpeed, a.ShowSpeed, b.Hovered())))
 	})
 	if b.Clicked() {
 		a.ShowSpeed = !a.ShowSpeed
@@ -1386,12 +1393,12 @@ func (a *App) eqButton(c *ui.Context) {
 		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
+	playerToolSurface(c, a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(b, "player-eq-ink", playerToolInk(a.Theme, toolEq, a.EQ, b.Hovered()))).
+			TextColor(playerFadeColor(c, b, "player-eq-ink", playerToolInk(a.Theme, toolEq, a.EQ, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 		playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
 	})
@@ -1406,13 +1413,13 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Label(sponsorTip()).Tooltip(sponsorTip())
-	playerToolSurface(a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
+	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, b.Hovered())))
+			TextColor(playerFadeColor(c, b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, b.Hovered())))
 		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。

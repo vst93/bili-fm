@@ -46,7 +46,7 @@ func TestPlayerFadeColorTransitions(t *testing.T) {
 	var samples []ui.Color
 	tt := ui.NewTester(func(c *ui.Context) {
 		b := ui.Box(c)
-		samples = append(samples, playerFadeColor(b, "probe", cur))
+		samples = append(samples, playerFadeColor(c, b, "probe", cur))
 	}, 60, 60)
 	tt.Frame()
 	if len(samples) == 0 {

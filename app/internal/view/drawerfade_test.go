@@ -59,7 +59,7 @@ func TestDrawerFadeColorTransitions(t *testing.T) {
 	var samples []ui.Color
 	tt := ui.NewTester(func(c *ui.Context) {
 		b := ui.Box(c)
-		samples = append(samples, drawerFadeColor(b, "probe", cur, drawerFadeAnim))
+		samples = append(samples, drawerFadeColor(c, b, "probe", cur, drawerFadeAnim))
 	}, 60, 60)
 	tt.Frame()
 	if len(samples) == 0 {
@@ -89,9 +89,9 @@ func fadeProbe(t *testing.T, seed func(a *App)) map[string]ui.Color {
 	orig := drawerFadeColor
 	t.Cleanup(func() { drawerFadeColor = orig })
 	got := map[string]ui.Color{}
-	drawerFadeColor = func(b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
+	drawerFadeColor = func(c *ui.Context, b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
 		got[key] = target
-		return orig(b, key, target, a)
+		return orig(c, b, key, target, a)
 	}
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))

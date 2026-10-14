@@ -23,9 +23,9 @@ func TestPlayerBarDarkThemeWired(t *testing.T) {
 
 	render := func(theme Theme) map[string]ui.Color {
 		got := map[string]ui.Color{}
-		playerFadeColor = func(b ui.Element, key string, target ui.Color) ui.Color {
+		playerFadeColor = func(c *ui.Context, b ui.Element, key string, target ui.Color) ui.Color {
 			got[key] = target
-			return orig(b, key, target)
+			return orig(c, b, key, target)
 		}
 		_, tst := playerBarProbe(t, func(a *App) { a.Theme = theme })
 		_ = tst

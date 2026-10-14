@@ -386,17 +386,20 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 						// 应到的角度，用等长的线性过渡覆盖这一段；中间帧由框架
 						// 插值，角速度恒定。播放时进度上报每 500ms 会重建一次
 						// 视图，所以 1s 的步长留了余量。
+						// 桌面要求减少动态效果时原版把这条 animation 整个撤掉
+						// （`.record-disc { animation: none }`）——唱片不再转、回正到
+						// 0°；这里停步进并复位角度（见 discTargetAngle / resetDisc）。
 						if a.coverBitmap() != nil || Logo != nil {
-							a.advanceDisc(time.Now())
-							img := a.coverImage(c)
-							if a.Playing {
-								rate := float32(discSpinStep) / float32(discSpinPeriod) * 360
-								img.AnimatePose(ui.Pose{Rotate: a.discAngle + rate},
-									ui.Animation{Duration: discSpinStep, Ease: ui.Linear})
+							reduce := reduceMotion(c)
+							now := time.Now()
+							if reduce {
+								a.resetDisc(now)
 							} else {
-								img.AnimatePose(ui.Pose{Rotate: a.discAngle},
-									ui.Animation{Duration: discSpinStep, Ease: ui.Linear})
+								a.advanceDisc(now)
 							}
+							img := a.coverImage(c)
+							img.AnimatePose(ui.Pose{Rotate: discTargetAngle(reduce, a.Playing, a.discAngle)},
+								ui.Animation{Duration: discSpinStep, Ease: ui.Linear})
 						}
 					})
 					if disc.Clicked() && a.Act.TogglePlay != nil {
@@ -600,6 +603,28 @@ func (a *App) advanceDisc(now time.Time) {
 		a.discAngle += discAdvance(dt.Seconds(), a.Pos-a.discLastPos, a.Speed)
 	}
 	a.discLast, a.discLastPos = now, a.Pos
+}
+
+// resetDisc 停转唱片（桌面要求减少动态效果）：角度归零，并把基准时间 / 位置
+// 刷新到当前，免得之后恢复时把停转期间的挂钟差当成一次 seek 补一大笔角度。
+// 对应原版 `.record-disc { animation: none }` 把旋转整个撤掉（回到 0°）。
+func (a *App) resetDisc(now time.Time) {
+	a.discAngle = 0
+	a.discLast, a.discLastPos = now, a.Pos
+}
+
+// discTargetAngle 给出唱片下一帧该转到的角度：减少动态效果时恒为 0（不转、
+// 回正），否则播放中按 discSpinStep 往前推一格（AnimatePose 的线性过渡覆盖
+// 这一段，中间帧由框架插值），暂停 / 缓冲时停在当前角。拆成 var 便于测试观察
+// 接线（减少动态效果偏好有没有传到封面上）。
+var discTargetAngle = func(reduce, playing bool, angle float32) float32 {
+	if reduce {
+		return 0
+	}
+	if playing {
+		return angle + float32(discSpinStep)/float32(discSpinPeriod)*360
+	}
+	return angle
 }
 
 // infoDescMinH 是简介块的最小高度：原版 `#video-desc p` 的 `min-height: 46px`

@@ -58,7 +58,14 @@ var (
 // drawerFadeColor 把一处色值交给动画层做过渡。拆成 var 便于测试换桩做反证：
 // AnimateColor 在目标变化的那一帧返回**上一帧的颜色**（曲线 t=0），直接铺
 // 目标色会瞬时跳变。key 在同一元素内须唯一。
-var drawerFadeColor = func(b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
+//
+// 桌面要求减少动态效果时，原版对评论行 / 弹幕胶囊 / 时间标签 / 分组行写了
+// `transition: none`（globals.css 的 prefers-reduced-motion 块），所以这里
+// 直接铺目标色（当帧到位）。
+var drawerFadeColor = func(c *ui.Context, b ui.Element, key string, target ui.Color, a ui.Animation) ui.Color {
+	if reduceMotion(c) {
+		return target
+	}
 	return b.AnimateColor(key, target, a)
 }
 
@@ -947,8 +954,8 @@ func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size
 			return
 		}
 		icon := ui.Icon(c, ic).Size(size, size).TextColor(ink)
-		if spin {
-			icon.Rotate(spinDegrees(spin, b.Loop("spin", refreshSpinPeriod, ui.Linear)))
+		if refreshKeySpin(spin, reduceMotion(c)) {
+			spinRefreshIcon(icon, b.Loop("spin", refreshSpinPeriod, ui.Linear))
 		}
 	})
 	if b.Clicked() {
@@ -970,6 +977,20 @@ type refreshKeyState struct {
 // Off 报告刷新键这一帧是否禁用：两种加载形态都禁用（原版 isDisabled /
 // isLoading 都会把按钮置为 disabled）。
 func (s refreshKeyState) Off() bool { return s.Spin || s.Spinner }
+
+// refreshKeySpin 报告历史抽屉刷新键的图标这一帧是否自转：正在刷新且桌面没有
+// 要求减少动态效果。原版 `.history-refresh-spinning` 在
+// `@media (prefers-reduced-motion: reduce)` 下是 `animation: none` —— 图标
+// 停住但按钮仍保持 disabled（禁用与自转是两件事）。
+func refreshKeySpin(spinning, reduce bool) bool {
+	return spinning && !reduce
+}
+
+// spinRefreshIcon 给历史刷新图标套上自转（进度 0→1 转满一圈）。拆成 var
+// 便于测试观察接线：减少动态效果下这一层不该被调到。
+var spinRefreshIcon = func(icon ui.Element, progress float32) {
+	icon.Rotate(spinDegrees(true, progress))
+}
 
 // refreshKeyStateFor 按当前抽屉给出刷新键的形态：
 //
@@ -2591,7 +2612,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 	case box.Hovered():
 		sepTarget = t.Blue.Alpha(0.24)
 	}
-	box.InsetShadow(0, -1, 0, 0, drawerFadeColor(box, "dmg-sep", sepTarget, danmakuBorderAnim))
+	box.InsetShadow(0, -1, 0, 0, drawerFadeColor(c, box, "dmg-sep", sepTarget, danmakuBorderAnim))
 	box.Children(func() {
 		// 左列（宽窗 64 / ≤420 时 54）：时间标签 + 「N 条」，右缘一线分隔
 		//（.danmaku-time-head）。右缘用 x=-1 的内影（正 x 画的是左缘）。
@@ -2609,8 +2630,8 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 				labelBG = ui.Hex("#0284c7")
 				labelInk = ui.Hex("#ffffff")
 			}
-			lbl.Background(drawerFadeColor(lbl, "dmg-label-bg", labelBG, drawerFadeAnim)).
-				TextColor(drawerFadeColor(lbl, "dmg-label-ink", labelInk, drawerFadeAnim))
+			lbl.Background(drawerFadeColor(c, lbl, "dmg-label-bg", labelBG, drawerFadeAnim)).
+				TextColor(drawerFadeColor(c, lbl, "dmg-label-ink", labelInk, drawerFadeAnim))
 			if isCur {
 				lbl.InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
 					Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
@@ -2634,8 +2655,8 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, sep ui.
 				// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
 				// 原版 `.danmaku-message-row` 的
 				// `transition: background-color/border-color 140ms ease`。
-				chip.Background(drawerFadeColor(chip, "dmg-chip-bg", paint.BG, drawerFadeAnim)).
-					Border(1, drawerFadeColor(chip, "dmg-chip-border", paint.Border, drawerFadeAnim)).
+				chip.Background(drawerFadeColor(c, chip, "dmg-chip-bg", paint.BG, drawerFadeAnim)).
+					Border(1, drawerFadeColor(c, chip, "dmg-chip-border", paint.Border, drawerFadeAnim)).
 					InsetShadow(0, 1, 0, 0, paint.Inset).
 					Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
 				chip.Children(func() {
@@ -2838,8 +2859,8 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 		targetBorder = ui.Hex("#0ea5e9").Alpha(0.22)
 		inset = ui.Hex("#ffffff").Alpha(0.58)
 	}
-	row.Background(drawerFadeColor(row, "cm-row-bg", targetBG, drawerFadeAnim)).
-		Border(1, drawerFadeColor(row, "cm-row-border", targetBorder, drawerFadeAnim)).
+	row.Background(drawerFadeColor(c, row, "cm-row-bg", targetBG, drawerFadeAnim)).
+		Border(1, drawerFadeColor(c, row, "cm-row-border", targetBorder, drawerFadeAnim)).
 		InsetShadow(0, 1, 0, 0, inset)
 	if hovered {
 		row.Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
