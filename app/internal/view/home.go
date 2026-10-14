@@ -615,6 +615,19 @@ var infoDescMinH float32 = 46
 // 内容回到 366 以内，固定盒高完全装得下。声明成 var 便于测试归零做反证。
 var videoInfoHeight float32 = 366
 
+// videoInfoPad 是宽窗右栏的内边距，对应原版 `#video-info` 的
+// `padding: 2px 0 2px 3px`（上 / 右 / 下 / 左，border-box 下由 366 的固定盒高吸收）。
+// 上边距 2px 是「UP 主」整块离盒顶的距离；左边距 3px 给头像的聚焦环 / hover 缩放
+// 留空间（原版注释）。窄窗原版 `#video-info { height: auto; padding: 0 }`，所以
+// 只在宽窗应用。声明成 var 便于测试归零做反证。
+var videoInfoPad = [4]float32{2, 0, 2, 3}
+
+// videoTitleMaxH 是标题盒高的上限：原版 `#video-title h2` 的 `max-height: 58px`
+// （两行 × 22px × 1.18 ≈ 52，留一点余量）。没有它时，固定 366 盒高里吃不完的
+// 剩余空间会被标题吸收（长标题实测涨到 66），把下方内容整体顶下去。
+// 声明成 var 便于测试归零做反证。
+var videoTitleMaxH float32 = 58
+
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
 //
@@ -626,17 +639,22 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 	if wide {
 		// Grow(1) 在 Row 里吃的是**横向**剩余宽度（原版 1fr 列）；
 		// Height(videoInfoHeight) 固定**纵向**盒高，两者互不冲突。
-		col.Grow(1).MinWidth(0).Height(videoInfoHeight)
+		col.Grow(1).MinWidth(0).Height(videoInfoHeight).
+			Padding(videoInfoPad[0], videoInfoPad[1], videoInfoPad[2], videoInfoPad[3])
 	}
 	col.Children(func() {
 		a.videoInfoHead(c)
-		// 原版 #video-title h2：22px / 800 / 2 行截断 / min-height 52。
-		// #video-title 与 h2 都是 margin: 0（此前多加了 8px 上边距，会把
-		// 366 的固定盒高顶穿，3 行简介时整块内容溢出）。
+		// 原版 #video-title h2：22px / 800 / line-height 1.18 / 2 行截断 /
+		// min-height 52、max-height 58。#video-title 与 h2 都是 margin: 0（此前
+		// 多加了 8px 上边距，会把 366 的固定盒高顶穿）。
+		// line-height 1.18 必须显式给：框架默认的自然行高（约 1.4×）两行会超出
+		// max-height 58 而被裁；1.18 让两行正好落进 58。max-height 58 更是必须——
+		// 否则固定盒高里吃不完的剩余空间会被标题吸收（长标题时盒子涨到 66，把
+		// 下方的简介 / 胶囊 / 操作行整体顶下去）。
 		title := ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
-			MaxLines(2).Selectable()
+			LineHeight(1.18).MaxLines(2).Selectable()
 		if wide {
-			title.MinHeight(52)
+			title.MinHeight(52).MaxHeight(videoTitleMaxH)
 		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有

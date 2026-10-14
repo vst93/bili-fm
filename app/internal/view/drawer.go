@@ -617,6 +617,141 @@ type tabItem struct {
 	Icon *ui.SVG
 }
 
+// ---------------------------------------------------------------- 表头 tab 材质
+
+// drawerTabPaint 是抽屉表头 tab（原版
+// `[data-slot="wrapper"] header [data-slot="tab"]`）某一状态解析好的材质：
+//
+//	常态  1px --glass-border（白 .55）边、--liquid-bg（白 .22）底、box-shadow none
+//	悬停  1px --glass-border-bright（白 .72）边、--liquid-bg-hover（白 .30）底、
+//	      box-shadow --liquid-shadow（0 8 24 墨 .07 + 0 1 4 墨 .03）
+//	选中  1px --glass-border-bright 边、白 .52 底、
+//	      box-shadow --liquid-shadow-lifted（0 16 38 墨 .11 + 0 2 8 墨 .04）
+//
+// 常态的 `box-shadow: none` 对应两层零值 shadowSpec（几何与色值都为零，CSS 把
+// none 当成一组零长透明影子参与插值）。Rim 是 ::after 聚光描边的整圈不透明度：
+// 常态 .65、选中 1（悬停未选中不覆写，仍是 .65）。
+type drawerTabPaint struct {
+	BG, Border     ui.Color
+	LiftLG, LiftSM shadowSpec
+	Rim            float32
+}
+
+// drawerTabPaintFor 由（选中 / 悬停）解析材质。
+func drawerTabPaintFor(active, hovered bool) drawerTabPaint {
+	p := drawerTabPaint{
+		BG:     ui.Hex("#ffffff").Alpha(0.22), // --liquid-bg
+		Border: ui.Hex("#ffffff").Alpha(0.55), // --glass-border
+		Rim:    0.65,
+	}
+	switch {
+	case active:
+		p.BG = ui.Hex("#ffffff").Alpha(0.52)
+		p.Border = ui.Hex("#ffffff").Alpha(0.72) // --glass-border-bright
+		p.Rim = 1
+		p.LiftLG = shadowSpec{0, 16, 38, 0, shadowInk.Alpha(0.11)}
+		p.LiftSM = shadowSpec{0, 2, 8, 0, shadowInk.Alpha(0.04)}
+	case hovered:
+		p.BG = ui.Hex("#ffffff").Alpha(0.30) // --liquid-bg-hover
+		p.Border = ui.Hex("#ffffff").Alpha(0.72)
+		p.LiftLG = shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}
+		p.LiftSM = shadowSpec{0, 1, 4, 0, shadowInk.Alpha(0.03)}
+	}
+	return p
+}
+
+// drawerTabInk 是 tab 的文字色：常态 #475569、悬停（未选中）#334155、
+// 选中 #0369a1。
+func drawerTabInk(active, hovered bool) ui.Color {
+	switch {
+	case active:
+		return ui.Hex("#0369a1")
+	case hovered:
+		return ui.Hex("#334155")
+	}
+	return ui.Hex("#475569")
+}
+
+// drawerTabAnim 是 tab 状态切换的过渡：原版 `[data-slot="tab"]` 的
+// `transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease`，
+// 加上 `::before { transition: background-color 0.2s ease }` 与
+// `::after { transition: opacity 0.2s ease }`（CSS ease = cubic-bezier(.25,.1,.25,1)）。
+var drawerTabAnim = ui.Animation{
+	Duration: 200 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// drawerTabFade 把一处色值交给 0.2s 过渡（同 partSearchFade）。声明成 var 便于
+// 测试冻结动画相位。
+var drawerTabFade = func(b ui.Element, key string, target ui.Color) ui.Color {
+	return b.AnimateColor(key, target, drawerTabAnim)
+}
+
+// drawerTabShadow 同 partSearchShadow：box-shadow 的几何与色值一起走 0.2s 过渡。
+var drawerTabShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec {
+	return shadowSpec{
+		X:      b.AnimateTo(key+"-x", s.X, drawerTabAnim),
+		Y:      b.AnimateTo(key+"-y", s.Y, drawerTabAnim),
+		Blur:   b.AnimateTo(key+"-blur", s.Blur, drawerTabAnim),
+		Spread: b.AnimateTo(key+"-spread", s.Spread, drawerTabAnim),
+		C:      b.AnimateColor(key+"-ink", s.C, drawerTabAnim),
+	}
+}
+
+// drawerTabShadowInto 把一条过渡中的 box-shadow 画到 tab 上。
+func drawerTabShadowInto(b ui.Element, key string, s shadowSpec) {
+	r := drawerTabShadow(b, key, s)
+	b.Shadow(r.X, r.Y, r.Blur, r.Spread, r.C)
+}
+
+// drawerTabRimOpacity 把 ::after 聚光描边的整圈不透明度做 0.2s 过渡。
+var drawerTabRimOpacity = func(b ui.Element, target float32) float32 {
+	return b.AnimateTo("tab-rim", target, drawerTabAnim)
+}
+
+// drawerTabGlass 画 tab 的 `::before` 洗光（--glass-sheen-static）与 `::after`
+// 的 1px 聚光描边（--liquid-rim）。与 partSearchGlass / partPillGlass 同一套近似：
+// mygo 没有径向 / conic 渐变接口，光泽复用播放栏那套烘焙位图（sheenGlassBaked
+// 就是 --glass-sheen-static），描边复用四边线性近似（paintPlayerRim）。
+// 声明成 var 便于测试换桩做反证。
+var drawerTabGlass = func(b ui.Element, rimOpacity float32) ui.Element {
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintPlayerSheen(p, r, Radius, sheenGlassBaked.bitmap())
+		if rimOpacity > 0 {
+			paintPlayerRim(p, r, Radius, rimOpacity)
+		}
+	})
+}
+
+// drawerTabSurface 给抽屉表头 tab（HeroUI Tabs）铺原版那套液态玻璃材质：
+// 1px 玻璃边 + --liquid-bg 底 + ::before 的 --glass-sheen-static 洗光 +
+// ::after 的 1px 聚光描边与两条内影 / 色散边；悬停 / 选中换边色、换底、抬起一档。
+//
+// 此前 tab 借的是播放栏的 buttonSurface —— 那是 `#player .player-button` 的材质
+// （白 .22 底 + 1px 白 .55 边 + 两层内影 + **常驻**小投影），于是 tab 多出一层
+// 原版没有的常驻投影、少了两层液态玻璃，顶部内高光也暗一档（.55 vs
+// --glass-highlight 的 .9），悬停 / 选中的抬起档位更是完全没有。
+// 声明成 var 便于测试换桩做反证。
+var drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element {
+	p := drawerTabPaintFor(active, hovered)
+	// 原版 transition: border-color / box-shadow / color 0.2s ease，
+	// ::before { background-color 0.2s ease }、::after { opacity 0.2s ease }。
+	b.Background(drawerTabFade(b, "tab-bg", p.BG)).
+		Border(1, drawerTabFade(b, "tab-border", p.Border))
+	drawerTabShadowInto(b, "tab-lift-lg", p.LiftLG)
+	drawerTabShadowInto(b, "tab-lift-sm", p.LiftSM)
+	// ::after 上那组不随状态变的内影与色散边（原版 ::after 的 box-shadow：
+	// inset 0 1px 1px .5px --glass-highlight、inset 0 -1px 1px 墨 .06、
+	// --liquid-chromatic 两条 0.5px 亚像素边）。整圈不透明度由 ::after 的
+	// opacity 统一缩放，所以这里也按 rim 缩一遍。
+	rim := drawerTabRimOpacity(b, p.Rim)
+	b.InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90*rim))
+	b.InsetShadow(0, -1, 1, 0, shadowInk.Alpha(0.06*rim))
+	b.Shadow(0, 0.5, 0, 0, ui.Hex("#fffaf0").Alpha(0.50*rim))
+	b.Shadow(0, -0.5, 0, 0, ui.Hex("#c8dcf0").Alpha(0.20*rim))
+	return drawerTabGlass(b, rim)
+}
+
 // tabs 是一排胶囊 tab（原版抽屉表头的 HeroUI Tabs）：
 // 高 32、内边距 0 14、圆角 8、字号 13/600；选中态填充更实、文字变蓝。
 func (a *App) tabs(c *ui.Context, group string, items []tabItem, selected string, onSelect func(string)) {
@@ -635,18 +770,15 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 	// SingleLine，宽度随标签内容快速变化，永不换行。
 	b := ui.ButtonBase(c.Key("tab-"+group+"-"+it.Key)).Height(32).Padding(0, 14).
 		Shrink(0).Radius(Radius).Center().Label(it.Label)
-	// 半透明填充（选中态更实一点 = 底色更亮），不再用 Backdrop 真玻璃。
-	buttonSurface(b, active, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
-	pressPose(b)
+	// 液态玻璃材质（见 drawerTabSurface）：1px 玻璃边 + --liquid-bg 底 +
+	// ::before 洗光 + ::after 聚光描边；悬停 / 选中各自换色抬起。
+	// 原版 `header [data-slot="tab"]:active { transform: none !important }`——
+	// tab 按下不缩放（与小键 / 导航键不同），所以这里不加 pressPose。
+	b = drawerTabSurface(b, active, b.Hovered())
+	// 原版 tab 的文字色带 `transition: color 0.2s ease`：选中 #0369a1，
+	// 悬停（未选中）#334155，常态 #475569。
+	ink := drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered()))
 	b.Children(func() {
-		// 原版 tab：13px / 600；选中 #0369a1，悬停（未选中）#334155。
-		ink := ui.Hex("#475569")
-		if active {
-			ink = ui.Hex("#0369a1")
-		} else if b.Hovered() {
-			ink = ui.Hex("#334155")
-		}
 		if it.Icon != nil {
 			// 原版是 flex items-center gap-1（4px）+ 14px 图标。
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -668,11 +800,12 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 	label := fmt.Sprintf("%s (%d)", f.Title, f.Count)
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("folder-%d", f.ID))).Height(32).Padding(0, 14).
 		Shrink(0).Radius(Radius).Center().Label(label)
-	buttonSurface(b, active, b.Hovered(),
-		ui.Hex("#ffffff").Alpha(0.52), ui.Hex("#ffffff").Alpha(0.30))
+	// 收藏夹 tab 也是 HeroUI 的 `[data-slot="tab"]`（只在 .collect-tabs-scroll
+	// 里横向滚动），材质与普通 tab 完全一致。
+	b = drawerTabSurface(b, active, b.Hovered())
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).Bold().SingleLine().MaxWidth(180).
-			TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))
+			TextColor(drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered())))
 	})
 	if b.Clicked() && !active {
 		a.FolderID = f.ID
