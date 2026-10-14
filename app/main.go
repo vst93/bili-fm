@@ -1660,10 +1660,13 @@ func (c *controller) loadMore() {
 }
 
 // copyLink 复制当前视频的 B 站链接到剪贴板。
+//
+// 目标跟原版 videoInfo（浏览中优先）：分享键在详情面板里，原版
+// handleShareClick 用的就是 videoInfo 而不是 displayVideoInfo。
 func (c *controller) copyLink() {
 	bvid := ""
-	if c.app.Info != nil {
-		bvid = c.app.Info.Bvid
+	if bi := c.app.Browse(); bi != nil {
+		bvid = bi.Bvid
 	}
 	if bvid == "" && c.app.Track != nil {
 		bvid = c.app.Track.Bvid
@@ -1693,11 +1696,13 @@ func (c *controller) urlJump(url string) {
 			return
 		}
 		a.Win.Update(func() {
-			a.Info = info
-			a.Drawer = view.DrawerParts
+			// 只记「浏览中」的视频 + 开选集面板，**不动** a.Info：主区显示
+			// 跟正在播放的那条（原版 displayVideoInfo），浏览另一条视频不该
+			// 把主区信息改掉。互动状态也不在这里拉（原版 handleUrlJump
+			// 不拉）——它属于正在展示的视频，起播时由 startCurrent 拉，
+			// 否则会把浏览那条的状态盖到主区按钮上。
+			a.BrowseTo(info)
 		})
-		// 预先把这一视频的分集建成播放队列，这样点分集时能直接播。
-		c.loadInteractionState(info)
 	}()
 }
 
@@ -1714,10 +1719,11 @@ func (c *controller) openCard(index int) {
 }
 
 // openBrowser 用系统浏览器打开当前视频。
+// 目标跟原版 videoInfo（浏览中优先，见 copyLink）。
 func (c *controller) openBrowser() {
 	bvid := ""
-	if c.app.Info != nil {
-		bvid = c.app.Info.Bvid
+	if bi := c.app.Browse(); bi != nil {
+		bvid = bi.Bvid
 	}
 	if bvid == "" && c.app.Track != nil {
 		bvid = c.app.Track.Bvid
@@ -1803,10 +1809,10 @@ func (c *controller) search(query string) {
 
 // playIndex 播放当前列表里的第 index 条。
 func (c *controller) playIndex(index int) {
-	// 选集抽屉：队列就是当前浏览视频的分集（以 a.Info 为准，而不是可能过期的
-	// 旧队列）；点哪个分集就播哪个。
+	// 选集抽屉：队列就是当前浏览视频的分集（以 BrowseInfo 为准，而不是
+	// 可能过期的旧队列）；点哪个分集就播哪个。
 	if c.app.Drawer == view.DrawerParts {
-		info := c.app.Info
+		info := c.app.Browse()
 		if info == nil || index < 0 || index >= len(info.Parts) {
 			return
 		}
@@ -1839,8 +1845,10 @@ func (c *controller) openParts(t view.Track) {
 	if a.Drawer != view.DrawerParts || t.Bvid == "" {
 		return
 	}
-	if a.Info != nil && a.Info.Bvid == t.Bvid && len(a.Info.Parts) > 0 {
-		c.buildPartsQueue(a.Info, t.Cid)
+	// 已经拉过（浏览中那条就是它，或浏览信息缺失时回退到正在播放的 a.Info）
+	// 就直接用，不再发一次网络请求。
+	if bi := a.Browse(); bi != nil && bi.Bvid == t.Bvid && len(bi.Parts) > 0 {
+		c.buildPartsQueue(bi, t.Cid)
 		return
 	}
 	go func() {
@@ -1849,7 +1857,9 @@ func (c *controller) openParts(t view.Track) {
 			return
 		}
 		a.Win.Update(func() {
-			a.Info = info
+			// 打开的是「这条视频的选集」，属于浏览：写 BrowseInfo，
+			// 主区显示（a.Info，正在播放的那条）保持不变。
+			a.BrowseInfo = info
 			c.buildPartsQueue(info, t.Cid)
 		})
 	}()

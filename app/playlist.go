@@ -106,9 +106,12 @@ func trackFromPlayItem(it view.PlayItem) view.Track {
 }
 
 // addToPlaylist 把一集加入「我的列表」（已存在则提示）。
+// part 属于「浏览中」的那条视频（选集抽屉里的卡片），所以 bvid / 标题
+// 取 Browse() 而不是正在播放的 a.Info。
 func (c *controller) addToPlaylist(part view.Part) {
 	a := c.app
-	if a.Info == nil || part.Cid == 0 {
+	bi := a.Browse()
+	if bi == nil || part.Cid == 0 {
 		return
 	}
 	for _, it := range a.Playlist {
@@ -118,14 +121,14 @@ func (c *controller) addToPlaylist(part view.Part) {
 		}
 	}
 	a.Playlist = append(a.Playlist, view.PlayItem{
-		ID:         fmt.Sprintf("%s-%d", a.Info.Bvid, part.Cid),
-		Bvid:       a.Info.Bvid,
-		Aid:        a.Info.Aid,
+		ID:         fmt.Sprintf("%s-%d", bi.Bvid, part.Cid),
+		Bvid:       bi.Bvid,
+		Aid:        bi.Aid,
 		Cid:        part.Cid,
 		Part:       part.Part,
 		FirstFrame: part.FirstFrame,
-		Title:      a.Info.Title,
-		Pic:        a.Info.Pic,
+		Title:      bi.Title,
+		Pic:        bi.Pic,
 	})
 	c.savePlaylists()
 	a.NotifyType("success", "已添加到播放列表")
@@ -133,9 +136,11 @@ func (c *controller) addToPlaylist(part view.Part) {
 }
 
 // addAllToPlaylist 把当前视频的全部选集加入「我的列表」（自动去重）。
+// 选集来自「浏览中」的那条（BrowseInfo），与选集抽屉一致。
 func (c *controller) addAllToPlaylist() {
 	a := c.app
-	if a.Info == nil || len(a.Info.Parts) == 0 {
+	bi := a.Browse()
+	if bi == nil || len(bi.Parts) == 0 {
 		return
 	}
 	existing := map[int64]bool{}
@@ -143,19 +148,19 @@ func (c *controller) addAllToPlaylist() {
 		existing[it.Cid] = true
 	}
 	added := 0
-	for _, p := range a.Info.Parts {
+	for _, p := range bi.Parts {
 		if existing[p.Cid] {
 			continue
 		}
 		a.Playlist = append(a.Playlist, view.PlayItem{
-			ID:         fmt.Sprintf("%s-%d", a.Info.Bvid, p.Cid),
-			Bvid:       a.Info.Bvid,
-			Aid:        a.Info.Aid,
+			ID:         fmt.Sprintf("%s-%d", bi.Bvid, p.Cid),
+			Bvid:       bi.Bvid,
+			Aid:        bi.Aid,
 			Cid:        p.Cid,
 			Part:       p.Part,
 			FirstFrame: p.FirstFrame,
-			Title:      a.Info.Title,
-			Pic:        a.Info.Pic,
+			Title:      bi.Title,
+			Pic:        bi.Pic,
 		})
 		added++
 	}

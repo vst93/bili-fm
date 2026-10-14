@@ -718,6 +718,78 @@ func TestInteractToastsWired(t *testing.T) {
 	}
 }
 
+// TestAddToPlaylistUsesBrowseInfo 钉住选集卡片的「添加到播放列表」记录的是
+// 「浏览中」那条视频（选集卡片属于它），而不是正在播放的那条 —— 否则浏览
+// 另一条视频时加进来的记录会带上正在播放那条的 bvid / 标题。
+func TestAddToPlaylistUsesBrowseInfo(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	a := &view.App{
+		Info:       &view.Info{Bvid: "BVplaying", Aid: 1, Title: "播放中"},
+		BrowseInfo: &view.Info{Bvid: "BVbrowsed", Aid: 2, Title: "浏览中"},
+	}
+	c := &controller{app: a, kv: kv}
+	c.addToPlaylist(view.Part{Cid: 42, Part: "P1"})
+	if len(a.Playlist) != 1 {
+		t.Fatalf("应加入 1 条记录，得到 %d", len(a.Playlist))
+	}
+	it := a.Playlist[0]
+	if it.Bvid != "BVbrowsed" || it.Aid != 2 || it.Title != "浏览中" {
+		t.Errorf("记录应来自浏览中那条：%+v", it)
+	}
+}
+
+// TestAddAllToPlaylistUsesBrowseInfo 同上，钉住「全部添加」也读浏览中那条。
+func TestAddAllToPlaylistUsesBrowseInfo(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	a := &view.App{
+		Info: &view.Info{Bvid: "BVplaying", Aid: 1, Title: "播放中", Parts: []view.Part{{Cid: 9}}},
+		BrowseInfo: &view.Info{Bvid: "BVbrowsed", Aid: 2, Title: "浏览中", Parts: []view.Part{
+			{Cid: 11, Part: "P1"}, {Cid: 12, Part: "P2"},
+		}},
+	}
+	c := &controller{app: a, kv: kv}
+	c.addAllToPlaylist()
+	if len(a.Playlist) != 2 {
+		t.Fatalf("应加入 2 条记录，得到 %d", len(a.Playlist))
+	}
+	for _, it := range a.Playlist {
+		if it.Bvid != "BVbrowsed" || it.Aid != 2 || it.Title != "浏览中" {
+			t.Errorf("记录应来自浏览中那条：%+v", it)
+		}
+	}
+}
+
+// TestBrowseWiringKeepsDisplayInfo 钉住 main.go 里「浏览」这条链路的接线：
+// urlJump（列表点卡片 / 粘链接）与 openParts（打开当前视频的选集）只写
+// BrowseInfo，选集抽屉与选集动作读 Browse() —— 都不能再写主区显示的 a.Info，
+// 否则浏览另一条视频会把主区标题 / 封面 / 简介换掉（原版 displayVideoInfo
+// 只跟 playingInfo）。
+func TestBrowseWiringKeepsDisplayInfo(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	for _, needle := range []string{
+		"a.BrowseTo(info)",       // urlJump：记浏览 + 开选集面板
+		"a.BrowseInfo = info",    // openParts：打开当前视频的选集
+		"info := c.app.Browse()", // playIndex：选集抽屉的队列来源
+	} {
+		if !bytes.Contains(src, []byte(needle)) {
+			t.Errorf("main.go 里找不到 %s（浏览 / 显示的分离没接上？）", needle)
+		}
+	}
+	// urlJump 不能再把浏览的那条写进主区显示。
+	if bytes.Contains(src, []byte("a.Info = info")) {
+		t.Error("main.go 里还有 `a.Info = info`：浏览不该覆盖主区显示")
+	}
+}
+
 // TestPlayVideoWarningText 钉住「没有视频时点视频播放键」的提示 —— 原版
 // videoInfo 的 handlePlayVideoClick 是 warning「请先选择一个视频」（原生版
 // 此前写的是「先选一个视频」）。这条路径要真实的播放窗口才能构造出 App 状态，

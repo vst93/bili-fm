@@ -493,7 +493,19 @@ type App struct {
 	Buffering bool
 
 	// 分集 / 弹幕 / 评论 / 详情
+	//
+	// Info 是**正在播放**的视频详情（原版 displayVideoInfo）：起播时写入，
+	// 主区右栏（标题 / 简介 / UP 主 / 封面 / 统计 / 互动键 / 合作选择器）
+	// 只读它。
 	Info *Info
+	// BrowseInfo 是**浏览中**的视频详情（原版 videoInfo）：列表点卡片 /
+	// 粘链接（urlJump）与打开选集面板（openParts）时写入，选集抽屉与
+	// 「选集」相关动作读它（见 Browse）。
+	//
+	// 原版把两者分开是为了「点了列表但还没播放时首页信息不变」：
+	// displayVideoInfo 只跟 playingInfo。原生版此前只有一个 a.Info，被
+	// urlJump 覆盖成浏览的那条，于是浏览另一条视频会把主区显示也改掉。
+	BrowseInfo *Info
 	// CollabMid 是合作视频里用户选中的参与 UP 主（0 = 未选，显示主 UP）。
 	// CollabFor 记它属于哪条视频（bvid）：换视频后选择自动失效 —— 对应原版
 	// videoInfo 在 bvid 变化时 `setSelectedOwner(null)`。

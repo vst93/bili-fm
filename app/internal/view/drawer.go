@@ -1928,6 +1928,26 @@ func estimateCardWidth(c *ui.Context) float32 {
 
 // ---------------------------------------------------------------- 分集抽屉
 
+// Browse 返回选集抽屉要展示的那条视频（「浏览中」）：优先 BrowseInfo，
+// 没有（还没浏览过）就退回 Info（正在播放的那条）——「打开当前视频的选集」
+// 是浏览的一种，此时两者本就同一条，回退保证抽屉永远有内容。
+func (a *App) Browse() *Info {
+	if a.BrowseInfo != nil {
+		return a.BrowseInfo
+	}
+	return a.Info
+}
+
+// BrowseTo 记下「浏览中」的视频并打开选集抽屉 —— 原版 handleUrlJump 的
+// setVideoInfo(info) + setShowPageList(true)。
+//
+// 注意它**不碰 a.Info**：主区显示跟的是正在播放的那条（原版 displayVideoInfo），
+// 浏览另一条视频不该把主区的标题 / 封面 / 简介换掉。
+func (a *App) BrowseTo(info *Info) {
+	a.BrowseInfo = info
+	a.Drawer = DrawerParts
+}
+
 // partsAddAllTip 是「全部添加」键的工具提示 —— 原版 pageList.tsx 里这个键的
 // `title="将全部选集添加到播放列表"`。此前原生版只有可见文字「全部添加」，
 // 悬停看不到「加到哪儿」的说明。
@@ -1937,8 +1957,8 @@ const partsAddAllTip = "将全部选集添加到播放列表"
 // 「全部添加」到播放列表。
 func (a *App) partsHeader(c *ui.Context) {
 	n := 0
-	if a.Info != nil {
-		n = len(a.Info.Parts)
+	if bi := a.Browse(); bi != nil {
+		n = len(bi.Parts)
 	}
 	// 原版 pageList 表头：「选集(N)」是 text-sm（14/600，见 header 全局规则）。
 	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(600).SingleLine().
@@ -2178,7 +2198,8 @@ var partSearchGlass = func(b ui.Element, rimOpacity float32) ui.Element {
 
 // partsBody 是选集抽屉正文：三列卡片网格（虚拟化 ui.List）。
 func (a *App) partsBody(c *ui.Context) {
-	if a.Info == nil || len(a.Info.Parts) == 0 {
+	bi := a.Browse()
+	if bi == nil || len(bi.Parts) == 0 {
 		a.scrollBody(c, a.list(), func() { a.emptyState(c, "没有分集信息") })
 		return
 	}
@@ -2192,7 +2213,7 @@ func (a *App) partsBody(c *ui.Context) {
 // 一遍屏外请求）。改成 List 后只建可见行，封面也走「可见窗口预取」——与卡片
 // 网格同一套（见 prefetchCardCovers / prefetchPartCovers）。
 func (a *App) partsGrid(c *ui.Context) {
-	parts := a.Info.Parts
+	parts := a.Browse().Parts
 	l := a.list()
 	st := &l.Grid
 	cols := gridColsFor(windowWidth(c))
@@ -2254,8 +2275,8 @@ func (a *App) partCover(p Part) string {
 	if p.FirstFrame != "" {
 		return p.FirstFrame
 	}
-	if a.Info != nil {
-		return a.Info.Pic
+	if bi := a.Browse(); bi != nil {
+		return bi.Pic
 	}
 	return ""
 }
@@ -2281,7 +2302,7 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		// 封面走「可见窗口预取」（partsGrid 的 prefetchPartCovers），构建只读缓存。
 		Lazy: true,
 		Fields: []cardField{
-			{Kind: fieldViews, Text: statText(a.Info, func(i *Info) int64 { return i.View })},
+			{Kind: fieldViews, Text: statText(a.Browse(), func(i *Info) int64 { return i.View })},
 			{Kind: fieldDuration, Text: dur},
 		},
 		// 定位由 partsGrid 交给 ListState 滚动（屏外的卡片不构建）。
@@ -2925,14 +2946,15 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 // 到尾再循环；原版 handleSearchPart）。从当前游标往后找，找不到再从头找。
 func (a *App) locatePart(keyword string) {
 	kw := strings.TrimSpace(keyword)
-	if kw == "" || a.Info == nil || len(a.Info.Parts) == 0 {
+	bi := a.Browse()
+	if kw == "" || bi == nil || len(bi.Parts) == 0 {
 		return
 	}
-	n := len(a.Info.Parts)
+	n := len(bi.Parts)
 	start := a.PartSearchCursor
 	for i := 0; i < n; i++ {
 		idx := (start + i) % n
-		if strings.Contains(a.Info.Parts[idx].Part, kw) {
+		if strings.Contains(bi.Parts[idx].Part, kw) {
 			a.PartSearchCursor = (idx + 1) % n
 			a.locatePartIndex = idx
 			a.locateNow = true
