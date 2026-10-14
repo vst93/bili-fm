@@ -508,6 +508,12 @@ const (
 	// incognitoNarrowWidth / danmakuNarrowWidth 与 globals.css 的媒体查询阈值一致。
 	incognitoNarrowWidth = 520
 	danmakuNarrowWidth   = 420
+
+	// danmakuLabelHeight 是 `.danmaku-time-label` 的高度：line-height:1 的
+	// 13px 行盒 + 上下 padding 3px。mygo 的行高取字体度量的硬底（13px 字体
+	// 的自然行盒约 20px），压不到 13，所以给标签显式 Height 固定胶囊高度；
+	// 横向 padding 保留 5px，竖向 padding 去掉（否则文字会在 19px 盒里下坠）。
+	danmakuLabelHeight = 19
 )
 
 // windowWidth 是这一帧的窗口宽度（DIP）——抽屉里的媒体查询断点按视口宽度判定。
@@ -2648,9 +2654,12 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 		// `.danmaku-time-head` 的 border-right 是写死的 rgba(100,116,139,.14)，
 		// Linux 覆写只动分组自身的 border-color，不动这条，所以它不随平台变。
 		ui.Column(c).Width(l.Col).Shrink(0).Gap(4).Justify(ui.Center).
+			// AlignItems(Start)：原版 `.danmaku-time-label` 是 `width: fit-content`，
+			// 列默认 cross 轴 stretch 会把标签背景铺满 64px 左列。
+			AlignItems(ui.Start).
 			InsetShadow(-1, 0, 0, 0, ui.Hex("#64748b").Alpha(0.14)).Children(func() {
 			lbl := numericText(c, fmtClock(float64(g.Second))).FontSize(13).
-				FontWeight(700).Padding(3, 5).Radius(6)
+				FontWeight(700).Height(danmakuLabelHeight).Padding(0, 5).Radius(6)
 			// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
 			// 原版 `.danmaku-time-label` 的
 			// `transition: background-color 140ms ease, color 140ms ease`——

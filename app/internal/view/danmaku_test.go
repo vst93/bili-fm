@@ -396,6 +396,83 @@ func blueLabelPixels(img *image.RGBA, r ui.Rect) int {
 	return n
 }
 
+// strictBlueBox 在 r 附近扫「当前组时间胶囊实心蓝底」的包围盒。只匹配接近
+// #0284c7 (2,132,199) 的像素，避开同色系但半透明的外投影（投影混白后 R 通道
+// 会明显抬高）。
+func strictBlueBox(img *image.RGBA, r ui.Rect) (ui.Rect, bool) {
+	x0, y0 := int(r.X)-12, int(r.Y)-12
+	x1, y1 := int(r.X+r.W)+12, int(r.Y+r.H)+12
+	minX, minY, maxX, maxY := 1<<30, 1<<30, -1, -1
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+				continue
+			}
+			i := img.PixOffset(x, y)
+			rr, gg, bb := int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])
+			if rr < 20 && gg > 115 && gg < 150 && bb > 180 && bb < 215 {
+				if x < minX {
+					minX = x
+				}
+				if y < minY {
+					minY = y
+				}
+				if x > maxX {
+					maxX = x
+				}
+				if y > maxY {
+					maxY = y
+				}
+			}
+		}
+	}
+	if maxX < 0 {
+		return ui.Rect{}, false
+	}
+	return ui.Rect{X: float32(minX), Y: float32(minY), W: float32(maxX - minX + 1), H: float32(maxY - minY + 1)}, true
+}
+
+// TestDanmakuTimeLabelCapsuleFitContent 钉住当前组时间标签的胶囊几何。原版
+// `.danmaku-time-label` 是 `width: fit-content` + `line-height: 1` +
+// `padding: 3px 5px`：13px 行盒 + 上下 3px => 19px 高，宽度只包住时间文本。
+// mygo 的行高取字体度量的硬底（13px 字号的自然行盒约 20px），`Padding(3,5)`
+// 会把胶囊撑到 26px；左列默认 cross 轴 stretch 又会把背景铺满 64px。
+// 改成显式 `Height(19)` + `Padding(0,5)` + 左列 `AlignItems(Start)` 后，
+// 高 19、宽约 46，与原版一致。
+func TestDanmakuTimeLabelCapsuleFitContent(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{{Time: 0, Text: "开头"}, {Time: 30, Text: "中间"}}
+	a.Drawer = DrawerDanmaku
+	a.Pos = 30
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame()
+
+	r, ok := tst.Find("00:30")
+	if !ok {
+		t.Fatal("渲染帧里找不到当前组的时间标签 00:30")
+	}
+	if r.H > 20 {
+		t.Errorf("时间标签布局高 = %v，应 ≈19（原版 line-height:1 + 上下 padding 3）", r.H)
+	}
+	if r.W >= 60 {
+		t.Errorf("时间标签布局宽 = %v，原版 width:fit-content 不该铺满 64px 左列", r.W)
+	}
+
+	box, ok := strictBlueBox(tst.Image(), r)
+	if !ok {
+		t.Fatal("当前组时间胶囊没有实心蓝底")
+	}
+	t.Logf("时间胶囊: 布局 %v，蓝底 %v", r, box)
+	if box.H > 21 {
+		t.Errorf("时间胶囊蓝底高 = %v，应 ≈19", box.H)
+	}
+	if box.W >= 60 {
+		t.Errorf("时间胶囊蓝底宽 = %v，原版 width:fit-content 不该铺满 64px 左列", box.W)
+	}
+}
+
 // TestDanmakuCurrentHighlightWired 无头反证：关闭自动跟随后，当前组的时间胶囊
 // 仍是实心蓝底（原版 is-current 与开关无关）。把 danmakuCurrentIndex 改回
 // `if a.DanmakuAutoScroll` 那条，这条即变红。
