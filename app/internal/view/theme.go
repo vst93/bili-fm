@@ -258,6 +258,11 @@ const (
 	TitleBarHeight = 36
 	MiniTitleBar   = 24
 	PlayerBarPad   = 10
+	// PlayerBarHeight 是播放栏（#player）的高度。原版 .home-stage 是
+	// `height: calc(100% - 56px)`，而 100% 基准 .app-main 会被 flex-grow 撑满
+	// 整窗（见 homeStage），所以主区**只**减播放栏高度、不减标题栏 ——
+	// 标题栏那 36px 实际由主区探到播放栏底下消化。见 homeStage 的说明。
+	PlayerBarHeight = 56
 	Radius         = 8
 	RadiusSmall    = 6
 	RadiusPill     = 999

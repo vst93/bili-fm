@@ -841,6 +841,41 @@ func iconSolid(shapes string) *ui.SVG {
 	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">` + shapes + `</svg>`))
 }
 
+// iconPark 解析一枚 icon-park 的**原始**描边图标（@icon-park/react 的 SVG 逐字拷贝）。
+// IconPark 的画布是 48×48、描边宽 4、圆头圆接 —— 缩到 size 18 / 20 / 15 时
+// 描边换算成 1.5 / 1.67 / 1.25px。
+//
+// 为什么不能继续用 icon() 的 16 画布手抄：原版那些图标都来自 icon-park
+// （theme="outline"），圆角、端点、弧线走向都是 48 画布上定死的；在 16 画布上
+// 凭观感重画出来的近似（比如旧 iconMagnifier 的圆 + 一段斜线）在放大后线条
+// 偏细、放大镜的高光弧线整个缺掉，用户一眼能看出「和以前的不一样」。
+// 这里直接抄原 path，再让渲染器等比缩放 —— 与原版逐点一致。
+func iconPark(inner string) *ui.SVG {
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">` + inner + `</svg>`))
+}
+
+// park* 是 @icon-park/react 1.4.2 的原始 path 数据，逐字拷贝（未被内联成 16 画布
+// 近似）。测试 parkicon_test.go 逐字钉住，防止再被手改。
+const (
+	// Search（icons/Search.js）。
+	parkSearch = `<path d="M21 38C30.3888 38 38 30.3888 38 21C38 11.6112 30.3888 4 21 4C11.6112 4 4 11.6112 4 21C4 30.3888 11.6112 38 21 38Z"/>` +
+		`<path d="M26.657 14.3431C25.2093 12.8954 23.2093 12 21.0001 12C18.791 12 16.791 12.8954 15.3433 14.3431"/>` +
+		`<path d="M33.2216 33.2217L41.7069 41.707"/>`
+	// ShareSys（动态）。
+	parkShareSys = `<path d="M10.3654 41.6322C6.44902 37.9812 4 32.7766 4 27C4 15.9543 12.9543 7 24 7C35.0457 7 44 15.9543 44 27C44 32.7766 41.551 37.9812 37.6346 41.6322"/>` +
+		`<path d="M15.1375 36.5109C12.5919 34.1378 11 30.7548 11 27C11 19.8203 16.8203 14 24 14C31.1797 14 37 19.8203 37 27C37 30.7548 35.4081 34.1378 32.8625 36.5109"/>` +
+		`<path d="M19.9096 31.3897C18.7347 30.2944 18 28.733 18 27C18 23.6863 20.6863 21 24 21C27.3137 21 30 23.6863 30 27C30 28.733 29.2653 30.2944 28.0904 31.3897"/>`
+	// ChartRing（热门与推荐）。
+	parkChartRing = `<path d="M43.7756 20.9938C42.4735 12.3555 35.6463 5.5277 27.0084 4.22461M20.9757 4.22702C11.3651 5.68478 4 13.9822 4 23.9998C4 34.0212 11.3705 42.321 20.9863 43.7743C21.9692 43.9228 22.9756 43.9998 24 43.9998C25.0209 43.9998 26.024 43.9233 27.0038 43.7758C35.6458 42.4741 42.4762 35.6427 43.7764 27.0003"/>` +
+		`<path d="M24 16C19.5817 16 16 19.5817 16 24C16 28.4183 19.5817 32 24 32C28.4183 32 32 28.4183 32 24C32 19.5817 28.4183 16 24 16Z"/>`
+	// WeixinFavorites（收藏）。
+	parkWeixinFavorites = `<path d="M6 14L24 6L42 14M6 14L24 22M6 14V34L24 42M42 14L24 22M42 14V34L24 42M24 22V42"/>`
+	// History（历史）。
+	parkHistory = `<path d="M5.81836 6.72729V14H13.0911"/>` +
+		`<path d="M4 24C4 35.0457 12.9543 44 24 44V44C35.0457 44 44 35.0457 44 24C44 12.9543 35.0457 4 24 4C16.598 4 10.1351 8.02111 6.67677 13.9981"/>` +
+		`<path d="M24.005 12L24.0038 24.0088L32.4832 32.4882"/>`
+)
+
 var (
 	// 播放/暂停/下一首：icon-park 的 PlayOne / Pause / GoEnd。
 	iconPlay  = icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`)
@@ -862,7 +897,7 @@ var (
 	iconConnection = icon(`<path d="M6.6 9.4l2.8-2.8"/><path d="M5.6 7.1l-1 1a2.7 2.7 0 0 0 3.8 3.8l1-1"/><path d="M10.4 8.9l1-1a2.7 2.7 0 0 0-3.8-3.8l-1 1"/>`)
 	// 选集：DoubleUp（双层人字形向上）。
 	iconList   = icon(`<path d="M3.4 8.6L8 4.2l4.6 4.4M3.4 12.2L8 7.8l4.6 4.4" stroke-width="1.7"/>`)
-	iconSearch = icon(`<circle cx="7" cy="7" r="4.4"/><path d="M10.4 10.4L14 14"/>`)
+	iconSearch = iconPark(parkSearch)
 	iconClose  = icon(`<path d="M4 4l8 8M12 4l-8 8"/>`)
 	iconMin    = icon(`<path d="M4 8h8"/>`)
 	// 互动：ThumbsUp / HandleB(投币，圆形钱币) / Star。
@@ -874,13 +909,16 @@ var (
 	// 恰饭跳过：icon-park 的 Ad（方框 + "广"的简化），这里用方框 + 小三角播放。
 	iconSponsor = icon(`<rect x="2" y="4.5" width="12" height="7" rx="1.2"/><path d="M6.4 6.4l3.6 1.6-3.6 1.6z"/>`)
 
-	// 搜索栏右侧四个入口（ShareSys / ChartRing / WeixinFavorites / History）。
-	iconFeed     = icon(`<path d="M13.4 8A5.4 5.4 0 1 1 8 2.6"/><path d="M10.8 8A2.8 2.8 0 1 1 8 5.2"/><circle cx="8" cy="8" r="1"/>`)
-	iconPopular  = icon(`<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.1"/><path d="M12.6 3.4l1.2-1.2"/>`)
-	iconFavorite = icon(`<path d="M8 1.9l5.3 2.9v6.4L8 14.1 2.7 11.2V4.8z"/><path d="M2.7 4.8L8 7.7l5.3-2.9"/><path d="M8 7.7v6.4"/>`)
-	iconHistory  = icon(`<path d="M2.7 8a5.3 5.3 0 1 0 1.7-3.9"/><path d="M2.3 2.6v2.7H5"/><path d="M8 5.3V8l2.1 1.3"/>`)
-	// 搜索药丸里的放大镜（提交键）。
-	iconMagnifier = icon(`<circle cx="7.2" cy="7.2" r="4.3"/><path d="M10.4 10.4L13.8 13.8"/>`)
+	// 搜索栏右侧四个入口（原版 searchForm.tsx 用的是 icon-park 的
+	// ShareSys / ChartRing / WeixinFavorites / History，theme="outline"、size 18）。
+	// 这里逐条抄 icon-park 的原始 path（48 画布、描边 4），不再是 16 画布的近似。
+	iconFeed     = iconPark(parkShareSys)
+	iconPopular  = iconPark(parkChartRing)
+	iconFavorite = iconPark(parkWeixinFavorites)
+	iconHistory  = iconPark(parkHistory)
+	// 放大镜（原版 icon-park 的 Search）：搜索药丸的提交键（size 18）
+	// 与选集抽屉的搜索框（size 15）共用。
+	iconMagnifier = iconPark(parkSearch)
 	// 浏览器（Browser）与播放列表（MusicList）。
 	iconBrowser = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="1.6"/><path d="M1.8 6.2h12.4"/><circle cx="4.3" cy="4.6" r="0.5"/><circle cx="6.3" cy="4.6" r="0.5"/>`)
 	// 视频播放：VideoTwo（圆角方框 + 右下播放角）。

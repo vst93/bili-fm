@@ -46,7 +46,11 @@ func (a *App) Shell(c *ui.Context) {
 	ui.Column(c).Absolute().Fill().Children(func() {
 		a.titleBar(c)
 		a.homeStage(c)
-		a.playerBar(c)
+		// 播放栏整条贴底、不占流式布局：原版 #player 是 position: fixed，
+		// 主区（homeStage）因此能往下探进它背后。见 homeStage 的高度说明。
+		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Children(func() {
+			a.playerBar(c)
+		})
 		a.drawer(c)
 		a.modal(c)
 		a.toastViewport(c)
@@ -264,12 +268,26 @@ func (a *App) ambient(c *ui.Context) {
 }
 
 // homeStage 是标题栏与播放栏之间的主区（.home-stage）：
-// 高 = 100% - 56px，宽窗内边距 20 28 0 28；窄窗（≤680）12 16 0 16
+// 宽窗内边距 20 28 0 28；窄窗（≤680）12 16 0 16
 // （原版 @media (max-width: 680px)）。
+//
+// **高度是「整窗 - 播放栏」，不是「整窗 - 标题栏 - 播放栏」**：原版
+// `.app-main { height: calc(100vh - 36px) }` 同时带 flex-grow: 1，作为
+// `.app-shell`（h-screen 的 flex 列）唯一子元素会被撑到整窗 —— 100% 于是等于
+// 100vh，`.home-stage { height: calc(100% - 56px) }` = 100vh - 56。主区因此在
+// 标题栏之下、又往播放栏底下探进标题栏那 36px。播放栏是 `position: fixed`，
+// 本来就不占文档流，探进去的部分是主区自己的留白（now-playing 的 32px 底距），
+// 不会真的被压住。
+//
+// 这一点决定右栏整块的落点：视频信息盒 366 固定高、在外层纵向居中，
+// 主区高 544（600 窗）时盒顶 = 142，正好是原版截图里 UP 主行的位置；
+// 少算标题栏那 36px（主区 508）会把整块顶上去 18px —— 用户实测反馈的
+// 「UP 主离搜索框太近、右栏组件位置不对」就是这个。
+// 对应地播放栏不再参与流式布局（Shell 把它整条套进贴底的 absolute 盒里）。
 func (a *App) homeStage(c *ui.Context) {
-	w, _ := c.Size()
+	w, h := c.Size()
 	l := homeLayoutFor(w)
-	ui.Column(c).FillWidth().Grow(1).Shrink(1).
+	ui.Column(c).FillWidth().Height(h-PlayerBarHeight).Shrink(0).
 		Padding(l.StagePadY, l.StagePadX, 0, l.StagePadX).Children(func() {
 		a.searchBar(c, l)
 		a.nowPlaying(c, l)

@@ -32,7 +32,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 框架的 ScrollEdge 就是 macOS 26+ 的这个效果；软边缘淡出、硬边缘结霜。
 	// 高度按框架的约定 = 栏高 + 10（软边缘多出的那 10 DIP）。
 	// Background 必须显式给：主题的 Background 被我们设成了透明。
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(66).Shrink(0).
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(PlayerBarHeight+PlayerBarPad).Shrink(0).
 		PassThrough(). // 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
 		// 后者是个不透明的蓝灰，淡出来是一条明显的灰带。
 		// 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
@@ -44,8 +44,12 @@ func (a *App) playerBar(c *ui.Context) {
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。深色时段还要给玻璃染上
 	// --player-surface 的烟熏色（见 playerBarTint）。
+	//
+	// 高度 56，本身仍是普通流式元素；Shell 把它整条套进一个贴底的 absolute 盒里
+	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
+	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
 	applyShadows(
-		ui.Column(c).FillWidth().Height(56).Shrink(0).
+		ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0).
 			Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡），前两层 inset 内影由框架玻璃的 1px 描光
