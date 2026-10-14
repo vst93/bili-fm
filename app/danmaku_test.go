@@ -42,6 +42,29 @@ func TestDanmakuTargetFollowsBrowse(t *testing.T) {
 	}
 }
 
+// TestDanmakuPrefetchFollowsBrowse 钉住起播预取的弹幕目标：跟抽屉的数据来源
+// （「浏览中」那条），不是在播放这条。
+func TestDanmakuPrefetchFollowsBrowse(t *testing.T) {
+	cases := []struct {
+		name             string
+		browseCid        int64
+		hasBrowse        bool
+		playingCid, want int64
+	}{
+		{"播放与浏览同一条：预取它", 70, true, 70, 70},
+		{"播放 A、浏览 B：预取浏览的 B", 70, true, 20, 70},
+		{"播放 A、浏览 B（B 是刚打开但还没分集）：不预取 A", 0, true, 20, 0},
+		{"还没浏览过任何视频：回退正在播放那条", 0, false, 20, 20},
+		{"两条都没 cid：不预取", 0, false, 0, 0},
+	}
+	for _, c := range cases {
+		if got := danmakuPrefetchCid(c.browseCid, c.hasBrowse, c.playingCid); got != c.want {
+			t.Errorf("%s: danmakuPrefetchCid(%d, %v, %d) = %d，想要 %d",
+				c.name, c.browseCid, c.hasBrowse, c.playingCid, got, c.want)
+		}
+	}
+}
+
 // TestNeedLoadDanmakuOnTargetChange 钉住「换一条视频后弹幕要重拉」。改前只判断
 // len(a.Danmaku)==0，播放 A（已预取弹幕）后浏览 B，打开抽屉会继续显示 A 的弹幕；
 // 原版 loadDanmakuList 比的是 danmakuCid，数据属于别的视频就重拉。
@@ -137,13 +160,18 @@ func TestDanmakuTargetWiring(t *testing.T) {
 		"t := danmakuTarget(a)",  // loadComments / toggleDanmaku 取浏览中那条
 		"if needLoadComments(a)", // 切 tab / 打开抽屉的重拉判据
 		"if !needLoadDanmaku(a)",
-		"c.startDanmakuFetch(cid)", // 起播预取
-		"a.ReplyOid = aid",         // 评论拉到后记录 oid
-		"c.app.DanmakuCid = cid",   // 弹幕拉到后记录 cid
+		"danmakuPrefetchCid(prefetchBrowseCid, prefetchHasBrowse, cid)", // 起播预取跟抽屉的数据来源
+		"a.ReplyOid = aid",       // 评论拉到后记录 oid
+		"c.app.DanmakuCid = cid", // 弹幕拉到后记录 cid
 	} {
 		if !bytes.Contains(src, []byte(needle)) {
 			t.Errorf("main.go 里找不到 %s（弹幕/评论目标没接上？）", needle)
 		}
+	}
+	// 起播预取不能再直接拉正在播放这条：那样「播放 A、浏览 B」时这份数据会被
+	// B 的请求代号随即丢弃，白跑一次请求。
+	if bytes.Contains(src, []byte("c.startDanmakuFetch(cid)")) {
+		t.Error("起播预取仍在拉正在播放那条（应经 danmakuPrefetchCid 跟浏览中那条）")
 	}
 	// 弹幕 / 评论的加载不能再以正在播放的曲目为目标。
 	for _, bad := range []string{"t := a.Current()\n\tif t == nil || t.Cid == 0", "t := a.Current()\n\tif t == nil {\n\t\treturn\n\t}"} {

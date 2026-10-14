@@ -862,6 +862,24 @@ func needLoadComments(a *view.App) bool {
 	return t != nil && t.Aid != 0 && (a.ReplyOid != t.Aid || len(a.Comments) == 0)
 }
 
+// danmakuPrefetchCid 决定起播预取该拉哪条视频的弹幕。
+//
+// 抽屉（弹幕 / 评论）的数据来源是「浏览中」那条（danmakuTarget，原版
+// videoInfo），所以预取也跟着它走：否则「播放 A、浏览 B」时预取的是 A，
+// 用户打开抽屉（要 B）时这份数据会被请求代号随即丢弃，白跑一次请求
+// （原版没有预取，不存在这个浪费）。
+//
+//   - hasBrowse 为假（还没浏览过任何视频，BrowseInfo 为 nil）：抽屉会回退到
+//     正在播放那条，用 playingCid；
+//   - hasBrowse 为真但 browseCid 为 0：浏览中那条拿不到 cid，抽屉本来也拉
+//     不了弹幕，返回 0 表示不预取（退回 playingCid 只会再白拉一次）。
+func danmakuPrefetchCid(browseCid int64, hasBrowse bool, playingCid int64) int64 {
+	if !hasBrowse {
+		return playingCid
+	}
+	return browseCid
+}
+
 // toViewSegments 把 bilibili 的跳过分段转成视图用的标记。
 func toViewSegments(segs []bilibili.SponsorSegment) []view.Segment {
 	out := make([]view.Segment, 0, len(segs))
@@ -2030,6 +2048,13 @@ func (c *controller) startCurrent() {
 	c.syncMediaTrack()
 	// 倍速/均衡/音量也在主线程取好，goroutine 里不读界面状态。
 	speed, eq, vol := c.app.Speed, c.app.EQ, c.app.Volume
+	// 弹幕预取该拉哪条 videoInfo：抽屉跟的是「浏览中」那条（danmakuTarget），
+	// 预取也跟着它走（见 danmakuPrefetchCid）。同样在主线程取好，goroutine
+	// 里不读界面状态。
+	prefetchBrowseCid, prefetchHasBrowse := int64(0), false
+	if bi := c.app.BrowseInfo; bi != nil {
+		prefetchBrowseCid, prefetchHasBrowse = bi.Cid, true
+	}
 	// 请求代号：用户快速连点时，慢的旧起播响应不得覆盖新的
 	// （原版 playbackRequestIdRef）。
 	c.app.PlaybackRequestID++
@@ -2148,10 +2173,13 @@ func (c *controller) startCurrent() {
 
 		// 弹幕与跳过分段：可选增强，失败不影响播放。弹幕预取同样置
 		// isLoadingDanmaku —— 若此时用户打开弹幕抽屉，表头刷新键会转圈，
-		// 且同一条视频的抽屉拉取不会重复发。预取的是**正在播放**这条；
-		// 抽屉跟的是「浏览中」那条（原版 videoInfo），目标不同时打开抽屉
-		// 会按请求代号重新拉（见 startDanmakuFetch）。
-		c.startDanmakuFetch(cid)
+		// 且同一条视频的抽屉拉取不会重复发。预取的是抽屉的数据来源
+		// （「浏览中」那条，danmakuPrefetchCid），不是正在播放这条：
+		// 「播放 A、浏览 B」时若预取 A，这份数据会被 B 的请求代号随即丢弃，
+		// 白跑一次请求。
+		if pcid := danmakuPrefetchCid(prefetchBrowseCid, prefetchHasBrowse, cid); pcid != 0 {
+			c.startDanmakuFetch(pcid)
+		}
 		if c.sponsorOn {
 			c.app.Win.Update(func() {
 				c.app.SponsorStatus = "loading"
