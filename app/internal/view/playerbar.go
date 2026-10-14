@@ -719,7 +719,23 @@ var playerRimOpacityFn = playerRimOpacity
 // mygo 没有径向渐变接口（见 bloom.go），所以整条 background-image 在这里按像素
 // 算成一张位图，每条渐变进程内只烘焙一次（渐变按盒比例定义，与按钮尺寸无关，
 // 画时拉伸即可）。列表靠前的径向在上层，按 source-over 合成到线性层上。
-const playerSheenSide = 128
+const (
+	// playerSheenSide 是烘焙的边长基准：方形盒与近方盒（短边算出来 ≥
+	// sheenMinShort）都烘成 128×128。
+	playerSheenSide = 128
+
+	// sheenMinShort 是短边的最低烘焙像素数。sheen 的线性层角度是设备空间
+	// 固定值，靠「位图宽高比 == 盒宽高比」才不被拉偏；宽扁盒（选集胶囊 /
+	// 搜索框）按 128 长边算出的短边只有 15–20px，拉伸回盒时行采样量化会
+	// 在浅色渐变里留下可见的条带（实测峰值预乘差 24）。短边低于这个值时，
+	// 按宽高比把长边一起放大，直到短边够采样。
+	sheenMinShort = 48
+
+	// sheenMaxLong 是放大后的长边上限：把短边抬到 sheenMinShort 会让极扁
+	// 的盒把长边放到几千像素，这里封顶（此时宽高比仍按盒保持），保证缓存
+	// 与内存有界。
+	sheenMaxLong = 512
+)
 
 // sheenStop 是线性渐变的一个色停（At 是 0..1 的位置）。
 type sheenStop struct {
@@ -811,33 +827,55 @@ func (s *sheenBaked) bitmap() *ui.Bitmap {
 	return s.bmp
 }
 
-// sheenBakeSize 按目标盒的宽高比给出烘焙尺寸：长边固定 playerSheenSide，短边
-// 按比例缩放（短边至少 1px）。这样 w/h 就等于盒的宽高比，把位图拉伸回盒时
-// 线性渐变的角度与 CSS 一致。
+// sheenBakeSize 按目标盒的宽高比给出烘焙尺寸。基准是长边 128（playerSheenSide）：
+// 短边按比例算出来若 ≥ sheenMinShort 就直接用 128×短边；否则按宽高比把长边
+// 一起放大到「短边 = sheenMinShort」为止（长边封顶 sheenMaxLong）。两种情况
+// 下 w/h 都等于盒的宽高比，把位图拉伸回盒时线性渐变的角度与 CSS 一致。
 //
 // 为什么必须按宽高比烘：sheen 的径向层按盒的百分比定义（RRX/RRY 是盒宽/盒高的
 // 倍数），等比拉伸后与 CSS 完全一致；但线性层的角度（LAngle）是**设备空间**
 // 固定值，把一张正方形位图非等比拉到一个宽盒上，线性层的角度就跟着被拉偏了
 // （实测 300×36 的胶囊上，预乘通道平均差 ~9.5、峰值 ~48，按比例烘后降到
-// ~2.4 / ~24，剩下的只是低位图的行采样量化）。
+// ~2.4 / ~24）。
+//
+// 为什么还要抬短边：宽扁盒按 128 长边算出的短边只有 15–20px（300×36 → 128×15），
+// 线性层沿盒高每 2–3 个设备像素才换一次采样，拉伸回盒就是可见的行采样条带。
+// 把短边抬到 sheenMinShort（48）后，四条真实盒的峰值预乘差从 24 降到 8。
 func sheenBakeSize(boxW, boxH float32) (int, int) {
 	if !(boxW > 0) || !(boxH > 0) {
 		return playerSheenSide, playerSheenSide
 	}
-	short := func(other, long float32) int {
-		n := int(math.Round(float64(playerSheenSide) * float64(other) / float64(long)))
-		if n < 1 {
-			n = 1
-		}
-		if n > playerSheenSide {
-			n = playerSheenSide
-		}
-		return n
+	long, short := boxW, boxH
+	vertical := boxH > boxW
+	if vertical {
+		long, short = boxH, boxW
 	}
-	if boxH >= boxW {
-		return short(boxW, boxH), playerSheenSide
+	lw := float64(playerSheenSide)
+	sw := lw * float64(short) / float64(long)
+	if sw < float64(sheenMinShort) {
+		lw = float64(sheenMinShort) * float64(long) / float64(short)
+		if lw > float64(sheenMaxLong) {
+			lw = float64(sheenMaxLong)
+		}
+		sw = lw * float64(short) / float64(long)
 	}
-	return playerSheenSide, short(boxH, boxW)
+	li, si := sheenBakeDim(lw), sheenBakeDim(sw)
+	if vertical {
+		return si, li
+	}
+	return li, si
+}
+
+// sheenBakeDim 把一个烘焙边长夹到 [1, sheenMaxLong]（四舍五入到整数）。
+func sheenBakeDim(v float64) int {
+	n := int(math.Round(v))
+	if n < 1 {
+		n = 1
+	}
+	if n > sheenMaxLong {
+		n = sheenMaxLong
+	}
+	return n
 }
 
 // bitmapFor 返回这条 sheen 铺在 boxW×boxH 的盒上时该用的位图：正方形盒直接用

@@ -13,8 +13,12 @@ import (
 // 原生版此前把这条 background-image 逐像素烘成**一张正方形位图**，画的时候
 // 拉伸到目标盒：径向层按盒的百分比定义，拉伸后与 CSS 完全一致；线性层的角度
 // 却是设备空间固定值，非等比拉伸会把角度一起拉偏（300×36 的宽盒上实测预乘通道
-// 平均差 ~9.5、峰值 ~48）。本轮的改法：按盒的宽高比烘一张（长边固定
-// playerSheenSide、短边按比例），各组件改走 paintBakedSheen。
+// 平均差 ~9.5、峰值 ~48）。改法：按盒的宽高比烘一张，各组件改走 paintBakedSheen。
+//
+// 本轮（短边行采样量化）：按「长边固定 128、短边按比例」烘时，宽扁盒的短边只有
+// 15–20px（300×36 → 128×15），线性层沿盒高每 2–3 个设备像素才换一次采样，拉伸
+// 回盒留下可见条带（峰值预乘差 24）。新增 sheenMinShort=48：短边低于它时按宽高比
+// 把长边一起放大（封顶 sheenMaxLong=512），四条真实盒的峰值降到 8。
 
 // --- ① 烘焙尺寸跟着盒的宽高比走 -------------------------------------------
 
@@ -23,27 +27,41 @@ func TestSheenBakeSizeFollowsBoxAspect(t *testing.T) {
 		w, h float32
 		ew   int
 		eh   int
+		tol  float64 // 宽高比容差；长边封顶后不再保持宽高比的极扁盒填 0（跳过）
 	}{
-		{32, 32, 128, 128}, // 方形按钮 ⇒ 用共用那张
-		{42, 42, 128, 128}, // 播放键
-		{300, 36, 128, 15}, // 选集胶囊（round(128*36/300)=15）
-		{200, 32, 128, 20}, // .part-search 搜索框
-		{120, 30, 128, 32}, // 抽屉表头 tab
-		{184, 42, 128, 29}, // 音量弹层（round(128*42/184)=29）
-		{36, 300, 15, 128}, // 竖长盒：长边还是 128
-		{1, 1000, 1, 128},  // 极窄：短边夹到 1px
-		{0, 10, 128, 128},  // 退化输入不放大会崩
-		{10, 0, 128, 128},  //
-		{-5, 10, 128, 128}, //
+		{32, 32, 128, 128, sheenAspectTol}, // 方形按钮 ⇒ 用共用那张
+		{42, 42, 128, 128, sheenAspectTol}, // 播放键
+		{300, 36, 400, 48, sheenAspectTol}, // 选集胶囊：短边 15 → 抬到 48
+		{200, 32, 300, 48, sheenAspectTol}, // .part-search 搜索框：20 → 48
+		{120, 30, 192, 48, sheenAspectTol}, // 抽屉表头 tab：短边 32 → 48
+		{184, 42, 210, 48, sheenAspectTol}, // 音量弹层：29 → 48
+		{36, 300, 48, 400, sheenAspectTol}, // 竖长盒也抬短边
+		{1, 1000, 1, 512, 0},               // 极窄：长边封顶后短边夹到 1px
+		{1000, 15, 512, 8, 0},              // 极扁：长边封顶
+		{0, 10, 128, 128, 0},               // 退化输入不放大会崩
+		{10, 0, 128, 128, 0},               //
+		{-5, 10, 128, 128, 0},              //
 	}
 	for _, c := range cases {
 		gw, gh := sheenBakeSize(c.w, c.h)
 		if gw != c.ew || gh != c.eh {
 			t.Errorf("sheenBakeSize(%g,%g) = %d×%d，应为 %d×%d", c.w, c.h, gw, gh, c.ew, c.eh)
 		}
-		// 长边必须落在 playerSheenSide 上（内存有界）。
-		if gw != playerSheenSide && gh != playerSheenSide {
-			t.Errorf("sheenBakeSize(%g,%g) 的长边 = %d×%d，没有落在 %d 上", c.w, c.h, gw, gh, playerSheenSide)
+		// 长边必须落在 [playerSheenSide, sheenMaxLong]：近方盒不放大，宽扁盒
+		// 放大到短边够采样后封顶（内存有界）。
+		if long := max(gw, gh); long < playerSheenSide || long > sheenMaxLong {
+			t.Errorf("sheenBakeSize(%g,%g) 的长边 = %d，落在 [%d,%d] 之外",
+				c.w, c.h, long, playerSheenSide, sheenMaxLong)
+		}
+		// 短边低于 sheenMinShort 只可能是长边封顶所致。
+		if short := min(gw, gh); short < sheenMinShort && max(gw, gh) != sheenMaxLong {
+			t.Errorf("sheenBakeSize(%g,%g) 的短边 = %d < %d，且长边未封顶（漏抬短边）",
+				c.w, c.h, short, sheenMinShort)
+		}
+		if c.tol > 0 {
+			if d := sheenAspectGap(gw, gh, c.w, c.h); d > c.tol {
+				t.Errorf("sheenBakeSize(%g,%g) = %d×%d 宽高比偏了 %.4f", c.w, c.h, gw, gh, d)
+			}
 		}
 	}
 }
@@ -198,6 +216,55 @@ func TestSheenAspectBakeExactForLinearOnly(t *testing.T) {
 	}
 }
 
+// sheenBakeSizeLegacy 是上一轮的行为（长边固定 128、短边按比例，短边不抬）——
+// 用来在量化测试里跟本轮对比，不依赖实现内部的常改。
+func sheenBakeSizeLegacy(boxW, boxH float32) (int, int) {
+	if !(boxW > 0) || !(boxH > 0) {
+		return playerSheenSide, playerSheenSide
+	}
+	short := func(other, long float32) int {
+		n := int(math.Round(float64(playerSheenSide) * float64(other) / float64(long)))
+		if n < 1 {
+			n = 1
+		}
+		if n > playerSheenSide {
+			n = playerSheenSide
+		}
+		return n
+	}
+	if boxH >= boxW {
+		return short(boxW, boxH), playerSheenSide
+	}
+	return playerSheenSide, short(boxH, boxW)
+}
+
+// TestSheenShortEdgeFloorImprovesQuantization 是本轮的核心判据：对四条真实盒，
+// 抬短边后与逐像素算的 CSS 参考的预乘差（平均 / 峰值）都必须比旧的「长边 128」
+// 更小，且峰值落到 8 以内。旧行为的峰值是 15–24，把 sheenMinShort 停回 0
+// （即恢复旧尺寸）就会变红。
+func TestSheenShortEdgeFloorImprovesQuantization(t *testing.T) {
+	boxes := [][2]int{{300, 36}, {200, 32}, {120, 30}, {184, 42}}
+	for _, box := range boxes {
+		w, h := box[0], box[1]
+		ref := sheenPixels(sheenGlass, w, h)
+		ow, oh := sheenBakeSizeLegacy(float32(w), float32(h))
+		oldMean, oldMax := sheenPremulDrift(sheenPixels(sheenGlass, ow, oh), ref, w, h)
+		aw, ah := sheenBakeSize(float32(w), float32(h))
+		newMean, newMax := sheenPremulDrift(sheenPixels(sheenGlass, aw, ah), ref, w, h)
+		t.Logf("%d×%d：旧 %d×%d 平均 %.2f / 峰值 %d；新 %d×%d 平均 %.2f / 峰值 %d",
+			w, h, ow, oh, oldMean, oldMax, aw, ah, newMean, newMax)
+		if newMax > 8 {
+			t.Errorf("%d×%d：抬短边后峰值预乘差 %d > 8（条带没压下去）", w, h, newMax)
+		}
+		if newMean >= oldMean {
+			t.Errorf("%d×%d：抬短边后平均差 %.3f 不优于旧 %.3f", w, h, newMean, oldMean)
+		}
+		if newMax >= oldMax {
+			t.Errorf("%d×%d：抬短边后峰值 %d 不优于旧 %d", w, h, newMax, oldMax)
+		}
+	}
+}
+
 // --- ③ 位图缓存 -----------------------------------------------------------
 
 func TestSheenBitmapForCache(t *testing.T) {
@@ -213,8 +280,8 @@ func TestSheenBitmapForCache(t *testing.T) {
 	if a1 == b.bitmapFor(120, 30) {
 		t.Error("不同宽高比的盒不该共用同一张位图")
 	}
-	if w, h := a1.Size(); w != 128 || h != 15 {
-		t.Errorf("300×36 的位图 = %d×%d，应为 128×15", w, h)
+	if w, h := a1.Size(); w != 400 || h != 48 {
+		t.Errorf("300×36 的位图 = %d×%d，应为 400×48", w, h)
 	}
 	// 不同 sheen（浅色 / 烟熏）不能互相串。
 	if sheenGlassBaked.bitmapFor(300, 36) == sheenDarkBaked.bitmapFor(300, 36) {
