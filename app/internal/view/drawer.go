@@ -394,8 +394,8 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
-			buttonSurface(b, false, b.Hovered(),
-				ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+			drawerHeaderSurface(b, b.Hovered())
+			drawerHeaderPress(b)
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 					ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
@@ -430,8 +430,8 @@ func (a *App) upHeader(c *ui.Context) {
 	// 原版关注键在「查关注状态 / 关注请求在途」时禁用（isCheckingFollow /
 	// isFollowingLoading）：挡住连点，避免 follow 与 unfollow 各发一次。
 	b.Disabled(a.UpFollowPending)
-	buttonSurface(b, false, b.Hovered() && !a.UpFollowPending,
-		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+	drawerHeaderSurface(b, b.Hovered())
+	drawerHeaderPress(b)
 	b.Children(func() {
 		if spinner {
 			// 原版 <Spinner size="sm" />：转圈替代图标 + 文案。
@@ -687,15 +687,83 @@ func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size fl
 	a.headerButtonOff(c, key, label, ic, size, ink, false, fn)
 }
 
+// drawerHeaderPaint 是抽屉表头小键某一状态解析好的材质（原版
+// `[data-slot="wrapper"] header button[class*="variant-light"]` / `variant-flat`
+// / `variant-solid` 三条逐字相同的规则）：
+//
+//	常态  无边框、--glass-bg-active（白 .16）底 + inset 0 1px 1px --glass-highlight（白 .9）
+//	悬停  --glass-bg-hover（白 .38）底 + inset 0 1px 1px 白 .9
+//	      + inset 0 -1px 1px 墨 .04 + 0 4px 12px 墨 .06
+//
+// 按下回到 --glass-bg-active（缩放由 drawerHeaderPress 承担）。BotIn / Shadow
+// 的零值（A == 0）表示该状态不画这两层。
+type drawerHeaderPaint struct {
+	BG     ui.Color // 底色
+	Inset  ui.Color // inset 0 1px 1px（顶部内高光）
+	BotIn  ui.Color // inset 0 -1px 1px（底部内暗线）
+	Shadow ui.Color // 0 4px 12px（外投影）
+}
+
+// drawerHeaderPaintFor 解析常态 / 悬停两态。取值都是全站不随时段覆写的玻璃令牌。
+func drawerHeaderPaintFor(hovered bool) drawerHeaderPaint {
+	if hovered {
+		return drawerHeaderPaint{
+			BG:     ui.Hex("#ffffff").Alpha(0.38), // --glass-bg-hover
+			Inset:  ui.Hex("#ffffff").Alpha(0.90), // --glass-highlight
+			BotIn:  ui.Hex("#0f172a").Alpha(0.04),
+			Shadow: ui.Hex("#0f172a").Alpha(0.06),
+		}
+	}
+	return drawerHeaderPaint{
+		BG:    ui.Hex("#ffffff").Alpha(0.16), // --glass-bg-active
+		Inset: ui.Hex("#ffffff").Alpha(0.90),
+	}
+}
+
+// drawerHeaderSurface 给抽屉表头小键（刷新 / 定位 / 全部添加 / 关注 / 播放全部）
+// 铺原版那套材质。此前这里借用播放栏的 buttonSurface —— 那是
+// `#player .player-button` 的材质（白 .22 底 + 1px 白 .55 边 + 两层内影 + 常驻
+// 小投影），于是表头小键多出一圈白边和常驻投影、顶部内高光也暗一档
+// （.55 vs 原版 --glass-highlight 的 .9）。声明成 var 便于测试换桩做反证。
+var drawerHeaderSurface = func(b ui.Element, hovered bool) ui.Element {
+	p := drawerHeaderPaintFor(hovered)
+	b.Background(p.BG).InsetShadow(0, 1, 1, 0, p.Inset)
+	if p.BotIn.A > 0 {
+		b.InsetShadow(0, -1, 1, 0, p.BotIn)
+	}
+	if p.Shadow.A > 0 {
+		b.Shadow(0, 4, 12, 0, p.Shadow)
+	}
+	return b
+}
+
+// drawerHeaderPressAnim 是表头小键的按压动画：原版 transition 里的
+// `transform 0.1s ease`（底色 / box-shadow 是 0.18s，本轮不动那两条）。
+var drawerHeaderPressAnim = ui.Animation{
+	Duration: 100 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// drawerHeaderPress 给表头小键加原版那套按压手感：**只按下缩到 .94、悬停不上浮**
+// —— 原版表头按钮只有 `:active { transform: scale(0.94) }`，没有 :hover 位移规则
+// （与 `.nav-icon-btn` 的悬停上浮不同）。每帧都要调（未按下时把目标写回 0），
+// 否则姿势会停在上一帧的 .94。声明成 var 便于测试换桩。
+var drawerHeaderPress = func(b ui.Element) {
+	pose := ui.Pose{}
+	if b.Pressed() {
+		pose = ui.Pose{Scale: 0.94}
+	}
+	b.AnimatePose(pose, drawerHeaderPressAnim)
+}
+
 // headerButtonOff 同 headerButton，但可置为禁用（原版部分刷新键在请求中禁用）。
 // off 为真时（只有历史抽屉刷新键会在请求中置真）图标按原版
 // .history-refresh-spinning 800ms/圈 匀速旋转。
 func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, off bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	disableNav(b, off)
-	buttonSurface(b, false, b.Hovered(),
-		ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
-	pressPose(b)
+	drawerHeaderSurface(b, b.Hovered())
+	drawerHeaderPress(b)
 	b.Children(func() {
 		icon := ui.Icon(c, ic).Size(size, size).TextColor(ink)
 		if off {
@@ -1706,8 +1774,8 @@ func (a *App) partsHeader(c *ui.Context) {
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加")
-		buttonSurface(b, false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
+		drawerHeaderSurface(b, b.Hovered())
+		drawerHeaderPress(b)
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconAdd).Size(16, 16).TextColor(ui.Hex("#475569"))
