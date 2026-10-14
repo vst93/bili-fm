@@ -737,20 +737,52 @@ func (c *controller) loadComments(page int) {
 				}
 				list = append(list, cm)
 			}
-			if page <= 1 {
-				a.Comments = list
-			} else {
-				a.Comments = append(a.Comments, list...)
-			}
-			// 上限：列表不做虚拟化，条目太多每帧构建很吃力。
-			if len(a.Comments) > maxComments {
-				a.Comments = a.Comments[:maxComments]
-			}
+			// 上限：列表不做虚拟化，条目太多每帧构建很吃力。超上限时从**头部**
+			// 释放已读的那批（见 retainComments）。
+			a.Comments = retainComments(a.Comments, list, page, maxComments)
 			a.ReplyPage = page
 			a.RepliesHasMore = r.HasMore
 			a.ReplyTotal = r.TotalCount
 		})
 	}()
+}
+
+// retainComments 把新拉到的一页评论并入已有列表，并裁到上限 limit。
+//
+// 评论按接口给的顺序排列（第 1 页在最前），翻页只往**尾部**追加更靠后的评论；
+// 用户从上往下读，头部那批是已经读过的。所以超上限时要从**头部**释放，做成
+// 「有界滑动窗口」：保留最近读到的 limit 条，尾部的新页一定进得来。
+//
+// 早前这里写反了（`a.Comments = a.Comments[:maxComments]`，截尾）：从第 7 页
+// （每页 20 条，上限 120）起，每拉一页都会被立刻整页丢掉 —— 列表看上去
+// 「加载不动」，而用户此时正停在底部，内容高度没变，自动翻页的「到底了」判据
+// 一直成立，于是不停地重拉下一页（请求量随评论数无界增长，且新数据永远看不见）。
+// 保留尾部、丢弃头部还与上限的目的自洽：每帧构建的行数恒为 limit。
+//
+// 返回值在发生丢弃时一定是**新数组**：直接切尾会共享底层数组，被丢掉的头部
+// 评论（Comment 里是 string 与 []Comment，都是指针）仍被那块数组引用着，
+// 等于没释放。pageNo <= 1 表示重新拉第一页，整表替换。
+func retainComments(prev, page []view.Comment, pageNo, limit int) []view.Comment {
+	if pageNo <= 1 {
+		prev = nil
+	}
+	total := len(prev) + len(page)
+	if total == 0 {
+		return nil
+	}
+	keep := total
+	if limit > 0 && total > limit {
+		keep = limit
+	}
+	all := make([]view.Comment, 0, total)
+	all = append(all, prev...)
+	all = append(all, page...)
+	if keep == total {
+		return all
+	}
+	out := make([]view.Comment, keep)
+	copy(out, all[total-keep:])
+	return out
 }
 
 // switchDanmakuTab 切换「弹幕/评论」tab；切到评论时按需拉第一页。

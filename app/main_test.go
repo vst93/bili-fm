@@ -626,3 +626,103 @@ func TestPlayVideoWarningText(t *testing.T) {
 		t.Error("openVideo 的提示应为「请先选择一个视频」（原版 videoInfo 的文案）")
 	}
 }
+
+// mkComments 造 n 条可辨认的评论（User 是「p<页>-<序号>」）。
+func mkComments(tag string, n int) []view.Comment {
+	out := make([]view.Comment, n)
+	for i := range out {
+		out[i] = view.Comment{
+			User:    fmt.Sprintf("%s-%d", tag, i),
+			Content: fmt.Sprintf("%s 的第 %d 条评论", tag, i),
+			Level:   i%6 + 1,
+		}
+	}
+	return out
+}
+
+// TestRetainCommentsSlidingWindow 钉住评论分页的有界滑动窗口方向。
+//
+// 原版 danmakuList 的评论 tab 是「滚到底 + handleScroll 自动翻页」，页序即
+// 列表序（第 1 页在最前），翻页只会往尾部追加更靠后的评论。原生版有内存上限
+// （maxComments，列表不做虚拟化），超上限时**必须从头部释放**已经读过的那批，
+// 否则新页进不来：改前是 `a.Comments[:maxComments]` 截尾，第 7 页（120 条上限
+// 之下的第一页）起整页被丢，列表「加载不动」且因为一直停在底部而反复重拉。
+func TestRetainCommentsSlidingWindow(t *testing.T) {
+	const pageSize = 20
+	page := 0
+	var got []view.Comment
+	// 7 页 × 20 条，上限 120：第 7 页是第一个会触发释放的页。
+	for page = 1; page <= 7; page++ {
+		got = retainComments(got, mkComments(fmt.Sprintf("p%d", page), pageSize), page, maxComments)
+		if len(got) > maxComments {
+			t.Fatalf("第 %d 页后长度 %d 超过上限 %d", page, len(got), maxComments)
+		}
+		if page <= 6 && len(got) != page*pageSize {
+			t.Fatalf("第 %d 页后长度 %d，want %d（还没到上限不该释放）", page, len(got), page*pageSize)
+		}
+	}
+	if len(got) != maxComments {
+		t.Fatalf("灌满后长度 %d，want %d", len(got), maxComments)
+	}
+	// 最新拉到的那一页必须整页都在（改前的截尾会把它们全丢掉）。
+	for i := 0; i < pageSize; i++ {
+		want := fmt.Sprintf("p7-%d", i)
+		if got[len(got)-pageSize+i].User != want {
+			t.Errorf("尾部第 %d 条 = %q，want %q —— 新页被截掉了（截尾而非丢头）",
+				i, got[len(got)-pageSize+i].User, want)
+		}
+	}
+	// 头部释放的是最早的整页：第 1 页全没了，第 2 页还在。
+	if got[0].User != "p2-0" {
+		t.Errorf("头部 = %q，want %q —— 应从头部按页释放", got[0].User, "p2-0")
+	}
+	for _, cm := range got {
+		if strings.HasPrefix(cm.User, "p1-") {
+			t.Fatalf("第 1 页的 %q 应该已被释放", cm.User)
+		}
+	}
+}
+
+// TestRetainCommentsFreesDroppedHead 释放头部之后不能还引用着那批评论：
+// 直接对 `append` 出来的切片切尾会共享底层数组（cap 停在释放前的长度），
+// Comment 里是 string 与 []Comment（都是指针），被丢掉的条目仍被那块数组
+// 钉住 = 上限形同虚设。
+func TestRetainCommentsFreesDroppedHead(t *testing.T) {
+	prev := mkComments("p1", maxComments)
+	got := retainComments(prev, mkComments("p2", 5), 2, maxComments)
+	if len(got) != maxComments {
+		t.Fatalf("长度 %d，want %d", len(got), maxComments)
+	}
+	// 丢的正好是最早的 5 条。
+	if got[0].User != "p1-5" {
+		t.Fatalf("头部 = %q，want %q", got[0].User, "p1-5")
+	}
+	// 共享底层数组时 cap 会是释放前的 125，于是 got[:cap(got)] 里能看到被丢的 p1-0。
+	if cap(got) != len(got) {
+		t.Fatalf("cap = %d，len = %d —— 返回的切片共享了释放前的底层数组", cap(got), len(got))
+	}
+	for _, cm := range got[:cap(got)] {
+		if strings.HasPrefix(cm.User, "p1-0") || cm.User == "p1-4" {
+			t.Fatalf("返回的切片在容量内仍引用被释放的 %q", cm.User)
+		}
+	}
+}
+
+// TestRetainCommentsFirstPageReplaces 重新拉第一页（换视频 / 刷新）整表替换，
+// 不把新视频的评论追加到旧视频后面。
+func TestRetainCommentsFirstPageReplaces(t *testing.T) {
+	old := mkComments("old", 30)
+	got := retainComments(old, mkComments("new", 20), 1, maxComments)
+	if len(got) != 20 {
+		t.Fatalf("长度 %d，want 20", len(got))
+	}
+	for _, cm := range got {
+		if !strings.HasPrefix(cm.User, "new-") {
+			t.Fatalf("第一页应整表替换，出现 %q", cm.User)
+		}
+	}
+	// 空页 + 第一页：列表清空（不是保留旧的）。
+	if got := retainComments(old, nil, 1, maxComments); got != nil {
+		t.Errorf("第一页为空应得 nil，got %d 条", len(got))
+	}
+}
