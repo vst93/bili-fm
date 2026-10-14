@@ -653,11 +653,19 @@ var videoInfoHeight float32 = 366
 // 只在宽窗应用。声明成 var 便于测试归零做反证。
 var videoInfoPad = [4]float32{2, 0, 2, 3}
 
-// videoTitleMaxH 是标题盒高的上限：原版 `#video-title h2` 的 `max-height: 58px`
-// （两行 × 22px × 1.18 ≈ 52，留一点余量）。没有它时，固定 366 盒高里吃不完的
-// 剩余空间会被标题吸收（长标题实测涨到 66），把下方内容整体顶下去。
-// 声明成 var 便于测试归零做反证。
-var videoTitleMaxH float32 = 58
+// videoTitleBoxH 是标题盒高：原版 `#video-title h2` 的 `min-height: 52px`
+// （`line-height: 1.18` 两行 2 × 22 × 1.18 ≈ 51.92，正好落在 52 上），宽窗下
+// 1 行与 2 行都是 52。
+//
+// 必须用**固定高度**而不是 `MinHeight(52).MaxHeight(58)`：框架把每行高夹在
+// `max(指定行高, 字体 ascent+descent)` 之上（22px 中文的自然行盒 ≈ 33px = 1.5em，
+// LineHeight(1.18) 的 25.96 过不了这道夹），两行内容 ≈ 66；旧写法只用
+// `MaxHeight(58)` 把它截在 58 —— 比原版高 6px，把下方简介 / 胶囊 / 操作行 /
+// 工具条整体压下 6px。固定 52 后框架不再按内容撑高，超出的部分走元素的
+// 「overflow 可见」（原版 CSS 同样是 overflow: visible、行盒比字形矮，靠行与行
+// 重叠吸收）—— 布局高度因此与原版一致，只是第二行比原版低 7px（框架硬底）。
+// 声明成 var 便于测试做反证（见 videometrics_test）。
+var videoTitleBoxH float32 = 52
 
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
@@ -685,7 +693,13 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 		title := ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
 			LineHeight(1.18).MaxLines(2).Selectable()
 		if wide {
-			title.MinHeight(52).MaxHeight(videoTitleMaxH)
+			title.Height(videoTitleBoxH)
+		} else {
+			// 窄窗原版 @media (max-width: 680px) 只把 `#video-title h2` 的
+			// `min-height` 放开成 auto，`max-height: 58px` 与 line-height 1.18
+			// 仍在 —— 两行内容 51.92 < 52，所以两行盒高同样是 52，单行则随内容
+			// （不拉满 52）。这里用 MaxHeight（硬底会按内容 58 撑到 58）压回 52。
+			title.MaxHeight(videoTitleBoxH)
 		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有
