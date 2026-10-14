@@ -36,6 +36,9 @@ func (c *controller) loadPrefs() {
 	if v := parseFloat(c.kv.String(prefVolume)); v >= 0 && c.kv.String(prefVolume) != "" {
 		a.Volume = v
 	}
+	// 原版把「静音」也当成音量 0 持久化：重启后仍是静音（滑杆在 0、图标是
+	// 静音图标）。所以读到 0 时把 Muted 也标上。
+	a.Muted = a.Volume <= 0
 	a.EQ = c.kv.String(prefEQ) == "true"
 	if m := c.kv.String(prefCover); m == "square" {
 		a.CoverMode = "square"
@@ -89,12 +92,17 @@ func dbgSlow(name string, fn func()) {
 	}
 }
 
-// setVolume 设置音量并落盘（静音时先解除静音，否则听不出变化）。
+// setVolume 设置音量并落盘（按原版语义：音量与静音是同一个事实）。
 func (c *controller) setVolume(v float64) {
-	c.app.Volume = v
+	a := c.app
+	a.Volume = v
+	// 原版 handleVolumeChange：`audio.volume = value; audio.muted = value === 0;`
+	// 且 `if (value > 0) lastVolumeRef.current = value;` —— 音量 > 0 时记住它
+	// （解除静音要用），音量 0 即静音。
 	if v > 0 {
-		c.app.Muted = false
+		a.LastVolume = v
 	}
+	a.Muted = v <= 0
 	c.applyVolume()
 	if c.media != nil {
 		c.media.SetVolume(v)
@@ -108,14 +116,44 @@ func (c *controller) persistVolume(v float64) {
 }
 
 // toggleMute 切换静音（原版音量弹层的静音键；主窗/mini 的音量键也走这里）。
+//
+// 原版的静音键不是「翻一个布尔」，而是把音量写成 0 / 写回上次音量：
+//
+//	if (volume === 0) { handleVolumeChange(lastVolumeRef.current || 1); persistVolume(restored); }
+//	else             { handleVolumeChange(0); persistVolume(0); }
+//
+// 于是点静音时音量滑杆会一起归零、图标转静音，解除时回到之前的音量；静音态
+// 也随音量一起落盘（重启后仍是静音）。此前原生版用独立的 Muted 布尔：静音时
+// 音量/滑杆停在原值，且不落盘 —— 两处都与原版对不上。
 func (c *controller) toggleMute() {
-	c.app.Muted = !c.app.Muted
-	c.applyVolume()
-	c.app.Win.Update(func() {})
+	a := c.app
+	v, last := muteToggleState(a.Volume, a.LastVolume)
+	a.LastVolume = last
+	c.setVolume(v)
+	c.persistVolume(v)
+	a.Win.Update(func() {})
+}
+
+// muteToggleState 计算点一次静音键之后的（音量, 记住的上次音量）。纯函数，
+// 便于单测逐值钉住原版的两条分支：
+//
+//	volume > 0  → (0, volume)          归零并记住当前音量
+//	volume == 0 → (last || 1, 该值)     恢复到记住的音量，没记录就回到 1
+func muteToggleState(volume, lastVolume float64) (float64, float64) {
+	if volume > 0 {
+		return 0, volume
+	}
+	if lastVolume <= 0 {
+		return 1, 1
+	}
+	return lastVolume, lastVolume
 }
 
 // applyVolume 把当前音量/静音真正下发到引擎。
 func (c *controller) applyVolume() {
+	if c.mp == nil {
+		return
+	}
 	v := c.app.Volume
 	if c.app.Muted {
 		v = 0

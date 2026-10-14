@@ -107,7 +107,7 @@ func (a *App) MiniShell(c *ui.Context) {
 		// 一条硬切线（1px 亮描边直接切在信息区上）。盒子与主窗同一手法：
 		// 「栏高 + 10」的 Absolute 层、Bottom: true（效果自栏向上生），
 		// 必须画在播放栏**之前**（在下层），并且 PassThrough 不挡指针。
-		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(miniPlayerH+10).
+		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(miniPlayerH + 10).
 			PassThrough().Material(glass.ScrollEdge{Background: miniPlayerEdgeFade(t), Bottom: true})
 
 		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
@@ -255,10 +255,14 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerPressPose(vol)
 					playerRim(vol, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
 					vol.Children(func() {
-						icon := ui.Icon(c, iconVolume).Size(18, 18).
+						// 原版 mini 与主窗共用同一个 Player，所以音量键图标同样随音量切换
+						// （`volume > 0 ? VolumeNotice : VolumeMute`）—— 音量 0（静音）时
+						// mini 的那颗键也该是静音图标。之前这里恒画喇叭。
+						ic := volumeIconFor(a.Muted || a.Volume <= 0)
+						icon := ui.Icon(c, ic).Size(18, 18).
 							TextColor(playerFadeColor(c, vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered()))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
-						playerIconShadowFn(icon, iconVolume, 0, 1, playerIconShadowInk)
+						playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 					})
 					if vol.Clicked() {
 						a.ShowVolume = !a.ShowVolume

@@ -475,7 +475,13 @@ type App struct {
 	EQ       bool
 	Sponsor  bool
 	Volume   float64
-	// Muted 是静音状态（原版音量弹层里的独立静音键）。
+	// LastVolume 是「静音前」记住的音量。原版没有独立的静音布尔：静音就是
+	// 把音量归零（player.tsx 的 handleVolumeChange 里 `audio.muted = value === 0`），
+	// lastVolumeRef 记住最后一次 >0 的音量，解除静音时恢复。这里用同一个事实
+	// （Volume==0 即静音），LastVolume 只负责恢复值。
+	LastVolume float64
+	// Muted 是静音状态。它**恒等于 Volume <= 0**（见 setVolume / toggleMute），
+	// 保留这个字段只是让视图与视频弹窗少算一次比较。
 	Muted bool
 
 	// SponsorStatus 是 SponsorBlock 查询状态：off/loading/ok/empty/error，
@@ -728,10 +734,11 @@ type App struct {
 // NewApp 建一个用当前时段主题的应用。
 func NewApp(repaint func()) *App {
 	a := &App{
-		Theme:  ThemeAt(time.Now()),
-		Speed:  1,
-		Volume: 1,
-		Images: imagecache.New(repaint),
+		Theme:      ThemeAt(time.Now()),
+		Speed:      1,
+		Volume:     1,
+		LastVolume: 1,
+		Images:     imagecache.New(repaint),
 		// 抽屉表头的默认 tab（与原版一致：搜索按综合、热门与推荐默认热门、
 		// 历史默认观看历史）。
 		SortOrder: SortTotal,

@@ -307,3 +307,33 @@ func TestPlayerControlIconWiring(t *testing.T) {
 		t.Error("drawer.go 里仍有 ui.Icon(c, iconPlay) —— filled 的 Play 应走 ui.Image(c, iconPlayFilled)")
 	}
 }
+
+// TestVolumeIconFollowsMute 钉住音量键图标随静音切换（原版 player.tsx 的
+// `volume > 0 ? <VolumeNotice/> : <VolumeMute/>`，主窗 / mini / 弹层静音键
+// 共用）。此前 mini 那颗音量键恒画喇叭：静音后主窗图标变静音、mini 还是喇叭，
+// 同一个静音态在两个窗口显示不一致。
+func TestVolumeIconFollowsMute(t *testing.T) {
+	if volumeIconFor(false) != iconVolume {
+		t.Error("有声音时应是喇叭（VolumeNotice）")
+	}
+	if volumeIconFor(true) != iconMute {
+		t.Error("静音/音量为 0 时应是带叉的静音图标（VolumeMute）")
+	}
+	// 两枚图标必须是不同的 SVG，否则「切换」是空操作。
+	if volumeIconFor(true) == volumeIconFor(false) {
+		t.Error("静音 / 有声两态返回了同一枚图标")
+	}
+	// 接线反证：主窗音量键、音量弹层静音键、mini 音量键都走这一个判据。
+	for _, c := range []struct{ file, want string }{
+		{"playerbar.go", "volumeIconFor(muted)"},
+		{"mini.go", "volumeIconFor(a.Muted || a.Volume <= 0)"},
+	} {
+		src, err := os.ReadFile(c.file)
+		if err != nil {
+			t.Fatalf("读 %s 失败：%v", c.file, err)
+		}
+		if !bytes.Contains(src, []byte(c.want)) {
+			t.Errorf("%s 没接上 %q", c.file, c.want)
+		}
+	}
+}

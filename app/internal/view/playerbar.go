@@ -32,7 +32,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 框架的 ScrollEdge 就是 macOS 26+ 的这个效果；软边缘淡出、硬边缘结霜。
 	// 高度按框架的约定 = 栏高 + 10（软边缘多出的那 10 DIP）。
 	// Background 必须显式给：主题的 Background 被我们设成了透明。
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(PlayerBarHeight+PlayerBarPad).Shrink(0).
+	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(PlayerBarHeight + PlayerBarPad).Shrink(0).
 		PassThrough(). // 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
 		// 后者是个不透明的蓝灰，淡出来是一条明显的灰带。
 		// 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
@@ -375,6 +375,14 @@ func playerButtonInk(t Theme, hovered bool) ui.Color {
 	return ui.Hex("#334155")
 }
 
+// volumeIconFor 返回音量键这一帧的图标。原版 player.tsx 的这颗键（主窗音量、
+// mini 音量、弹层静音键都是同一段 JSX）按 `volume > 0` 选图标：有声音是喇叭
+// （VolumeNotice），音量 0 或已静音是带叉的静音图标（VolumeMute）。抽出来是为了
+// 主窗 / mini / 弹层三处用同一个判据，也方便单测逐值钉住。
+func volumeIconFor(muted bool) *ui.SVG {
+	return pick(muted, iconMute, iconVolume)
+}
+
 // playerMuteSurface 是音量弹层里静音键（原版 `#player .player-volume-mute-button`）
 // 的材质。这颗键虽然也叫 `.player-button`，原版却为它另开了一条规则：尺寸 26、
 // 圆角 8、描边 slate .2、内高光白 .44（比通用 `:hover`/常态的白 .7 收敛）、
@@ -411,7 +419,7 @@ var playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
 
 // playerMuteBorder 是静音键的描边：常态 slate .2、已静音 studio-blue .28；
 // 深色常态转白 .15（`[data-active]` 在深色下不生效）。高对比下收成 slate .44
-//（高对比通用规则压过 `[data-active]`，所以已静音也不转蓝）。
+// （高对比通用规则压过 `[data-active]`，所以已静音也不转蓝）。
 func playerMuteBorder(t Theme, muted bool) ui.Color {
 	switch {
 	case t.HighContrast:
@@ -1355,7 +1363,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
-		ic := pick(muted, iconMute, iconVolume)
+		ic := volumeIconFor(muted)
 		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
 			TextColor(playerFadeColor(c, b, "player-volume-ink", playerToolInk(a.Theme, toolVolume, a.ShowVolume, b.Hovered()))).
 			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
@@ -1675,7 +1683,7 @@ var volumePopoverEnterDuration = 160 * time.Millisecond
 // 淡入放大到常态。
 //
 // 原版 `@media (prefers-reduced-motion: reduce)` 把这条 transition 整个关掉
-//（`transition: none`），所以减少动态效果时返回 ok=false —— 弹层直接出现，不淡
+// （`transition: none`），所以减少动态效果时返回 ok=false —— 弹层直接出现，不淡
 // 也不缩。声明成函数便于单测钉住这三条。
 func volumePopoverEnter(c *ui.Context) (ui.ElementTransition, bool) {
 	if reduceMotion(c) {
@@ -1720,21 +1728,24 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 	}
 	panel.Children(func() {
 		// 静音键：独立的切换（原版 player-volume-mute-button）。
+		// 静音态 = 音量 0（原版 `data-active={volume === 0}`，没有独立布尔），
+		// 标签 / 材质 / 图标都读同一个判据。
+		muted := a.Muted || a.Volume <= 0
 		mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
 			Radius(RadiusSmall).
-			Center().Label(pick(a.Muted, "取消静音", "静音")).Tooltip(pick(a.Muted, "取消静音", "静音"))
+			Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音"))
 		// 原版静音键材质：常态白 .22 底 + slate .2 描边 + 白 .44 内高光（悬停不换面），
 		// 已静音只转蓝调墨色/描边（见 playerMuteSurface）。
-		playerMuteSurface(a.Theme, mute, a.Muted)
+		playerMuteSurface(a.Theme, mute, muted)
 		// 静音键也是 .player-button，原版通用 `:active { transform: scale(.93) }`
 		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
 		playerPressPose(mute)
 		// 静音键不在 .52 名单里（继承 .player-button::after 的 1.0）。
 		playerRim(mute, RadiusSmall, a.Theme.Dark, false, sheenKindStatic, false, false)
 		mute.Children(func() {
-			ic := pick(a.Muted, iconMute, iconVolume)
+			ic := volumeIconFor(muted)
 			icon := ui.Icon(c, ic).Size(16, 16).
-				TextColor(playerMuteInk(a.Theme, a.Muted))
+				TextColor(playerMuteInk(a.Theme, muted))
 			playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 		})
 		if mute.Clicked() && a.Act.ToggleMute != nil {

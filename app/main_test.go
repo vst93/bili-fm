@@ -1001,3 +1001,88 @@ func sourceBlock(t *testing.T, src []byte, needle string) string {
 	t.Fatalf("%q 之后的大括号没有配平", needle)
 	return ""
 }
+
+// TestMuteToggleState 钉住原版静音键的两条分支：静音 = 把音量写成 0 并记住
+// 当前音量；解除 = 恢复记住的音量（没有记录就回到 1，对齐 `lastVolumeRef || 1`）。
+//
+// 原版（main:src/components/player.tsx 的静音键 + handleVolumeChange）根本没有
+// 独立的静音布尔：`audio.muted = value === 0`，静音就是把音量归零，所以音量
+// 滑杆会一起走到最左；`lastVolumeRef` 只在 value > 0 时更新。此前原生版用独立
+// 的 Muted 布尔 —— 静音时音量/滑杆停在原值。
+func TestMuteToggleState(t *testing.T) {
+	for _, c := range []struct {
+		volume, last      float64
+		wantVol, wantLast float64
+	}{
+		{0.8, 0.8, 0, 0.8}, // 有声音 → 归零并记住
+		{0.5, 0.9, 0, 0.5}, // 记住的是「当前」音量，不是更早那个
+		{0, 0.8, 0.8, 0.8}, // 已静音 → 恢复上次音量
+		{0, 0, 1, 1},       // 从没听过声音 → 回到 1
+		{0, -1, 1, 1},      // 非法记录也当没有
+	} {
+		vol, last := muteToggleState(c.volume, c.last)
+		if vol != c.wantVol || last != c.wantLast {
+			t.Errorf("muteToggleState(%v,%v) = (%v,%v)，想 (%v,%v)",
+				c.volume, c.last, vol, last, c.wantVol, c.wantLast)
+		}
+	}
+}
+
+// TestToggleMuteMatchesOriginal 是控制器级实测：点一次静音键后
+// Volume==0 且 Muted==true（滑杆因此归零），并**落盘 0**（原版 persistVolume(0)，
+// 重启后仍是静音）；再点一次恢复音量、解除静音、落盘恢复值。
+func TestToggleMuteMatchesOriginal(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	a := &view.App{Volume: 0.8, LastVolume: 0.8}
+	c := &controller{app: a, kv: kv}
+
+	c.toggleMute()
+	if a.Volume != 0 || !a.Muted {
+		t.Errorf("静音后应 Volume=0 / Muted=true，得到 Volume=%v Muted=%v", a.Volume, a.Muted)
+	}
+	if a.LastVolume != 0.8 {
+		t.Errorf("静音后应记住 0.8，得到 %v", a.LastVolume)
+	}
+	if got := kv.String("volume"); got != "0" {
+		t.Errorf("静音应落盘 volume=0，得到 %q", got)
+	}
+
+	c.toggleMute()
+	if a.Volume != 0.8 || a.Muted {
+		t.Errorf("解除静音后应恢复 0.8 / Muted=false，得到 Volume=%v Muted=%v", a.Volume, a.Muted)
+	}
+	if got := kv.String("volume"); got != "0.8" {
+		t.Errorf("解除静音应落盘 volume=0.8，得到 %q", got)
+	}
+}
+
+// TestSetVolumeZeroMutes 钉住「滑杆拖到 0 也等于静音」（原版 handleVolumeChange
+// 的 `audio.muted = value === 0`）：静音键的蓝调激活态与主窗音量图标都读
+// Muted，拖到 0 而不置 Muted 会让它们继续显示「有声」。
+func TestSetVolumeZeroMutes(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	a := &view.App{Volume: 0.6, LastVolume: 0.6}
+	c := &controller{app: a, kv: kv}
+
+	c.setVolume(0)
+	if a.Volume != 0 || !a.Muted {
+		t.Errorf("音量拖到 0 应视为静音，得到 Volume=%v Muted=%v", a.Volume, a.Muted)
+	}
+	if a.LastVolume != 0.6 {
+		t.Errorf("拖到 0 不该覆盖记住的音量，得到 %v", a.LastVolume)
+	}
+
+	c.setVolume(0.3)
+	if a.Volume != 0.3 || a.Muted {
+		t.Errorf("从 0 拖回来应解除静音，得到 Volume=%v Muted=%v", a.Volume, a.Muted)
+	}
+	if a.LastVolume != 0.3 {
+		t.Errorf(">0 的音量应被记住，得到 %v", a.LastVolume)
+	}
+}
