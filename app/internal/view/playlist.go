@@ -255,6 +255,26 @@ func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
 	return p
 }
 
+// playlistDeleteFadeAnim 是记录行删除键的淡入淡出：原版那颗键是
+// `opacity-0 group-hover:opacity-100 transition-opacity`，Tailwind 的
+// `transition-opacity` 默认 150ms + cubic-bezier(.4, 0, .2, 1)。声明成 var
+// 便于测试换桩反证。
+var playlistDeleteFadeAnim = ui.Animation{
+	Duration: 150 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.4, 0, 0.2, 1),
+}
+
+// playlistDeleteOpacity 是删除键这一帧的不透明度目标：行悬停 1、否则 0。
+// 原版那颗键**始终在 DOM 里**（只切不透明度），所以它占的 26px + 8px 间距
+// 一直从文字列里扣走；原生版此前把「是否存在」挂在悬停上，行一悬停文字列
+// 就被抽窄 34px，长标题当场重新截断、整行文字跳一下。
+func playlistDeleteOpacity(rowHovered bool) float32 {
+	if rowHovered {
+		return 1
+	}
+	return 0
+}
+
 // playlistRow 是一条记录。我的列表支持拖拽排序（拖到别的行上即插入到那个位置）。
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
@@ -341,14 +361,16 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 				TextColor(p.TitleInk).FontWeight(p.TitleWeight)
 		})
 
-		// 我的列表才允许删除（排序靠拖拽）。
-		// 原版按钮默认 opacity-0，行 hover 才显形（group-hover:opacity-100）。
-		if editable && row.Hovered() {
-			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose, ui.Hex("#999999"), func() {
-				if a.Act.DeletePlaylistItem != nil {
-					a.Act.DeletePlaylistItem(ListUser, item.ID)
-				}
-			})
+		// 我的列表才允许删除（排序靠拖拽）。原版那颗键**始终渲染**，靠
+		// `opacity-0 group-hover:opacity-100 transition-opacity` 淡入淡出 ——
+		// 始终占位，悬停不会把文字列抽窄（见 playlistDeleteOpacity）。
+		if editable {
+			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose,
+				ui.Hex("#999999"), playlistDeleteOpacity(row.Hovered()), func() {
+					if a.Act.DeletePlaylistItem != nil {
+						a.Act.DeletePlaylistItem(ListUser, item.ID)
+					}
+				})
 		}
 	})
 	if row.Clicked() && a.Act.PlayPlaylist != nil {
@@ -370,7 +392,9 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 }
 
 // rowIconButton 是记录行右侧的小图标键（row 的子元素，不冒泡触发播放）。
-func (a *App) rowIconButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Color, fn func()) {
+// opacity 是这一帧的目标不透明度（删除键常态 0、行悬停 1），走
+// playlistDeleteFadeAnim 淡入淡出。
+func (a *App) rowIconButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui.Color, opacity float32, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(26, 26).Radius(RadiusSmall).Center().
 		Label(label).Tooltip(label)
@@ -379,6 +403,7 @@ func (a *App) rowIconButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui
 	} else {
 		b.Background(ui.Transparent)
 	}
+	b.Opacity(b.AnimateTo("pl-del-fade", opacity, playlistDeleteFadeAnim))
 	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(ink) })
 	if b.Clicked() {
 		fn()

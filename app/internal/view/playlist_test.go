@@ -1,7 +1,9 @@
 package view
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -186,5 +188,101 @@ func TestPlaylistRowRendered(t *testing.T) {
 	// 常态视频名 #64748b（亮度 ≈ 117）；旧值 #9ca3af 亮度 ≈ 163。
 	if lum(baseTitle) > 150 {
 		t.Errorf("常态视频名太淡（亮度=%d），应接近 #64748b", lum(baseTitle))
+	}
+}
+
+// TestPlaylistDeleteAlwaysReserved 无头实测：记录行的删除键**非悬停时也在布局里**
+// （原版是 `opacity-0`，只切不透明度、不切存在），所以悬停前后文字列宽度必须一致。
+// 原生版此前把「是否存在」挂在 `row.Hovered()` 上，悬停一落上文字列就被抽窄
+// 26+8=34px，长标题当场重新截断、整行文字跳一下。
+//
+// 反证：把 `if editable` 换回 `if editable && row.Hovered()` → 静息文字列 660、
+// 悬停 626，本测试红。
+func TestPlaylistDeleteAlwaysReserved(t *testing.T) {
+	long := strings.Repeat("很长分集名称", 20)
+	a := NewApp(func() {})
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "P0", Title: "T0"},
+		{ID: "b", Part: long, Title: "T1"},
+	}
+	a.PlayingPlaylist = ListUser
+	a.Index = 0
+	a.Drawer = DrawerPlaylist
+	tt := shellTester(t, a)
+
+	if _, ok := tt.Find("删除"); !ok {
+		t.Fatal("静息时删除键不在布局里 —— 原版它始终占位（opacity-0）")
+	}
+	rest, ok := tt.Find(long)
+	if !ok {
+		t.Fatal("找不到长分集名")
+	}
+	tt.Move(rest.X+rest.W/2, rest.Y+rest.H/2)
+	tt.Frame()
+	hover, ok := tt.Find(long)
+	if !ok {
+		t.Fatal("悬停后找不到长分集名")
+	}
+	t.Logf("文字列宽 静息=%v 悬停=%v", rest.W, hover.W)
+	if rest.W != hover.W {
+		t.Fatalf("悬停让文字列宽从 %v 变到 %v：删除键没有常驻占位", rest.W, hover.W)
+	}
+}
+
+// TestPlaylistDeleteFadeTokens 钉住删除键淡入的时长与两端目标：原版
+// `transition-opacity` 是 150ms + cubic-bezier(.4, 0, .2, 1)，常态 0 / 行悬停 1。
+func TestPlaylistDeleteFadeTokens(t *testing.T) {
+	if playlistDeleteFadeAnim.Duration != 150*time.Millisecond {
+		t.Errorf("淡入时长 = %v，应为 150ms（Tailwind transition-opacity 默认）",
+			playlistDeleteFadeAnim.Duration)
+	}
+	if playlistDeleteFadeAnim.Ease == nil {
+		t.Error("淡入没有缓动曲线")
+	}
+	if got := playlistDeleteOpacity(false); got != 0 {
+		t.Errorf("静息不透明度 = %v，应为 0", got)
+	}
+	if got := playlistDeleteOpacity(true); got != 1 {
+		t.Errorf("悬停不透明度 = %v，应为 1", got)
+	}
+}
+
+// TestPlaylistDeleteFadesIn 无头实测：静息时删除键不可见（opacity 0，图标不画），
+// 行悬停后淡入显形。反证：把 `rowIconButton` 里的 `Opacity(AnimateTo(...))` 去掉
+// （或恒置 1）→ 静息也能采到 #999 的图标像素，本测试红。
+func TestPlaylistDeleteFadesIn(t *testing.T) {
+	long := strings.Repeat("很长分集名称", 20)
+	a := NewApp(func() {})
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "P0", Title: "T0"},
+		{ID: "b", Part: long, Title: "T1"},
+	}
+	a.PlayingPlaylist = ListUser
+	a.Index = 0
+	a.Drawer = DrawerPlaylist
+	tt := shellTester(t, a)
+
+	rest, ok := tt.Find(long)
+	if !ok {
+		t.Fatal("找不到长分集名")
+	}
+	// 行 b 的删除键在文字列右侧 8px，与文字行垂直居中。
+	bx, by := int(rest.X+rest.W+8), int(rest.Y+rest.H/2-13)
+	darkest := func() int {
+		c := darkestIn(tt.Image(), bx, by, bx+26, by+26)
+		return (c[0]*299 + c[1]*587 + c[2]*114) / 1000
+	}
+	restLum := darkest()
+	tt.Move(rest.X+rest.W/2, rest.Y+rest.H/2)
+	for i := 0; i < 30; i++ { // 150ms 淡入在无头帧下要跑几帧
+		tt.Frame()
+	}
+	hoverLum := darkest()
+	t.Logf("删除键区域亮度 静息=%d 悬停=%d", restLum, hoverLum)
+	if restLum < 220 {
+		t.Fatalf("静息时删除键已可见（亮度=%d），应停在 opacity 0", restLum)
+	}
+	if hoverLum > 200 {
+		t.Fatalf("悬停后删除键仍不可见（亮度=%d），淡入没接上", hoverLum)
 	}
 }
