@@ -2713,8 +2713,9 @@ func (a *App) repliesBody(c *ui.Context) {
 				})
 				// 正文区左缩进 40（原版 pl-10，与头像同宽）。
 				ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
-					// text-sm leading-relaxed → 14.5px / #142033。
-					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody)).MaxLines(10)
+					// text-sm leading-relaxed → 14.5px / #142033。原版正文 <p> 没有行数上限
+					// （globals.css 只给标题/简介挂 -webkit-line-clamp），长评论整段铺开。
+					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody))
 					if cm.Likes > 0 {
 						ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
 							Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))
@@ -2730,7 +2731,7 @@ func (a *App) repliesBody(c *ui.Context) {
 									ui.Text(c, rp.User+":").FontSize(12).
 										FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0)
 									ui.Text(c, rp.Content).FontSize(12).
-										TextColor(ui.Hex(replyInkSub)).Grow(1).MaxLines(4)
+										TextColor(ui.Hex(replyInkSub)).Grow(1)
 								})
 							}
 							if cm.RepliesMore || len(cm.Replies) >= 3 {
