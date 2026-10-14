@@ -165,6 +165,16 @@ type Folder struct {
 	Count int64
 }
 
+// HistCursor 是观看历史的游标式翻页状态（原版 historyList 的 historyCursor
+// 对象：{ max, view_at, business }）。第一页取零值（max=0/view_at=0/business=""），
+// 之后每页把它换成接口返回的 cursor，就能一直往前翻更早的记录。
+// 原版把 business 也带上（archive = 稿件），续页游标里的 business 要与首屏一致。
+type HistCursor struct {
+	Max      int
+	ViewAt   int
+	Business string
+}
+
 // Series 是 UP 主的一个合集（UP 空间抽屉的「合集」tab）。
 type Series struct {
 	ID    int64
@@ -460,6 +470,12 @@ type App struct {
 	UpOffset string
 	// FeedOffset 是「动态」列表的翻页游标（同样是 offset）。
 	FeedOffset string
+	// HistCursor 是「观看历史」的游标式翻页状态（原版 historyList 的
+	// historyCursor：max / view_at / business）。观看历史接口是游标分页而不是
+	// 页码：只有第一页给 max=0/view_at=0，之后每页都要带上上一页返回的游标。
+	// 此前原生版没有它，fetchSection 永远只拉第一页且 HasMore 恒为 false，
+	// 用户滚到底也再加载不出更早的记录。
+	HistCursor HistCursor
 
 	// 播放
 	Queue   []Track

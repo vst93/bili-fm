@@ -1501,6 +1501,38 @@ func (c *controller) loadSection(section string, page int) {
 		return
 	}
 
+	// 观看历史用游标翻页（不是页码）：原版 historyList 的 historyCursor。
+	// 第一页从零游标起，续页带上一页返回的 cursor；「到底了」由游标是否
+	// 前进 / 是否还有更早的记录判定（原版则是一直拉到 list 为空）。
+	if section == "history" && histTab == view.HistHistory {
+		cur := view.HistCursor{}
+		if page > 1 {
+			cur = a.HistCursor
+		}
+		go func() {
+			l, err := c.bl.GetBLHistoryList(cur.Max, cur.ViewAt, cur.Business, 30)
+			a.Win.Update(func() {
+				list.Loading = false
+				if err != nil {
+					list.LoadErr = page > 1
+					a.NotifyType("error", "加载失败："+err.Error())
+					return
+				}
+				setCards(list, toCards(jsonToAny(l.List)), page <= 1)
+				list.Page = page
+				list.HasMore = historyHasMore(len(l.List), cur, view.HistCursor{
+					Max: l.Cursor.Max, ViewAt: l.Cursor.ViewAt, Business: l.Cursor.Business,
+				})
+				list.LoadErr = false
+				a.HistCursor = view.HistCursor{
+					Max: l.Cursor.Max, ViewAt: l.Cursor.ViewAt, Business: l.Cursor.Business,
+				}
+				a.Status = fmt.Sprintf("%d 条", len(list.Cards))
+			})
+		}()
+		return
+	}
+
 	go func() {
 		cards, more, err := c.fetchSection(section, page, folderID, recTab, histTab)
 		a.Win.Update(func() {
@@ -1517,6 +1549,20 @@ func (c *controller) loadSection(section string, page int) {
 			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
+}
+
+// historyHasMore 判定观看历史这一页之后还有没有更早的记录（原版就是一直
+// 滚到 list 为空）。接口用游标分页：若本页返回了记录、且**游标比请求时的
+// 值前进了**（max/view_at 至少一个变了，且 view_at 仍有效），就说明还能续页；
+// 否则到底了（空页、游标原地踏步、或 view_at 退化成 0）。抽成纯函数便于单测。
+func historyHasMore(pageLen int, asked, got view.HistCursor) bool {
+	if pageLen == 0 {
+		return false
+	}
+	if got.ViewAt <= 0 {
+		return false
+	}
+	return got.Max != asked.Max || got.ViewAt != asked.ViewAt
 }
 
 // fetchSection 拉一个抽屉的第一页/下一页。
@@ -1558,14 +1604,8 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		// 收藏夹接口每页 21 条；不足一页说明到底了。
 		return toCardsFromRaw(items), len(items) >= 21, nil
 	case "history":
-		if histTab == view.HistWatchLater {
-			l, err := c.bl.GetWatchLaterList()
-			if err != nil {
-				return nil, false, err
-			}
-			return toCards(jsonToAny(l.List)), false, nil
-		}
-		l, err := c.bl.GetBLHistoryList(0, 0, "", 30)
+		// 观看历史（HistHistory）走 loadSection 的游标分支，这里只处理稍后再看 tab。
+		l, err := c.bl.GetWatchLaterList()
 		if err != nil {
 			return nil, false, err
 		}

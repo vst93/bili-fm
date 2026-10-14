@@ -155,6 +155,34 @@ func TestToCardsHistoryItem(t *testing.T) {
 	}
 }
 
+func TestHistoryHasMore(t *testing.T) {
+	// 空页：到底了。
+	if historyHasMore(0, view.HistCursor{}, view.HistCursor{}) {
+		t.Error("空页不应还有更多")
+	}
+	// 第一页从零游标起：接口返回的 cursor 前进了就能续页。
+	if !historyHasMore(30, view.HistCursor{}, view.HistCursor{Max: 42, ViewAt: 1700000000, Business: "archive"}) {
+		t.Error("首屏游标前进应还有更多")
+	}
+	// max 不变、view_at 变小（更早）：同样算前进。
+	asked := view.HistCursor{Max: 10, ViewAt: 1700000000, Business: "archive"}
+	if !historyHasMore(30, asked, view.HistCursor{Max: 10, ViewAt: 1699999999, Business: "archive"}) {
+		t.Error("view_at 前进应还有更多")
+	}
+	// 游标原地踏步：到底了（接口可能把最后一页的 cursor 原样回传）。
+	if historyHasMore(30, asked, asked) {
+		t.Error("游标不变不应还有更多")
+	}
+	// view_at 退化成 0/负数：游标不可用，停。
+	if historyHasMore(30, asked, view.HistCursor{Max: 11, ViewAt: 0, Business: "archive"}) {
+		t.Error("view_at 失效不应还有更多")
+	}
+	// 只换 business 不算游标前进。
+	if historyHasMore(30, asked, view.HistCursor{Max: 10, ViewAt: 1700000000, Business: "dynamic"}) {
+		t.Error("仅 business 变化不应还有更多")
+	}
+}
+
 func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 	// 收藏：作者在 upper.name，播放量在 cnt_info.play。
 	fav := []any{map[string]any{
