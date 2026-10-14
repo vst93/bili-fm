@@ -48,8 +48,9 @@ func TestVideoDescMinHeight(t *testing.T) {
 
 // TestVideoDescMinHeightShiftsPill 是上一条的反证：把下限归零，简介块随之变矮，
 // 下方的选集胶囊位置跟着变 —— 说明这一处确实在撑布局，而不是被别的盒子吸收掉。
-// 同一份 App 跑两次，只切 infoDescMinH。注意右栏垂直居中，块高变化会被折半
-// 放大到整块位置上，所以胶囊的位移（13px）只有简介块高度差（26px）的一半。
+// 同一份 App 跑两次，只切 infoDescMinH。注意右栏现在是**固定盒高**（见
+// TestVideoInfoFixedBoxHeight），盒顶不动，所以胶囊位移等于简介块高差的全量
+// （26px），不再是旧实现里被外层居中折半后的 13px。
 func TestVideoDescMinHeightShiftsPill(t *testing.T) {
 	measure := func(minH float32) (descH, pillY float32) {
 		old := infoDescMinH
@@ -99,5 +100,62 @@ func TestVideoDescMaxLines(t *testing.T) {
 	}
 	if r.H <= infoDescMinH {
 		t.Errorf("长简介被下限压住了：%v <= %v", r.H, infoDescMinH)
+	}
+}
+
+// TestVideoInfoFixedBoxHeight 钉住宽窗右栏的**固定盒高**（原版
+// `#video-info { height: 366px }` + `.video-meta-area { align-content: start }`）：
+// 内容从盒顶排，整块再由外层 `.home-now-playing` 的 `align-items: center` 居中。
+// 此前原生版右栏高度随内容走、又被外层居中，简介行数一变整块就漂（且漂幅只有
+// 内容差的一半）。这里同一份 App 跑两次，只把简介从一行（46）换成三行（60）：
+//
+//   - 盒顶（用 UP 主行的 Y 近似）必须纹丝不动；
+//   - 盒顶不动 ⇒ 下方胶囊的位移应等于简介块高差的全量（14），而不是一半（7）。
+func TestVideoInfoFixedBoxHeight(t *testing.T) {
+	if videoInfoHeight != 366 {
+		t.Fatalf("videoInfoHeight = %v，应为原版 #video-info 的 366", videoInfoHeight)
+	}
+
+	// 同一份 App 里塞不同长度的简介，量盒顶附近的 UP 主行、简介块与胶囊。
+	measure := func(long bool) (topY, descH, pillY float32) {
+		a := descApp()
+		if long {
+			line := "这是一段用于测试三行截断的长简介内容，重复很多遍以确保一定会溢出。"
+			for i := 0; i < 12; i++ {
+				a.Info.Desc += line
+			}
+		}
+		tt := shellTesterSize(t, a, 1000, 700)
+		up, ok := tt.Find("UP 主")
+		if !ok {
+			t.Fatal("找不到 UP 主行")
+		}
+		label := a.Info.Desc
+		if label == "" {
+			label = "无描述"
+		}
+		d, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("找不到简介文案 %q", label)
+		}
+		p, ok := tt.Find("当前选集")
+		if !ok {
+			t.Fatal("找不到选集胶囊文案「当前选集」")
+		}
+		return up.Y, d.H, p.Y
+	}
+
+	shortTop, shortH, shortPill := measure(false)
+	longTop, longH, longPill := measure(true)
+	t.Logf("一行简介：盒顶 Y=%v 简介高 %v 胶囊 Y=%v；三行简介：盒顶 Y=%v 简介高 %v 胶囊 Y=%v",
+		shortTop, shortH, shortPill, longTop, longH, longPill)
+
+	if shortTop != longTop {
+		t.Errorf("简介从 %v 变到 %v 时盒顶漂了：UP 主 Y %v → %v（固定盒高没生效）",
+			shortH, longH, shortTop, longTop)
+	}
+	// 盒顶不动：胶囊位移 = 简介块高差的全量（不是旧实现的一半）。
+	if got, want := longPill-shortPill, longH-shortH; got != want {
+		t.Errorf("胶囊位移 %v，应为简介块高差的全量 %v（盒顶不动）", got, want)
 	}
 }

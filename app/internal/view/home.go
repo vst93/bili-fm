@@ -602,6 +602,19 @@ func (a *App) advanceDisc(now time.Time) {
 // 选集胶囊 / 操作行 / 工具条会跟着上移。声明成 var 便于测试归零做反证。
 var infoDescMinH float32 = 46
 
+// videoInfoHeight 是宽窗右栏的固定盒高：原版 `#video-info { height: 366px }`。
+//
+// 固定盒高 + 内容从盒顶排（`.video-meta-area { align-content: start }`）是原版
+// 右栏不随内容上下漂的关键：整块由外层 `.home-now-playing` 的
+// `align-items: center` 居中，盒高恒定时居中位置也就恒定。此前原生版高度随
+// 内容走、又被外层居中，简介行数一变整块就漂（漂幅还只有内容差的一半）。
+//
+// 注：原版 366 是按「计数绝对定位」算的（操作行 14+34+14），原生版把计数画成
+// 按钮下方的等高列（+13px），所以三行简介时内容约 369，比盒高多 3px。原生版
+// 不裁剪溢出，这点 3px 直接渲染在盒外（原版是 overflow: hidden 裁掉），不影响
+// 盒顶/居中位置。声明成 var 便于测试归零做反证。
+var videoInfoHeight float32 = 366
+
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
 //
@@ -611,13 +624,17 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 	t := a.Theme
 	col := ui.Column(c).FillWidth().AlignItems(ui.Start)
 	if wide {
-		col.Grow(1).MinWidth(0)
+		// Grow(1) 在 Row 里吃的是**横向**剩余宽度（原版 1fr 列）；
+		// Height(videoInfoHeight) 固定**纵向**盒高，两者互不冲突。
+		col.Grow(1).MinWidth(0).Height(videoInfoHeight)
 	}
 	col.Children(func() {
 		a.videoInfoHead(c)
 		// 原版 #video-title h2：22px / 800 / 2 行截断 / min-height 52。
+		// #video-title 与 h2 都是 margin: 0（此前多加了 8px 上边距，会把
+		// 366 的固定盒高顶穿，3 行简介时整块内容溢出）。
 		title := ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
-			MaxLines(2).Margin(8, 0, 0, 0).Selectable()
+			MaxLines(2).Selectable()
 		if wide {
 			title.MinHeight(52)
 		}
@@ -625,11 +642,11 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有
 		// min-height 46（≈ 2.28 行）—— 简介不足两行时这一块也要占满 46px，
 		// 否则只有 ~20px（一行），下方的选集胶囊 / 操作行 / 工具条会整体上移。
-		// 注意右栏是垂直居中的（外层 .home-now-playing 的 align-items: center，
-		// 原版靠 #video-info 固定 366px 高稳住），块高变化会被折半放大到
-		// 整块的纵向位置上。
+		// Shrink(0)：原版 p 是 `max-height: 60px; overflow: hidden`，不会因为
+		// 固定盒高 366 被压短（原生版内容约 369，若不锁收缩，flex 会把简介
+		// 从 60 压到 57，第三行下半截被切）。
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
-			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Selectable()
+			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Shrink(0).Selectable()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
