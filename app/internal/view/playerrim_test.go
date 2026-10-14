@@ -219,7 +219,7 @@ func TestPlayerIconShadowWired(t *testing.T) {
 	var play, other int
 	for _, c := range calls {
 		switch {
-		case c.svg == iconPlay || c.svg == iconPause:
+		case c.svg == iconPlayOne || c.svg == iconPause:
 			play++
 			if c.opacity != playerPlayIconShadowInk {
 				t.Errorf("播放键图标压印 opacity = %v，应为 %v", c.opacity, playerPlayIconShadowInk)

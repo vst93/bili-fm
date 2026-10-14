@@ -911,13 +911,15 @@ func (a *App) contentActions(c *ui.Context) {
 		})
 		a.statButton(c, statSpec{
 			Key: "fav", Label: pick(a.Faved, "取消收藏", "收藏"),
-			Icon: iconStar, Size: 20, Active: a.Faved,
+			Icon: pick(a.Faved, iconStarFilled, iconStar), Size: 20, Active: a.Faved,
 			ActiveInk: ui.Hex("#eab308"), Count: a.statFav(),
 			// 原版收藏键在「收藏状态还在查」时也禁用（isFavoriteUpdating），
 			// 否则会用上一条视频的状态误操作。
 			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
 		})
-		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 20, bvid == "", func() {
+		// 原版这三枚图标 size={18}（比互动三键的 20 小一号，避免与气泡/圆环的
+		// 视觉重量相同）：浏览器 / 视频 / 弹幕。
+		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 18, bvid == "", func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
@@ -931,7 +933,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.contentIconButton(c, "video", "视频播放", iconVideo, 20, bvid == "", func() {
+		a.contentIconButton(c, "video", "视频播放", iconVideo, 18, bvid == "", func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {
 					a.Act.CloseVideo()
@@ -941,7 +943,7 @@ func (a *App) contentActions(c *ui.Context) {
 			}
 		})
 		// 弹幕/评论按 `!cid` 置灰（原版 disabled={!cid}）。
-		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 20, cid == 0, a.openDanmaku)
+		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 18, cid == 0, a.openDanmaku)
 	})
 }
 

@@ -424,10 +424,10 @@ type App struct {
 	// liftChannels 统计本帧有多少张卡把 lift 交给了 AnimateTo：无头测量
 	//「滚动时锁住上浮」是否真的让动画重算清零（见 liftscroll_hold_test.go）。
 	liftChannels atomic.Int64
-	Status   string
-	LoggedIn bool
-	UName    string
-	Face     string // 登录用户头像 URL，未登录为空
+	Status       string
+	LoggedIn     bool
+	UName        string
+	Face         string // 登录用户头像 URL，未登录为空
 
 	// 抽屉表头（tab / 排序 / 收藏夹）
 	SortOrder string // 搜索排序：SortTotal / SortClick / SortUpdate
@@ -893,40 +893,126 @@ const (
 	parkHistory = `<path d="M5.81836 6.72729V14H13.0911"/>` +
 		`<path d="M4 24C4 35.0457 12.9543 44 24 44V44C35.0457 44 44 35.0457 44 24C44 12.9543 35.0457 4 24 4C16.598 4 10.1351 8.02111 6.67677 13.9981"/>` +
 		`<path d="M24.005 12L24.0038 24.0088L32.4832 32.4882"/>`
+	// PlayOne（播放）/ Pause（暂停）/ GoEnd（下一集）/ GoStart（上一集）。
+	// 原版 player.tsx 的 .player-play-button 用 `PlayOne theme="filled"` /
+	// `Pause theme="filled"`，.player-next-button 用 GoEnd outline。PlayOne 的
+	// fill 在 filled 主题下就是 currentColor（单色 Icon 画得了），所以 path 上
+	// 明写 fill="currentColor"。
+	parkPlayOne = `<path fill="currentColor" d="M15 24V11.8756L25.5 17.9378L36 24L25.5 30.0622L15 36.1244V24Z"/>`
+	parkPause   = `<path d="M16 12V36"/>` +
+		`<path d="M32 12V36"/>`
+	parkGoEnd = `<path d="M14 12L26 24L14 36"/>` +
+		`<path d="M34 12V36"/>`
+	parkGoStart = `<path d="M34 36L22 24L34 12"/>` +
+		`<path d="M14 12V36"/>`
+	// VolumeNotice / VolumeMute（音量键）。VolumeMute 原文件用一层 mask 把斜杠
+	// 裁进 13×13 的框里，但斜杠本来就整条落在框内，遮罩不改变可见像素；单色
+	// 渲染下把那层 mask 去掉，只留相同的三条描边。
+	parkVolumeNotice = `<path d="M24 6V42C17 42 11.7985 32.8391 11.7985 32.8391H6C4.89543 32.8391 4 31.9437 4 30.8391V17.0108C4 15.9062 4.89543 15.0108 6 15.0108H11.7985C11.7985 15.0108 17 6 24 6Z"/>` +
+		`<path d="M32 15L32 15C32.6232 15.5565 33.1881 16.1797 33.6841 16.8588C35.1387 18.8504 36 21.3223 36 24C36 26.6545 35.1535 29.1067 33.7218 31.0893C33.2168 31.7885 32.6391 32.4293 32 33"/>` +
+		`<path d="M34.2359 41.1857C40.0836 37.6953 44 31.305 44 24C44 16.8085 40.2043 10.5035 34.507 6.97906"/>`
+	parkVolumeMute = `<path d="M40.7348 20.2858L32.2495 28.7711"/>` +
+		`<path d="M32.2496 20.2858L40.7349 28.7711"/>` +
+		`<path d="M24 6V42C17 42 11.7985 32.8391 11.7985 32.8391H6C4.89543 32.8391 4 31.9437 4 30.8391V17.0108C4 15.9062 4.89543 15.0108 6 15.0108H11.7985C11.7985 15.0108 17 6 24 6Z"/>`
+	// Equalizer（均衡键）：三根竖线 + 三个空心旋钮。
+	parkEqualizer = `<path d="M11 16V42"/>` +
+		`<path d="M24 29V42"/>` +
+		`<path d="M24 19V6"/>` +
+		`<path d="M37 6V32"/>` +
+		`<path d="M11 16C13.7614 16 16 13.7614 16 11C16 8.23858 13.7614 6 11 6C8.23858 6 6 8.23858 6 11C6 13.7614 8.23858 16 11 16Z"/>` +
+		`<path d="M24 29C26.7614 29 29 26.7614 29 24C29 21.2386 26.7614 19 24 19C21.2386 19 19 21.2386 19 24C19 26.7614 21.2386 29 24 29Z"/>` +
+		`<path d="M37 42C39.7614 42 42 39.7614 42 37C42 34.2386 39.7614 32 37 32C34.2386 32 32 34.2386 32 37C32 39.7614 34.2386 42 37 42Z"/>`
+	// Ad（恰饭跳过键）：圆圈 + 「广」字 + 右侧「）」块 + 两角小斜线。
+	parkAd = `<circle cx="24" cy="24" r="20"/>` +
+		`<path d="M38 38L35 35"/>` +
+		`<path d="M10 10L13 13"/>` +
+		`<path d="M14 31L14.8571 28M22 31L21.1429 28M21.1429 28L18 17L14.8571 28M21.1429 28H14.8571"/>` +
+		`<path d="M35 24C35 29 31.4183 31 27 31V17C31.4183 17 35 19 35 24Z"/>`
+	// PreviewOpen / Comment（列表卡片 meta 的前导图标：播放量 / 弹幕数）。
+	parkPreviewOpen = `<path d="M24 36C35.0457 36 44 24 44 24C44 24 35.0457 12 24 12C12.9543 12 4 24 4 24C4 24 12.9543 36 24 36Z"/>` +
+		`<path d="M24 29C26.7614 29 29 26.7614 29 24C29 21.2386 26.7614 19 24 19C21.2386 19 19 21.2386 19 24C19 26.7614 21.2386 29 24 29Z"/>`
+	parkComment = `<path d="M44 6H4V36H13V41L23 36H44V6Z"/>` +
+		`<path d="M14 19.5V22.5"/>` +
+		`<path d="M24 19.5V22.5"/>` +
+		`<path d="M34 19.5V22.5"/>`
+	// 主区操作行 / 工具条的图标（原版 videoInfo.tsx）。互动三键是 ThumbsUp /
+	// HandleB / Star，其余是 Browser / VideoTwo / DoubleUp / Layers / MusicList。
+	// Star 的 filled 态（已收藏）就是同一条 path 加上 fill="currentColor"。
+	parkThumbsUp = `<path d="M27.6002 18.5998V11.3998C27.6002 8.41743 25.1826 5.99977 22.2002 5.99977L15.0002 22.1998V41.9998H35.9162C37.7113 42.0201 39.2471 40.7147 39.5162 38.9398L42.0002 22.7398C42.1587 21.6955 41.8506 20.6343 41.1576 19.8373C40.4645 19.0403 39.4564 18.5878 38.4002 18.5998H27.6002Z"/>` +
+		`<path d="M15 22.0001H10.194C8.08532 21.9628 6.2827 23.7095 6 25.7994V38.3994C6.2827 40.4894 8.08532 42.0367 10.194 41.9994H15V22.0001Z"/>`
+	parkHandleB = `<circle cx="24" cy="24" r="20"/>` +
+		`<path d="M24.7918 23C27.6682 23 30 20.7614 30 18C30 15.2386 27.6682 13 24.7918 13H18V23H24.7918Z"/>` +
+		`<path d="M26.831 35C29.6857 35 32 32.3137 32 29C32 25.6863 29.6857 23 26.831 23H18V35H26.831Z"/>`
+	parkStar       = `<path d="M23.9986 5L17.8856 17.4776L4 19.4911L14.0589 29.3251L11.6544 43L23.9986 36.4192L36.3454 43L33.9586 29.3251L44 19.4911L30.1913 17.4776L23.9986 5Z"/>`
+	parkStarFilled = `<path fill="currentColor" d="M23.9986 5L17.8856 17.4776L4 19.4911L14.0589 29.3251L11.6544 43L23.9986 36.4192L36.3454 43L33.9586 29.3251L44 19.4911L30.1913 17.4776L23.9986 5Z"/>`
+	parkBrowser    = `<path d="M42 18V40C42 41.1046 41.1046 42 40 42H8C6.89543 42 6 41.1046 6 40V18"/>` +
+		`<path d="M6 8C6 6.89543 6.89543 6 8 6H40C41.1046 6 42 6.89543 42 8V18H6V8Z"/>` +
+		`<path fill="currentColor" d="M12 14C13.1046 14 14 13.1046 14 12C14 10.8954 13.1046 10 12 10C10.8954 10 10 10.8954 10 12C10 13.1046 10.8954 14 12 14Z"/>` +
+		`<path fill="currentColor" d="M18 14C19.1046 14 20 13.1046 20 12C20 10.8954 19.1046 10 18 10C16.8954 10 16 10.8954 16 12C16 13.1046 16.8954 14 18 14Z"/>` +
+		`<path fill="currentColor" d="M24 14C25.1046 14 26 13.1046 26 12C26 10.8954 25.1046 10 24 10C22.8954 10 22 10.8954 22 12C22 13.1046 22.8954 14 24 14Z"/>`
+	parkVideoTwo = `<path d="M39 6H9C7.34315 6 6 7.34315 6 9V39C6 40.6569 7.34315 42 9 42H39C40.6569 42 42 40.6569 42 39V9C42 7.34315 40.6569 6 39 6Z"/>` +
+		`<path d="M20.5 28V21.9378L25.75 24.9689L31 28L25.75 31.0311L20.5 34.0622V28Z"/>` +
+		`<path d="M6 15H42"/>` +
+		`<path d="M33 6L27 15"/>` +
+		`<path d="M21 6L15 15"/>`
+	parkDoubleUp = `<path d="M12 24L24 12L36 24"/>` +
+		`<path d="M12 36L24 24L36 36"/>`
+	parkLayers = `<path d="M4 11.9143L24 19L44 11.9143L24 5L4 11.9143Z"/>` +
+		`<path d="M4 20L24 27L44 20"/>` +
+		`<path d="M4 28L24 35L44 28"/>` +
+		`<path d="M4 36L24 43L44 36"/>`
+	parkMusicList = `<path d="M24 19H40"/>` +
+		`<path d="M24 10H40"/>` +
+		`<path d="M8 38H40"/>` +
+		`<path d="M8 28H40"/>` +
+		`<path d="M8 10L16 15L8 20V10Z"/>`
 )
 
 var (
-	// 播放/暂停/下一首：icon-park 的 PlayOne / Pause / GoEnd。
-	iconPlay  = icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`)
-	iconPause = icon(`<rect x="4.4" y="3" width="2.8" height="10" rx="0.9"/><rect x="8.8" y="3" width="2.8" height="10" rx="0.9"/>`)
-	// GoEnd：右三角 + 右侧竖线。
-	iconNext = icon(`<path d="M3.6 3.4v9.2a.7.7 0 0 0 1.08.6l6.2-4.6a.7.7 0 0 0 0-1.2L4.68 2.8a.7.7 0 0 0-1.08.6z"/><path d="M12.2 3v10" stroke-width="1.8"/>`)
-	iconPrev = icon(`<path d="M12.4 3.4v9.2a.7.7 0 0 1-1.08.6l-6.2-4.6a.7.7 0 0 1 0-1.2l6.2-4.6a.7.7 0 0 1 1.08.6z"/><path d="M3.8 3v10" stroke-width="1.8"/>`)
-	// 音量：VolumeNotice（喇叭 + 两道弧）/ VolumeMute（喇叭 + 斜杠）。
-	iconVolume = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M11.4 6.2a2.6 2.6 0 0 1 0 3.6"/><path d="M12.9 4.6a4.6 4.6 0 0 1 0 6.8"/>`)
+	// 播放 / 暂停 / 下一集 / 上一集：icon-park 的 PlayOne / Pause / GoEnd / GoStart。
+	//
+	// 原版 player.tsx 就是这几枚（48×48 画布、描边 4）：播放键 PlayOne（filled，
+	// 圆角三角形）、暂停键 Pause（两根圆头竖线）、下一集 GoEnd（人字形 + 右竖线）。
+	// 之前是 16 画布手抄：播放是尖角实心三角、下一集是「实心三角 + 竖线」（▶|）——
+	// 与 GoEnd 的「>|」形状明显不同，暂停也比原版粗矮，用户能一眼看出差异。
+	iconPlayOne = iconPark(parkPlayOne)
+	iconPause   = iconPark(parkPause)
+	iconNext    = iconPark(parkGoEnd)
+	iconPrev    = iconPark(parkGoStart)
+	// iconPlay 仍是 16 画布的手抄三角：原版这里用 icon-park 的 Play（filled 主题
+	// = 实心圆盘 + 挖白的三角），单色 Icon 画不出挖白，留待后续用逐色 Image 补。
+	iconPlay = icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`)
+	// 音量：icon-park 的 VolumeNotice（喇叭 + 两道弧）/ VolumeMute（喇叭 + 斜杠）。
+	iconVolume = iconPark(parkVolumeNotice)
 	// 左右箭头（收藏夹表头滚动键）。
 	iconLeft  = icon(`<path d="M10 3.2L5.2 8l4.8 4.8"/>`)
 	iconRight = icon(`<path d="M6 3.2L10.8 8L6 12.8"/>`)
-	iconMute  = icon(`<path d="M3.2 6h2.1l3.3-2.7a.6.6 0 0 1 .98.46v8.48a.6.6 0 0 1-.98.46L5.3 10H3.2a.7.7 0 0 1-.7-.7V6.7a.7.7 0 0 1 .7-.7z"/><path d="M10.8 6.4l3.4 3.2M14.2 6.4l-3.4 3.2" stroke-width="1.6"/>`)
-	// 弹幕/评论：Comment（气泡 + 三点）。
-	iconDanmaku = icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`)
+	iconMute  = iconPark(parkVolumeMute)
+	// 弹幕/评论：icon-park 的 Comment（方形气泡 + 三个点）。
+	iconDanmaku = iconPark(parkComment)
+	// 卡片 meta 的播放量前导图标：icon-park 的 PreviewOpen（眼睛），原版 CardMeta
+	// 的 views 字段用的就是它 —— 之前错用了 iconPlay 的三角。
+	iconViews = iconPark(parkPreviewOpen)
 	// 弹幕 tab 的文字图标（原版 danmakuList 用 icon-park 的 Text）。
 	iconText = icon(`<path d="M3.2 3.8h9.6"/><path d="M8 3.8v8.4"/>`)
 	// 弹幕抽屉的「自动跟随」键（原版用 icon-park 的 Connection，两段链环）。
 	iconConnection = icon(`<path d="M6.6 9.4l2.8-2.8"/><path d="M5.6 7.1l-1 1a2.7 2.7 0 0 0 3.8 3.8l1-1"/><path d="M10.4 8.9l1-1a2.7 2.7 0 0 0-3.8-3.8l-1 1"/>`)
-	// 选集：DoubleUp（双层人字形向上）。
-	iconList   = icon(`<path d="M3.4 8.6L8 4.2l4.6 4.4M3.4 12.2L8 7.8l4.6 4.4" stroke-width="1.7"/>`)
+	// 选集：icon-park 的 DoubleUp（双层人字形向上）。
+	iconList   = iconPark(parkDoubleUp)
 	iconSearch = iconPark(parkSearch)
 	iconClose  = icon(`<path d="M4 4l8 8M12 4l-8 8"/>`)
 	iconMin    = icon(`<path d="M4 8h8"/>`)
-	// 互动：ThumbsUp / HandleB(投币，圆形钱币) / Star。
-	iconLike  = icon(`<path d="M6.4 13.6V7l2.2-4a1.1 1.1 0 0 1 1.9.9l-.4 2.7h2.8a1.2 1.2 0 0 1 1.18 1.42l-.86 4.4a1.6 1.6 0 0 1-1.57 1.3H6.4z"/><path d="M6.4 7H3.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h2.5"/>`)
-	iconCoin  = icon(`<circle cx="8" cy="8" r="5.6"/><path d="M8 5.2v5.6M6.4 6.6c0-.8.7-1.4 1.6-1.4s1.6.6 1.6 1.4-.7 1.2-1.6 1.4c-.9.2-1.6.6-1.6 1.4s.7 1.4 1.6 1.4 1.6-.6 1.6-1.4"/>`)
-	iconStar  = icon(`<path d="M8 1.9l1.9 4.2 4.6.5-3.4 3.1.9 4.5L8 11.9l-4 2.2.9-4.5L1.5 6.5l4.6-.5z"/>`)
-	iconSpeed = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 8l3-2.2"/>`)
-	iconEQ    = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
-	// 恰饭跳过：icon-park 的 Ad（方框 + "广"的简化），这里用方框 + 小三角播放。
-	iconSponsor = icon(`<rect x="2" y="4.5" width="12" height="7" rx="1.2"/><path d="M6.4 6.4l3.6 1.6-3.6 1.6z"/>`)
+	// 互动：icon-park 的 ThumbsUp / HandleB（投币，圆形钱币）/ Star。
+	// 收藏键的 active 态是 Star 的 filled 变体（原版
+	// `theme={isFavorite ? "filled" : "outline"}`），所以两枚都留着。
+	iconLike       = iconPark(parkThumbsUp)
+	iconCoin       = iconPark(parkHandleB)
+	iconStar       = iconPark(parkStar)
+	iconStarFilled = iconPark(parkStarFilled)
+	iconSpeed      = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 8l3-2.2"/>`)
+	iconEQ         = iconPark(parkEqualizer)
+	// 恰饭跳过：icon-park 的 Ad（圆圈 + 「广」）。
+	iconSponsor = iconPark(parkAd)
 
 	// 搜索栏右侧四个入口（原版 searchForm.tsx 用的是 icon-park 的
 	// ShareSys / ChartRing / WeixinFavorites / History，theme="outline"、size 18）。
@@ -938,11 +1024,12 @@ var (
 	// 放大镜（原版 icon-park 的 Search）：搜索药丸的提交键（size 18）
 	// 与选集抽屉的搜索框（size 15）共用。
 	iconMagnifier = iconPark(parkSearch)
-	// 浏览器（Browser）与播放列表（MusicList）。
-	iconBrowser = icon(`<rect x="1.8" y="3" width="12.4" height="10" rx="1.6"/><path d="M1.8 6.2h12.4"/><circle cx="4.3" cy="4.6" r="0.5"/><circle cx="6.3" cy="4.6" r="0.5"/>`)
-	// 视频播放：VideoTwo（圆角方框 + 右下播放角）。
-	iconVideo     = icon(`<rect x="1.8" y="3" width="12.4" height="9" rx="1.6"/><path d="M7 6.6l3 1.4-3 1.4z"/>`)
-	iconMusicList = icon(`<path d="M2.5 4h7M2.5 7.5h7M2.5 11h4"/><path d="M12 4.6v6.2"/><circle cx="10.6" cy="11.6" r="1.6"/>`)
+	// 浏览器（Browser）/ 视频（VideoTwo）/ 播放列表（MusicList）/ 合集（Layers）：
+	// 均为 icon-park 原始 path。
+	iconBrowser   = iconPark(parkBrowser)
+	iconVideo     = iconPark(parkVideoTwo)
+	iconMusicList = iconPark(parkMusicList)
+	iconSeries    = iconPark(parkLayers)
 	// 迷你模式的两个窗口控制：还原大窗 / 置顶。
 	iconRestore = icon(`<rect x="2.2" y="2.2" width="8" height="8" rx="1.4"/><rect x="5.8" y="5.8" width="8" height="8" rx="1.4"/>`)
 	iconPin     = icon(`<path d="M6.2 1.8h3.6l-.7 3.6 2.5 2.5H4.4l2.5-2.5z"/><path d="M8 7.9v6.3"/>`)
@@ -957,8 +1044,6 @@ var (
 	// 历史抽屉表头的「隐身」开关（原版用 MaskOne）。
 	iconMask    = icon(`<path d="M1.8 8h2.6a2 2 0 0 1 0 4H1.8z"/><path d="M14.2 8h-2.6a2 2 0 0 0 0 4h2.6z"/><path d="M6 10.4h4"/>`)
 	iconRefresh = icon(`<path d="M13.2 8a5.2 5.2 0 1 1-1.6-3.8"/><path d="M13.6 2.4v2.8h-2.8"/>`)
-	// 工具条的「合集」（原版用 icon-park 的 Layers）。
-	iconSeries = icon(`<path d="M8 1.9l6.2 3.2L8 8.3 1.8 5.1z"/><path d="M2.6 8.2l5.4 2.8 5.4-2.8"/><path d="M2.6 11.2l5.4 2.8 5.4-2.8"/>`)
 	// UP 空间抽屉里的关注 / 已关注。
 	// 封面背景（Halo）与高级质感（Sparkles）。
 	iconHalo     = icon(`<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4v2M8 12.6v2M1.4 8h2M12.6 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>`)

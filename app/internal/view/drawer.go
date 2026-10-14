@@ -1863,7 +1863,7 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 			col.Children(func() {
 				switch f.Kind {
 				case fieldViews:
-					icon := iconPlay
+					icon := iconViews
 					if f.DanmakuIcon {
 						icon = iconDanmaku
 					}

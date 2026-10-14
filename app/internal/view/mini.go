@@ -205,7 +205,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 深色统一 --player-sheen（见 playerSheenFor）。
 					playerRim(play, RadiusPill, t.Dark, false, sheenKindMiniPlay, a.Playing, play.Hovered())
 					play.Children(func() {
-						ic := pick(a.Playing, iconPause, iconPlay)
+						ic := pick(a.Playing, iconPause, iconPlayOne)
 						icon := ui.Icon(c, ic).Size(16, 16).
 							TextColor(playInk).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource())).

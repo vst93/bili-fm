@@ -1137,7 +1137,7 @@ func (a *App) transport(c *ui.Context) {
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
-			ic := pick(a.Playing, iconPause, iconPlay)
+			ic := pick(a.Playing, iconPause, iconPlayOne)
 			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
 				TextColor(playerFadeColor(c, play, "player-play-ink", playerPlayInk(a.Theme, a.Playing, play.Hovered()))).
 				Opacity(playerDisabledIconOpacityFor(!src)).

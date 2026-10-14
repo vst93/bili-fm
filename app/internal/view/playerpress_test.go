@@ -102,14 +102,23 @@ func playerPressRender(t *testing.T, label, action string) (*image.RGBA, ui.Rect
 // #334155（常态，亮度 63）与 #0284c7（悬停，亮度 101）都低于它，而按钮的
 // 白填充 / slate 描边 / 蓝调悬停投影（亮度 ≥ 200）都被排除。这样图标即使
 // 悬停变色也能量到，且不受悬停投影向上蔓延的干扰。
+//
+// 一行至少要有 2 个暗像素才算「图标开始」：图标最上沿的抗锯齿行只有 1 个
+// 半透明像素，它的亮度会随图标颜色变（播放键 PlayOne 顶行常态 111 < 120，
+// 悬停的亮蓝 #0284c7 下是 123 > 120）—— 按「有 1 个就算」会把这种抗锯齿
+// 差异误读成「图标下移了 1px」。要求 2 个暗像素后，两种颜色都在同一行达标。
 func inkTopIn(img *image.RGBA, r ui.Rect) int {
 	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		dark := 0
 		for x := int(r.X); x < int(r.X+r.W); x++ {
 			i := img.PixOffset(x, y)
 			lum := (299*int(img.Pix[i]) + 587*int(img.Pix[i+1]) + 114*int(img.Pix[i+2])) / 1000
 			if lum < 120 {
-				return y
+				dark++
 			}
+		}
+		if dark >= 2 {
+			return y
 		}
 	}
 	return -1
