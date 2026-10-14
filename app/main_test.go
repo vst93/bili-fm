@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -382,6 +383,97 @@ func TestPlaylistReorderMath(t *testing.T) {
 		if got[i].ID != id {
 			t.Fatalf("reorder 3->1 = %v, want %v", ids(got), want)
 		}
+	}
+}
+
+// TestReorderIndex 钉住原版 handlePlaylistReorder 对 currentPlaylistIndex 的
+// 跟随逻辑（main:src/pages/index.tsx）。
+func TestReorderIndex(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		cur, from, to int
+		want          int
+	}{
+		{"移动当前项往下", 2, 2, 4, 4},
+		{"移动当前项往上", 2, 2, 0, 0},
+		{"别的记录从下往上跨过当前项", 2, 4, 0, 3},
+		{"别的记录从上往下跨过当前项", 2, 0, 4, 1},
+		{"当前项之前的记录下移但没跨过", 2, 0, 1, 2},
+		{"当前项之后的记录上移但没跨过", 2, 4, 3, 2},
+		{"别的记录跨越到当前项下一位", 2, 0, 3, 1},
+		{"没有当前项", -1, 0, 3, -1},
+	} {
+		if got := reorderIndex(tc.cur, tc.from, tc.to); got != tc.want {
+			t.Errorf("%s：reorderIndex(%d, %d, %d) = %d，应为 %d",
+				tc.name, tc.cur, tc.from, tc.to, got, tc.want)
+		}
+	}
+}
+
+// TestReorderPlaylistTracksCurrent 是上面那条的端到端版本：拖完行以后，
+// a.Index 必须仍然指向同一条记录（正在播的那条）。改前 reorderPlaylist 只
+// 重排切片、完全不动 a.Index，于是「当前播放」高亮会留在旧下标 —— 那里已经
+// 是另一条记录，下一首/上一首与「定位当前」也跟着走错。
+func TestReorderPlaylistTracksCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		cur, from, to int
+		want          int
+	}{
+		{"拖走当前项", 2, 2, 4, 4},
+		{"别的记录从下往上跨过当前项", 2, 4, 1, 3},
+		{"别的记录从上往下跨过当前项", 2, 0, 4, 1},
+		{"没跨过当前项（前移）", 2, 4, 3, 2},
+		{"当前项就在头", 0, 3, 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kv, err := store.Open(t.TempDir(), false)
+			if err != nil {
+				t.Fatalf("store.Open: %v", err)
+			}
+			a := &view.App{
+				Playlist: []view.PlayItem{
+					{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}, {ID: "e"},
+				},
+				PlayingPlaylist: view.ListUser,
+				PlaylistTab:     view.ListUser,
+				Index:           tc.cur,
+			}
+			curID := a.Playlist[tc.cur].ID
+			c := &controller{app: a, kv: kv}
+			c.reorderPlaylist(view.ListUser, tc.from, tc.to)
+			if a.Index != tc.want {
+				t.Fatalf("Index = %d，应为 %d", a.Index, tc.want)
+			}
+			if got := a.Playlist[a.Index].ID; got != curID {
+				t.Errorf("Index 指向 %q，应为正在播的 %q（列表 %v）", got, curID, ids(a.Playlist))
+			}
+		})
+	}
+}
+
+// TestReorderPlaylistIgnoresIndexWhenNotPlayingFromUserList 钉住边界：当前播放
+// 来源不是「我的列表」时，a.Index 是队列下标，拖我的列表不得碰它。
+func TestReorderPlaylistIgnoresIndexWhenNotPlayingFromUserList(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	a := &view.App{
+		Playlist:        []view.PlayItem{{ID: "a"}, {ID: "b"}, {ID: "c"}},
+		SeriesPlaylist:  []view.PlayItem{{ID: "s1"}, {ID: "s2"}},
+		PlayingPlaylist: view.ListSeries,
+		Index:           1,
+	}
+	c := &controller{app: a, kv: kv}
+	c.reorderPlaylist(view.ListUser, 0, 2)
+	if a.Index != 1 {
+		t.Errorf("播合集时拖我的列表：Index = %d，应保持 1", a.Index)
+	}
+	// 合集列表本身也不该被拖（原版 series 行 draggable=false）。
+	c.reorderPlaylist(view.ListSeries, 0, 1)
+	if ids(a.SeriesPlaylist)[0] != "s1" {
+		t.Errorf("合集列表被改动了：%v", ids(a.SeriesPlaylist))
 	}
 }
 

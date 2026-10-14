@@ -196,6 +196,28 @@ func (c *controller) deletePlaylistItem(list, id string) {
 	a.Win.Update(func() {})
 }
 
+// reorderIndex 复刻原版 handlePlaylistReorder 对 currentPlaylistIndex 的跟随
+// （main:src/pages/index.tsx）：
+//
+//	if (prevIdx === from) return to;
+//	if (from < prevIdx && to >= prevIdx) return prevIdx - 1;
+//	if (from > prevIdx && to <= prevIdx) return prevIdx + 1;
+//	return prevIdx;
+//
+// 正在播的那条被拖走 → 下标跟着它到新位置；只是被别的记录跨过 → 顺势前后
+// 挪一格；没被碰到就不动。
+func reorderIndex(cur, from, to int) int {
+	switch {
+	case cur == from:
+		return to
+	case from < cur && to >= cur:
+		return cur - 1
+	case from > cur && to <= cur:
+		return cur + 1
+	}
+	return cur
+}
+
 // reorderPlaylist 把「我的列表」第 from 条移到 to。
 func (c *controller) reorderPlaylist(list string, from, to int) {
 	a := c.app
@@ -210,6 +232,13 @@ func (c *controller) reorderPlaylist(list string, from, to int) {
 	a.Playlist = append(a.Playlist[:from:from], a.Playlist[from+1:]...)
 	rest := append(a.Playlist[:to:to], it)
 	a.Playlist = append(rest, a.Playlist[to:]...)
+	// 与原版一致：当前播放的那条要跟着这次移动改下标。只有当前播放来源就是
+	// 「我的列表」时 a.Index 才是这个列表的下标（播合集 / 单集时它是队列下标，
+	// 拖我的列表与它无关）。缺这一步的表现：拖完行，「当前播放」高亮停在旧
+	// 下标（那里已经是另一条记录），下一首/上一首与「定位当前」都跟着走错。
+	if a.PlayingPlaylist == view.ListUser {
+		a.Index = reorderIndex(a.Index, from, to)
+	}
 	c.savePlaylists()
 	a.Win.Update(func() {})
 }
