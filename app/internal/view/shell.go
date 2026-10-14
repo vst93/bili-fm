@@ -98,8 +98,8 @@ func (a *App) titleBar(c *ui.Context) {
 		// mygo 的元素 id 由「父 id + 已在建的子元素个数」决定，少建一个兄弟会
 		// 让它后面所有兄弟换 id —— 焦点/悬停/动画状态会跟着丢。原版 CSS 里这两层
 		// 也是常驻的（只是 opacity 0）。
-		titleBarLayer(c, titleBarEdgeStops, TitleBarHeight*1.7, edge)
-		titleBarLayer(c, titleBarWashStops, TitleBarHeight*1.4, wash)
+		titleBarLayer(c, "tb-edge", titleBarEdgeStops, TitleBarHeight*1.7, edge)
+		titleBarLayer(c, "tb-wash", titleBarWashStops, TitleBarHeight*1.4, wash)
 		mac := runtime.GOOS == "darwin"
 		// 品牌：macOS 居中（红绿灯在左），Windows/Linux 靠左 + 设置在旁
 		// （原版 .title-bar-brand 的 isMac 分支）。≤600px 时隐藏（原版如此）。
@@ -107,7 +107,10 @@ func (a *App) titleBar(c *ui.Context) {
 		// 整块走 .title-bar-brand 的 .7/1，而不是外层子元素的 .32/.82；
 		// 设置按钮在品牌里面（原版 DOM 如此），所以也跟着 .7/1。
 		brandBox := func(grow, settings bool) {
-			box := ui.Row(c).AlignItems(ui.Center).Opacity(brand)
+			box := ui.Row(c).AlignItems(ui.Center)
+			// `.title-bar-brand` 的不透明度（.70 ↔ 1）跟着 `> *` 那条 transition
+			// 一起走 0.24s。
+			box.Opacity(titleBarFade(box, "tb-brand", brand))
 			if grow {
 				box.Grow(1)
 			} else {
@@ -137,7 +140,10 @@ func (a *App) titleBar(c *ui.Context) {
 			brandBox(false, true)
 			ui.Box(c).Grow(1)
 		}
-		ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center).Opacity(child).Children(func() {
+		actions := ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center)
+		// `.app-title-bar > *` 的不透明度（.32 ↔ .82）走 0.24s 过渡。
+		actions.Opacity(titleBarFade(actions, "tb-child", child))
+		actions.Children(func() {
 			// 迷你入口：原版在 Linux 上不提供（webkit2gtk 改不了窗口尺寸）。
 			if runtime.GOOS != "linux" {
 				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
@@ -153,6 +159,10 @@ func (a *App) titleBar(c *ui.Context) {
 				if focus {
 					ink, opacity = t.Blue, 1
 				}
+				// `.app-title-bar button` 的 color/background 0.18s、opacity 0.16s。
+				// 这条 `transition: none` 只存在于原版的 reduced-motion 块里的
+				// `.mini-window-controls button`，标题栏里的键不受影响。
+				bg, ink, opacity = titleBarBtnFade(b, bg, ink, opacity, false)
 				b.Background(bg).Opacity(opacity)
 				if focus {
 					b.InsetShadow(0, 1, 1, 0, t.Highlight)
@@ -181,9 +191,12 @@ func (a *App) titleBar(c *ui.Context) {
 // 整棵子树（含分带）都要 PassThrough：它们盖在标题栏按钮之上，只要有哪一层
 // 参与命中测试，标题栏里按下的就是它（或者它的祖先 —— 带 DragWindow 的那一行），
 // 按钮就再也点不到了。
-func titleBarLayer(c *ui.Context, stops []gradStop, height, opacity float32) {
-	ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(height).PassThrough().
-		Opacity(opacity).Children(func() {
+func titleBarLayer(c *ui.Context, key string, stops []gradStop, height, opacity float32) {
+	box := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(height).PassThrough()
+	// 整层的不透明度走 0.24s 过渡（原版 `transition: opacity 0.24s ease`），
+	// 鼠标进出标题栏时白玻璃与顶沿投影是淡入淡出，不是硬切。
+	box.Opacity(titleBarFade(box, key, opacity))
+	box.Children(func() {
 		ui.Column(c).Fill().PassThrough().Children(func() {
 			for _, b := range gradBands(stops, 4) {
 				ui.Box(c).FillWidth().Grow(1).PassThrough().LinearGradient(ui.LinearGradient{
@@ -207,13 +220,12 @@ func (a *App) settingsButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, 8).Radius(4).
 		Margin(0, 0, 0, 8).Center().Label("设置").Tooltip("设置")
-	if b.Hovered() {
-		b.Background(t.GlassHover)
+	if b.Hovered() || a.ShowSettings {
+		// `.app-title-bar button` 的 `background-color 0.18s ease`：悬停底色淡入，
+		// 不再「啪」地跳出来（设置键自己不设 opacity，它跟着品牌那层 0.24s 走）。
+		b.Background(b.AnimateColor("tb-btn-bg", t.GlassHover, navIconBgAnim))
 	} else {
-		b.Background(ui.Transparent)
-	}
-	if a.ShowSettings {
-		b.Background(t.GlassHover)
+		b.Background(b.AnimateColor("tb-btn-bg", ui.Transparent, navIconBgAnim))
 	}
 	// 原版 .app-title-bar button:hover 的左上角径向聚光（.settings-entry 也是
 	// .app-title-bar 里的 button，按下换居中光）。

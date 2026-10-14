@@ -324,6 +324,9 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 			bg = ui.Transparent
 		}
 	}
+	// `.mini-window-controls button` 的 color/background 0.18s、opacity 0.16s；
+	// 桌面要求减少动态效果时原版对它写了 `transition: none`，色值当帧到位。
+	bg, ink, opacity = titleBarBtnFade(b, bg, ink, opacity, reduceMotion(c))
 	b.Background(bg).Opacity(opacity)
 	if focus {
 		b.InsetShadow(0, 1, 1, 0, t.Highlight)

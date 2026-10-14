@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -71,7 +72,7 @@ func titleBarLayerProbe(stops []gradStop, height, opacity float32, bg ui.Color) 
 	return ui.Render(func(c *ui.Context) {
 		c.Root().Background(bg)
 		ui.Box(c).FillWidth().Height(TitleBarHeight).Children(func() {
-			titleBarLayer(c, stops, height, opacity)
+			titleBarLayer(c, "probe-layer", stops, height, opacity)
 		})
 	}, 400, 300, 1)
 }
@@ -150,6 +151,9 @@ func darkestIn(img *image.RGBA, x0, y0, x1, y1 int) [3]int {
 // TestTitleBarRevealOnHover 是整窗的无头渲染实测：鼠标落在标题栏上时
 // 品牌（`.title-bar-brand`，静息 .70）要亮起来、顶沿（白玻璃）要浮出来；
 // 鼠标移开又退回去。这三条一起证明 reveal 真的接上了，而不只是几个常量。
+//
+// 本轮起这四层走 0.24s 过渡（原版 `transition: opacity 0.24s ease`），
+// 所以每次移动指针后要等过渡跑完再量（settleTitleBarFade）。
 func TestTitleBarRevealOnHover(t *testing.T) {
 	tst := titleBarProbe(t)
 	rect, ok := tst.Find("bili-FM")
@@ -163,6 +167,7 @@ func TestTitleBarRevealOnHover(t *testing.T) {
 	restTop := grayAt(tst.Image(), 500, 1)
 
 	tst.Move(500, 18) // 落在标题栏的空白处
+	settleTitleBarFade(tst)
 	hover := darkestIn(tst.Image(), x0, y0, x1, y1)
 	hoverTop := grayAt(tst.Image(), 500, 1)
 
@@ -180,11 +185,20 @@ func TestTitleBarRevealOnHover(t *testing.T) {
 
 	// 移开指针（落到主区），整条退回静息态。
 	tst.Move(500, 400)
+	settleTitleBarFade(tst)
 	back := darkestIn(tst.Image(), x0, y0, x1, y1)
 	t.Logf("移开指针后品牌最深像素 = %v", back)
 	if back[0] != rest[0] {
 		t.Errorf("移开指针后品牌 = %v，应回到静息态 %v", back, rest)
 	}
+}
+
+// settleTitleBarFade 等标题栏那 0.24s 过渡跑完再出帧。Tester 的时钟是真实
+// 墙钟、settle 只跑 20 帧，240ms 的过渡未必能在 settle 里收敛（机器快时 20 帧
+// 不到 240ms），所以显式睡过时长再出一帧。
+func settleTitleBarFade(tst *ui.Tester) {
+	time.Sleep(300 * time.Millisecond)
+	tst.Frame()
 }
 
 // TestTitleBarRevealKeepsFocus 是一条回归，钉住 reveal 那两层的两条纪律：

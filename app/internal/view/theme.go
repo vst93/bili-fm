@@ -412,6 +412,41 @@ func titleBarReveal(active bool) (child, brand, edge, wash float32) {
 	return 0.32, 0.7, 0.52, 0
 }
 
+// titleBarRevealAnim 是 hover-to-reveal 的过渡参数：原版 `.app-title-bar::after`
+// 与 `.app-title-bar > *`（含品牌）都是 `transition: opacity 0.24s ease`，
+// 240ms + CSS 默认缓动曲线。此前原生版把四层的不透明度当帧直接铺上/撤下，
+// 鼠标进出标题栏是「啪」地硬切，原版是 0.24s 淡入淡出。
+var titleBarRevealAnim = ui.Animation{
+	Duration: 240 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// titleBarFade 返回标题栏某一层这一帧该用的不透明度（带 0.24s 过渡）。
+// 声明成 var 便于测试换桩，统计四层是否都真的走了过渡。
+var titleBarFade = func(el ui.Element, key string, target float32) float32 {
+	return el.AnimateTo(key, target, titleBarRevealAnim)
+}
+
+// titleBarBtnFade 把标题栏 / 迷你窗小键的底色、图标色与不透明度交给框架过渡：
+//
+//	.app-title-bar button, .mini-window-controls button {
+//	    transition: color 0.18s ease, background-color 0.18s ease,
+//	                opacity 0.16s ease, transform 0.16s ease;
+//	}
+//
+// 与 nav 小键同一组时长（navIconBgAnim / navIconFadeAnim）。reduce 为真时当帧
+// 到位——原版那条 `transition: none` 只写在 `.mini-window-controls button` 上
+// （迷你窗里的两个键），标题栏里的「设置」「切换到迷你模式」仍走过渡。
+// 声明成 var 便于测试换桩，统计「哪几处把 reduce 传成了真」。
+var titleBarBtnFade = func(b ui.Element, bg, ink ui.Color, opacity float32, reduce bool) (ui.Color, ui.Color, float32) {
+	if reduce {
+		return bg, ink, opacity
+	}
+	return b.AnimateColor("tb-btn-bg", bg, navIconBgAnim),
+		b.AnimateColor("tb-btn-ink", ink, navIconBgAnim),
+		b.AnimateTo("tb-btn-fade", opacity, navIconFadeAnim)
+}
+
 // gradStop 是一条多停靠点线性渐变的停靠点（位置 0..1 + 颜色）。原版 CSS 里这类
 // 渐变有 4~5 个停靠点，而 ui.LinearGradient 只有两个颜色，所以按带拼（见 gradBands）。
 type gradStop struct {
