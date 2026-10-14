@@ -188,6 +188,9 @@ func (a *App) collabPicker(c *ui.Context) {
 	b.Children(func() {
 		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(st.Ink)
 	})
+	// 原版 `.nav-icon-btn.video-owner-picker-button:focus-visible`：
+	// `outline: 2px solid var(--studio-blue); outline-offset: 2px`。
+	focusOutline(b, DockIconR, focusStudio)
 	if b.Clicked() {
 		a.CollabOpen = !a.CollabOpen
 		if a.CollabOpen {
@@ -262,6 +265,10 @@ func (a *App) collabItem(c *ui.Context, st Collaborator, checked bool) {
 			}
 		})
 	})
+	// 原版 `.video-owner-picker-item[data-focus-visible="true"]`：
+	// `outline: 2px solid var(--studio-blue); outline-offset: -2px`（画进条目内，
+	// 免得被面板的圆角 / overflow 裁掉）。
+	focusOutline(it, collabItemRadius, focusStudioInset)
 	if it.Clicked() {
 		// 选中后显示的是 TA（原版 setSelectedOwner），并立刻打开空间
 		// （原版 onAction 里 setIsOwnerMenuOpen(false) + onOwnerClick）。

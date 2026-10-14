@@ -229,6 +229,9 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	}
 	topToolPose(b)
 	b.Children(func() { topToolInk(ui.Icon(c, ic).Size(18, 18), s.Ink) })
+	// 原版 `.top-tool-btn:focus-visible`：`outline: 2px solid rgba(14,165,233,.45);
+	// outline-offset: 2px`。
+	focusOutline(b, ToolButtonR, focusSky45)
 	if b.Clicked() {
 		a.openSection(key)
 	}
@@ -278,6 +281,9 @@ func (a *App) userButton(c *ui.Context) {
 	if b.Clicked() && a.Act.Login != nil {
 		a.Act.Login()
 	}
+	// 原版 `.home-user-button:focus-visible`：`outline: 2px solid
+	// var(--studio-blue); outline-offset: 3px`。
+	focusOutline(b, RadiusPill, focusStudioWide)
 }
 
 // avatarInitial 是没头像时显示的字（用户名首字，没有就一个问号）。
@@ -692,6 +698,16 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				Background(t.CoverPlaceholder()).Border(1.5, ownerFaceBorder()).
 				Label("UP 主空间")
 			paint := ownerFacePaintFor(face.Hovered())
+			// 原版 `#video-owner-face:focus-visible`：`outline: none`，改用
+			// `box-shadow: 0 0 0 2px var(--studio-blue), 0 4px 12px 墨 .1`
+			// （注释里说是因为 #video-info overflow:hidden 会把 outline 裁掉，
+			// 所以换成同样会画在外侧、但贴合圆形的 box-shadow）。这条
+			// :focus-visible 排在 :hover 之后、特异度相同，所以聚焦时
+			// **整组替换**悬停那两道影。
+			if face.FocusVisible() {
+				face.FocusRing(false)
+				paint.Shadows = ownerFaceFocusShadows()
+			}
 			applyShadows(face, paint.Shadows)
 			// 原版 #video-owner-face 的 `transition: box-shadow 0.2s ease,
 			// transform 0.18s ease`：悬停 scale(1.06) 走 180ms 曲线。之前用
@@ -713,6 +729,9 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
 					name.Background(ui.Transparent)
+					// 原版 `#video-owner-name:focus-visible`：`outline: 2px solid
+					// var(--studio-blue); outline-offset: 2px`。
+					focusOutline(name, 4, focusStudio)
 					name.Children(func() {
 						// 原版 #video-owner-name：15px / 650 / hover #0284c7。
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).

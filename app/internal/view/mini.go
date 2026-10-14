@@ -313,8 +313,21 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
 	bg, ink, opacity, highlight := titleBarButtonStyle(t, active, b.Hovered())
+	// 原版 `:is(.app-title-bar, .mini-window-controls) .app-title-bar-btn:focus-visible`：
+	// opacity 1、图标转 --studio-blue，高光换成 `inset 0 1px 1px
+	// --glass-highlight` ＋ 2px 蓝环。另：置顶那条 `[aria-pressed=true]:not(…)`
+	// 带 `:not(:focus-visible)` —— 聚焦且不悬停时它整条失效，底色回透明。
+	focus := b.FocusVisible()
+	if focus {
+		ink, opacity = t.Blue, 1
+		if !b.Hovered() {
+			bg = ui.Transparent
+		}
+	}
 	b.Background(bg).Opacity(opacity)
-	if highlight {
+	if focus {
+		b.InsetShadow(0, 1, 1, 0, t.Highlight)
+	} else if highlight {
 		titleBarBtnHighlight(b, active, b.Hovered())
 	}
 	// 原版 .mini-window-controls button:hover 的左上角径向聚光（按下换居中光）。
@@ -325,6 +338,7 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 	b.Children(func() {
 		ui.Icon(c, ic).Size(16, 16).TextColor(ink)
 	})
+	focusOutline(b, RadiusSmall, focusGlow)
 	if b.Clicked() {
 		fn()
 	}

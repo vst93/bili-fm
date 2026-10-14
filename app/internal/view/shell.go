@@ -142,8 +142,17 @@ func (a *App) titleBar(c *ui.Context) {
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
 				bg, ink, opacity, highlight := titleBarButtonStyle(t, false, b.Hovered())
+				// 原版 `#switch-window-mode:focus-visible`：opacity 1、图标转
+				// --studio-blue，并把通用 ::after 的那条高光换成
+				// `inset 0 1px 1px --glass-highlight` ＋ 2px 蓝环（见 focusGlow）。
+				focus := b.FocusVisible()
+				if focus {
+					ink, opacity = t.Blue, 1
+				}
 				b.Background(bg).Opacity(opacity)
-				if highlight {
+				if focus {
+					b.InsetShadow(0, 1, 1, 0, t.Highlight)
+				} else if highlight {
 					titleBarBtnHighlight(b, false, b.Hovered())
 				}
 				// 原版 .app-title-bar button:hover 的左上角径向聚光（按下换居中光）。
@@ -152,6 +161,7 @@ func (a *App) titleBar(c *ui.Context) {
 				}
 				pressScale(b)
 				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(ink) })
+				focusOutline(b, RadiusSmall, focusGlow)
 				if b.Clicked() && a.Act.SetMini != nil {
 					a.Act.SetMini(true)
 				}

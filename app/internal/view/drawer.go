@@ -553,6 +553,9 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	buttonSurface(b, a.Incognito, b.Hovered(),
 		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
 		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
+	// 原版 `.history-incognito-switch:focus-visible`：`outline: 2px solid
+	// rgba(14,165,233,.44); outline-offset: 2px`（没有换色 / 换底的整态差异）。
+	focusOutline(b, Radius, focusSky44)
 	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
@@ -1460,6 +1463,9 @@ func (a *App) card(c *ui.Context, index int) {
 			b.Background(wlRemoveFill(b.Hovered() && !pending)).
 				Border(1, wlRemoveBorder())
 			b.Opacity(wlRemoveOpacity(pending))
+			// 原版 `.watchlater-remove-btn:focus-visible`：`outline: 2px solid
+			// rgba(14,165,233,.62); outline-offset: 2px`。
+			focusOutline(b, wlRemoveRadius, focusSky62)
 			// 悬停放大 1.04（原版 :hover transform: scale(1.04)）；禁用时不放大。
 			b.AnimatePose(ui.Pose{Scale: wlRemoveScale(b.Hovered() && !pending)},
 				ui.Animation{Duration: 160 * time.Millisecond, Ease: ui.EaseOut})
@@ -2850,10 +2856,15 @@ func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) 
 	if b.Hovered() {
 		b.Background(ui.Hex("#0f172a").Alpha(0.12))
 	}
+	// 原版 `.collect-scroll-btn:focus-visible`：`outline: 0; color: #0284c7;
+	// box-shadow: 0 0 0 2px rgba(2,132,199,.4)` —— 换色跟悬停同值（聚光蓝），
+	// 环是 titleBarFocus 那一款无偏移的 2px 蓝环。
 	b.Children(func() {
 		ic := pick(delta < 0, iconLeft, iconRight)
-		ui.Icon(c, ic).Size(14, 14).TextColor(pick(b.Hovered(), t.Blue, ui.Hex("#475569")))
+		lit := b.Hovered() || b.FocusVisible()
+		ui.Icon(c, ic).Size(14, 14).TextColor(pick(lit, t.Blue, ui.Hex("#475569")))
 	})
+	focusOutline(b, 7, focusGlow)
 	if b.Clicked() {
 		a.CollectScroll.X = max(0, a.CollectScroll.X+delta)
 	}

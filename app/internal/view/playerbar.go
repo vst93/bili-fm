@@ -1060,6 +1060,10 @@ func paintBakedSheen(p *ui.Painter, r ui.Rect, radius float32, baked *sheenBaked
 // 圆角一致，否则描边会离边框错位。整圈 opacity 由 playerRimOpacityFn 按
 // （dark, tool）给出；sheen 由 playerSheenFor 按（kind, dark, playing, hovered）给出。
 func playerRim(b ui.Element, radius float32, dark, tool bool, kind playerSheenKind, playing, hovered bool) ui.Element {
+	// 原版 `#player .player-button:focus-visible`（含迷你窗的同一批键）：
+	// `outline: 2px solid var(--studio-blue); outline-offset: 2px`。聚光描边
+	// 与它互不影响（一个是 ::after、一个是 outline），所以无条件接线。
+	b = focusOutline(b, radius, focusStudio)
 	opacity := playerRimOpacityFn(dark, tool)
 	sheen := playerSheenFor(kind, dark, playing, hovered)
 	if opacity <= 0 && sheen == nil {
@@ -1265,6 +1269,10 @@ func (a *App) progress(c *ui.Context) {
 	// 轨道的两个端点（原生 range 的行为）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
 		PaddingX(timelineInset).Label("播放进度")
+	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
+	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
+	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
+	focusOutline(s, 0, focusStudio)
 	_, _, held := s.Dragged()
 	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
 
@@ -1689,6 +1697,8 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 之前用的是框架默认滑杆（细轨道 + 实心旋钮），与原版完全不同。
 		sl := ui.SliderBase(c, &v, 0, 1).Grow(1).Height(timelineH).
 			PaddingX(timelineInset).Label("音量")
+		// 原版 `#player input[type="range"]:focus-visible`，与进度条同一条规则。
+		focusOutline(sl, 0, focusStudio)
 		_, _, held := sl.Dragged()
 		sl.Draw(func(p *ui.Painter, r ui.Rect) {
 			paintRangeBar(p, r, rangePaint{
@@ -1757,6 +1767,9 @@ func (a *App) miniProgress(c *ui.Context) {
 	// 与主窗同一套规则与外观（见 progress / paintTimeline）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).Grow(1).Height(timelineH).
 		PaddingX(timelineInset).Label("播放进度")
+	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
+	// 照样存在），同一条 `:focus-visible` 规则。
+	focusOutline(s, 0, focusStudio)
 	_, _, held := s.Dragged()
 	changed := s.Changed()
 	if held != a.wasHeld {

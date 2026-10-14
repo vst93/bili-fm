@@ -65,6 +65,15 @@ func ownerFacePaintFor(hovered bool) ownerFacePaint {
 // ownerFaceBorder 是头像的 1.5px 白 .7 描边（原版 #video-owner-face）。
 func ownerFaceBorder() ui.Color { return ui.Hex("#ffffff").Alpha(0.70) }
 
+// ownerFaceFocusShadows 是头像拿到键盘焦点时的 box-shadow（原版
+// `#video-owner-face:focus-visible`）：2px 蓝环 + 淡墨影，整组替换悬停那两道。
+func ownerFaceFocusShadows() []shadowSpec {
+	return []shadowSpec{
+		{0, 0, 0, 2, ui.Hex("#0284c7")},      // 0 0 0 2px var(--studio-blue)
+		{0, 4, 12, 0, shadowInk.Alpha(0.10)}, // 0 4px 12px rgba(15,23,42,.1)
+	}
+}
+
 // ownerGlassOpacity 是玻璃罩的透明度：常态 1，悬停 .7
 // （原版 .video-owner-wrap:hover::before）。
 func ownerGlassOpacity(hovered bool) float32 {
