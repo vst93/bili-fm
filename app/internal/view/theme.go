@@ -367,31 +367,97 @@ func titleBarButtonStyle(t Theme, active, hovered bool) (bg, ink ui.Color, opaci
 	return ui.Transparent, t.Muted, 0.72, false
 }
 
-// titleBarBtnHighlightFor 解析标题栏图标键 / 迷你窗窗口控制键的高光阴影。
+// titleBarBtnPinSpecs 是「置顶」时**直接挂在按钮上**的单层内高光。原版：
 //
-// 原版有两条互斥的路径：
+//	body.mini-mode .mini-window-controls button[aria-pressed="true"]
+//	    :not(:hover):not(:active):not(:focus-visible) {
+//	    box-shadow: inset 0 1px 1px --glass-highlight;
+//	}
 //
-//	.app-title-bar button::after / .mini-window-controls button::after / #switch-window-mode::after
-//	    （默认 opacity 0，悬停时 opacity 0→1）
-//	    inset 0 1px 1px --glass-highlight / inset 0 -1px 1px 墨 .03 / 0 2px 10px 墨 .045
-//	body.mini-mode .mini-window-controls button[aria-pressed="true"]:not(:hover):not(:active):not(:focus-visible)
-//	    box-shadow: inset 0 1px 1px --glass-highlight   ← 直接挂在按钮上、只有一层
-//
-// 所以「置顶且鼠标不在键上」是单层内高光（此时 ::after 仍是 opacity 0），
-// 悬停才展开三条（:hover 只改 ::after 的 opacity，而 :not(:hover) 那条直接阴影
-// 同时失效）。三条那组与 .nav-icon-btn::after 逐字相同，直接复用
-// navHoverHighlightSpecs，不重抄一份。
-func titleBarBtnHighlightFor(active, hovered bool) hoverHighlight {
-	if active && !hovered {
-		return hoverHighlight{Inset: []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}}}
-	}
-	return navHoverHighlightSpecs()
+// 这条 box-shadow 不在按钮的 `transition: color…, opacity…, transform…` 列表里，
+// 所以它当帧到位（换目标不淡入淡出）。
+func titleBarBtnPinSpecs() hoverHighlight {
+	return hoverHighlight{Inset: []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}}}
 }
 
-// titleBarBtnHighlight 把上面那组阴影铺到按钮上。var 便于无头测试换成 no-op
-// 做反证（同 navPressShadow）。
+// titleBarBtnAfterSpecs 是 ::after 那层三条阴影：
+//
+//	.app-title-bar button::after / .mini-window-controls button::after /
+//	#switch-window-mode::after {
+//	    box-shadow: inset 0 1px 1px --glass-highlight /
+//	                inset 0 -1px 1px 墨 .03 / 0 2px 10px 墨 .045;
+//	    opacity: 0; transition: opacity 0.18s ease;
+//	}
+//
+// 与 .nav-icon-btn::after 逐字相同，直接复用 navHoverHighlightSpecs，不重抄。
+func titleBarBtnAfterSpecs() hoverHighlight { return navHoverHighlightSpecs() }
+
+// titleBarBtnHighlightAnim 是 ::after 的 `transition: opacity 0.18s ease`
+// （CSS ease = cubic-bezier(.25,.1,.25,1)）。此前原生版把高光当帧铺上/撤下，
+// 鼠标进出标题栏小键时那层内高光是「啪」地硬切，原版是 0.18s 淡入淡出。
+var titleBarBtnHighlightAnim = ui.Animation{
+	Duration: 180 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// titleBarBtnHighlightTarget 是 ::after 这一帧该达到的不透明度：
+//
+//	.app-title-bar button:hover::after { opacity: 1 }
+//	.app-title-bar button:active::after { opacity: 0 }   ← 源里更靠后，按下且悬停时以 0 为准
+//
+// 其余状态（aria-pressed 的置顶、:focus-visible）都不改 ::after 的 opacity，
+// 保持 0（置顶那层高光是直接阴影，见 titleBarBtnPinSpecs）。
+func titleBarBtnHighlightTarget(pressed, hovered bool) float32 {
+	if hovered && !pressed {
+		return 1
+	}
+	return 0
+}
+
+// titleBarBtnHighlightFade 返回 ::after 这一帧的不透明度（带 0.18s 过渡）。
+// 声明成 var 便于测试换桩（同 titleBarFade / titleBarBtnFade）。
+var titleBarBtnHighlightFade = func(b ui.Element, target float32) float32 {
+	return b.AnimateTo("tb-btn-hi", target, titleBarBtnHighlightAnim)
+}
+
+// scaleHighlight 把一组阴影的 alpha 统一乘以 op，用来模拟 ::after 整层的
+// `opacity`（mygo 没有伪元素层级的不透明度，只能落到每条阴影的 alpha 上）。
+func scaleHighlight(h hoverHighlight, op float32) hoverHighlight {
+	if op >= 1 {
+		return h
+	}
+	out := hoverHighlight{
+		Inset: make([]shadowSpec, len(h.Inset)),
+		Outer: make([]shadowSpec, len(h.Outer)),
+	}
+	for i, s := range h.Inset {
+		s.C = s.C.Alpha(op)
+		out.Inset[i] = s
+	}
+	for i, s := range h.Outer {
+		s.C = s.C.Alpha(op)
+		out.Outer[i] = s
+	}
+	return out
+}
+
+// titleBarBtnHighlight 铺标题栏图标键 / 迷你窗窗口控制键这一帧的高光，分两层：
+//
+//	置顶且不在悬停/按下/聚焦   按钮上的单层内高光（当帧到位）
+//	::after                    三条阴影，整层不透明度走 0.18s 过渡
+//
+// var 便于无头测试换成 no-op 做反证（同 navPressShadow）。
 var titleBarBtnHighlight = func(b ui.Element, active, hovered bool) ui.Element {
-	return applyHighlight(b, titleBarBtnHighlightFor(active, hovered))
+	pressed, focus := b.Pressed(), b.FocusVisible()
+	// 置顶那条 `:not(:hover):not(:active):not(:focus-visible)` 例外：直接阴影。
+	if active && !hovered && !pressed && !focus {
+		b = applyHighlight(b, titleBarBtnPinSpecs())
+	}
+	// ::after 整层：三条阴影 × 过渡中的不透明度。op 归零后不再画任何东西。
+	if op := titleBarBtnHighlightFade(b, titleBarBtnHighlightTarget(pressed, hovered)); op > 0 {
+		b = applyHighlight(b, scaleHighlight(titleBarBtnAfterSpecs(), op))
+	}
+	return b
 }
 
 // titleBarReveal 是标题栏的 hover-to-reveal 两态（原版 .app-title-bar 的

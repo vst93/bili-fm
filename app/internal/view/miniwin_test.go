@@ -102,15 +102,15 @@ func TestMiniPinFilledIsSolid(t *testing.T) {
 	}
 }
 
-// TestTitleBarBtnHighlightSpecs 钉住标题栏图标键 / 迷你窗窗口控制键的高光阴影。
+// TestTitleBarBtnHighlightSpecs 钉住标题栏图标键 / 迷你窗窗口控制键的两层高光。
 //
-// 原版两条互斥路径：
+// 原版两条互不排斥的路径：
 //
-//	::after（悬停 opacity 0→1）        inset 上高光 + inset 下暗线 + 外投影（三条）
-//	aria-pressed 且不在悬停/按下/聚焦   只有 inset 上高光（一条）
+//	::after（悬停 opacity 0→1，0.18s 过渡）  inset 上高光 + inset 下暗线 + 外投影（三条）
+//	aria-pressed 且不在悬停/按下/聚焦      只有 inset 上高光（一条，直接挂按钮、当帧到位）
 func TestTitleBarBtnHighlightSpecs(t *testing.T) {
 	// 置顶且鼠标不在键上：单层内高光（原版 mini-window-controls 那条直接阴影）。
-	pin := titleBarBtnHighlightFor(true, false)
+	pin := titleBarBtnPinSpecs()
 	if len(pin.Inset) != 1 || len(pin.Outer) != 0 {
 		t.Fatalf("置顶未悬停应为 1 层内影 / 0 层外影，得到 %d / %d", len(pin.Inset), len(pin.Outer))
 	}
@@ -118,26 +118,85 @@ func TestTitleBarBtnHighlightSpecs(t *testing.T) {
 		t.Errorf("置顶未悬停内影 = %+v, want %+v", pin.Inset[0], want)
 	}
 
-	// 悬停（置顶或不置顶都一样）：与 .nav-icon-btn::after 逐字相同的三条。
-	hover := titleBarBtnHighlightFor(false, true)
+	// ::after 三条：与 .nav-icon-btn::after 逐字相同。
+	after := titleBarBtnAfterSpecs()
 	want := navHoverHighlightSpecs()
-	if len(hover.Inset) != len(want.Inset) || len(hover.Outer) != len(want.Outer) {
-		t.Fatalf("悬停应为 %d 层内影 / %d 层外影，得到 %d / %d",
-			len(want.Inset), len(want.Outer), len(hover.Inset), len(hover.Outer))
+	if len(after.Inset) != len(want.Inset) || len(after.Outer) != len(want.Outer) {
+		t.Fatalf("::after 应为 %d 层内影 / %d 层外影，得到 %d / %d",
+			len(want.Inset), len(want.Outer), len(after.Inset), len(after.Outer))
 	}
 	for i := range want.Inset {
-		if hover.Inset[i] != want.Inset[i] {
-			t.Errorf("悬停内影[%d] = %+v, want %+v", i, hover.Inset[i], want.Inset[i])
+		if after.Inset[i] != want.Inset[i] {
+			t.Errorf("::after 内影[%d] = %+v, want %+v", i, after.Inset[i], want.Inset[i])
 		}
 	}
 	for i := range want.Outer {
-		if hover.Outer[i] != want.Outer[i] {
-			t.Errorf("悬停外影[%d] = %+v, want %+v", i, hover.Outer[i], want.Outer[i])
+		if after.Outer[i] != want.Outer[i] {
+			t.Errorf("::after 外影[%d] = %+v, want %+v", i, after.Outer[i], want.Outer[i])
 		}
 	}
-	// 置顶未悬停与悬停必须不同（否则「单层」例外就是死代码）。
-	if len(pin.Inset) == len(hover.Inset) && len(pin.Outer) == len(hover.Outer) {
-		t.Error("置顶未悬停与悬停画了同一组阴影：aria-pressed 的单层例外没生效")
+	// 置顶直接阴影与 ::after 三条必须不同（否则「单层」例外就是死代码）。
+	if len(pin.Inset) == len(after.Inset) && len(pin.Outer) == len(after.Outer) {
+		t.Error("置顶直接阴影与 ::after 画了同一组阴影：aria-pressed 的单层例外没生效")
+	}
+}
+
+// TestTitleBarBtnHighlightTargets 钉住 ::after 不透明度的目标值：
+//
+//	:hover::after  { opacity: 1 }
+//	:active::after { opacity: 0 }（源里更靠后，按下且悬停时以 0 为准）
+//	其余（含置顶 / focus-visible）都是 0
+func TestTitleBarBtnHighlightTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		pressed, hovered bool
+		want             float32
+	}{
+		{"静息", false, false, 0},
+		{"悬停", false, true, 1},
+		{"按下", true, true, 0},
+		{"按下未悬停", true, false, 0},
+	} {
+		if got := titleBarBtnHighlightTarget(tc.pressed, tc.hovered); got != tc.want {
+			t.Errorf("%s：目标 = %v，想 %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestScaleHighlightScalesAlpha 钉住「把 ::after 整层不透明度落到每条阴影
+// alpha 上」的换算：op=1 原样、op=0.5 折半、op=0 全透明（且不共享底层切片）。
+func TestScaleHighlightScalesAlpha(t *testing.T) {
+	src := titleBarBtnAfterSpecs()
+	if got := scaleHighlight(src, 1); len(got.Inset) != len(src.Inset) || got.Inset[0] != src.Inset[0] {
+		t.Errorf("op=1 应原样返回，得到 %+v", got.Inset[0])
+	}
+
+	half := scaleHighlight(src, 0.5)
+	for i, s := range src.Inset {
+		want := s.C.Alpha(0.5)
+		if half.Inset[i].C != want {
+			t.Errorf("op=0.5 内影[%d] alpha = %d，想 %d", i, half.Inset[i].C.A, want.A)
+		}
+		if half.Inset[i].C.A >= s.C.A && s.C.A > 0 {
+			t.Errorf("op=0.5 内影[%d] 没有变淡", i)
+		}
+	}
+	for i, s := range src.Outer {
+		want := s.C.Alpha(0.5)
+		if half.Outer[i].C != want {
+			t.Errorf("op=0.5 外影[%d] alpha = %d，想 %d", i, half.Outer[i].C.A, want.A)
+		}
+	}
+
+	zero := scaleHighlight(src, 0)
+	for i, s := range zero.Inset {
+		if s.C.A != 0 {
+			t.Errorf("op=0 内影[%d] 仍不透明：A=%d", i, s.C.A)
+		}
+	}
+	// 不能改到源切片（否则同一份 specs 会被下一次调用污染）。
+	if src.Inset[0].C.A == 0 {
+		t.Error("scaleHighlight 改写了源 specs")
 	}
 }
 

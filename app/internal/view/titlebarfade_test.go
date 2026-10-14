@@ -144,6 +144,85 @@ func TestTitleBarBtnFadeTransitions(t *testing.T) {
 	}
 }
 
+// TestTitleBarBtnHighlightFadeTransitions 实测 titleBarBtnHighlightFade 真的以
+// 「过渡」而非「瞬时」返回 ::after 的不透明度（原版 `transition: opacity 0.18s ease`）：
+// 目标变化的那一帧曲线 t=0 ⇒ 返回**上一帧的值**（同 TestTitleBarFadeTransitions）。
+func TestTitleBarBtnHighlightFadeTransitions(t *testing.T) {
+	target := float32(0)
+	var samples []float32
+	tt := ui.NewTester(func(c *ui.Context) {
+		b := ui.Box(c)
+		samples = append(samples, titleBarBtnHighlightFade(b, target))
+	}, 60, 60)
+	tt.Frame()
+	if len(samples) == 0 {
+		t.Fatal("探针视图没有被构建")
+	}
+	if samples[0] != 0 {
+		t.Fatalf("首帧应直接取目标 0，得到 %v", samples[0])
+	}
+
+	samples = nil
+	target = 1
+	tt.Frame()
+	if len(samples) == 0 {
+		t.Fatal("换目标后探针视图没有被构建")
+	}
+	if samples[0] == 1 {
+		t.Error("换目标的当帧就跳到 1 —— 没走 0.18s 过渡")
+	}
+	if samples[0] != 0 {
+		t.Errorf("过渡应从上一帧 0 起步，得到 %v", samples[0])
+	}
+}
+
+// TestTitleBarBtnHighlightFadeWired 是无头接线实测：主窗「设置」键（它也是
+// `.app-title-bar button`）悬停时 ::after 那层的不透明度目标要走 1、移开走 0。
+// 换桩 titleBarBtnHighlightFade 统计传下来的目标值。
+//
+// 反证：把 shell.go 里 settingsButton 的那句 titleBarBtnHighlight 删掉，
+// 本测试在「悬停」那步收不到 1。
+func TestTitleBarBtnHighlightFadeWired(t *testing.T) {
+	orig := titleBarBtnHighlightFade
+	t.Cleanup(func() { titleBarBtnHighlightFade = orig })
+
+	var targets []float32
+	titleBarBtnHighlightFade = func(b ui.Element, target float32) float32 {
+		targets = append(targets, target)
+		return target
+	}
+
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tt.Frame()
+	if len(targets) == 0 {
+		t.Fatal("主窗没有渲染标题栏小键（titleBarBtnHighlightFade 未被调到）")
+	}
+	for _, v := range targets {
+		if v != 0 {
+			t.Fatalf("静息时 ::after 目标 = %v，应为 0", v)
+		}
+	}
+
+	r, ok := tt.Find("设置")
+	if !ok {
+		t.Fatal("标题栏里找不到「设置」键")
+	}
+	targets = nil
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	sawOne := false
+	for _, v := range targets {
+		if v == 1 {
+			sawOne = true
+		}
+	}
+	if !sawOne {
+		t.Errorf("悬停「设置」键时没有把 ::after 目标调到 1（收到 %v）", targets)
+	}
+}
+
 // TestMiniControlFadeHonorsReduceMotion 是无头接线实测：换桩 titleBarBtnFade，
 // 渲染迷你窗（miniControl 画「还原大窗」与「置顶」两颗键），统计传下来的
 // reduce 参数。原版的 `transition: none` 只针对 `.mini-window-controls button`，

@@ -151,7 +151,7 @@ func (a *App) titleBar(c *ui.Context) {
 				// .32/.82，所以这里只出自己的 .72（静息时合计 .72×.32 ≈ .23）。
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
-				bg, ink, opacity, highlight := titleBarButtonStyle(t, false, b.Hovered())
+				bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered())
 				// 原版 `#switch-window-mode:focus-visible`：opacity 1、图标转
 				// --studio-blue，并把通用 ::after 的那条高光换成
 				// `inset 0 1px 1px --glass-highlight` ＋ 2px 蓝环（见 focusGlow）。
@@ -166,9 +166,10 @@ func (a *App) titleBar(c *ui.Context) {
 				b.Background(bg).Opacity(opacity)
 				if focus {
 					b.InsetShadow(0, 1, 1, 0, t.Highlight)
-				} else if highlight {
-					titleBarBtnHighlight(b, false, b.Hovered())
 				}
+				// ::after 那层三条阴影：悬停淡入、移开淡出（0.18s），按下归零。
+				// 每帧都要调，否则移开鼠标那一帧不透明度会直接跳到 0（没有淡出）。
+				titleBarBtnHighlight(b, false, b.Hovered())
 				// 原版 .app-title-bar button:hover 的左上角径向聚光（按下换居中光）。
 				if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
 					l.draw(b, RadiusSmall)
@@ -227,6 +228,9 @@ func (a *App) settingsButton(c *ui.Context) {
 	} else {
 		b.Background(b.AnimateColor("tb-btn-bg", ui.Transparent, navIconBgAnim))
 	}
+	// #settings-entry 也是 `.app-title-bar button`，同样有 ::after 那层三条
+	// 阴影（悬停 0.18s 淡入 / 移开淡出）。此前原生版只换了底色、漏了这层高光。
+	titleBarBtnHighlight(b, false, b.Hovered())
 	// 原版 .app-title-bar button:hover 的左上角径向聚光（.settings-entry 也是
 	// .app-title-bar 里的 button，按下换居中光）。
 	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {

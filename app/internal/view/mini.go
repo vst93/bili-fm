@@ -312,7 +312,7 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 	// 原版 .mini-window-controls button 沿用 .app-title-bar-btn 的通用玻璃规则：
 	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
-	bg, ink, opacity, highlight := titleBarButtonStyle(t, active, b.Hovered())
+	bg, ink, opacity, _ := titleBarButtonStyle(t, active, b.Hovered())
 	// 原版 `:is(.app-title-bar, .mini-window-controls) .app-title-bar-btn:focus-visible`：
 	// opacity 1、图标转 --studio-blue，高光换成 `inset 0 1px 1px
 	// --glass-highlight` ＋ 2px 蓝环。另：置顶那条 `[aria-pressed=true]:not(…)`
@@ -330,9 +330,11 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 	b.Background(bg).Opacity(opacity)
 	if focus {
 		b.InsetShadow(0, 1, 1, 0, t.Highlight)
-	} else if highlight {
-		titleBarBtnHighlight(b, active, b.Hovered())
 	}
+	// ::after 那层三条阴影：悬停淡入、移开淡出（0.18s），按下归零。每帧都要调，
+	// 否则移开鼠标那一帧不透明度会直接跳到 0（没有淡出）。置顶且不在悬停/按下/
+	// 聚焦时的单层内高光也在这里铺（当帧到位）。
+	titleBarBtnHighlight(b, active, b.Hovered())
 	// 原版 .mini-window-controls button:hover 的左上角径向聚光（按下换居中光）。
 	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
 		l.draw(b, RadiusSmall)
