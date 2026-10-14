@@ -713,10 +713,11 @@ var drawerTabRimOpacity = func(b ui.Element, target float32) float32 {
 // 的 1px 聚光描边（--liquid-rim）。与 partSearchGlass / partPillGlass 同一套近似：
 // mygo 没有径向 / conic 渐变接口，光泽复用播放栏那套烘焙位图（sheenGlassBaked
 // 就是 --glass-sheen-static），描边复用四边线性近似（paintPlayerRim）。
+// sheen 走 paintBakedSheen：按 tab 自己的宽高比烘一张，线性层的角度不被拉偏。
 // 声明成 var 便于测试换桩做反证。
 var drawerTabGlass = func(b ui.Element, rimOpacity float32) ui.Element {
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintPlayerSheen(p, r, Radius, sheenGlassBaked.bitmap())
+		paintBakedSheen(p, r, Radius, sheenGlassBaked)
 		if rimOpacity > 0 {
 			paintPlayerRim(p, r, Radius, rimOpacity)
 		}
@@ -2060,10 +2061,12 @@ var partSearchIconFade = func(b ui.Element, key string, target ui.Color) ui.Colo
 // `::after` 的 1px 聚光描边（--liquid-rim）。mygo 没有径向渐变接口、也画不了
 // conic-gradient，光泽复用播放栏那套烘焙位图（sheenGlassBaked 就是
 // --glass-sheen-static），描边复用播放栏的四边线性近似（paintPlayerRim）。
+// sheen 走 paintBakedSheen：搜索框是 200×36 的宽盒，按它的宽高比烘一张，
+// 线性层的角度才不会被正方形位图的非等比拉伸带偏。
 // 声明成 var 便于测试换桩做反证。
 var partSearchGlass = func(b ui.Element, rimOpacity float32) ui.Element {
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintPlayerSheen(p, r, Radius, sheenGlassBaked.bitmap())
+		paintBakedSheen(p, r, Radius, sheenGlassBaked)
 		if rimOpacity > 0 {
 			paintPlayerRim(p, r, Radius, rimOpacity)
 		}

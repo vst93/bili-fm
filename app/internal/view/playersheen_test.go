@@ -65,38 +65,40 @@ func TestPlayerSheenBitmapCached(t *testing.T) {
 // TestPlayerSheenWired 无头反证：视图按当前时段选对了 `::before` 光泽位图——
 // 亮色时段每颗 `#player .player-button` 铺浅色 --glass-sheen-static，深色时段
 // 统一换成 --player-sheen。把两者混用（或浅色干脆不画）都会变红。
+// 注意：铺的是按按钮自身宽高比烘的那张（bitmapFor），不是共用的正方形那张——
+// 播放栏的倍速键 40×32、EQ / 跳过赞助键 34×32，线性层的角度得跟着盒子走。
 func TestPlayerSheenWired(t *testing.T) {
 	orig := playerSheenPaint
 	defer func() { playerSheenPaint = orig }()
-	var got []*ui.Bitmap
+	type gotHit struct {
+		r   ui.Rect
+		bmp *ui.Bitmap
+	}
+	var got []gotHit
 	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {
-		got = append(got, bmp)
+		got = append(got, gotHit{r, bmp})
 		orig(p, r, radius, bmp)
 	}
 
-	_, light := playerBarProbe(t, nil)
-	_ = light
+	playerBarOnlyProbe(t, nil)
 	if len(got) == 0 {
 		t.Fatal("亮色时段应铺浅色 sheen（playerSheenPaint 没被调用）")
 	}
-	wantLight := sheenGlassBaked.bitmap()
-	for _, b := range got {
-		if b != wantLight {
-			t.Errorf("亮色时段铺的不是 --glass-sheen-static 位图")
+	for _, h := range got {
+		if want := sheenGlassBaked.bitmapFor(h.r.W, h.r.H); h.bmp != want {
+			t.Errorf("亮色时段 %.0f×%.0f 的键上铺的不是 --glass-sheen-static 位图", h.r.W, h.r.H)
 			break
 		}
 	}
 
 	got = nil
-	_, dark := playerBarProbe(t, func(a *App) { a.Theme = ThemeFor(PeriodAt(0)) })
-	_ = dark
+	playerBarOnlyProbe(t, func(a *App) { a.Theme = ThemeFor(PeriodAt(0)) })
 	if len(got) == 0 {
 		t.Fatal("深色时段应铺 --player-sheen（playerSheenPaint 没被调用）")
 	}
-	wantDark := sheenDarkBaked.bitmap()
-	for _, b := range got {
-		if b != wantDark {
-			t.Errorf("深色时段铺的不是 --player-sheen 位图")
+	for _, h := range got {
+		if want := sheenDarkBaked.bitmapFor(h.r.W, h.r.H); h.bmp != want {
+			t.Errorf("深色时段 %.0f×%.0f 的键上铺的不是 --player-sheen 位图", h.r.W, h.r.H)
 			break
 		}
 	}

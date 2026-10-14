@@ -67,7 +67,7 @@ func TestPartPillGlassLayers(t *testing.T) {
 			if withSheen || withRim {
 				b = b.Draw(func(p *ui.Painter, r ui.Rect) {
 					if withSheen {
-						paintPlayerSheen(p, r, RadiusPill, sheenGlassBaked.bitmap())
+						paintBakedSheen(p, r, RadiusPill, sheenGlassBaked)
 					}
 					if withRim {
 						paintPlayerRim(p, r, RadiusPill, 1)
@@ -203,7 +203,7 @@ func TestPartPillGlassSheenSpec(t *testing.T) {
 					sheen = sheenDarkBaked
 				}
 				b.Draw(func(p *ui.Painter, r ui.Rect) {
-					paintPlayerSheen(p, r, RadiusPill, sheen.bitmap())
+					paintBakedSheen(p, r, RadiusPill, sheen)
 					paintPlayerRim(p, r, RadiusPill, 1)
 				})
 			}

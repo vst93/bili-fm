@@ -793,11 +793,15 @@ var (
 	}
 )
 
-// sheenBaked 是一条 sheen 的位图缓存（懒加载，进程内共用一张）。
+// sheenBaked 是一条 sheen 的位图缓存。正方形那张（`bitmap()`）进程内共用一张；
+// 非正方形按盒的宽高比另烘一张，`bitmapFor` 里按尺寸缓存。
 type sheenBaked struct {
 	spec sheenSpec
 	once sync.Once
 	bmp  *ui.Bitmap
+
+	mu    sync.Mutex
+	byBox map[[2]int]*ui.Bitmap
 }
 
 func (s *sheenBaked) bitmap() *ui.Bitmap {
@@ -805,6 +809,56 @@ func (s *sheenBaked) bitmap() *ui.Bitmap {
 		s.bmp = ui.NewBitmap(sheenPixels(s.spec, playerSheenSide, playerSheenSide))
 	})
 	return s.bmp
+}
+
+// sheenBakeSize 按目标盒的宽高比给出烘焙尺寸：长边固定 playerSheenSide，短边
+// 按比例缩放（短边至少 1px）。这样 w/h 就等于盒的宽高比，把位图拉伸回盒时
+// 线性渐变的角度与 CSS 一致。
+//
+// 为什么必须按宽高比烘：sheen 的径向层按盒的百分比定义（RRX/RRY 是盒宽/盒高的
+// 倍数），等比拉伸后与 CSS 完全一致；但线性层的角度（LAngle）是**设备空间**
+// 固定值，把一张正方形位图非等比拉到一个宽盒上，线性层的角度就跟着被拉偏了
+// （实测 300×36 的胶囊上，预乘通道平均差 ~9.5、峰值 ~48，按比例烘后降到
+// ~2.4 / ~24，剩下的只是低位图的行采样量化）。
+func sheenBakeSize(boxW, boxH float32) (int, int) {
+	if !(boxW > 0) || !(boxH > 0) {
+		return playerSheenSide, playerSheenSide
+	}
+	short := func(other, long float32) int {
+		n := int(math.Round(float64(playerSheenSide) * float64(other) / float64(long)))
+		if n < 1 {
+			n = 1
+		}
+		if n > playerSheenSide {
+			n = playerSheenSide
+		}
+		return n
+	}
+	if boxH >= boxW {
+		return short(boxW, boxH), playerSheenSide
+	}
+	return playerSheenSide, short(boxH, boxW)
+}
+
+// bitmapFor 返回这条 sheen 铺在 boxW×boxH 的盒上时该用的位图：正方形盒直接用
+// 共用那张，其余按宽高比烘一张并缓存（同尺寸只烘一次）。
+func (s *sheenBaked) bitmapFor(boxW, boxH float32) *ui.Bitmap {
+	w, h := sheenBakeSize(boxW, boxH)
+	if w == playerSheenSide && h == playerSheenSide {
+		return s.bitmap()
+	}
+	key := [2]int{w, h}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if b, ok := s.byBox[key]; ok {
+		return b
+	}
+	b := ui.NewBitmap(sheenPixels(s.spec, w, h))
+	if s.byBox == nil {
+		s.byBox = make(map[[2]int]*ui.Bitmap)
+	}
+	s.byBox[key] = b
+	return b
 }
 
 var (
@@ -953,6 +1007,16 @@ func paintPlayerSheen(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) 
 	})
 }
 
+// paintBakedSheen 是各组件铺 sheen 的入口：按目标盒的宽高比取位图（bitmapFor）
+// 再交给 paintPlayerSheen 画。正方形盒与旧行为逐字节相同，非正方形盒不再把线性
+// 层的角度拉偏。
+func paintBakedSheen(p *ui.Painter, r ui.Rect, radius float32, baked *sheenBaked) {
+	if baked == nil {
+		return
+	}
+	playerSheenPaint(p, r, radius, baked.bitmapFor(r.W, r.H))
+}
+
 // playerRim 把 `::before` 的玻璃光泽（按时段/键族/播放态选一条）与 `::after` 的
 // 聚光描边接在按钮上，都画在 1px 边框之上、图标之下。radius 必须与按钮自己的
 // 圆角一致，否则描边会离边框错位。整圈 opacity 由 playerRimOpacityFn 按
@@ -965,7 +1029,7 @@ func playerRim(b ui.Element, radius float32, dark, tool bool, kind playerSheenKi
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
 		if sheen != nil {
-			playerSheenPaint(p, r, radius, sheen.bitmap())
+			paintBakedSheen(p, r, radius, sheen)
 		}
 		if opacity > 0 {
 			paintPlayerRim(p, r, radius, opacity)

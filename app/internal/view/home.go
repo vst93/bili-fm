@@ -823,12 +823,12 @@ func (a *App) partPill(c *ui.Context) {
 // （sheenGlassBaked），描边复用播放栏的四边线性近似（paintPlayerRim）——
 // 与 .part-search 的 partSearchGlass 同一套。整个函数声明成 var 便于测试换桩反证。
 //
-// 视觉近似：位图按正方形烘焙、绘制时拉伸到胶囊矩形，径向（按盒的百分比定义）
-// 拉伸后与 CSS 完全一致，线性那层（角度是设备空间固定值）会被拉偏——但它只是
-// 白 .07 起的极淡底纹，量级远小于径向主光。
+// 视觉近似：位图按胶囊自己的宽高比烘焙（paintBakedSheen → sheenBaked.bitmapFor），
+// 径向（按盒的百分比定义）拉伸后与 CSS 完全一致，线性那层的角度也因为烘焙时
+// 就带上了盒的宽高比而不再被拉偏。
 var partPillGlass = func(b ui.Element) ui.Element {
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintPlayerSheen(p, r, RadiusPill, sheenGlassBaked.bitmap())
+		paintBakedSheen(p, r, RadiusPill, sheenGlassBaked)
 		// ::after 没有 opacity 规则 ⇒ 整圈 opacity 1。
 		paintPlayerRim(p, r, RadiusPill, 1)
 	})
