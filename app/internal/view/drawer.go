@@ -1830,6 +1830,11 @@ func estimateCardWidth(c *ui.Context) float32 {
 
 // ---------------------------------------------------------------- 分集抽屉
 
+// partsAddAllTip 是「全部添加」键的工具提示 —— 原版 pageList.tsx 里这个键的
+// `title="将全部选集添加到播放列表"`。此前原生版只有可见文字「全部添加」，
+// 悬停看不到「加到哪儿」的说明。
+const partsAddAllTip = "将全部选集添加到播放列表"
+
 // partsHeader 是选集抽屉的表头（原版 pageList.tsx）：「选集(N)」+ 定位当前 +
 // 「全部添加」到播放列表。
 func (a *App) partsHeader(c *ui.Context) {
@@ -1907,7 +1912,7 @@ func (a *App) partsHeader(c *ui.Context) {
 	})
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
-			Radius(Radius).Center().Label("全部添加")
+			Radius(Radius).Center().Label("全部添加").Tooltip(partsAddAllTip)
 		drawerHeaderSurface(b, b.Hovered())
 		drawerHeaderPress(b)
 		b.Children(func() {

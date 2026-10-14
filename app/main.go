@@ -796,36 +796,122 @@ func (c *controller) currentMedia() (bvid string, aid int64) {
 	return "", 0
 }
 
+// 原版 videoInfo / upVideoList 的点赞、投币、收藏、关注在**成功时也会弹一条
+// toast**，类型与文案逐字如下：
+//
+//	点赞  成功  点赞成功 / 取消点赞成功      （videoInfo handleLike）
+//	投币  成功  投币成功                     （videoInfo handleCoin）
+//	      信息  已经投过币了（已投过再点）
+//	收藏  成功  收藏成功 / 取消收藏成功      （videoInfo handleFavorite）
+//	关注  成功  已关注 {UP 名} / 取消关注 {UP 名}（upVideoList）
+//
+// 原生版此前这些**成功路径全是静默的**（只翻图标 / 改状态），用户点完看不出
+// 有没有生效；投币已投过时甚至一声不响（`coin` 直接 return）。失败提示里同样
+// 静默的是关注：原来只 log。这里把文案集中成纯函数（同 upFollowSpec /
+// followBlocked），便于无头测试钉住，也避免四处硬编码后再跑偏。
+const (
+	toastLikeOK      = "点赞成功"
+	toastUnlikeOK    = "取消点赞成功"
+	toastCoinOK      = "投币成功"
+	toastCoinAlready = "已经投过币了"
+	toastFavOK       = "收藏成功"
+	toastUnfavOK     = "取消收藏成功"
+)
+
+// likeToastText 按「本次点击之前是否已点过赞」选文案。
+func likeToastText(wasLiked bool) string {
+	if wasLiked {
+		return toastUnlikeOK
+	}
+	return toastLikeOK
+}
+
+// favToastText 按「本次点击之前是否已收藏」选文案。
+func favToastText(wasFaved bool) string {
+	if wasFaved {
+		return toastUnfavOK
+	}
+	return toastFavOK
+}
+
+// followToastText 拼关注 / 取关的成功文案（原版带 UP 名）。
+func followToastText(followed bool, name string) string {
+	if followed {
+		return "已关注 " + name
+	}
+	return "取消关注 " + name
+}
+
+// actionFailText 拼「X失败：原因」的失败提示。mygo 的用户可见失败提示统一用
+// 全角冒号（原版是半角 + 空格），这里保持与本工程其余提示一致。
+func actionFailText(action string, err error) string {
+	return action + "失败：" + err.Error()
+}
+
 func (c *controller) like() {
 	bvid, _ := c.currentMedia()
 	if bvid == "" {
 		return
 	}
+	// 记下点击前的状态：请求回来时 a.Liked 可能已被别的路径改过。
+	liked := c.app.Liked
 	want := 1
-	if c.app.Liked {
+	if liked {
 		want = 2 // 2 表示取消点赞
 	}
 	go func() {
 		if _, err := c.bl.LikeVideo(bvid, want); err != nil {
-			c.app.NotifyType("error", "点赞失败："+err.Error())
+			c.app.NotifyType("error", actionFailText("点赞", err))
 			return
 		}
-		c.app.Win.Update(func() { c.app.Liked = !c.app.Liked })
+		c.app.Win.Update(func() {
+			c.app.Liked = !liked
+			c.app.NotifyType("success", likeToastText(liked))
+		})
 	}()
+}
+
+// coinOutcome 是点投币键的三种归宿（见 coinOutcomeFor）。
+type coinOutcome int
+
+const (
+	coinNoop    coinOutcome = iota // 没视频可投：什么都不做
+	coinAlready                    // 已经投过币了：弹一条信息提示
+	coinRequest                    // 正常投币（一次两币）
+)
+
+// coinOutcomeFor 决定点投币键该干什么。原版投币键只按「有没有视频」禁用，
+// 已投过币时**仍可点**，点一下弹「已经投过币了」；原生版此前是静默 return，
+// 键看着能点却毫无反应。抽出来便于无头测试。
+func coinOutcomeFor(bvid string, coined bool) coinOutcome {
+	if bvid == "" {
+		return coinNoop
+	}
+	if coined {
+		return coinAlready
+	}
+	return coinRequest
 }
 
 func (c *controller) coin() {
 	bvid, _ := c.currentMedia()
-	if bvid == "" || c.app.Coined {
+	switch coinOutcomeFor(bvid, c.app.Coined) {
+	case coinNoop:
+		return
+	case coinAlready:
+		c.app.NotifyType("info", toastCoinAlready)
 		return
 	}
 	go func() {
 		// 原版投的是一次两币（handleCoin 传 multiply: 2），不是一币。
 		if _, err := c.bl.CoinVideo(bvid, 2); err != nil {
-			c.app.NotifyType("error", "投币失败："+err.Error())
+			c.app.NotifyType("error", actionFailText("投币", err))
 			return
 		}
-		c.app.Win.Update(func() { c.app.Coined = true })
+		c.app.Win.Update(func() {
+			c.app.Coined = true
+			c.app.NotifyType("success", toastCoinOK)
+		})
 	}()
 }
 
@@ -838,7 +924,9 @@ func (c *controller) favorite() {
 	reqID := c.app.InteractionReqID
 	c.app.FavPending = true
 	c.app.Win.Update(func() {})
-	want := !c.app.Faved
+	// 记下点击前的状态，成功文案与失败动作名都按它定向。
+	wasFaved := c.app.Faved
+	want := !wasFaved
 	go func() {
 		err := c.bl.SetFavorite(aid, want)
 		c.app.Win.Update(func() {
@@ -849,12 +937,22 @@ func (c *controller) favorite() {
 			c.app.FavPending = false
 			if err == nil {
 				c.app.Faved = want
+				c.app.NotifyType("success", favToastText(wasFaved))
 			}
 		})
 		if err != nil {
-			c.app.NotifyType("error", "收藏失败："+err.Error())
+			c.app.NotifyType("error", actionFailText(eitherText(wasFaved, "取消收藏", "收藏"), err))
 		}
 	}()
+}
+
+// eitherText 是三元表达式的字符串版（cond 为真取 a，否则取 b）。名字避开
+// cards.go 里已有的 pickStr（那是 map 取值）。
+func eitherText(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
 
 // followBlocked 报告这次关注请求是否应该被忽略：在 UP 空间里已经有一次
@@ -876,7 +974,14 @@ func (c *controller) follow() {
 	} else if a.Info != nil {
 		mid = a.Info.OwnerMid
 	}
+	// 关注方向要在 mid 判空之前定下来，才能给出原版那种「无法关注 / 无法
+	// 取消关注该UP主」的定向提示。
+	want := !a.Followed
+	if up {
+		want = !a.UpFollowed
+	}
 	if mid == 0 {
+		a.NotifyType("error", eitherText(want, "无法关注该UP主", "无法取消关注该UP主"))
 		return
 	}
 	// 已经有一次关注/取关在途：连点忽略（原版关注键在 isFollowingLoading 时禁用，
@@ -884,9 +989,12 @@ func (c *controller) follow() {
 	if followBlocked(up, a.UpFollowPending) {
 		return
 	}
-	want := !a.Followed
+	// 成功提示里的 UP 名：UP 空间抽屉里是抽屉那个，否则是当前视频的 UP 主。
+	name := a.UpName
+	if !up && a.Info != nil {
+		name = a.Info.OwnerName
+	}
 	if up {
-		want = !a.UpFollowed
 		a.UpFollowPending = true
 	}
 	go func() {
@@ -896,18 +1004,19 @@ func (c *controller) follow() {
 		} else {
 			_, err = c.bl.Unfollow(int(mid))
 		}
-		if err != nil {
-			log.Printf("关注操作失败: %v", err)
-		}
+		fail := eitherText(want, "关注", "取消关注")
 		c.app.Win.Update(func() {
 			if up {
 				c.app.UpFollowPending = false
 			}
 			if err != nil {
+				// 此前只 log，用户点了关注却看不到任何反馈。
+				c.app.NotifyType("error", actionFailText(fail, err))
 				return
 			}
 			c.app.Followed = want
 			c.app.UpFollowed = want
+			c.app.NotifyType("success", followToastText(want, name))
 		})
 	}()
 }
@@ -2241,7 +2350,7 @@ func (c *controller) wireVideo() {
 func (c *controller) openVideo() {
 	t := c.app.Current()
 	if t == nil || t.Cid == 0 {
-		c.app.NotifyType("warning", "先选一个视频")
+		c.app.NotifyType("warning", "请先选择一个视频")
 		c.app.Win.Update(func() {})
 		return
 	}

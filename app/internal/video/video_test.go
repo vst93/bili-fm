@@ -67,3 +67,20 @@ func TestVideoPageAutoplayContract(t *testing.T) {
 		t.Error("手势路径里没有取消静音")
 	}
 }
+
+// TestVideoPageCloseTitle 钉住弹窗上关闭键的工具提示：原版视频浮层
+// （playerVideo.tsx 的 .player-video-close）是 title="关闭视频"，原生版此前
+// 写的是「关闭」——悬停时看不出关的是视频还是整个播放。
+func TestVideoPageCloseTitle(t *testing.T) {
+	data, err := os.ReadFile("../../frontend/video.html")
+	if err != nil {
+		t.Fatalf("读不到 video.html：%v", err)
+	}
+	html := string(data)
+	if !strings.Contains(html, `id="close" title="关闭视频"`) {
+		t.Error(`关闭键应带 title="关闭视频"（原版 playerVideo 的写法）`)
+	}
+	if strings.Contains(html, `id="close" title="关闭"`) {
+		t.Error("关闭键仍是「关闭」（漏改？）")
+	}
+}

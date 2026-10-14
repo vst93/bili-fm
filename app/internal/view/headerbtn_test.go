@@ -1,7 +1,9 @@
 package view
 
 import (
+	"bytes"
 	"image"
+	"os"
 	"testing"
 	"time"
 
@@ -168,5 +170,24 @@ func TestDrawerHeaderSurfaceUsedForHeaderKeys(t *testing.T) {
 	partsHeaderProbe(t)
 	if calls < 2 {
 		t.Errorf("选集抽屉表头只调用了 %d 次表头材质（应有定位 + 全部添加）", calls)
+	}
+}
+
+// TestPartsAddAllTooltip 钉住「全部添加」键的工具提示：原版 pageList.tsx 给
+// 这个键写了 title="将全部选集添加到播放列表"，悬停要能看到「加到哪儿」。
+//
+// 工具提示在无头环境里要等指针停留 0.6s 才出现，而 view 包的 Tester 拿不到
+// 可推进的时钟（那是 ui 包内部的 clockTester），所以这里退一步：钉住常量，
+// 并在源码里确认它真的接在那颗键上——写了常量没接等于没写。
+func TestPartsAddAllTooltip(t *testing.T) {
+	if partsAddAllTip != "将全部选集添加到播放列表" {
+		t.Errorf("partsAddAllTip = %q", partsAddAllTip)
+	}
+	src, err := os.ReadFile("drawer.go")
+	if err != nil {
+		t.Fatalf("读 drawer.go 失败：%v", err)
+	}
+	if !bytes.Contains(src, []byte(".Tooltip(partsAddAllTip)")) {
+		t.Error("「全部添加」键没接上 partsAddAllTip")
 	}
 }

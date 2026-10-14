@@ -535,3 +535,94 @@ func TestFollowBlocked(t *testing.T) {
 		}
 	}
 }
+
+// TestInteractToastTexts 钉住点赞 / 投币 / 收藏 / 关注的结果提示文案与方向
+// （原版 videoInfo handleLike/handleCoin/handleFavorite、upVideoList 的关注）。
+// 原生版此前这些成功路径全是静默的，用户点完看不出有没有生效。
+func TestInteractToastTexts(t *testing.T) {
+	if got := likeToastText(false); got != "点赞成功" {
+		t.Errorf("未点赞时 likeToastText = %q", got)
+	}
+	if got := likeToastText(true); got != "取消点赞成功" {
+		t.Errorf("已点赞时 likeToastText = %q", got)
+	}
+	if got := favToastText(false); got != "收藏成功" {
+		t.Errorf("未收藏时 favToastText = %q", got)
+	}
+	if got := favToastText(true); got != "取消收藏成功" {
+		t.Errorf("已收藏时 favToastText = %q", got)
+	}
+	if got := followToastText(true, "某个UP"); got != "已关注 某个UP" {
+		t.Errorf("关注成功文案 = %q", got)
+	}
+	if got := followToastText(false, "某个UP"); got != "取消关注 某个UP" {
+		t.Errorf("取关成功文案 = %q", got)
+	}
+	if toastCoinOK != "投币成功" || toastCoinAlready != "已经投过币了" {
+		t.Errorf("投币文案 = %q / %q", toastCoinOK, toastCoinAlready)
+	}
+	// 失败提示走统一拼法。
+	if got := actionFailText("点赞", errors.New("未登录")); got != "点赞失败：未登录" {
+		t.Errorf("actionFailText = %q", got)
+	}
+	// eitherText 的两个方向都要对（关注 / 取关的定向文案靠它）。
+	if eitherText(true, "甲", "乙") != "甲" || eitherText(false, "甲", "乙") != "乙" {
+		t.Error("eitherText 取反了")
+	}
+}
+
+// TestCoinOutcomeFor 钉住「已投过币仍可点、点了弹信息提示」这条分支。此前是
+// 静默 return：投币键禁用判据只看有没有视频，所以键看着能点、点下去毫无反应。
+func TestCoinOutcomeFor(t *testing.T) {
+	cases := []struct {
+		bvid   string
+		coined bool
+		want   coinOutcome
+	}{
+		{"", false, coinNoop},
+		{"", true, coinNoop},
+		{"BV1xx", true, coinAlready},
+		{"BV1xx", false, coinRequest},
+	}
+	for _, c := range cases {
+		if got := coinOutcomeFor(c.bvid, c.coined); got != c.want {
+			t.Errorf("coinOutcomeFor(%q,%v) = %v, want %v", c.bvid, c.coined, got, c.want)
+		}
+	}
+}
+
+// TestInteractToastsWired 反证：这些提示必须真的出现在控制器里。纯函数测试
+// 只能证明文案对，证明不了「接上了」—— 写了文案却没调用，用户依旧看不到提示。
+func TestInteractToastsWired(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	for _, needle := range []string{
+		`NotifyType("success", likeToastText(liked))`,
+		`NotifyType("info", toastCoinAlready)`,
+		`NotifyType("success", toastCoinOK)`,
+		`NotifyType("success", favToastText(wasFaved))`,
+		`NotifyType("success", followToastText(want, name))`,
+		`actionFailText(fail, err)`,
+		`eitherText(want, "无法关注该UP主", "无法取消关注该UP主")`,
+	} {
+		if !bytes.Contains(src, []byte(needle)) {
+			t.Errorf("main.go 里找不到 %s（提示没接上？）", needle)
+		}
+	}
+}
+
+// TestPlayVideoWarningText 钉住「没有视频时点视频播放键」的提示 —— 原版
+// videoInfo 的 handlePlayVideoClick 是 warning「请先选择一个视频」（原生版
+// 此前写的是「先选一个视频」）。这条路径要真实的播放窗口才能构造出 App 状态，
+// 无头测试跑不动，所以退一步做源码反证。
+func TestPlayVideoWarningText(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	if !bytes.Contains(src, []byte(`NotifyType("warning", "请先选择一个视频")`)) {
+		t.Error("openVideo 的提示应为「请先选择一个视频」（原版 videoInfo 的文案）")
+	}
+}
