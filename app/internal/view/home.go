@@ -1166,7 +1166,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 			if spec.Active {
 				gap += 1 // buttonSurface 的 1px 边框
 			}
-			ui.Text(c, spec.Count).FontSize(9).TextColor(valueInk).
+			numericText(c, spec.Count).FontSize(9).TextColor(valueInk).
 				Opacity(navIconStatValueOpacity(spec.Off)).
 				SingleLine().
 				Attach(ui.AnchorBottom, ui.AnchorTop).Top(gap)

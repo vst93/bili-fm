@@ -1779,7 +1779,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
 			if spec.Duration != "" {
-				ui.Text(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
+				numericText(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
 					Padding(2, 5).Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
@@ -2649,7 +2649,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 		// Linux 覆写只动分组自身的 border-color，不动这条，所以它不随平台变。
 		ui.Column(c).Width(l.Col).Shrink(0).Gap(4).Justify(ui.Center).
 			InsetShadow(-1, 0, 0, 0, ui.Hex("#64748b").Alpha(0.14)).Children(func() {
-			lbl := ui.Text(c, fmtClock(float64(g.Second))).FontSize(13).
+			lbl := numericText(c, fmtClock(float64(g.Second))).FontSize(13).
 				FontWeight(700).Padding(3, 5).Radius(6)
 			// 当前组：时间标签变实心蓝胶囊（原版 .is-current 的 label）。
 			// 原版 `.danmaku-time-label` 的
@@ -2715,7 +2715,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						})
 					if e.Count > 1 {
 						// .danmaku-repeat-count：小蓝胶囊 ×N。
-						ui.Text(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
+						numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
 							FontWeight(700).TextColor(ui.Hex("#0369a1")).
 							Padding(0, 5).Radius(7).MinWidth(24).
 							Background(ui.Hex("#e0f2fe").Alpha(0.70)).

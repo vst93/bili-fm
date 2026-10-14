@@ -1200,7 +1200,7 @@ func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56
 // color var(--player-time-color)，mini 下字号收成 9px、列宽 44（其余不变）。
 // 主窗与迷你窗共用，字重与颜色只有一处。
 func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
-	ui.Text(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
+	numericText(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
 		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).Center()
 }
 
@@ -1389,7 +1389,7 @@ func (a *App) speedButton(c *ui.Context) {
 	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
-		ui.Text(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
+		numericText(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
 			TextColor(playerFadeColor(c, b, "player-speed-ink", playerToolInk(a.Theme, toolSpeed, a.ShowSpeed, b.Hovered())))
 	})
 	if b.Clicked() {
@@ -1629,7 +1629,7 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 				b.Background(t.Blue.Alpha(0.10))
 			}
 			b.Children(func() {
-				ui.Text(c, speedLabel(opt)).FontSize(11).FontWeight(650).
+				numericText(c, speedLabel(opt)).FontSize(11).FontWeight(650).
 					TextColor(pick(active, t.Blue, playerSpeedOptionInk(t)))
 			})
 			if b.Clicked() {
@@ -1914,7 +1914,7 @@ func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
 		box.Opacity(box.AnimateTo("seek-bubble-fade", target, seekBubbleFadeAnim))
 		if label != "" {
 			box.Children(func() {
-				ui.Text(c, label).FontSize(10).FontWeight(650).
+				numericText(c, label).FontSize(10).FontWeight(650).
 					TextColor(ui.Hex("#0f172a"))
 			})
 		}
