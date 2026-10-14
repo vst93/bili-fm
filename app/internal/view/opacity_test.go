@@ -129,9 +129,9 @@ func TestNavIconRestOpacityWired(t *testing.T) {
 }
 
 // TestStatValueOpacityWired 无头实测：没有视频时（按钮禁用）计数「0」应和按钮
-// 一起淡出 —— 计数画在按钮**之外**的列里，所以要单独补这层。把
-// navIconStatValueOpacity 临时换成直通（1.0）后，按钮正下方 13px 计数条里应
-// 有明显像素变化。
+// 一起淡出 —— 计数是按钮的绝对定位子元素（画在按钮下缘之外），这层透明度仍要
+// 单独补。把 navIconStatValueOpacity 临时换成直通（1.0）后，按钮正下方 13px
+// 计数条里应有明显像素变化。
 func TestStatValueOpacityWired(t *testing.T) {
 	render := func() (*image.RGBA, ui.Rect, bool) {
 		a := NewApp(func() {})

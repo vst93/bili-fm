@@ -609,10 +609,10 @@ var infoDescMinH float32 = 46
 // `align-items: center` 居中，盒高恒定时居中位置也就恒定。此前原生版高度随
 // 内容走、又被外层居中，简介行数一变整块就漂（漂幅还只有内容差的一半）。
 //
-// 注：原版 366 是按「计数绝对定位」算的（操作行 14+34+14），原生版把计数画成
-// 按钮下方的等高列（+13px），所以三行简介时内容约 369，比盒高多 3px。原生版
-// 不裁剪溢出，这点 3px 直接渲染在盒外（原版是 overflow: hidden 裁掉），不影响
-// 盒顶/居中位置。声明成 var 便于测试归零做反证。
+// 注：原版 366 是按「计数绝对定位」算的（操作行 14+34+14）。原生版此前把计数
+// 画成按钮下方的等高列（+13px），三行简介时内容约 369、比盒高多 3px，直接渲染
+// 在盒外（原生版不裁剪）；现计数已改回按钮的绝对定位子元素（见 statButton），
+// 内容回到 366 以内，固定盒高完全装得下。声明成 var 便于测试归零做反证。
 var videoInfoHeight float32 = 366
 
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
@@ -642,9 +642,9 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有
 		// min-height 46（≈ 2.28 行）—— 简介不足两行时这一块也要占满 46px，
 		// 否则只有 ~20px（一行），下方的选集胶囊 / 操作行 / 工具条会整体上移。
-		// Shrink(0)：原版 p 是 `max-height: 60px; overflow: hidden`，不会因为
-		// 固定盒高 366 被压短（原生版内容约 369，若不锁收缩，flex 会把简介
-		// 从 60 压到 57，第三行下半截被切）。
+		// Shrink(0)：原版 p 是 `max-height: 60px; overflow: hidden`，不因固定盒高
+		// 被压短（计数改回绝对定位后内容已回到 366 以内，但锁住收缩更稳，
+		// 长标题等极端内容下简介仍是完整 3 行）。
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
 			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Shrink(0).Selectable()
 		a.partPill(c)
@@ -829,7 +829,7 @@ func (a *App) contentActions(c *ui.Context) {
 		bvid, aid, cid = a.Info.Bvid, a.Info.Aid, a.Info.Cid
 	}
 	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
-	// 底部 14px 是给绝对定位的计数留的位置（这里用等高的计数行实现）。
+	// 底部 14px 是给绝对定位的计数留的展示区（计数不占布局高，见 statButton）。
 	ui.Row(c).Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
 		AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
@@ -1028,10 +1028,9 @@ func (a *App) openDanmaku() {
 
 // statSpec 是一个互动按钮（点赞 / 投币 / 收藏）的参数。
 //
-// 计数用「独立文本 + 固定行高」实现而不是 Absolute（原版用 absolute 是
-// CSS 里避免计数撑高行高的手法；mygo 的 Absolute 需要父级显式定位，
-// 在 Button 的 Center 布局里取不到整行宽，居中不了）。整列高度
-// 整列高：按钮 32 + 间隔 1 + 计数 12。
+// 计数是按钮的**绝对定位子元素**（原版 `.nav-icon-btn > .nav-stat-value`：
+// absolute、top: calc(100% + 1px)、left 50% + translateX(-50%)），不占布局
+// 高度——行高只由按钮 34px + 行容器的 padding-bottom 14（展示区）决定。
 type statSpec struct {
 	Key string
 	// Label 同时作为 tooltip 与无障碍标签（原版按钮的 title）。
@@ -1053,60 +1052,65 @@ type statSpec struct {
 // 34×34 图标钮（圆角 8），9px 计数挂在按钮正下方；激活时图标按动作变色——
 // 点赞红、投币黄、收藏黄。
 func (a *App) statButton(c *ui.Context, spec statSpec) {
-	col := ui.Column(c).Width(ContentIcon).Height(ContentIcon + 13).
-		AlignItems(ui.Center).Shrink(0)
-	col.Children(func() {
-		b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
-			Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
-		// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
-		// 禁用由 disableNav 覆盖成原版的 .34；两条都走 0.16s 过渡
-		// （navIconFade 在 disableNav 之后，末次写入生效）。
-		disableNav(b, spec.Off)
-		navIconFade(b, spec.Off, navIconRestOpacityFor(navIconContent))
-		// 原版数值是按钮的子元素，随按钮一起上浮 1px / 按下缩放；原生版数值画在
-		// 按钮**之外**的列里，这里只给按钮本身位移（数值少动 1px，见 .pending-bugs）。
-		navIconPose(b)
-		// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
-		switch {
-		case spec.Off:
-			navIconBgTo(b, ui.Transparent)
-		case spec.Active:
-			glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
-		default:
-			// 原版 .nav-icon-btn：常态透明，悬停 --glass-bg-hover（白 .38）、
-			// 按下 --glass-bg-active（白 .16）；底色淡入（background-color
-			// 0.18s ease），悬停的内高光由下面 ::after 补齐。
-			navIconBgTo(b, pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
-		}
-		// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
-		btnLightNav.draw(b, ContentIconR)
-		// 悬停 ::after 内高光；按下时它归零、换成 :active 的内压阴影。
-		if b.Pressed() {
-			navPressShadow(b)
-		} else if b.Hovered() {
-			navHoverHighlight(b)
-		}
-		b.Children(func() {
-			ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
-				TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
-		})
-		if b.Clicked() && spec.OnClick != nil {
-			spec.OnClick()
-		}
-		// 原版这一格始终有值（没有视频时是 "0"）。数值是 `.nav-icon-btn` 的
-		// 子元素：随内容行基础透明度（.82）与禁用（.nav-stat-btn:disabled 的
-		// .34）一起淡出，且禁用时 `.nav-stat-value { color: inherit }` 继承按钮的
-		// #475569。原生版数值画在按钮外，这三层都得手动补齐。
+	b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
+		Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
+	// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
+	// 禁用由 disableNav 覆盖成原版的 .34；两条都走 0.16s 过渡
+	// （navIconFade 在 disableNav 之后，末次写入生效）。
+	disableNav(b, spec.Off)
+	navIconFade(b, spec.Off, navIconRestOpacityFor(navIconContent))
+	navIconPose(b)
+	// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
+	switch {
+	case spec.Off:
+		navIconBgTo(b, ui.Transparent)
+	case spec.Active:
+		glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
+	default:
+		// 原版 .nav-icon-btn：常态透明，悬停 --glass-bg-hover（白 .38）、
+		// 按下 --glass-bg-active（白 .16）；底色淡入（background-color
+		// 0.18s ease），悬停的内高光由下面 ::after 补齐。
+		navIconBgTo(b, pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
+	}
+	// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
+	btnLightNav.draw(b, ContentIconR)
+	// 悬停 ::after 内高光；按下时它归零、换成 :active 的内压阴影。
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if b.Hovered() {
+		navHoverHighlight(b)
+	}
+	b.Children(func() {
+		ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
+			TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
+		// 原版这一格始终有值（没有视频时是 "0"），且是 `.nav-icon-btn` 的
+		// **绝对定位子元素**：top: calc(100% + 1px)、水平居中、不占布局高。
+		// 用 Attach(Bottom, Top) 把计数上缘挂到按钮下缘中点，再 +1px —— 等价
+		// 于 CSS 的绝对定位，计数不再撑高按钮所在行（行高由 .video-content-actions
+		// 的 padding-bottom 14 预留展示区）。作为按钮子元素，它还随按钮一起
+		// 上浮 1px / 按下缩放（原版数值就是按钮子元素）。
+		//
+		// Attach 按父级 **padding box** 定位，而激活态的 buttonSurface 带 1px
+		// 边框（原版 stat 键无边框，这是原生版的另一处偏离）：补回这 1px，让
+		// 计数不会因按钮是否激活而上下跳。
 		if spec.Count != "" {
 			valueInk := pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))
 			if spec.Off {
 				valueInk = ui.Hex("#475569")
 			}
+			gap := float32(1)
+			if spec.Active {
+				gap += 1 // buttonSurface 的 1px 边框
+			}
 			ui.Text(c, spec.Count).FontSize(9).TextColor(valueInk).
 				Opacity(navIconStatValueOpacity(spec.Off)).
-				SingleLine().MaxWidth(ContentIcon)
+				SingleLine().
+				Attach(ui.AnchorBottom, ui.AnchorTop).Top(gap)
 		}
 	})
+	if b.Clicked() && spec.OnClick != nil {
+		spec.OnClick()
+	}
 }
 
 // disableNav 把按钮设成原版 `.nav-icon-btn:disabled` 的样子：禁用 +
