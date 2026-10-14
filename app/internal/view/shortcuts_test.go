@@ -145,3 +145,61 @@ func TestEscapeShortcutStillClosesDrawer(t *testing.T) {
 		t.Errorf("Esc 没关掉抽屉：Drawer=%q", a.Drawer)
 	}
 }
+
+// TestVideoOpenBlocksTrackAndVolumeShortcuts 对齐原版的「播放视频时屏蔽快捷键」：
+// index.tsx 的 handleKeyPress 在 isPlayVideo 分支里对 ← → ↑ ↓ 直接 return，
+// 因为视频弹窗自带进度 / 音量控件，主窗再切集、调音量会互相打架。
+// 原生版此前无条件响应这四颗键（弹窗开着、用户点回主窗时就会误触）。
+func TestVideoOpenBlocksTrackAndVolumeShortcuts(t *testing.T) {
+	a := NewApp(func() {})
+	focusedInfo(a)
+	prev, next, vol := 0, 0, 0
+	a.Act.Prev = func() { prev++ }
+	a.Act.Next = func() { next++ }
+	a.Act.SetVolume = func(float64) { vol++ }
+	a.VideoOpen = true
+
+	tt := shellTester(t, a)
+	for _, k := range []ui.Key{ui.KeyLeft, ui.KeyRight, ui.KeyUp, ui.KeyDown} {
+		tt.Key(0, k)
+		tt.Frame()
+	}
+	if prev != 0 || next != 0 || vol != 0 {
+		t.Errorf("视频弹窗开着时主窗仍响应方向键：prev=%d next=%d vol=%d，想全 0"+
+			"（原版 isPlayVideo 分支屏蔽这些快捷键）", prev, next, vol)
+	}
+
+	// 对照：弹窗关掉后这些键恢复。
+	a.VideoOpen = false
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
+	if prev != 1 || next != 1 || vol != 1 {
+		t.Errorf("弹窗关掉后方向键应恢复：prev=%d next=%d vol=%d，想 1/1/1", prev, next, vol)
+	}
+}
+
+// TestVideoOpenEscapeClosesAndSpaceToggles 保证屏蔽没有连 Esc / 空格一起屏蔽：
+// 原版视频模式下 Esc 关浮层、空格切视频播放 / 暂停，正是这两颗键的语义变了。
+func TestVideoOpenEscapeClosesAndSpaceToggles(t *testing.T) {
+	a := NewApp(func() {})
+	a.VideoOpen = true
+	closed, plays := 0, 0
+	a.Act.CloseVideo = func() { closed++ }
+	a.Act.TogglePlay = func() { plays++ }
+
+	tt := shellTester(t, a)
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if closed != 1 {
+		t.Errorf("视频弹窗开着时按 Esc：CloseVideo 调用 %d 次，想 1", closed)
+	}
+	tt.Key(0, ui.KeySpace)
+	tt.Frame()
+	if plays != 1 {
+		t.Errorf("视频弹窗开着时按空格：TogglePlay 调用 %d 次，想 1", plays)
+	}
+}

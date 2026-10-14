@@ -391,3 +391,63 @@ func TestVideoPagePanelEnterAnimationMatchesOriginal(t *testing.T) {
 		t.Error("加载后没有给 #wrap 挂 .open，入场动画不会触发")
 	}
 }
+
+// TestVideoPageKeyboardShortcutsMatchOriginal 钉住弹窗的「视频模式快捷键」契约。
+//
+// 原版是单 webview，视频浮层打开时（index.tsx 的 handleKeyPress，isPlayVideo
+// 分支）：
+//
+//	Esc   关闭视频浮层（setIsPlayVideo(false)）
+//	空格  播放 / 暂停视频（setIsPlayVideoStop）
+//	其余  直接 return（「播放视频时屏蔽快捷键」）
+//
+// 两颗键都要求 !event.repeat（按住不放不连发）。
+//
+// 原生版的视频是**独立窗口**：主窗那套快捷键在弹窗聚焦时根本到不了，而弹窗页
+// 此前没有任何键盘处理 —— 于是聚焦弹窗按 Esc 关不掉、按空格也不一定切得了播放
+// （只有 <video> 恰好有焦点时由原生控件接管）。
+func TestVideoPageKeyboardShortcutsMatchOriginal(t *testing.T) {
+	code := videoPageCode(t)
+
+	// 必须有 keydown 监听（弹窗是独立窗口，靠页面自己收键）。
+	const handlerStart = "document.addEventListener('keydown', (e) => {"
+	i := strings.Index(code, handlerStart)
+	if i < 0 {
+		t.Fatal("弹窗没有注册 keydown 监听，Esc / 空格收不到")
+	}
+	// 整个处理器块：从监听注册到它的收尾 `\n});`。
+	body := code[i+len(handlerStart):]
+	if j := strings.Index(body, "\n});"); j >= 0 {
+		body = body[:j]
+	}
+
+	// 去抖：原版两颗键都带 !event.repeat。
+	if !strings.Contains(body, "if (e.repeat) return;") {
+		t.Error("键盘处理缺少 repeat 去抖（原版 !event.repeat）")
+	}
+
+	// 拆出 Esc / 空格两条分支（`} else if (…)` 分隔）。
+	esc := strings.Index(body, "e.code === 'Escape'")
+	space := strings.Index(body, "e.code === 'Space'")
+	if esc < 0 {
+		t.Fatal("缺少 Esc 分支（原版 isPlayVideo 下 Esc 关浮层）")
+	}
+	if space < 0 {
+		t.Fatal("缺少空格分支（原版 isPlayVideo 下空格切视频播放 / 暂停）")
+	}
+	if space < esc {
+		t.Fatal("Esc / 空格分支顺序异常")
+	}
+	escBlk, spaceBlk := body[esc:space], body[space:]
+
+	// Esc 关弹窗：走页面的 Video.Close（与关闭键同一条路径）。
+	if !strings.Contains(escBlk, "call('Video.Close')") {
+		t.Error("Esc 分支没有调用 Video.Close（关不掉弹窗）")
+	}
+	// 空格切播放 / 暂停，并 preventDefault（别把事件再交给原生控件二次切换）。
+	for _, want := range []string{"e.preventDefault()", "v.paused", "v.play()", "v.pause()"} {
+		if !strings.Contains(spaceBlk, want) {
+			t.Errorf("空格分支缺少 %q（要真的切播放 / 暂停，不是把事件吞掉）", want)
+		}
+	}
+}

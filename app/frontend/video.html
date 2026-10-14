@@ -249,6 +249,24 @@ setInterval(() => {
   }
 }, 1000);
 
+// 视频模式下的键盘快捷键（原版 index.tsx 的 handleKeyPress，isPlayVideo 分支）：
+//   Esc   关闭视频浮层（原版 setIsPlayVideo(false)）
+//   空格  播放 / 暂停视频（原版 setIsPlayVideoStop）
+// 原版在这个分支里对其余快捷键直接 return（「播放视频时屏蔽快捷键」）。弹窗是
+// 独立窗口，主窗那套快捷键本来也到不了这里。此前原生版没有这一段：弹窗聚焦时
+// 按 Esc 关不掉、按空格也不一定切得了播放（只有 <video> 恰好有焦点时由原生控件
+// 接管）。用 !event.repeat 去抖（按住不放不该连发关闭 / 反复切换）。
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.code === 'Escape') {
+    e.preventDefault();
+    call('Video.Close');
+  } else if (e.code === 'Space') {
+    e.preventDefault();
+    if (v.paused) { v.play().catch(() => {}); } else { v.pause(); }
+  }
+});
+
 document.getElementById('close').addEventListener('click', () => call('Video.Close'));
 v.addEventListener('ended', () => call('Video.Ended'));
 </script>

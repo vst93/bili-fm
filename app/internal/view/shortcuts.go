@@ -11,6 +11,9 @@ import "github.com/egoist/mygo/ui"
 //	Ctrl/Cmd+W 最小化（原版 minimize_window）
 //	Ctrl/Cmd+Q 退出（原版 quit_app）
 //
+// 视频弹窗开着时（a.VideoOpen），原版的 isPlayVideo 分支会屏蔽其余快捷键：
+// 空格改控弹窗里的视频、Esc 关弹窗，← → ↑ ↓ 全部 return（见下）。
+//
 // root 是窗口根元素：空格要额外注册在它上面，原因见 bindSpace。
 func (a *App) shortcuts(c *ui.Context, root ui.Element) {
 	bindSpace(c, root, func() {
@@ -19,19 +22,33 @@ func (a *App) shortcuts(c *ui.Context, root ui.Element) {
 		}
 	})
 	c.OnShortcut(0, ui.KeyLeft, func() {
+		// 原版视频模式（isPlayVideo）分支里对 ← → ↑ ↓ 直接 return（「播放视频时
+		// 屏蔽快捷键」）：弹窗自己带进度/音量控件，主窗再切集/调音量会互相打架。
+		if a.VideoOpen {
+			return
+		}
 		if a.Act.Prev != nil {
 			a.Act.Prev()
 		}
 	})
 	c.OnShortcut(0, ui.KeyRight, func() {
+		if a.VideoOpen {
+			return
+		}
 		if a.Act.Next != nil {
 			a.Act.Next()
 		}
 	})
 	c.OnShortcut(0, ui.KeyUp, func() {
+		if a.VideoOpen {
+			return
+		}
 		a.nudgeVolume(0.05)
 	})
 	c.OnShortcut(0, ui.KeyDown, func() {
+		if a.VideoOpen {
+			return
+		}
 		a.nudgeVolume(-0.05)
 	})
 	// 原版 lib 里的窗口快捷键（titleBar.tsx 的 keydown）：
