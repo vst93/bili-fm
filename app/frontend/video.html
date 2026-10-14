@@ -7,7 +7,11 @@
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #wrap { position: absolute; inset: 0; }
-  video { width: 100%; height: 100%; background: #000; display: block; }
+  /* 原版 .player-video-element 是 `object-fit: contain`：视频按自身比例完整装进
+     面板，不足处留黑边。此前原生版没写这一条，`<video>` 的默认 `fill` 会把画面
+     拉伸到窗口比例 —— 弹窗固定 960×600（8:5），16:9 的视频会被横向拉宽约 11%
+     （人脸变胖、字幕变形）。窗口可自由缩放，拉伸量还会随之变化。 */
+  video { width: 100%; height: 100%; background: #000; display: block; object-fit: contain; }
   /* 顶部自绘标题栏：无边框窗口下用来拖动窗口（关闭键不在这里，它常驻可见，
      见下面的 #close）。
 
@@ -106,6 +110,10 @@ const TITLEBAR_HOTZONE_PX = 48;
 const MACOS_HOTZONE_VOLUME_SAFE_PX = 260;
 const MACOS_HOTZONE_PIP_SAFE_PX = 120;
 const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
+// macOS 的系统画中画浮窗没有进度条（原版 playerVideo 的 nativePipUnusable，
+// 由 index.tsx 传 isMacOS），隐藏该按钮，避免用户点进去发现调不了进度。
+// 原生版的视频本来就是一个常驻独立窗口，画中画是多余的。
+if (isMac) { v.disablePictureInPicture = true; }
 const syncTitlebarHotzone = (clientX, clientY) => {
   const inSafeZone = isMac &&
     (clientX < MACOS_HOTZONE_PIP_SAFE_PX ||

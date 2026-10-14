@@ -131,6 +131,50 @@ func TestVideoPageCloseTitle(t *testing.T) {
 	}
 }
 
+// TestVideoPageVideoElementMatchesOriginal 钉住弹窗 <video> 的呈现契约。
+//
+// 原版浮层的 .player-video-element（main:src/styles/globals.css:5457）是：
+//
+//	width:100%; height:100%; object-fit:contain; border-radius:8px; background:#000
+//
+// `object-fit: contain` 是画面比例的保证：弹窗是固定 960×600（8:5）的独立窗口，
+// 而绝大多数 B 站视频是 16:9；没有这一条时 `<video>` 走默认的 `fill`，会把画面
+// 拉伸到窗口比例（16:9 → 8:5 ⇒ 横向拉宽约 11%）。此前 video.html 只写了
+// width/height/background，正好漏掉这条。
+//
+// 同时原版按平台传 disablePictureInPicture={nativePipUnusable}，其中
+// nativePipUnusable={isMacOS}（index.tsx）：macOS 的系统画中画浮窗没有进度条，
+// 点进去调不了进度，所以那边隐藏该按钮。原生版的视频本来就是一个常驻独立窗口，
+// 画中画也多余。
+func TestVideoPageVideoElementMatchesOriginal(t *testing.T) {
+	html := videoPageHTML(t)
+
+	rule := cssRule(t, html, "video")
+	for _, want := range []string{
+		"width: 100%",
+		"height: 100%",
+		"background: #000",
+		"object-fit: contain",
+	} {
+		if !strings.Contains(rule, want) {
+			t.Errorf("<video> 规则缺少 %q（原版 .player-video-element）", want)
+		}
+	}
+	// 反证：默认的 fill 会拉伸画面。剔注释后不该出现这条覆盖。
+	if code := videoPageCode(t); strings.Contains(code, "object-fit: fill") {
+		t.Error("<video> 显式写了 object-fit: fill（会把画面拉伸到窗口比例）")
+	}
+
+	// macOS 隐藏画中画按钮（原版 nativePipUnusable = isMacOS）。
+	code := videoPageCode(t)
+	if !strings.Contains(code, "v.disablePictureInPicture = true") {
+		t.Error("缺少 macOS 隐藏画中画按钮（原版 playerVideo 的 nativePipUnusable）")
+	}
+	if !strings.Contains(code, "if (isMac) { v.disablePictureInPicture = true; }") {
+		t.Error("画中画禁用应挂在 macOS 判定上（原版 isMacOS）")
+	}
+}
+
 // cssRule 从页面里取出某条 CSS 规则的声明块（`selector { … }`）。选择器要
 // 逐字给出（含 `#bar::before` 这种伪元素）。找不到就 t.Fatal。
 func cssRule(t *testing.T, html, selector string) string {
