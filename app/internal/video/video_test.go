@@ -100,7 +100,7 @@ func TestVideoPageCloseButtonMatchesOriginal(t *testing.T) {
 		}
 	}
 
-	// 关闭键必须常驻：不能还留在 #bar 里（那条只在 #wrap:hover 时显形）。
+	// 关闭键必须常驻：不能还留在 #bar 里（那条默认隐去，只在顶部热区/hover 时显形）。
 	bar := strings.Index(html, `<div id="bar">`)
 	if bar < 0 {
 		t.Fatal("找不到 #bar")
@@ -128,5 +128,142 @@ func TestVideoPageCloseTitle(t *testing.T) {
 	}
 	if strings.Contains(html, `id="close" title="关闭"`) {
 		t.Error("关闭键仍是「关闭」（漏改？）")
+	}
+}
+
+// cssRule 从页面里取出某条 CSS 规则的声明块（`selector { … }`）。选择器要
+// 逐字给出（含 `#bar::before` 这种伪元素）。找不到就 t.Fatal。
+func cssRule(t *testing.T, html, selector string) string {
+	t.Helper()
+	start := strings.Index(html, selector+" {")
+	if start < 0 {
+		t.Fatalf("找不到 CSS 规则 %q", selector)
+	}
+	start += len(selector) + 2
+	end := strings.Index(html[start:], "}")
+	if end < 0 {
+		t.Fatalf("CSS 规则 %q 未闭合", selector)
+	}
+	return html[start : start+end]
+}
+
+// videoPageHTML 读弹窗页面源码。
+func videoPageHTML(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("../../frontend/video.html")
+	if err != nil {
+		t.Fatalf("读不到 video.html：%v", err)
+	}
+	return string(data)
+}
+
+// videoPageCode 同 videoPageHTML，但剔掉 CSS / HTML 注释——用于「旧写法
+// 已不存在」这类反证：注释里引用旧写法的说明文字不该算数。
+func videoPageCode(t *testing.T) string {
+	t.Helper()
+	s := videoPageHTML(t)
+	for {
+		i := strings.Index(s, "/*")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(s[i:], "*/")
+		if j < 0 {
+			break
+		}
+		s = s[:i] + s[i+j+2:]
+	}
+	for {
+		i := strings.Index(s, "<!--")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(s[i:], "-->")
+		if j < 0 {
+			break
+		}
+		s = s[:i] + s[i+j+3:]
+	}
+	return s
+}
+
+// TestVideoPageTitleBarMatchesOriginal 钉住弹窗顶部拖拽条的显隐契约。
+//
+// 原版视频浮层的标题栏（main:src/styles/globals.css 的
+// `body.video-open .app-title-bar`，唤出热区在 playerVideo.tsx 的
+// `syncTitlebarHotzone` / TITLEBAR_HOTZONE_PX = 48）是：
+//
+//	静息   opacity:0; pointer-events:none; transition: opacity .18s ease .2s
+//	唤出   opacity:1; pointer-events:auto;  transition: opacity .16s ease
+//
+// 原生版此前写 `#wrap:hover #bar, #bar.pinned`：`#wrap` 铺满整窗，鼠标只要在
+// 窗口里拖拽条就常驻（原版只在顶部 48px 热区里出现），而且 opacity:0 时它照吃
+// 顶部那条的指针事件（原版隐去时 pointer-events:none 不挡画面/原生控件）。
+func TestVideoPageTitleBarMatchesOriginal(t *testing.T) {
+	html := videoPageHTML(t)
+
+	// 静息态：#bar 自己不接管指针，退场带延迟。
+	base := cssRule(t, html, "#bar")
+	for _, want := range []string{
+		"opacity: 0",
+		"pointer-events: none",
+		"transition: opacity .18s ease .2s",
+		"height: 36px", // 原版 --titlebar-height
+	} {
+		if !strings.Contains(base, want) {
+			t.Errorf("#bar 静息规则缺少 %q（原版 body.video-open .app-title-bar）", want)
+		}
+	}
+
+	// 唤出态：热区悬浮（JS 挂 body.titlebar-hover）时恢复绘制与命中。
+	reveal := cssRule(t, html, "body.titlebar-hover #bar, #bar:hover")
+	for _, want := range []string{
+		"opacity: 1",
+		"pointer-events: auto",
+		"transition: opacity .16s ease",
+	} {
+		if !strings.Contains(reveal, want) {
+			t.Errorf("#bar 唤出规则缺少 %q", want)
+		}
+	}
+
+	// 压暗渐变层：原版 ::before 的 inset 0 0 -40% 0 + 三个停靠点。
+	shade := cssRule(t, html, "#bar::before")
+	for _, want := range []string{
+		"inset: 0 0 -40% 0",
+		"rgba(8,12,20,.72) 0%",
+		"rgba(8,12,20,.42) 55%",
+		"transparent 100%",
+	} {
+		if !strings.Contains(shade, want) {
+			t.Errorf("#bar::before 压暗层缺少 %q", want)
+		}
+	}
+
+	// 唤出由顶部 48px 热区驱动（原版 playerVideo.tsx），不是整窗 hover。
+	code := videoPageCode(t)
+	for _, want := range []string{
+		"const TITLEBAR_HOTZONE_PX = 48;",
+		"const MACOS_HOTZONE_VOLUME_SAFE_PX = 260;",
+		"const MACOS_HOTZONE_PIP_SAFE_PX = 120;",
+		"clientY <= TITLEBAR_HOTZONE_PX",
+		"classList.toggle('titlebar-hover'",
+		"addEventListener('mousemove'",
+		"addEventListener('mouseleave'",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("热区逻辑缺少 %q", want)
+		}
+	}
+
+	// 反证：整窗 hover 与那个没人置位的 .pinned 都该消失（注释里的旧写法不算数）。
+	if strings.Contains(code, "#wrap:hover #bar") {
+		t.Error("拖拽条仍靠 #wrap:hover 唤出（#wrap 铺满整窗 ⇒ 鼠标在窗口里就常驻）")
+	}
+	if strings.Contains(code, "#bar.pinned") {
+		t.Error("仍在用没人置位的 #bar.pinned")
+	}
+	if strings.Contains(code, "opacity: 0; transition: opacity .2s ease") {
+		t.Error("静息规则仍是旧的 opacity .2s 过渡")
 	}
 }

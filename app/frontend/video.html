@@ -8,17 +8,43 @@
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #wrap { position: absolute; inset: 0; }
   video { width: 100%; height: 100%; background: #000; display: block; }
-  /* 顶部自绘标题栏：无边框窗口下用来拖动窗口。鼠标移入才显示（关闭键不在这里，
-     它常驻可见，见下面的 #close）。 */
+  /* 顶部自绘标题栏：无边框窗口下用来拖动窗口（关闭键不在这里，它常驻可见，
+     见下面的 #close）。
+
+     对齐原版视频浮层的 `body.video-open .app-title-bar`（globals.css:5511）——
+     它是「默认隐去、鼠标进入窗口顶部 48px 热区才唤回」，唤出由 playerVideo.tsx
+     的 `syncTitlebarHotzone`（TITLEBAR_HOTZONE_PX = 48）驱动：
+
+       静息   opacity: 0; pointer-events: none; transition: opacity .18s ease .2s
+       唤出   opacity: 1; pointer-events: auto; transition: opacity .16s ease
+
+     pointer-events 必须跟着切：原版注释写明「不用 display:none，保留元素参与
+     hover/focus 命中测试的通道」是**为了唤出**，所以隐去时明确不接管指针。
+
+     原生版此前是 `#wrap:hover #bar, #bar.pinned`：#wrap 铺满整窗，等于鼠标只要
+     在窗口里标题栏就常驻（原版只在顶部热区里出现），而且 opacity:0 时那条 32px
+     的条照吃指针事件（原版隐去时不挡画面/原生控件）。 */
   #bar {
-    position: absolute; top: 0; left: 0; right: 0; height: 32px;
+    position: absolute; top: 0; left: 0; right: 0; height: 36px; /* 原版 --titlebar-height */
     display: flex; align-items: center; gap: 10px; padding: 0 10px;
-    background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,0));
     color: #e8eef7; font: 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-    opacity: 0; transition: opacity .2s ease;
+    z-index: 998; /* 自身开栈，::before 的 z-index:-1 才落在这条之上、画面之上 */
+    opacity: 0; pointer-events: none;
+    transition: opacity .18s ease .2s; /* 退场带延迟，防热区边缘抖动 */
     --app-region: drag;
   }
-  #wrap:hover #bar, #bar.pinned { opacity: 1; }
+  /* 原版 ::before：inset 0 0 -40% 0（比栏体高 40%）的三停靠点压暗渐变。 */
+  #bar::before {
+    content: ""; position: absolute; inset: 0 0 -40% 0; z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+      rgba(8,12,20,.72) 0%, rgba(8,12,20,.42) 55%, transparent 100%);
+  }
+  /* 唤出：顶部热区（JS 挂 body.titlebar-hover）或拖拽条自身被悬浮。 */
+  body.titlebar-hover #bar, #bar:hover {
+    opacity: 1; pointer-events: auto;
+    transition: opacity .16s ease;
+  }
   #title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* 关闭键：对齐原版浮层的 .player-video-close（globals.css:5466）——
      38×38 正圆、墨色 45% 底，悬停 70% + 放大 1.06、按下缩 .92；图标是
@@ -71,6 +97,26 @@ const muted = q.get('muted') === '1';
 const v = document.getElementById('v');
 const state = document.getElementById('state');
 document.getElementById('title').textContent = title;
+
+// 顶部拖拽条的唤出热区（原版 playerVideo.tsx 的 syncTitlebarHotzone）：鼠标进入
+// 窗口顶部 48px 才唤回拖拽条，离开热区就交给 CSS 的退场延迟淡出。macOS 上原生
+// 视频控件的音量条在右上角、画中画按钮在左上角（Windows/Linux 控件在底部），
+// 热区避开这两端，否则鼠标去点它们会被唤出的拖拽条压住。
+const TITLEBAR_HOTZONE_PX = 48;
+const MACOS_HOTZONE_VOLUME_SAFE_PX = 260;
+const MACOS_HOTZONE_PIP_SAFE_PX = 120;
+const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
+const syncTitlebarHotzone = (clientX, clientY) => {
+  const inSafeZone = isMac &&
+    (clientX < MACOS_HOTZONE_PIP_SAFE_PX ||
+     clientX >= window.innerWidth - MACOS_HOTZONE_VOLUME_SAFE_PX);
+  const inZone = clientY <= TITLEBAR_HOTZONE_PX && !inSafeZone;
+  document.body.classList.toggle('titlebar-hover', inZone);
+};
+document.addEventListener('mousemove',
+  (e) => syncTitlebarHotzone(e.clientX, e.clientY), { passive: true });
+document.addEventListener('mouseleave',
+  () => document.body.classList.remove('titlebar-hover'));
 
 const call = (m, ...a) =>
   (window.mygo ? window.mygo.call(m, ...a).catch(() => {}) : Promise.resolve());
