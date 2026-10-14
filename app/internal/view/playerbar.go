@@ -1658,7 +1658,35 @@ const (
 	volumePopoverPadR   = 10
 	volumePopoverGap    = 8
 	volumeMuteSize      = 26
+
+	// volumePopoverEnterScale 是音量弹层入场过渡的起始缩放（原版
+	// `.player-volume-popover` 的 `@starting-style { transform: ... scale(.96) }`）。
+	volumePopoverEnterScale = 0.96
 )
+
+// volumePopoverEnterDuration 是音量弹层入场过渡的时长（原版 `transition` 的
+// transform 那条 160ms cubic-bezier(.23,1,.32,1)；opacity 那条是 140ms ease，
+// 但框架的 ElementTransition 只给一条曲线，取更显眼的 transform 这条值）。
+// 声明成 var 便于测试临时放长，观察入场动画真的在跑。
+var volumePopoverEnterDuration = 160 * time.Millisecond
+
+// volumePopoverEnter 返回音量弹层的入场过渡，对应原版 .player-volume-popover
+// 的 `@starting-style`：从右侧中点（transform-origin 100% 50%）缩到 96% 且全透明
+// 淡入放大到常态。
+//
+// 原版 `@media (prefers-reduced-motion: reduce)` 把这条 transition 整个关掉
+//（`transition: none`），所以减少动态效果时返回 ok=false —— 弹层直接出现，不淡
+// 也不缩。声明成函数便于单测钉住这三条。
+func volumePopoverEnter(c *ui.Context) (ui.ElementTransition, bool) {
+	if reduceMotion(c) {
+		return ui.ElementTransition{}, false
+	}
+	return ui.ElementTransition{
+		Duration: volumePopoverEnterDuration,
+		Ease:     ui.CubicBezier(0.23, 1, 0.32, 1),
+		Enter:    &ui.Motion{Scale: volumePopoverEnterScale, Opacity: 0},
+	}, true
+}
 
 // volumePopoverAt 是音量弹层（原版 .player-volume-popover：从音量列
 // **左侧横向弹出**，184×42 一行：静音钮 + 滑杆）。位置与关闭方式同
@@ -1675,6 +1703,18 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		AlignItems(ui.Center)
 	// 原版音量弹层浅色铺 --glass-sheen-static、深色换成 --player-sheen。
 	panel = popoverGlass(panel, radius, volumePopoverSheen(t))
+	// 入场过渡（原版 .player-volume-popover 的 @starting-style）：
+	//
+	//	transition: opacity 140ms ease, transform 160ms cubic-bezier(.23,1,.32,1);
+	//	@starting-style { opacity: 0; transform: translateY(-50%) scale(.96); }
+	//
+	// 从「右侧中点、缩到 96%、全透明」淡入放大到常态。原生版此前没有这层，
+	// 弹层是硬切出现的（原版倍速弹层确实没有这条 transition，所以只给音量弹层）。
+	// 缩放原点 = 原版的 transform-origin: 100% 50%（右中）。
+	panel.TransformOrigin(1, 0.5)
+	if tr, ok := volumePopoverEnter(c); ok {
+		panel.Transition(tr)
+	}
 	if panel.PressedOutside() {
 		a.ShowVolume = false
 	}
