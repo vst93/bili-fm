@@ -452,6 +452,9 @@ type App struct {
 	SeriesList      []Series
 	SeriesID        int64
 	SeriesName      string
+	// SeriesPlayAllPending 为真表示「播放全部」正在把整个合集拉进播放列表
+	//（原版 seriesList 的 isPlayingAll：按钮在请求期间转圈 + 禁用）。
+	SeriesPlayAllPending bool
 
 	// UpOffset 是 UP 视频列表的翻页游标（旧版是 offset 而不是页码）。
 	UpOffset string

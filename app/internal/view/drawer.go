@@ -392,17 +392,27 @@ func (a *App) drawerTabs(c *ui.Context) {
 		ui.Text(c, a.seriesLabel()).FontSize(14).FontWeight(600).SingleLine().
 			TextColor(ui.Hex("#334155")).Shrink(0)
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
+		// 原版 seriesList 的按钮有二态：列表为空或正在拉取时禁用
+		//（isDisabled / isLoading），拉取中画 Spinner 替代播放图标。
+		spinner, enabled := seriesPlayAllSpec(a.SeriesPlayAllPending,
+			len(a.ListFor(DrawerSeries).Cards) > 0)
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
+			b.Disabled(!enabled)
 			drawerHeaderSurface(b, b.Hovered())
 			drawerHeaderPress(b)
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
+					if spinner {
+						// 原版 isLoading 时 HeroUI 画 Spinner 替代 <Play />。
+						ui.Spinner(c).Size(16, 16).TextColor(ui.Hex("#2563eb"))
+					} else {
+						ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
+					}
 					ui.Text(c, "播放全部").FontSize(12).TextColor(ui.Hex("#475569"))
 				})
 			})
-			if b.Clicked() && a.Act.SeriesPlayAll != nil {
+			if b.Clicked() && enabled && a.Act.SeriesPlayAll != nil {
 				a.Act.SeriesPlayAll()
 			}
 		}
@@ -591,6 +601,22 @@ func (a *App) seriesLabel() string {
 		return a.SeriesName
 	}
 	return "合集"
+}
+
+// seriesPlayAllSpec 给出合集抽屉表头「播放全部」这一帧是否转圈 / 是否可点。
+//
+// 原版 seriesList 的按钮：
+//
+//	isDisabled={seriesVideos.length === 0}  列表为空 → 禁用 + 点不动
+//	isLoading={isPlayingAll}                 拉取在途 → Spinner（替掉 <Play />）+ 禁用
+//
+// pending 为真时转圈且禁用；否则列表为空也禁用（原版点空白不会有任何反应，
+// 原生版此前会每点一次起一套分页 + 详情请求，且没有反馈）。
+func seriesPlayAllSpec(pending, hasVideos bool) (spinner, enabled bool) {
+	if pending {
+		return true, false
+	}
+	return false, hasVideos
 }
 
 // refreshable 返回这个抽屉的表头有没有刷新键。原版里搜索抽屉（searchList）、

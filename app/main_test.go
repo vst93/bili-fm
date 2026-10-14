@@ -628,6 +628,18 @@ func TestFollowBlocked(t *testing.T) {
 	}
 }
 
+// TestSeriesPlayAllBlocked 钉住「播放全部」的重复点击闸门：一次全量拉取在途
+// 时连点忽略（原版 seriesList 的 isPlayingAll 让按钮在请求期间禁用；否则每次
+// 点击都会各起一套分页 + 详情请求）。
+func TestSeriesPlayAllBlocked(t *testing.T) {
+	if !seriesPlayAllBlocked(true) {
+		t.Error("拉取在途时 seriesPlayAllBlocked = false，想 true")
+	}
+	if seriesPlayAllBlocked(false) {
+		t.Error("空闲时 seriesPlayAllBlocked = true，想 false")
+	}
+}
+
 // TestInteractToastTexts 钉住点赞 / 投币 / 收藏 / 关注的结果提示文案与方向
 // （原版 videoInfo handleLike/handleCoin/handleFavorite、upVideoList 的关注）。
 // 原生版此前这些成功路径全是静默的，用户点完看不出有没有生效。

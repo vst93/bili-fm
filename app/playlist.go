@@ -281,6 +281,11 @@ func (c *controller) switchPlaylistTab(list string) {
 	c.app.Win.Update(func() {})
 }
 
+// seriesPlayAllBlocked 报告这次「播放全部」是否该被忽略：已经有一次全量
+// 拉取在途时连点忽略（原版 seriesList 的「播放全部」在 isPlayingAll 期间禁用）。
+// 抽成纯函数便于单测。
+func seriesPlayAllBlocked(pending bool) bool { return pending }
+
 // seriesPlayAll 把当前合集里的视频全部加载进「合集列表」并从第一条开始播放。
 //
 // 合集的列表接口只给 bvid/aid，没有 cid，所以要逐个拉详情（GetCList）取第一
@@ -291,12 +296,22 @@ func (c *controller) seriesPlayAll() {
 		a.NotifyType("warning", "请先到 UP 空间选择一个合集")
 		return
 	}
+	// 已经有一次全量拉取在途：连点忽略（原版 seriesList 的 isPlayingAll 让
+	// 「播放全部」在请求期间禁用，否则每次点击都会各起一套分页 + 详情请求）。
+	if seriesPlayAllBlocked(a.SeriesPlayAllPending) {
+		return
+	}
+	a.SeriesPlayAllPending = true
 	a.Notify("正在加载合集…")
 	a.Win.Update(func() {})
 
 	mid, seriesID := a.UpMid, a.SeriesID
 	name := a.SeriesName
 	go func() {
+		// 不管成败都要清 pending，否则失败时按钮会永远转圈。
+		defer func() {
+			a.Win.Update(func() { a.SeriesPlayAllPending = false })
+		}()
 		// 1. 拉全部分页的合集视频。
 		var archives []struct {
 			bvid  string
