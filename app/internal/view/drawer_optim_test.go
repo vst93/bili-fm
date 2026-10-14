@@ -111,9 +111,11 @@ func TestCoverPlaceholderDrawnWhileLoading(t *testing.T) {
 	}
 }
 
-// TestDrawerStaysOpenOnPartClick 钉住「选集里点一集不关抽屉」：原版
-// handleVideoSelect 不动 showPageList；原生版此前 partCard 的 OnClick 末尾
-// 硬写 a.Drawer = ""，用户报「切换播放项抽屉被强制关闭」。
+// TestDrawerStaysOpenOnPartClick 钉住「视图层的选集卡片点击不自己关抽屉」：
+// 关面板是控制器 playIndex 的职责（对齐原版 PageList.handleVideoSelect 的
+// handleOpenChange(false)），视图层只发 Act.Play；自动续播/播完切集也要保留
+// 面板，所以 partCard 不能硬写 a.Drawer = ""。控制器行为见
+// TestPlayIndexClosesPartsDrawerOnSelect。
 func TestDrawerStaysOpenOnPartClick(t *testing.T) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))

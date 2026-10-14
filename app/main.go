@@ -1872,6 +1872,11 @@ func (c *controller) playIndex(index int) {
 		part := info.Parts[index]
 		c.buildPartsQueue(info, part.Cid)
 		c.app.Index = index
+		// 手动从选集面板点一集：原版 PageList.handleVideoSelect 在
+		// onVideoSelect 后调 handleOpenChange(false)，面板会关掉；
+		// 自动续播/播完切集走 startCurrent 另一条路径，仍由
+		// keepDrawerOnPlay 保留面板。
+		c.app.Drawer = ""
 		c.startCurrent()
 		return
 	}
@@ -2000,9 +2005,12 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 	return info
 }
 
-// keepDrawerOnPlay 报告起播时该保留哪个抽屉。原版从选集面板点一集
-// （handleVideoSelect）不会关面板；播放列表模式下手动/自动切歌也不关
-// （handlePlaylistVideoSelect 的 preserveUi）。其余抽屉（搜索/分区/UP 空间…）
+// keepDrawerOnPlay 报告 startCurrent 起播时该保留哪个抽屉。它服务的是
+// **自动/后台起播**路径：播放列表模式下手动/自动切歌不关
+// （handlePlaylistVideoSelect 的 preserveUi），选集自动续播/播完切集也不关
+// （原版 handleVideoSelect 直接调用，不经 PageList 的 handleOpenChange）。
+// 手动从选集面板点一集由 playIndex 先关面板（对齐 PageList.handleVideoSelect
+// 的 handleOpenChange(false)），不经过这里的判断。其余抽屉（搜索/分区/UP 空间…）
 // 点卡片会先被换成选集抽屉，起播时再关掉。
 func keepDrawerOnPlay(drawer string) bool {
 	return drawer == view.DrawerPlaylist || drawer == view.DrawerParts

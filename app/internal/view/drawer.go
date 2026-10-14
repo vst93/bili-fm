@@ -2361,8 +2361,10 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			if a.Act.Play != nil {
 				a.Act.Play(index)
 			}
-			// 原版从选集面板点一集不会关面板（handleVideoSelect 不动
-			// showPageList）；抽屉保持打开，方便接着往下挑。
+			// 原版 PageList.handleVideoSelect 在 onVideoSelect 后调
+			// handleOpenChange(false) 关面板；视图层只发 Act.Play，关不关由
+			// 控制器 playIndex 决定（自动续播/播完切集仍保留面板，见
+			// keepDrawerOnPlay），所以这里不能硬写 a.Drawer = ""。
 		},
 	}
 	a.renderCard(c, spec)
