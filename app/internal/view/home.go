@@ -596,6 +596,12 @@ func (a *App) advanceDisc(now time.Time) {
 	a.discLast, a.discLastPos = now, a.Pos
 }
 
+// infoDescMinH 是简介块的最小高度：原版 `#video-desc p` 的 `min-height: 46px`
+// （13px × 1.55 ≈ 20.15/行 ⇒ 约 2.28 行）。简介不足两行时（详情还没拉到时
+// 固定文案「无描述」），这一块也要占满 46px，否则只有 ~20px（一行），下方的
+// 选集胶囊 / 操作行 / 工具条会跟着上移。声明成 var 便于测试归零做反证。
+var infoDescMinH float32 = 46
+
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
 //
@@ -616,9 +622,14 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 			title.MinHeight(52)
 		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
-		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）。
+		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有
+		// min-height 46（≈ 2.28 行）—— 简介不足两行时这一块也要占满 46px，
+		// 否则只有 ~20px（一行），下方的选集胶囊 / 操作行 / 工具条会整体上移。
+		// 注意右栏是垂直居中的（外层 .home-now-playing 的 align-items: center，
+		// 原版靠 #video-info 固定 366px 高稳住），块高变化会被折半放大到
+		// 整块的纵向位置上。
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
-			MaxLines(3).Margin(14, 0, 0, 0).Selectable()
+			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Selectable()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
