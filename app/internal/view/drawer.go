@@ -939,15 +939,9 @@ func (a *App) drawerBody(c *ui.Context) {
 			a.danmakuBody(c)
 			return
 		}
-		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
-		// （上下不对称，底部多留 16 给最后一行）。
-		a.holdScrollBody(c, l)
-		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).
-			Children(func() { a.repliesBody(c) })
-		if a.RepliesHasMore && !a.RepliesLoading &&
-			l.Scroll.MaxY > 0 && l.Scroll.Y >= l.Scroll.MaxY-100 && a.Act.LoadComments != nil {
-			a.Act.LoadComments(a.ReplyPage + 1)
-		}
+		// 评论文本不多但行高不一：repliesBody 自己用虚拟化 ui.List 当滚动容器
+		//（见 repliesBody）。
+		a.repliesBody(c)
 		return
 	}
 	// 卡片网格：虚拟化列表自己滚，顺带负责到底翻页。
@@ -2654,106 +2648,172 @@ func replyMetaText(level int, when string) string {
 
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：玻璃卡片行 + 楼中楼
 // 预览，滚到底自动加载下一页（原版 handleScroll，不是「加载更多」按钮）。
+//
+// 用 mygo 的虚拟化 ui.List 当滚动容器（只建可见的十几行）。此前这里是
+// ui.Scroll + ui.Column 逐行构建：抽屉里驻留到上限的 120 行每帧全建一遍
+// （头像、玻璃卡片、楼中楼），滚动时是主要开销；与弹幕列表 / 卡片网格同一机制。
+// 行键取评论身份（见 commentKey），滑动窗口从头部释放已读那批时锚点行跟着
+// 挪下标，视口停在原评论上不跳（见 main.go 的 retainComments）。
 func (a *App) repliesBody(c *ui.Context) {
 	if len(a.Comments) == 0 {
-		if a.RepliesLoading {
-			a.emptyNote(c, "加载中…")
-		} else {
-			a.emptyNote(c, "暂无评论")
-		}
+		// 清空（刷新 / 换视频）时把虚拟列表也复位，下一批评论从顶部开始，
+		// 不沿用上一批的行锚点。
+		a.repliesList = ui.ListState{}
+		l := a.ListFor(a.Drawer)
+		a.holdScrollBody(c, l)
+		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
+		// （上下不对称，底部多留 16 给最后一行）。
+		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).Children(func() {
+			if a.RepliesLoading {
+				a.emptyNote(c, "加载中…")
+			} else {
+				a.emptyNote(c, "暂无评论")
+			}
+		})
 		return
 	}
 	// 评论按时间倒序（原版 danmakuList 的 sortedReplies：b.ctime - a.ctime）。
 	// 带缓存：排序带拷贝，滚动时每帧重排会白白分配 + 吃 CPU（见 sortedComments）。
 	sorted := a.sortedComments()
-	ui.Column(c).Children(func() {
-		for i, cm := range sorted {
-			// 原版行：py-2 px-8 border-b，但 globals.css 又把它覆写成玻璃卡片：
-			// margin 4px 6px、圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
-			row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
-				Margin(4, 6).Padding(8, 32).Gap(8).Radius(10)
-			// 悬停换底 / 换边：原版 `.py-2.px-8.border-b` 的
-			// `transition: background-color .14s ease, border-color .14s ease,
-			// box-shadow .14s ease`——底与边走 140ms 过渡（阴影无逐通道
-			// 动画，仍当帧切换）。
-			targetBG := ui.Hex("#ffffff").Alpha(0.32)
-			targetBorder := ui.Hex("#ffffff").Alpha(0.32)
-			inset := ui.Hex("#ffffff").Alpha(0.42)
-			hovered := row.Hovered()
-			if hovered {
-				// :hover 底更实、边转蓝，抬起一层淡投影。
-				targetBG = ui.Hex("#ffffff").Alpha(0.58)
-				targetBorder = ui.Hex("#0ea5e9").Alpha(0.22)
-				inset = ui.Hex("#ffffff").Alpha(0.58)
-			}
-			row.Background(drawerFadeColor(row, "cm-row-bg", targetBG, drawerFadeAnim)).
-				Border(1, drawerFadeColor(row, "cm-row-border", targetBorder, drawerFadeAnim)).
-				InsetShadow(0, 1, 0, 0, inset)
-			if hovered {
-				row.Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
-			}
-			row.Children(func() {
-				// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					// 原版 .bg-default-200 有两条覆写，后者生效：rgba(203,213,225,.6)。
-					face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
-						Background(ui.Hex("#cbd5e1").Alpha(0.6)).Clip()
-					face.Children(func() {
-						if bmp := a.Images.Bitmap(cm.Avatar, imagecache.WidthAvatar); bmp != nil {
-							ui.Image(c, bmp).Fill().Fit(ui.Cover)
-						}
-					})
-					ui.Column(c).Children(func() {
-						ui.Text(c, cm.User).FontSize(14).FontWeight(600).
-							TextColor(ui.Hex(replyInkName)).SingleLine()
-						// text-xs text-default-400 → #64748b（见 replyInkMeta）。
-						ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
-							TextColor(ui.Hex(replyInkMeta)).SingleLine()
-					})
-				})
-				// 正文区左缩进 40（原版 pl-10，与头像同宽）。
-				ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
-					// text-sm leading-relaxed → 14.5px / #142033。原版正文 <p> 没有行数上限
-					// （globals.css 只给标题/简介挂 -webkit-line-clamp），长评论整段铺开。
-					ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody))
-					if cm.Likes > 0 {
-						ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
-							Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))
-					}
-					// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
-					if len(cm.Replies) > 0 {
-						ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
-							Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
-							for j, rp := range cm.Replies {
-								ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
-									FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
-									// .text-primary-500 同时覆写成 600 字重。
-									ui.Text(c, rp.User+":").FontSize(12).
-										FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0)
-									ui.Text(c, rp.Content).FontSize(12).
-										TextColor(ui.Hex(replyInkSub)).Grow(1)
-								})
-							}
-							if cm.RepliesMore || len(cm.Replies) >= 3 {
-								// .text-xs.text-default-400，悬停转 .text-primary-500。
-								more := ui.Text(c, "查看更多回复...").FontSize(12).
-									TextColor(ui.Hex(replyInkMeta))
-								if more.Hovered() {
-									more.TextColor(ui.Hex(replyInkPrim))
-								}
-							}
-						})
-					}
-				})
-			})
+
+	// 换集时重置虚拟列表的滚动位置与行锚点，否则新一集会沿用上一集的锚点。
+	if a.Track != nil && a.Track.Cid != a.repliesCid {
+		a.repliesList = ui.ListState{}
+		a.repliesCid = a.Track.Cid
+	}
+	st := &a.repliesList
+	st.Key = func(r int) any {
+		if r < len(sorted) {
+			cm := sorted[r]
+			return commentKey{user: cm.User, sendTime: cm.SendTime, content: cm.Content}
 		}
-		// 原版没有「加载更多」按钮：滚到底自动翻页（见 drawerBody），
-		// 加载中在末尾提示一行「加载中...」。
-		if a.RepliesLoading && len(sorted) > 0 {
+		return "comments-loading"
+	}
+	// 原版没有「加载更多」按钮：滚到底自动翻页；加载中在末行提示「加载中...」。
+	n := len(sorted)
+	extra := 0
+	if a.RepliesLoading {
+		extra = 1
+	}
+	ui.List(c, st, n+extra, func(r int) {
+		if r >= n {
 			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
 				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted))
 			})
+			return
 		}
+		a.commentRow(c, sorted[r], r)
+	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
+
+	// 滚到底自动翻页（原版 handleScroll：距底 100px 内）。
+	if first, last := st.Visible(); canLoadMoreComments(a.RepliesHasMore, a.RepliesLoading, first, last, n) &&
+		a.Act.LoadComments != nil {
+		a.Act.LoadComments(a.ReplyPage + 1)
+	}
+}
+
+// commentKey 是一条评论在虚拟列表里的身份（用户 + 发送时间 + 正文）。滑动
+// 窗口从头部释放已读那批后，同一条评论的下标变了但键不变，ui.List 据此把
+// 锚点行移位（heights.shift），视口停在原评论上。
+type commentKey struct {
+	user     string
+	sendTime int64
+	content  string
+}
+
+// canLoadMoreComments 报告评论列表这一帧该不该自动翻页：还有更多、不在加载中，
+// 且已经滚到底（首行不在顶部、末行已进视野）。抽成纯函数便于单测。
+//
+// `first > 0` 是这里的闸门：首屏都还没滚动（或首屏不满）时不请求，避免每帧
+// 重发下一页。
+func canLoadMoreComments(hasMore, loading bool, first, last, rows int) bool {
+	if !hasMore || loading {
+		return false
+	}
+	return first > 0 && last >= rows-1
+}
+
+// commentRow 画一行评论（原版 danmakuList 评论 tab 的卡片行）：32 圆头像 +
+// 昵称 / 「Lv.N · 时间」、正文、点赞数、楼中楼预览。由 repliesBody 的虚拟列表
+// 按需构建。
+func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
+	// 原版行：py-2 px-8 border-b，但 globals.css 又把它覆写成玻璃卡片：
+	// margin 4px 6px、圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
+	row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
+		Margin(4, 6).Padding(8, 32).Gap(8).Radius(10)
+	// 悬停换底 / 换边：原版 `.py-2.px-8.border-b` 的
+	// `transition: background-color .14s ease, border-color .14s ease,
+	// box-shadow .14s ease`——底与边走 140ms 过渡（阴影无逐通道
+	// 动画，仍当帧切换）。
+	targetBG := ui.Hex("#ffffff").Alpha(0.32)
+	targetBorder := ui.Hex("#ffffff").Alpha(0.32)
+	inset := ui.Hex("#ffffff").Alpha(0.42)
+	hovered := row.Hovered()
+	if hovered {
+		// :hover 底更实、边转蓝，抬起一层淡投影。
+		targetBG = ui.Hex("#ffffff").Alpha(0.58)
+		targetBorder = ui.Hex("#0ea5e9").Alpha(0.22)
+		inset = ui.Hex("#ffffff").Alpha(0.58)
+	}
+	row.Background(drawerFadeColor(row, "cm-row-bg", targetBG, drawerFadeAnim)).
+		Border(1, drawerFadeColor(row, "cm-row-border", targetBorder, drawerFadeAnim)).
+		InsetShadow(0, 1, 0, 0, inset)
+	if hovered {
+		row.Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
+	}
+	row.Children(func() {
+		// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			// 原版 .bg-default-200 有两条覆写，后者生效：rgba(203,213,225,.6)。
+			face := ui.Box(c).Size(32, 32).Shrink(0).Radius(RadiusPill).
+				Background(ui.Hex("#cbd5e1").Alpha(0.6)).Clip()
+			face.Children(func() {
+				if bmp := a.Images.Bitmap(cm.Avatar, imagecache.WidthAvatar); bmp != nil {
+					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+				}
+			})
+			ui.Column(c).Children(func() {
+				ui.Text(c, cm.User).FontSize(14).FontWeight(600).
+					TextColor(ui.Hex(replyInkName)).SingleLine()
+				// text-xs text-default-400 → #64748b（见 replyInkMeta）。
+				ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
+					TextColor(ui.Hex(replyInkMeta)).SingleLine()
+			})
+		})
+		// 正文区左缩进 40（原版 pl-10，与头像同宽）。
+		ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
+			// text-sm leading-relaxed → 14.5px / #142033。原版正文 <p> 没有行数上限
+			// （globals.css 只给标题/简介挂 -webkit-line-clamp），长评论整段铺开。
+			ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody))
+			if cm.Likes > 0 {
+				ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
+					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))
+			}
+			// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
+			if len(cm.Replies) > 0 {
+				ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
+					Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
+					for j, rp := range cm.Replies {
+						ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
+							FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
+							// .text-primary-500 同时覆写成 600 字重。
+							ui.Text(c, rp.User+":").FontSize(12).
+								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0)
+							ui.Text(c, rp.Content).FontSize(12).
+								TextColor(ui.Hex(replyInkSub)).Grow(1)
+						})
+					}
+					if cm.RepliesMore || len(cm.Replies) >= 3 {
+						// .text-xs.text-default-400，悬停转 .text-primary-500。
+						more := ui.Text(c, "查看更多回复...").FontSize(12).
+							TextColor(ui.Hex(replyInkMeta))
+						if more.Hovered() {
+							more.TextColor(ui.Hex(replyInkPrim))
+						}
+					}
+				})
+			}
+		})
 	})
 }
 

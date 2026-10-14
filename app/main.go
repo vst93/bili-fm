@@ -737,8 +737,9 @@ func (c *controller) loadComments(page int) {
 				}
 				list = append(list, cm)
 			}
-			// 上限：列表不做虚拟化，条目太多每帧构建很吃力。超上限时从**头部**
-			// 释放已读的那批（见 retainComments）。
+			// 上限：评论列表走虚拟化 ui.List（见 view.repliesBody），每帧只建可见
+			// 那几行；上限现在主要约束内存驻留。超上限时从**头部**释放已读的那批
+			//（见 retainComments）。
 			a.Comments = retainComments(a.Comments, list, page, maxComments)
 			a.ReplyPage = page
 			a.RepliesHasMore = r.HasMore
@@ -2282,11 +2283,13 @@ func (c *controller) toggleDanmaku() {
 	}
 }
 
-// maxDanmaku / maxComments 是内存里保留的弹幕/评论条数上限（原版也是这个量级）：
-// 列表不做虚拟化，条目太多每帧构建会很吃力。
+// maxDanmaku / maxComments 是内存里保留的弹幕/评论条数上限（原版也是这个量级）。
+// 两个列表都走虚拟化 ui.List，每帧成本只跟可见行数有关，所以上限现在约束的是
+// 内存驻留而非每帧构建；评论上限从 120 提到 240，用户能往回读得更远（超上限仍
+// 从头部释放已读那批，见 retainComments）。
 const (
 	maxDanmaku  = 400
-	maxComments = 120
+	maxComments = 240
 )
 
 // toDanmakuList 把接口弹幕转成视图弹幕，并裁到上限。

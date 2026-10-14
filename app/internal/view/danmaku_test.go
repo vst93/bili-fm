@@ -353,3 +353,126 @@ func TestDanmakuAutoScrollResetOnClose(t *testing.T) {
 		t.Error("关闭其他抽屉不应动弹幕自动跟随开关")
 	}
 }
+
+// TestRepliesListVirtualized 钉住评论列表走 mygo 的虚拟化 ui.List：上百条评论
+// 时也只构建可见的十几行，屏外评论不建（改回 ui.Column 会让整表每帧重建，
+// 这个断言会失败）。与 TestDanmakuListVirtualized 同一机制。
+func TestRepliesListVirtualized(t *testing.T) {
+	a := NewApp(func() {})
+	cms := make([]Comment, 200)
+	for i := range cms {
+		cms[i] = Comment{
+			User:     fmt.Sprintf("用户%d", i),
+			Content:  fmt.Sprintf("评论编号%d", i),
+			SendTime: int64(1700000000 - i*60),
+		}
+	}
+	a.Comments = cms
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabReply
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	if !tst.HasText("评论编号0") {
+		t.Fatal("首屏应构建第一条评论")
+	}
+	if tst.HasText("评论编号199") {
+		t.Fatal("最后一条评论在屏外，虚拟化列表不该构建它（说明又退回每帧全建）")
+	}
+}
+
+// TestRepliesListAnchorOnWindowSlide 钉住「滑动窗口从头部释放已读评论时视口
+// 不跳」：ui.List 的行键（commentKey）让锚点行跟着挪下标。行键若丢了（Key=nil），
+// 丢头后同样的滚动偏移会对着新下标，首可见评论跳到更后面 —— 这个断言防的
+// 就是那个回归。
+func TestRepliesListAnchorOnWindowSlide(t *testing.T) {
+	a := NewApp(func() {})
+	cms := make([]Comment, 200)
+	for i := range cms {
+		cms[i] = Comment{
+			User:     "用户",
+			Content:  fmt.Sprintf("评论编号%03d", i),
+			SendTime: int64(1700000000 - i*60),
+		}
+	}
+	// 翻页追加的是更老的一页（SendTime 更小），不是重复头部那批。
+	newer := make([]Comment, 20)
+	for i := range newer {
+		newer[i] = Comment{
+			User:     "用户",
+			Content:  fmt.Sprintf("追评%03d", i),
+			SendTime: int64(1600000000 - i*60),
+		}
+	}
+	a.Comments = cms
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabReply
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	tst.Scroll(490, 400, 0, 4000)
+	tst.Frame()
+
+	first, _ := a.repliesList.Visible()
+	if first <= 0 {
+		t.Fatalf("滚动后首行应不在顶部：first=%d", first)
+	}
+	anchor := a.sortedComments()[first].Content
+
+	// 模拟 retainComments 的滑动窗口：丢掉头部 40 条已读评论，尾部追加 20 条。
+	a.Comments = append(append([]Comment(nil), a.Comments[40:]...), newer...)
+	tst.Frame()
+
+	f2, _ := a.repliesList.Visible()
+	if got := a.sortedComments()[f2].Content; got != anchor {
+		t.Fatalf("丢头后首可见评论 = %s, want %s（视口跳了）", got, anchor)
+	}
+}
+
+// TestCanLoadMoreComments 钉住评论自动翻页的判定：还有更多、不在加载中，且已经
+// 滚到底（首行不在顶部、末行已进视野）。`first > 0` 避免首屏都还没滚动就每帧
+// 重发下一页。
+func TestCanLoadMoreComments(t *testing.T) {
+	cases := []struct {
+		name              string
+		hasMore, loading  bool
+		first, last, rows int
+		want              bool
+	}{
+		{"首屏还没滚", true, false, 0, 9, 20, false},
+		{"首屏不满也不发", true, false, 0, 4, 5, false},
+		{"滚到底且有更多", true, false, 3, 19, 20, true},
+		{"加载中", true, true, 3, 19, 20, false},
+		{"没有更多", false, false, 3, 19, 20, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := canLoadMoreComments(c.hasMore, c.loading, c.first, c.last, c.rows); got != c.want {
+				t.Fatalf("canLoadMoreComments = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRepliesListKeyIdentity 钉住评论虚拟列表设了行键，且键取自评论身份
+// （用户 + 发送时间 + 正文）——丢头不跳位依赖它。
+func TestRepliesListKeyIdentity(t *testing.T) {
+	a := NewApp(func() {})
+	a.Comments = []Comment{
+		{User: "甲", Content: "第一条", SendTime: 100},
+		{User: "乙", Content: "第二条", SendTime: 50},
+	}
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabReply
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	if a.repliesList.Key == nil {
+		t.Fatal("评论虚拟列表应设置行键（丢头不跳位依赖它）")
+	}
+	if got, want := a.repliesList.Key(1), (commentKey{user: "乙", sendTime: 50, content: "第二条"}); got != want {
+		t.Fatalf("第 2 行的键 = %#v, want %#v", got, want)
+	}
+}

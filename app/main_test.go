@@ -644,20 +644,22 @@ func mkComments(tag string, n int) []view.Comment {
 //
 // 原版 danmakuList 的评论 tab 是「滚到底 + handleScroll 自动翻页」，页序即
 // 列表序（第 1 页在最前），翻页只会往尾部追加更靠后的评论。原生版有内存上限
-// （maxComments，列表不做虚拟化），超上限时**必须从头部释放**已经读过的那批，
-// 否则新页进不来：改前是 `a.Comments[:maxComments]` 截尾，第 7 页（120 条上限
-// 之下的第一页）起整页被丢，列表「加载不动」且因为一直停在底部而反复重拉。
+// （maxComments；列表体走虚拟化 ui.List，上限只在内存驻留），超上限时**必须
+// 从头部释放**已经读过的那批，否则新页进不来：改前是 `a.Comments[:maxComments]`
+// 截尾，超过上限后的第一页起整页被丢，列表「加载不动」且因为一直停在底部
+// 而反复重拉。
 func TestRetainCommentsSlidingWindow(t *testing.T) {
 	const pageSize = 20
+	// 触发释放的第一页：merged 首次超过上限，从头部丢掉一整页。
+	dropPage := maxComments/pageSize + 1
 	page := 0
 	var got []view.Comment
-	// 7 页 × 20 条，上限 120：第 7 页是第一个会触发释放的页。
-	for page = 1; page <= 7; page++ {
+	for page = 1; page <= dropPage; page++ {
 		got = retainComments(got, mkComments(fmt.Sprintf("p%d", page), pageSize), page, maxComments)
 		if len(got) > maxComments {
 			t.Fatalf("第 %d 页后长度 %d 超过上限 %d", page, len(got), maxComments)
 		}
-		if page <= 6 && len(got) != page*pageSize {
+		if page < dropPage && len(got) != page*pageSize {
 			t.Fatalf("第 %d 页后长度 %d，want %d（还没到上限不该释放）", page, len(got), page*pageSize)
 		}
 	}
@@ -666,7 +668,7 @@ func TestRetainCommentsSlidingWindow(t *testing.T) {
 	}
 	// 最新拉到的那一页必须整页都在（改前的截尾会把它们全丢掉）。
 	for i := 0; i < pageSize; i++ {
-		want := fmt.Sprintf("p7-%d", i)
+		want := fmt.Sprintf("p%d-%d", dropPage, i)
 		if got[len(got)-pageSize+i].User != want {
 			t.Errorf("尾部第 %d 条 = %q，want %q —— 新页被截掉了（截尾而非丢头）",
 				i, got[len(got)-pageSize+i].User, want)

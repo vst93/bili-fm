@@ -681,6 +681,12 @@ type App struct {
 	danmakuList ui.ListState
 	danmakuCid  int64
 
+	// repliesList 是评论列表的虚拟化状态（同 danmakuList）；repliesCid 用于
+	// 换集时重置。评论列表也带 ui.List 的行键，滑动窗口从头部释放已读那批时
+	// （见 main.go 的 retainComments）锚点行跟着挪下标，视口停在原评论上不跳。
+	repliesList ui.ListState
+	repliesCid  int64
+
 	// grids 是每个抽屉的卡片网格状态（ui.GridView 要一个稳定的 GridState，
 	// 按抽屉分开存才能各自保留滚动位置）。
 	gridsMu sync.Mutex
