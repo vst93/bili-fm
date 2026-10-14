@@ -17,6 +17,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -609,8 +610,35 @@ func (c *controller) wirePlayer() {
 		c.app.Win.Update(func() {
 			c.app.Playing = false
 			c.app.Buffering = false
+			// 原版 <audio> 的 error 事件会弹一条 toast（player.tsx 的 onError）。
+			// 此前原生版只写日志：用户看到的就是「放着放着停了」，进度条不动、
+			// 也没有任何提示，只能自己去翻日志。
+			c.app.NotifyType("error", audioErrorMessage(err))
 		})
 	})
+}
+
+// audioErrorMessage 把一次播放失败翻成给用户看的文案，对齐原版 player.tsx
+// onError 里按 MediaError.code 选文案的那条 if 链：
+//
+//	4（MEDIA_ERR_SRC_NOT_SUPPORTED）→ 音频格式不支持或加载失败
+//	3（MEDIA_ERR_DECODE）           → 音频解码失败
+//	2（MEDIA_ERR_NETWORK）          → 网络错误，音频加载失败
+//	其它                            → 音频加载出错
+//
+// 原生版的分类由 internal/media 的错误种类给出（见 media.Kind），不去猜
+// 错误字符串。
+func audioErrorMessage(err error) string {
+	switch media.KindOf(err) {
+	case media.KindNetwork:
+		return "网络错误，音频加载失败"
+	case media.KindDecode:
+		return "音频解码失败"
+	case media.KindUnsupported:
+		return "音频格式不支持或加载失败"
+	default:
+		return "音频加载出错"
+	}
 }
 
 // handleEnded 处理自然播完（主线程）。
@@ -2028,9 +2056,18 @@ func (c *controller) startCurrent() {
 			return
 		}
 		if err := c.mp.Play(u.URL, audioHeaders); err != nil {
+			// 起播被更新的起播取代不是失败：弹「起播失败」是误报，而且会把
+			// 新那一次正在进行的缓冲状态抹掉。
+			if errors.Is(err, media.ErrSuperseded) {
+				log.Printf("起播被取代，忽略: %v", err)
+				return
+			}
+			log.Printf("起播失败: %v", err)
 			c.app.Win.Update(func() {
 				c.app.Buffering = false
-				c.app.NotifyType("error", "起播失败："+err.Error())
+				// 文案对齐原版 <audio> 的分类（此前直接把 Go 的错误串贴给用户：
+				// 「起播失败：media: 上游返回 403」）。
+				c.app.NotifyType("error", audioErrorMessage(err))
 			})
 			return
 		}

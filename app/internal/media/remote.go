@@ -55,7 +55,7 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 	req.Header.Set("Range", "bytes=0-0")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, WrapKind(KindNetwork, err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -69,7 +69,7 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 			}
 		}
 		if f.size < 0 {
-			return nil, errors.New("media: 上游 Range 响应缺少总长度")
+			return nil, WrapKind(KindNetwork, errors.New("media: 上游 Range 响应缺少总长度"))
 		}
 	case http.StatusOK:
 		// 上游不支持 Range：只能顺序读，长度取 Content-Length。
@@ -78,7 +78,8 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 		}
 		f.noRange = true
 	default:
-		return nil, fmt.Errorf("media: 上游返回 %d", resp.StatusCode)
+		// 最常见的一类：CDN 给了 403/404（链接过期、需要 Referer）。
+		return nil, WrapKind(KindNetwork, fmt.Errorf("media: 上游返回 %d", resp.StatusCode))
 	}
 	return f, nil
 }
@@ -166,15 +167,15 @@ func (f *remoteFile) fillLocked() error {
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return err
+		return WrapKind(KindNetwork, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("media: 取块失败，上游返回 %d", resp.StatusCode)
+		return WrapKind(KindNetwork, fmt.Errorf("media: 取块失败，上游返回 %d", resp.StatusCode))
 	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return WrapKind(KindNetwork, err)
 	}
 	f.buf, f.start = data, f.pos
 	if end := f.start + int64(len(data)); end > f.readHigh.Load() {

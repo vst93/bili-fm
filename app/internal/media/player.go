@@ -89,7 +89,7 @@ func (p *Player) Play(url string, headers map[string]string) error {
 		p.mu.Unlock()
 		pipe.close()
 		p.mu.Lock()
-		return errSuperseded
+		return ErrSuperseded
 	}
 	// 安装前先关掉上一个（并发的起播可能在这之前装上了自己的）。
 	if p.op != nil {
@@ -118,9 +118,6 @@ func (p *Player) Play(url string, headers map[string]string) error {
 	return nil
 }
 
-// errSuperseded 表示这次起播被更新的起播取代了（调用方通常忽略它）。
-var errSuperseded = errors.New("media: 起播已被新的请求取代")
-
 // ensureContext 保证有一个 oto 上下文，返回输出采样率。
 //
 // oto 明确不支持创建多个 context，所以上下文只在第一次播放时按当时流的
@@ -133,7 +130,7 @@ func (p *Player) ensureContext(rate, channels int) (int, error) {
 	p.mu.Unlock()
 	if have {
 		if channels != ctxCh {
-			return 0, fmt.Errorf("media: 声道数从 %d 变成 %d，暂不支持", ctxCh, channels)
+			return 0, WrapKind(KindUnsupported, fmt.Errorf("media: 声道数从 %d 变成 %d，暂不支持", ctxCh, channels))
 		}
 		return ctxRate, nil
 	}
@@ -147,7 +144,7 @@ func (p *Player) ensureContext(rate, channels int) (int, error) {
 		BufferSize: 150 * time.Millisecond,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("media: 打开音频输出失败: %w", err)
+		return 0, WrapKind(KindOutput, fmt.Errorf("media: 打开音频输出失败: %w", err))
 	}
 	<-ready
 	p.mu.Lock()
@@ -402,12 +399,12 @@ type pipeline struct {
 func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure func(rate, ch int) (int, error)) (*pipeline, error) {
 	rd, err := m4a.NewReader(rf)
 	if err != nil {
-		return nil, fmt.Errorf("media: 解析 MP4 失败: %w", err)
+		return nil, WrapKind(KindUnsupported, fmt.Errorf("media: 解析 MP4 失败: %w", err))
 	}
 	info := rd.Info()
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(info.ASC))
 	if err != nil {
-		return nil, fmt.Errorf("media: 打开 AAC 解码器失败: %w", err)
+		return nil, WrapKind(KindDecode, fmt.Errorf("media: 打开 AAC 解码器失败: %w", err))
 	}
 	rate, err := ensure(info.SampleRate, info.Channels)
 	if err != nil {
@@ -459,7 +456,9 @@ func (p *pipeline) pump() {
 		chunk, ended, err := p.produce()
 		if err != nil {
 			p.mu.Lock()
-			p.err, p.eof = err, true
+			// 没带类别的都当解码失败：网络类的错误在 remote.go 里已带
+			// KindNetwork（WrapKind 会保留根因，不会被这里盖掉）。
+			p.err, p.eof = WrapKind(KindDecode, err), true
 			p.mu.Unlock()
 			return
 		}
@@ -608,7 +607,7 @@ func (p *pipeline) seek(seconds float64) error {
 	}
 	rd, err := m4a.NewReader(p.rf)
 	if err != nil {
-		return fmt.Errorf("media: 重新解析失败: %w", err)
+		return WrapKind(KindUnsupported, fmt.Errorf("media: 重新解析失败: %w", err))
 	}
 	// 直接把游标定位到目标帧（库按 sample table 算出字节偏移，
 	// 只发几个 Range 请求）——之前是逐帧 ReadFrame 跳过，跳一小时
@@ -620,7 +619,7 @@ func (p *pipeline) seek(seconds float64) error {
 	}
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(p.info.ASC))
 	if err != nil {
-		return fmt.Errorf("media: 重新打开解码器失败: %w", err)
+		return WrapKind(KindDecode, fmt.Errorf("media: 重新打开解码器失败: %w", err))
 	}
 
 	p.rd, p.dec = rd, dec

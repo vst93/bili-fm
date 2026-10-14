@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
@@ -831,4 +832,100 @@ func TestRetainCommentsFirstPageReplaces(t *testing.T) {
 	if got := retainComments(old, nil, 1, maxComments); got != nil {
 		t.Errorf("第一页为空应得 nil，got %d 条", len(got))
 	}
+}
+
+// TestAudioErrorMessage 钉住播放失败文案到原版 player.tsx onError 的映射。
+//
+// 原版是 HTML <audio> 的 error 事件按 MediaError.code 选文案：
+//
+//	4 SRC_NOT_SUPPORTED → 音频格式不支持或加载失败
+//	3 DECODE            → 音频解码失败
+//	2 NETWORK           → 网络错误，音频加载失败
+//	其它                → 音频加载出错
+//
+// 原生版没有这套码，等价分类由 internal/media 的错误种类给出。
+func TestAudioErrorMessage(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"网络", media.WrapKind(media.KindNetwork, errors.New("media: 上游返回 403")), "网络错误，音频加载失败"},
+		{"解码", media.WrapKind(media.KindDecode, errors.New("media: 打开 AAC 解码器失败")), "音频解码失败"},
+		{"格式", media.WrapKind(media.KindUnsupported, errors.New("media: 解析 MP4 失败")), "音频格式不支持或加载失败"},
+		{"输出设备", media.WrapKind(media.KindOutput, errors.New("media: 打开音频输出失败")), "音频加载出错"},
+		{"没归类", errors.New("boom"), "音频加载出错"},
+		{"nil", nil, "音频加载出错"},
+		// 根因优先：解码器建不起来，但真因是一次网络失败。
+		{"根因网络", media.WrapKind(media.KindDecode,
+			fmt.Errorf("media: 打开 AAC 解码器失败: %w",
+				media.WrapKind(media.KindNetwork, errors.New("media: 取块失败，上游返回 500")))),
+			"网络错误，音频加载失败"},
+	}
+	for _, c := range cases {
+		if got := audioErrorMessage(c.err); got != c.want {
+			t.Errorf("%s: audioErrorMessage = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestAudioErrorReportingWired 是上一条 + internal/media 类别测试的接线反证。
+//
+// 纯函数只能证明「类别对了、文案对了」；这两条路径都要真的起一个音频设备才会
+// 走到，无头测试跑不动，所以退一步做源码反证 —— 之前原生版这里运行中出错是
+// **完全静默**的：只 log.Printf，用户看到的就是「放着放着停了」，没有任何提示。
+func TestAudioErrorReportingWired(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+
+	// ① 运行中出错（wirePlayer 的 OnError 回调）：块内必须有分类文案的 toast。
+	onErr := sourceBlock(t, src, "c.mp.OnError(func(err error) {")
+	if !strings.Contains(onErr, `NotifyType("error", audioErrorMessage(err))`) {
+		t.Errorf("OnError 块内没有 audioErrorMessage 的 toast（运行中出错会是静默的）：\n%s", onErr)
+	}
+
+	// ② 起播失败：同样走分类文案，而不是把 Go 的错误串直接贴给用户。
+	play := sourceBlock(t, src, "if err := c.mp.Play(u.URL, audioHeaders); err != nil {")
+	if !strings.Contains(play, `NotifyType("error", audioErrorMessage(err))`) {
+		t.Errorf("起播失败没有走 audioErrorMessage：\n%s", play)
+	}
+	if strings.Contains(play, "err.Error()") {
+		t.Error("起播失败仍在直接贴 Go 的错误串（原版是按类别给文案）")
+	}
+	// ③「起播被更新的起播取代」不是失败，必须整条忽略（既不弹提示，也不动
+	// 界面状态，否则会把新那次正在进行的起播标成失败）。
+	if !strings.Contains(play, "errors.Is(err, media.ErrSuperseded)") {
+		t.Error("起播失败没有区分 ErrSuperseded（快速切歌会误报「起播失败」）")
+	}
+	if i, j := strings.Index(play, "errors.Is(err, media.ErrSuperseded)"),
+		strings.Index(play, "audioErrorMessage(err)"); i >= 0 && j >= 0 && i > j {
+		t.Error("ErrSuperseded 的判定必须在弹提示之前")
+	}
+}
+
+// sourceBlock 从 src 里 needles 命中处开始，抓出到配对大括号为止的那一段源码，
+// 供「某回调块里有没有调 X」这种接线反证用。
+func sourceBlock(t *testing.T, src []byte, needle string) string {
+	t.Helper()
+	i := bytes.Index(src, []byte(needle))
+	if i < 0 {
+		t.Fatalf("main.go 里找不到 %q", needle)
+	}
+	s := src[i:]
+	depth := 0
+	for j, c := range s {
+		switch c {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return string(s[:j+1])
+			}
+		}
+	}
+	t.Fatalf("%q 之后的大括号没有配平", needle)
+	return ""
 }
