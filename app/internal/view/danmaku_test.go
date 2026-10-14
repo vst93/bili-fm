@@ -512,3 +512,92 @@ func TestDanmakuListResetsOnDataChange(t *testing.T) {
 		t.Fatalf("重置后应记住新的来源 cid：%d", a.danmakuCid)
 	}
 }
+
+// bandAvg 采样一帧里某矩形下方 dyOff 起、宽 2px 的水平带的平均亮度
+// （R+G+B 均值）。带 x 范围收窄 2px 避开边缘。
+func bandAvg(img *image.RGBA, r ui.Rect, dyOff int) float64 {
+	y := int(r.Y+r.H) + dyOff
+	if y < 0 || y >= img.Rect.Dy() {
+		return -1
+	}
+	sum, n := 0, 0
+	for x := int(r.X) + 2; x < int(r.X+r.W)-2 && x < img.Rect.Dx(); x++ {
+		i := img.PixOffset(x, y)
+		sum += int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
+		n += 3
+	}
+	if n == 0 {
+		return -1
+	}
+	return float64(sum) / float64(n)
+}
+
+// TestDanmakuMessageTextShadow 钉住弹幕文字的白色柔光阴影（原版
+// .danmaku-message-text 的 `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。
+//
+// 框架没有文字阴影 API：白层是一块文字行盒大小的白 .68、Absolute 垫在
+// 原文字下方 1px（先声明画在下层），原色文字 Absolute 盖回来。白层只在
+// 文字行盒区域（右缘让开 ×N），文字下缘外露出 1~2px 的白晕：该行亮度
+// ≈252（白 .68 over chip 底 247）。此前完全没有这层，文字下缘就是
+// chip 底 247。把白层的 Box 删掉，这条即变红。
+func TestDanmakuMessageTextShadow(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}}
+	a.Drawer = DrawerDanmaku
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame()
+
+	r, ok := tst.Find("测试弹幕文字")
+	if !ok {
+		t.Fatal("渲染帧里找不到弹幕文字")
+	}
+	img := tst.Image()
+	// 白层 = 文字行盒下移 1px：文字 ink 底缘（r.Y+r.H）下方 0..1px
+	// 仍在白层内（行盒底 +1px 偏移，白层底 = r.Y+r.H+1）。
+	below0 := bandAvg(img, r, 0)
+	below1 := bandAvg(img, r, 1)
+	t.Logf("文字下缘带亮度: dy0=%.1f dy1=%.1f", below0, below1)
+	// 白层 .68 白 over chip 底 ≈252；无白层时 chip 底 ≈247。
+	if below0 < 251 || below1 < 251 {
+		t.Errorf("文字下缘白晕缺失：dy0=%.1f dy1=%.1f，应 >251（白 .68 over chip 底）", below0, below1)
+	}
+	// 白层底缘之外（dy=2）应回到 chip 底 ≈247。
+	if below2 := bandAvg(img, r, 2); below2 > 250 {
+		t.Errorf("dy=2 处亮度 %.1f 仍偏亮：白层覆盖超出行盒区域", below2)
+	}
+}
+
+// TestDanmakuRepeatCountNotFogged 钉住有 ×N 胶囊时白层不盖住胶囊：
+// 白层右缘让开 gap 5 + 胶囊 34px，胶囊保持清晰（蓝字 + 浅蓝底），
+// 不被白 .68 雾罩。反证：把白层 Box 的 Right 改成 0（覆盖到胶囊区），
+// 胶囊区域亮度会被抬到 ≈252。
+func TestDanmakuRepeatCountNotFogged(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}, {Time: 0.5, Text: "测试弹幕文字"}}
+	a.Drawer = DrawerDanmaku
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame()
+
+	if _, ok := tst.Find("测试弹幕文字"); !ok {
+		t.Fatal("渲染帧里找不到弹幕文字")
+	}
+	rr, ok := tst.Find("×2")
+	if !ok {
+		t.Fatal("渲染帧里找不到 ×2 胶囊")
+	}
+	img := tst.Image()
+	// 胶囊底色 rgba(224,242,254,.7) over chip 底，中心区域亮度明显低于
+	// 白层的 ≈252（胶囊底色偏蓝灰，G/B 通道高但 R 通道低）。
+	cx := int(rr.X + rr.W/2)
+	cy := int(rr.Y + rr.H/2)
+	i := img.PixOffset(cx, cy)
+	cr, cg, cb := int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])
+	t.Logf("胶囊中心像素: (%d,%d,%d)", cr, cg, cb)
+	// 白层 .68 白 over chip 底 = 252 中性白；胶囊底色偏蓝（R 通道低）。
+	// 若白层盖住胶囊，中心像素会被抬成 ≈252 中性白。
+	if cr > 235 && cg > 235 && cb > 235 {
+		t.Errorf("胶囊中心像素 (%d,%d,%d) 接近中性白 252：白层盖住了 ×N 胶囊", cr, cg, cb)
+	}
+}
