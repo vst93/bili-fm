@@ -826,6 +826,14 @@ func icon(shapes string) *ui.SVG {
 	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">` + shapes + `</svg>`))
 }
 
+// iconSolid 同 icon，但形状是**实心**的（对应 icon-park 的 filled 主题：
+// 路径整块填成 currentColor、不描边）。原版只有迷你窗的窗口置顶键会在置顶时
+// 换成 filled 变体（见 iconPinFilled）。fill / stroke 逐个形状写，不依赖根元素
+// 属性继承。
+func iconSolid(shapes string) *ui.SVG {
+	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">` + shapes + `</svg>`))
+}
+
 var (
 	// 播放/暂停/下一首：icon-park 的 PlayOne / Pause / GoEnd。
 	iconPlay  = icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`)
@@ -874,6 +882,11 @@ var (
 	// 迷你模式的两个窗口控制：还原大窗 / 置顶。
 	iconRestore = icon(`<rect x="2.2" y="2.2" width="8" height="8" rx="1.4"/><rect x="5.8" y="5.8" width="8" height="8" rx="1.4"/>`)
 	iconPin     = icon(`<path d="M6.2 1.8h3.6l-.7 3.6 2.5 2.5H4.4l2.5-2.5z"/><path d="M8 7.9v6.3"/>`)
+	// iconPinFilled 是同一枚图钉的实心变体（原版 <Pushpin theme="filled">）：
+	// 轮廓与 iconPin 一致，图钉头与针杆整块填充（针杆按轮廓宽度做成 1.7 宽的圆角矩形）。
+	iconPinFilled = iconSolid(
+		`<path fill="currentColor" stroke="none" d="M6.2 1.8h3.6l-.7 3.6 2.5 2.5H4.4l2.5-2.5z"/>` +
+			`<rect fill="currentColor" stroke="none" x="7.15" y="7.9" width="1.7" height="6.3" rx="0.85"/>`)
 	// 标题栏的「切换到迷你模式」（原版 #switch-window-mode 用的 ZoomInternal）。
 	iconMini = icon(`<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><rect x="8" y="8" width="5" height="4" rx="1"/>`)
 	// 抽屉表头的刷新键。

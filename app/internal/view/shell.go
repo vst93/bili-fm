@@ -144,8 +144,7 @@ func (a *App) titleBar(c *ui.Context) {
 				bg, ink, opacity, highlight := titleBarButtonStyle(t, false, b.Hovered())
 				b.Background(bg).Opacity(opacity)
 				if highlight {
-					b.InsetShadow(0, 1, 1, 0, t.Highlight).
-						Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
+					titleBarBtnHighlight(b, false, b.Hovered())
 				}
 				// 原版 .app-title-bar button:hover 的左上角径向聚光（按下换居中光）。
 				if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {

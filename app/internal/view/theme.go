@@ -362,6 +362,33 @@ func titleBarButtonStyle(t Theme, active, hovered bool) (bg, ink ui.Color, opaci
 	return ui.Transparent, t.Muted, 0.72, false
 }
 
+// titleBarBtnHighlightFor 解析标题栏图标键 / 迷你窗窗口控制键的高光阴影。
+//
+// 原版有两条互斥的路径：
+//
+//	.app-title-bar button::after / .mini-window-controls button::after / #switch-window-mode::after
+//	    （默认 opacity 0，悬停时 opacity 0→1）
+//	    inset 0 1px 1px --glass-highlight / inset 0 -1px 1px 墨 .03 / 0 2px 10px 墨 .045
+//	body.mini-mode .mini-window-controls button[aria-pressed="true"]:not(:hover):not(:active):not(:focus-visible)
+//	    box-shadow: inset 0 1px 1px --glass-highlight   ← 直接挂在按钮上、只有一层
+//
+// 所以「置顶且鼠标不在键上」是单层内高光（此时 ::after 仍是 opacity 0），
+// 悬停才展开三条（:hover 只改 ::after 的 opacity，而 :not(:hover) 那条直接阴影
+// 同时失效）。三条那组与 .nav-icon-btn::after 逐字相同，直接复用
+// navHoverHighlightSpecs，不重抄一份。
+func titleBarBtnHighlightFor(active, hovered bool) hoverHighlight {
+	if active && !hovered {
+		return hoverHighlight{Inset: []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}}}
+	}
+	return navHoverHighlightSpecs()
+}
+
+// titleBarBtnHighlight 把上面那组阴影铺到按钮上。var 便于无头测试换成 no-op
+// 做反证（同 navPressShadow）。
+var titleBarBtnHighlight = func(b ui.Element, active, hovered bool) ui.Element {
+	return applyHighlight(b, titleBarBtnHighlightFor(active, hovered))
+}
+
 // titleBarReveal 是标题栏的 hover-to-reveal 两态（原版 .app-title-bar 的
 // `:hover` / `:focus-within`），返回四层的不透明度：
 //

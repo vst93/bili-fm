@@ -94,7 +94,7 @@ func (a *App) MiniShell(c *ui.Context) {
 					}
 				})
 				a.miniControl(c, "mini-pin", pick(a.Pinned, "取消窗口置顶", "窗口置顶"),
-					iconPin, a.Pinned, func() {
+					miniPinIcon(a.Pinned), a.Pinned, func() {
 						if a.Act.TogglePin != nil {
 							a.Act.TogglePin()
 						}
@@ -291,6 +291,18 @@ func miniPlayStyle(t Theme, hovered bool) (fill, border, ink ui.Color) {
 	return ui.Hex("#bae6fd").Alpha(0.35), ui.Hex("#0284c7").Alpha(0.20), ui.Hex("#0284c7")
 }
 
+// miniPinIcon 返回迷你窗「窗口置顶」键的图标。原版是
+// `<Pushpin theme={isPinned ? "filled" : "outline"}>`：置顶时换成 icon-park 的
+// **实心**变体（图钉头整块填充 + 实心针杆），未置顶才是描边的图钉。此前原生版
+// 两态共用同一枚描边图标，置顶只靠 aria-pressed 的蓝图标 / 白 .38 底区分；
+// 形状这层差异一直没画。声明成 var 便于无头测试换桩做反证（同 navIconPose）。
+var miniPinIcon = func(pinned bool) *ui.SVG {
+	if pinned {
+		return iconPinFilled
+	}
+	return iconPin
+}
+
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标
 // （原版 .mini-window-controls 里的 .app-title-bar-btn + size={16}；
 // 两颗纵向 gap 4 → 30+4+30 = 64，正好与封面同高）。
@@ -303,8 +315,7 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active b
 	bg, ink, opacity, highlight := titleBarButtonStyle(t, active, b.Hovered())
 	b.Background(bg).Opacity(opacity)
 	if highlight {
-		b.InsetShadow(0, 1, 1, 0, t.Highlight).
-			Shadow(0, 2, 10, 0, shadowInk.Alpha(0.045))
+		titleBarBtnHighlight(b, active, b.Hovered())
 	}
 	// 原版 .mini-window-controls button:hover 的左上角径向聚光（按下换居中光）。
 	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
