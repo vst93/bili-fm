@@ -2064,10 +2064,18 @@ func (c *controller) startCurrent() {
 		// 换集后第一笔上报要立刻发（不要等 30 秒的节流窗口）。
 		c.reportedKey, c.reportedAt = "", time.Time{}
 
-		// 弹幕与跳过分段：可选增强，失败不影响播放。
+		// 弹幕与跳过分段：可选增强，失败不影响播放。弹幕预取同样置
+		// isLoadingDanmaku —— 若此时用户打开弹幕抽屉，表头刷新键会转圈，
+		// 且 toggleDanmaku 不会重复拉一份。
+		c.app.Win.Update(func() { c.app.DanmakuLoading = true })
 		if d, err := c.bl.GetDanmakuList(int(cid)); err == nil && d != nil {
 			list := toDanmakuList(d.Items)
-			c.app.Win.Update(func() { c.app.Danmaku = list })
+			c.app.Win.Update(func() {
+				c.app.DanmakuLoading = false
+				c.app.Danmaku = list
+			})
+		} else {
+			c.app.Win.Update(func() { c.app.DanmakuLoading = false })
 		}
 		if c.sponsorOn {
 			c.app.Win.Update(func() {
@@ -2271,17 +2279,34 @@ func (c *controller) toggleDanmaku() {
 	if len(a.Danmaku) > 0 {
 		return
 	}
-	if t := a.Current(); t != nil && t.Cid != 0 {
-		go func() {
-			d, err := c.bl.GetDanmakuList(int(t.Cid))
+	t := a.Current()
+	if t == nil || t.Cid == 0 {
+		return
+	}
+	// 已经有一次弹幕拉取在途：连点忽略（原版刷新键 isLoading 期间禁用，
+	// 起播预取与打开抽屉都共用同一个 isLoadingDanmaku）。
+	if danmakuLoadBlocked(a.DanmakuLoading) {
+		return
+	}
+	a.DanmakuLoading = true
+	cid := t.Cid
+	a.Win.Update(func() {})
+	go func() {
+		d, err := c.bl.GetDanmakuList(int(cid))
+		// 不管成败都要清 loading，否则表头刷新键会永远转圈。
+		c.app.Win.Update(func() {
+			c.app.DanmakuLoading = false
 			if err != nil || d == nil {
 				return
 			}
-			list := toDanmakuList(d.Items)
-			c.app.Win.Update(func() { c.app.Danmaku = list })
-		}()
-	}
+			c.app.Danmaku = toDanmakuList(d.Items)
+		})
+	}()
 }
+
+// danmakuLoadBlocked 报告这次弹幕拉取是否该被忽略：已经有一次在途时忽略
+// （原版 isLoadingDanmaku 期间刷新键禁用，实际不会发第二次）。抽成纯函数便于单测。
+func danmakuLoadBlocked(pending bool) bool { return pending }
 
 // maxDanmaku / maxComments 是内存里保留的弹幕/评论条数上限（原版也是这个量级）。
 // 两个列表都走虚拟化 ui.List，每帧成本只跟可见行数有关，所以上限现在约束的是

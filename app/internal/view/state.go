@@ -511,8 +511,12 @@ type App struct {
 
 	// 弹幕/评论抽屉：DanmakuTab 是当前 tab；DanmakuAutoScroll 是自动跟随
 	// 当前播放时间；Reply* 是评论分页状态。
+	//
+	// DanmakuLoading 是弹幕列表的拉取在途标志（原版 isLoadingDanmaku）。
+	// 起播预取弹幕与抽屉里点刷新都置它；表头刷新键据此画 Spinner + 禁用。
 	DanmakuTab        string
 	DanmakuAutoScroll bool
+	DanmakuLoading    bool
 	RepliesLoading    bool
 	RepliesHasMore    bool
 	ReplyPage         int

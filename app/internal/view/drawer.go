@@ -288,14 +288,13 @@ func (a *App) drawerHeader(c *ui.Context) {
 			if a.Drawer == DrawerDanmaku {
 				refreshSize = 18
 			}
-			// 历史抽屉的刷新键文案随 tab 变（原版 aria-label「刷新历史记录」/
-			// 「刷新稍后再看」），且刷新中禁用（原版 isDisabled={isRefreshing}）。
-			label, off := "刷新", false
-			if a.Drawer == "history" {
-				label = historyRefreshLabel(a.HistTab)
-				off = a.list().Loading
-			}
-			a.headerButtonOff(c, "drawer-refresh", label, iconRefresh, refreshSize, ui.Hex("#333333"), off, func() {
+			// 刷新键的形态按抽屉分流（原版两种不同的按钮实现，见
+			// refreshKeyStateFor）：历史抽屉「图标自转」、弹幕/评论抽屉
+			// 「Spinner 替掉图标」，两者的加载期都必须禁用。
+			histLoading := a.Drawer == "history" && a.list().Loading
+			st := refreshKeyStateFor(a.Drawer, a.HistTab,
+				histLoading, a.DanmakuLoading, a.RepliesLoading)
+			a.headerButtonOff(c, "drawer-refresh", st.Label, iconRefresh, refreshSize, ui.Hex("#333333"), st.Spin, st.Spinner, func() {
 				if a.Act.Reload != nil {
 					a.Act.Reload()
 				}
@@ -847,7 +846,7 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 // headerButton 是抽屉表头的图标按钮。原版各按钮的图标尺寸/颜色并不统一：
 // 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
 func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
-	a.headerButtonOff(c, key, label, ic, size, ink, false, fn)
+	a.headerButtonOff(c, key, label, ic, size, ink, false, false, fn)
 }
 
 // drawerHeaderPaint 是抽屉表头小键某一状态解析好的材质（原版
@@ -919,23 +918,75 @@ var drawerHeaderPress = func(b ui.Element) {
 	b.AnimatePose(pose, drawerHeaderPressAnim)
 }
 
-// headerButtonOff 同 headerButton，但可置为禁用（原版部分刷新键在请求中禁用）。
-// off 为真时（只有历史抽屉刷新键会在请求中置真）图标按原版
-// .history-refresh-spinning 800ms/圈 匀速旋转。
-func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, off bool, fn func()) {
+// headerButtonOff 同 headerButton，但可置为加载形态。对应原版抽屉表头里
+// 两种**不同的**按钮实现：
+//
+//	spin=true     historyList 的 <Button isDisabled={isRefreshing}> +
+//	              <Refresh className="history-refresh-spinning">：
+//	              图标 800ms/圈 匀速自转，按钮置灰。
+//	spinner=true  danmakuList 的
+//	              <Button isLoading={isLoadingDanmaku || isLoadingReply}>：
+//	              HeroUI 的 isIconOnly 分支在 isLoading 时**丢掉 children**
+//	              只画 <Spinner>，并且 isDisabled = isDisabledProp || isLoading
+//	              （所以加载中既转圈又点不动）。
+//
+// 两种形态都属 HeroUI <Button>：禁用不透明度是框架 token opacity-disabled
+// （= .5），不是 `.nav-icon-btn:disabled` 的 .34。框架对禁用节点会再乘 .5，
+// 所以这里不写元素不透明度（默认 1 → 绘制 .5）；**不能**沿用 disableNav。
+func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, spin, spinner bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
-	disableNav(b, off)
+	b.Disabled(spin || spinner)
 	drawerHeaderSurface(b, b.Hovered())
 	drawerHeaderPress(b)
 	b.Children(func() {
+		if spinner {
+			// 原版 Spinner size="sm"（HeroUI button.sm → spinner sm），w-5 h-5。
+			// 起个名字给辅助技术（也是无头测试认它的锚点：HeroUI 的 Spinner
+			// 同样带 role=status）。
+			ui.Spinner(c).Size(20, 20).TextColor(ink).Label("加载中")
+			return
+		}
 		icon := ui.Icon(c, ic).Size(size, size).TextColor(ink)
-		if off {
-			icon.Rotate(spinDegrees(off, b.Loop("spin", refreshSpinPeriod, ui.Linear)))
+		if spin {
+			icon.Rotate(spinDegrees(spin, b.Loop("spin", refreshSpinPeriod, ui.Linear)))
 		}
 	})
-	if !off && b.Clicked() {
+	if b.Clicked() {
 		fn()
 	}
+}
+
+// refreshKeyState 是抽屉表头刷新键这一帧的形态（对应原版两种不同的按钮实现，
+// 见 headerButtonOff 的注释）。
+type refreshKeyState struct {
+	// Label 是文案 / tooltip（历史抽屉按 tab 变）。
+	Label string
+	// Spin 为真时图标自转（历史抽屉 .history-refresh-spinning）。
+	Spin bool
+	// Spinner 为真时用 Spinner 替掉图标（弹幕/评论抽屉 HeroUI isLoading）。
+	Spinner bool
+}
+
+// Off 报告刷新键这一帧是否禁用：两种加载形态都禁用（原版 isDisabled /
+// isLoading 都会把按钮置为 disabled）。
+func (s refreshKeyState) Off() bool { return s.Spin || s.Spinner }
+
+// refreshKeyStateFor 按当前抽屉给出刷新键的形态：
+//
+//	history    <Button isDisabled={isRefreshing}> + 图标自转；文案随 tab。
+//	danmaku    <Button isLoading={isLoadingDanmaku || isLoadingReply}>：
+//	           弹幕预取/刷新在途、或评论在途（含滚到底自动翻页）都转圈。
+//	其余抽屉    常态。
+func refreshKeyStateFor(drawer, histTab string, histLoading, danmakuLoading, repliesLoading bool) refreshKeyState {
+	s := refreshKeyState{Label: "刷新"}
+	switch drawer {
+	case "history":
+		s.Label = historyRefreshLabel(histTab)
+		s.Spin = histLoading
+	case DrawerDanmaku:
+		s.Spinner = danmakuLoading || repliesLoading
+	}
+	return s
 }
 
 func (a *App) drawerTitle() string {
