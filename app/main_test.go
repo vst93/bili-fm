@@ -576,6 +576,76 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 	}
 }
 
+// TestToCardsRealZeroPlay 钉住「真实播放量 0」与「字段缺失」不能混同——
+// 原版 viewsMetaField（修复轮 22 的问题 1）：字段存在就照实渲染 0，只有字段
+// 缺失才回退弹幕数。此前 `n > 0` 的判断会把 0 播放的视频顶上弹幕数、挂评论
+// 图标，正是原版专门修掉的混同。
+func TestToCardsRealZeroPlay(t *testing.T) {
+	// stat.view 明确为 0、且有弹幕数：要照实显示 0（播放图标），不回退弹幕。
+	items := []any{map[string]any{
+		"bvid": "BVzero", "title": "零播放", "pic": "p",
+		"stat": map[string]any{"view": float64(0), "danmaku": float64(12345)},
+	}}
+	c := toCards(items)
+	if len(c) != 1 || c[0].Views != "0" {
+		t.Errorf("真实 0 播放应照实渲染 0 = %+v", c)
+	}
+	if len(c) == 1 && c[0].ViewsDanmaku {
+		t.Errorf("真实 0 播放不该标记为弹幕回退 = %+v", c)
+	}
+
+	// 收藏夹：cnt_info.play 为真实 0，同样照实渲染，不回退 cnt_info.danmaku。
+	fav := []any{map[string]any{
+		"bvid": "BVzfav", "title": "收藏零播放", "pic": "p",
+		"upper":    map[string]any{"name": "UP"},
+		"cnt_info": map[string]any{"play": float64(0), "danmaku": float64(999)},
+	}}
+	c = toCards(fav)
+	if len(c) != 1 || c[0].Views != "0" || c[0].ViewsDanmaku {
+		t.Errorf("收藏真实 0 播放 = %+v", c)
+	}
+
+	// 字段整体缺失（连 stat 都没有）才回退弹幕数并挂评论图标。
+	missing := []any{map[string]any{
+		"bvid": "BVmiss", "title": "缺字段", "pic": "p",
+		"danmaku": float64(5000),
+	}}
+	c = toCards(missing)
+	if len(c) != 1 || c[0].Views != "5000" || !c[0].ViewsDanmaku {
+		t.Errorf("字段缺失才回退弹幕 = %+v", c)
+	}
+
+	// stat.danmaku 为真实 0 时也照实渲染 0（不被当成缺失而落到外层 danmaku）。
+	zeroDan := []any{map[string]any{
+		"bvid": "BVzd", "title": "零弹幕", "pic": "p",
+		"danmaku": float64(7777),
+		"stat":    map[string]any{"danmaku": float64(0)},
+	}}
+	c = toCards(zeroDan)
+	if len(c) != 1 || c[0].Views != "0" || !c[0].ViewsDanmaku {
+		t.Errorf("stat.danmaku 真实 0 = %+v", c)
+	}
+}
+
+// TestPickCountPresence 钉住 pickCount 的存在性语义（真实 0 ≠ 缺失）。
+func TestPickCountPresence(t *testing.T) {
+	if n, ok := pickCount(map[string]any{"view": float64(0)}, "view"); !ok || n != 0 {
+		t.Errorf("pickCount(0) = (%d,%v), want (0,true)", n, ok)
+	}
+	if _, ok := pickCount(map[string]any{}, "view"); ok {
+		t.Errorf("pickCount(缺字段) 应为 false")
+	}
+	if _, ok := pickCount(map[string]any{"view": ""}, "view"); ok {
+		t.Errorf("pickCount(空串) 应为 false")
+	}
+	if _, ok := pickCount(map[string]any{"view": "x"}, "view"); ok {
+		t.Errorf("pickCount(不可解析串) 应为 false")
+	}
+	if n, ok := pickCount(map[string]any{"view": "42"}, "view"); !ok || n != 42 {
+		t.Errorf("pickCount(\"42\") = (%d,%v), want (42,true)", n, ok)
+	}
+}
+
 func TestRelTimeLadder(t *testing.T) {
 	// 对齐原版 dateFormLadder 的「最具体形态」。
 	now := time.Now()

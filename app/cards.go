@@ -45,6 +45,36 @@ func pickInt(m map[string]any, keys ...string) int64 {
 	return 0
 }
 
+// pickCount 与 pickInt 类似，但把「字段缺失」与「真实 0」区分开：命中时连值
+// 一起返回布尔真，一个都没命中才返回假。
+//
+// 原版 viewsMetaField（修复轮 22 的问题 1）靠这个区分：字段存在就照实渲染
+// （真实 0 也显示 0），只有字段缺失才回退弹幕数。用 `n > 0` 判断会把真实 0
+// 也当成缺失。空串 / 无法解析成数字的串都按缺失处理（原版 toFiniteOrNull 对
+// "" / NaN 返回 null）。
+func pickCount(m map[string]any, keys ...string) (int64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	for _, k := range keys {
+		switch x := m[k].(type) {
+		case float64:
+			return int64(x), true
+		case int64:
+			return x, true
+		case string:
+			if strings.TrimSpace(x) == "" {
+				continue
+			}
+			var n int64
+			if _, err := fmt.Sscanf(x, "%d", &n); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func subMap(m map[string]any, key string) map[string]any {
 	if s, ok := m[key].(map[string]any); ok {
 		return s
@@ -82,19 +112,21 @@ func toCards(items []any) []view.Card {
 				up = pickStr(o, "name")
 			}
 		}
+		// 播放量：字段**存在**就照实渲染（真实 0 也显示 0），只有字段缺失才
+		// 回退弹幕数——原版 viewsMetaField（修复轮 22 的问题 1）。此前用 `n > 0`
+		// 判断，把「真实 0」也当成缺失，于是有 0 播放的视频会顶着弹幕数挂评论
+		// 图标（正是原版专门修掉的混同）。
 		views := ""
-		if s := subMap(m, "stat"); s != nil {
-			if n := pickInt(s, "view"); n > 0 {
-				views = fmtViews(n)
-			}
+		if n, ok := pickCount(subMap(m, "stat"), "view"); ok {
+			views = fmtViews(n)
 		}
-		if s := subMap(m, "cnt_info"); s != nil && views == "" {
-			if n := pickInt(s, "play"); n > 0 {
+		if views == "" {
+			if n, ok := pickCount(subMap(m, "cnt_info"), "play"); ok {
 				views = fmtViews(n)
 			}
 		}
 		if views == "" {
-			if n := pickInt(m, "play", "view"); n > 0 {
+			if n, ok := pickCount(m, "play", "view"); ok {
 				views = fmtViews(n)
 			}
 		}
@@ -108,21 +140,17 @@ func toCards(items []any) []view.Card {
 		if p := pickInt(m, "progress"); p != 0 {
 			extra = progressLabel(p, dur)
 		}
-		// 播放量缺了用弹幕数顶上（原版 viewsMetaField 的回退）；这时 meta 行的
-		// 前导图标要换成评论图标，否则「弹幕数挂播放图标」语义错位。
+		// 播放量缺失时才用弹幕数顶上（原版 viewsMetaField 的回退）；这时 meta
+		// 行的前导图标要换成评论图标，否则「弹幕数挂播放图标」语义错位。
+		// 回退取值的来源顺序与上面播放量的取值一致（stat → cnt_info → 顶层），
+		// 原版每个列表的 viewsMetaField 也是从**同一个来源对象**同时取 play
+		// 与 danmaku。
 		viewsFromDanmaku := false
 		if views == "" {
-			if d := pickInt(m, "danmaku"); d > 0 {
-				views, viewsFromDanmaku = fmtViews(d), true
-			}
-			if st := subMap(m, "stat"); st != nil && views == "" {
-				if d := pickInt(st, "danmaku", "reply"); d > 0 {
+			for _, src := range []map[string]any{subMap(m, "stat"), subMap(m, "cnt_info"), m} {
+				if d, ok := pickCount(src, "danmaku", "reply"); ok {
 					views, viewsFromDanmaku = fmtViews(d), true
-				}
-			}
-			if ci := subMap(m, "cnt_info"); ci != nil && views == "" {
-				if d := pickInt(ci, "danmaku"); d > 0 {
-					views, viewsFromDanmaku = fmtViews(d), true
+					break
 				}
 			}
 		}
@@ -224,20 +252,31 @@ func upCards(items []any, withBadge bool) []view.Card {
 			badge = specialBadge(pickStr(subMap(arch, "badge"), "text"))
 		}
 
-		views := ""
+		// 播放量：archive.stat.play 已是格式化好的字符串（如 "69.2万"），字段
+		// 存在就照实取（真实 0 会得到 "0"，也是非空串）。缺失时才回退弹幕数
+		// （原版 feedList / upVideoList 的 viewsMetaField(stat.play, stat.danmaku)），
+		// 并标记 ViewsDanmaku 让 meta 行换评论图标。pickStr 对空串视为未命中，
+		// 所以显式空串也走回退。
+		views, viewsFromDanmaku := "", false
 		if st := subMap(arch, "stat"); st != nil {
 			views = pickStr(st, "play")
+			if views == "" {
+				if d := pickStr(st, "danmaku", "reply"); d != "" {
+					views, viewsFromDanmaku = d, true
+				}
+			}
 		}
 
 		out = append(out, view.Card{
-			Bvid:     bvid,
-			Cover:    cover,
-			Title:    title,
-			Badge:    badge,
-			Duration: pickStr(arch, "duration_text"),
-			Up:       up,
-			Views:    views,
-			Pubdate:  metaDateText(pickStr(author, "pub_time")),
+			Bvid:         bvid,
+			Cover:        cover,
+			Title:        title,
+			Badge:        badge,
+			Duration:     pickStr(arch, "duration_text"),
+			Up:           up,
+			Views:        views,
+			ViewsDanmaku: viewsFromDanmaku,
+			Pubdate:      metaDateText(pickStr(author, "pub_time")),
 			Track: view.Track{
 				Aid:   pickInt(arch, "aid"),
 				Bvid:  bvid,
