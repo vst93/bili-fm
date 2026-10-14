@@ -311,3 +311,83 @@ func TestVideoPageTitleBarMatchesOriginal(t *testing.T) {
 		t.Error("静息规则仍是旧的 opacity .2s 过渡")
 	}
 }
+
+// TestVideoPageStatePillHiddenByDefault 钉住弹窗左下角状态胶囊的显隐契约。
+//
+// 原版视频浮层（playerVideo.tsx）没有这一层：出错时由浮层自身/主窗处理。
+// 原生版的 #state 是「心跳里回传 lastErr」的排障输出，但它此前默认可见、初始
+// 文案「准备中…」，于是弹窗打开后第一次心跳（1s）之前会在画面左下角闪一下
+// 「准备中…」。改为默认 display:none，只在出错时显形：error 监听里立刻打开
+// （否则要等最多 1s 心跳才看得见），每秒心跳兜底。
+func TestVideoPageStatePillHiddenByDefault(t *testing.T) {
+	html := videoPageHTML(t)
+
+	if rule := cssRule(t, html, "#state"); !strings.Contains(rule, "display: none") {
+		t.Error("#state 默认未隐藏：弹窗首帧会闪「准备中…」")
+	}
+	// 占位文案检查用剔注释源码：注释里对旧写法的说明不该算数。
+	code := videoPageCode(t)
+	if strings.Contains(code, "准备中…") {
+		t.Error("仍有初始文案「准备中…」（默认隐藏也不该留占位文案）")
+	}
+
+	// error 监听里必须自己打开显示：否则出错要等到下一次心跳才显形。
+	const errHandler = "addEventListener('error'"
+	i := strings.Index(html, errHandler)
+	if i < 0 {
+		t.Fatal("找不到 error 监听")
+	}
+	blk := html[i:]
+	if j := strings.Index(blk, "});"); j >= 0 {
+		blk = blk[:j]
+	}
+	if !strings.Contains(blk, "state.style.display = 'block'") {
+		t.Error("出错时未立刻显示状态胶囊（只在心跳里设，最多迟 1s）")
+	}
+
+	// 心跳兜底：有错显示、无错隐藏。
+	if !strings.Contains(code, "state.style.display = 'none'") {
+		t.Error("心跳里没有把无错的状态胶囊收起来")
+	}
+}
+
+// TestVideoPagePanelEnterAnimationMatchesOriginal 钉住弹窗的入场动画。
+//
+// 原版浮层的 .player-video-panel（globals.css:5440）入场是：
+//
+//	静息   opacity: 0; transform: scale(1.02);
+//	       transition: transform .28s cubic-bezier(.22,1,.36,1), opacity .28s ease
+//	展开   transform: scale(1); opacity: 1
+//
+// 由 playerVideo.tsx 的双重 requestAnimationFrame 挂 .player-video-open 触发。
+// 原生版此前 #wrap 没有任何过渡，弹窗是硬切出现。
+func TestVideoPagePanelEnterAnimationMatchesOriginal(t *testing.T) {
+	html := videoPageHTML(t)
+
+	base := cssRule(t, html, "#wrap")
+	for _, want := range []string{
+		"opacity: 0",
+		"transform: scale(1.02)",
+		"transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease",
+	} {
+		if !strings.Contains(base, want) {
+			t.Errorf("#wrap 静息规则缺少 %q（原版 .player-video-panel）", want)
+		}
+	}
+
+	open := cssRule(t, html, "#wrap.open")
+	for _, want := range []string{"opacity: 1", "transform: scale(1)"} {
+		if !strings.Contains(open, want) {
+			t.Errorf("#wrap.open 缺少 %q（原版 .player-video-open）", want)
+		}
+	}
+
+	// 双重 rAF 后挂类：只挂一次 rAF 会与首帧样式合并成「无动画」的一次计算。
+	code := videoPageCode(t)
+	if !strings.Contains(code, "requestAnimationFrame(() => requestAnimationFrame(") {
+		t.Error("挂 .open 未用双重 rAF（原版做法）：transition 可能不生效")
+	}
+	if !strings.Contains(code, "classList.add('open')") {
+		t.Error("加载后没有给 #wrap 挂 .open，入场动画不会触发")
+	}
+}

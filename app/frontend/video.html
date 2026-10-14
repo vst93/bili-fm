@@ -6,7 +6,18 @@
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  #wrap { position: absolute; inset: 0; }
+  /* 入场：对齐原版 .player-video-panel（globals.css:5440）的过渡 ——
+     面板从 opacity:0 / scale(1.02) 过渡到 opacity:1 / scale(1)，时长 0.28s
+     （transform 用 cubic-bezier(0.22,1,0.36,1) 缓出、opacity 用 ease）。原版由
+     playerVideo.tsx 的双重 requestAnimationFrame 在挂载后加 .player-video-open
+     触发；原生版同样在页面加载后双重 rAF 给 #wrap 加 .open。此前 #wrap 没有任何
+     过渡，弹窗是硬切出现的。 */
+  #wrap {
+    position: absolute; inset: 0;
+    opacity: 0; transform: scale(1.02);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease;
+  }
+  #wrap.open { opacity: 1; transform: scale(1); }
   /* 原版 .player-video-element 是 `object-fit: contain`：视频按自身比例完整装进
      面板，不足处留黑边。此前原生版没写这一条，`<video>` 的默认 `fill` 会把画面
      拉伸到窗口比例 —— 弹窗固定 960×600（8:5），16:9 的视频会被横向拉宽约 11%
@@ -68,7 +79,12 @@
   }
   #close:hover { background: rgba(15,23,42,.7); transform: scale(1.06); }
   #close:active { transform: scale(.92); }
+  /* 左下角状态胶囊：原版浮层没有这一层，它是原生版「心跳里回传 lastErr」的排障
+     输出。此前默认可见、初始文案「准备中…」，于是弹窗打开后第一次心跳（1s）之前
+     会在画面左下角闪一下「准备中…」。改为默认隐藏，只在出错时显形：error 监听里
+     立刻打开，每秒心跳兜底（有错 block / 无错 none）。 */
   #state {
+    display: none;
     position: absolute; left: 10px; bottom: 10px;
     color: #cbd5e1; font: 11px/1.5 ui-monospace, Consolas, monospace;
     background: rgba(0,0,0,.45); padding: 3px 7px; border-radius: 6px;
@@ -87,7 +103,7 @@
       <path d="M8 40L40 8" stroke="#f1f5f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
   </button>
-  <div id="state">准备中…</div>
+  <div id="state"></div>
 </div>
 <script>
 const q = new URLSearchParams(location.search);
@@ -101,6 +117,13 @@ const muted = q.get('muted') === '1';
 const v = document.getElementById('v');
 const state = document.getElementById('state');
 document.getElementById('title').textContent = title;
+
+// 入场：双重 rAF 后给 #wrap 挂 .open，触发淡入 + 微缩到常态（同原版
+// playerVideo 的双重 requestAnimationFrame 挂 .player-video-open）。分两帧是
+// 为了让首帧先以静息样式落定，第二帧再改类，transition 才会真正跑起来。
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  document.getElementById('wrap').classList.add('open');
+}));
 
 // 顶部拖拽条的唤出热区（原版 playerVideo.tsx 的 syncTitlebarHotzone）：鼠标进入
 // 窗口顶部 48px 才唤回拖拽条，离开热区就交给 CSS 的退场延迟淡出。macOS 上原生
@@ -139,6 +162,7 @@ v.addEventListener('error', () => {
   const e = v.error;
   lastErr = e ? `code=${e.code} ${e.message || ''}` : 'unknown';
   state.innerHTML = '播放失败 <span id="err">' + lastErr + '</span>';
+  state.style.display = 'block'; // 立刻显形，不等 1s 心跳
   call('Video.Log', 'error: ' + lastErr);
 });
 
