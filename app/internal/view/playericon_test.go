@@ -189,7 +189,7 @@ func TestPlayerControlIconsNotOldHandDrawn(t *testing.T) {
 			icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`),
 			iconDanmaku, 20},
 		{"卡片播放量",
-			iconPlay, iconViews, 12},
+			icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`), iconViews, 12},
 		{"点赞",
 			icon(`<path d="M6.4 13.6V7l2.2-4a1.1 1.1 0 0 1 1.9.9l-.4 2.7h2.8a1.2 1.2 0 0 1 1.18 1.42l-.86 4.4a1.6 1.6 0 0 1-1.57 1.3H6.4z"/><path d="M6.4 7H3.9a.9.9 0 0 0-.9.9v5a.9.9 0 0 0 .9.9h2.5"/>`),
 			iconLike, 20},
@@ -294,13 +294,16 @@ func TestPlayerControlIconWiring(t *testing.T) {
 			t.Errorf("%s 没接上 %q（%s）", c.file, c.want, c.why)
 		}
 	}
-	// 卡片 meta 不能再拿 iconPlay 当播放量图标（iconPlay 还留给合集「播放全部」
-	// 与播放列表当前行，但那两处不在这段里）。
+	// 卡片 meta 不能再拿手抄三角当播放量图标（合集「播放全部」与播放列表当前行
+	// 的 Play 已改成逐色 ui.Image，drawer.go 里不应再有 `icon := iconPlay`）。
 	src, err := os.ReadFile("drawer.go")
 	if err != nil {
 		t.Fatalf("读 drawer.go 失败：%v", err)
 	}
 	if bytes.Contains(src, []byte("icon := iconPlay\n")) {
 		t.Error("drawer.go 里仍有 `icon := iconPlay` —— 卡片 meta 的播放量图标应改成 iconViews")
+	}
+	if bytes.Contains(src, []byte("ui.Icon(c, iconPlay)")) {
+		t.Error("drawer.go 里仍有 ui.Icon(c, iconPlay) —— filled 的 Play 应走 ui.Image(c, iconPlayFilled)")
 	}
 }

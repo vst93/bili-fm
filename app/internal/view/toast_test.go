@@ -16,8 +16,8 @@ func TestToastAccent(t *testing.T) {
 		ink  string
 		icon *ui.SVG
 	}{
-		{"success", "#22c55e", iconCheck},
-		{"error", "#f43f5e", iconClose},
+		{"success", "#22c55e", iconCheckOne},
+		{"error", "#f43f5e", iconCloseOne},
 		{"warning", "#f59e0b", iconWarn},
 		{"info", "#0ea5e9", iconInfo},
 		{"", "#0ea5e9", iconInfo},

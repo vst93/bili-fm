@@ -70,11 +70,11 @@ func (a *App) toastViewport(c *ui.Context) {
 func toastAccent(typ string) (ui.Color, *ui.SVG) {
 	switch typ {
 	case "error":
-		return ui.Hex("#f43f5e"), iconClose
+		return ui.Hex("#f43f5e"), iconCloseOne
 	case "warning":
 		return ui.Hex("#f59e0b"), iconWarn
 	case "success":
-		return ui.Hex("#22c55e"), iconCheck
+		return ui.Hex("#22c55e"), iconCheckOne
 	default:
 		return ui.Hex("#0ea5e9"), iconInfo
 	}

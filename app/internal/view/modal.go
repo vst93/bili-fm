@@ -133,7 +133,7 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	applyShadows(close, p.Outer)
 	close.AnimatePose(ui.Pose{Scale: p.Scale}, ui.Snappy)
 	close.Children(func() {
-		ui.Icon(c, iconClose).Size(loginCloseIconSize, loginCloseIconSize).
+		ui.Icon(c, iconCloseSmall).Size(loginCloseIconSize, loginCloseIconSize).
 			TextColor(ui.Hex("#475569"))
 	})
 	if close.Clicked() {
@@ -296,10 +296,10 @@ type dialogTypeStyle struct {
 func dialogTypeStyleFor(typ string) dialogTypeStyle {
 	switch typ {
 	case "success":
-		return dialogTypeStyle{Icon: iconCheck, Ink: ui.Hex("#22c55e"),
+		return dialogTypeStyle{Icon: iconCheckOne, Ink: ui.Hex("#22c55e"),
 			Tint: ui.Hex("#22c55e").Alpha(0.10)}
 	case "error":
-		return dialogTypeStyle{Icon: iconClose, Ink: ui.Hex("#ef4444"),
+		return dialogTypeStyle{Icon: iconCloseOne, Ink: ui.Hex("#ef4444"),
 			Tint: ui.Hex("#ef4444").Alpha(0.10)}
 	case "warning":
 		return dialogTypeStyle{Icon: iconWarn, Ink: ui.Hex("#f59e0b"),

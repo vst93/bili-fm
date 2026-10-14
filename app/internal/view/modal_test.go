@@ -20,8 +20,8 @@ func TestDialogTypeStyle(t *testing.T) {
 		tint    float32
 		spinner bool
 	}{
-		{"success", iconCheck, "#22c55e", 0.10, false},
-		{"error", iconClose, "#ef4444", 0.10, false},
+		{"success", iconCheckOne, "#22c55e", 0.10, false},
+		{"error", iconCloseOne, "#ef4444", 0.10, false},
 		{"warning", iconWarn, "#f59e0b", 0.10, false},
 		{"question", iconRefresh, "#0ea5e9", 0.10, false},
 		{"loading", nil, "#0ea5e9", 0.06, true},

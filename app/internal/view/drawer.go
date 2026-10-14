@@ -413,7 +413,9 @@ func (a *App) drawerTabs(c *ui.Context) {
 						// 原版 isLoading 时 HeroUI 画 Spinner 替代 <Play />。
 						ui.Spinner(c).Size(16, 16).TextColor(ui.Hex("#2563eb"))
 					} else {
-						ui.Icon(c, iconPlay).Size(16, 16).TextColor(ui.Hex("#666666"))
+						// 原版 <Play fill="#666" size={16} theme="filled" />：灰色圆盘
+						// + 挖白三角（逐色 Image）。
+						ui.Image(c, iconPlayFilled).Size(16, 16).TextColor(ui.Hex("#666666"))
 					}
 					ui.Text(c, "播放全部").FontSize(12).TextColor(ui.Hex("#475569"))
 				})
@@ -575,7 +577,7 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconMask).Size(15, 15).TextColor(ink)
+			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(ink)
 			// .history-incognito-label：12px / 650 / line-height 1；≤520 时不画
 			//（原版 display:none，min-width 同步收到 66）。
 			if showLabel {

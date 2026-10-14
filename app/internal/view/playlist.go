@@ -378,7 +378,9 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				if current {
-					ui.Icon(c, iconPlay).Size(12, 12).TextColor(ui.Hex("#3b82f6"))
+					// 原版 <Play fill="#3b82f6" size={12} theme="filled" />：蓝色圆盘
+					// + 挖白三角，两层色，走逐色 Image。
+					ui.Image(c, iconPlayFilled).Size(12, 12).TextColor(ui.Hex("#3b82f6"))
 				}
 				// 原版首行：常态 .text-gray-800（#1e293b/600），当前项
 				// .playlist-current p:first-of-type（#064e7a/800）。
