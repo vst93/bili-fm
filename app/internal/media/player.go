@@ -581,6 +581,47 @@ func (p *pipeline) setEQ(on bool) {
 	p.eq.SetEnabled(on)
 }
 
+// seekFrameSamples 估算每帧的源采样数，仅用于 SeekTime 不可用时的回退定位。
+// 用**媒体总采样数**（presented Duration + EncoderDelay priming）除以帧数：
+// 只除以 presented 会在有 edit list 时偏小，按平均帧长折算帧号就会系统性偏移。
+// AAC-LC 帧长固定 1024，这里只是兜底。
+func seekFrameSamples(info m4a.Info) int {
+	frameSamples := 1024
+	if info.FrameCount > 0 {
+		mediaSamples := info.Duration.Seconds()*float64(info.SampleRate) + float64(info.EncoderDelay)
+		frameSamples = int(math.Round(mediaSamples / float64(info.FrameCount)))
+	}
+	return frameSamples
+}
+
+// seekFrame 选 seek 目标所在的源帧下标。
+//
+// 优先用 go-m4a 的 SeekTime：它按 presentation time 在 stts 的**精确帧长**上
+// 定位（不是平均帧长），并且感知 edit list 的 priming —— UI 的 0 秒对应媒体里
+// EncoderDelay 之后的位置，所以有 priming 时目标帧会比「秒 × 采样率 / 帧长」
+// 晚一帧，正好落在目标真正所在的那一帧。SeekTime 成功时它内部已经把读游标
+// 移到该帧，调用方不用再 SeekSample；ok=false 表示 SeekTime 不可用（无 timing /
+// edit list 形状不规整 / 时间越界），frame 是按平均帧长估算的，调用方需自行
+// SeekSample 定位。
+func seekFrame(rd *m4a.Reader, seconds float64, frameSamples int) (frame int, ok bool) {
+	if sample, _, err := rd.SeekTime(time.Duration(seconds * float64(time.Second))); err == nil {
+		return sample, true
+	}
+	return int(seconds * float64(rd.Info().SampleRate) / float64(frameSamples)), false
+}
+
+// seekStartSample 返回 WSOLA 的起始 SourcePosition，单位是**呈现采样**。
+//
+// WSOLA 的 skip 只是「输入流第 0 个采样对应的绝对位置」这个坐标系原点，改它
+// 不会丢/补任何音频（produce 永远从输入的第 0 个采样开始合成），只影响
+// SourcePosition 报出来的进度。SourcePosition 除以采样率就是播放进度，而原版
+// （HTMLAudio 的 currentTime）报的是呈现时间，所以这里用 seconds × 采样率、
+// **不加** EncoderDelay —— 加了进度条会比原版快一个 priming（AAC-LC 约 21ms），
+// seek 落点也会比点击位置偏后。
+func seekStartSample(seconds float64, sampleRate int) int {
+	return int(seconds * float64(sampleRate))
+}
+
 func (p *pipeline) seek(seconds float64) error {
 	// 拿 procMu 而不是 mu：既要与生产者互斥（它在解码），又不能挡住
 	// 取数回调（它只碰 mu）。生产者最多在做一块，等它做完即可。
@@ -595,12 +636,7 @@ func (p *pipeline) seek(seconds float64) error {
 		seconds = dur
 	}
 
-	// 时间 → 帧号：每帧的采样数固定，据此把秒换成帧下标。
-	frameSamples := 1024
-	if p.info.FrameCount > 0 && dur > 0 {
-		frameSamples = int(math.Round(float64(p.info.SampleRate) * dur / float64(p.info.FrameCount)))
-	}
-	skip := int(seconds * float64(p.info.SampleRate) / float64(frameSamples))
+	frameSamples := seekFrameSamples(p.info)
 
 	if _, err := p.rf.Seek(0, io.SeekStart); err != nil {
 		return err
@@ -609,12 +645,16 @@ func (p *pipeline) seek(seconds float64) error {
 	if err != nil {
 		return WrapKind(KindUnsupported, fmt.Errorf("media: 重新解析失败: %w", err))
 	}
-	// 直接把游标定位到目标帧（库按 sample table 算出字节偏移，
-	// 只发几个 Range 请求）——之前是逐帧 ReadFrame 跳过，跳一小时
-	// 要发 ~15 万个请求，seek 卡死就卡在这。
-	if skip > 0 {
-		if err := rd.SeekSample(skip); err != nil {
-			log.Printf("seek 定位到帧 %d 失败（退回顺序读）: %v", skip, err)
+	// 先把读游标定位到目标所在帧。优先 SeekTime（内部已 SeekSample，且按
+	// presentation time 感知 priming），不可用时退回按平均帧长估算 + SeekSample
+	// ——之前是逐帧 ReadFrame 跳过，跳一小时要发 ~15 万个请求，seek 卡死就卡在这。
+	frame, ok := seekFrame(rd, seconds, frameSamples)
+	if !ok {
+		log.Printf("SeekTime 不可用（退回按平均帧长估算）")
+		if frame > 0 {
+			if err := rd.SeekSample(frame); err != nil {
+				log.Printf("seek 定位到帧 %d 失败（退回顺序读）: %v", frame, err)
+			}
 		}
 	}
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(p.info.ASC))
@@ -623,12 +663,8 @@ func (p *pipeline) seek(seconds float64) error {
 	}
 
 	p.rd, p.dec = rd, dec
-	// 起始采样按**源音频**的采样数算（不是 WSOLA 输出的采样数）：
-	// SourcePosition 用源采样率换算秒。seek 只重定位不解码，前面
-	// 的帧没经过变速，所以直接用 seconds × 源采样率。
-	startSample := int(seconds * float64(p.info.SampleRate))
 	p.procEOF = false
-	p.setWS(NewWSOLA(p.channels, p.wsNow().Speed(), startSample))
+	p.setWS(NewWSOLA(p.channels, p.wsNow().Speed(), seekStartSample(seconds, p.info.SampleRate)))
 	if p.eq.Enabled() {
 		p.eq.SetEnabled(true)
 	}

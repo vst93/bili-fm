@@ -93,6 +93,37 @@ func TestWSOLAStartSample(t *testing.T) {
 	}
 }
 
+// TestWSOLAStartSampleOnlyShiftsPosition 钉住 WSOLA 的 skip/startSample 语义：
+// 它只是 SourcePosition 的坐标系原点，不参与合成 —— 同样输入下两个不同
+// startSample 的实例产出**逐采样相同**的音频，只是上报的源位置整体平移。
+// 这正是 seek 用 startSample 接进度、而不用它丢音频的依据（见 seekStartSample）。
+func TestWSOLAStartSampleOnlyShiftsPosition(t *testing.T) {
+	const ch = 1
+	in := make([]float32, 48000*ch)
+	for i := 0; i < 48000; i++ {
+		in[i] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
+	}
+	a := NewWSOLA(ch, 1.0, 0)
+	b := NewWSOLA(ch, 1.0, 48000*7) // 模拟 seek 到 7s
+
+	outA := append([]float32(nil), a.Push(in)...)
+	outB := append([]float32(nil), b.Push(in)...)
+	if len(outA) == 0 {
+		t.Fatal("没有产出")
+	}
+	if len(outA) != len(outB) {
+		t.Fatalf("产出长度不同：%d vs %d", len(outA), len(outB))
+	}
+	for i := range outA {
+		if outA[i] != outB[i] {
+			t.Fatalf("第 %d 个采样不同：%v vs %v（startSample 不应改变音频）", i, outA[i], outB[i])
+		}
+	}
+	if d := b.SourcePosition() - a.SourcePosition(); d != 48000*7 {
+		t.Errorf("源位置应相差 7s 的 %d，得到 %d", 48000*7, d)
+	}
+}
+
 // TestWSOLAFlush 检查结束时尾部能吐干净、长度与稳态一致。
 func TestWSOLAFlush(t *testing.T) {
 	for _, speed := range []float64{0.5, 1.0, 2.0} {
