@@ -1476,6 +1476,43 @@ func playerPopoverTint(t Theme) ui.Color {
 	return ui.Transparent
 }
 
+// 音量 / 倍速弹层的**整面洗光**（原版弹层自己的 `background-image`）。两层弹层
+// 都拿框架 `glass.Glass` 当表面，但玻璃自带的是**边缘**折射与 1px 描光，不含这
+// 条铺满整面的渐变 —— 原版给弹层铺的洗光此前整个丢了，弹层比原版平一档：
+//
+//	音量弹层  浅色 `background-image: var(--glass-sheen-static)`；
+//	         深色（五个烟熏玻璃时段）被覆写成 `background-image: var(--player-sheen)`。
+//	倍速弹层  浅色只有 `background: rgba(255,255,255,.82)`，**没有** background-image；
+//	         深色同样被覆写成 `--player-sheen`。
+//
+// 两条都声明成 var 便于测试换桩反证（返回 nil = 该层这一帧不铺洗光）。
+var volumePopoverSheen = func(t Theme) *sheenBaked {
+	if t.Dark {
+		return sheenDarkBaked
+	}
+	return sheenGlassBaked
+}
+
+var speedPopoverSheen = func(t Theme) *sheenBaked {
+	if t.Dark {
+		return sheenDarkBaked
+	}
+	return nil
+}
+
+// popoverGlass 把一条洗光接在弹层的 `glass.Material` 之上、子控件之下 —— Draw
+// 的绘制时机正是「背景之后、子元素之前」，与 CSS 里 `background-image` 排在
+// `background-color` 之上、内容之下的层序一致。按弹层圆角裁剪，位图按弹层盒的
+// 宽高比烘焙（paintBakedSheen → bitmapFor），线性层角度不被拉偏。
+var popoverGlass = func(b ui.Element, radius float32, sheen *sheenBaked) ui.Element {
+	if sheen == nil {
+		return b
+	}
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintBakedSheen(p, r, radius, sheen)
+	})
+}
+
 // playerSpeedOptionInk 是倍速弹层里档位文字的常态色：浅色 #475569，
 // 深色时段 rgba(241,245,249,.78)（激活/悬停仍走 --studio-blue）。
 func playerSpeedOptionInk(t Theme) ui.Color {
@@ -1504,10 +1541,12 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 	// 让它从播放栏上"浮起来"。
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
 		Margin(0, speedPopoverEdgeGap, 0, 0).
-		Padding(4).Gap(2).Radius(14).
+		Padding(4).Gap(2).Radius(speedPopoverRadius).
 		Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)})).
 		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
 		AlignItems(ui.Center)
+	// 原版深色时段给倍速弹层补 `background-image: var(--player-sheen)`（浅色没有）。
+	panel = popoverGlass(panel, speedPopoverRadius, speedPopoverSheen(t))
 	if panel.PressedOutside() {
 		a.ShowSpeed = false
 	}
@@ -1552,6 +1591,9 @@ func (a *App) volumePopover(c *ui.Context, anchor ui.Element) {
 // volumePopoverEdgeGap）并与播放栏垂直居中。抽成常量：视图与测试按同一份
 // 几何取样，改一处就够。
 const (
+	// speedPopoverRadius 是倍速弹层圆角（原版 `.player-speed-popover` 的 14）。
+	speedPopoverRadius = 14
+
 	volumePopoverW      = 184
 	volumePopoverH      = 42
 	volumePopoverRadius = 14
@@ -1574,6 +1616,8 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)})).
 		Shadow(0, pick[float32](t.Dark, 10, 14), 40, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.10))).Gap(volumePopoverGap).
 		AlignItems(ui.Center)
+	// 原版音量弹层浅色铺 --glass-sheen-static、深色换成 --player-sheen。
+	panel = popoverGlass(panel, radius, volumePopoverSheen(t))
 	if panel.PressedOutside() {
 		a.ShowVolume = false
 	}
