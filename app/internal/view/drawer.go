@@ -3029,9 +3029,13 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 		})
 		// 正文区左缩进 40（原版 pl-10，与头像同宽）。
 		ui.Column(c).Padding(0, 0, 0, 40).Children(func() {
-			// text-sm leading-relaxed → 14.5px / #142033。原版正文 <p> 没有行数上限
-			// （globals.css 只给标题/简介挂 -webkit-line-clamp），长评论整段铺开。
-			ui.Text(c, cm.Content).FontSize(14.5).TextColor(ui.Hex(replyInkBody))
+			// text-sm leading-relaxed → 14.5px / line-height 1.72 / #142033
+			//（globals.css 的 `[data-slot="wrapper"] .leading-relaxed` 把
+			// text-sm 的 14px/1.625 覆写成 14.5px/1.72，行高 24.94）。原版正文
+			// <p> 没有行数上限（globals.css 只给标题/简介挂 -webkit-line-clamp），
+			// 长评论整段铺开。行高必须显式给：框架默认取字体自然行盒（14.5px
+			// 时约 22），比原版的 24.94 每行少约 3px，多行评论会明显更挤。
+			ui.Text(c, cm.Content).FontSize(14.5).LineHeight(1.72).TextColor(ui.Hex(replyInkBody))
 			if cm.Likes > 0 {
 				ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
 					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))

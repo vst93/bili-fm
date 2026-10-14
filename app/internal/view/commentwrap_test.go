@@ -82,3 +82,19 @@ func TestReplyBodyNotLineClamped(t *testing.T) {
 		t.Errorf("楼中楼块高没随内容增长（10 段 %v / 30 段 %v）—— 仍被行数上限截断", hs, hl)
 	}
 }
+
+// TestCommentBodyLineHeight 钉住评论正文的行高：globals.css 的
+// `[data-slot="wrapper"] .leading-relaxed` 把正文覆写成 `font-size:14.5px;
+// line-height:1.72 !important`（每行 24.94px）。框架默认取字体自然行盒
+// （14.5px 时约 22），不显式给 `LineHeight(1.72)` 每行就少约 3px，多行评论明显
+// 更挤。用四行正文量总高（框架的行高硬底是 `max(请求值, ascent+descent)`，
+// 24.94 > 自然高所以能生效）。
+func TestCommentBodyLineHeight(t *testing.T) {
+	body := "第一行\n第二行\n第三行\n第四行"
+	h := bodyHeight(t, body)
+	want := float32(4 * 14.5 * 1.72) // 99.76
+	t.Logf("4 行正文盒高 = %v（期望 ≈%v，每行 24.94）", h, want)
+	if h < want-0.5 || h > want+0.5 {
+		t.Errorf("评论正文 4 行盒高 = %v，应 ≈%v（原版 leading-relaxed 1.72）", h, want)
+	}
+}
