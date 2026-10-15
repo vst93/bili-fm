@@ -429,7 +429,7 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, 
 	// 原版 .mini-window-controls button 沿用 .app-title-bar-btn 的通用玻璃规则：
 	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
-	bg, ink, opacity, _ := titleBarButtonStyle(t, active, b.Hovered(), b.Pressed())
+	bg, ink, opacity, _ := titleBarButtonStyle(t, active, b.Hovered(), b.Pressed(), b.IsDisabled())
 	// 原版 `:is(.app-title-bar, .mini-window-controls) .app-title-bar-btn:focus-visible`：
 	// opacity 1、图标转 --studio-blue，高光换成 `inset 0 1px 1px
 	// --glass-highlight` ＋ 2px 蓝环。另：置顶那条 `[aria-pressed=true]:not(…)`

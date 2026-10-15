@@ -903,8 +903,10 @@ type sheenStop struct {
 
 // sheenSpec 描述一条 `::before` 的 background-image：一条可选的径向层 + 一条
 // 可选的线性层（径向在上）。几何全部相对盒宽/高表示，与 CSS 的百分比写法对应。
+// Background 是 ::before 的 background-color（透明则不铺底色）。
 type sheenSpec struct {
-	Radial                    bool
+	Background ui.Color // ::before 的 background-color（ui.Transparent 则不铺）
+	Radial     bool
 	RCX, RCY, RRX, RRY, RStop float32
 	RCol                      ui.Color
 
@@ -957,9 +959,10 @@ var (
 	}
 	// 迷你窗播放键·浅色（原版 body.mini-mode 规则）。
 	sheenMiniPlay = sheenSpec{
-		Radial: true, RCX: 0.30, RCY: 0, RRX: 1.00, RRY: 0.76, RStop: 0.58,
-		RCol:   ui.Hex("#ffffff").Alpha(0.80),
-		Linear: true, LAngle: 165,
+		Background: ui.Hex("#bae6fd").Alpha(0.35),
+		Radial:     true, RCX: 0.30, RCY: 0, RRX: 1.00, RRY: 0.76, RStop: 0.58,
+		RCol:       ui.Hex("#ffffff").Alpha(0.80),
+		Linear:     true, LAngle: 165,
 		LStops: []sheenStop{
 			{At: 0, Col: ui.Hex("#0ea5e9").Alpha(0.12)},
 			{At: 1, Col: ui.Hex("#7dd3fc").Alpha(0.06)},
@@ -1114,6 +1117,11 @@ func sheenPixels(spec sheenSpec, w, h int) *image.NRGBA {
 	ldx, ldy := float32(math.Sin(float64(la))), float32(-math.Cos(float64(la)))
 	lhalf := (abs32(fw*ldx) + abs32(fh*ldy)) / 2
 	lx0, ly0 := fw/2-ldx*lhalf, fh/2-ldy*lhalf
+	// ::before 的 background-color 底色（原版 sheenMiniPlay 有 rgba(186,230,253,.35)）。
+	bgA := float32(spec.Background.A) / 255
+	bgR := float32(spec.Background.R) / 255 * bgA
+	bgG := float32(spec.Background.G) / 255 * bgA
+	bgB := float32(spec.Background.B) / 255 * bgA
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			px, py := float32(x)+0.5, float32(y)+0.5
@@ -1136,7 +1144,7 @@ func sheenPixels(spec sheenSpec, w, h int) *image.NRGBA {
 					rr, rg, rb, ralpha = premulScaled(spec.RCol, 1-rd/spec.RStop)
 				}
 			}
-			// 径向 over 线性（预乘合成）。
+			// 径向 over 线性（预乘合成），再 over background-color 底色。
 			a := ralpha + lalpha*(1-ralpha)
 			i := img.PixOffset(x, y)
 			if a > 0 {
@@ -1145,7 +1153,20 @@ func sheenPixels(spec sheenSpec, w, h int) *image.NRGBA {
 				pb := (rb + lb*(1-ralpha)) / a
 				img.Pix[i+0], img.Pix[i+1], img.Pix[i+2] = to8(pr), to8(pg), to8(pb)
 			}
-			img.Pix[i+3] = to8(a)
+			// 合成 over 底色。
+			alpha := a + bgA*(1-a)
+			if alpha > 0 {
+				cr := float32(img.Pix[i+0]) / 255
+				cg := float32(img.Pix[i+1]) / 255
+				cb := float32(img.Pix[i+2]) / 255
+				dr := (cr*a + bgR*(1-a)) / alpha
+				dg := (cg*a + bgG*(1-a)) / alpha
+				db := (cb*a + bgB*(1-a)) / alpha
+				img.Pix[i+0], img.Pix[i+1], img.Pix[i+2] = to8(dr), to8(dg), to8(db)
+			} else {
+				img.Pix[i+0], img.Pix[i+1], img.Pix[i+2] = to8(bgR), to8(bgG), to8(bgB)
+			}
+			img.Pix[i+3] = to8(alpha)
 		}
 	}
 	return img

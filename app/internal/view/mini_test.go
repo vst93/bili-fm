@@ -22,7 +22,7 @@ import (
 func TestTitleBarButtonStyle(t *testing.T) {
 	th := ThemeFor(PeriodAt(12))
 
-	bg, ink, op, hi := titleBarButtonStyle(th, false, false, false)
+	bg, ink, op, hi := titleBarButtonStyle(th, false, false, false, false)
 	if bg != ui.Transparent {
 		t.Errorf("常态底色 = %v，应为透明", bg)
 	}
@@ -44,7 +44,7 @@ func TestTitleBarButtonStyle(t *testing.T) {
 		{"激活", true, false},
 		{"激活+悬停", true, true},
 	} {
-		bg, ink, op, hi := titleBarButtonStyle(th, tc.active, tc.hovered, false)
+		bg, ink, op, hi := titleBarButtonStyle(th, tc.active, tc.hovered, false, false)
 		if bg != th.GlassHover {
 			t.Errorf("%s 底色 = %v，应为 --glass-bg-hover %v", tc.name, bg, th.GlassHover)
 		}
@@ -76,10 +76,25 @@ func TestTitleBarButtonStylePressed(t *testing.T) {
 		{"按下+激活+悬停", true, true},
 		{"按下+常态", false, false},
 	} {
-		bg, _, _, _ := titleBarButtonStyle(th, tc.active, tc.hovered, true)
+		bg, _, _, _ := titleBarButtonStyle(th, tc.active, tc.hovered, true, false)
 		if bg != th.GlassActive {
 			t.Errorf("%s 底色 = %v，应为 --glass-bg-active %v", tc.name, bg, th.GlassActive)
 		}
+	}
+
+	// 禁用态：原版 body.mini-mode .mini-window-controls button:disabled { opacity: 0.34 }
+	bg, ink, op, hi := titleBarButtonStyle(th, false, false, false, true)
+	if bg != ui.Transparent {
+		t.Errorf("禁用态底色 = %v，应为透明", bg)
+	}
+	if ink != th.Muted {
+		t.Errorf("禁用态图标色 = %v，应为 --studio-muted %v", ink, th.Muted)
+	}
+	if op != 0.34 {
+		t.Errorf("禁用态不透明度 = %v，应为 .34", op)
+	}
+	if hi {
+		t.Error("禁用态不应有内高光")
 	}
 }
 

@@ -431,7 +431,10 @@ func minF(a, b float32) float32 {
 // 按下时底色换 --glass-bg-active（白 .16）：原版 `.mini-window-controls button:
 // active:not(:disabled)` 用 `!important` 把背景从 hover 的 --glass-bg-hover 覆盖成
 // --glass-bg-active，且 `[aria-pressed="true"]` 那条规则带 `:not(:active)` 排除。
-func titleBarButtonStyle(t Theme, active, hovered, pressed bool) (bg, ink ui.Color, opacity float32, highlight bool) {
+func titleBarButtonStyle(t Theme, active, hovered, pressed, disabled bool) (bg, ink ui.Color, opacity float32, highlight bool) {
+	if disabled {
+		return ui.Transparent, t.Muted, 0.34, false
+	}
 	if active || hovered {
 		if pressed {
 			return t.GlassActive, t.Blue, 1, true

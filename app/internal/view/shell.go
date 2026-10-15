@@ -151,7 +151,7 @@ func (a *App) titleBar(c *ui.Context) {
 				// .32/.82，所以这里只出自己的 .72（静息时合计 .72×.32 ≈ .23）。
 				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
 					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
-				bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed())
+				bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), b.IsDisabled())
 				// 原版 `#switch-window-mode:focus-visible`：opacity 1、图标转
 				// --studio-blue，并把通用 ::after 的那条高光换成
 				// `inset 0 1px 1px --glass-highlight` ＋ 2px 蓝环（见 focusGlow）。
