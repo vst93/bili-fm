@@ -347,8 +347,9 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 					Label(pick(a.Playing, "暂停", "播放"))
 				// 方形封面只有常态 / 悬停两态（原版没有 .cover-square.is-playing）。
 				cs := coverSurfaceFor(false, sq.Hovered())
-				sq.InsetShadow(0, 0, 0, 1, cs.Inset).
-					Shadow(0, cs.Dy, cs.Blur, 0, cs.Outer)
+				dy, blur, outer, inset := coverShadowAnim(sq, cs)
+				sq.InsetShadow(0, 0, 0, 1, inset).
+					Shadow(0, dy, blur, 0, outer)
 				sq.Children(func() { a.coverOrLogo(c) })
 				if sq.Clicked() && a.Act.TogglePlay != nil {
 					a.Act.TogglePlay()
@@ -370,8 +371,9 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 					// 蓝色光晕。之前只画了内侧 1px 白线，唱片像平贴在玻璃环里，
 					// 播放时也没有那圈蓝光。
 					cs := coverSurfaceFor(a.Playing, disc.Hovered())
-					disc.InsetShadow(0, 0, 0, 1, cs.Inset).
-						Shadow(0, cs.Dy, cs.Blur, 0, cs.Outer)
+					dy, blur, outer, inset := coverShadowAnim(disc, cs)
+					disc.InsetShadow(0, 0, 0, 1, inset).
+						Shadow(0, dy, blur, 0, outer)
 					disc.Children(func() {
 						// 唱片：播放时 22s 一圈（原版 #video-cover.record-disc）。
 						//
@@ -470,6 +472,22 @@ type coverSurface struct {
 	Outer    ui.Color
 }
 
+// coverShadowAnim 返回带过渡的阴影参数（y-offset、blur、外阴影色、内阴影色），
+// 对齐原版 `#video-cover { transition: box-shadow 0.3s ease }` 与
+// `#video-cover.cover-square { transition: box-shadow 0.3s ease }`。
+// 原版三态投影切换（常态/悬停/播放中）有 0.3s 渐变过渡，mygo 用
+// AnimateTo 过渡 y/blur、用 AnimateColor 过渡颜色来复现。
+// 无头测试环境（hasState=false）下 AnimateTo/AnimateColor 直接返回 target，
+// 不影响渲染；减少动态效果偏好下框架自动跳到终态（与原版 animation: none 等效）。
+func coverShadowAnim(el ui.Element, cs coverSurface) (dy, blur float32, outer, inset ui.Color) {
+	anim := ui.Animation{Duration: 300 * time.Millisecond, Ease: ui.CubicBezier(0.25, 0.5, 0.25, 1)}
+	dy = el.AnimateTo("shadow-y", cs.Dy, anim)
+	blur = el.AnimateTo("shadow-blur", cs.Blur, anim)
+	outer = el.AnimateColor("shadow-color", cs.Outer, anim)
+	inset = el.AnimateColor("inset-shadow", cs.Inset, anim)
+	return
+}
+
 // coverSurfaceFor 给出 #video-cover 当前该用的描边/投影。
 //
 // playing 压过 hovered：`#video-cover.is-playing` 与 `#video-cover:hover`
@@ -563,7 +581,11 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func(
 		b.Role(ui.RoleToggleButton).Checked(active)
 	}
 	bg, border, ink := coverToggleStyle(active, b.Hovered())
-	b.Background(bg).Border(1, border)
+	// 原版 .cover-mode-toggle { transition: opacity 0.2s ease, background 0.2s ease }
+	// —— 背景色切换有 0.2s 过渡。opacity 过渡已由外层 group.AnimateTo 提供，
+	// 这里用 AnimateColor 给背景色加同样的 0.2s 过渡。
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.CubicBezier(0.25, 0.5, 0.25, 1)})).
+		Border(1, border)
 	b.Children(func() {
 		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
 	})
