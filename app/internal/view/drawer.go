@@ -238,6 +238,7 @@ func (a *App) drawer(c *ui.Context) {
 		// 中招（见 drawerAnimOffset 的实测）。每帧重建 ≈0.5ms，远小于省下的绘制。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
+			Clip().
 			Background(drawerPanelFill()).
 			Border(1, a.Theme.GlassBorder).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).

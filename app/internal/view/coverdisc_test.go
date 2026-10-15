@@ -1,6 +1,7 @@
 package view
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -157,6 +158,80 @@ func TestCoverSquareMatchesDiscSize(t *testing.T) {
 	}
 	if disc.topRun > disc.w()/3 {
 		t.Errorf("碟片顶行深色宽度 %d / %d：不像是圆形", disc.topRun, disc.w())
+	}
+}
+
+// TestCoverRingStyle 钉住玻璃环（.cover-shell::before）的样式取值——
+// 直接抄原版 globals.css 的 .cover-shell::before 规则：
+//
+//	inset 3% → 292 × 0.94 ≈ 274；border 1px rgba(255,255,255,.2)；
+//	box-shadow 0 8px 24px rgba(15,23,42,.12)；border-radius 50%；
+//	background none（透明，不遮挡下面的封面）。
+//
+// 源码 flatten 手法：读 home.go 去掉空白后逐字匹配 ring 的创建链。
+func TestCoverRingStyle(t *testing.T) {
+	flat := flattenCover(t)
+	// ring 的创建链：Size(side*0.94) + Radius(RadiusPill) + Border + Shadow + Center。
+	chain := strings.Join(strings.Fields(
+		`ring:=ui.Box(c).Size(side*0.94,side*0.94).Radius(RadiusPill).`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("ring 尺寸/圆角不对：找不到 %q", chain)
+	}
+	borderChain := strings.Join(strings.Fields(
+		`Border(1,ui.Hex("#ffffff").Alpha(0.20)).`), "")
+	if !strings.Contains(flat, borderChain) {
+		t.Errorf("ring 边框不对：找不到 %q", borderChain)
+	}
+	shadowChain := strings.Join(strings.Fields(
+		`Shadow(0,8,24,0,ui.Hex("#0f172a").Alpha(0.12)).`), "")
+	if !strings.Contains(flat, shadowChain) {
+		t.Errorf("ring 投影不对：找不到 %q", shadowChain)
+	}
+}
+
+// TestCoverGroupOpacityTransition 钉住封面三键组的 opacity 过渡接线。
+// 原版 `.cover-shell:hover .cover-mode-toggle { opacity: 0.85 }` 继承
+// `.cover-mode-toggle { transition: opacity 0.2s ease }` —— 背景色切换有 0.2s 过渡。
+// mygo 用 group.AnimateTo 给整组 opacity 加 200ms 过渡。
+func TestCoverGroupOpacityTransition(t *testing.T) {
+	flat := flattenCover(t)
+	// group 的 opacity 由 AnimateTo 控制，target 在 shellHovered 时 0.85。
+	chain := strings.Join(strings.Fields(
+		`group.Opacity(group.AnimateTo("cover-toggles",target,`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("group opacity 没有用 AnimateTo 加过渡：找不到 %q", chain)
+	}
+	// target 在 shellHovered 时 0.85。
+	targetChain := strings.Join(strings.Fields(
+		`ifshellHovered{target=0.85}`), "")
+	if !strings.Contains(flat, targetChain) {
+		t.Errorf("shell hover 时 target 不是 0.85：找不到 %q", targetChain)
+	}
+}
+
+// TestCoverBitmapPrefetch 钉住封面「先预载、后换源」行为。
+// 原版 videoCover.tsx 用 shownCover 状态：新封面加载完成前继续显示旧封面。
+// mygo 用 coverBitmap() 返回上一张（shownCoverBmp），没旧图时返回 nil。
+func TestCoverBitmapPrefetch(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	// 没有封面时返回 nil（不显示任何东西）。
+	if a.coverBitmap() != nil {
+		t.Error("无封面时 coverBitmap 应返回 nil")
+	}
+	// 有封面时返回位图。
+	uri := "https://example.com/cover.jpg"
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP", Cover: uri}
+	a.shownCoverBmp = nil // 清除旧图
+	// 预载：coverBitmap 没图时返回 nil。
+	if a.coverBitmap() != nil {
+		t.Error("预载前 coverBitmap 应返回 nil")
+	}
+	// 模拟封面加载完成：直接设置 shownCoverBmp。
+	// 注意：这里不测图片加载（异步），只测「有旧图时沿用旧图」的逻辑。
+	a.shownCoverBmp = &ui.Bitmap{} // 占位
+	if a.coverBitmap() == nil {
+		t.Error("有旧图时 coverBitmap 应返回旧图")
 	}
 }
 

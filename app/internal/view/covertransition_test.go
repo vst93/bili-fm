@@ -81,3 +81,20 @@ func TestCoverSquareShadowTransition(t *testing.T) {
 		t.Errorf("方形封面阴影没有用 coverShadowAnim 加 0.3s 过渡：找不到 %q", chain)
 	}
 }
+
+// TestDrawerPanelClip 钉住抽屉面板有 .Clip()——原版抽屉面板的圆角
+// （border-radius: 18px 0 0 0）需要裁剪子元素（表头实底背景），
+// 否则表头背景会超出圆角边界，在两个上角露出方角。
+func TestDrawerPanelClip(t *testing.T) {
+	src, err := os.ReadFile("drawer.go")
+	if err != nil {
+		t.Fatalf("读 drawer.go 失败：%v", err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	// panel 的创建链：Radius(18, 18, 0, 0) 之后紧跟 Clip()。
+	chain := strings.Join(strings.Fields(
+		`panel:=ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).Radius(18,18,0,0).Clip().`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("抽屉面板没有 .Clip()：找不到 %q", chain)
+	}
+}
