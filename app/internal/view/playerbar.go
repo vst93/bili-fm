@@ -1506,8 +1506,13 @@ func playerSlot(c *ui.Context, width float32, build func()) ui.Element {
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
 func (a *App) volumeButton(c *ui.Context) {
+	// 原版这颗键是弹层开关：`aria-expanded={isVolumeOpen}`（没有 aria-haspopup）。
+	// mygo 里对应的无障碍语义是 RoleDisclosure（「显示/隐藏内容的按钮，打开时
+	// expanded」，CollapsibleBase 用的就是它）+ Expanded：macOS 发
+	// setAccessibilityExpanded、Linux 加 GTK_STATE_FLAG_EXPANDED、Windows 才会
+	// 给出 ExpandCollapsePattern（只对 disclosure/popup 等角色暴露）。
 	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
-		Label("音量").Tooltip("音量")
+		Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(a.ShowVolume)
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(c, a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
@@ -1532,8 +1537,9 @@ func (a *App) volumeButton(c *ui.Context) {
 func (a *App) speedButton(c *ui.Context) {
 	// 原版 .player-speed-button：40×32（列宽同为 40）。
 	// tooltip 是「播放速度 X 倍」（用原始数值，不是 1.0x 的标签）。
+	// 同音量键：原版 `aria-expanded={isSpeedOpen}` 的弹层开关。
 	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
-		Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed))
+		Role(ui.RoleDisclosure).Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed)).Expanded(a.ShowSpeed)
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(c, a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
@@ -1554,8 +1560,12 @@ func (a *App) speedButton(c *ui.Context) {
 // eqButton 是第 7 列（34px）：均衡开关。
 func (a *App) eqButton(c *ui.Context) {
 	// 原版 .player-eq-button：34×32（列宽 34），tooltip「音量均衡: 开/关」。
+	// 原版 `aria-pressed={isLoudnessEq}`：这是一颗「按下后保持」的切换键，
+	// 无障碍角色应是 toggle button（RoleToggleButton），Checked 才在各平台读作
+	// 「已按下」（Windows 只对 check/switch/toggle 等角色给 IToggleProvider，
+	// macOS 只对 toggle 角色把 Checked 放进 value）。
 	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
-		Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ))
+		Role(ui.RoleToggleButton).Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ)).Checked(a.EQ)
 	// 原版 disabled={!src}。
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(c, a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
@@ -1576,8 +1586,9 @@ func (a *App) eqButton(c *ui.Context) {
 func (a *App) sponsorButton(c *ui.Context) {
 	// 原版 .player-sponsor-button：34×32（列宽 40，留 6px 余量）。
 	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
+	// 同均衡键：原版 `aria-pressed={sponsorSkip}` 的保持型切换键。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
-		Label(sponsorTip()).Tooltip(sponsorTip())
+		Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(a.Sponsor)
 	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
@@ -1915,8 +1926,8 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 角色下读作 pressed），和视觉一样读同一个 muted 判据。
 		mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
 			Radius(RadiusSmall).
-			Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).
-			Checked(muted)
+			Center().Role(ui.RoleToggleButton).Label(pick(muted, "取消静音", "静音")).
+			Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)
 		// 原版静音键材质：常态白 .22 底 + slate .2 描边 + 白 .44 内高光（悬停不换面），
 		// 已静音只转蓝调墨色/描边（见 playerMuteSurface）。
 		playerMuteSurface(a.Theme, mute, muted)

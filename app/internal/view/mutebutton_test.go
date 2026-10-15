@@ -149,14 +149,17 @@ func TestPlayerMuteCheckedWired(t *testing.T) {
 	}
 
 	// 静音键：Label/Tooltip 后面紧跟 Checked(muted)。把源码里的空白全部去掉后逐字
-	// 匹配整条链，避免只搜到别处的 Checked(...)。
+	// 匹配整条链，避免只搜到别处的 Checked(...)。RoleToggleButton 是原版隐式
+	// toggle button 角色（aria-pressed 的 button）的对应角色，各平台靠它把 Checked
+	// 读作「已按下」，也一并钉住。
 	flat := strings.Join(strings.Fields(string(src)), "")
-	chain := strings.Join(strings.Fields(`Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)`), "")
+	chain := strings.Join(strings.Fields(`Center().Role(ui.RoleToggleButton).Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)`), "")
 	if !strings.Contains(flat, chain) {
-		t.Errorf("音量弹层静音键没把 Checked(muted) 接在标签链上（原版 aria-pressed={volume===0}）")
+		t.Errorf("音量弹层静音键没把 Role(ui.RoleToggleButton) / Checked(muted) 接在标签链上（原版 aria-pressed={volume===0} 的 button）")
 	}
 
-	// 反证：主窗音量键是弹出层开关，不应有 Checked（原版只有 aria-label/title）。
+	// 反证：主窗音量键是弹出层开关，不应有 Checked（原版只有 aria-label/title 加
+	// `aria-expanded`，是 Expanded 语义而不是 Checked/aria-pressed）。
 	volChain := strings.Join(strings.Fields(`Label("音量").Tooltip("音量")`), "")
 	if i := strings.Index(flat, volChain); i >= 0 {
 		// 取这段到函数末尾（播放栏音量键体积很小）的一小段，确认其中没有 Checked。
@@ -166,8 +169,8 @@ func TestPlayerMuteCheckedWired(t *testing.T) {
 		}
 	}
 
-	// 反证：整个 playerbar.go 里 Checked 只该出现在静音键这一处（当前播放栏没有
-	// 别的 toggle-button 语义的无障碍接线）。
+	// 反证：静音键的 Checked(muted) 只该接一次（均衡 / 恰饭键各有自己的 Checked，
+	// 但那两颗读的是 a.EQ / a.Sponsor，不是 muted）。
 	if n := bytes.Count(src, []byte("Checked(muted)")); n != 1 {
 		t.Errorf("playerbar.go 里 Checked(muted) 出现 %d 次，应只在静音键接一次", n)
 	}

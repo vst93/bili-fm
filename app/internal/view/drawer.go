@@ -592,8 +592,12 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 内高光 + 淡投影；开启时转青（#0e7490 / 底 rgba(207,250,254,.5)）。
 	// ≤520 时原版把 min-width 收到 66 并隐藏文字标签（只剩图标 + 轨道）。
 	minW, showLabel := incognitoLayout(windowWidth(c))
+	// 原版这颗键是 `role="switch"` + `aria-checked={isIncognitoMode}`：读屏用户
+	// 需要听到开关的「开/关」状态。mygo 对应 RoleSwitch + Checked(on)（两者都读
+	// 同一个 a.Incognito，与图标 filled/outline、轨道色、底色同源）。
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(minW).Height(32).Padding(0, 8).
-		Radius(Radius).Label("隐身").Tooltip(incognitoTip(a.Incognito))
+		Radius(Radius).Role(ui.RoleSwitch).Label("隐身").Tooltip(incognitoTip(a.Incognito)).
+		Checked(a.Incognito)
 	// 半透明填充；开启隐身时用青色底表达（原版是 rgba(207,250,254,.5) 底）。
 	buttonSurface(b, a.Incognito, b.Hovered(),
 		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
