@@ -64,8 +64,23 @@ func (a *App) MiniShell(c *ui.Context) {
 	})
 
 	ui.Column(c).Absolute().Fill().Children(func() {
-		// 标题栏：只用来拖动窗口（原版 mini 下把内容整体淡出，只留窗口按钮）。
-		ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()
+		// 标题栏：只用来拖动窗口。原版 mini 下 `.app-title-bar > *` 整条淡到
+		// opacity 0（只剩 Windows/Linux 由前端自绘的窗口按钮）——但标题栏那两层
+		// hover-to-reveal 贴边**照旧**：`::before` 顶沿投影 .52 → hover .78、
+		// `::after` 白玻璃洗层 0 → hover 1（都是 `transition: opacity .24s ease`）。
+		// mygo 的迷你窗标题栏没有自绘子元素（窗口按钮是 OS 绘制的原生控件，
+		// 应用没法淡入它们），所以这两层贴边就是迷你窗标题栏的 hover 反馈，
+		// 与主窗同一手法（titleBarLayer + titleBarReveal）。
+		bar := ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()
+		_, _, edge, wash := titleBarReveal(bar.Hovered() || bar.FocusWithin())
+		bar.Children(func() {
+			// 两层**无条件**建出来（静息时白玻璃那层 opacity 0、整棵子树不绘制）：
+			// mygo 的元素 id 由「父 id + 已在建的子元素个数」决定，少建一个兄弟会让
+			// 它后面所有兄弟换 id（悬停/动画状态会跟着丢）—— 同主窗 titleBar 的注释。
+			// 两层整棵子树都 PassThrough：它们盖在信息行之上，不能挡拖动与命中。
+			titleBarLayer(c, "mini-tb-edge", titleBarEdgeStops, miniTitleBar*1.7, edge)
+			titleBarLayer(c, "mini-tb-wash", titleBarWashStops, miniTitleBar*1.4, wash)
+		})
 
 		// 主体：封面 + 标题 + 选集 + 窗口控制。
 		// 整行可拖动窗口（原版 #min-video-info 带 data-tauri-drag-region="deep"）。
@@ -128,13 +143,14 @@ func (a *App) MiniShell(c *ui.Context) {
 			ui.Column(c).Width(miniControlsW).Shrink(0).Gap(4).AlignItems(ui.Center).
 				// 原版 .mini-window-controls 是 `role="group" aria-label="窗口控制"`。
 				Role(ui.RoleGroup).Label("窗口控制").Children(func() {
-				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, func() {
-					if a.Act.SetMini != nil {
-						a.Act.SetMini(false)
-					}
-				})
+				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false,
+					a.WindowControlPending, func() {
+						if a.Act.SetMini != nil {
+							a.Act.SetMini(false)
+						}
+					})
 				a.miniControl(c, "mini-pin", pick(a.Pinned, "取消窗口置顶", "窗口置顶"),
-					miniPinIcon(a.Pinned), a.Pinned, true, func() {
+					miniPinIcon(a.Pinned), a.Pinned, true, a.WindowControlPending, func() {
 						if a.Act.TogglePin != nil {
 							a.Act.TogglePin()
 						}
@@ -418,9 +434,17 @@ var miniPinIcon = func(pinned bool) *ui.SVG {
 //
 // toggle 为真时这颗键是保持型开关：原版置顶键有 `aria-pressed={isPinned}`
 // （切回窗口模式的键没有），mygo 对应 RoleToggleButton + Checked(active)。
-func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, toggle bool, fn func()) {
+//
+// pending 为真（一次窗口操作在途）时这颗键按原版 `button:disabled` 渲染且
+// 完全不响应点击：opacity .34、光标默认、没有按压缩放 / 悬停高光 / 聚光 /
+// 焦点环，但仍照旧读回 aria-pressed 的按压态。
+func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, toggle, pending bool, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
+	// 原版两颗键都带 `disabled={isWindowControlPending}`。用框架的 Disabled 而不是
+	// 只在回调里挡：Disabled 才让 Hovered/Pressed/FocusVisible/Clicked 全部返回假
+	// ——禁用期间没有按压缩放（`transform: none`）、悬停高光、聚光与焦点环。
+	b.Disabled(pending)
 	// 原版置顶键是 `aria-pressed={isPinned}` 的 button（无障碍上是 toggle button），
 	// 把 isPinned 作为按压态交给读屏；「切换到窗口模式」是动作键，不接。
 	if toggle {
@@ -430,6 +454,12 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, 
 	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
 	bg, ink, opacity, _ := titleBarButtonStyle(t, active, b.Hovered(), b.Pressed(), b.IsDisabled())
+	// 原版 `.mini-window-controls button:disabled { opacity: 0.34 }` 的 .34 是
+	// **绝对值**（不是「在常态 .72 上再减半」）：框架对 disabled 节点会再乘 0.5
+	// （见 disabled.go），disabledDim 抵消那一次减半。
+	if b.IsDisabled() {
+		opacity = disabledDim(opacity)
+	}
 	// 原版 `:is(.app-title-bar, .mini-window-controls) .app-title-bar-btn:focus-visible`：
 	// opacity 1、图标转 --studio-blue，高光换成 `inset 0 1px 1px
 	// --glass-highlight` ＋ 2px 蓝环。另：置顶那条 `[aria-pressed=true]:not(…)`

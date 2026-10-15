@@ -681,6 +681,11 @@ type App struct {
 	Mini bool
 	// Pinned 表示迷你窗置顶（原版迷你模式里的图钉按钮）。
 	Pinned bool
+	// WindowControlPending 为真表示一次异步窗口操作（改尺寸 / 改置顶）在途：
+	// 原版 `isWindowControlPending`，迷你窗那两颗窗口控制键在这期间禁用
+	//（`button:disabled`：opacity .34、光标默认、没有按压缩放），同时它也是
+	// 防重入（原版另有一个 windowModeChangingRef）。
+	WindowControlPending bool
 
 	// 显示偏好（原版 localStorage 的 coverMode / ambientBackgroundEnabled /
 	// premiumTexture，落盘在本地存储里）。

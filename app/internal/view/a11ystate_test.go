@@ -174,13 +174,16 @@ func TestMiniPinA11yWired(t *testing.T) {
 		t.Errorf("迷你窗控制键没按 toggle 接 Role(ui.RoleToggleButton) + Checked(active)")
 	}
 	// 置顶键把 toggle 置真、状态读 a.Pinned；切回窗口模式的键 toggle=false。
+	// miniControl 的签名是 (…, active, toggle, pending bool, fn func())，
+	// 两颗键都把 a.WindowControlPending 当 pending 传（原版
+	// `disabled={isWindowControlPending}`）。
 	pin := strings.Join(strings.Fields(
-		`miniPinIcon(a.Pinned), a.Pinned, true, func() {`), "")
+		`miniPinIcon(a.Pinned), a.Pinned, true, a.WindowControlPending, func() {`), "")
 	if !strings.Contains(flat, pin) {
-		t.Error("置顶键没把 a.Pinned / toggle=true 传给 miniControl")
+		t.Error("置顶键没把 a.Pinned / toggle=true / pending 传给 miniControl")
 	}
 	restore := strings.Join(strings.Fields(
-		`a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, func() {`), "")
+		`a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, a.WindowControlPending, func() {`), "")
 	if !strings.Contains(flat, restore) {
 		t.Error("切回窗口模式的键不应是保持型开关（原版没有 aria-pressed）")
 	}

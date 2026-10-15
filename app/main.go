@@ -97,6 +97,11 @@ type controller struct {
 
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
 	miniPoll chan struct{}
+	// winGate 是窗口操作（切迷你/切置顶）的在途闸门：兼作原版
+	// windowModeChangingRef 的防重入与 isWindowControlPending 的状态源
+	// （经 app.WindowControlPending 推给 view，迷你那两颗窗口控制键在期间
+	// 按 `button:disabled` 渲染）。
+	winGate winGate
 	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
 	videoSilent bool
 }
@@ -1353,9 +1358,27 @@ func (c *controller) toggleIncognito() {
 }
 
 // setMini 切换迷你模式：换界面 + 调整窗口尺寸与置顶，并记忆迷你窗位置。
+//
+// 进入时先置在途闸门兼作防重入（原版 `setIsWindowControlPending(true)` +
+// `windowModeChangingRef`）：mygo 的 `Win.SetSize/SetPosition/Update` 都是
+// `onMain` 排队投递（Update 立即返回，不等帧），所以「在途」= 从本函数返回到
+// 排队的那一帧真正跑完这段期间。期间再来的点击直接忽略，迷你窗那两颗窗口
+// 控制键也按原版 `button:disabled` 渲染。
 func (c *controller) setMini(on bool) {
+	if !c.winGate.begin() {
+		return
+	}
+	c.app.WindowControlPending = true
 	a := c.app
 	a.Mini = on
+	// 窗口不存在（无头测试）时只切状态，不碰窗口与轮询：真机上窗口一定在。
+	if a.Win == nil {
+		if !on {
+			a.Pinned = false
+		}
+		c.finishWinControl()
+		return
+	}
 	if on {
 		w, h := view.MiniSize()
 		a.Win.SetSize(w, h)
@@ -1380,7 +1403,7 @@ func (c *controller) setMini(on bool) {
 		a.Win.SetAlwaysOnTop(false)
 		a.Pinned = false
 	}
-	a.Win.Update(func() {})
+	c.finishWinControl()
 }
 
 // clampToDisplays 把窗口位置夹到连接的屏幕里（原版多屏救援逻辑的简化版）：
@@ -1437,6 +1460,10 @@ func clampToAreas(x, y, w, h int, areas []screenArea) (int, int) {
 // startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 没有 window move
 // 事件，所以只能轮询；只在迷你模式期间跑。
 func (c *controller) startMiniPosPoll() {
+	// 没有窗口（无头测试）就没有位置可轮询 —— 而且轮询体里会调 Window.Position()。
+	if c.app.Win == nil {
+		return
+	}
 	c.stopMiniPosPoll()
 	stop := make(chan struct{})
 	c.miniPoll = stop
@@ -1467,11 +1494,61 @@ func (c *controller) stopMiniPosPoll() {
 	}
 }
 
-// togglePin 切换迷你窗的置顶。
+// togglePin 切换迷你窗的置顶。与 setMini 同一套在途标志（原版
+// toggleMiniAlwaysOnTop 同样用 isWindowControlPending + ref 防重入）。
 func (c *controller) togglePin() {
+	if !c.winGate.begin() {
+		return
+	}
+	c.app.WindowControlPending = true
 	c.app.Pinned = !c.app.Pinned
-	c.app.Win.SetAlwaysOnTop(c.app.Pinned)
-	c.app.Win.Update(func() {})
+	if c.app.Win != nil {
+		c.app.Win.SetAlwaysOnTop(c.app.Pinned)
+	}
+	c.finishWinControl()
+}
+
+// winGate 是窗口操作的**在途闸门**：它一个东西干两件事，对应原版的两个状态——
+//
+//	防重入（原版 windowModeChangingRef）：已在途时再来的点击／第二次调用直接忽略
+//	禁用态源（原版 isWindowControlPending）：闸门置位期间迷你窗那两颗窗口控制键
+//	    按 `button:disabled` 渲染（opacity .34、没有按压缩放/悬停高光/焦点环）
+//
+// 它只在主线程（帧里）读写，所以不需要锁。
+type winGate struct{ pending bool }
+
+// begin 尝试进入一次窗口操作：已在途时返回 false（调用点直接放弃这次操作），
+// 否则置位并返回 true。
+func (g *winGate) begin() bool {
+	if g.pending {
+		return false
+	}
+	g.pending = true
+	return true
+}
+
+// end 复位闸门（原版 finally 里的 setIsWindowControlPending(false)）。
+func (g *winGate) end() {
+	g.pending = false
+}
+
+// finishWinControl 退出一次窗口操作：有窗口时把闸门与禁用态的复位排进下一帧
+// （排在本次操作已经投递的所有窗口调用之后，原版 await + finally 的同效果），
+// 没有窗口（无头测试）时当帧复位，免得标志永远挂着。
+//
+// 事件循环已经停掉时那一条 Update 会被丢弃（postMain 返回 false），标志就留在
+// 置位态 —— 但那时应用正在退出，没有下一次点击，与原来「Update 丢掉、这一帧
+// 不刷」是同一类无害情形。
+func (c *controller) finishWinControl() {
+	reset := func() {
+		c.winGate.end()
+		c.app.WindowControlPending = false
+	}
+	if c.app.Win == nil {
+		reset()
+		return
+	}
+	c.app.Win.Update(reset)
 }
 
 // 播放队列的落盘与启动恢复已移除：用户明确要求去掉「启动时恢复上次

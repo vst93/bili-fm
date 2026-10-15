@@ -1488,3 +1488,82 @@ func TestFormatBytes(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- 窗口在途闸门
+
+// TestWinGateRejectsReentry 钉住原版 windowModeChangingRef 的防重入：一次窗口
+// 操作在途（闸门已置位）时，再来的 setMini / togglePin 直接被忽略 —— 不会重复
+// 改尺寸 / 重复翻转置顶。原版用 ref 挡，mygo 用同一个闸门挡。
+func TestWinGateRejectsReentry(t *testing.T) {
+	var g winGate
+	if !g.begin() {
+		t.Fatal("首次进入应放行")
+	}
+	if g.begin() {
+		t.Error("已在途时再进入应被拒绝（原版 windowModeChangingRef）")
+	}
+	g.end()
+	if !g.begin() {
+		t.Error("复位后应重新放行")
+	}
+}
+
+// TestWinControlPendingGatesClicks 把闸门接到真实的 setMini / togglePin 上（无窗口，
+// 所以 finishWinControl 当帧复位，不会有后台线程）：在途期间第二次调用必须被忽略，
+// 且期间 app.WindowControlPending 为真（view 侧据此把两颗键画成禁用态）、退出后复位。
+//
+// 反证：把 setMini/togglePin 里的 `if !c.winGate.begin() { return }` 删掉，计数变 2。
+func TestWinControlPendingGatesClicks(t *testing.T) {
+	c := &controller{app: &view.App{}}
+	// 用一次「手动停在途」模拟异步窗口操作还没回来：中途再点一次，看有没有第二次生效。
+	c.winGate.begin()
+	c.app.WindowControlPending = true
+
+	miniBefore := c.app.Mini
+	c.setMini(true)
+	if c.app.Mini != miniBefore {
+		t.Error("在途期间 setMini 仍被应用（防重入失效）")
+	}
+	pinBefore := c.app.Pinned
+	c.togglePin()
+	if c.app.Pinned != pinBefore {
+		t.Error("在途期间 togglePin 仍翻转了置顶（防重入失效）")
+	}
+	if !c.app.WindowControlPending {
+		t.Error("在途期间 app.WindowControlPending 应为真（view 据此禁用两颗键）")
+	}
+
+	// 闸门放开：两次调用都该真正生效，且标志在退出时复位。
+	c.winGate.end()
+	c.app.WindowControlPending = false
+	c.setMini(true)
+	if !c.app.Mini {
+		t.Error("闸门放开后 setMini 应生效")
+	}
+	if c.app.WindowControlPending {
+		t.Error("窗口操作退出后 WindowControlPending 应复位")
+	}
+	c.togglePin()
+	if !c.app.Pinned {
+		t.Error("闸门放开后 togglePin 应生效")
+	}
+	if c.app.WindowControlPending {
+		t.Error("togglePin 退出后 WindowControlPending 应复位")
+	}
+}
+
+// TestWinControlPendingTracksGate 钉住「不管哪条出口，禁用态都跟着闸门复位走」：
+// finishWinControl 必须同时复位闸门与 view 侧的 WindowControlPending —— 只复位闸门
+// 会让两颗键永远停在禁用态（点了没反应，用户只能重启）。
+func TestWinControlPendingTracksGate(t *testing.T) {
+	c := &controller{app: &view.App{}}
+	c.winGate.begin()
+	c.app.WindowControlPending = true
+	c.finishWinControl()
+	if c.winGate.pending {
+		t.Error("finishWinControl 应复位闸门")
+	}
+	if c.app.WindowControlPending {
+		t.Error("finishWinControl 应复位 app.WindowControlPending（否则两颗键永久禁用）")
+	}
+}
