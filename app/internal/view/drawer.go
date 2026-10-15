@@ -1861,11 +1861,11 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 							TextColor(ui.Hex("#ffffff")).Padding(2, 4).Radius(8).
 							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
 						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-							TextColor(t.Ink).SingleLine().Grow(1).MinWidth(0)
+							TextColor(t.Ink).SingleLine().Grow(1).MinWidth(0).Tooltip(spec.Title)
 					})
 				} else {
 					ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-						TextColor(t.Ink).SingleLine()
+						TextColor(t.Ink).SingleLine().Tooltip(spec.Title)
 				}
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
 					a.cardMeta(c, spec.Key, spec.Fields)
@@ -1930,11 +1930,20 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 					})
 				case fieldPubdate:
 					text := pubdateFit(c, f.Text, avail, now)
+					// 原版 CardMeta 给发布时间加了 title tooltip（轮 28）：
+					// 日期若被截，悬浮仍可看完整值。
 					ui.Text(c, text).FontSize(12).TextColor(ink).SingleLine().
-						FillWidth().TextAlign(align)
+						FillWidth().TextAlign(align).Tooltip(f.Text)
 				default:
-					ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
-						FillWidth().TextAlign(align)
+					// 原版 CardMeta 给作者名加了 title tooltip（轮 22）：
+					// 窄卡片截断时悬浮显示完整名字。
+					if f.Kind == fieldAuthor {
+						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+							FillWidth().TextAlign(align).Tooltip(f.Text)
+					} else {
+						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+							FillWidth().TextAlign(align)
+					}
 				}
 			})
 		}
