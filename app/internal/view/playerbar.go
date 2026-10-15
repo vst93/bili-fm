@@ -1737,18 +1737,62 @@ func playerPopoverTint(t Theme) ui.Color {
 	return ui.Transparent
 }
 
+// playerPopoverBorder 是音量 / 倍速弹层这一帧的 1px 描边。浅色各用各的玻璃边
+// （音量 --glass-border 白 .55、倍速白 .72）；五个烟熏玻璃时段原版把两层弹层的
+// `border-color` 都覆写成 rgba(255,255,255,.2)。框架玻璃自带的是**边缘折光**，
+// 不是这条 1px 边框 —— 深色下继续沿用浅色边会亮出一圈白描边，所以这里单独覆写。
+func playerPopoverBorder(t Theme, light ui.Color) ui.Color {
+	if t.Dark {
+		return ui.Hex("#ffffff").Alpha(0.20)
+	}
+	return light
+}
+
+// playerPopoverInsets 是音量 / 倍速弹层 box-shadow 的前两层 inset。烟熏玻璃时段
+// 原版把弹层的 `--glass-specular` 换成单条 `inset 0 1px 0 rgba(255,255,255,.26)`
+//（更淡的顶内高光）。浅色那条 --glass-specular 由框架玻璃的边缘折光近似，这里
+// 不再重复。返回 nil 表示这一帧不铺内影。
+func playerPopoverInsets(t Theme) []shadowSpec {
+	if t.Dark {
+		return []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.26)}}
+	}
+	return nil
+}
+
+// playerPopoverLiftSpec 是弹层向下的外投影。浅色近似 `--liquid-shadow-lifted`
+// （0 14px 40px 墨 .10）；烟熏玻璃时段原版整条换成 `0 10px 24px rgba(15,23,42,.14)`
+//（更紧、更深一档）。声明成函数便于测试逐值钉住。
+func playerPopoverLiftSpec(t Theme) shadowSpec {
+	if t.Dark {
+		return shadowSpec{0, 10, 24, 0, shadowInk.Alpha(0.14)}
+	}
+	return shadowSpec{0, 14, 40, 0, shadowInk.Alpha(0.10)}
+}
+
 // playerPopoverMaterial 给音量 / 倍速弹层上表面。默认是框架 Liquid Glass
 // （深色再染 --player-surface 的烟熏色）。减少透明度时原版把两层弹层的
 // `backdrop-filter` 整条撤掉并换成不透明底 `background-color: #e6edf4`，所以
 // 这里换成一块实底 Box（不再算 backdrop，也不再铺洗光，见
 // volumePopoverSheen / speedPopoverSheen）。实底同时补上原版的 1px 描边
 // （框架玻璃自带边缘折光，换成实底后由 border 承担）。
+//
+// 烟熏玻璃时段原版还覆写了 border-color 白 .2（框架玻璃的边缘折光顶不到这条
+// 深色描边），所以在玻璃之上再补一条 1px 描边。
+//
+// 这条描边用**内描环**（`InsetShadow` 的 spread 1）而不是 `.Border`：`.Border`
+// 会占布局（contentX = pad + border），而倍速弹层的高度由内容决定（档位 24 +
+// 上下 padding 4×2），给它加 1px 边会把面板从 32 撑到 34 —— 原版深浅两时段只
+// 换 `border-color`、几何一致，框架玻璃本身也不占布局，所以这里必须同样不占。
 // 声明成 var 便于无头测试换桩反证。
 var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color) ui.Element {
 	if t.ReducedTransparency {
 		return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
 	}
-	return b.Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)}))
+	b = b.Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)}))
+	if t.Dark {
+		b = b.InsetShadow(0, 0, 0, 1, border)
+	}
+	return b
 }
 
 // 音量 / 倍速弹层的**整面洗光**（原版弹层自己的 `background-image`）。两层弹层
@@ -1830,7 +1874,10 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
 		AlignItems(ui.Center)
 	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
-	panel = playerPopoverMaterial(t, panel, ui.Hex("#ffffff").Alpha(0.72))
+	panel = playerPopoverMaterial(t, panel, playerPopoverBorder(t, ui.Hex("#ffffff").Alpha(0.72)))
+	// 烟熏玻璃时段原版 box-shadow 第一层是 `inset 0 1px 0 白 .26`（浅色那条
+	// --glass-specular 由玻璃折光近似），补在玻璃之上。
+	panel = applyInsetShadows(panel, playerPopoverInsets(t))
 	// 原版深色时段给倍速弹层补 `background-image: var(--player-sheen)`（浅色没有）。
 	panel = popoverGlass(panel, speedPopoverRadius, speedPopoverSheen(t))
 	if panel.PressedOutside() {
@@ -1924,13 +1971,19 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 	t := a.Theme
 	// 原版宽度 184 / 高 42 / padding 0 10 0 8 / 圆角 14；
 	// 底 rgba(255,255,255,.34) + 1px 玻璃边 + specular/lifted 阴影。
+	// 烟熏玻璃时段原版把 box-shadow 换成 `inset 0 1px 0 白 .26, 0 10px 24px 墨 .14`
+	// （见 playerPopoverLiftSpec / playerPopoverInsets）。
+	lift := playerPopoverLiftSpec(t)
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
 		Margin(0, edgeGap, 0, 0).Width(w).Height(h).
 		Padding(0, volumePopoverPadR, 0, volumePopoverPadL).Radius(radius).
-		Shadow(0, pick[float32](t.Dark, 10, 14), 40, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.10))).Gap(volumePopoverGap).
+		Shadow(lift.X, lift.Y, lift.Blur, lift.Spread, lift.C).Gap(volumePopoverGap).
 		AlignItems(ui.Center)
 	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
-	panel = playerPopoverMaterial(t, panel, t.GlassBorder)
+	panel = playerPopoverMaterial(t, panel, playerPopoverBorder(t, t.GlassBorder))
+	// 烟熏玻璃时段原版 box-shadow 第一层是 `inset 0 1px 0 白 .26`（浅色那条
+	// --glass-specular 由玻璃折光近似），补在玻璃之上。
+	panel = applyInsetShadows(panel, playerPopoverInsets(t))
 	// 原版音量弹层浅色铺 --glass-sheen-static、深色换成 --player-sheen。
 	panel = popoverGlass(panel, radius, volumePopoverSheen(t))
 	// 入场过渡（原版 .player-volume-popover 的 @starting-style）：
