@@ -78,14 +78,38 @@ func TestFmtDurAndViews(t *testing.T) {
 	if got := fmtDur(65); got != "1:05" {
 		t.Errorf("fmtDur = %q", got)
 	}
-	if got := fmtDur(3725); got != "1:02:05" {
-		t.Errorf("fmtDur = %q", got)
+	// 原版 convertToDuration 不显示小时：3725 秒按总分钟数显示成 62:05。
+	if got := fmtDur(3725); got != "62:05" {
+		t.Errorf("fmtDur(3725) = %q, want 62:05", got)
 	}
 	if got := fmtDur(0); got != "" {
 		t.Errorf("fmtDur(0) = %q, want empty", got)
 	}
 	if got := fmtViews(42100); got != "4.2万" {
 		t.Errorf("fmtViews = %q", got)
+	}
+	// 原版 formatViewCount 没有亿级分支：一亿也按整数万显示。
+	if got := fmtViews(150000000); got != "15000万" {
+		t.Errorf("fmtViews(1.5亿) = %q, want 15000万", got)
+	}
+	if got := fmtViews(1234567); got != "123万" {
+		t.Errorf("fmtViews(1234567) = %q, want 123万", got)
+	}
+}
+
+// TestToCardsRawViews 钉住搜索结果列表的播放量原样输出（原版 searchList 的
+// String(video.views)），不做万/亿缩写。
+func TestToCardsRawViews(t *testing.T) {
+	items := []any{map[string]any{
+		"bvid": "BVs", "title": "搜索结果", "pic": "p",
+		"owner": map[string]any{"name": "UP"},
+		"stat":  map[string]any{"view": float64(42100)},
+	}}
+	if c := toCards(items, false); len(c) != 1 || c[0].Views != "4.2万" {
+		t.Errorf("非搜索结果应缩写 = %+v", c)
+	}
+	if c := toCards(items, true); len(c) != 1 || c[0].Views != "42100" {
+		t.Errorf("搜索结果应原样 = %+v", c)
 	}
 }
 
@@ -142,7 +166,7 @@ func TestToCardsHistoryItem(t *testing.T) {
 		"duration":    float64(100),
 		"history":     map[string]any{"bvid": "BVhist", "oid": float64(123)},
 	}}
-	cards := toCards(items)
+	cards := toCards(items, false)
 	if len(cards) != 1 {
 		t.Fatalf("数量 = %d", len(cards))
 	}
@@ -191,7 +215,7 @@ func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 		"upper":    map[string]any{"name": "收藏UP"},
 		"cnt_info": map[string]any{"play": float64(12345)},
 	}}
-	c := toCards(fav)
+	c := toCards(fav, false)
 	if len(c) != 1 || c[0].Up != "收藏UP" || c[0].Views != "1.2万" || c[0].Duration != "3:20" {
 		t.Errorf("fav card = %+v", c)
 	}
@@ -204,7 +228,7 @@ func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 		"stat":     map[string]any{"view": float64(999)},
 		"progress": float64(-1),
 	}}
-	c = toCards(wl)
+	c = toCards(wl, false)
 	if len(c) != 1 || c[0].Up != "WLUP" || c[0].Views != "999" || c[0].Extra != "已看完" {
 		t.Errorf("watch later card = %+v", c)
 	}
@@ -286,7 +310,7 @@ func TestToCards(t *testing.T) {
 		// 没有 bvid 的条目（活动卡片）应被跳过。
 		map[string]any{"title": "活动", "pic": "x"},
 	}
-	cards := toCards(items)
+	cards := toCards(items, false)
 	if len(cards) != 1 {
 		t.Fatalf("toCards 数量 = %d, want 1", len(cards))
 	}
@@ -583,7 +607,7 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 		"owner": map[string]any{"name": "UP"},
 		"stat":  map[string]any{"danmaku": float64(12345)},
 	}}
-	c := toCards(items)
+	c := toCards(items, false)
 	if len(c) != 1 || c[0].Views != "1.2万" {
 		t.Errorf("danmaku 回退 = %+v", c)
 	}
@@ -598,7 +622,7 @@ func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 		"upper": map[string]any{"name": "UP2"},
 		"ctime": float64(1700000000),
 	}}
-	c = toCards(items)
+	c = toCards(items, false)
 	if len(c) != 1 || c[0].Pubdate == "" {
 		t.Errorf("ctime pubdate = %+v", c)
 	}
@@ -614,7 +638,7 @@ func TestToCardsRealZeroPlay(t *testing.T) {
 		"bvid": "BVzero", "title": "零播放", "pic": "p",
 		"stat": map[string]any{"view": float64(0), "danmaku": float64(12345)},
 	}}
-	c := toCards(items)
+	c := toCards(items, false)
 	if len(c) != 1 || c[0].Views != "0" {
 		t.Errorf("真实 0 播放应照实渲染 0 = %+v", c)
 	}
@@ -628,7 +652,7 @@ func TestToCardsRealZeroPlay(t *testing.T) {
 		"upper":    map[string]any{"name": "UP"},
 		"cnt_info": map[string]any{"play": float64(0), "danmaku": float64(999)},
 	}}
-	c = toCards(fav)
+	c = toCards(fav, false)
 	if len(c) != 1 || c[0].Views != "0" || c[0].ViewsDanmaku {
 		t.Errorf("收藏真实 0 播放 = %+v", c)
 	}
@@ -638,7 +662,7 @@ func TestToCardsRealZeroPlay(t *testing.T) {
 		"bvid": "BVmiss", "title": "缺字段", "pic": "p",
 		"danmaku": float64(5000),
 	}}
-	c = toCards(missing)
+	c = toCards(missing, false)
 	if len(c) != 1 || c[0].Views != "5000" || !c[0].ViewsDanmaku {
 		t.Errorf("字段缺失才回退弹幕 = %+v", c)
 	}
@@ -649,7 +673,7 @@ func TestToCardsRealZeroPlay(t *testing.T) {
 		"danmaku": float64(7777),
 		"stat":    map[string]any{"danmaku": float64(0)},
 	}}
-	c = toCards(zeroDan)
+	c = toCards(zeroDan, false)
 	if len(c) != 1 || c[0].Views != "0" || !c[0].ViewsDanmaku {
 		t.Errorf("stat.danmaku 真实 0 = %+v", c)
 	}

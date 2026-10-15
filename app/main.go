@@ -1549,7 +1549,7 @@ func (c *controller) loadSection(section string, page int) {
 					a.NotifyType("error", "加载失败："+err.Error())
 					return
 				}
-				setCards(list, toCards(jsonToAny(l.List)), page <= 1)
+				setCards(list, toCards(jsonToAny(l.List), false), page <= 1)
 				list.Page = page
 				list.HasMore = historyHasMore(len(l.List), cur, view.HistCursor{
 					Max: l.Cursor.Max, ViewAt: l.Cursor.ViewAt, Business: l.Cursor.Business,
@@ -1640,13 +1640,13 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		if err != nil {
 			return nil, false, err
 		}
-		return toCards(jsonToAny(l.List)), false, nil
+		return toCards(jsonToAny(l.List), false), false, nil
 	case "watchlater": // 旧 key，等价于「历史」抽屉的稍后再看 tab
 		l, err := c.bl.GetWatchLaterList()
 		if err != nil {
 			return nil, false, err
 		}
-		return toCards(jsonToAny(l.List)), false, nil
+		return toCards(jsonToAny(l.List), false), false, nil
 	}
 	return nil, false, fmt.Errorf("未知分区 %s", section)
 }
@@ -1928,7 +1928,8 @@ func (c *controller) search(query string) {
 			}
 			list.Loading = false
 			// 运行态上限（原版 MAX_RETAINED_LIST_ITEMS）。
-			cards := toCards(items)
+			// 搜索结果的播放量原版直出 String(views)，不做万/亿缩写。
+			cards := toCards(items, true)
 			if len(cards) > maxRetainedCards {
 				cards = cards[:maxRetainedCards]
 			}

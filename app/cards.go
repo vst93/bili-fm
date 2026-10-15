@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,7 +84,14 @@ func subMap(m map[string]any, key string) map[string]any {
 }
 
 // toCards 把任意列表接口的条目转成界面卡片。识别不了的条目跳过。
-func toCards(items []any) []view.Card {
+//
+// rawViews 为真时播放量直接转成十进制字符串、不做万/亿缩写——原版搜索
+// 结果列表（searchList）就是用 String(video.views) 直出，不走 formatViewCount。
+func toCards(items []any, rawViews bool) []view.Card {
+	fmtView := fmtViews
+	if rawViews {
+		fmtView = func(n int64) string { return strconv.FormatInt(n, 10) }
+	}
 	out := make([]view.Card, 0, len(items))
 	for _, it := range items {
 		m, ok := it.(map[string]any)
@@ -118,16 +126,16 @@ func toCards(items []any) []view.Card {
 		// 图标（正是原版专门修掉的混同）。
 		views := ""
 		if n, ok := pickCount(subMap(m, "stat"), "view"); ok {
-			views = fmtViews(n)
+			views = fmtView(n)
 		}
 		if views == "" {
 			if n, ok := pickCount(subMap(m, "cnt_info"), "play"); ok {
-				views = fmtViews(n)
+				views = fmtView(n)
 			}
 		}
 		if views == "" {
 			if n, ok := pickCount(m, "play", "view"); ok {
-				views = fmtViews(n)
+				views = fmtView(n)
 			}
 		}
 		dur := pickInt(m, "duration", "length")
@@ -149,7 +157,7 @@ func toCards(items []any) []view.Card {
 		if views == "" {
 			for _, src := range []map[string]any{subMap(m, "stat"), subMap(m, "cnt_info"), m} {
 				if d, ok := pickCount(src, "danmaku", "reply"); ok {
-					views, viewsFromDanmaku = fmtViews(d), true
+					views, viewsFromDanmaku = fmtView(d), true
 					break
 				}
 			}
@@ -290,7 +298,7 @@ func upCards(items []any, withBadge bool) []view.Card {
 }
 
 // toCardsFromRaw 用于返回 []interface{} 的接口（推荐 / 收藏 / 合集 / UP 主）。
-func toCardsFromRaw(raw []any) []view.Card { return toCards(raw) }
+func toCardsFromRaw(raw []any) []view.Card { return toCards(raw, false) }
 
 // jsonToAny 把结构体切片转成 []any，便于复用上面的宽松取值。
 func jsonToAny(v any) []any {
@@ -357,24 +365,21 @@ func relTime(unix int64) string {
 	return target.Format("2006-01-02")
 }
 
-// fmtDur 把秒转成 mm:ss / h:mm:ss。
+// fmtDur 把秒转成 mm:ss。
+//
+// 原版 convertToDuration 只输出 mm:ss，从不显示小时：超过一小时也照样按
+// 总分钟数显示（例如 3725 秒 → 62:05）。
 func fmtDur(sec int64) string {
 	if sec <= 0 {
 		return ""
 	}
-	h, m, s := sec/3600, (sec%3600)/60, sec%60
-	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
-	}
-	return fmt.Sprintf("%d:%02d", m, s)
+	return fmt.Sprintf("%d:%02d", sec/60, sec%60)
 }
 
 // fmtViews 把播放量转成短文本（原版 formatViewCount）：
 // ≥100万 → 整数万（539万），≥1万 → 一位小数（4.1万）。
 func fmtViews(n int64) string {
 	switch {
-	case n >= 100000000:
-		return fmt.Sprintf("%.1f亿", float64(n)/1e8)
 	case n >= 1000000:
 		return fmt.Sprintf("%d万", n/10000)
 	case n >= 10000:
