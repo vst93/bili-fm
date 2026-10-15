@@ -522,6 +522,13 @@ const (
 	// 上移同样的量，让「N 条」的落点与原版一致。
 	danmakuTotalHeight = 13.2
 	danmakuTotalShift  = -1.9
+
+	// danmakuRepeatCountHeight / danmakuRepeatCountShift 对应
+	// `.danmaku-repeat-count` 的 `font-size:10px; height:18px; line-height:16px`。
+	// 框架自然行盒约 15px（10×1.5），比原版 18px 矮 3px；显式 Height + Translate
+	// 把 ×N 胶囊压回原版高度。
+	danmakuRepeatCountHeight = 18.0
+	danmakuRepeatCountShift  = 1.5
 )
 
 // windowWidth 是这一帧的窗口宽度（DIP）——抽屉里的媒体查询断点按视口宽度判定。
@@ -2846,8 +2853,11 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 							})
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。
+							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，
+							// 显式 Height + Translate 压回原版高度。
 							numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
 								FontWeight(700).TextColor(ui.Hex("#0369a1")).
+								Height(danmakuRepeatCountHeight).Translate(0, danmakuRepeatCountShift).
 								Padding(0, 5).Radius(7).MinWidth(24).
 								Background(ui.Hex("#e0f2fe").Alpha(0.70)).
 								Border(1, t.Blue.Alpha(0.20))

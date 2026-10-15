@@ -89,17 +89,37 @@ func (a *App) playlistBody(c *ui.Context) {
 	t := a.Theme
 	items := a.playlistActive(a.PlaylistTab)
 	if len(items) == 0 {
-		// 空态内容少，仍套一层滚动容器（与之前一致）。
-		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).Children(func() {
+		// 原版 playlist.tsx 的空态（两个 tab 共用同一块）：
+		//
+		//	<div className="flex flex-col items-center justify-center h-full text-gray-400">
+		//	  <p className="text-sm">播放列表为空</p>
+		//	  <p className="text-xs mt-1">从选集列表中点击 + 添加选集到播放列表</p>
+		//	</div>
+		//
+		// 关键是 `h-full` + `justify-center`：文案在**整个正文里竖直居中**，
+		// 不是贴在正文顶上。原生版此前只有一段 `Margin(20,0,0,0)` 的近似，
+		// 文案压在表头下约 28px（无头实测文案块中心 156，原版 348），
+		// 下面空出一大片。这里用 `Grow(1)` 把容器撑满正文剩下的高度，再 Center。
+		//
+		// 两行的行盒按原版压回：text-sm 是 14/20、text-xs 是 12/16（见
+		// linebox.go），副行与原版一样 `mt-1` = 4 的间距。
+		ui.Row(c).FillWidth().Grow(1).Padding(8, 24).Center().Children(func() {
 			if a.PlaylistTab == ListSeries {
+				// 本 fork 为「合集列表」tab 单独写的一句（原版两个 tab 共用上面那段
+				// 「播放列表为空」文案，对合集 tab 是错的）。位置与主列表空态一致：
+				// 正文里居中。合集列表非空时才会出现该 tab，所以这一支只在「切到
+				// 合集 tab 后列表被清空」的边缘场景可见。
 				ui.Text(c, "合集列表为空（在合集里点「播放全部」加载）").FontSize(12).TextColor(t.Faint)
-			} else {
-				// 原版 playlist.tsx 的空态：主副两行。
-				ui.Column(c).FillWidth().Center().Margin(20, 0, 0, 0).Gap(4).Children(func() {
-					ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint)
-					ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).TextColor(t.Faint)
-				})
+				return
 			}
+			th, tsh := textLineBox(14, textSmLH)
+			mh, msh := textLineBox(12, textXsLH)
+			ui.Column(c).Gap(4).Center().Children(func() {
+				ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint).
+					Height(th).Translate(0, tsh)
+				ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).
+					TextColor(t.Faint).Height(mh).Translate(0, msh)
+			})
 		})
 		return
 	}

@@ -45,6 +45,16 @@ const (
 	collabPressedInk   = "#0f172a"
 	collabPressedAlpha = 0.08
 	collabCheckSize    = 14
+
+	// 条目两行的**行盒**。字号被 globals.css 覆写（name 12px / role 11px），
+	// 但行高仍由 HeroUI 的两个 slot 类决定、是写死的像素值：title 是
+	// `text-small`（0.875rem / 1.25rem ⇒ 20px）、description 是 `text-tiny`
+	//（0.75rem / 1rem ⇒ 16px）。框架的自然行盒是 18 / 16.5，所以 name 需要
+	// 显式撑到 20（+2）、role 收到 16（−0.5）：带角色的条目因此是
+	// 7 + 20 + 16 + 7 = 50 高（此前 48.5），无角色的条目仍是
+	// 7 + 20 + 7 = 34（正好等于 min-height）。
+	collabNameBoxH = 20.0
+	collabRoleBoxH = 16.0
 )
 
 // collabMenuWidthFor 给出菜单宽度：原版 `width: min(240px, calc(100vw - 24px))`
@@ -250,11 +260,16 @@ func (a *App) collabItem(c *ui.Context, st Collaborator, checked bool) {
 	it.Children(func() {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+				// 两行的行盒按原版压回（title/description 的 slot 类给的是
+				// 写死的 20px / 16px 行高，见 collabNameBoxH）。
+				nh, nsh := pxLineBox(collabNameSize, collabNameBoxH)
+				rh, rsh := pxLineBox(collabRoleSize, collabRoleBoxH)
 				ui.Text(c, st.Name).FontSize(collabNameSize).
-					FontWeight(collabNameWeight).TextColor(stl.Ink).SingleLine()
+					FontWeight(collabNameWeight).TextColor(stl.Ink).SingleLine().
+					Height(nh).Translate(0, nsh)
 				if st.Title != "" {
 					ui.Text(c, st.Title).FontSize(collabRoleSize).
-						TextColor(t.Muted).SingleLine()
+						TextColor(t.Muted).SingleLine().Height(rh).Translate(0, rsh)
 				}
 			})
 			// 选中项右侧一个对勾（原版 HeroUI single-select 的选中指示），

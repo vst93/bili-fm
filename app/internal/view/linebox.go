@@ -37,8 +37,15 @@ const (
 // 的倍数（如 1 / 1.2 / 1.25）。盒高恒为正、shift 恒为非正（自然行盒 ≥ 原版
 // 行盒时才需要上移）。
 func textLineBox(size, cssLineHeight float32) (height, shift float32) {
+	return pxLineBox(size, cssLineHeight*size)
+}
+
+// pxLineBox 同 textLineBox，但原版的 line-height 是**写死的像素值**、不随字号
+// 缩放。HeroUI 的两个文本 slot 类就是这种：`text-small`（0.875rem / 1.25rem
+// ⇒ 行高 20px）与 `text-tiny`（0.75rem / 1rem ⇒ 行高 16px）——组件只覆写
+// font-size 时行高仍是那 20px / 16px，不会跟着字号缩。合作 UP 主选择面板的
+// 两行（title/description）正是这样（见 collabpicker.go）。
+func pxLineBox(size, cssLineHeight float32) (height, shift float32) {
 	natural := naturalLineRatio * size
-	height = cssLineHeight * size
-	shift = (height - natural) / 2
-	return
+	return cssLineHeight, (cssLineHeight - natural) / 2
 }

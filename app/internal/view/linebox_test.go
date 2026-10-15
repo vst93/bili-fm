@@ -40,6 +40,32 @@ func TestTextLineBox(t *testing.T) {
 	}
 }
 
+// TestPxLineBox 钉住「原版 line-height 是写死像素」时的换算（HeroUI 的
+// text-small 20px / text-tiny 16px，字号被组件覆写后行高不变）：盒高就是那个
+// 像素值，shift 仍是 (原版行盒 − 自然行盒)/2 —— 比自然行盒**高**时为正
+// （合作 UP 主面板的 name：12px 字号、20px 行高 ⇒ shift +1）。
+func TestPxLineBox(t *testing.T) {
+	cases := []struct {
+		size, lh, wantH, wantShift float32
+	}{
+		{12, 20, 20, 1},     // text-small 的 20px 行高、字号覆写成 12
+		{11, 16, 16, -0.25}, // text-tiny 的 16px 行高、字号覆写成 11
+	}
+	for _, tc := range cases {
+		h, sh := pxLineBox(tc.size, tc.lh)
+		if math.Abs(float64(h-tc.wantH)) > 1e-4 {
+			t.Errorf("pxLineBox(%v,%v) 盒高 = %v，want %v", tc.size, tc.lh, h, tc.wantH)
+		}
+		if math.Abs(float64(sh-tc.wantShift)) > 1e-4 {
+			t.Errorf("pxLineBox(%v,%v) 位移 = %v，want %v", tc.size, tc.lh, sh, tc.wantShift)
+		}
+	}
+	// textLineBox 与 pxLineBox 是同一件事（倍数 × 字号）。
+	if h1, s1 := textLineBox(14, textSmLH); h1 != 20 || s1 != -0.5 {
+		t.Errorf("textLineBox(14, textSmLH) = %v/%v，want 20/-0.5", h1, s1)
+	}
+}
+
 // TestCoverDurationLineBox 真实跑一遍列表抽屉，量时长角标的盒高：原版
 // .c-cover-duration 是 `font-size:11px; line-height:1.2; padding:2px 5px`
 // ⇒ 2 + 13.2 + 2 = 17.2。此前用自然行盒（11px ≈ 16.5）⇒ 20.5，比原版高

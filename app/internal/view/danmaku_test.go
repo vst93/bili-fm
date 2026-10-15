@@ -800,6 +800,28 @@ func TestDanmakuRepeatCountNotFogged(t *testing.T) {
 	}
 }
 
+// TestDanmakuRepeatCountHeight 钉住 ×N 胶囊的显式盒高（原版
+// `.danmaku-repeat-count` 的 `height:18px; line-height:16px`）。
+// 框架自然行盒约 15px（10×1.5），比原版 18px 矮 3px；显式 Height + Translate
+// 把胶囊压回原版高度。改回不设 Height 这条会量到约 15。
+func TestDanmakuRepeatCountHeight(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}, {Time: 0.5, Text: "测试弹幕文字"}}
+	a.Drawer = DrawerDanmaku
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
+	tst.Frame()
+
+	rr, ok := tst.Find("×2")
+	if !ok {
+		t.Fatal("渲染帧里找不到 ×2 胶囊")
+	}
+	t.Logf("×2 胶囊 rect = %+v", rr)
+	if rr.H < 17.5 || rr.H > 18.5 {
+		t.Errorf("×2 胶囊盒高 = %v，应 ≈18（原版 height:18px）", rr.H)
+	}
+}
+
 // TestDanmakuViewportCaps 钉住弹幕分组与消息列的两个 dvh 上限（原版
 // `.danmaku-time-group { max-height: 80dvh }` 与
 // `.danmaku-message-list { max-height: calc(80dvh - 20px) }`）。
