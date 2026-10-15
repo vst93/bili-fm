@@ -274,6 +274,10 @@ func (a *App) userButton(c *ui.Context) {
 		a.Images.Retain(a.Face, imagecache.WidthAvatar)
 		if bmp := a.Images.Bitmap(a.Face, imagecache.WidthAvatar); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
+		} else if !a.LoggedIn {
+			// 未登录：原版 HeroUI Avatar 的默认 fallback 是人形剪影，不是首字
+			//（未登录 UName 为空，从前这里画出一个 "?"）。
+			b.Draw(func(p *ui.Painter, r ui.Rect) { userAvatarSilhouette(p, r, t.Faint) })
 		} else {
 			ui.Text(c, avatarInitial(a.UName)).FontSize(13).Bold().TextColor(t.Muted)
 		}
@@ -286,12 +290,35 @@ func (a *App) userButton(c *ui.Context) {
 	focusOutline(b, RadiusPill, focusStudioWide)
 }
 
-// avatarInitial 是没头像时显示的字（用户名首字，没有就一个问号）。
+// avatarInitial 是已登录但头像还没就绪时显示的字（用户名首字）。未登录不
+// 走这里：原版 HeroUI Avatar 的默认 fallback 是人形剪影（见
+// userAvatarSilhouette），从前未登录 UName 为空会画出一个 "?"。
 func avatarInitial(name string) string {
 	for _, r := range name {
 		return string(r)
 	}
 	return "?"
+}
+
+// userAvatarSilhouette 画原版 @heroui/avatar 默认 fallback 的人形剪影：
+// 一个头 + 一段肩（灰色 currentColor，`AvatarIcon`/`AvatarFallback` 里的
+// person 图形）。未登录时画它，替代从前的 "?" 首字。
+func userAvatarSilhouette(p *ui.Painter, r ui.Rect, col ui.Color) {
+	s := min(r.W, r.H)
+	if s <= 0 {
+		return
+	}
+	cx := r.X + r.W/2
+	// 头：半径约 0.18·边长，圆心落在上 35% 处。
+	var head ui.Path
+	head.Circle(cx, r.Y+r.H*0.35, s*0.18)
+	p.FillPath(&head, col)
+	// 肩：底边贴盒底、跨度 0.72·边长，顶点半高，用二次曲线收成圆肩。
+	var body ui.Path
+	body.MoveTo(cx-s*0.36, r.Y+r.H)
+	body.QuadTo(cx, r.Y+r.H*0.56, cx+s*0.36, r.Y+r.H)
+	body.Close()
+	p.FillPath(&body, col)
 }
 
 // ---------------------------------------------------------------- 正在播放
@@ -819,6 +846,10 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				a.Images.Retain(a.ownerFace(), imagecache.WidthAvatar)
 				if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+				} else if placeholderCover != nil {
+					// 默认头像 / 真头像还没解码好：先铺占位图（原版 RetryImg 的
+					// onError 退 /cover.png 那一层），解码完再被真图盖掉。
+					ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 				}
 			})
 			if face.Clicked() {
@@ -1390,14 +1421,23 @@ func (a *App) ownerName() string {
 	return "神秘的UP主"
 }
 
+// ownerFace 返回 UP 主头像地址。没有 face 时退 noFaceAvatar（B 站官方默认
+// 头像），对齐原版 videoInfo.tsx:253 的 `displayedOwner?.face || noface.jpg`
+// —— 否则头像位置在下载完之前（乃至没有 face 时）只有一层底色。
+//
+// 合作视频选中了参与者就整组看 TA：原版 `displayedOwner` 一旦有值，
+// `face` 为空也是退 noface，不会回落到主 UP 主的 face。
 func (a *App) ownerFace() string {
-	if st, ok := a.collabOwner(); ok && st.Face != "" {
-		return st.Face
+	if st, ok := a.collabOwner(); ok {
+		if st.Face != "" {
+			return st.Face
+		}
+		return noFaceAvatar
 	}
-	if a.Info != nil {
+	if a.Info != nil && a.Info.OwnerFace != "" {
 		return a.Info.OwnerFace
 	}
-	return ""
+	return noFaceAvatar
 }
 
 func (a *App) partTitle() string {

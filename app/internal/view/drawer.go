@@ -1852,11 +1852,11 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 			if bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			} else if spec.Cover != "" && placeholderCover != nil {
-				// 有封面地址但还没解码好：先画占位图（原版 RetryImg 的
-				// /cover.png），解码完的下一帧再被上面的真图盖掉 —— 渐进式
-				// 加载，不是等下载完才画。地址为空（本来就没封面）不铺，
-				// 保持卡片玻璃与悬停光晕。
+			} else if placeholderCover != nil {
+				// 原版 ListCard 的 RetryImg 是 `src={src || fallbackSrc}`：空封面
+				// 也画 /cover.png（原版数据结构里 cover 可以是 ""，首帧未填充的
+				// 卡片就是这种）。所以这里不再按 `spec.Cover != ""` 分岔，一律铺
+				// 占位图 —— 解码好的真图下一帧盖掉，渐进式加载。
 				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
@@ -3108,6 +3108,11 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 			face.Children(func() {
 				if bmp := a.Images.Bitmap(cm.Avatar, imagecache.WidthAvatar); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
+				} else if placeholderCover != nil {
+					// 原版 danmakuList.tsx:302 的 getMemberInfo：无 face 时
+					// face="/default-avatar.png"（该图 404 → RetryImg onError 退
+					// /cover.png）。这里同退占位图，不再只铺一层底色。
+					ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 				}
 			})
 			ui.Column(c).Children(func() {

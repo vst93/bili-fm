@@ -10,8 +10,15 @@ import (
 
 // cardGlowProbe 把一张卡放在固定位置的纯色底上，供逐像素验证光晕。
 // 背景取中灰：卡片玻璃叠上去仍是浅灰，白色光晕叠上来能看出亮度差。
+//
+// 测量期间把占位图摘掉：本轮起「封面未就绪」的卡片会铺 /cover.png 占位图
+//（原版 RetryImg 行为），它盖住整个封面盒，会把光晕区域的读数压成一片占位
+// 色 —— 光晕本身仍照常画。
 func cardGlowProbe(t *testing.T) (*ui.Tester, ui.Rect) {
 	t.Helper()
+	old := placeholderCover
+	placeholderCover = nil
+	t.Cleanup(func() { placeholderCover = old })
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	spec := cardSpec{

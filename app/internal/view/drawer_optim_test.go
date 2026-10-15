@@ -71,9 +71,14 @@ func TestPlaylistRowCursorIsDefault(t *testing.T) {
 	}
 }
 
-// TestCoverPlaceholderDrawnWhileLoading 钉住渐进式加载：封面地址有、但位图还
-// 没解码好时，卡片封面盒先画占位图（原版 RetryImg 的 /cover.png），解码完的
-// 下一帧再被真图盖掉。这里把占位图临时换成纯红，量卡片封面区的红像素。
+// TestCoverPlaceholderDrawnWhileLoading 钉住卡片封面的占位图（渐进式加载）：
+// 真图还没好先画占位图（原版 RetryImg 的 /cover.png），解码完的下一帧再被
+// 真图盖掉。这里把占位图临时换成纯红，量卡片封面区的红像素。
+//
+// 覆盖两种情况，因为原版 RetryImg 是 `src={src || fallbackSrc}`：
+//   - 有地址、未解码；
+//   - 地址为空（首帧还没填 cover / 本来就没封面）—— 从前只铺底色，用户报
+//     「图片要等下载完才出现、之前是一片空」。
 func TestCoverPlaceholderDrawnWhileLoading(t *testing.T) {
 	old := placeholderCover
 	defer func() { placeholderCover = old }()
@@ -83,31 +88,39 @@ func TestCoverPlaceholderDrawnWhileLoading(t *testing.T) {
 	}
 	placeholderCover = ui.NewBitmap(red)
 
-	a := NewApp(func() {})
-	a.Theme = ThemeFor(PeriodAt(12))
-	spec := cardSpec{
-		Key: "ph-card", Cover: "http://example.invalid/x.jpg", Title: "标题",
-		Lazy:   true, // 只读缓存：地址有但未解码 → 走占位图分支
-		Fields: []cardField{{Kind: fieldAuthor, Text: "UP主"}},
-	}
-	img := ui.Render(func(c *ui.Context) {
-		c.Root().Background(ui.RGB(90, 90, 90))
-		ui.Box(c).Absolute().Left(20).Top(20).Size(220, 170).Children(func() {
-			a.renderCard(c, spec)
-		})
-	}, 300, 260, 1)
-
-	reds := 0
-	for y := 0; y < img.Bounds().Dy(); y++ {
-		for x := 0; x < img.Bounds().Dx(); x++ {
-			i := img.PixOffset(x, y)
-			if img.Pix[i] > 200 && img.Pix[i+1] < 60 && img.Pix[i+2] < 60 {
-				reds++
+	for _, tc := range []struct{ name, cover string }{
+		{"有地址未解码", "http://example.invalid/x.jpg"},
+		{"地址为空", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := NewApp(func() {})
+			a.Theme = ThemeFor(PeriodAt(12))
+			a.Images = newRecordingCache()
+			spec := cardSpec{
+				Key: "ph-card", Cover: tc.cover, Title: "标题",
+				Lazy:   true, // 只读缓存：拿不到真图 → 走占位图分支
+				Fields: []cardField{{Kind: fieldAuthor, Text: "UP主"}},
 			}
-		}
-	}
-	if reds < 1000 {
-		t.Fatalf("封面未就绪时应画占位图：红像素只有 %d", reds)
+			img := ui.Render(func(c *ui.Context) {
+				c.Root().Background(ui.RGB(90, 90, 90))
+				ui.Box(c).Absolute().Left(20).Top(20).Size(220, 170).Children(func() {
+					a.renderCard(c, spec)
+				})
+			}, 300, 260, 1)
+
+			reds := 0
+			for y := 0; y < img.Bounds().Dy(); y++ {
+				for x := 0; x < img.Bounds().Dx(); x++ {
+					i := img.PixOffset(x, y)
+					if img.Pix[i] > 200 && img.Pix[i+1] < 60 && img.Pix[i+2] < 60 {
+						reds++
+					}
+				}
+			}
+			if reds < 1000 {
+				t.Fatalf("cover=%q：封面未就绪时应画占位图，红像素只有 %d", tc.cover, reds)
+			}
+		})
 	}
 }
 
