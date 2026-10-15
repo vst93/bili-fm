@@ -1056,9 +1056,14 @@ func (a *App) contentActions(c *ui.Context) {
 			// 否则会用上一条视频的状态误操作。
 			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
 		})
-		// 原版这三枚图标 size={18}（比互动三键的 20 小一号，避免与气泡/圆环的
-		// 视觉重量相同）：浏览器 / 视频 / 弹幕。
-		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, 18, bvid == "", func() {
+		// 原版这三枚图标 JSX 写的是 size={18}（浏览器 / 视频 / 弹幕），但 CSS
+		// `.video-content-actions .nav-icon-btn > svg { width/height: 20px }`
+		// （globals.css:2556）盖掉了 SVG 的 width/height **表现属性**（表现属性
+		// 在 CSS 里是最低优先级），所以 DOM 里的 svg 实际都是 20 —— 原版注释也
+		// 写了「统一图标光学尺寸：源码里混着 18/20 两种规格，同排看有微妙的
+		// 参差」。cd94979 换 icon-park path 时按 JSX 改成了 18，把这条覆写漏了
+		// （同排三枚图标比原版小一圈）。
+		a.contentIconButton(c, "browser", "浏览器打开", iconBrowser, iconOpticalSize, bvid == "", func() {
 			if a.Act.OpenBrowser != nil {
 				a.Act.OpenBrowser()
 			}
@@ -1072,7 +1077,7 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.contentIconButton(c, "video", "视频播放", iconVideo, 18, bvid == "", func() {
+		a.contentIconButton(c, "video", "视频播放", iconVideo, iconOpticalSize, bvid == "", func() {
 			if a.VideoOpen {
 				if a.Act.CloseVideo != nil {
 					a.Act.CloseVideo()
@@ -1082,7 +1087,7 @@ func (a *App) contentActions(c *ui.Context) {
 			}
 		})
 		// 弹幕/评论按 `!cid` 置灰（原版 disabled={!cid}）。
-		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, 18, cid == 0, a.openDanmaku)
+		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, iconOpticalSize, cid == 0, a.openDanmaku)
 	})
 }
 
@@ -1101,7 +1106,7 @@ func (a *App) contextDock(c *ui.Context) {
 		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.35)).Children(func() {
 		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
-		a.iconButton(c, "dock-search", "搜索结果", iconSearch, 20,
+		a.iconButton(c, "dock-search", "搜索结果", iconSearch, iconOpticalSize,
 			len(a.ListFor(DrawerSearch).Cards) == 0, func() {
 				a.Drawer = DrawerSearch
 			})
@@ -1111,9 +1116,9 @@ func (a *App) contextDock(c *ui.Context) {
 		if a.PlayingPlaylist == "" && a.Track != nil {
 			partsInk = t.Blue
 		}
-		a.inkButton(c, "dock-parts", "选集", iconList, 20, partsInk, bvid == "", a.openParts)
+		a.inkButton(c, "dock-parts", "选集", iconList, iconOpticalSize, partsInk, bvid == "", a.openParts)
 		// 合集：还没选过合集时禁用。
-		a.iconButton(c, "dock-series", "合集", iconSeries, 20, a.SeriesID == 0, a.openSeries)
+		a.iconButton(c, "dock-series", "合集", iconSeries, iconOpticalSize, a.SeriesID == 0, a.openSeries)
 		// 播放列表：带数量角标（>99 显示 99+），播放中按来源变蓝/紫。
 		// 图标染色用 inkButton —— 原版是
 		// fill={isPlaylistMode ? (series ? 紫 : 蓝) : 灰}，之前这里算出了 ink
@@ -1125,7 +1130,7 @@ func (a *App) contextDock(c *ui.Context) {
 				plistInk = ui.Hex("#a855f7") // 合集来源是紫色（原版）
 			}
 		}
-		a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, 20,
+		a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, iconOpticalSize,
 			plistInk, false, func() {
 				if a.Drawer == DrawerPlaylist {
 					a.Drawer = ""
@@ -1236,6 +1241,20 @@ func (a *App) openDanmaku() {
 // 计数是按钮的**绝对定位子元素**（原版 `.nav-icon-btn > .nav-stat-value`：
 // absolute、top: calc(100% + 1px)、left 50% + translateX(-50%)），不占布局
 // 高度——行高只由按钮 34px + 行容器的 padding-bottom 14（展示区）决定。
+//
+// statCountBoxH / statCountShift 压回那条规则里的 `line-height: 12px`：
+// 框架把 9px 文本的行盒夹在**自然高度 14**（本机 Pango 的 ascent 11 + descent 3，
+// 见 linebox.go）之上，计数因此比原版高 2px、数字落点低 1px。计数不占布局，
+// 这 2px 只体现在计数自身的盒高（无头实测：矩形高 14 → 12）。用显式盒高 +
+// 字形上移复现原版（line.Height 是写死的像素值，直接走 pxLineBox）。
+//
+// statCountWeight 是同一条规则里的 `font-weight: 600`：计数是按钮下方的小号
+// 数值，原版加粗一档才与图标同重量；原生版此前走 numericText 的默认 400，
+// 计数比原版轻一档。
+var statCountBoxH, statCountShift = pxLineBox(9, 12)
+
+var statCountWeight = 600
+
 type statSpec struct {
 	Key string
 	// Label 同时作为 tooltip 与无障碍标签（原版按钮的 title）。
@@ -1317,9 +1336,10 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 			if spec.Active {
 				gap += 1 // buttonSurface 的 1px 边框
 			}
-			numericText(c, spec.Count).FontSize(9).TextColor(valueInk).
+			numericText(c, spec.Count).FontSize(9).FontWeight(statCountWeight).TextColor(valueInk).
 				Opacity(navIconStatValueOpacity(spec.Off)).
 				SingleLine().
+				Height(statCountBoxH).Translate(0, statCountShift).
 				Attach(ui.AnchorBottom, ui.AnchorTop).Top(gap)
 		}
 	})

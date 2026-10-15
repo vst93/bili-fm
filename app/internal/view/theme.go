@@ -345,9 +345,9 @@ const (
 	// 整窗（见 homeStage），所以主区**只**减播放栏高度、不减标题栏 ——
 	// 标题栏那 36px 实际由主区探到播放栏底下消化。见 homeStage 的说明。
 	PlayerBarHeight = 56
-	Radius         = 8
-	RadiusSmall    = 6
-	RadiusPill     = 999
+	Radius          = 8
+	RadiusSmall     = 6
+	RadiusPill      = 999
 
 	// 搜索药丸（.home-searchbar）：max-width 520、高 46、圆角 13、
 	// 内边距 4；内腔按钮圆角 = 13 - 7 = 6。
@@ -377,6 +377,21 @@ const (
 	titleBarBrandWidth = 600
 )
 
+// iconOpticalSize 是内容操作行 / 工具条里图标的**光学尺寸**，逐值对应原版
+// globals.css:2556 的一条统一覆写：
+//
+//	.video-content-actions .nav-icon-btn > svg,
+//	.video-context-dock .nav-icon-btn > svg { width: 20px; height: 20px }
+//
+// JSX 里 source 写的是 18 / 20 两种 size，但 `size` 落到 SVG 的 width/height
+// **表现属性**上，而 CSS 里表现属性的优先级最低 —— 原版 DOM 里这两组的 svg
+// 实际一律 20px（原版注释：「统一图标光学尺寸：源码里混着 18/20 两种规格，
+// 同排看有微妙的参差」）。cd94979 换 icon-park path 时按 JSX 把浏览器 / 视频 /
+// 弹幕三枚改成了 18，把这条覆写漏掉了。
+//
+// 声明成变量便于测试换桩反证接线。
+var iconOpticalSize float32 = 20
+
 // navIconKind 区分三族 .nav-icon-btn 的**基础透明度**（原版 globals.css 各写一条）：
 //
 //	.nav-icon-btn                                opacity .92
@@ -384,7 +399,7 @@ const (
 //	.video-context-dock .nav-icon-btn            opacity .78
 //
 // 内容行 / 工具条的覆盖规则与 `.nav-icon-btn:hover { opacity: 1 }` 同特异度
-//（0,2,0）但源序在后，所以这两族的按钮**悬停时也不会回到 1**——是个常量；
+// （0,2,0）但源序在后，所以这两族的按钮**悬停时也不会回到 1**——是个常量；
 // 禁用走 `.nav-icon-btn:disabled { opacity: .3 }`（源序最末、同特异度，赢），
 // 由 disableNav 负责。
 type navIconKind int
@@ -410,7 +425,7 @@ var navIconRestOpacityFor = func(k navIconKind) float32 {
 // navIconStatValueOpacity 是 `.nav-stat-value`（按钮下方的计数）的透明度。原版
 // 数值是 `.nav-icon-btn` 的子元素，随按钮一起吃到 `.video-content-actions
 // .nav-icon-btn` 的 .82 与 `:disabled` 的 .34；原生版把数值画在按钮**之外**
-//（34×(34+13) 的列里），所以要显式补上同一层。数值自己不是禁用节点，不吃框架
+// （34×(34+13) 的列里），所以要显式补上同一层。数值自己不是禁用节点，不吃框架
 // 那层减半，所以直接给原版的绝对值 .34（按钮那边由 disabledDim 补到 .68）。
 var navIconStatValueOpacity = func(off bool) float32 {
 	if off {

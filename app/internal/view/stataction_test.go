@@ -53,9 +53,12 @@ func TestStatCountAttachedBelowButton(t *testing.T) {
 			t.Fatalf("找不到计数 %q", tc.count)
 		}
 		t.Logf("%s：按钮 %+v / 计数 %+v", tc.btn, btn, cnt)
-		if got, want := cnt.Y, btn.Y+btn.H+1; got != want {
-			t.Errorf("%s 计数上缘 Y = %v, want %v（top: calc(100%% + 1px)）",
-				tc.btn, got, want)
+		// 计数上缘 = 按钮下缘 + 1 + statCountShift（原版 top: calc(100% + 1px)；
+		// statCountShift 是字形位移，为负值，把整个计数盒也一起上移，
+		// 见 home.go 的 statCountBoxH/statCountShift）。
+		if got, want := cnt.Y, btn.Y+btn.H+1+statCountShift; got != want {
+			t.Errorf("%s 计数上缘 Y = %v, want %v（top: calc(100%% + 1px)，再叠字形位移 %v）",
+				tc.btn, got, want, statCountShift)
 		}
 		bcx, ccx := btn.X+btn.W/2, cnt.X+cnt.W/2
 		if math.Abs(float64(bcx-ccx)) > 0.5 {
