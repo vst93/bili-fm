@@ -14,7 +14,9 @@ import (
 // 的图标（48×48 画布、描边 4）。原生版此前只有搜索 / 热门 / 推荐等几枚换成了
 // 原始 path，播放控制这一组仍是 16 画布手抄：下一集画成「实心三角 + 竖线」（▶|），
 // 而原版 GoEnd 是「人字形 + 竖线」（>|）；暂停键是两块粗圆角矩形（比原版两根
-// 细圆头竖线粗矮）；音量 / 均衡 / 恰饭也都是观感近似。这里逐字拷原始 path，
+// 细圆头竖线粗矮）；音量 / 恰饭也是观感近似（**均衡键是例外**：2026-10-15 用户
+// 要求保留 mygo 版自带的 16 画布竖线，见 state.go 的 iconEQ 与
+// TestEQIconStaysMygoBars）。这里逐字拷原始 path，
 // 并把「不是旧近似」逐枚反证。
 
 // TestPlayerControlIconParkPathsAreVerbatim 逐字钉住本轮 icon-park 的 path 数据
@@ -136,6 +138,27 @@ func TestStarFilledIsFilled(t *testing.T) {
 	diff, total := iconPixelDiff(iconStar, iconStarFilled, 40)
 	if diff < total/20 {
 		t.Errorf("空心/实心星差别太小（%d/%d）", diff, total)
+	}
+}
+
+// TestEQIconStaysMygoBars 钉住均衡键的图标是 mygo 版自带的 16 画布四根
+// 竖线（iconEQ 在 state.go 里是手写 path，不是 iconPark(parkEqualizer)）。
+// 2026-10-15 用户裁决：「恢复之前 mygo 版本开始用的那个，那个看起来更贴合
+// 一些」—— 所以这里反过来钉：谁把它「对齐原版」换回 icon-park 就会红。
+func TestEQIconStaysMygoBars(t *testing.T) {
+	// 这就是 mygo 版一路用到 2026-10-15 的那条 path（16 画布）。
+	const mygoBars = `<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`
+	if !sameImage(renderIconAt(iconEQ, 17), renderIconAt(icon(mygoBars), 17)) {
+		t.Errorf("均衡键不再是 mygo 版自带的竖线图标")
+	}
+	// 与 icon-park 的 Equalizer 拉开像素差：确实是两枚不同的图（不是同一枚
+	// 渲染差异），否则「恢复了」是空话。
+	diff, total := iconPixelDiff(iconEQ, iconPark(parkEqualizer), 17)
+	if total == 0 {
+		t.Fatal("渲染失败")
+	}
+	if diff < total/100 {
+		t.Errorf("均衡键又变回 icon-park 的 Equalizer 了（仅 %d/%d 像素不同）", diff, total)
 	}
 }
 

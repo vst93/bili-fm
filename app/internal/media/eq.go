@@ -8,18 +8,21 @@ import (
 // Compressor 是响度均衡器：用 RMS 滑动窗口检测信号响度，按软拐点
 // 压缩曲线计算增益，让安静和响亮的内容落在更接近的响度上。
 //
-// 与旧版（纯峰值驱动 + 固定 makeup +45.8 dB）的区别：
+// **这里有意偏离原版**（2026-10-15 用户：「音量均衡效果太差，感觉基本
+// 就是把小音量调大」）。原版（main:src/components/player.tsx）用 Web Audio
+// 的 DynamicsCompressorNode（threshold -50 / knee 40 / ratio 12 / attack 0 /
+// release 0.25），它自带**固定**的补偿增益（让 0 dBFS 输入仍 0 dBFS）：
+// 对安静内容就是一记 +45.8 dB 的常数抬升，响亮内容几乎不动 —— 压缩曲线
+// 等于没起作用，听感就是「把小音量调大」。所以这一版换成：
 //
-//	旧版：阈值 -50 dBFS + 12:1 压缩 → makeup 让 0 dBFS→0 dBFS，
-//	      安静内容被固定抬 +45.8 dB，响亮内容几乎不变——「感觉基本就是
-//	      把小音量调大」。
-//	新版：RMS 检测 + 目标响度归一化 — makeup 动态计算，让目标 RMS
-//	      (-5 dBFS) 的输入原样输出，安静/响亮内容都向目标靠拢。
+//	检测：峰值 → RMS（200ms 指数滑动平均 —— 要跟随的是响度不是瞬态峰值）
+//	增益：makeup 按目标响度反算（target - curve(target)），不是常数
+//	限幅：RMS 驱动的增益会撞上瞬态峰值，补一级硬限幅保住 1.0 不削波
+//	参数：threshold -40 / knee 40 / ratio 12 / attack 0 / release 0.25s
 //
-// 参数（与原版 Web Audio 对齐，threshold -40 / target -5 让
-// 正常响度内容原样输出，安静/响亮内容都向目标靠拢）：
-//
-//	threshold -40 / knee 40 / ratio 12 / attack 0 / release 0.25s
+// 只有 threshold 与原版不同（-50 → -40）：目标响度附近的内容因此几乎
+// 原样输出，只有明显更轻/更响的内容被拉近，避免 -50 那种「所有内容先压
+// 一遍再整体抬回来」的过度处理。
 //
 // 不同 B 站视频的默认音量差异很大，开启后安静的和响亮的视频能落在
 // 更接近的响度上。
@@ -52,9 +55,13 @@ type Compressor struct {
 }
 
 const (
+	// 切换过渡 60ms：原版 EQ_TRANSITION_SECONDS
+	//（main:src/components/player.tsx:28，此前本文件写死的 0.12 是错的）。
 	eqTransitionSeconds = 0.06
+	// RMS 滑动窗口 200ms：平滑掉短瞬态，音量真变化时又能及时跟上。
 	eqRMSWindowSeconds = 0.2
-	eqTargetRMSDB      = -5.0
+	// 目标响度（RMS，dBFS）：makeup 让它原样输出，更轻/更响的内容向它靠拢。
+	eqTargetRMSDB = -5.0
 )
 
 // NewCompressor 建一个均衡器，初始为透明直通。
@@ -213,9 +220,9 @@ func (c *Compressor) gainReduction(xDB float64) float64 {
 
 // makeupDB 是自动补偿增益：让目标 RMS 电平的输入原样输出。
 //
-// 旧版用 -curve(0)（让 0 dBFS→0 dBFS），导致 makeup 高达 +45.8 dB，
-// 安静内容被大幅抬高。新版用 target - curve(target)，makeup 更温和，
-// 安静/响亮内容都向目标响度靠拢。
+// 上一版照抄原版的 -curve(0)（让 0 dBFS→0 dBFS），makeup 高达 +45.8 dB，
+// 安静内容被一记常数抬上来。这一版用 target - curve(target)：makeup 随
+// 目标响度定，压缩曲线真正参与，安静/响亮内容都向目标靠拢。
 func (c *Compressor) makeupDB() float64 {
 	if c.ratio <= 1.0001 && c.threshold >= -0.001 {
 		return 0

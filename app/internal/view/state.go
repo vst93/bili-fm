@@ -1100,7 +1100,12 @@ var (
 	iconCoin       = iconPark(parkHandleB)
 	iconStar       = iconPark(parkStar)
 	iconStarFilled = iconPark(parkStarFilled)
-	iconEQ         = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
+	// 均衡键的图标是**有意保留**的 mygo 版原生竖线（16 画布四根高低线），
+	// 不是 icon-park 的 Equalizer。2026-10-15 用户要求「恢复之前 mygo 版本
+	// 开始用的那个，那个看起来更贴合一些」—— 这是用户裁决，不要再按
+	// 「对齐原版」把它换回 iconPark(parkEqualizer)（parkEqualizer 常量仍留
+	// 在下面，有反证测试钉住两枚图不同）。
+	iconEQ = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
 	// 恰饭跳过：icon-park 的 Ad（圆圈 + 「广」）。
 	iconSponsor = iconPark(parkAd)
 
