@@ -14,9 +14,21 @@ import (
 // 框架把每行高夹在 max(行高, ascent+descent) 之上、压不下去，于是原生版这些
 // 元素比原版高一截，把周围布局推偏。修法见 linebox.go。
 
+// stubNaturalLineBox 把自然行盒换成给定的桩，返回恢复函数。纯算术测试不该
+// 依赖平台的字体度量（Pango / CoreText / DirectWrite 各不相同），换桩后
+// 「盒高 / 位移」的换算在任何平台都钉得住；默认实现的实测行为另见
+// TestNaturalLineBoxMeasured。
+func stubNaturalLineBox(fn func(float32) float32) func() {
+	old := naturalLineBox
+	naturalLineBox = fn
+	return func() { naturalLineBox = old }
+}
+
 // TestTextLineBox 钉住换算：盒高 = 原版行盒，shift = 负 half-leading
-// （(原版行盒 − 自然行盒)/2）。
+// （(原版行盒 − 自然行盒)/2）。这里把自然行盒钉成 1.5×字号（历史近似值），
+// 只验证公式本身。
 func TestTextLineBox(t *testing.T) {
+	defer stubNaturalLineBox(func(size float32) float32 { return 1.5 * size })()
 	cases := []struct {
 		size, lh, wantH, wantShift float32
 	}{
@@ -25,6 +37,7 @@ func TestTextLineBox(t *testing.T) {
 		{15, 1.25, 18.75, -1.875}, // #video-owner-name
 		{12, 1.2, 14.4, -1.8},     // .mini-part
 	}
+	// 期望值按「自然行盒 = 1.5×字号」算（上面的桩）。
 	for _, tc := range cases {
 		h, sh := textLineBox(tc.size, tc.lh)
 		if math.Abs(float64(h-tc.wantH)) > 1e-4 {
@@ -43,8 +56,10 @@ func TestTextLineBox(t *testing.T) {
 // TestPxLineBox 钉住「原版 line-height 是写死像素」时的换算（HeroUI 的
 // text-small 20px / text-tiny 16px，字号被组件覆写后行高不变）：盒高就是那个
 // 像素值，shift 仍是 (原版行盒 − 自然行盒)/2 —— 比自然行盒**高**时为正
-// （合作 UP 主面板的 name：12px 字号、20px 行高 ⇒ shift +1）。
+// （合作 UP 主面板的 name：12px 字号、20px 行高 ⇒ shift +1）。自然行盒同样
+// 换桩成 1.5×字号。
 func TestPxLineBox(t *testing.T) {
+	defer stubNaturalLineBox(func(size float32) float32 { return 1.5 * size })()
 	cases := []struct {
 		size, lh, wantH, wantShift float32
 	}{
@@ -66,10 +81,64 @@ func TestPxLineBox(t *testing.T) {
 	}
 }
 
+// TestNaturalLineBoxMeasured 钉住「自然行盒来自框架实测的字体度量」，不再写死
+// 1.5×字号。无头实测本机（Pango）：10→15、11→17、12→18、14→22、15→23、22→33，
+// 其中 11 / 14 / 15px 都不等于 1.5×字号（14px 的 22 ≠ 21），旧常量会把
+// half-leading 算偏（14px 的位移 −1 被写成 −0.5）。
+//
+// 反证：把 naturalLineBox 换回 `1.5*size` —— 所有字号都恰好等于 1.5×，最后那条
+// 「至少一个字号与 1.5×不同」的断言红。
+func TestNaturalLineBoxMeasured(t *testing.T) {
+	sizes := []float32{10, 11, 12, 14, 15, 22}
+	differs := false
+	for _, size := range sizes {
+		m := ui.Font{Size: size}.Metrics()
+		want := m.Ascent + m.Descent + m.LineGap
+		if got := naturalLineBox(size); math.Abs(float64(got-want)) > 1e-4 {
+			t.Errorf("naturalLineBox(%v) = %v，want 框架度量之和 %v", size, got, want)
+		}
+		if naturalLineBox(size) != 1.5*size {
+			differs = true
+		}
+	}
+	// 这条同时是反证：本机度量下 11 / 14 / 15px 与 1.5×不同；若有人把
+	// naturalLineBox 退回常量，differs 会全为 false。
+	if !differs {
+		t.Errorf("没有字号的自然行盒偏离 1.5×字号：自然行盒似乎仍是写死的 1.5 常量")
+	}
+	// 0（或负）字号没有文本，按 0 处理、不 panic。
+	if got := naturalLineBox(0); got != 0 {
+		t.Errorf("naturalLineBox(0) = %v，want 0", got)
+	}
+	if got := naturalLineBox(-3); got != 0 {
+		t.Errorf("naturalLineBox(-3) = %v，want 0", got)
+	}
+}
+
+// TestLineBoxUsesNaturalLineBox 是接线反证：把自然行盒换成一个**与任何字号都
+// 不相干的常数** 40，位移就必须是 (原版行盒 − 40)/2。若 pxLineBox / textLineBox
+// 绕开 naturalLineBox（自己写死别的值），换算结果就对不上，本测试红。
+func TestLineBoxUsesNaturalLineBox(t *testing.T) {
+	defer stubNaturalLineBox(func(float32) float32 { return 40 })()
+	want := float32(-10) // (原版行盒 − 桩 40)/2
+	if _, sh := pxLineBox(14, 20); math.Abs(float64(sh-want)) > 1e-4 {
+		t.Errorf("pxLineBox(14,20) 位移 = %v，want %v（自然行盒桩 40）", sh, want)
+	}
+	if _, sh := pxLineBox(11, 16); sh != float32(-12) {
+		t.Errorf("pxLineBox(11,16) 位移 = %v，want -12（自然行盒桩 40）", sh)
+	}
+	if _, sh := textLineBox(10, 2); math.Abs(float64(sh-want)) > 1e-4 {
+		t.Errorf("textLineBox(10,2) 位移 = %v，want %v（自然行盒桩 40）", sh, want)
+	}
+	if _, sh := textLineBox(22, 1.5); sh != float32(-3.5) {
+		t.Errorf("textLineBox(22,1.5) 位移 = %v，want -3.5（自然行盒桩 40）", sh)
+	}
+}
+
 // TestCoverDurationLineBox 真实跑一遍列表抽屉，量时长角标的盒高：原版
 // .c-cover-duration 是 `font-size:11px; line-height:1.2; padding:2px 5px`
-// ⇒ 2 + 13.2 + 2 = 17.2。此前用自然行盒（11px ≈ 16.5）⇒ 20.5，比原版高
-// 约 3px、盖住更多封面。
+// ⇒ 2 + 13.2 + 2 = 17.2。此前用自然行盒（11px = 17）⇒ 21，比原版高
+// 约 4px、盖住更多封面。
 func TestCoverDurationLineBox(t *testing.T) {
 	a := NewApp(func() {})
 	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题", Cover: "", Duration: "1:23:45"}}

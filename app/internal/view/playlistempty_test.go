@@ -22,7 +22,7 @@ import (
 // 实测文案块中心 156，原版 348），下面空出一大片。
 //
 // 两行还各是 Tailwind 的字号类：text-sm（14px / 20px 行高）、text-xs
-// （12px / 16px 行高），副行有 `mt-1`（4）的间距。框架的自然行盒是 21 / 18，
+// （12px / 16px 行高），副行有 `mt-1`（4）的间距。框架的自然行盒是 22 / 18，
 // 所以这里也套 textLineBox 压回（见 linebox.go 的 textSmLH / textXsLH）。
 
 // emptyDrawerBodyTop 返回播放列表抽屉正文（DrawerBody）的上下缘：面板高

@@ -1861,7 +1861,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
 			// 原版 `font-size:11px; line-height:1.2; padding:2px 5px`（盒高
-			// 2+13.2+2 = 17.2）。框架的自然行盒（11px ≈ 16.5）下不去，角标会
+			// 2+13.2+2 = 17.2）。框架的自然行盒（11px = 17）下不去，角标会
 			// 比原版高约 4px、盖住更多封面；用显式盒高 + 字形上移复现（见
 			// linebox.go）。
 			if spec.Duration != "" {

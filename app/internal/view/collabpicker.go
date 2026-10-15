@@ -49,9 +49,9 @@ const (
 	// 条目两行的**行盒**。字号被 globals.css 覆写（name 12px / role 11px），
 	// 但行高仍由 HeroUI 的两个 slot 类决定、是写死的像素值：title 是
 	// `text-small`（0.875rem / 1.25rem ⇒ 20px）、description 是 `text-tiny`
-	//（0.75rem / 1rem ⇒ 16px）。框架的自然行盒是 18 / 16.5，所以 name 需要
-	// 显式撑到 20（+2）、role 收到 16（−0.5）：带角色的条目因此是
-	// 7 + 20 + 16 + 7 = 50 高（此前 48.5），无角色的条目仍是
+	//（0.75rem / 1rem ⇒ 16px）。框架的自然行盒是 18 / 17，所以 name 需要
+	// 显式撑到 20（+2）、role 收到 16（负 half-leading −0.5）：带角色的条目因此是
+	// 7 + 20 + 16 + 7 = 50 高（此前 49），无角色的条目仍是
 	// 7 + 20 + 7 = 34（正好等于 min-height）。
 	collabNameBoxH = 20.0
 	collabRoleBoxH = 16.0

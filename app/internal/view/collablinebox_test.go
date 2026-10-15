@@ -10,8 +10,8 @@ import (
 // 原版条目是 HeroUI 的 DropdownItem，两个文本 slot 的行高由 HeroUI 的
 // `text-small`（0.875rem / 1.25rem ⇒ 20px）与 `text-tiny`（0.75rem / 1rem
 // ⇒ 16px）给定，而 globals.css 只覆写 font-size（name 12px / role 11px）——
-// 行高是**写死的像素值**、不随字号缩。框架的自然行盒是 18 / 16.5，所以
-// 带角色的条目此前是 7 + 18 + 16.5 + 7 = 48.5 高（原版 50），角色行也偏高
+// 行高是**写死的像素值**、不随字号缩。框架的自然行盒是 18 / 17，所以
+// 带角色的条目此前是 7 + 18 + 17 + 7 = 49 高（原版 50），角色行也偏高
 // 半个像素。用 pxLineBox 显式压回（见 linebox.go）。
 
 // TestCollabItemLineBoxes 真实跑一遍合作 UP 主选择面板：
@@ -19,7 +19,7 @@ import (
 //   - 无角色的条目（主 UP / 乙）高 34 = 7 + 20 + 7，正好等于 min-height；
 //   - 带角色的条目（甲）高 50 = 7 + 20 + 16 + 7（此前 48.5）；
 //   - 角色行相对条目顶的偏移 = padding 7 + name 盒 20 + role 的半个负
-//     half-leading（(16 − 16.5)/2 = −0.25）。
+//     half-leading（(16 − 17)/2 = −0.5）。
 //
 // 条目自身的 Finder 矩形会被 name 的 +1px 字形位移带着一起下移（布局没动），
 // 所以这里的偏移量都是相对量。

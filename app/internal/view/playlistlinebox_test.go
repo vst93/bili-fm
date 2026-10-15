@@ -9,12 +9,12 @@ import (
 //
 // 原版 playlist.tsx 的记录行是两行 Tailwind 字号类：首行分集名 text-sm
 // （14px / 20px 行高）、次行视频名 text-xs（12px / 16px 行高）。框架的自然
-// 行盒是 21 / 18（≈1.5× 字号），文字列因此是 39 而非原版的 36，每行比原版高
-// 3px（行高 52→55，行距 56→59）。用显式盒高 + 字形上移压回（linebox.go 的
+// 行盒是 22 / 18（实测字体度量），文字列因此是 40 而非原版的 36，每行比原版高
+// 4px（行高 54→58，行距 58→62）。用显式盒高 + 字形上移压回（linebox.go 的
 // textSmLH / textXsLH），与卡片页脚同一套手法。
 
 // TestPlaylistRowLineBox 真实跑一遍播放列表抽屉，量两行文本的盒高：分集名
-// 14/20 ⇒ 20、视频名 12/16 ⇒ 16。此前分别是 21 / 18（自然行盒）。
+// 14/20 ⇒ 20、视频名 12/16 ⇒ 16。此前分别是 22 / 18（自然行盒）。
 func TestPlaylistRowLineBox(t *testing.T) {
 	a := NewApp(func() {})
 	a.Playlist = []PlayItem{
@@ -48,7 +48,7 @@ func TestPlaylistRowLineBox(t *testing.T) {
 
 // TestPlaylistRowHeight 用两行的纵向间距反推行高：文字列压回 36 后，行高
 // = max(36, 封面 36) + p-2(16) + 1px 边框×2 = 54，加列表 gap-1(4) 即相邻两行
-// 文字顶相距 58。若退回自然行盒（文字列 39），行高 57、间距 61，本测试红。
+// 文字顶相距 58。若退回自然行盒（文字列 40），行高 58、间距 62，本测试红。
 func TestPlaylistRowHeight(t *testing.T) {
 	a := NewApp(func() {})
 	a.Playlist = []PlayItem{

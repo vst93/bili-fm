@@ -397,8 +397,8 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
 			// 原版两行都是 Tailwind 字号类：首行 text-sm（14px / 20px 行高）、
-			// 次行 text-xs（12px / 16px）。框架的自然行盒是 21 / 18，整行因此
-			// 比原版高 3px（行高 54→57）；用显式盒高 + 字形上移压回（见
+			// 次行 text-xs（12px / 16px）。框架的自然行盒是 22 / 18，整行因此
+			// 比原版高 4px（行高 54→58）；用显式盒高 + 字形上移压回（见
 			// linebox.go 的 textSmLH / textXsLH）。
 			th, tsh := textLineBox(14, textSmLH)
 			mh, msh := textLineBox(12, textXsLH)
