@@ -1756,6 +1756,26 @@ type cardSpec struct {
 // 原版就是一个 ListCard 组件，各列表只传不同的 fields 与 coverChildren。
 // 之前选集自己另写了一份（padding 6、圆角 8、封面 16:9），和别的列表对
 // 不上 —— 现在合成一份，样式不再碎片化。
+// 卡片页脚（原版 `[data-slot="footer"]`）里两条文本的行盒：标题是 HeroUI 的
+// text-small（14px / 20px 行高），meta 行是 Tailwind 的 text-xs（12px / 16px
+// 行高）。框架的自然行盒分别是 22 / 18（≈1.5× 字号），页脚因此比原版高 4px、
+// 每张卡都偏高。用显式盒高 + 字形上移压回原版（见 linebox.go）。
+const (
+	cardTitleLH = 20.0 / 14.0
+	cardMetaLH  = 16.0 / 12.0
+)
+
+// cardFooterBG 是卡片页脚的洗色：原版 `[data-slot="footer"]` 的
+// `background: rgba(255,255,255,.22) !important`；悬停时该元素随
+// `--hover-strength=1` 涨到 `.22 + 1×.14 = .36`。此前误写成 .12（漏了
+// 一位），页脚比原版暗一档。
+func cardFooterBG(hovered bool) ui.Color {
+	if hovered {
+		return ui.Hex("#ffffff").Alpha(0.36)
+	}
+	return ui.Hex("#ffffff").Alpha(0.22)
+}
+
 func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	t := a.Theme
 	// 原版抽屉卡片（globals.css 的 [role=button][class*=bg-content]）：
@@ -1774,13 +1794,14 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 一屏 12 张卡就是 12 次——这是抽屉滚动/入场卡顿的主要来源（实测抽屉帧的
 	// Backdrop 效果 24 个里 12 个来自卡片）。改回原版的填充近似后与抽屉面板的
 	// 模糊叠一起，观感一致而少 12 次 backdrop 重算。
+	hovered := box.Hovered()
 	switch {
 	case spec.Active:
 		// 原版选集卡片的在播态就是 border-2 border-[#0284c7]。
 		box.Background(t.Blue.Alpha(0.22)).
 			Border(2, ui.Hex("#0284c7")).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
-	case box.Hovered():
+	case hovered:
 		box.Background(t.GlassHover).
 			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.80)).
@@ -1855,12 +1876,14 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 		})
 
-		// 页脚（原版 [data-slot=footer]）：px-2 py-1，只铺很薄一层白洗色 +
-		// 顶部一线分隔，让卡片玻璃透出来。
+		// 页脚（原版 [data-slot=footer]）：px-2 py-1，白 .22 洗色 + 顶部一线
+		// 分隔（白 .18），悬停时洗色涨到 .36。标题与 meta 行都按原版的行盒
+		// （text-small 14/20、text-xs 12/16）压回原版高度。
 		ui.Column(c).FillWidth().Grow(1).Padding(4, 8).
-			Background(ui.Hex("#ffffff").Alpha(0.12)).
+			Background(cardFooterBG(hovered)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
+				th, tsh := textLineBox(14, cardTitleLH)
 				// 原版标题：text-small（14）/ bold / 单行截断。
 				// 有标题前胶囊时（原版 feedList 的 titlePrefix）把标题行换成
 				// Row：胶囊在前（bg-red-400 / px-1 py-0.5 / rounded-lg /
@@ -1868,14 +1891,16 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 				if spec.Badge != "" {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
 						ui.Text(c, spec.Badge).FontSize(14).FontWeight(700).
-							TextColor(ui.Hex("#ffffff")).Padding(2, 4).Radius(8).
+							TextColor(ui.Hex("#ffffff")).Height(th).Translate(0, tsh).
+							Padding(0, 4).Radius(8).
 							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
 						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-							TextColor(t.Ink).SingleLine().Grow(1).MinWidth(0).Tooltip(spec.Title)
+							TextColor(t.Ink).SingleLine().Height(th).Translate(0, tsh).
+							Grow(1).MinWidth(0).Tooltip(spec.Title)
 					})
 				} else {
 					ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-						TextColor(t.Ink).SingleLine().Tooltip(spec.Title)
+						TextColor(t.Ink).SingleLine().Height(th).Translate(0, tsh).Tooltip(spec.Title)
 				}
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
 					a.cardMeta(c, spec.Key, spec.Fields)
@@ -1905,6 +1930,9 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 	widths := resolveFieldWidths(fields, w)
 	now := time.Now()
 	ink := ui.Hex("#71717a") // 原版 text-default-500（zinc-500）
+	// meta 行是 Tailwind 的 text-xs（12px / 16px 行高）：框架自然行盒 18，
+	// 整行因此比原版高 2px（见 cardMetaLH / linebox.go）。
+	mh, msh := textLineBox(12, cardMetaLH)
 	row.Children(func() {
 		first := true
 		for i, f := range fields {
@@ -1936,22 +1964,26 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 					ui.Row(c).FillWidth().Justify(ui.End).AlignItems(ui.Center).Gap(2).Children(func() {
 						// 原版 .card-meta-field svg { opacity: .72 }。
 						ui.Icon(c, icon).Size(12, 12).TextColor(ink.Alpha(0.72))
-						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine()
+						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+							Height(mh).Translate(0, msh)
 					})
 				case fieldPubdate:
 					text := pubdateFit(c, f.Text, avail, now)
 					// 原版 CardMeta 给发布时间加了 title tooltip（轮 28）：
 					// 日期若被截，悬浮仍可看完整值。
 					ui.Text(c, text).FontSize(12).TextColor(ink).SingleLine().
+						Height(mh).Translate(0, msh).
 						FillWidth().TextAlign(align).Tooltip(f.Text)
 				default:
 					// 原版 CardMeta 给作者名加了 title tooltip（轮 22）：
 					// 窄卡片截断时悬浮显示完整名字。
 					if f.Kind == fieldAuthor {
 						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+							Height(mh).Translate(0, msh).
 							FillWidth().TextAlign(align).Tooltip(f.Text)
 					} else {
 						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+							Height(mh).Translate(0, msh).
 							FillWidth().TextAlign(align)
 					}
 				}
