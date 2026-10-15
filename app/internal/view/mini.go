@@ -147,8 +147,13 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
 	var volSlot ui.Element
 	applyShadows(
-		playerBarMaterial(t,
-			ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0)),
+		applyInsetShadows(
+			playerBarMaterial(t,
+				ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0)),
+			// 原版 body.mini-mode --player-shadow 的前两层 inset（浅色是 mini
+			// 专属的白 .9 顶 + 墨 .04 底，深色吃 --player-shadow 那条），
+			// 见 playerBarShadowInsets。
+			playerBarShadowInsets(t, true)),
 		// 向上投影与主窗同一套令牌，但 mini 浅色的兜底更紧（22px，
 		// 见 playerBarShadowSpec）。
 		[]shadowSpec{playerBarShadowSpec(t, true)}).

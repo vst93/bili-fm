@@ -49,11 +49,15 @@ func (a *App) playerBar(c *ui.Context) {
 	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
 	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
 	applyShadows(
-		playerBarMaterial(t,
-			ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0)),
+		applyInsetShadows(
+			playerBarMaterial(t,
+				ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0)),
+			// 原版 --player-shadow 的前两层 inset 内影（顶缘内高光 + 下缘内
+			// 暗线），逐值见 playerBarShadowInsets。框架玻璃的边缘 1px 描光
+			// 是不论上下缘的折光，顶不到这些值、也没有那条下缘暗线。
+			playerBarShadowInsets(t, false)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
-		// 随时段变化（深色更淡），前两层 inset 内影由框架玻璃的 1px 描光
-		// 承担。见 playerBarShadowSpec。
+		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
 		[]shadowSpec{playerBarShadowSpec(t, false)}).
 		Children(func() {
 			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
@@ -111,15 +115,15 @@ var playerBarTint = func(t Theme) ui.Color {
 // 原版整条撤掉 `backdrop-filter`，播放栏就变成一块**不透明的 #e6edf4 面**
 // （--player-surface）。继续用 Liquid Glass 会采样背后内容，与「不透明」
 // 正好相反，所以这里换成一块实底 Box：底色 = Theme.PlayerSurface
-// （withReduceTransparency 已把它覆写成 #e6edf4），顶边内高光白 .72 与原版
-// --player-shadow 的第一层 inset 一致，且不再算 backdrop。
+// （withReduceTransparency 已把它覆写成 #e6edf4），且不再算 backdrop。
+// 该分支的顶缘内高光白 .72 由 playerBarShadowInsets 一并给出（与常态玻璃
+// 那条同走一套 inset 接线，不再在这里内联）。
 //
 // 声明成 var（可换桩）便于无头测试做反证：换桩记录「有没有人被套上 glass」，
 // 断言偏好为真时播放栏不再走框架玻璃路径。
 var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 	if t.ReducedTransparency {
-		return b.Background(t.PlayerSurface).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72))
+		return b.Background(t.PlayerSurface)
 	}
 	return b.Material(glassLayer(glass.Glass{Tint: playerBarTint(t)}))
 }
@@ -133,8 +137,9 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 //	mini 浅色 0 -10px 22px rgba(15,23,42,.05)   （mini 规则里的兜底值）
 //	mini 深色 0 -10px 28px rgba(15,23,42,.045)  （--player-shadow 盖过兜底）
 //
-// 前两层 inset 高光/暗线由框架 Liquid Glass 的 1px 描光承担（见 playerBarTint
-// 的说明），这里只补外投影。此前两层播放栏一律写死 `0 -10px 28px .05`，
+// 前两层 inset 高光/暗线由 playerBarShadowInsets 逐值补上（框架玻璃的边缘
+// 描光顶不到原版那两条值、也没有下缘暗线），这里只补外投影。此前两层播放栏
+// 一律写死 `0 -10px 28px .05`，
 // mini 浅色的 22px 与深色时段的 .045 两个差异都丢了。声明成 var 便于测试换桩。
 // 减少透明度时原版把第三层换成 `0 -8px 20px rgba(15,23,42,.04)`（更紧、
 // 更淡，且与主窗 / mini 无关）。
@@ -151,6 +156,46 @@ var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
 		blur = 22
 	}
 	return shadowSpec{0, -10, blur, 0, shadowInk.Alpha(alpha)}
+}
+
+// playerBarShadowInsets 是播放栏 box-shadow 的**前两层 inset 内影**（原版
+// `#player .player-controls` 与 `body.mini-mode #player .player-controls`
+// box-shadow 的前两条 `inset`）。原版四个组合各不相同：
+//
+//	主窗浅色  inset 0 1px 1px rgba(255,255,255,.88) / inset 0 -1px 1px rgba(15,23,42,.05)
+//	主窗深色  inset 0 1px 0 rgba(255,255,255,.24)   / inset 0 -1px 0 rgba(15,23,42,.08)
+//	mini 浅色 inset 0 1px 1px var(--glass-highlight)（白 .9） / inset 0 -1px 1px rgba(15,23,42,.04)
+//	mini 深色 与主窗深色同（--player-shadow 盖过 mini 兜底）
+//
+// 高对比（prefers-contrast: more）块**不改** --player-shadow，所以它按上面的
+// 时段组合取值；减少透明度块则把整条换成 `inset 0 1px 0 rgba(255,255,255,.72)`
+// 单层（原版该块只声明了顶层白、没有下缘暗线）。
+//
+// 此前只有减少透明度分支画了顶层白（且内联在 playerBarMaterial 里），常态
+// 三层播放栏完全没接这两条 —— 框架玻璃的边缘 1px 描光是不论上下缘的折光，
+// 顶不到 .88 / .24 / .9 的高光，也**没有**原版那条下缘内暗线。这里按四个
+// 组合逐值补上（layers 声明成 var 便于测试换桩：传 nil/黑影即退回「只靠框架
+// 描光」做反证）。
+var playerBarShadowInsets = func(t Theme, mini bool) []shadowSpec {
+	if t.ReducedTransparency {
+		return []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)}}
+	}
+	if t.Dark {
+		return []shadowSpec{
+			{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.24)},
+			{0, -1, 0, 0, shadowInk.Alpha(0.08)},
+		}
+	}
+	if mini {
+		return []shadowSpec{
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)},
+			{0, -1, 1, 0, shadowInk.Alpha(0.04)},
+		}
+	}
+	return []shadowSpec{
+		{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
+		{0, -1, 1, 0, shadowInk.Alpha(0.05)},
+	}
 }
 
 // 减少透明度（`@media (prefers-reduced-transparency: reduce)`）下播放栏相关的
