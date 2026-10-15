@@ -995,7 +995,7 @@ func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size
 // refreshKeyState 是抽屉表头刷新键这一帧的形态（对应原版两种不同的按钮实现，
 // 见 headerButtonOff 的注释）。
 type refreshKeyState struct {
-	// Label 是文案 / tooltip（历史抽屉按 tab 变）。
+	// Label 是文案 / tooltip（各列表抽屉按原版 aria-label，见 refreshLabelFor）。
 	Label string
 	// Spin 为真时图标自转（历史抽屉 .history-refresh-spinning）。
 	Spin bool
@@ -1026,17 +1026,39 @@ var spinRefreshIcon = func(icon ui.Element, progress float32) {
 //	history    <Button isDisabled={isRefreshing}> + 图标自转；文案随 tab。
 //	danmaku    <Button isLoading={isLoadingDanmaku || isLoadingReply}>：
 //	           弹幕预取/刷新在途、或评论在途（含滚到底自动翻页）都转圈。
-//	其余抽屉    常态。
+//	其余抽屉    常态（其中动态 / 热门推荐 / 收藏三个列表的文案见 refreshLabelFor）。
 func refreshKeyStateFor(drawer, histTab string, histLoading, danmakuLoading, repliesLoading bool) refreshKeyState {
-	s := refreshKeyState{Label: "刷新"}
+	s := refreshKeyState{Label: refreshLabelFor(drawer, histTab)}
 	switch drawer {
 	case "history":
-		s.Label = historyRefreshLabel(histTab)
 		s.Spin = histLoading
 	case DrawerDanmaku:
 		s.Spinner = danmakuLoading || repliesLoading
 	}
 	return s
+}
+
+// refreshLabelFor 给出刷新键的文案 / 无障碍名（原版每个列表抽屉各自的
+// aria-label，见各组件源码）：
+//
+//	feed      feedList.tsx       aria-label="刷新动态列表"
+//	popular   recommendList.tsx  aria-label="刷新当前列表"
+//	favorite  collectList.tsx    aria-label="刷新收藏列表"
+//	history   historyList.tsx    随 tab：观看历史 / 稍后再看
+//	其余      danmaku / up 等原版按钮没有 aria-label，沿用通用的「刷新」。
+func refreshLabelFor(drawer, histTab string) string {
+	switch drawer {
+	case "history":
+		return historyRefreshLabel(histTab)
+	case "feed":
+		return "刷新动态列表"
+	case "popular":
+		return "刷新当前列表"
+	case "favorite":
+		return "刷新收藏列表"
+	default:
+		return "刷新"
+	}
 }
 
 func (a *App) drawerTitle() string {

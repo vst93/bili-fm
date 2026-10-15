@@ -15,7 +15,7 @@ import (
 //
 // 两者的加载期都必须禁用；弹幕抽屉的加载态画 Spinner（HeroUI 的 isIconOnly
 // 分支在 isLoading 时丢掉 children），不是自转齿轮。标签：历史抽屉按 tab 变，
-// 其余固定「刷新」。
+// 动态 / 热门推荐 / 收藏三个列表各按原版 aria-label（见 refreshLabelFor）。
 func TestRefreshKeyStateFor(t *testing.T) {
 	cases := []struct {
 		name                           string
@@ -30,9 +30,13 @@ func TestRefreshKeyStateFor(t *testing.T) {
 		{"弹幕·拉取中", DrawerDanmaku, "", false, true, false, "刷新", false, true},
 		{"弹幕·评论在途", DrawerDanmaku, "", false, false, true, "刷新", false, true},
 		{"弹幕·常态", DrawerDanmaku, "", false, false, false, "刷新", false, false},
-		// 其它抽屉没有加载态：即便这些标志被误置也不该影响（历史抽屉的
-		// Loading 只对 "history" 生效，弹幕的两个标志只对弹幕抽屉生效）。
-		{"其它抽屉", "feed", "", true, true, true, "刷新", false, false},
+		{"动态列表", "feed", "", false, false, false, "刷新动态列表", false, false},
+		{"热门推荐", "popular", "", false, false, false, "刷新当前列表", false, false},
+		{"收藏列表", "favorite", "", false, false, false, "刷新收藏列表", false, false},
+		// 其它抽屉（UP 主空间 / 未知名）没有加载态：即便这些标志被误置也不该
+		// 影响（历史抽屉的 Loading 只对 "history" 生效，弹幕的两个标志只对弹幕
+		// 抽屉生效）。
+		{"其它抽屉", DrawerUp, "", true, true, true, "刷新", false, false},
 	}
 	for _, c := range cases {
 		got := refreshKeyStateFor(c.drawer, c.histTab, c.histLoading, c.dmLoading, c.rpLoad)
@@ -43,6 +47,42 @@ func TestRefreshKeyStateFor(t *testing.T) {
 		if wantOff := c.wantSpin || c.wantSpinner; got.Off() != wantOff {
 			t.Errorf("%s: Off()=%v，想 %v —— 加载形态必须禁用", c.name, got.Off(), wantOff)
 		}
+	}
+}
+
+// TestDrawerRefreshKeyLabelsWired 无头整窗实测：动态 / 热门推荐 / 收藏三个
+// 列表抽屉的表头刷新键真的带上了原版各自的文案（能被按名字找到），而不是
+// 一律「刷新」。纯函数 refreshLabelFor 的用例见 TestRefreshKeyStateFor；这条
+// 证明文案确实接进了按钮的 Label/Tooltip。
+//
+// 反证：去掉 refreshLabelFor 的 feed/popular/favorite 分支（回到通用「刷新」）后，
+// 前三个子用例都找不到各自文案，随即变红。
+func TestDrawerRefreshKeyLabelsWired(t *testing.T) {
+	cases := []struct {
+		drawer string
+		label  string
+	}{
+		{"feed", "刷新动态列表"},
+		{"popular", "刷新当前列表"},
+		{"favorite", "刷新收藏列表"},
+		{DrawerUp, "刷新"}, // 原版 upVideoList 的刷新键没有 aria-label，仍是通用文案。
+	}
+	for _, c := range cases {
+		t.Run(c.drawer, func(t *testing.T) {
+			a := NewApp(func() {})
+			a.Theme = ThemeFor(PeriodAt(12))
+			a.Drawer = c.drawer
+			tt := shellTester(t, a)
+			tt.Frame()
+			if _, ok := tt.Find(c.label); !ok {
+				t.Fatalf("抽屉 %q 的表头刷新键找不到文案 %q", c.drawer, c.label)
+			}
+			if c.label != "刷新" {
+				if _, ok := tt.Find("刷新"); ok {
+					t.Errorf("抽屉 %q 仍存在通用「刷新」文案，应只保留 %q", c.drawer, c.label)
+				}
+			}
+		})
 	}
 }
 
