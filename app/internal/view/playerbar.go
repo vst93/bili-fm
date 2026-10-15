@@ -1468,6 +1468,11 @@ func (a *App) progress(c *ui.Context) {
 	// 轨道的两个端点（原生 range 的行为）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
 		PaddingX(timelineInset).Label("播放进度").Step(0.1)
+	// 原版（player.tsx）进度条 `disabled={!src || !duration}`：没有视频或时长
+	// 还没到时，进度条既不能拖也不能用方向键改值。mygo 的 SliderBase 默认
+	// 不设禁用，此前无视频时也能把 SeekValue 拖出一串数字（拖了又弹回）。
+	// 只用 Dur <= 0 判：无视频时 Dur 通常为 0，已覆盖原版的 !src 分支。
+	s.Disabled(a.Dur <= 0)
 	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
@@ -2050,6 +2055,9 @@ func (a *App) miniProgress(c *ui.Context) {
 	// 与主窗同一套规则与外观（见 progress / paintTimeline）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).Grow(1).Height(timelineH).
 		PaddingX(timelineInset).Label("播放进度").Step(0.1)
+	// 与主窗 progress 同一条原版规则：`disabled={!src || !duration}`。
+	// 只用 Dur <= 0 判，理由同主窗 progress 的注释。
+	s.Disabled(a.Dur <= 0)
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)

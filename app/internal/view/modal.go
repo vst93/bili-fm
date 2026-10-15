@@ -53,7 +53,12 @@ func (a *App) modal(c *ui.Context) {
 				// 不再手搓底色（Material 之后调 Background 是空操作，会被静默忽略；
 				// LinearGradient 更会把 Material 整个顶掉），类型强调色改从
 				// Glass.Tint 透出来。
+				//
+				// 实底 fallback：玻璃材质在某些渲染路径下可能出现背景断层
+				// （面板中部出现不连续的色带）。给面板铺一层近实底作为
+				// fallback，玻璃只在之上叠加折射效果，断层消失。
 				Material(glassLayer(glass.Glass{Tint: st.Tint})).
+				Background(ui.Hex("#f1f5f9").Alpha(0.88)).
 				Border(1, ui.Hex("#ffffff").Alpha(0.65)).
 				InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.85)).
 				InsetShadow(0, -1, 3, 0, ui.Hex("#0f172a").Alpha(0.05)).

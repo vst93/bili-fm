@@ -72,8 +72,8 @@ func TestPlaylistRowPaintStates(t *testing.T) {
 		if p.Border != ui.Hex("#0284c7").Alpha(0.46) {
 			t.Errorf("当前项边 = %v, want 2,132,199 .46", p.Border)
 		}
-		if p.AccentW != 4 || p.Accent != ui.Hex("#0369a1").Alpha(0.78) {
-			t.Errorf("强调条 = %v/%v, want 4px 3,105,161 .78", p.AccentW, p.Accent)
+		if p.AccentW != 0 || p.Accent != ui.Transparent {
+			t.Errorf("当前项不该再有左缘强调条：accentW=%v accent=%v", p.AccentW, p.Accent)
 		}
 		if p.InsetTop != ui.Hex(white).Alpha(0.64) || p.InsetBot != ui.Hex("#0284c7").Alpha(0.16) {
 			t.Errorf("内影 = %v/%v, want 白 .64 / 2,132,199 .16", p.InsetTop, p.InsetBot)
@@ -106,8 +106,8 @@ func TestPlaylistRowPaintStates(t *testing.T) {
 		if !p.Gradient || p.From != ui.Hex("#0ea5e9").Alpha(0.24) || p.To != ui.Hex(white).Alpha(0.56) {
 			t.Errorf("拖拽渐变 = %v→%v, want 天蓝 .24→白 .56", p.From, p.To)
 		}
-		if p.AccentW != 4 || p.Accent != ui.Hex("#0369a1").Alpha(0.68) {
-			t.Errorf("拖拽强调条 = %v/%v, want 4px 3,105,161 .68", p.AccentW, p.Accent)
+		if p.AccentW != 0 || p.Accent != ui.Transparent {
+			t.Errorf("拖拽不该有左缘强调条：accentW=%v accent=%v", p.AccentW, p.Accent)
 		}
 		if p.InsetTop != ui.Hex(white).Alpha(0.60) {
 			t.Errorf("拖拽内高光 = %v, want 白 .60", p.InsetTop)
@@ -131,8 +131,8 @@ func TestPlaylistRowPaintStates(t *testing.T) {
 			t.Errorf("当前项按下底 = %v (gradient=%v), want 2,132,199 .10 纯色",
 				cur.From, cur.Gradient)
 		}
-		if cur.AccentW != 4 {
-			t.Error("当前项按下仍应保留左缘强调条")
+		if cur.AccentW != 0 {
+			t.Error("当前项按下也不该再有左缘强调条")
 		}
 	})
 }
@@ -380,16 +380,22 @@ func TestPlayModeIconInk(t *testing.T) {
 	}
 }
 
-// TestPlaylistAccentBarIsSquare 钉住当前项左缘强调条是**直角**（原版是
-// `border-left`，一条直边，外缘只跟着行的圆角走），不是独立的圆头胶囊。
-// 早先给了 Radius(2)，那条竖线看着像悬浮的圆角色块，观感「很 AI」。
-func TestPlaylistAccentBarIsSquare(t *testing.T) {
-	if playlistAccentRadius != 0 {
-		t.Fatalf("强调条圆角 = %v，应为 0（复现 border-left 的直边）", playlistAccentRadius)
-	}
-	// 当前项仍然要画这条强调条（修正的是形状，不是去掉它）。
-	p := playlistRowPaint(true, false, false, false)
-	if p.AccentW != 4 || p.Accent == ui.Transparent {
-		t.Fatalf("当前项强调条 = %v/%v，应为 4px 实色", p.AccentW, p.Accent)
+// TestPlaylistNoAccentBar 钉住本轮改动：当前项 / 拖拽态都不再画左缘强调条。
+// 用户反馈那条 4px 纯蓝竖线太突兀（行本身已有蓝底 + 蓝边 + 蓝投影，再叠一条
+// 竖条反而脏），所以 AccentW 一律保持 0，渲染分支不会画。
+func TestPlaylistNoAccentBar(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		current, hover, drag bool
+	}{
+		{"当前项", true, false, false},
+		{"当前项悬停", true, true, false},
+		{"拖拽", false, false, true},
+		{"常态", false, false, false},
+	} {
+		p := playlistRowPaint(tc.current, tc.hover, tc.drag, false)
+		if p.AccentW != 0 || p.Accent != ui.Transparent {
+			t.Errorf("%s仍有左缘强调条：accentW=%v accent=%v", tc.name, p.AccentW, p.Accent)
+		}
 	}
 }

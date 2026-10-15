@@ -262,7 +262,7 @@ func TestIconParkSecondBatchWiring(t *testing.T) {
 		want string
 		why  string
 	}{
-		{"shell.go", "ui.Icon(c, iconMini).Size(15, 15)", "标题栏「切换到迷你模式」"},
+		// shell.go 的 iconMini（标题栏「切换到迷你模式」）已移除：浮窗应用不需要在标题栏放一颗看似全屏的按钮。
 		{"mini.go", `"mini-restore", "切换到窗口模式", iconRestore`, "迷你窗「切换到窗口模式」"},
 		{"mini.go", "miniPinIcon(a.Pinned)", "迷你窗「窗口置顶」的 filled 变体"},
 		{"home.go", "iconHalo", "封面背景开关（Halo）"},

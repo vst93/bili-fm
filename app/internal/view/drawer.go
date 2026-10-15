@@ -257,7 +257,13 @@ func (a *App) drawer(c *ui.Context) {
 			a.drawerHeader(c)
 			a.drawerBody(c)
 		})
-		a.Drawer = real
+		// 只有渲染期间没人动过 a.Drawer 时才把临时的 key 摆回原值。
+		// 若表头 / 正文的动作改了它（最典型的是点关闭键 a.Drawer = ""，
+		// 或点条目跳到别的抽屉），那正是用户的意图——此前无条件
+		// `a.Drawer = real` 会把它改回去，关闭键因此点了没反应。
+		if a.Drawer == key {
+			a.Drawer = real
+		}
 		// DragOffset 是本帧面板实际显示的偏移（跟手 / 回弹途中都算），
 		// 叠在布局位移之上，用它让遮罩跟着下滑变淡。
 		dragY = offset + panel.DragOffset().Y
@@ -282,8 +288,16 @@ func (a *App) drawerHeader(c *ui.Context) {
 	t := a.Theme
 	// HeroUI 的 DrawerHeader/DrawerBody 都是 px-6（24），所以表头左边距
 	// 与正文一致；右侧 44 给绝对定位的关闭键让位。
+	//
+	// 表头层次：原版 drawer header 是实底（不透底层内容），此前 mygo
+	// 的 header Row 没有铺材质，直接透了主页搜索栏的液态玻璃，看着古怪。
+	// 这里给 header 铺一层近实底背景，与面板主体形成层次区分。
+	// 不用 Material(glassLayer(...))：那会多一个 backdrop 层（每帧多一次
+	// 渲染通道打断 + 回读 + 模糊），而实底背景已经足够遮住底层。
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 24).
-		Gap(8).AlignItems(ui.Center).Children(func() {
+		Gap(8).AlignItems(ui.Center).
+		Background(ui.Hex("#f1f5f9").Alpha(0.92)).
+		Children(func() {
 		a.drawerTabs(c)
 		// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
 		// 组件又不加 spacer，所以表头内容全部靠左排（刷新键紧跟在 tab 后面，

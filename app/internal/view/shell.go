@@ -144,43 +144,8 @@ func (a *App) titleBar(c *ui.Context) {
 		// `.app-title-bar > *` 的不透明度（.32 ↔ .82）走 0.24s 过渡。
 		actions.Opacity(titleBarFade(actions, "tb-child", child))
 		actions.Children(func() {
-			// 迷你入口：原版在 Linux 上不提供（webkit2gtk 改不了窗口尺寸）。
-			if viewGOOS != "linux" {
-				// 非 macOS 的迷你入口在按钮区（原版 switch-window-mode 也在右侧）。
-				// 它在 .app-title-bar-actions 里面，而那一层已经乘了子元素的
-				// .32/.82，所以这里只出自己的 .72（静息时合计 .72×.32 ≈ .23）。
-				b := ui.ButtonBase(c.Key("switch-mode")).Size(30, 30).Radius(RadiusSmall).
-					Center().Label("切换到迷你模式").Tooltip("切换到迷你模式")
-				bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), b.IsDisabled())
-				// 原版 `#switch-window-mode:focus-visible`：opacity 1、图标转
-				// --studio-blue，并把通用 ::after 的那条高光换成
-				// `inset 0 1px 1px --glass-highlight` ＋ 2px 蓝环（见 focusGlow）。
-				focus := b.FocusVisible()
-				if focus {
-					ink, opacity = t.Blue, 1
-				}
-				// `.app-title-bar button` 的 color/background 0.18s、opacity 0.16s。
-				// 这条 `transition: none` 只存在于原版的 reduced-motion 块里的
-				// `.mini-window-controls button`，标题栏里的键不受影响。
-				bg, ink, opacity = titleBarBtnFade(b, bg, ink, opacity, false)
-				b.Background(bg).Opacity(opacity)
-				if focus {
-					b.InsetShadow(0, 1, 1, 0, t.Highlight)
-				}
-				// ::after 那层三条阴影：悬停淡入、移开淡出（0.18s），按下归零。
-				// 每帧都要调，否则移开鼠标那一帧不透明度会直接跳到 0（没有淡出）。
-				titleBarBtnHighlight(b, false, b.Hovered())
-				// 原版 .app-title-bar button:hover 的左上角径向聚光（按下换居中光）。
-				if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
-					l.draw(b, RadiusSmall)
-				}
-				pressScale(b)
-				b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(ink) })
-				focusOutline(b, RadiusSmall, focusGlow)
-				if b.Clicked() && a.Act.SetMini != nil {
-					a.Act.SetMini(true)
-				}
-			}
+			// 迷你入口按钮（原 switch-window-mode，ZoomInternal 图标）已移除：
+			// 浮窗应用不需要在标题栏放一颗看似全屏的按钮，避免误导。
 		})
 		ui.Box(c).Width(tb.Right).Shrink(0)
 	})

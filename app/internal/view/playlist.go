@@ -19,9 +19,8 @@ import (
 // globals.css 的 `[data-slot="wrapper"] .group` 把它覆写成 10px !important。
 const playlistRowRadius = 10
 
-// playlistAccentRadius 是当前项左缘强调条的圆角。原版是 `border-left`——
-// 一条直角边（外缘只跟着行的 border-radius 走），不是独立的圆头胶囊，
-// 所以这里为 0。
+// playlistAccentRadius 是当前项左缘强调条的圆角（保留常量只为对照原版 `border-left`
+// 的直边；当前项已不画强调条，见 playlistRowPaint）。
 const playlistAccentRadius = 0
 
 // playlistTabs 是播放列表抽屉的表头。
@@ -244,16 +243,12 @@ func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
 		p.From = ui.Hex("#0ea5e9").Alpha(0.24)
 		p.To = ui.Hex(white).Alpha(0.56)
 		p.Gradient = true
-		p.Accent = ui.Hex("#0369a1").Alpha(0.68)
-		p.AccentW = 4
 		p.InsetTop = ui.Hex(white).Alpha(0.60)
 		p.Shadow = ui.Hex("#0284c7").Alpha(0.12)
 		p.ShadowY, p.ShadowBlur = 4, 14
 	case current:
 		p.From = ui.Hex("#0284c7").Alpha(0.16)
 		p.Border = ui.Hex("#0284c7").Alpha(0.46)
-		p.Accent = ui.Hex("#0369a1").Alpha(0.78)
-		p.AccentW = 4
 		p.InsetTop = ui.Hex(white).Alpha(0.64)
 		p.InsetBot = ui.Hex("#0284c7").Alpha(0.16)
 		p.Shadow = ui.Hex("#0284c7").Alpha(0.14)
@@ -397,13 +392,13 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	row.Children(func() {
 		// 原版 .playlist-current 的 border-left 4px 强调条。
 		//
-		// 注意用 FillHeight 而不是 Fill：**Fill() 会把宽度也设成 100%**，
-		// 这条 4px 色条于是撑满整行、把封面和文字挤成 0 宽
-		//（表现就是选中项变成一条纯蓝色横条）。
+		// 用户反馈这条左缘竖线太突兀（行本身已有蓝色底 + 蓝边 + 蓝投影，
+		// 再叠一条纯蓝 4px 竖条反而脏），本轮直接去掉：playlistRowPaint
+		// 不再给任何状态设 AccentW（保持 0），这个分支就不会画。保留字段 /
+		// 分支是为了必要时能恢复，且测试能钉住「不再有强调条」。
 		//
-		// 圆角：原版是 border-left（直边，外缘跟着行的圆角走），不是一枚
-		// 独立的圆头胶囊。早先这里给了 Radius(2)，那条竖线看着像悬浮的
-		// 圆角色块（观感「很 AI」）；用直角复现 border 的直边。
+		// 注意若将来恢复：要用 FillHeight 而不是 Fill —— **Fill() 会把宽度也设成
+		// 100%**，色条会撑满整行、把封面和文字挤成 0 宽。
 		if p.AccentW > 0 {
 			ui.Box(c).Width(p.AccentW).FillHeight().Shrink(0).Radius(playlistAccentRadius).
 				Background(p.Accent)
