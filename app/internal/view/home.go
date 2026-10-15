@@ -537,8 +537,21 @@ func coverToggleStyle(active, hovered bool) (bg, border, ink ui.Color) {
 	return bg, border, ink
 }
 
+// coverToggleStateful 报告封面上的某个小开关是不是**保持型开关**。原版只给
+// 「封面背景 / 高级质感」两颗键写了 `aria-pressed`，模式切换键（Refresh）没有——
+// 它是「点一下换一种模式」的动作键，不是有开/关状态的切换键。无障碍上 aria-pressed
+// 的 button 是 toggle button（RoleToggleButton + Checked），动作键保持普通按钮。
+func coverToggleStateful(key string) bool {
+	return key == "ambient" || key == "premium"
+}
+
 // coverToggle 是封面上的一个小开关（原版 .cover-mode-toggle）。激活态由
 // coverToggleActive 按 key 决定（只有封面背景 / 高级质感有 is-active）。
+//
+// 无障碍：原版给封面背景 / 高级质感两颗键 `aria-pressed={ambientBackgroundEnabled}`
+// / `aria-pressed={premiumTexture}`。mygo 对应 RoleToggleButton + Checked(active)，
+// 且两者必须在**同一条元素链**上（普通 RoleButton 会把 Checked 丢掉，Windows/macOS
+// 只有 toggle 角色才给 IToggleProvider / AXValue）。模式键无 aria-pressed，不接。
 func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func()) {
 	b := ui.ButtonBase(c.Key("cover-"+key)).Size(28, 28).Radius(RadiusPill).
 		Center().Label(label).Tooltip(label)
@@ -546,6 +559,9 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func(
 	// .cover-mode-toggle 也没有 backdrop-filter，之前用 Clear 玻璃多算了
 	// 三次 backdrop 重算）。
 	active := coverToggleActive(key, a.Ambient, a.Premium)
+	if coverToggleStateful(key) {
+		b.Role(ui.RoleToggleButton).Checked(active)
+	}
 	bg, border, ink := coverToggleStyle(active, b.Hovered())
 	b.Background(bg).Border(1, border)
 	b.Children(func() {
@@ -927,6 +943,8 @@ func (a *App) contentActions(c *ui.Context) {
 			Key: "fav", Label: pick(a.Faved, "取消收藏", "收藏"),
 			Icon: pick(a.Faved, iconStarFilled, iconStar), Size: 20, Active: a.Faved,
 			ActiveInk: ui.Hex("#eab308"), Count: a.statFav(),
+			// 原版收藏键有 `aria-pressed={isFavorite}`（点赞 / 投币没有）。
+			Toggle: true,
 			// 原版收藏键在「收藏状态还在查」时也禁用（isFavoriteUpdating），
 			// 否则会用上一条视频的状态误操作。
 			Off: aid == 0 || a.FavPending, OnClick: a.Act.Favorite,
@@ -1123,6 +1141,10 @@ type statSpec struct {
 	Count string
 	// Off 为真时整钮禁用（没有视频 / 收藏状态请求中）。
 	Off     bool
+	// Toggle 为真时这颗键是**保持型开关**，把 Active 作为按压态交给无障碍层
+	//（原版只有收藏键写了 `aria-pressed={isFavorite}`；点赞 / 投币没有 aria-pressed，
+	// 它们只有 title + disabled）。mygo 对应 RoleToggleButton + Checked(Active)。
+	Toggle  bool
 	OnClick func()
 }
 
@@ -1132,6 +1154,12 @@ type statSpec struct {
 func (a *App) statButton(c *ui.Context, spec statSpec) {
 	b := ui.ButtonBase(c.Key("stat-"+spec.Key)).Size(ContentIcon, ContentIcon).
 		Radius(ContentIconR).Center().Label(spec.Label).Tooltip(spec.Label)
+	// 原版收藏键是 `aria-pressed={isFavorite}` 的 button —— 无障碍上是 toggle
+	// button，靠 RoleToggleButton + Checked 让各平台读出「已按下」；点赞 / 投币
+	// 没有 aria-pressed，保持普通按钮。角色必须与 Checked 同一条链。
+	if spec.Toggle {
+		b.Role(ui.RoleToggleButton).Checked(spec.Active)
+	}
 	// 内容操作行的基础透明度（.video-content-actions .nav-icon-btn 的 .82），
 	// 禁用由 disableNav 覆盖成原版的 .34；两条都走 0.16s 过渡
 	// （navIconFade 在 disableNav 之后，末次写入生效）。

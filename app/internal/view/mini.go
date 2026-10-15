@@ -88,13 +88,13 @@ func (a *App) MiniShell(c *ui.Context) {
 			})
 
 			ui.Column(c).Width(30).Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
-				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, func() {
+				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, func() {
 					if a.Act.SetMini != nil {
 						a.Act.SetMini(false)
 					}
 				})
 				a.miniControl(c, "mini-pin", pick(a.Pinned, "取消窗口置顶", "窗口置顶"),
-					miniPinIcon(a.Pinned), a.Pinned, func() {
+					miniPinIcon(a.Pinned), a.Pinned, true, func() {
 						if a.Act.TogglePin != nil {
 							a.Act.TogglePin()
 						}
@@ -313,9 +313,17 @@ var miniPinIcon = func(pinned bool) *ui.SVG {
 // miniControl 是迷你模式信息区右侧的窗口控制键：30×30、16px 图标
 // （原版 .mini-window-controls 里的 .app-title-bar-btn + size={16}；
 // 两颗纵向 gap 4 → 30+4+30 = 64，正好与封面同高）。
-func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active bool, fn func()) {
+//
+// toggle 为真时这颗键是保持型开关：原版置顶键有 `aria-pressed={isPinned}`
+// （切回窗口模式的键没有），mygo 对应 RoleToggleButton + Checked(active)。
+func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, toggle bool, fn func()) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().Label(label).Tooltip(label)
+	// 原版置顶键是 `aria-pressed={isPinned}` 的 button（无障碍上是 toggle button），
+	// 把 isPinned 作为按压态交给读屏；「切换到窗口模式」是动作键，不接。
+	if toggle {
+		b.Role(ui.RoleToggleButton).Checked(active)
+	}
 	// 原版 .mini-window-controls button 沿用 .app-title-bar-btn 的通用玻璃规则：
 	// 常态透明 + 图标 72%；悬停/激活铺 --glass-bg-hover（白 .38）+ 图标转
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。

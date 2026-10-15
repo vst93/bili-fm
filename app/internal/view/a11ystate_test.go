@@ -111,3 +111,89 @@ func TestIncognitoSwitchA11yWired(t *testing.T) {
 		t.Error("隐身开关的 Checked 被写死成常量，应读 a.Incognito")
 	}
 }
+
+// TestCoverToggleA11yStatesWired 钉住封面右下角小开关的无障碍按压态。原版
+// videoCover.tsx 只给「封面背景 / 高级质感」两颗键写了
+// `aria-pressed={ambientBackgroundEnabled}` / `aria-pressed={premiumTexture}`；
+// 模式切换键（Refresh）没有 aria-pressed，是纯动作键。mygo 对应
+// RoleToggleButton + Checked(active)，且角色与状态必须在同一条元素链上。
+func TestCoverToggleA11yStatesWired(t *testing.T) {
+	flat := flatten(t, "home.go")
+	chain := strings.Join(strings.Fields(
+		`if coverToggleStateful(key) { b.Role(ui.RoleToggleButton).Checked(active) }`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("封面小开关没按状态接 Role(ui.RoleToggleButton) + Checked(active)")
+	}
+	// 状态读的是 coverToggleActive（= a.Ambient / a.Premium），不是写死的常量。
+	if !strings.Contains(flat, `active:=coverToggleActive(key,a.Ambient,a.Premium)`) {
+		t.Error("封面小开关的 active 没读 coverToggleActive(a.Ambient, a.Premium)")
+	}
+}
+
+// TestCoverToggleStateful 反证「只有封面背景 / 高级质感是保持型开关」：模式切换键
+// 不能被写成 toggle（原版它没有 aria-pressed），否则读屏会把它当成有开/关状态的
+// 切换键。
+func TestCoverToggleStateful(t *testing.T) {
+	for _, key := range []string{"ambient", "premium"} {
+		if !coverToggleStateful(key) {
+			t.Errorf("%q 应是保持型开关（原版有 aria-pressed）", key)
+		}
+	}
+	if coverToggleStateful("cover-mode") {
+		t.Error("模式切换键不应是保持型开关（原版没有 aria-pressed）")
+	}
+}
+
+// TestFavButtonA11yWired 钉住收藏键的无障碍按压态。原版 videoInfo.tsx 只有收藏键写
+// 了 `aria-pressed={isFavorite}`（点赞 / 投币没有），mygo 对应
+// RoleToggleButton + Checked(spec.Active)，角色与状态必须同一条链。
+func TestFavButtonA11yWired(t *testing.T) {
+	flat := flatten(t, "home.go")
+	chain := strings.Join(strings.Fields(
+		`if spec.Toggle { b.Role(ui.RoleToggleButton).Checked(spec.Active) }`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("互动按钮没按 Toggle 接 Role(ui.RoleToggleButton) + Checked(spec.Active)")
+	}
+	// 只有收藏键把 Toggle 置真。
+	if !strings.Contains(flat, `Toggle:true,`) {
+		t.Error("收藏键没设 Toggle: true（原版 aria-pressed={isFavorite}）")
+	}
+	if n := strings.Count(flat, "Toggle:true,"); n != 1 {
+		t.Errorf("statSpec 里 Toggle: true 出现 %d 次，应只在收藏键一处", n)
+	}
+}
+
+// TestMiniPinA11yWired 钉住迷你窗「窗口置顶」键的无障碍按压态。原版
+// miniVideoInfo.tsx 的置顶键有 `aria-pressed={isPinned}`（切回窗口模式的键没有），
+// mygo 对应 RoleToggleButton + Checked(active)，角色与状态同一条链。
+func TestMiniPinA11yWired(t *testing.T) {
+	flat := flatten(t, "mini.go")
+	chain := strings.Join(strings.Fields(
+		`if toggle { b.Role(ui.RoleToggleButton).Checked(active) }`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("迷你窗控制键没按 toggle 接 Role(ui.RoleToggleButton) + Checked(active)")
+	}
+	// 置顶键把 toggle 置真、状态读 a.Pinned；切回窗口模式的键 toggle=false。
+	pin := strings.Join(strings.Fields(
+		`miniPinIcon(a.Pinned), a.Pinned, true, func() {`), "")
+	if !strings.Contains(flat, pin) {
+		t.Error("置顶键没把 a.Pinned / toggle=true 传给 miniControl")
+	}
+	restore := strings.Join(strings.Fields(
+		`a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, func() {`), "")
+	if !strings.Contains(flat, restore) {
+		t.Error("切回窗口模式的键不应是保持型开关（原版没有 aria-pressed）")
+	}
+}
+
+// TestSettingsMenuA11yWired 钉住标题栏「设置」键的无障碍展开态。原版 titleBar.tsx 的
+// #settings-entry 是 `aria-haspopup="menu" aria-expanded={showMenu}` 的 button，
+// mygo 对应 RoleMenuButton + Expanded(a.ShowSettings)。
+func TestSettingsMenuA11yWired(t *testing.T) {
+	flat := flatten(t, "shell.go")
+	chain := strings.Join(strings.Fields(
+		`b.Role(ui.RoleMenuButton).Expanded(a.ShowSettings)`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("设置键没接 Role(ui.RoleMenuButton) + Expanded(a.ShowSettings)")
+	}
+}

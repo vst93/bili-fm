@@ -221,6 +221,11 @@ func (a *App) settingsButton(c *ui.Context) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, 8).Radius(4).
 		Margin(0, 0, 0, 8).Center().Label("设置").Tooltip("设置")
+	// 原版 #settings-entry 是 `aria-haspopup="menu" aria-expanded={showMenu}` 的
+	// button：无障碍上是一个「打开菜单、当前是否展开」的菜单键。mygo 对应
+	// RoleMenuButton + Expanded(a.ShowSettings)（两者都让 Windows 给
+	// ExpandCollapsePattern、macOS 读 AXExpanded）。
+	b.Role(ui.RoleMenuButton).Expanded(a.ShowSettings)
 	if b.Hovered() || a.ShowSettings {
 		// `.app-title-bar button` 的 `background-color 0.18s ease`：悬停底色淡入，
 		// 不再「啪」地跳出来（设置键自己不设 opacity，它跟着品牌那层 0.24s 走）。
