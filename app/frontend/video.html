@@ -61,6 +61,21 @@
     transition: opacity .16s ease;
   }
   #title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 全宽拖动热区（原版 .app-title-bar-drag-rail，globals.css:5579）：拖拽条本体
+     只有 36px（--titlebar-height），而唤出热区有 48px。这块透明层把顶部 44px
+     补满，唤出后落在条体下方的余量里也能拖动窗口，消除热区底部的触发空缺。
+     默认不接管指针（把 mousemove 留给页面驱动唤出），仅在拖拽条已唤出
+     （body.titlebar-hover / 自身 hover / 焦点）时启用。height 44px 与右上角
+     「关闭视频」按钮（top: 44px）刚好错开，不遮挡它；z-index 低于 #bar(998)
+     与 #close(999)，条体与关闭键照常可点。 */
+  #rail {
+    position: absolute; left: 0; right: 0; top: 0; height: 44px;
+    z-index: 997; pointer-events: none;
+    --app-region: drag;
+  }
+  body.titlebar-hover #rail, #bar:hover ~ #rail, #bar:focus-within ~ #rail {
+    pointer-events: auto;
+  }
   /* 关闭键：对齐原版浮层的 .player-video-close（globals.css:5466）——
      38×38 正圆、墨色 45% 底，悬停 70% + 放大 1.06、按下缩 .92；图标是
      icon-park 的 Close（outline / 20 / #f1f5f9）。它**常驻可见**：原版那颗键
@@ -97,6 +112,7 @@
 <div id="wrap">
   <video id="v" controls playsinline preload="auto"></video>
   <div id="bar"><span id="title"></span></div>
+  <div id="rail"></div>
   <button id="close" title="关闭视频" aria-label="关闭视频">
     <svg width="20" height="20" viewBox="0 0 48 48" fill="none" aria-hidden="true">
       <path d="M8 8L40 40" stroke="#f1f5f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>

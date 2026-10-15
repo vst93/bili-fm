@@ -313,6 +313,61 @@ func TestVideoPageTitleBarMatchesOriginal(t *testing.T) {
 	}
 }
 
+// TestVideoPageDragRailMatchesOriginal 钉住弹窗顶部的全宽拖动热区。
+//
+// 原版浮层的标题栏本体只有 36px（--titlebar-height），而唤出热区有 48px；
+// 为消除底部的拖动空缺，globals.css（body.video-open 块）加了一条
+// `.app-title-bar-drag-rail`：
+//
+//	body.video-open .app-title-bar-drag-rail {
+//	  position: absolute; left: 0; right: 0; top: 0; height: 44px;
+//	  z-index: 0; pointer-events: none;
+//	}
+//	body.video-open.titlebar-hover .app-title-bar-drag-rail,
+//	body.video-open .app-title-bar:hover .app-title-bar-drag-rail,
+//	body.video-open .app-title-bar:focus-within .app-title-bar-drag-rail {
+//	  pointer-events: auto;
+//	}
+//
+// height 44px 与右上角「关闭视频」按钮（top: 44px）刚好错开，不遮挡它。
+// 原生版此前没有这一层：拖拽条 36px，热区却有 48px，36–44 这段唤出后点下去
+// 落到画面上、拖不动窗口。
+func TestVideoPageDragRailMatchesOriginal(t *testing.T) {
+	html := videoPageHTML(t)
+
+	rail := cssRule(t, html, "#rail")
+	for _, want := range []string{
+		"position: absolute",
+		"left: 0;",
+		"right: 0;",
+		"top: 0;",
+		"height: 44px", // 原版 .app-title-bar-drag-rail
+		"z-index: 997",
+		"pointer-events: none",
+		"--app-region: drag",
+	} {
+		if !strings.Contains(rail, want) {
+			t.Errorf("#rail 规则缺少 %q（原版 .app-title-bar-drag-rail）", want)
+		}
+	}
+
+	// 唤出后才接管指针，与标题栏同一组条件（热区 / 自身 hover / 焦点）。
+	reveal := cssRule(t, html, "body.titlebar-hover #rail, #bar:hover ~ #rail, #bar:focus-within ~ #rail")
+	if !strings.Contains(reveal, "pointer-events: auto") {
+		t.Errorf("#rail 唤出规则缺少 %q", "pointer-events: auto")
+	}
+
+	// 元素本身要在 DOM 里，且排在 #bar 之后（`#bar:hover ~ #rail` 才成立）。
+	bar := strings.Index(html, "<div id=\"bar\"")
+	railEl := strings.Index(html, "<div id=\"rail\"")
+	if bar < 0 || railEl < 0 {
+		t.Fatalf("弹窗里缺少 #bar / #rail（bar=%d rail=%d）", bar, railEl)
+	}
+	if railEl < bar {
+		t.Error("#rail 排在 #bar 之前：`#bar:hover ~ #rail` 选不中它")
+	}
+}
+
 // TestVideoPageStatePillHiddenByDefault 钉住弹窗左下角状态胶囊的显隐契约。
 //
 // 原版视频浮层（playerVideo.tsx）没有这一层：出错时由浮层自身/主窗处理。
