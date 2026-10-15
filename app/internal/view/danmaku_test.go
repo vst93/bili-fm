@@ -3,7 +3,10 @@ package view
 import (
 	"fmt"
 	"image"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -945,3 +948,130 @@ func TestDanmakuMessageListInnerScroll(t *testing.T) {
 		t.Errorf("内滚动把外层列表也带着动了：第二组 y %v → %v", beforeSecond, afterSecond.Y)
 	}
 }
+
+// TestFormatCommentTime 钉住评论日期格式对齐原版 formatDate：
+// `new Date(timestamp * 1000).toLocaleString("zh-CN")`。
+//
+// zh-CN 的 toLocaleString 产生 `2023/11/14 22:13:20`——年/月/日之间用 /，
+// 月与日不补零，时/分/秒补到两位并带秒。此前用
+// `time.Format("2006-01-02 15:04")`，分隔符（- vs /）、补零（月日补零 vs 不补）、
+// 缺秒三处都与原版不同。
+func TestFormatCommentTime(t *testing.T) {
+	cases := []struct {
+		name string
+		in   int64
+		want string
+	}{
+		{"零时刻", 0, "1970/1/1 08:00:00"},                // UTC+8
+		{"2023-11-15", 1700000000, "2023/11/15 06:13:20"}, // UTC+8
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FormatCommentTime(c.in); got != c.want {
+				t.Errorf("FormatCommentTime(%d) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+
+	// 格式反证：不应是旧版 "2006-01-02 15:04" 格式
+	got := FormatCommentTime(1700000000)
+	if strings.Contains(got, "-") {
+		t.Errorf("分隔符应为 / 不是 -: %q", got)
+	}
+	oldFmt := time.Unix(1700000000, 0).Format("2006-01-02 15:04")
+	if got == oldFmt {
+		t.Errorf("FormatCommentTime 与旧版格式相同: %q", got)
+	}
+}
+
+// TestDanmakuFollowButtonActiveGlow 钉住弹幕跟随按钮 is-active 状态的
+// `0 0 0 2px rgba(14,165,233,.14)` 外光环（原版
+// `.danmaku-follow-btn.is-active` 的 box-shadow 第二条）。
+//
+// 源码反证：danmakuFollowButton 的 is-active 分支必须调用
+// Shadow(0,0,0,2, ...) 画那圈 2px 无偏移的聚光蓝环；
+// 非 active 分支不得有这个调用。
+func TestDanmakuFollowButtonActiveGlow(t *testing.T) {
+	src, err := os.ReadFile("drawer.go")
+	if err != nil {
+		t.Fatalf("读 drawer.go 失败：%v", err)
+	}
+	s := string(src)
+
+	// 提取 danmakuFollowButton 函数体做精确检查
+	start := strings.Index(s, "func (a *App) danmakuFollowButton")
+	if start < 0 {
+		t.Fatal("找不到 danmakuFollowButton 函数")
+	}
+	// 函数体到下一个同层函数
+	end := strings.Index(s[start:], "\nfunc ")
+	if end < 0 {
+		end = len(s)
+	}
+	body := s[start : start+end]
+
+	// is-active 分支应有 Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	if !strings.Contains(body, "Shadow(0, 0, 0, 2, ui.Hex(\"#0ea5e9\").Alpha(0.14))") {
+		t.Error("danmakuFollowButton is-active 缺少 2px 蓝光环 Shadow(0,0,0,2,...)")
+	}
+	// 不应再有旧的 Shadow(0,2,...)（那是把外光环误记成外投影）
+	if strings.Contains(body, "Shadow(0, 2,") {
+		t.Error("danmakuFollowButton 仍有旧的 Shadow(0,2,...) 外投影（应为 2px 无偏移光环）")
+	}
+}
+
+// TestRepliesEmptyStateNotLoading 钉住评论列表空态恒显示「暂无评论」
+// （原版 renderReplies：列表为空时恒显示「暂无评论」，加载中也不换成
+// 「加载中…」——那条加载提示只在已有评论时追加在列表末尾）。
+func TestRepliesEmptyStateNotLoading(t *testing.T) {
+	a := NewApp(func() {})
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabReply
+	a.RepliesLoading = true // 加载中
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	if !tst.HasText("暂无评论") {
+		t.Error("评论空态应恒显示「暂无评论」（加载中也不切换到「加载中…」）")
+	}
+	if tst.HasText("加载中...") {
+		t.Error("空列表加载中不应显示「加载中...」提示（原版只在已有评论时追加）")
+	}
+}
+
+// TestDanmakuAutoScrollCentered 钉住自动跟随把当前组滚到视口中央
+// （原版 `scrollToIndex(index, { align: "center" })`）。
+//
+// 此前用 ui.ScrollIntoView（near 对齐）会把当前组怼到视口下缘，
+// 与原版的位置稳定感不同。
+func TestDanmakuAutoScrollCentered(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	// 50 组弹幕，Pos 在第 40 组附近
+	dms := make([]Danmaku, 50)
+	for i := range dms {
+		dms[i] = Danmaku{Time: float64(i * 2), Text: fmt.Sprintf("弹幕%d", i)}
+	}
+	a.Danmaku = dms
+	a.Pos = 80 // 第 40 组（每 2 秒一组）
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabDanmaku
+	a.DanmakuAutoScroll = true
+
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+
+	// 当前组应在视口中央附近，而不是被怼到视口下缘
+	r, ok := tst.Find("弹幕40")
+	if !ok {
+		t.Fatal("找不到当前组弹幕40")
+	}
+	// 视口 720px，抽屉面板约占 92vh≈662px；中央 ≈ 331
+	// near 对齐会把它放在底部 ≈ 600+，center 对齐应在 300±80 范围内
+	if r.Y > 450 {
+		t.Errorf("当前组 y = %v，疑似 near 对齐（怼到视口下缘），应 center 对齐在 ≈331", r.Y)
+	}
+}
+
+

@@ -776,8 +776,9 @@ func (c *controller) loadComments(page int) {
 			}
 			list := make([]view.Comment, 0, len(r.Items))
 			for _, it := range r.Items {
-				// 完整日期时间（原版 formatDate：本地格式的 ctime）。
-				timeText := time.Unix(it.SendTime, 0).Format("2006-01-02 15:04")
+				// 完整日期时间（原版 formatDate：`toLocaleString("zh-CN")`，
+				// 形如 2023/11/15 06:13:20；见 view.FormatCommentTime）。
+				timeText := view.FormatCommentTime(it.SendTime)
 				cm := view.Comment{
 					Content:  it.Content.Message,
 					Likes:    int64(it.Like),

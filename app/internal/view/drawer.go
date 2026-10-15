@@ -2617,11 +2617,15 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 		Center().Label(label).Tooltip(label)
 	if a.DanmakuAutoScroll {
 		// .danmaku-follow-btn.is-active：蓝边 + 145° 淡蓝渐变底 + 蓝字 +
-		// inset 0 1px 0 白 .72。原版是 linear-gradient(145deg,
+		// inset 0 1px 0 白 .72，外围还有一圈 `0 0 0 2px rgba(14,165,233,.14)`
+		// 的聚光蓝环。原版是 linear-gradient(145deg,
 		// rgba(14,165,233,.22), rgba(255,255,255,.5))，用 Gradient 直接对齐。
+		// 此前只画了内高光与外投影记成了 `Shadow(0,2,...)`，2px 无偏移的
+		// 光环整条漏掉（那是 is-active 与常态最显眼的区别）。
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72))
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
 	} else {
 		// .danmaku-follow-btn 常态：白 .36 底 + inset 0 1px 0 白 .5，无外投影。
 		// 此前用 buttonSurface（常态 fill 白 .22 + 外投影），两处都与原版不符。
@@ -2864,9 +2868,12 @@ func (a *App) danmakuBody(c *ui.Context) {
 		a.danmakuGroupRow(c, groups[i], i == cur, theme, row, linux, viewportH)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
-	// 自动跟随：把当前组滚进视野，且只在下标变化时滚，不干扰手滑。
+	// 自动跟随：把当前组滚到视口中央，且只在下标变化时滚，不干扰手滑。原版是
+	// `danmakuVirtualizer.scrollToIndex(index, { align: "center" })`，不是
+	// 「最少滚动让它露出来」——此前用 ui.ScrollIntoView（near 对齐）会把当前组
+	// 怼到视口下缘，与原版的位置稳定感不同。
 	if a.DanmakuAutoScroll && cur >= 0 && a.danmakuScrollIdx != cur {
-		a.danmakuList.ScrollIntoView(cur)
+		a.danmakuList.ScrollTo(cur, ui.Center)
 		a.danmakuScrollIdx = cur
 	}
 }
@@ -3113,6 +3120,18 @@ func replyMetaText(level int, when string) string {
 	return fmt.Sprintf("Lv.%d · %s", level, when)
 }
 
+// FormatCommentTime 把评论发送时间（unix 秒）格式化成原版 danmakuList 的
+// formatDate：`new Date(timestamp * 1000).toLocaleString("zh-CN")`。
+//
+// zh-CN 的 toLocaleString 长这样：`2023/11/15 06:13:20`——年/月/日之间用 `/`，
+// 月与日**不补零**，时/分/秒补到两位并带秒。此前用
+// `time.Format("2006-01-02 15:04")`，分隔符、补零、缺秒三处都与原版不同。
+func FormatCommentTime(sec int64) string {
+	t := time.Unix(sec, 0)
+	return fmt.Sprintf("%d/%d/%d %02d:%02d:%02d",
+		t.Year(), int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second())
+}
+
 // repliesBody 画评论列表（原版 danmakuList 的评论 tab）：玻璃卡片行 + 楼中楼
 // 预览，滚到底自动加载下一页（原版 handleScroll，不是「加载更多」按钮）。
 //
@@ -3131,11 +3150,10 @@ func (a *App) repliesBody(c *ui.Context) {
 		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
 		// （上下不对称，底部多留 16 给最后一行）。
 		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).Children(func() {
-			if a.RepliesLoading {
-				a.emptyNote(c, "加载中…")
-			} else {
-				a.emptyNote(c, "暂无评论")
-			}
+			// 原版 renderReplies：列表为空时恒显示「暂无评论」，加载中也不换成
+			// 「加载中…」——那条加载提示只在**已有评论**时追加在列表末尾
+			// （见下方 n+extra 的那一行）。
+			a.emptyNote(c, "暂无评论")
 		})
 		return
 	}
