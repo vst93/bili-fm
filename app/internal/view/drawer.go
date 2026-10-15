@@ -2592,15 +2592,18 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("dm-autoscroll")).Size(32, 32).Radius(Radius).
 		Center().Label(label).Tooltip(label)
 	if a.DanmakuAutoScroll {
-		// .danmaku-follow-btn.is-active：蓝边 + 淡蓝渐变底 + 蓝字 + 2px 蓝晕。
-		buttonSurface(b, true, b.Hovered(),
-			ui.Hex("#0ea5e9").Alpha(0.24), ui.Hex("#0ea5e9").Alpha(0.24)).
+		// .danmaku-follow-btn.is-active：蓝边 + 145° 淡蓝渐变底 + 蓝字 +
+		// inset 0 1px 0 白 .72。原版是 linear-gradient(145deg,
+		// rgba(14,165,233,.22), rgba(255,255,255,.5))，用 Gradient 直接对齐。
+		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72))
 	} else {
-		buttonSurface(b, false, b.Hovered(),
-			ui.Color{}, ui.Hex("#ffffff").Alpha(0.30)).
-			Border(1, ui.Hex("#64748b").Alpha(0.22))
+		// .danmaku-follow-btn 常态：白 .36 底 + inset 0 1px 0 白 .5，无外投影。
+		// 此前用 buttonSurface（常态 fill 白 .22 + 外投影），两处都与原版不符。
+		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
+			Border(1, ui.Hex("#64748b").Alpha(0.22)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
 	}
 	pressPose(b)
 	b.Children(func() {
@@ -2716,7 +2719,11 @@ func (a *App) sortedComments() []Comment {
 //	160 < brightness < 200 且 < 170 → #333333
 //	其他                           → 原色 hex
 //	color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
-func danmakuInk(color int) ui.Color {
+// danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle）。
+// dark 为真表示系统深色模式（原版 document.documentElement.classList.contains("dark")）：
+// 亮度 >200 的弹幕在深色底上直接用白字，浅色底上换深灰 #1a1a1a；
+// 亮度 160–200 区间也按深浅分档。
+func danmakuInk(color int, dark bool) ui.Color {
 	if color <= 0 {
 		return ui.Hex("#000000")
 	}
@@ -2725,10 +2732,18 @@ func danmakuInk(color int) ui.Color {
 	b := color & 0xff
 	brightness := (float64(r)*299 + float64(g)*587 + float64(b)*114) / 1000
 	if brightness > 200 {
+		if dark {
+			return ui.Hex("#ffffff")
+		}
 		return ui.Hex("#1a1a1a")
 	}
-	if brightness > 160 && brightness < 170 {
-		return ui.Hex("#333333")
+	if brightness > 160 && brightness < 200 {
+		if dark && brightness > 180 {
+			return ui.Hex("#e0e0e0")
+		}
+		if !dark && brightness < 170 {
+			return ui.Hex("#333333")
+		}
 	}
 	return ui.RGB(uint8(r), uint8(g), uint8(b))
 }
@@ -2923,6 +2938,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						// chip 的宽度全靠这个透明文字；×N 胶囊保持 flow，免得被
 						// 白层盖住。
 						ui.Text(c, e.Text).FontSize(13).FontWeight(650).
+								FixedLineHeight(18).
 							TextColor(ui.Transparent).SingleLine()
 						// 白色柔光阴影（原版 .danmaku-message-text 的
 						// `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。框架没有
@@ -2939,7 +2955,8 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
 							Children(func() {
 								ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-									TextColor(danmakuInk(e.Color)).SingleLine()
+								FixedLineHeight(18).
+									TextColor(danmakuInk(e.Color, t.Dark)).SingleLine()
 							})
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。

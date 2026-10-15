@@ -47,26 +47,34 @@ func TestGroupDanmakuEmpty(t *testing.T) {
 
 func TestDanmakuInk(t *testing.T) {
 	// color=0 → 原版 (0).toString(16).padStart(6,"0") = "#000000"。
-	if got := danmakuInk(0); got != ui.Hex("#000000") {
+	if got := danmakuInk(0, false); got != ui.Hex("#000000") {
 		t.Errorf("danmakuInk(0) = %v, want #000000", got)
 	}
-	if got := danmakuInk(-1); got != ui.Hex("#000000") {
+	if got := danmakuInk(-1, false); got != ui.Hex("#000000") {
 		t.Errorf("danmakuInk(-1) = %v, want #000000", got)
 	}
-	// 白色太亮 → 深灰对比色。
-	if got := danmakuInk(0xffffff); got != ui.Hex("#1a1a1a") {
-		t.Errorf("danmakuInk(白) = %v", got)
+	// 白色太亮 → 浅色模式深灰对比色。
+	if got := danmakuInk(0xffffff, false); got != ui.Hex("#1a1a1a") {
+		t.Errorf("danmakuInk(白, false) = %v", got)
 	}
-	// 亮度 160.1（#a0a0a1）在 160–170 之间 → #333333。
-	if got := danmakuInk(0xa0a0a1); got != ui.Hex("#333333") {
-		t.Errorf("danmakuInk(#a0a0a1) = %v, want #333333", got)
+	// 深色模式：亮色弹幕直接用白字。
+	if got := danmakuInk(0xffffff, true); got != ui.Hex("#ffffff") {
+		t.Errorf("danmakuInk(白, true) = %v, want #ffffff", got)
+	}
+	// 亮度 160.1（#a0a0a1）在 160–170 之间 → 浅色模式 #333333。
+	if got := danmakuInk(0xa0a0a1, false); got != ui.Hex("#333333") {
+		t.Errorf("danmakuInk(#a0a0a1, false) = %v, want #333333", got)
+	}
+	// 亮度 192（#c0c0c0）在 180–200 → 深色模式 #e0e0e0。
+	if got := danmakuInk(0xc0c0c0, true); got != ui.Hex("#e0e0e0") {
+		t.Errorf("danmakuInk(#c0c0c0, true) = %v, want #e0e0e0", got)
 	}
 	// 亮度 175（#b0b0b0 → 176*0.854 ≈ 175）在 160–200 但 ≥170 → 保留原色。
-	if got := danmakuInk(0xb0b0b0); got != ui.RGB(0xb0, 0xb0, 0xb0) {
+	if got := danmakuInk(0xb0b0b0, false); got != ui.RGB(0xb0, 0xb0, 0xb0) {
 		t.Errorf("danmakuInk(#b0b0b0) = %v, want 原色", got)
 	}
 	// 中等亮度（红 #ff0000 → 亮度 76）应保留原色。
-	if got := danmakuInk(0xff0000); got != ui.RGB(255, 0, 0) {
+	if got := danmakuInk(0xff0000, false); got != ui.RGB(255, 0, 0) {
 		t.Errorf("danmakuInk(红) = %v", got)
 	}
 }
