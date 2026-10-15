@@ -3206,8 +3206,11 @@ func (a *App) repliesBody(c *ui.Context) {
 	}
 	ui.List(c, st, n+extra, func(r int) {
 		if r >= n {
+			// 「加载中...」是 `.text-center.text-default-400.py-2.text-xs` → 12/16。
+			loadingH, loadingShift := textLineBox(12, textXsLH)
 			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
-				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted))
+				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted)).
+					Height(loadingH).Translate(0, loadingShift)
 			})
 			return
 		}
@@ -3270,6 +3273,14 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 	if hovered {
 		row.Shadow(0, 5, 14, 0, ui.Hex("#0f172a").Alpha(0.06))
 	}
+	// 评论行内各段文本按原版的 Tailwind / HeroUI 字号类压回行盒：
+	// 昵称 text-sm（14/20），「Lv.N · 时间」/ 点赞数 / 「查看更多回复...」/
+	// 「加载中...」/ 楼中楼昵称都是 text-xs（12/16）。框架把行盒夹在
+	// max(指定行高, ascent+descent) 之上（14px→22、12px→18），不压的话
+	// 用户名两行高 40（原版 36）把整行从 36 撑到 40（头像只有 32）。
+	// 见 linebox.go 的 textSmLH / textXsLH。
+	nameH, nameShift := textLineBox(14, textSmLH)
+	metaH, metaShift := textLineBox(12, textXsLH)
 	row.Children(func() {
 		// 用户行：32 圆头像 + 昵称 / 「Lv.N · 时间」。
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -3286,12 +3297,15 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 					ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 				}
 			})
+			// 昵称 / 「Lv.N · 时间」两行行盒（见 commentRow 顶部）。
 			ui.Column(c).Children(func() {
 				ui.Text(c, cm.User).FontSize(14).FontWeight(600).
-					TextColor(ui.Hex(replyInkName)).SingleLine()
+					TextColor(ui.Hex(replyInkName)).SingleLine().
+					Height(nameH).Translate(0, nameShift)
 				// text-xs text-default-400 → #64748b（见 replyInkMeta）。
 				ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
-					TextColor(ui.Hex(replyInkMeta)).SingleLine()
+					TextColor(ui.Hex(replyInkMeta)).SingleLine().
+					Height(metaH).Translate(0, metaShift)
 			})
 		})
 		// 正文区左缩进 40（原版 pl-10，与头像同宽）。
@@ -3304,8 +3318,10 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 			// 时约 22），比原版的 24.94 每行少约 3px，多行评论会明显更挤。
 			ui.Text(c, cm.Content).FontSize(14.5).LineHeight(1.72).TextColor(ui.Hex(replyInkBody))
 			if cm.Likes > 0 {
+				// .mt-1.text-xs → 12/16。
 				ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
-					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta))
+					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta)).
+					Height(metaH).Translate(0, metaShift)
 			}
 			// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
 			if len(cm.Replies) > 0 {
@@ -3315,8 +3331,12 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 						ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
 							FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
 							// .text-primary-500 同时覆写成 600 字重。
+							// 昵称有 Shrink(0)、不参与换行（自然宽即单行），可以安全地压
+							// 行盒；正文可换行，多行行距由框架逐行决定、压不下去（见文末
+							// 剩余差异）。
 							ui.Text(c, rp.User+":").FontSize(12).
-								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0)
+								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0).
+								Height(metaH).Translate(0, metaShift)
 							ui.Text(c, rp.Content).FontSize(12).
 								TextColor(ui.Hex(replyInkSub)).Grow(1)
 						})
@@ -3324,7 +3344,8 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 					if cm.RepliesMore || len(cm.Replies) >= 3 {
 						// .text-xs.text-default-400，悬停转 .text-primary-500。
 						more := ui.Text(c, "查看更多回复...").FontSize(12).
-							TextColor(ui.Hex(replyInkMeta))
+							TextColor(ui.Hex(replyInkMeta)).
+							Height(metaH).Translate(0, metaShift)
 						if more.Hovered() {
 							more.TextColor(ui.Hex(replyInkPrim))
 						}
