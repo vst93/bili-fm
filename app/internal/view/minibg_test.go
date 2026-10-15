@@ -130,32 +130,137 @@ func TestMiniBackgroundRendered(t *testing.T) {
 }
 
 // TestMiniPlayStyle 钉住迷你窗播放键的三色取自原版
-// body.mini-mode #player .player-play-button（深色时段换成主窗深色面）。
+// body.mini-mode #player .player-play-button 及其悬停态（深色时段换成主窗深色面）。
 func TestMiniPlayStyle(t *testing.T) {
 	lt := ThemeFor(PeriodAt(12))
-	fill, border, ink := miniPlayStyle(lt, false)
+	fill, border, ink := miniPlayStyle(lt, false, false)
 	if fill != ui.Hex("#bae6fd").Alpha(0.35) ||
 		border != ui.Hex("#0284c7").Alpha(0.20) || ink != ui.Hex("#0284c7") {
 		t.Errorf("常态 = %v / %v / %v", fill, border, ink)
 	}
-	fill, border, ink = miniPlayStyle(lt, true)
+	// 悬停·暂停：主窗 `#player .player-play-button:hover:not(:disabled)` (1,3,0)。
+	fill, border, ink = miniPlayStyle(lt, false, true)
 	if fill != ui.Hex("#bae6fd").Alpha(0.50) ||
 		border != ui.Hex("#0284c7").Alpha(0.28) || ink != ui.Hex("#0284c7") {
-		t.Errorf("悬停 = %v / %v / %v", fill, border, ink)
+		t.Errorf("悬停·暂停 = %v / %v / %v", fill, border, ink)
+	}
+	// 悬停·播放中：`[data-playing]:hover:not(:disabled)` (1,4,0) 盖过上面那条。
+	fill, border, ink = miniPlayStyle(lt, true, true)
+	if fill != ui.Hex("#7dd3fc").Alpha(0.22) ||
+		border != ui.Hex("#0284c7").Alpha(0.40) || ink != ui.Hex("#0369a1") {
+		t.Errorf("悬停·播放中 = %v / %v / %v", fill, border, ink)
+	}
+	// 播放中但不悬停：mini 基态 (1,2,1) 盖过主窗 [data-playing] (1,2,0)，
+	// 所以与暂停态同色（只有图标变）。
+	fill, border, ink = miniPlayStyle(lt, true, false)
+	if fill != ui.Hex("#bae6fd").Alpha(0.35) ||
+		border != ui.Hex("#0284c7").Alpha(0.20) || ink != ui.Hex("#0284c7") {
+		t.Errorf("播放中未悬停 = %v / %v / %v", fill, border, ink)
 	}
 	// 深色时段：主窗那条 `#player .player-play-button` 深色规则 (1,2,1) 源序在
 	// mini 基态之后，盖过它——mini 播放键换成深色面；悬停仍按浅色值。
 	dt := ThemeFor(PeriodAt(0))
-	fill, border, ink = miniPlayStyle(dt, false)
+	fill, border, ink = miniPlayStyle(dt, false, false)
 	if fill != ui.Hex("#e0f2fe").Alpha(0.24) ||
 		border != ui.Hex("#e0f2fe").Alpha(0.48) || ink != ui.Hex("#0369a1") {
 		t.Errorf("深色常态 = %v / %v / %v", fill, border, ink)
 	}
-	fill, border, ink = miniPlayStyle(dt, true)
+	fill, border, ink = miniPlayStyle(dt, false, true)
 	if fill != ui.Hex("#bae6fd").Alpha(0.50) ||
 		border != ui.Hex("#0284c7").Alpha(0.28) || ink != ui.Hex("#0284c7") {
 		t.Errorf("深色悬停 = %v / %v / %v", fill, border, ink)
 	}
+}
+
+// TestMiniPlayShadowBranches 钉住迷你窗播放键的 box-shadow 五支。此前浅色悬停
+// 整支漏掉（悬停不加深投影），与主窗播放键 playerPlaySurface 不一致。
+//
+// 原版取值（mini 专属规则只改基态，悬停/按下由主窗那几条 (1,3,x)/(1,4,0) 胜出）：
+//
+//	基态·浅色   inset 0 1px 2px 白 .9 / inset 0 -2px 4px 蓝 .08 / 0 2px 6px 蓝 .12
+//	悬停·暂停   inset 0 1px 1px 白 .9 / 0 6px 16px 蓝 .18
+//	悬停·播放中 inset 0 1px 1px 白 .88 / inset 0 -2px 5px 蓝 .12 / 0 0 0 1px sky .06 / 0 5px 14px 蓝 .14
+//	深色基态   inset 0 1px 1px 白 .24 / inset 0 -1px 1px 蓝 .08 / 0 4px 12px 墨 .10
+//	按下       inset 0 1px 3px 墨 .1
+func TestMiniPlayShadowBranches(t *testing.T) {
+	lt := ThemeFor(PeriodAt(12))
+	dt := ThemeFor(PeriodAt(0))
+
+	type want struct {
+		in  []shadowSpec
+		out []shadowSpec
+	}
+	base := want{
+		in: []shadowSpec{
+			{0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)},
+			{0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)},
+		},
+		out: []shadowSpec{{0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12)}},
+	}
+	hoverPause := want{
+		in:  []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}},
+		out: []shadowSpec{{0, 6, 16, 0, ui.Hex("#0284c7").Alpha(0.18)}},
+	}
+	hoverPlay := want{
+		in: []shadowSpec{
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
+			{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
+		},
+		out: []shadowSpec{
+			{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
+			{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
+		},
+	}
+	darkBase := want{
+		in: []shadowSpec{
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)},
+			{0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)},
+		},
+		out: []shadowSpec{{0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10)}},
+	}
+	press := want{in: playerPressShadowSpecs(), out: nil}
+
+	for _, tc := range []struct {
+		name                     string
+		th                       Theme
+		playing, hovered, pressed bool
+		want                     want
+	}{
+		{"浅色基态", lt, false, false, false, base},
+		{"浅色播放中未悬停", lt, true, false, false, base},
+		{"浅色悬停·暂停", lt, false, true, false, hoverPause},
+		{"浅色悬停·播放中", lt, true, true, false, hoverPlay},
+		{"深色基态", dt, false, false, false, darkBase},
+		{"按下", lt, false, false, true, press},
+	} {
+		in, out := miniPlayShadowSpecs(tc.th, tc.playing, tc.hovered, tc.pressed)
+		if !sameShadowSpecs(in, tc.want.in) {
+			t.Errorf("%s：内影 = %v，want %v", tc.name, in, tc.want.in)
+		}
+		if !sameShadowSpecs(out, tc.want.out) {
+			t.Errorf("%s：外影 = %v，want %v", tc.name, out, tc.want.out)
+		}
+	}
+
+	// 浅色悬停必须真的与基态不同（否则「漏掉悬停整支」会静默通过）。
+	bin, bout := miniPlayShadowSpecs(lt, false, false, false)
+	hin, hout := miniPlayShadowSpecs(lt, false, true, false)
+	if sameShadowSpecs(bin, hin) && sameShadowSpecs(bout, hout) {
+		t.Error("浅色悬停与基态铺了同一组阴影：悬停整支没生效")
+	}
+}
+
+// sameShadowSpecs 比较两组阴影规格是否逐条相等（nil 与空切片视为相等）。
+func sameShadowSpecs(a, b []shadowSpec) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // miniProbePlaying 建一个 400×155、处于指定播放状态的迷你窗。

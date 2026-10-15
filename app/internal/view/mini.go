@@ -17,6 +17,30 @@ const (
 	miniInfoH    = 88
 	miniPlayerH  = 43
 	miniCover    = 64
+
+	// 信息行（原版 #min-video-info：padding 6 12、gap 11、
+	// grid-template-columns 64px minmax(0,1fr) 30px）的横向几何。
+	miniInfoPadH  = 12
+	miniInfoGap   = 11
+	miniControlsW = 30
+
+	// miniTitleWidth 是标题列的可用宽度：信息行宽 − 左右内边距 − 封面 −
+	// 两处间距 − 窗口控制列。迷你窗定宽 400，所以这是个常数 —— 原版
+	// .mini-title 的盒高由内容（折行数）决定，而自绘标题必须在**布局期**就知道
+	// 折行数（折行数决定盒高），只能按这个常数预折。
+	miniTitleWidth = miniWidth - 2*miniInfoPadH - miniCover - 2*miniInfoGap - miniControlsW
+
+	// 原版 .mini-title：15px / 800 / line-height 1.25 / 两行截断。
+	miniTitleSize       = 15
+	miniTitleWeight     = 800
+	miniTitleLineHeight = 1.25
+)
+
+var (
+	miniTitleFont = ui.Font{Size: miniTitleSize, Weight: miniTitleWeight}
+	// miniTitlePitch 由 textLineBox 算出（= 1.25 × 15 = 18.75），声明成 var
+	// 便于无头测试换桩做反证（同 infoTitlePitch）。
+	miniTitlePitch = func() float32 { h, _ := textLineBox(miniTitleSize, miniTitleLineHeight); return h }()
 )
 
 // MiniShell 是迷你模式的界面（原版 body.mini-mode）：
@@ -45,8 +69,8 @@ func (a *App) MiniShell(c *ui.Context) {
 
 		// 主体：封面 + 标题 + 选集 + 窗口控制。
 		// 整行可拖动窗口（原版 #min-video-info 带 data-tauri-drag-region="deep"）。
-		ui.Row(c).FillWidth().Height(miniInfoH).Shrink(0).Padding(6, 12).
-			Gap(11).AlignItems(ui.Center).DragWindow().Children(func() {
+		ui.Row(c).FillWidth().Height(miniInfoH).Shrink(0).Padding(6, miniInfoPadH).
+			Gap(miniInfoGap).AlignItems(ui.Center).DragWindow().Children(func() {
 			ui.Box(c).Size(miniCover, miniCover).Shrink(0).Radius(10).
 				Background(ui.Hex("#ffffff").Alpha(0.58)).
 				// 原版 #min-video-info-cover：box-shadow 0 10px 22px rgba(15,23,42,.16)，
@@ -63,24 +87,34 @@ func (a *App) MiniShell(c *ui.Context) {
 				// 必须 Absolute：原版是 position:absolute; inset:0，不参与布局。
 				// 否则它作为封面的第二个兄弟参与列布局，把封面挤回自然高度
 				// （64 宽的 16:9 封面只剩 ~36 高），下半张就是空的。
-				ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
-					From:  ui.Hex("#ffffff").Alpha(0.28),
-					To:    ui.Transparent,
-					Angle: 135,
-				})
+				ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(miniCoverShine())
 			})
 
 			ui.Column(c).Grow(1).MinWidth(0).Gap(7).Justify(ui.Center).Children(func() {
-				// 原版 .mini-title：15px / 800。
-				ui.Text(c, a.infoTitle()).FontSize(15).FontWeight(800).TextColor(t.Ink).MaxLines(2)
+				// 原版 .mini-title：15px / 800 / line-height 1.25 / 两行截断。
+				// 行距 1.25 × 15 = 18.75 比框架自然行盒（15px 实测 23）矮，框架
+				// 会把行距顶到 23 —— 第二行比原版低 4.25px，单行盒高也多 4.25，
+				// 把信息列（Justify Center）整体推偏。与宽窗标题同法自绘逐行落点
+				// （断行仍交给框架，见 multilinetext.go）：折行数决定盒高、又只能
+				// 在布局期知道，而标题列宽是常数（miniTitleWidth），按它预折。
+				title := a.infoTitle()
+				lines := wrapTextLines(title, miniTitleFont, miniTitleWidth, 2)
+				if len(lines) == 0 {
+					lines = []string{title}
+				}
+				tb := ui.Box(c).Width(miniTitleWidth).
+					Height(float32(len(lines)) * miniTitlePitch).Label(title)
+				tb.Draw(func(p *ui.Painter, r ui.Rect) {
+					paintTextLines(p, r, lines, miniTitleFont, miniTitlePitch, t.Ink)
+				})
 				ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
 					// 播放列表模式圆点玫红 + 外圈光晕（原版
 					// .mini-status-dot-playlist 的 box-shadow ring）。
 					inList := a.PlayingPlaylist != ""
-					dotInk := pick(inList, t.Rose, t.Blue)
+					dotInk, dotRing := miniStatusDot(t, inList)
 					dot := ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
 						Radius(RadiusPill).Background(dotInk)
-					dot.Shadow(0, 0, 0, 4, dotInk.Alpha(0.12))
+					dot.Shadow(0, 0, 0, 4, dotRing.Alpha(0.12))
 					// 原版 .mini-part：12px / 650 / #526174 / line-height 1.2。
 					// 框架自然行盒（12px ≈ 18）下不去，这一行会高约 3.6px、把
 					// 信息列（Justify Center）整体推偏；用显式盒高 + 字形上移
@@ -91,7 +125,9 @@ func (a *App) MiniShell(c *ui.Context) {
 				})
 			})
 
-			ui.Column(c).Width(30).Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Width(miniControlsW).Shrink(0).Gap(4).AlignItems(ui.Center).
+				// 原版 .mini-window-controls 是 `role="group" aria-label="窗口控制"`。
+				Role(ui.RoleGroup).Label("窗口控制").Children(func() {
 				a.miniControl(c, "mini-restore", "切换到窗口模式", iconRestore, false, false, func() {
 					if a.Act.SetMini != nil {
 						a.Act.SetMini(false)
@@ -179,33 +215,14 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					//（#player .player-play-button:hover 的 (1,3,0) 盖过 mini 基态）。
 					// 底色/描边/墨色走与主窗同一条 140ms ease 过渡（原版 mini 的
 					// transition 没有覆盖 #player .player-button 的那条）。
-					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(t, play.Hovered())
+					playFillRaw, playBorderRaw, playInkRaw := miniPlayStyle(t, a.Playing, play.Hovered())
 					playFill := playerFadeColor(c, play, "mini-play-bg", playFillRaw)
 					playBorder := playerFadeColor(c, play, "mini-play-border", playBorderRaw)
 					playInk := playerFadeColor(c, play, "mini-play-ink", playInkRaw)
-					// 按下（:active）时原版把 ::before 底色换成 --liquid-bg-active
-					// （白 .16）、box-shadow 换成更深的 `inset 0 1px 3px 墨 .1`
-					//（:active 规则特异度 (1,3,0) 盖过 mini 基态与 [data-playing]）。
-					if play.Pressed() {
-						play.Background(playerPressFillFor(t, false)).
-							Border(1, playBorder)
-						applyInsetShadows(play, playerPressShadowSpecs())
-					} else if t.Dark {
-						// 深色时段原版另给一条 `#player .player-play-button` 深色基态
-						// （(1,2,1)，源序在 mini 规则之后），mini 也跟着换面；
-						// 悬停规则 (1,3,0) 仍然胜出（miniPlayStyle 已处理）。
-						play.Background(playFill).
-							Border(1, playBorder).
-							InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)).
-							InsetShadow(0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)).
-							Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10))
-					} else {
-						play.Background(playFill).
-							Border(1, playBorder).
-							InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)).
-							InsetShadow(0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)).
-							Shadow(0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12))
-					}
+					// 基态三色 + 按下/悬停/深色的 box-shadow（原版 mini 专属规则只改
+					// 基态，悬停与按下仍由主窗那几条 (1,3,x) 规则胜出，见 miniPlayShadow）。
+					play.Background(playFill).Border(1, playBorder)
+					miniPlayShadow(t, play, a.Playing, play.Hovered(), play.Pressed())
 					playerPressPose(play)
 					// mini 也是 .player-button：补聚光描边（播放键 1.0）+ 图标压印。
 					// ::before 光泽：浅色走 mini 专属渐变（悬停转主窗 hover 渐变），
@@ -280,19 +297,54 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	return volSlot
 }
 
+// miniCoverShine 是封面高光层（原版 .mini-cover-shine）的渐变：
+//
+//	linear-gradient(135deg, rgba(255,255,255,0.28), transparent 42%)
+//
+// 第二个 stop 停在 **42%**（不是整条对角线）。End 缺省 1 会把高光一直拉到右下角
+// ——整张封面蒙上一层白，左上那道高光的落点也偏长。声明成 var 便于无头测试换桩
+// 做反证（同 miniPlayerEdgeFade）。
+var miniCoverShine = func() ui.LinearGradient {
+	return ui.LinearGradient{
+		From:  ui.Hex("#ffffff").Alpha(0.28),
+		To:    ui.Transparent,
+		Angle: 135,
+		End:   0.42,
+	}
+}
+
+// miniStatusDot 返回迷你窗分集行状态点的（点色, 外圈光晕色），对齐原版
+// body.mini-mode 的 .mini-status-dot / .mini-status-dot-playlist：
+//
+//	非播放列表  background --studio-blue #0284c7  ring rgba(14,165,233,.12)
+//	播放列表    background --studio-rose #e11d48  ring rgba(225,29,72,.12)
+//
+// 两态的光晕色**不同源**：蓝点的 ring 是 sky-500（#0ea5e9）而不是点色
+// --studio-blue —— 此前直接拿点色乘 .12 画蓝点光晕，比原版偏深一档。
+func miniStatusDot(t Theme, inList bool) (dot, ring ui.Color) {
+	if inList {
+		return t.Rose, t.Rose
+	}
+	return t.Blue, ui.Hex("#0ea5e9")
+}
+
 // miniPlayStyle 返回迷你窗播放键的（填充, 描边, 图标色）。取自原版
-// body.mini-mode #player .player-play-button 及其 :hover：
+// body.mini-mode #player .player-play-button 及其悬停态：
 //
-//	常态  background rgba(186,230,253,.35); border rgba(2,132,199,.20); color #0284c7
-//	悬停  background rgba(186,230,253,.50); border rgba(2,132,199,.28); color #0284c7
+//	基态·暂停/播放中  background rgba(186,230,253,.35); border rgba(2,132,199,.20); color #0284c7
+//	悬停·暂停         background rgba(186,230,253,.50); border rgba(2,132,199,.28); color #0284c7
+//	悬停·播放中       background rgba(125,211,252,.22); border rgba(2,132,199,.40); color #0369a1
 //
-// 注意 mini 的基态规则特异度 (1,2,1) 盖过主窗 [data-playing] 的 (1,2,0)，
-// 所以 mini 播放键与是否播放无关（只有 play/pause 图标变）。深色时段主窗那条
-// 深色 `#player .player-play-button` 规则 (1,2,1) 源序更晚，会盖过 mini 基态，
-// 所以深色下 mini 播放键换成主窗的深色面（#e0f2fe .24 / .48 / #0369a1）；
-// 悬停规则 (1,3,0) 仍然胜出，两时段同值。
-func miniPlayStyle(t Theme, hovered bool) (fill, border, ink ui.Color) {
+// 悬停两条来自 `#player .player-play-button:hover:not(:disabled)` (1,3,0) 与
+// `#player .player-play-button[data-playing]:hover:not(:disabled)` (1,4,0)，后者
+// 在播放中胜出（此前 mini 悬停恒按「暂停」那套，播放中悬停的颜色偏了）。
+// 深色时段的主窗深色基态 (1,2,1) 源序在 mini 基态之后，盖过 mini 基态 —— 深色
+// 未悬停换成主窗深色面；悬停规则仍 (1,3,x) 胜出，两时段同值。
+func miniPlayStyle(t Theme, playing, hovered bool) (fill, border, ink ui.Color) {
 	if hovered {
+		if playing {
+			return ui.Hex("#7dd3fc").Alpha(0.22), ui.Hex("#0284c7").Alpha(0.40), ui.Hex("#0369a1")
+		}
 		return ui.Hex("#bae6fd").Alpha(0.50), ui.Hex("#0284c7").Alpha(0.28), ui.Hex("#0284c7")
 	}
 	if t.Dark {
@@ -300,6 +352,52 @@ func miniPlayStyle(t Theme, hovered bool) (fill, border, ink ui.Color) {
 			ui.Hex("#e0f2fe").Alpha(playerPlayDarkBorderA), ui.Hex("#0369a1")
 	}
 	return ui.Hex("#bae6fd").Alpha(0.35), ui.Hex("#0284c7").Alpha(0.20), ui.Hex("#0284c7")
+}
+
+// miniPlayShadowSpecs 返回迷你窗播放键这一帧该铺的（内影, 外影）。拆成纯函数
+// 便于无头测试逐值断言五支取值（同 playerPlaySurface 的分支口径）。
+func miniPlayShadowSpecs(t Theme, playing, hovered, pressed bool) (inset, outer []shadowSpec) {
+	switch {
+	case pressed:
+		// 原版 `:active:not(:disabled)`（1,3,0）：box-shadow 换
+		// `inset 0 1px 3px 墨 .1`（与主窗播放键同一支）。
+		return playerPressShadowSpecs(), nil
+	case hovered && playing:
+		// [data-playing]:hover（1,4,0）。
+		return []shadowSpec{
+				{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
+				{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
+			}, []shadowSpec{
+				{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
+				{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
+			}
+	case hovered:
+		// :hover（1,3,0）。
+		return []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}},
+			[]shadowSpec{{0, 6, 16, 0, ui.Hex("#0284c7").Alpha(0.18)}}
+	case t.Dark:
+		// 深色基态（1,2,1，源序在 mini 之后）。
+		return []shadowSpec{
+				{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)},
+				{0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)},
+			}, []shadowSpec{{0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10)}}
+	default:
+		// mini 浅色基态（原版 body.mini-mode #player .player-play-button）。
+		return []shadowSpec{
+				{0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)},
+				{0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)},
+			}, []shadowSpec{{0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12)}}
+	}
+}
+
+// miniPlayShadow 把 miniPlayShadowSpecs 的结果铺到按钮上。按下时先把底换成
+// --liquid-bg-active（原版 `:active::before` 那条），与主窗 playerPlaySurface 同口径。
+func miniPlayShadow(t Theme, b ui.Element, playing, hovered, pressed bool) ui.Element {
+	if pressed {
+		b = b.Background(playerPressFillFor(t, false))
+	}
+	inset, outer := miniPlayShadowSpecs(t, playing, hovered, pressed)
+	return applyShadows(applyInsetShadows(b, inset), outer)
 }
 
 // miniPinIcon 返回迷你窗「窗口置顶」键的图标。原版是
