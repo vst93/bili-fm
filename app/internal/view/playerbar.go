@@ -1378,9 +1378,15 @@ func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56
 // 摆到居中（justify/align），字号栅格里的文字仍然左对齐，于是同一列里的
 // “1:05” 贴左、"1:23:45" 也贴左，看上去两端时间没有水平居中——原版靠
 // `text-align: center` 让每一行文字在盒内居中。
+//
+// 行盒：原版 `#player .player-time { line-height: 18px }`（mini 覆写只改
+// font-size 9px，行高仍是 18px）。行高比框架的自然行盒（11px≈17）**高**，
+// 正是 LineHeight() 能放大的方向（linebox.go 的显式盒高 + 位移是为「压矮」
+// 准备的，把字形推到半像素上会摊薄墨迹）；这里直接给行高倍数 18/字号。
 func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
 	numericText(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
 		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).
+		LineHeight(18 / size).
 		TextAlign(ui.Center).Center()
 }
 
@@ -1646,13 +1652,18 @@ func (a *App) sponsorButton(c *ui.Context) {
 	// 同均衡键：原版 `aria-pressed={sponsorSkip}` 的保持型切换键。
 	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
 		Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(a.Sponsor)
-	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
+	// 原版恰饭键**不在**工具键的 :hover 名单里（globals.css 那条 next/volume/
+	// speed/eq:hover 不含 sponsor，也没有通用的 .player-button:hover）——悬停
+	// 完全不变色；也**不在** :active 特殊名单（play/next/volume/speed/eq）里，
+	// 按下只有通用 `.player-button:active` 的 scale(.93)：没有内压阴影、不换
+	// 底色。所以表面与墨色恒按基态走，缩放手感交给 playerPressPose。
+	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, false, false)
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
 	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(c, b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, b.Hovered())))
+			TextColor(playerFadeColor(c, b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, false)))
 		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
 		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
 		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
@@ -1910,30 +1921,38 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 	}
 	panel.Children(func() {
 		for _, opt := range speedOptions {
-			active := abs(opt-a.Speed) < 0.001
-			opt := opt
-			b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
-				MinWidth(36).Height(24).Padding(0, 8).Radius(8).
-				Center().Label(speedLabel(opt))
-			switch {
-			case active:
-				b.Background(t.Blue.Alpha(0.16))
-			case b.Hovered():
-				b.Background(t.Blue.Alpha(0.10))
-			}
-			b.Children(func() {
-				numericText(c, speedLabel(opt)).FontSize(11).FontWeight(650).
-					TextColor(pick(active, t.Blue, playerSpeedOptionInk(t)))
-			})
-			if b.Clicked() {
-				a.Speed = opt
-				a.ShowSpeed = false
-				if a.Act.SetSpeed != nil {
-					a.Act.SetSpeed(opt)
-				}
-			}
+			a.speedOption(c, opt)
 		}
 	})
+}
+
+// speedOption 画倍速弹层里的一颗档位胶囊（原版 .player-speed-option）：
+// min-width 36、padding 4px 8px（**auto 高度**——原版没有固定高，胶囊由
+// 内容行盒 + 上下内边距撑出来）、圆角 8、11px/650；激活蓝底 .16、悬停
+// 浅蓝 .10，墨色激活/悬停走 --studio-blue。
+func (a *App) speedOption(c *ui.Context, opt float64) {
+	t := a.Theme
+	active := abs(opt-a.Speed) < 0.001
+	b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
+		MinWidth(36).Padding(4, 8).Radius(8).
+		Center().Label(speedLabel(opt))
+	switch {
+	case active:
+		b.Background(t.Blue.Alpha(0.16))
+	case b.Hovered():
+		b.Background(t.Blue.Alpha(0.10))
+	}
+	b.Children(func() {
+		numericText(c, speedLabel(opt)).FontSize(11).FontWeight(650).
+			TextColor(pick(active, t.Blue, playerSpeedOptionInk(t)))
+	})
+	if b.Clicked() {
+		a.Speed = opt
+		a.ShowSpeed = false
+		if a.Act.SetSpeed != nil {
+			a.Act.SetSpeed(opt)
+		}
+	}
 }
 
 // volumePopover 是音量滑块，从播放栏第 5 列上方弹出。

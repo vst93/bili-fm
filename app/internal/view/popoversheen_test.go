@@ -95,13 +95,17 @@ func TestVolumePopoverSheenWired(t *testing.T) {
 }
 
 // TestSpeedPopoverSheenWired：倍速弹层浅色不铺洗光（开弹层不新增面板尺寸的绘制），
-// 深色补一条 --player-sheen 位图。面板高 = 档位 24 + 上下 padding 4×2 = 32；
-// 面板很宽（7 个档位），用它把面板与 32×32 的播放键区分开。
+// 深色补一条 --player-sheen 位图。面板高 = 档位胶囊的 auto 高度（11px 自然
+// 行盒 + 上下 padding 8，原版 .player-speed-option 是 padding:4px 8px 无固定高）
+// + 弹层上下 padding 4×2；面板很宽（7 个档位），用它把面板与 32×32 的播放键区分开。
 func TestSpeedPopoverSheenWired(t *testing.T) {
-	const panelH = 32
+	panelH := naturalLineBox(11) + 8 + 8
 	panelHit := func(hits []popoverSheenHit) (popoverSheenHit, bool) {
 		for _, h := range hits {
-			if h.r.H == panelH && h.r.W > 120 {
+			if d := h.r.H - panelH; d > 0.01 || d < -0.01 {
+				continue
+			}
+			if h.r.W > 120 {
 				return h, true
 			}
 		}
