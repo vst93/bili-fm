@@ -21,6 +21,12 @@ const (
 	loginCloseSize = 32
 	// loginCloseIconSize 是键内图标尺寸（原版 CloseSmall size 18）。
 	loginCloseIconSize = 18
+	// loginPanelWidth 是登录面板的宽度（原版 .login-glass 的 w-80 = 320）。
+	loginPanelWidth = 320
+	// loginCloseInset 是关闭键离面板右／上边缘的内缩。原版是 `-right-4 top-4`
+	// （right: -16px，有意让圆键探出面板右缘）。用户反馈那颗键掉到背景框
+	// 外面了，所以改成完整落在面板内：右／上各内缩 8。
+	loginCloseInset = 8
 )
 
 // loginClosePaint 是关闭键在某一状态下解析好的样式。mygo 的 Shadow 是累加的，

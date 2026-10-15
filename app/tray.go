@@ -6,7 +6,6 @@ import (
 	"runtime"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/plugins/updater"
 )
 
 // trayIconColored 是 Windows / Linux 用的彩色托盘图（白底圆角方块 + 青色台标）。
@@ -55,9 +54,9 @@ func (c *controller) setupTray() {
 			{Label: "上一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("prev", func() { c.step(-1) }) }},
 			{Label: "下一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("next", func() { c.step(1) }) }},
 			mygo.Separator(),
-			// 更新插件的菜单项：点开是 Sparkle 风格的更新窗口。
-			// 它自己也做每日后台检查，这里只是给用户一个手动入口。
-			updater.MenuItem(),
+			// 「检查更新」：与设置菜单 / 原生菜单栏走同一条应用内流程
+			//（弹液态玻璃对话框，而不是 updater 插件的原生窗口）。
+			{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuCheckUpdate() }},
 			mygo.Separator(),
 			// 用自己的退出项而不是 RoleQuit：RoleQuit 走 App.Quit()，
 			// 而「关窗=隐藏到托盘」的 OnClose 会把它拦掉（Role 那条路

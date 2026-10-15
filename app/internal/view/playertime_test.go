@@ -109,3 +109,64 @@ func TestPlayerTimeInkWired(t *testing.T) {
 		t.Errorf("时间标签 %q 区域没有红像素，playerTimeInk 的返回值没进文字颜色", label)
 	}
 }
+
+// timeGlyphBounds 在无头渲染里量出某个时间标签**文字**的水平包围盒。
+// Find 返回的是 56px 的列盒，不是文字本身的宽度——两者一对比就能看出文字
+// 在盒内是居中的还是左贴的。
+func timeGlyphBounds(t *testing.T, tst *ui.Tester, label string) (minX, maxX int, r ui.Rect, ok bool) {
+	t.Helper()
+	rect, ok := tst.Find(label)
+	if !ok {
+		return 0, 0, rect, false
+	}
+	out := tst.Image()
+	minX, maxX = 1<<30, -1
+	for y := int(rect.Y); y < int(rect.Y+rect.H); y++ {
+		for x := int(rect.X); x < int(rect.X+rect.W); x++ {
+			if x < 0 || y < 0 || x >= out.Rect.Dx() || y >= out.Rect.Dy() {
+				continue
+			}
+			i := out.PixOffset(x, y)
+			lum := (int(out.Pix[i])*299 + int(out.Pix[i+1])*587 + int(out.Pix[i+2])*114) / 1000
+			if lum < 150 {
+				if x < minX {
+					minX = x
+				}
+				if x > maxX {
+					maxX = x
+				}
+			}
+		}
+	}
+	return minX, maxX, rect, maxX >= 0
+}
+
+// TestPlayerTimeTextIsCenteredInColumn 是无头渲染实测：左右两端的时间文字要在
+// 各自的 56px 列里**水平居中**（原版 .player-time 的 `text-align: center`）。
+//
+// 之前这里用 `.Center()` —— 它只是把**列盒**在父级里摆到居中，文字本身仍按
+// 默认左对齐，于是 「1:05」 和 「1:02:05」 都贴着列的左边，两端时间看着没有
+// 左右居中。修正为 TextAlign(Center) 后，文字包围盒的中心应落在列盒中心附近。
+func TestPlayerTimeTextIsCenteredInColumn(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+	a.Pos = 65
+	a.Dur = 3725
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Frame()
+
+	for _, label := range []string{"1:05", "1:02:05"} {
+		minX, maxX, r, ok := timeGlyphBounds(t, tst, label)
+		if !ok {
+			t.Fatalf("找不到时间文本 %q：%v", label, tst.Texts())
+		}
+		boxCenter := r.X + r.W/2
+		glyphCenter := float32(minX+maxX) / 2
+		t.Logf("%q：列盒 %+v（中心 %.1f）文字 x %d..%d（中心 %.1f），偏 %.1f",
+			label, r, boxCenter, minX, maxX, glyphCenter, glyphCenter-boxCenter)
+		if d := glyphCenter - boxCenter; d > 2 || d < -2 {
+			t.Errorf("%q 文字中心偏列盒中心 %.1fpx（应为居中）", label, d)
+		}
+	}
+}

@@ -34,7 +34,7 @@ func (a *App) modal(c *ui.Context) {
 		switch m.Kind {
 		case "login":
 			// 原版 .login-glass：320 宽（w-80）、圆角 16（rounded-2xl）。
-			panel.Width(320).Radius(16).
+			panel.Width(loginPanelWidth).Radius(16).
 				Padding(32, 24, 24).
 				Material(glassLayer(glass.Glass{})).
 				Background(ui.Hex("#ffffff").Alpha(0.28)).
@@ -120,11 +120,12 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	//（原版 `.login-glass > * { z-index: 1 }` 把内容抬到它上面）。
 	loginSheen(c)
 
-	// 关闭键：原版 .login-close-btn 是 absolute -right-4 top-4 的 32 圆键
-	//（半透明白底 + 白描边 + 顶部内高光 + 外投影，见 loginclose.go）。
+	// 关闭键：原版 .login-close-btn 是 32 圆键（半透明白底 + 白描边 +
+	// 顶部内高光 + 外投影，见 loginclose.go）。原版定位 `-right-4 top-4`
+	// （探出面板 16px），用户反馈那样会掉出背景框；这里完整落在面板内。
 	close := ui.ButtonBase(c.Key("login-close")).Size(loginCloseSize, loginCloseSize).
 		Radius(RadiusPill).Center().Label("关闭登录").Tooltip("关闭登录")
-	close.Absolute().Right(-16).Top(16)
+	close.Absolute().Right(loginCloseInset).Top(loginCloseInset)
 	p := loginClosePaintFor(close.Hovered(), close.Pressed())
 	close.Background(p.BG).Border(1, p.Border)
 	for _, s := range p.Inset {
@@ -218,6 +219,10 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 		for _, btn := range btns {
 			b := btn
 			a.modalButton(c, b, func() {
+				if b.OnClick != nil {
+					b.OnClick()
+					return
+				}
 				if a.Act.CloseModal != nil {
 					a.Act.CloseModal()
 				}

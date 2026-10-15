@@ -259,12 +259,16 @@ func (t Theme) CoverPlaceholder() ui.Color {
 //
 // 原版面板是 `--liquid-bg`(rgba(255,255,255,.22)) + backdrop-filter blur(14px)：
 // 模糊把背后的内容揉开，22% 白就够读。原生界面画不了 backdrop-filter（见
-// PLAN.md 的取舍），22% 白直接叠在窗口背景上就太透了——用户实测反馈
-// 「抽屉背景太透，影响阅读」。所以改用原版自己为「没有 backdrop-filter 的
-// 平台」准备的兜底值：`body.platform-linux #root { --liquid-bg: rgba(255,255,255,.9) }`。
-// 这是原版 CSS 里既有的无模糊降级，不是新拍的数值。
+// PLAN.md 的取舍），只能拿半透明填充近似。早先为了阅读性直接用了原版给无
+// backdrop-filter 平台准备的兜底值 `--liquid-bg: rgba(255,255,255,.9)`——
+// 太实、太白了：它把抽屉压成一块几乎不透光的白板，与主页搜索栏、播放栏那几
+// 层更通透的玻璃明显不是一套。
+//
+// 本轮按用户反馈往中间收：保留可读性（远高于 0.22 的模糊档），但降到 0.70，
+// 让遮罩与窗口背景薄薄透出——面板因此既比纯白暗、又比 0.9 时透，和其余玻璃
+// 表面统一。不新增图层/模糊，纯色值改动。
 func drawerPanelFill() ui.Color {
-	return ui.Hex("#ffffff").Alpha(0.90)
+	return ui.Hex("#ffffff").Alpha(0.70)
 }
 
 // liquidGlass 给元素套上液态玻璃材质。
@@ -289,6 +293,16 @@ func (t Theme) liquidGlassHover(e ui.Element) ui.Element {
 		Shadow(0, 16, 38, 0, shadowInk.Alpha(0.11)).
 		Shadow(0, 2, 8, 0, shadowInk.Alpha(0.04))
 }
+
+// glassSurfaceTint 是给框架 Liquid Glass 表面统一压一档冷灰的染色。
+//
+// 框架的 Regular 玻璃会把背后的东西大幅提亮（本机无头实测：同一条浅色渐变
+// 背景下，框架玻璃把 ~215 抬到 ~248，而原版 `.home-searchbar::before` 的
+// `--liquid-bg` 白 .22 叠同背景只有 ~220）。一层看着还行，但搜索药丸和抽屉
+// 面板并排时，药丸明显更白。抽屉面板已按用户反馈调到 0.70 白（见
+// drawerPanelFill），这里给药丸叠同一支 slate 染色，把它压低到与抽屉一致
+// （无头实测见 glasstint_test.go）。
+func glassSurfaceTint() ui.Color { return ui.Hex("#94a3b8").Alpha(0.22) }
 
 // uiTheme 把我们的令牌装进 mygo 的控件主题，让输入框、滚动条、tooltip
 // 这些现成控件也用同一套颜色。原版没有暗色主题（正文永远是深色），所以

@@ -19,6 +19,11 @@ import (
 // globals.css 的 `[data-slot="wrapper"] .group` 把它覆写成 10px !important。
 const playlistRowRadius = 10
 
+// playlistAccentRadius 是当前项左缘强调条的圆角。原版是 `border-left`——
+// 一条直角边（外缘只跟着行的 border-radius 走），不是独立的圆头胶囊，
+// 所以这里为 0。
+const playlistAccentRadius = 0
+
 // playlistTabs 是播放列表抽屉的表头。
 func (a *App) playlistTabs(c *ui.Context) {
 	tabs := []tabItem{{Key: ListUser, Label: fmt.Sprintf("我的列表(%d)", len(a.Playlist))}}
@@ -328,6 +333,9 @@ func playlistDragOver(selfDragging, over bool) bool {
 // playlistRow 是一条记录。我的列表支持拖拽排序（拖到别的行上即插入到那个位置）。
 func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	current := a.PlayingPlaylist == a.PlaylistTab && a.Index == index
+	// 滚动锁：滚动中把悬停态一起冻住（与抽屉卡片同一约定，见 renderCard）。
+	// 行在指针下滑过时 row.Hovered() 会在相邻行间跳，底/边/删除键显隐每帧翻转。
+	locked := a.scrollHoldHeld
 	// 原版行：p-2（8）、rounded-lg（8，但 .group 覆写成 10）、gap-2（8）。
 	// 当前项有 border-left 4px 强调条：原来是把 4px 色条当普通子元素放在
 	// 8px 左内边距之后，缩略图被推到 20px；原版是 4+8=12px。当前项把左内边距
@@ -356,7 +364,12 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	// 原版 `${isDragging ? "opacity-40" : ""}`：被拖的整行瞬时变 40% 不透明。
 	row.Opacity(playlistRowOpacity(selfDragging))
 
-	p := playlistRowPaint(current, row.Hovered(), dragOver, row.Pressed())
+	rowHovered := !locked && row.Hovered()
+	if rowHovered {
+		a.hoverChannels.Add(1)
+	}
+
+	p := playlistRowPaint(current, rowHovered, dragOver, row.Pressed())
 	if p.Gradient {
 		// 原版 .playlist-current 的蓝→白 90° 渐变。
 		row.Gradient(p.From, p.To, 90)
@@ -387,8 +400,12 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		// 注意用 FillHeight 而不是 Fill：**Fill() 会把宽度也设成 100%**，
 		// 这条 4px 色条于是撑满整行、把封面和文字挤成 0 宽
 		//（表现就是选中项变成一条纯蓝色横条）。
+		//
+		// 圆角：原版是 border-left（直边，外缘跟着行的圆角走），不是一枚
+		// 独立的圆头胶囊。早先这里给了 Radius(2)，那条竖线看着像悬浮的
+		// 圆角色块（观感「很 AI」）；用直角复现 border 的直边。
 		if p.AccentW > 0 {
-			ui.Box(c).Width(p.AccentW).FillHeight().Shrink(0).Radius(2).
+			ui.Box(c).Width(p.AccentW).FillHeight().Shrink(0).Radius(playlistAccentRadius).
 				Background(p.Accent)
 		}
 		// 缩略图 64×36。原版 .bg-gray-200 被覆写成 rgba(226,232,240,.6)。
@@ -436,7 +453,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		// 始终占位，悬停不会把文字列抽窄（见 playlistDeleteOpacity）。
 		if editable {
 			a.rowIconButton(c, fmt.Sprintf("pl-del-%s", item.ID), "删除", iconClose,
-				ui.Hex("#999999"), playlistDeleteOpacity(row.Hovered()), func() {
+				ui.Hex("#999999"), playlistDeleteOpacity(rowHovered), func() {
 					if a.Act.DeletePlaylistItem != nil {
 						a.Act.DeletePlaylistItem(ListUser, item.ID)
 					}

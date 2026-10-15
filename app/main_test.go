@@ -1378,3 +1378,89 @@ func TestSponsorStartBeforeDurationStillFires(t *testing.T) {
 		t.Errorf("起点在时长之内的分段应照常跳过，seek=%v", c.app.PendingSeek)
 	}
 }
+
+// TestUpdateModals 钉住应用内「检查更新」每一阶段对话框的形态：都走
+// `Kind == "message"` 的应用内液态玻璃对话框（与「关于应用」「快捷键」同一套），
+// 类型 / 标题 / 按钮动作按阶段取。这些对话框取代了此前 updater 插件的独立
+// 原生更新窗。
+func TestUpdateModals(t *testing.T) {
+	cases := []struct {
+		name       string
+		m          *view.Modal
+		typ, title string
+		labels     []string
+	}{
+		{"检查中", updateCheckingModal(func() {}), "loading", "检查更新", []string{"取消"}},
+		{"最新版", updateUpToDateModal(), "success", "检查更新", []string{"好的"}},
+		{"不可更新", updateDisabledModal(), "info", "检查更新", []string{"好的"}},
+		{"检查失败", updateFailedModal("boom", "检查更新失败"), "error", "检查更新失败", []string{"确定"}},
+		{"发现新版", updateAvailableModal("1.2.3", func() {}, func() {}), "question", "发现新版本", []string{"立即更新", "稍后再说"}},
+		{"下载中", updateDownloadingModal("1.2.3", 0, 0, func() {}), "loading", "正在下载更新", []string{"取消"}},
+		{"完成", updateReadyModal(func() {}), "success", "更新完成", []string{"立即重启"}},
+	}
+	for _, tc := range cases {
+		if tc.m.Kind != "message" {
+			t.Errorf("%s：Kind = %q，应为 message（应用内对话框）", tc.name, tc.m.Kind)
+		}
+		if tc.m.Type != tc.typ {
+			t.Errorf("%s：Type = %q，应为 %q", tc.name, tc.m.Type, tc.typ)
+		}
+		if tc.m.Title != tc.title {
+			t.Errorf("%s：Title = %q，应为 %q", tc.name, tc.m.Title, tc.title)
+		}
+		if len(tc.m.Buttons) != len(tc.labels) {
+			t.Fatalf("%s：按钮 %d 个，应为 %d 个", tc.name, len(tc.m.Buttons), len(tc.labels))
+		}
+		for i, l := range tc.labels {
+			if tc.m.Buttons[i].Label != l {
+				t.Errorf("%s：按钮 %d = %q，应为 %q", tc.name, i, tc.m.Buttons[i].Label, l)
+			}
+		}
+	}
+	if updateDisabledModal().LinkURL == "" {
+		t.Error("不可更新对话框应带下载页链接")
+	}
+	if !updateAvailableModal("1.2.3", func() {}, func() {}).Buttons[0].Primary {
+		t.Error("「立即更新」应是主按钮")
+	}
+	if updateAvailableModal("1.2.3", func() {}, func() {}).Buttons[0].OnClick == nil {
+		t.Error("「立即更新」应带 OnClick（触发下载）")
+	}
+	if updateReadyModal(func() {}).Buttons[0].OnClick == nil {
+		t.Error("「立即重启」应带 OnClick（触发重启）")
+	}
+}
+
+// TestDownloadingModalProgress 钉住下载进度文案：有总长时报百分比 + 已下载/总长，
+// 没有时只报已下载字节数。
+func TestDownloadingModalProgress(t *testing.T) {
+	withTotal := updateDownloadingModal("1.2.3", 512*1024, 1024*1024, func() {}).Message
+	if !strings.Contains(withTotal, "50%") || !strings.Contains(withTotal, "512.0 KB") ||
+		!strings.Contains(withTotal, "1.0 MB") {
+		t.Errorf("带总长的进度文案 = %q，应含 50%% 与两个字节数", withTotal)
+	}
+	noTotal := updateDownloadingModal("1.2.3", 512, 0, func() {}).Message
+	if strings.Contains(noTotal, "%") {
+		t.Errorf("未知总长不该报百分比：%q", noTotal)
+	}
+	if !strings.Contains(noTotal, "512 B") {
+		t.Errorf("未知总长应报已下载字节数：%q", noTotal)
+	}
+}
+
+// TestFormatBytes 钉住字节数的可读格式。
+func TestFormatBytes(t *testing.T) {
+	cases := map[int64]string{
+		0:                      "0 B",
+		999:                    "999 B",
+		1024:                   "1.0 KB",
+		1536:                   "1.5 KB",
+		1024 * 1024:            "1.0 MB",
+		5 * 1024 * 1024 * 1024: "5.0 GB",
+	}
+	for n, want := range cases {
+		if got := formatBytes(n); got != want {
+			t.Errorf("formatBytes(%d) = %q，应为 %q", n, got, want)
+		}
+	}
+}

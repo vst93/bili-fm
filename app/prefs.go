@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 	qrcode "github.com/skip2/go-qrcode"
 
@@ -218,19 +219,239 @@ func (c *controller) showShortcuts() {
 	c.app.Win.Update(func() {})
 }
 
-// closeModal 关闭当前对话框（登录框走 closeLogin）。
+// checkUpdate 检查更新：与原版的「设置 → 检查更新」一致，弹的是应用内的液态
+// 玻璃对话框（同「关于应用」「快捷键」），而不是 updater 插件的独立原生窗口。
+//
+// 流程照抄原版 titleBar.tsx 的 handleCheckUpdate / handleDownloadUpdate：
+//
+//	检查更新中 →（已是最新 | 检查失败 | 发现新版本）
+//	发现新版本 →「立即更新」→ 下载中 → 更新完成（重启）
+//
+// 每一步都在同一套对话框里原地切换内容。
+func (c *controller) checkUpdate() {
+	c.runUpdateCheck(true)
+}
+
+// runUpdateCheck 是检查更新流程的共同入口。user 为真时（用户主动点）先弹
+// 「正在检查更新…」的加载框，并在结果是最新版 / 失败时也给反馈；user 为假时
+// （后台自动检查）静默跑，只在真的发现新版本时才弹框。
+func (c *controller) runUpdateCheck(user bool) {
+	a := c.app
+	if a == nil || a.Win == nil {
+		return
+	}
+	c.updateGen++
+	gen := c.updateGen
+	c.cancelUpdateCtx()
+	ctx, cancel := context.WithCancel(context.Background())
+	c.updateCancel = cancel
+
+	if user {
+		a.Modal = updateCheckingModal(func() { c.cancelUpdate(gen) })
+		a.Win.Update(func() {})
+	}
+
+	go func() {
+		up, err := mygo.Updater.Check(ctx)
+		a.Win.Update(func() {
+			if c.updateGen != gen {
+				return
+			}
+			c.updateCancel = nil
+			switch {
+			case err != nil && errors.Is(err, mygo.ErrUpdatesDisabled):
+				if user {
+					a.Modal = updateDisabledModal()
+				}
+			case err != nil:
+				if user {
+					a.Modal = updateFailedModal(err.Error(), "检查更新失败")
+				}
+			case up == nil:
+				if user {
+					a.Modal = updateUpToDateModal()
+				}
+			default:
+				a.Modal = updateAvailableModal(up.Version,
+					func() { c.installUpdate(up) },
+					func() { c.closeModal() })
+			}
+		})
+	}()
+}
+
+// installUpdate 下载并安装找到的新版本，全程在同一个对话框里显示进度。
+func (c *controller) installUpdate(up *mygo.Update) {
+	a := c.app
+	if a == nil || a.Win == nil {
+		return
+	}
+	c.updateGen++
+	gen := c.updateGen
+	c.cancelUpdateCtx()
+	ctx, cancel := context.WithCancel(context.Background())
+	c.updateCancel = cancel
+
+	a.Modal = updateDownloadingModal(up.Version, 0, 0, func() { c.cancelUpdate(gen) })
+	a.Win.Update(func() {})
+
+	go func() {
+		err := up.Install(ctx, func(downloaded, total int64) {
+			a.Win.Update(func() {
+				if c.updateGen != gen {
+					return
+				}
+				a.Modal = updateDownloadingModal(up.Version, downloaded, total,
+					func() { c.cancelUpdate(gen) })
+			})
+		})
+		a.Win.Update(func() {
+			if c.updateGen != gen {
+				return
+			}
+			c.updateCancel = nil
+			if err != nil {
+				a.Modal = updateFailedModal(err.Error(), "更新失败")
+				return
+			}
+			a.Modal = updateReadyModal(func() { mygo.App.Relaunch() })
+		})
+	}()
+}
+
+// cancelUpdate 取消当前更新流程并关掉面板（用户点「取消」/「稍后再说」或
+// 关掉对话框）。换代让在途的检查 / 下载回调失效。
+func (c *controller) cancelUpdate(gen int) {
+	if c.updateGen != gen {
+		return
+	}
+	c.updateGen++
+	c.cancelUpdateCtx()
+	c.closeModal()
+}
+
+func (c *controller) cancelUpdateCtx() {
+	if c.updateCancel != nil {
+		c.updateCancel()
+		c.updateCancel = nil
+	}
+}
+
+// closeModal 关闭当前对话框（登录框走 closeLogin）。同时让在途的更新检查 /
+// 下载失效（Esc / 点背景关闭也要真的取消，而不只是隐藏面板）。
 func (c *controller) closeModal() {
+	c.updateGen++
+	c.cancelUpdateCtx()
 	c.app.Modal = nil
 	c.app.Win.Update(func() {})
 }
 
-// checkUpdate 检查更新：mygo 的 updater 插件自己会开一个更新窗口，显示
-// 新版本说明、下载进度和重启按钮（相当于原版「检查更新」对话框的完整流程）。
-func (c *controller) checkUpdate() {
-	// mygo 的 updater 自己会开窗口：能更新时给版本说明/下载进度/重启按钮；
-	// 不能自更新（deb/rpm/pacman 装的、开发构建）时也会说明原因，
-	// 所以这里只需要触发。
-	updater.CheckForUpdates()
+// ---------------------------------------------------------------- 更新对话框
+//
+// 这几个构造函数把更新流程的每个阶段包成应用内的 Modal（Kind == "message"，
+// 复用 dialogTypeStyleFor 的图标 / 强调色 / Spinner）。拆成纯函数便于单测
+// 逐字段断言（见 main_test.go 的 TestUpdateModals）。
+
+func updateCheckingModal(onCancel func()) *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "loading",
+		Title:   "检查更新",
+		Message: "正在检查更新…",
+		Buttons: []view.ModalButton{{Label: "取消", OnClick: onCancel}},
+	}
+}
+
+func updateUpToDateModal() *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "success",
+		Title:   "检查更新",
+		Message: "当前已是最新版本",
+		Buttons: []view.ModalButton{{Label: "好的", Primary: true}},
+	}
+}
+
+func updateDisabledModal() *view.Modal {
+	return &view.Modal{
+		Kind:      "message",
+		Type:      "info",
+		Title:     "检查更新",
+		Message:   "当前构建不支持应用内更新（开发构建，或由包管理器安装）。\n可前往下载页面获取最新版本。",
+		LinkLabel: "下载页面：github.com/vst93/bili-fm/releases",
+		LinkURL:   "https://github.com/vst93/bili-fm/releases/latest",
+		Buttons:   []view.ModalButton{{Label: "好的", Primary: true}},
+	}
+}
+
+func updateFailedModal(msg, title string) *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "error",
+		Title:   title,
+		Message: msg,
+		Buttons: []view.ModalButton{{Label: "确定", Primary: true}},
+	}
+}
+
+func updateAvailableModal(version string, onInstall, onLater func()) *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "question",
+		Title:   "发现新版本",
+		Message: fmt.Sprintf("新版本 v%s 已发布\n是否立即下载并安装更新？", version),
+		Buttons: []view.ModalButton{
+			{Label: "立即更新", Primary: true, OnClick: onInstall},
+			{Label: "稍后再说", OnClick: onLater},
+		},
+	}
+}
+
+// updateDownloadingModal 描述下载中的进度框。total 为 0（尚未收到总长）时
+// 只报已下载字节数，与原版一致。
+func updateDownloadingModal(version string, downloaded, total int64, onCancel func()) *view.Modal {
+	var msg string
+	if total > 0 {
+		pct := downloaded * 100 / total
+		msg = fmt.Sprintf("正在下载 v%s… %d%%\n%s / %s",
+			version, pct, formatBytes(downloaded), formatBytes(total))
+	} else {
+		msg = fmt.Sprintf("正在下载 v%s… %s", version, formatBytes(downloaded))
+	}
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "loading",
+		Title:   "正在下载更新",
+		Message: msg,
+		Buttons: []view.ModalButton{{Label: "取消", OnClick: onCancel}},
+	}
+}
+
+func updateReadyModal(onRelaunch func()) *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "success",
+		Title:   "更新完成",
+		Message: "新版本已安装，重启应用即可使用。",
+		Buttons: []view.ModalButton{{Label: "立即重启", Primary: true, OnClick: onRelaunch}},
+	}
+}
+
+// formatBytes 把字节数格式化成人类可读的 KB / MB / GB（原版 titleBar.tsx 的
+// formatBytes）。
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%.0f B", float64(n))
+	}
+	val := float64(n)
+	for _, u := range []string{"KB", "MB", "GB"} {
+		val /= unit
+		if val < unit {
+			return fmt.Sprintf("%.1f %s", val, u)
+		}
+	}
+	return fmt.Sprintf("%.1f TB", val/unit)
 }
 
 // ---------------------------------------------------------------- 扫码登录

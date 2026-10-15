@@ -76,9 +76,10 @@ func TestLoginPanelSheenWired(t *testing.T) {
 	if !ok {
 		t.Fatalf("找不到登录关闭键：%v", tst.Texts())
 	}
-	// 面板几何从关闭键反推：键是 absolute right:-16 top:16 的 32 圆。
-	pr := int(r.X + r.W - 16)
-	pt := int(r.Y - 16)
+	// 面板几何从关闭键反推：键是 absolute Right(loginCloseInset) /
+	// Top(loginCloseInset) 的 32 圆，完整落在面板内。
+	pr := int(r.X + r.W + loginCloseInset)
+	pt := int(r.Y - loginCloseInset)
 	pl := pr - 320
 	img := tst.Image()
 

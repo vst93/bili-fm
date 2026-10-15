@@ -127,6 +127,30 @@ func TestLoginCloseButtonGlassCircle(t *testing.T) {
 	}
 }
 
+// TestLoginCloseButtonInsidePanel 是无头几何实测：登录关闭键必须完整落在面板
+// **里面**。原版是 `-right-4 top-4`（探出面板右缘 16px），用户反馈那样会掉到
+// 背景框外面；改成右／上各内缩 loginCloseInset。面板 320 宽、在 1000 宽窗口里
+// 居中，右缘在 (1000+320)/2 = 660。
+func TestLoginCloseButtonInsidePanel(t *testing.T) {
+	tst := loginProbe(t)
+	r, ok := tst.Find("关闭登录")
+	if !ok {
+		t.Fatalf("找不到登录关闭键：%v", tst.Texts())
+	}
+	panelRight := float32(1000+loginPanelWidth) / 2
+	panelLeft := float32(1000-loginPanelWidth) / 2
+	t.Logf("关闭键 rect=%+v，面板右缘=%.1f", r, panelRight)
+	if r.X+r.W > panelRight {
+		t.Errorf("关闭键右缘 %.1f 越出面板右缘 %.1f（应落在面板内）", r.X+r.W, panelRight)
+	}
+	if r.X < panelLeft {
+		t.Errorf("关闭键左缘 %.1f 越出面板左缘 %.1f", r.X, panelLeft)
+	}
+	if r.Y < 0 {
+		t.Errorf("关闭键上缘 %.1f 越出面板", r.Y)
+	}
+}
+
 // pixelAt 取一张 RGBA 图里某点的 RGB（越界返回黑色，测试里由断言暴露）。
 func pixelAt(t *testing.T, img *image.RGBA, x, y int) [3]int {
 	t.Helper()

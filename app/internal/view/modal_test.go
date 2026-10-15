@@ -384,3 +384,45 @@ func TestDialogLinkBottomEdge(t *testing.T) {
 			best, width, bestY)
 	}
 }
+
+// TestModalButtonOnClick 钉住对话框按钮的动作语义：带 OnClick 的按钮点击走
+// 它自己（不自动关面板，用于「立即更新」「取消」这类会切换面板内容的动作）；
+// 不带 OnClick 的按钮沿用惯例——关掉当前对话框。「检查更新」从原生更新窗
+// 改成应用内对话框后依赖这条。
+func TestModalButtonOnClick(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	clicked, closed := false, false
+	a.Act.CloseModal = func() { closed = true }
+	a.Modal = &Modal{
+		Kind: "message", Type: "question", Title: "发现新版本",
+		Message: "新版本 v1.2.3 已发布",
+		Buttons: []ModalButton{
+			{Label: "立即更新", Primary: true, OnClick: func() { clicked = true }},
+			{Label: "稍后再说"},
+		},
+	}
+	a.modalOpenedAt = time.Now().Add(-time.Second)
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Frame()
+
+	if err := tst.Click("立即更新"); err != nil {
+		t.Fatalf("点不到「立即更新」：%v", err)
+	}
+	tst.Frame()
+	if !clicked {
+		t.Fatal("带 OnClick 的按钮没有触发回调")
+	}
+	if closed {
+		t.Fatal("带 OnClick 的按钮不该自动关面板")
+	}
+
+	closed = false
+	if err := tst.Click("稍后再说"); err != nil {
+		t.Fatalf("点不到「稍后再说」：%v", err)
+	}
+	tst.Frame()
+	if !closed {
+		t.Fatal("不带 OnClick 的按钮应沿用「关面板」的惯例")
+	}
+}

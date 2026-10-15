@@ -73,18 +73,22 @@ func TestDrawerPanelNotTooTransparent(t *testing.T) {
 	t.Logf("抽屉面板实测：关=(%d,%d,%d) 开=(%d,%d,%d) 面板之下=(%.0f,%.0f,%.0f) 反解 α=%.3f",
 		r0, g0, b0, r1, g1, b1, br, bg, bb, a)
 
-	// 原版在无 backdrop-filter 的平台（Linux）用 --liquid-bg: .9 兜底，
-	// 面板底色应当是接近不透明的白。低于 0.85 就是「太透」。
-	if a < 0.85 {
-		t.Fatalf("抽屉面板不透明度 α=%.3f < 0.85：背景透出过多，影响阅读", a)
+	// 本轮把面板从「几乎不透明白板」往回收：既不能回到 0.22 那种太透
+	// （影响阅读），也不该再是 0.9 的白板。可读的下限 0.6，上限 0.8。
+	if a < 0.6 {
+		t.Fatalf("抽屉面板不透明度 α=%.3f < 0.6：背景透出过多，影响阅读", a)
+	}
+	if a > 0.8 {
+		t.Fatalf("抽屉面板不透明度 α=%.3f > 0.8：面板偏白偏实，与其余玻璃表面不统一", a)
 	}
 }
 
-// TestDrawerPanelFillIsOpaqueToken 钉住面板填充令牌本身：不再用 0.22 的
-// 半透明 --liquid-bg，而是接近不透明的面板底（原版 Linux 兜底 0.9）。
+// TestDrawerPanelFillIsOpaqueToken 钉住面板填充令牌本身：不再是 0.22 的
+// 半透明 --liquid-bg，也不是 0.9 的白板，而是折中的 0.70（更暗更通）。
 func TestDrawerPanelFillIsOpaqueToken(t *testing.T) {
 	fill := drawerPanelFill()
-	if float64(fill.A) < 0.85*255 {
-		t.Fatalf("drawerPanelFill alpha=%d/255 < 0.85", fill.A)
+	alpha := float64(fill.A) / 255
+	if alpha < 0.6 || alpha > 0.8 {
+		t.Fatalf("drawerPanelFill alpha=%.3f，应落在 [0.6,0.8]", alpha)
 	}
 }

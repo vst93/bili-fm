@@ -78,13 +78,14 @@ func shellTesterSize(t *testing.T, a *App, w, h int) *ui.Tester {
 	return tt
 }
 
-// narrowApp 造一个 400px 宽的主窗上下文：有标题/选集，封面模式下无网络图
-// （碟片本身是 #0f172a 的实底，像素测量不依赖封面位图）。
+// narrowApp 造一个 400px 宽的主窗上下文：有标题/选集，封面模式下用一张确定的
+// 深色假封面（碟片本身是 #0f172a 的实底，像素测量不依赖真实网络图）。
 func narrowApp() *App {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.CoverMode = "disc"
 	a.Track = &Track{Bvid: "BV1", Title: "标题", Part: "P1", Up: "UP"}
+	giveDarkCover(a)
 	return a
 }
 

@@ -77,11 +77,11 @@ func (a *App) MiniShell(c *ui.Context) {
 				// 封面浮在迷你窗背景之上。
 				Shadow(0, 10, 22, 0, shadowInk.Alpha(0.16)).
 				Clip().Children(func() {
-				// 封面缺失时退回 logo（原版 cover || "/logo.png"）。
+				// 封面缺失时退回 logo（原版 cover || "/logo.png"）——用白底那张。
 				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
-				} else if Logo != nil {
-					ui.Image(c, Logo).Fill().Fit(ui.Cover)
+				} else if lg := coverLogo(); lg != nil {
+					ui.Image(c, lg).Fill().Fit(ui.Cover)
 				}
 				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
 				// 必须 Absolute：原版是 position:absolute; inset:0，不参与布局。

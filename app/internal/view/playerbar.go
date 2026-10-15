@@ -1373,9 +1373,15 @@ func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56
 // timeTextAt 画一个时间标签：原版 .player-time 是 11px / 600 / 居中 /
 // color var(--player-time-color)，mini 下字号收成 9px、列宽 44（其余不变）。
 // 主窗与迷你窗共用，字重与颜色只有一处。
+//
+// 居中必须用 TextAlign(Center)，不是 .Center()：后者只是把**盒子**在父级里
+// 摆到居中（justify/align），字号栅格里的文字仍然左对齐，于是同一列里的
+// “1:05” 贴左、"1:23:45" 也贴左，看上去两端时间没有水平居中——原版靠
+// `text-align: center` 让每一行文字在盒内居中。
 func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
 	numericText(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
-		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).Center()
+		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).
+		TextAlign(ui.Center).Center()
 }
 
 // playerTimeInk 是 #player .player-time 的墨色，即原版

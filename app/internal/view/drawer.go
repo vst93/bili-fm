@@ -1862,6 +1862,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 页脚另有一层浅底。
 	box := ui.Column(c).Key(spec.Key).Grow(1).Basis(0).
 		Radius(12).Clip()
+	// 滚动锁：滚动进行中把 hover 视觉一起冻住，而不只是锁上浮位移。
+	// 每帧都要在算 hover 之前定下（比较 renderCard 内的 lift/glow 也用它）。
+	locked := a.scrollHoldHeld
 	// 卡片是**半透明填充**，不是真玻璃（每张卡一次 backdrop 重算）。
 	//
 	// 原版 globals.css `[data-slot="wrapper"] [role="button"][class*="bg-content"]`
@@ -1873,7 +1876,14 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 一屏 12 张卡就是 12 次——这是抽屉滚动/入场卡顿的主要来源（实测抽屉帧的
 	// Backdrop 效果 24 个里 12 个来自卡片）。改回原版的填充近似后与抽屉面板的
 	// 模糊叠一起，观感一致而少 12 次 backdrop 重算。
-	hovered := box.Hovered()
+	//
+	// hover 在滚动中冻结：ui.List 滚动时卡片在指针下滑过，box.Hovered() 会
+	// 在相邻卡片之间来回跳，底/边/页脚洗色每帧翻转——用户看到的就是「选中
+	// 抖动」。锁定期间一律按常态渲染（在播卡片的 Active 态与指针无关，照旧）。
+	hovered := box.Hovered() && !locked
+	if hovered {
+		a.hoverChannels.Add(1)
+	}
 	switch {
 	case spec.Active:
 		// 原版选集卡片的在播态就是 border-2 border-[#0284c7]。
@@ -1901,7 +1911,6 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 照常 build/layout/paint 整窗）——用户报快速滚动卡顿正是来自这里。
 	// 滚动进行中不挂动画、停下当帧再恢复：
 	// 悬停 / 在播的上浮效果只在静止时渲染，与原版 :hover 观感一致。
-	locked := a.scrollHoldHeld
 	if !locked {
 		lift := float32(0)
 		if box.Hovered() || spec.Active {

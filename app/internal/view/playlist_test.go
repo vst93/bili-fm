@@ -379,3 +379,17 @@ func TestPlayModeIconInk(t *testing.T) {
 		t.Errorf("随机图标色 = %v，应为 #3b82f6", got)
 	}
 }
+
+// TestPlaylistAccentBarIsSquare 钉住当前项左缘强调条是**直角**（原版是
+// `border-left`，一条直边，外缘只跟着行的圆角走），不是独立的圆头胶囊。
+// 早先给了 Radius(2)，那条竖线看着像悬浮的圆角色块，观感「很 AI」。
+func TestPlaylistAccentBarIsSquare(t *testing.T) {
+	if playlistAccentRadius != 0 {
+		t.Fatalf("强调条圆角 = %v，应为 0（复现 border-left 的直边）", playlistAccentRadius)
+	}
+	// 当前项仍然要画这条强调条（修正的是形状，不是去掉它）。
+	p := playlistRowPaint(true, false, false, false)
+	if p.AccentW != 4 || p.Accent == ui.Transparent {
+		t.Fatalf("当前项强调条 = %v/%v，应为 4px 实色", p.AccentW, p.Accent)
+	}
+}

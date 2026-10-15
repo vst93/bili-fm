@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -28,7 +29,6 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
@@ -75,6 +75,11 @@ type controller struct {
 
 	// loginGen 是登录轮询的代号：关闭面板/重新登录会让旧的轮询自尽。
 	loginGen int
+
+	// updateGen / updateCancel 是应用内「检查更新」流程的代号与取消函数：
+	// 用户关掉面板或重新检查会让旧的检查/下载自尽（与 loginGen 同一手法）。
+	updateGen    int
+	updateCancel context.CancelFunc
 
 	// 进度同步的节流时间点（见 progress.go）。
 	resumeWroteAt time.Time
@@ -142,11 +147,15 @@ func main() {
 	// 应用内更新：mygo build 用 mygo.json 里 updates 的私钥给每个平台的归档
 	// 签名并写 update-<target>.json；应用用内置的公钥验签。
 	//
+	// 不再使用 mygo 的 updater 插件（它会开一个**独立的原生更新窗**，样式与
+	// 应用内的 .liquid-dialog 不一致）。改为在应用内用 `mygo.Updater` 自己走
+	// 「检查 → 发现新版本 → 下载 / 重启」流程，弹的是同一套液态玻璃对话框
+	//（见 prefs.go 的 runUpdateCheck）。
+	//
 	// 注意哪些安装方式能自更新：macOS 的 /Applications、Windows 的
 	// %LOCALAPPDATA%\Programs、Linux 的 ~/.local/<app>.app 可以；
 	// 由包管理器装的（deb/rpm/pacman 装到 /opt）不行 —— Updater.Enabled()
 	// 会返回 false，用户点检查更新时会看到原因。
-	mygo.Use(updater.Plugin)
 
 	c := &controller{
 		bl:      bilibili.NewBL(),
@@ -466,6 +475,17 @@ func main() {
 		}
 		if !*noKeys {
 			c.setupMediaKeys()
+		}
+
+		// 后台自动检查更新（原版每日一次）：启动约 10s 后静默检查，只在
+		// 发现新版本时弹应用内对话框（是最新版 / 检查失败都不打扰）。
+		// 不能自更新的构建（开发构建 / 包管理器安装）直接跳过。
+		if mygo.Updater.Enabled() {
+			go func() {
+				time.Sleep(10 * time.Second)
+				// 检查流程读写界面状态，放回主线程跑（与用户点菜单同一条路径）。
+				app.Win.Update(func() { c.runUpdateCheck(false) })
+			}()
 		}
 
 		// 时段变化时换主题（原版也按小时切背景）。

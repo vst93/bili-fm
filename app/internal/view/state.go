@@ -299,10 +299,13 @@ type Modal struct {
 }
 
 // ModalButton 是对话框底部的一个按钮。Label 是文案，Primary 决定它是不是
-// 蓝色渐变的那个主按钮（原版 DialogButton.primary）。
+// 蓝色渐变的那个主按钮（原版 DialogButton.primary）。OnClick 非空时点击走它
+// （用于「立即更新」「取消」这类需要动作而不只是关闭面板的按钮）；为空则按
+// 惯例关掉当前对话框。
 type ModalButton struct {
 	Label   string
 	Primary bool
+	OnClick func()
 }
 
 // Actions 是界面向上层发出的请求。由 main 装配时注入实现。
@@ -434,10 +437,14 @@ type App struct {
 	// liftChannels 统计本帧有多少张卡把 lift 交给了 AnimateTo：无头测量
 	//「滚动时锁住上浮」是否真的让动画重算清零（见 liftscroll_hold_test.go）。
 	liftChannels atomic.Int64
-	Status       string
-	LoggedIn     bool
-	UName        string
-	Face         string // 登录用户头像 URL，未登录为空
+	// hoverChannels 统计本帧有多少张卡／行铺了悬停态底色：滚动期间锁定 hover
+	// 后应为 0（见 hoverfreeze_test.go）。它让「滚动时冻结悬停视觉」像
+	// liftChannels 一样可无头断言，而不必去猜某个像素色。
+	hoverChannels atomic.Int64
+	Status        string
+	LoggedIn      bool
+	UName         string
+	Face          string // 登录用户头像 URL，未登录为空
 
 	// 抽屉表头（tab / 排序 / 收藏夹）
 	SortOrder string // 搜索排序：SortTotal / SortClick / SortUpdate

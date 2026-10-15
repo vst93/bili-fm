@@ -73,6 +73,8 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 	ui.Row(c).FillWidth().Height(SearchBarHeight).Shrink(0).Justify(ui.Center).Children(func() {
 		// 原版 .home-searchbar 自己有 backdrop-filter（blur(20px) saturate(1.45)），
 		// 是真玻璃，所以这里用 glass.Glass 而不是半透明填充。
+		// 但框架 Regular 玻璃比原版亮一档，叠上 glassSurfaceTint() 把它压到与
+		// 抽屉面板一致的亮度（见 theme.go 的说明）。
 		// 原版 .home-searchbar：1px 玻璃边、::before 是 blur(20px)+白 22%、
 		// ::after 是 1px 内圈描光（上缘亮、下缘暗），外面两层淡投影；
 		// 悬停时描边转亮、投影抬起。
@@ -80,7 +82,7 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
 		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			Material(glassLayer(glass.Glass{}))
+			Material(glassLayer(glass.Glass{Tint: glassSurfaceTint()}))
 		// 原版 box-shadow 走 --liquid-shadow / --liquid-shadow-lifted 二选一（
 		// mygo 的 Shadow 累加，见 searchPillShadows）。
 		applyShadows(pill, searchPillShadows(pill.Hovered()))
@@ -425,7 +427,7 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 						// 桌面要求减少动态效果时原版把这条 animation 整个撤掉
 						// （`.record-disc { animation: none }`）——唱片不再转、回正到
 						// 0°；这里停步进并复位角度（见 discTargetAngle / resetDisc）。
-						if a.coverBitmap() != nil || Logo != nil {
+						if a.coverBitmap() != nil || coverLogo() != nil {
 							reduce := reduceMotion(c)
 							now := time.Now()
 							if reduce {
@@ -1511,19 +1513,20 @@ func statText(info *Info, pick func(*Info) int64) string {
 }
 
 // coverOrLogo 画封面，没有封面时退回 logo（原版 cover || "/logo.png"）。
+// 兜底用的是白底的 LogoCover（见 logo.go），铺在深色盘面上不会透出黑底。
 func (a *App) coverOrLogo(c *ui.Context) {
 	if bmp := a.coverBitmap(); bmp != nil {
 		ui.Image(c, bmp).Fill().Fit(ui.Cover)
-	} else if Logo != nil {
-		ui.Image(c, Logo).Fill().Fit(ui.Cover)
+	} else if lg := coverLogo(); lg != nil {
+		ui.Image(c, lg).Fill().Fit(ui.Cover)
 	}
 }
 
 // coverImage 画圆盘封面（或 logo）并返回图片元素，供旋转。
-// 调用前先确认 coverBitmap() 或 Logo 非空。
+// 调用前先确认 coverBitmap() 或 coverLogo() 非空。
 func (a *App) coverImage(c *ui.Context) ui.Element {
 	if bmp := a.coverBitmap(); bmp != nil {
 		return ui.Image(c, bmp).Fill().Fit(ui.Cover)
 	}
-	return ui.Image(c, Logo).Fill().Fit(ui.Cover)
+	return ui.Image(c, coverLogo()).Fill().Fit(ui.Cover)
 }

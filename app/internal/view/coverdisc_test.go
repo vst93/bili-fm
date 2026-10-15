@@ -63,6 +63,7 @@ func coverProbe(t *testing.T, mode string, playing bool) *ui.Tester {
 	a.Playing = playing
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+	giveDarkCover(a)
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
 	tst.Frame()
 	return tst

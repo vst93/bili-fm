@@ -276,9 +276,13 @@ func TestDanmakuSepColorsLinux(t *testing.T) {
 	}
 }
 
-// countChipBorderPixels 数弹幕胶囊左缘一条竖带上的「灰描边」像素（原版 Linux
-// 覆写的 slate-400 .28 over 白底 ≈ (224,228,234)，R 明显低于白 253）。非 Linux
-// 的胶囊描边是白 .52，在近白面板上约 253，数不到。
+// countChipBorderPixels 数弹幕胶囊左缘一条竖带上的「灰描边」像素。原版 Linux
+// 覆写的 slate-400 .28 描边是**冷灰**（实测 ≈ (224,228,234)，B-R ≈ 10，且比
+// 周围暗）；非 Linux 的白 .52 描边是**中性白**（≈ (249,249,249)，B-R ≈ 0）。
+//
+// 早先用「R < 242」的绝对阈值，但抽屉面板调暗到 0.70 后，面板本身（≈230）与
+// 非 Linux 的胶囊填充（≈242）都逼近阈值，判据失稳。改判「够暗 + 偏冷」才稳妥：
+// 面板 B-R 只有 ~2，非 Linux 白描边 B-R = 0，都不会误报。
 func countChipBorderPixels(img *image.RGBA, r ui.Rect) int {
 	y := int(r.Y + r.H/2)
 	n := 0
@@ -287,7 +291,8 @@ func countChipBorderPixels(img *image.RGBA, r ui.Rect) int {
 			continue
 		}
 		i := img.PixOffset(x, y)
-		if int(img.Pix[i]) < 242 { // 灰描边（≈224）vs 白 .52（≈253）
+		rr, bb := int(img.Pix[i]), int(img.Pix[i+2])
+		if rr < 235 && bb-rr >= 6 { // 冷灰描边（slate-400）
 			n++
 		}
 	}
