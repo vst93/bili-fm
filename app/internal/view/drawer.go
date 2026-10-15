@@ -1570,28 +1570,50 @@ func prefetchWindow(st *ui.ListState, n, cols int) (first, last int) {
 	return first, last
 }
 
+// skeletonItems 是骨架屏占位卡的总数。原版 ListSkeleton 的 `rows` 默认 6，
+// 三个调用点（searchList / collectList / recommendList）都用默认值，即**固定
+// 6 张**——不是「按列数铺满行数」。所以三列时是 2 排、两列时是 3 排；此前原生版
+// 写死 `for row := 0; row < 3`，宽窗（≥640 三列）下多铺了一整排（9 张 vs 原版 6 张）。
+const skeletonItems = 6
+
+// skeletonRows 返回骨架屏的行数：把 skeletonItems 张卡按 cols 张一排铺开。
+func skeletonRows(winW float32) int {
+	cols := gridColsFor(winW)
+	return (skeletonItems + cols - 1) / cols
+}
+
+// skeletonPulse 把一次脉冲周期里的线性进度（0→1）换算成骨架卡片的不透明度，
+// 对齐原版 `.list-skeleton-item` 的 `animation: list-skeleton-pulse 1.4s
+// ease-in-out infinite`：keyframes 0%/100% → .55、50% → 1，且分段走 CSS
+// `ease-in-out`（所以是「缓入缓出的三角波」，不是线性三角波）。
+func skeletonPulse(ph float64) float64 {
+	tri := 1 - abs(2*ph-1) // 0 → 1 → 0 的三角波
+	return 0.55 + 0.45*float64(ui.EaseInOut(float32(tri)))
+}
+
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
 func (a *App) skeletonGrid(c *ui.Context) {
 	// 原版 .list-skeleton-*：卡片底 rgba(255,255,255,.4)、封面 16:10 圆角 8、
 	// 两行文本条（12px 圆角 6，第二行 60% 宽），opacity 1.4s 脉冲。
-	// mygo 没有 opacity 动画，用底色的深浅交替近似（帧驱动）。
 	cover := ui.Hex("#64748b").Alpha(0.16)
 	line := ui.Hex("#64748b").Alpha(0.16)
 	card := ui.Hex("#ffffff").Alpha(0.40)
 	// 骨架屏与真卡片共用同一个 sm 断点：.list-skeleton-grid 基线是
 	// repeat(2, 1fr)，globals.css 单独写一条 @media (min-width: 640px) 才变三列。
 	cols := gridColsFor(windowWidth(c))
+	rows := skeletonRows(windowWidth(c))
+	n := 0
 	ui.Column(c).Gap(8).Children(func() {
-		for row := 0; row < 3; row++ {
+		for row := 0; row < rows; row++ {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
-				for j := 0; j < cols; j++ {
+				for j := 0; j < cols && n < skeletonItems; j++ {
+					n++
 					// 原版是 1.4s 的 opacity 脉冲（.list-skeleton-pulse：
-					// 0.55 ↔ 1）。用 Loop 的进度做三角波驱动透明度。
+					// 0.55 ↔ 1，ease-in-out）。用 Loop 的线性进度驱动。
 					item := ui.Column(c).Key(fmt.Sprintf("skel-%d-%d", row, j)).
 						Grow(1).Basis(0).Padding(8).Radius(12).Background(card).Gap(0)
 					ph := float64(item.Loop("skel", 1400*time.Millisecond, ui.Linear))
-					tri := 1 - abs(2*ph-1) // 0 → 1 → 0
-					item.Opacity(float32(0.55 + 0.45*tri))
+					item.Opacity(float32(skeletonPulse(ph)))
 					item.Children(func() {
 						ui.Box(c).FillWidth().AspectRatio(16.0 / 10.0).Radius(8).
 							Background(cover)

@@ -10,3 +10,5 @@ app/build/
 app/frontend/src/
 app/.mygo/
 app/blprobe
+
+.pi-lock
