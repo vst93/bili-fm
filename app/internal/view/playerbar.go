@@ -49,8 +49,8 @@ func (a *App) playerBar(c *ui.Context) {
 	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
 	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
 	applyShadows(
-		ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0).
-			Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})),
+		playerBarMaterial(t,
+			ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡），前两层 inset 内影由框架玻璃的 1px 描光
 		// 承担。见 playerBarShadowSpec。
@@ -102,6 +102,28 @@ var playerBarTint = func(t Theme) ui.Color {
 	return ui.Transparent
 }
 
+// playerBarMaterial 给出播放栏（主窗 + mini）那一层的材质。默认是框架
+// Liquid Glass（背后模糊 + 边缘折射 + 1px 描光，两层用同一个 glassLayer
+// 计数）。
+//
+// 但桌面要求「减少透明度」时（原版 `@media (prefers-reduced-transparency:
+// reduce)` 的 `html:root #player .player-controls { backdrop-filter: none }`），
+// 原版整条撤掉 `backdrop-filter`，播放栏就变成一块**不透明的 #e6edf4 面**
+// （--player-surface）。继续用 Liquid Glass 会采样背后内容，与「不透明」
+// 正好相反，所以这里换成一块实底 Box：底色 = Theme.PlayerSurface
+// （withReduceTransparency 已把它覆写成 #e6edf4），顶边内高光白 .72 与原版
+// --player-shadow 的第一层 inset 一致，且不再算 backdrop。
+//
+// 声明成 var（可换桩）便于无头测试做反证：换桩记录「有没有人被套上 glass」，
+// 断言偏好为真时播放栏不再走框架玻璃路径。
+var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
+	if t.ReducedTransparency {
+		return b.Background(t.PlayerSurface).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72))
+	}
+	return b.Material(glassLayer(glass.Glass{Tint: playerBarTint(t)}))
+}
+
 // playerBarShadowSpec 是播放栏向**上**投到内容区的那道淡影（原版
 // `#player .player-controls` 与 `body.mini-mode #player .player-controls`
 // box-shadow 的第三层）。原版四个组合各不相同：
@@ -114,7 +136,12 @@ var playerBarTint = func(t Theme) ui.Color {
 // 前两层 inset 高光/暗线由框架 Liquid Glass 的 1px 描光承担（见 playerBarTint
 // 的说明），这里只补外投影。此前两层播放栏一律写死 `0 -10px 28px .05`，
 // mini 浅色的 22px 与深色时段的 .045 两个差异都丢了。声明成 var 便于测试换桩。
+// 减少透明度时原版把第三层换成 `0 -8px 20px rgba(15,23,42,.04)`（更紧、
+// 更淡，且与主窗 / mini 无关）。
 var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
+	if t.ReducedTransparency {
+		return shadowSpec{0, -8, 20, 0, shadowInk.Alpha(0.04)}
+	}
 	alpha := float32(0.05)
 	if t.Dark {
 		alpha = 0.045
@@ -124,6 +151,42 @@ var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
 		blur = 22
 	}
 	return shadowSpec{0, -10, blur, 0, shadowInk.Alpha(alpha)}
+}
+
+// 减少透明度（`@media (prefers-reduced-transparency: reduce)`）下播放栏相关的
+// 实色令牌。原版的各条覆写：
+//
+//	html:root #player .player-controls .player-button::before {
+//	    background-color: rgba(248,251,254,.88); background-image: none; }
+//	html:root #player .player-controls .player-eq-button[data-active]::before,
+//	...sponsor[data-active] / volume[data-open] / speed[data-open]::before {
+//	    background-color: #d9eef9; }
+//	html:root #player .player-volume-popover,
+//	html:root #player .player-speed-popover {
+//	    background-color: #e6edf4; background-image: none; }
+//	html:root #player .player-speed-option { color: #334155; }
+//
+// 关键特异度：通用 `.player-button::before` 规则是 (1,3,2)，压过键的基态
+// (1,1,1)、深色基态 (1,2,2)、悬停 (1,3,1) 与 `:active` (1,2,1)；四个激活键
+// 的 `::before` 另有一条 (1,4,2) 抬成 #d9eef9。所以减少透明度下**所有**
+// 键面（含播放键 / 静音键）都是白 .88 实底，只有四个激活键是 #d9eef9，
+// 且整条 `background-image` 被撤掉（不再铺 ::before 光泽）。
+const (
+	// rtButtonFill 是减少透明度下键面 ::before 的实底 rgba(248,251,254,.88)。
+	rtButtonFillA    = 0.88
+	rtButtonFillHex  = "#f8fbfe"
+	rtButtonActive   = "#d9eef9"
+	rtPopoverSurface = "#e6edf4"
+	rtSpeedOptionInk = "#334155"
+)
+
+// rtButtonFill 返回减少透明度下键面实底。active 为真表示该键处于「激活 / 打开」
+// （EQ / 恰饭激活、音量 / 倍速弹层打开），走 #d9eef9；否则白 .88。
+func rtButtonFill(active bool) ui.Color {
+	if active {
+		return ui.Hex(rtButtonActive)
+	}
+	return ui.Hex(rtButtonFillHex).Alpha(rtButtonFillA)
 }
 
 // buttonSurface 给按钮上「半透明填充」材质：半透明底 + 1px 玻璃边 +
@@ -257,7 +320,7 @@ var (
 func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, active, hovered, pressed bool) ui.Element {
 	if pressed {
 		return applyInsetShadows(
-			b.Background(playerPressFill()).Border(1, playerToolBorder(t, key, active, hovered)),
+			b.Background(playerPressFillFor(t, active)).Border(1, playerToolBorder(t, key, active, hovered)),
 			playerPressShadowSpecs())
 	}
 	b = b.Background(playerFadeColor(c, b, "player-tool-bg", playerToolFill(t, active, hovered))).
@@ -282,6 +345,12 @@ func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, 
 // 激活 rgba(186,230,253,.30)（原版 ::before 的 background-color）；深色时段
 // 常态收成白 .085、激活转 rgba(125,211,252,.16)，悬停不变（hover 规则更特异）。
 func playerToolFill(t Theme, active, hovered bool) ui.Color {
+	if t.ReducedTransparency {
+		// 见 rtButtonFill 的说明：减少透明度下所有键面 ::before 都是实底，
+		// 四个激活键走 #d9eef9，悬停 / 按下不再改底色（通用规则 (1,3,x)
+		// 压过 hover 的 (1,3,1)）。
+		return rtButtonFill(active)
+	}
 	switch {
 	case active:
 		if t.Dark {
@@ -405,6 +474,14 @@ func volumeIconFor(muted bool) *ui.SVG {
 var playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
 	// 描边走 playerMuteBorder（它自己处理高对比 / 烟熏玻璃的覆写）。
 	border := playerMuteBorder(t, muted)
+	if t.ReducedTransparency {
+		// 减少透明度下静音键（也在 .player-controls 里）的 ::before 换成实白 .88
+		//（通用规则压过它的基态）；它不在四个激活键名单，不走 #d9eef9。
+		return b.Background(rtButtonFill(false)).
+			Border(1, border).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.44)).
+			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
+	}
 	if t.Dark {
 		return b.Background(ui.Hex("#ffffff").Alpha(playerDarkFillA)).
 			Border(1, border).
@@ -484,6 +561,18 @@ func playerPressPose(b ui.Element) {
 // `--liquid-bg-active`（白 .16，逐值）。
 func playerPressFill() ui.Color { return ui.Hex("#ffffff").Alpha(0.16) }
 
+// playerPressFillFor 是按下时键面 ::before 的底色。除暂停态的
+// `--liquid-bg-active`（白 .16）外，原版在减少透明度下把键面 ::before 整条
+// 换成实底（通用规则 (1,3,2) 压过 `:active::before`），所以那里按下不改色：
+// 普通键白 .88、激活键 #d9eef9（见 rtButtonFill）。activeKey 为真表示该键在
+// 这份偏好下属于「激活 / 打开」名单（EQ / 恰饭 / 音量 / 倍速弹层）。
+func playerPressFillFor(t Theme, activeKey bool) ui.Color {
+	if t.ReducedTransparency {
+		return rtButtonFill(activeKey)
+	}
+	return playerPressFill()
+}
+
 // playerPressShadowSpecs 是 `#player .player-button:active` 的那条内压阴影
 // `inset 0 1px 3px rgba(15,23,42,.1)`（play/next/volume/speed/eq 逐字相同）。
 // 抽成纯函数便于把值钉死（同 pressShadowSpecs）。
@@ -507,7 +596,7 @@ func playerPressShadowSpecs() []shadowSpec {
 func playerPlaySurface(t Theme, b ui.Element, playing, hovered, pressed bool) ui.Element {
 	if pressed {
 		return applyInsetShadows(
-			b.Background(playerPressFill()).Border(1, playerPlayBorder(t, playing, hovered)),
+			b.Background(playerPressFillFor(t, false)).Border(1, playerPlayBorder(t, playing, hovered)),
 			playerPressShadowSpecs())
 	}
 	b = b.Background(playerPlayFill(t, playing, hovered)).
@@ -538,6 +627,11 @@ func playerPlaySurface(t Theme, b ui.Element, playing, hovered, pressed bool) ui
 // playerPlayFill 是播放键三态的底色（原版 ::before 的 background-color）；
 // 深色基态（无论是否播放）是 rgba(224,242,254,.24)。
 func playerPlayFill(t Theme, playing, hovered bool) ui.Color {
+	if t.ReducedTransparency {
+		// 播放键的 [data-playing] / 悬停 ::before 都被通用规则盖过：
+		// 减少透明度下是实白 .88（播放键不在 #d9eef9 的四个激活键名单里）。
+		return rtButtonFill(false)
+	}
 	switch {
 	case playing && hovered:
 		return ui.Hex("#7dd3fc").Alpha(0.22)
@@ -1051,6 +1145,19 @@ func playerSheenFor(kind playerSheenKind, dark, playing, hovered bool) *sheenBak
 	return sheenGlassBaked
 }
 
+// playerSheenForTheme 是 playerSheenFor 的视图入口：除时段 / 键族 / 播放态 / 悬停
+// 外，还接受「减少透明度」。原版在 `@media (prefers-reduced-transparency: reduce)`
+// 下把键面 `::before` 的 `background-image` 整条撤掉（`background-color: …;
+// background-image: none`，通用规则 (1,3,2) 盖过所有键自己的光泽），所以那里
+// 恒返回 nil——不铺任何 ::before 光泽。拆出来是为了让纯函数 playerSheenFor
+// 保持五参、测试不动。
+func playerSheenForTheme(t Theme, kind playerSheenKind, playing, hovered bool) *sheenBaked {
+	if t.ReducedTransparency {
+		return nil
+	}
+	return playerSheenFor(kind, t.Dark, playing, hovered)
+}
+
 // playerSheenPaint 是视图画 sheen 的入口（测试可换桩关掉做反证）。
 var playerSheenPaint = paintPlayerSheen
 
@@ -1077,14 +1184,15 @@ func paintBakedSheen(p *ui.Painter, r ui.Rect, radius float32, baked *sheenBaked
 // playerRim 把 `::before` 的玻璃光泽（按时段/键族/播放态选一条）与 `::after` 的
 // 聚光描边接在按钮上，都画在 1px 边框之上、图标之下。radius 必须与按钮自己的
 // 圆角一致，否则描边会离边框错位。整圈 opacity 由 playerRimOpacityFn 按
-// （dark, tool）给出；sheen 由 playerSheenFor 按（kind, dark, playing, hovered）给出。
-func playerRim(b ui.Element, radius float32, dark, tool bool, kind playerSheenKind, playing, hovered bool) ui.Element {
+// （dark, tool）给出；sheen 由 playerSheenForTheme 按（时段偏好 + kind + 播放态 +
+// 悬停）给出（减少透明度下不铺 ::before 光泽）。
+func playerRim(t Theme, b ui.Element, radius float32, tool bool, kind playerSheenKind, playing, hovered bool) ui.Element {
 	// 原版 `#player .player-button:focus-visible`（含迷你窗的同一批键）：
 	// `outline: 2px solid var(--studio-blue); outline-offset: 2px`。聚光描边
 	// 与它互不影响（一个是 ::after、一个是 outline），所以无条件接线。
 	b = focusOutline(b, radius, focusStudio)
-	opacity := playerRimOpacityFn(dark, tool)
-	sheen := playerSheenFor(kind, dark, playing, hovered)
+	opacity := playerRimOpacityFn(t.Dark, tool)
+	sheen := playerSheenForTheme(t, kind, playing, hovered)
 	if opacity <= 0 && sheen == nil {
 		return b
 	}
@@ -1141,7 +1249,7 @@ func (a *App) transport(c *ui.Context) {
 		playerPressPose(play)
 		// 原版播放键的 ::after 不吃 .52 覆写（整圈 opacity 1）；深色时段压 .3。
 		// ::before 的光泽随播放态/悬停切换（见 playerSheenFor）。
-		playerRim(play, RadiusPill, a.Theme.Dark, false, sheenKindPlay, a.Playing, play.Hovered())
+		playerRim(a.Theme, play, RadiusPill, false, sheenKindPlay, a.Playing, play.Hovered())
 		play.Children(func() {
 			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
 			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
@@ -1165,7 +1273,7 @@ func (a *App) transport(c *ui.Context) {
 		playerToolSurface(c, a.Theme, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
 		// 下一集是工具键：原版 ::after opacity .52。
-		playerRim(next, RadiusPill, a.Theme.Dark, true, sheenKindStatic, false, false)
+		playerRim(a.Theme, next, RadiusPill, true, sheenKindStatic, false, false)
 		next.Children(func() {
 			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
 			// tool 规则覆盖），悬停转蓝；深色常态转 Theme.PlayerButton。
@@ -1359,7 +1467,7 @@ func (a *App) volumeButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(c, a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
 	playerPressPose(b)
-	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
+	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
 	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
 	muted := a.Muted || a.Volume <= 0
 	b.Children(func() {
@@ -1386,7 +1494,7 @@ func (a *App) speedButton(c *ui.Context) {
 	playerToolSurface(c, a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
-	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
+	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
 		numericText(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
@@ -1407,7 +1515,7 @@ func (a *App) eqButton(c *ui.Context) {
 	disablePlayerButton(b, !a.hasSource())
 	playerToolSurface(c, a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
 	playerPressPose(b)
-	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
+	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(c, b, "player-eq-ink", playerToolInk(a.Theme, toolEq, a.EQ, b.Hovered()))).
@@ -1428,7 +1536,7 @@ func (a *App) sponsorButton(c *ui.Context) {
 	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, b.Hovered(), b.Pressed())
 	playerPressPose(b)
 	// 恰饭开关是工具键：原版 ::after opacity .52。
-	playerRim(b, Radius, a.Theme.Dark, true, sheenKindStatic, false, false)
+	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
 	b.Children(func() {
 		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(c, b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, b.Hovered())))
@@ -1541,6 +1649,20 @@ func playerPopoverTint(t Theme) ui.Color {
 	return ui.Transparent
 }
 
+// playerPopoverMaterial 给音量 / 倍速弹层上表面。默认是框架 Liquid Glass
+// （深色再染 --player-surface 的烟熏色）。减少透明度时原版把两层弹层的
+// `backdrop-filter` 整条撤掉并换成不透明底 `background-color: #e6edf4`，所以
+// 这里换成一块实底 Box（不再算 backdrop，也不再铺洗光，见
+// volumePopoverSheen / speedPopoverSheen）。实底同时补上原版的 1px 描边
+// （框架玻璃自带边缘折光，换成实底后由 border 承担）。
+// 声明成 var 便于无头测试换桩反证。
+var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color) ui.Element {
+	if t.ReducedTransparency {
+		return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
+	}
+	return b.Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)}))
+}
+
 // 音量 / 倍速弹层的**整面洗光**（原版弹层自己的 `background-image`）。两层弹层
 // 都拿框架 `glass.Glass` 当表面，但玻璃自带的是**边缘**折射与 1px 描光，不含这
 // 条铺满整面的渐变 —— 原版给弹层铺的洗光此前整个丢了，弹层比原版平一档：
@@ -1552,6 +1674,9 @@ func playerPopoverTint(t Theme) ui.Color {
 //
 // 两条都声明成 var 便于测试换桩反证（返回 nil = 该层这一帧不铺洗光）。
 var volumePopoverSheen = func(t Theme) *sheenBaked {
+	if t.ReducedTransparency {
+		return nil
+	}
 	if t.Dark {
 		return sheenDarkBaked
 	}
@@ -1559,6 +1684,9 @@ var volumePopoverSheen = func(t Theme) *sheenBaked {
 }
 
 var speedPopoverSheen = func(t Theme) *sheenBaked {
+	if t.ReducedTransparency {
+		return nil
+	}
 	if t.Dark {
 		return sheenDarkBaked
 	}
@@ -1581,6 +1709,10 @@ var popoverGlass = func(b ui.Element, radius float32, sheen *sheenBaked) ui.Elem
 // playerSpeedOptionInk 是倍速弹层里档位文字的常态色：浅色 #475569，
 // 深色时段 rgba(241,245,249,.78)（激活/悬停仍走 --studio-blue）。
 func playerSpeedOptionInk(t Theme) ui.Color {
+	if t.ReducedTransparency {
+		// 原版减少透明度下 `.player-speed-option { color: #334155 }`（实底上的深灰）。
+		return ui.Hex(rtSpeedOptionInk)
+	}
 	if t.Dark {
 		return ui.Hex("#f1f5f9").Alpha(0.78)
 	}
@@ -1607,9 +1739,10 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
 		Margin(0, speedPopoverEdgeGap, 0, 0).
 		Padding(4).Gap(2).Radius(speedPopoverRadius).
-		Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)})).
 		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
 		AlignItems(ui.Center)
+	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
+	panel = playerPopoverMaterial(t, panel, ui.Hex("#ffffff").Alpha(0.72))
 	// 原版深色时段给倍速弹层补 `background-image: var(--player-sheen)`（浅色没有）。
 	panel = popoverGlass(panel, speedPopoverRadius, speedPopoverSheen(t))
 	if panel.PressedOutside() {
@@ -1706,9 +1839,10 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
 		Margin(0, edgeGap, 0, 0).Width(w).Height(h).
 		Padding(0, volumePopoverPadR, 0, volumePopoverPadL).Radius(radius).
-		Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)})).
 		Shadow(0, pick[float32](t.Dark, 10, 14), 40, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.10))).Gap(volumePopoverGap).
 		AlignItems(ui.Center)
+	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
+	panel = playerPopoverMaterial(t, panel, t.GlassBorder)
 	// 原版音量弹层浅色铺 --glass-sheen-static、深色换成 --player-sheen。
 	panel = popoverGlass(panel, radius, volumePopoverSheen(t))
 	// 入场过渡（原版 .player-volume-popover 的 @starting-style）：
@@ -1741,7 +1875,7 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 对它生效（它不在 :active 改内压/底色的名单里，所以只缩放）。
 		playerPressPose(mute)
 		// 静音键不在 .52 名单里（继承 .player-button::after 的 1.0）。
-		playerRim(mute, RadiusSmall, a.Theme.Dark, false, sheenKindStatic, false, false)
+		playerRim(a.Theme, mute, RadiusSmall, false, sheenKindStatic, false, false)
 		mute.Children(func() {
 			ic := volumeIconFor(muted)
 			icon := ui.Icon(c, ic).Size(16, 16).

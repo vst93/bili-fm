@@ -225,6 +225,17 @@ func main() {
 		}
 		app.Win = mygo.NewWindow(opts)
 
+		// 桌面的「减少透明度」偏好（原版 CSS 的
+		// `@media (prefers-reduced-transparency: reduce)`）。mygo 的
+		// ui.Preferences 没有这一项，只在根包的 mygo.Theme.Preferences()
+		// 里（v0.5.0 起）；启动时读一次，之后靠 OnUpdated 跟进。
+		app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency)
+		mygo.Theme.OnUpdated(func() {
+			if app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency) {
+				app.Win.Update(func() {})
+			}
+		})
+
 		// 第二个实例启动时把主窗显示并聚焦。
 		mygo.App.OnSecondInstance(func(args []string, workingDir string) {
 			app.Win.Show()

@@ -15,11 +15,13 @@ import (
 //	播放栏 56px     #player（单行）
 //	抽屉   覆盖层   [data-slot="wrapper"] > section（底部滑入）
 func (a *App) Shell(c *ui.Context) {
-	// 桌面的高对比偏好（原版 globals.css 末尾的 `@media (prefers-contrast:
-	// more)`）叠在时段令牌之上。只在状态真的变了的那一帧写回 a.Theme
-	//（withHighContrast 幂等），避免每帧无谓地写共享状态。
-	if hc := c.Preferences().HighContrast; hc != a.Theme.HighContrast {
-		a.Theme = a.Theme.withHighContrast(hc)
+	// 桌面的两个无障碍偏好叠在时段令牌之上，源序是 reduced-transparency 在前、
+	// contrast 在后（见 withPreferences）。只在状态真的变了的那一帧重推整份主题
+	//（withPreferences 幂等），避免每帧无谓地写共享状态。
+	hc := c.Preferences().HighContrast
+	rt := a.ReducedTransparency()
+	if hc != a.Theme.HighContrast || rt != a.Theme.ReducedTransparency {
+		a.Theme = a.Theme.withPreferences(hc, rt)
 	}
 	if a.Mini {
 		a.MiniShell(c)

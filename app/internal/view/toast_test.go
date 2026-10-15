@@ -60,9 +60,13 @@ func TestToastFillStops(t *testing.T) {
 // TestToastTransition 钉住原版根的 `transition-all duration-300` +
 // `-translate-y-2`（8px 向上）：入场/退场都是上方 8px、从/到透明。
 func TestToastTransition(t *testing.T) {
+	// 时长由 toastEnterDuration 驱动（测试会把它临时放长，见 TestToastFadesIn）。
+	if toastEnterDuration != 300*time.Millisecond {
+		t.Errorf("toastEnterDuration = %v，应为 300ms（原版 duration-300）", toastEnterDuration)
+	}
 	tr := toastTransition()
-	if tr.Duration != 300*time.Millisecond {
-		t.Errorf("时长 = %v，应为 300ms", tr.Duration)
+	if tr.Duration != toastEnterDuration {
+		t.Errorf("时长 = %v，应为 %v", tr.Duration, toastEnterDuration)
 	}
 	for name, m := range map[string]*ui.Motion{"Enter": tr.Enter, "Exit": tr.Exit} {
 		if m == nil {
@@ -183,48 +187,69 @@ func countDark(img *image.RGBA, x0, y0, x1, y1 int) int {
 }
 
 // TestToastFadesIn 无头渲染实测：新 toast 是被 ElementTransition 由上方 8px
-// 淡入的 —— 刚入队的首帧几乎全透明（几乎数不到暗色正文像素），等过 300ms 入场
-// 结束后正文清晰可辨。去掉 Transition 后首帧就完全显形，本测试按预期变红。
+// 淡入的 —— 刚入队的首帧几乎全透明（几乎数不到暗色正文像素），随后连续帧的像素
+// 必须逐渐变化（入场在跑）。去掉 Transition 的 Enter 后首帧就完全显形，本测试
+// 按预期变红。
 //
-// 入场是墙钟驱动的：首帧的采样点落在 Frame 内部连续跑完的若干帧之后，宿主
-// 内存回收/调度抖动偶尔会让这几帧耗时 >225ms，首帧就被当成「已淡入」。
-// 这不是产品缺陷（无头也拿不到 mygo 的测试时钟），所以重试几次，任意一次
-// 采到「首帧明显比入场结束淡」即通过；真去掉 Transition 每次都会同样失败。
+// 入场是墙钟驱动的：`Tester.settle` 会在一次 `Frame()` 里连着跑到没有新帧为止
+// （最多 20 帧），宿主内存回收/调度抖动偶尔会让这几帧的墙钟耗时 >300ms，固定
+// 300ms 的入场就被当成「已淡入」，首帧采样假红（历史上全量测试时多次偶发）。
+// 这里把 toastEnterDuration 临时放长到 10s（沿用 TestVolumePopoverEnterWired
+// 的同一手法）：一次 settle 的墙钟远小于它，首帧稳定停在 Enter 的 opacity 0
+// 起点，断言不再抖。
 func TestToastFadesIn(t *testing.T) {
-	const attempts = 3
-	var born, settled int
-	var measured bool
-	for i := 0; i < attempts; i++ {
+	origDur, origTr := toastEnterDuration, toastTransition
+	toastEnterDuration = 10 * time.Second
+	t.Cleanup(func() { toastEnterDuration, toastTransition = origDur, origTr })
+
+	build := func() (*ui.Tester, ui.Rect) {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
 		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
-		tst.Frame()
+		tst.Frame() // viewport 先建出来，toast 才算「在已存在的父级里出现」（Enter 生效）
 		a.NotifyType("error", "登录失败")
-		tst.Frame()
+		tst.Frame() // 入场首帧
 		r, ok := tst.Find("登录失败")
 		if !ok {
 			t.Fatalf("找不到刚入队的 toast 文案：%v", tst.Texts())
 		}
-		x0, x1 := int(r.X), int(r.X)+int(r.W)
-		y0, y1 := int(r.Y), int(r.Y)+int(r.H)
-		born = countDark(tst.Image(), x0, y0, x1, y1)
-		time.Sleep(400 * time.Millisecond)
-		tst.Frame()
-		settled = countDark(tst.Image(), x0, y0, x1, y1)
-		measured = true
-		if born <= settled/4 {
-			break
+		return tst, r
+	}
+	box := func(r ui.Rect) (int, int, int, int) {
+		return int(r.X), int(r.Y), int(r.X) + int(r.W), int(r.Y) + int(r.H)
+	}
+
+	tst, r := build()
+	x0, y0, x1, y1 := box(r)
+	born := countDark(tst.Image(), x0, y0, x1, y1)
+	// 再走两帧：入场还没跑完（10s），像素必须仍有变化。
+	tst.Frame()
+	f2 := tst.Image()
+	tst.Frame()
+	f3 := tst.Image()
+	diff := 0
+	for i := range f2.Pix {
+		if f2.Pix[i] != f3.Pix[i] {
+			diff++
 		}
 	}
-	t.Logf("首帧暗色像素 %d，入场结束后 %d", born, settled)
-	if !measured {
-		t.Fatal("没有采到任何一帧")
+	t.Logf("入场首帧暗色像素 %d；随后的连续两帧差异 %d", born, diff)
+	if born > 2 {
+		t.Errorf("入场首帧就有 %d 个暗色正文像素，应在 Enter 的 opacity 0 起点（几乎全透明）", born)
 	}
-	if born > settled/4 {
-		t.Errorf("首帧就有 %d 个暗色像素（入场结束后 %d）——toast 没有淡入", born, settled)
+	if diff == 0 {
+		t.Error("入场首帧之后的连续两帧逐像素相同：淡入过渡没在跑")
 	}
-	if settled < 20 {
-		t.Errorf("入场结束后正文仍只有 %d 个暗色像素，没显出来", settled)
+
+	// 反证：去掉 Enter 后，同一位置首帧就完全显形。
+	toastTransition = func() ui.ElementTransition {
+		return ui.ElementTransition{Duration: toastEnterDuration,
+			Exit: &ui.Motion{Y: -8, Opacity: 0}}
+	}
+	tst2, r2 := build()
+	bx0, by0, bx1, by1 := box(r2)
+	if solid := countDark(tst2.Image(), bx0, by0, bx1, by1); solid <= 2 {
+		t.Errorf("去掉 Enter 后首帧仍只有 %d 个暗色像素，反证不成立", solid)
 	}
 }
 

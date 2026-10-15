@@ -719,6 +719,14 @@ type App struct {
 	bloomSize   [2]int
 	bloomPeriod string
 
+	// rt 是桌面「减少透明度」偏好（原版 CSS 的
+	// `@media (prefers-reduced-transparency: reduce)`）。mygo 的
+	// ui.Preferences 没有这一项（它在 internal/platform 层，只经根包
+	// `mygo.Theme.Preferences()` 公开），所以在 main 里订阅
+	// `mygo.Theme.OnUpdated` 后写回这里。视图只读它，不自己调那个 API ——
+	// 无头测试里 mygo 后端未初始化，根包调用会阻塞。
+	rt bool
+
 	// miniBgBmp 是迷你窗 #root 背景（145° 线性 + 两条径向光晕）的烘焙位图；
 	// miniBgSize 记住烘焙时的画布尺寸，变了才重烘（见 minibg.go）。
 	miniBgBmp  *ui.Bitmap
@@ -845,8 +853,24 @@ func SectionIndex(key string) int {
 	return 0
 }
 
-// RefreshTheme 在时段变化时重新取令牌。
-func (a *App) RefreshTheme() { a.Theme = ThemeAt(time.Now()) }
+// RefreshTheme 在时段变化时重新取令牌（保留无障碍偏好：从时段基态重推）。
+func (a *App) RefreshTheme() { a.Theme = a.Theme.withPreferences(a.Theme.HighContrast, a.rt) }
+
+// ReducedTransparency 报告桌面是否要求「减少透明度」。值为 main 经
+// mygo.Theme.Preferences() 读到后由 SetReduceTransparency 写入。
+func (a *App) ReducedTransparency() bool { return a.rt }
+
+// SetReduceTransparency 记录桌面的「减少透明度」偏好，并在变化时把整份主题
+// 从时段基态重推（同时保留高对比）。由 main 在启动时与 OnUpdated 里调。
+// 返回是否真的变了 —— 调用方可据此决定要不要重画一帧。
+func (a *App) SetReduceTransparency(rt bool) bool {
+	if a.rt == rt {
+		return false
+	}
+	a.rt = rt
+	a.Theme = a.Theme.withPreferences(a.Theme.HighContrast, rt)
+	return true
+}
 
 // CurrentSection 返回当前分区。
 func (a *App) CurrentSection() Section {

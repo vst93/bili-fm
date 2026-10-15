@@ -11,11 +11,19 @@ import (
 // `duration = 2000`（框架默认是 4s，所以这里显式覆盖）。
 const toastDuration = 2 * time.Second
 
+// toastEnterDuration 是 toast 入场过渡的时长（原版 `duration-300`）。声明成
+// var 便于无头测试把它放长：无头测试拿不到 mygo 的测试时钟，固定 300ms 会在
+// 一次 settle（最多 20 帧）里被墙钟跑完，导致「首帧仍透明」的采样偶发假红
+// （负载抖动）。放长到远大于一次 settle 的墙钟耗时，首帧就稳定停在 Enter 的
+// 起点（见 TestToastFadesIn）。
+var toastEnterDuration = 300 * time.Millisecond
+
 // toastTransition 是原版根的 `transition-all duration-300` + `-translate-y-2`
 // （Tailwind 0.5rem = 8px，向上）：入场从上方 8px 淡入、退场向上一路淡出。
-func toastTransition() ui.ElementTransition {
+// 声明成 var 便于测试换桩做反证（去掉 Enter = 不再淡入，首帧即显形）。
+var toastTransition = func() ui.ElementTransition {
 	return ui.ElementTransition{
-		Duration: 300 * time.Millisecond,
+		Duration: toastEnterDuration,
 		Enter:    &ui.Motion{Y: -8, Opacity: 0},
 		Exit:     &ui.Motion{Y: -8, Opacity: 0},
 	}

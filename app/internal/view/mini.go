@@ -147,10 +147,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
 	var volSlot ui.Element
 	applyShadows(
-		ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0).
-			// 与主窗同一层框架玻璃；深色时段同样染上 --player-surface 的
-			// 烟熏色（见 playerBarTint）。
-			Material(glassLayer(glass.Glass{Tint: playerBarTint(t)})),
+		playerBarMaterial(t,
+			ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0)),
 		// 向上投影与主窗同一套令牌，但 mini 浅色的兜底更紧（22px，
 		// 见 playerBarShadowSpec）。
 		[]shadowSpec{playerBarShadowSpec(t, true)}).
@@ -180,7 +178,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// （白 .16）、box-shadow 换成更深的 `inset 0 1px 3px 墨 .1`
 					//（:active 规则特异度 (1,3,0) 盖过 mini 基态与 [data-playing]）。
 					if play.Pressed() {
-						play.Background(playerPressFill()).
+						play.Background(playerPressFillFor(t, false)).
 							Border(1, playBorder)
 						applyInsetShadows(play, playerPressShadowSpecs())
 					} else if t.Dark {
@@ -203,7 +201,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// mini 也是 .player-button：补聚光描边（播放键 1.0）+ 图标压印。
 					// ::before 光泽：浅色走 mini 专属渐变（悬停转主窗 hover 渐变），
 					// 深色统一 --player-sheen（见 playerSheenFor）。
-					playerRim(play, RadiusPill, t.Dark, false, sheenKindMiniPlay, a.Playing, play.Hovered())
+					playerRim(t, play, RadiusPill, false, sheenKindMiniPlay, a.Playing, play.Hovered())
 					play.Children(func() {
 						ic := pick(a.Playing, iconPause, iconPlayOne)
 						icon := ui.Icon(c, ic).Size(16, 16).
@@ -222,7 +220,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 工具键材质与主窗同一套（mini 只把 32→28、圆角改 50%）。
 					playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
 					playerPressPose(next)
-					playerRim(next, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
+					playerRim(t, next, RadiusPill, true, sheenKindStatic, false, false)
 					next.Children(func() {
 						icon := ui.Icon(c, iconNext).Size(18, 18).
 							TextColor(playerFadeColor(c, next, "mini-next-ink",
@@ -253,7 +251,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					disablePlayerButton(vol, !a.hasSource())
 					playerToolSurface(c, t, toolVolume, vol, false, vol.Hovered(), vol.Pressed())
 					playerPressPose(vol)
-					playerRim(vol, RadiusPill, t.Dark, true, sheenKindStatic, false, false)
+					playerRim(t, vol, RadiusPill, true, sheenKindStatic, false, false)
 					vol.Children(func() {
 						// 原版 mini 与主窗共用同一个 Player，所以音量键图标同样随音量切换
 						// （`volume > 0 ? VolumeNotice : VolumeMute`）—— 音量 0（静音）时

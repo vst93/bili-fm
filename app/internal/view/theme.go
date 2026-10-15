@@ -73,6 +73,13 @@ type Theme struct {
 	// 由 withHighContrast 叠加，**只影响播放栏**。
 	HighContrast bool
 
+	// ReducedTransparency 为真表示桌面要求「减少透明度、换成不透明表面」
+	//（原版 CSS 的 `@media (prefers-reduced-transparency: reduce)`，对应
+	// macOS 的 Reduce Transparency / Windows 关闭透明效果）。它由
+	// withReduceTransparency 叠加：把播放栏那层 Liquid Glass 换成原版的
+	// 不透明兜底面，并让键面 / 弹层的 `::before` 光泽整条撤掉。**只影响播放栏**。
+	ReducedTransparency bool
+
 	// 进度条 / 音量条那一对变量（原版 --player-track-border /
 	// --player-track-rest）：亮色时段是白 .68 / 白 .32，烟熏玻璃时段收成
 	// 白 .28 / 白 .20——轨道在深色玻璃上再铺原来那么亮就会糊成一条白带。
@@ -169,7 +176,11 @@ func (t Theme) withHighContrast(hc bool) Theme {
 		return t
 	}
 	if !hc {
-		return ThemeFor(t.Period)
+		base := ThemeFor(t.Period)
+		if t.ReducedTransparency {
+			base = base.withReduceTransparency(true)
+		}
+		return base
 	}
 	t.HighContrast = true
 	t.PlayerTime = ui.Hex("#334155")
@@ -177,6 +188,63 @@ func (t Theme) withHighContrast(hc bool) Theme {
 	t.PlayerTrackBorder = ui.Hex("#334155").Alpha(0.58)
 	t.PlayerTrackRest = ui.Hex("#334155").Alpha(0.30)
 	return t
+}
+
+// withReduceTransparency 把桌面的「减少透明度」偏好叠在时段令牌之上（原版
+// `@media (prefers-reduced-transparency: reduce)` 里的 `html:root #player` 块）：
+//
+//	html:root #player {
+//	    --player-surface: #e6edf4;
+//	    --player-sheen: none;
+//	    --player-border: rgba(71, 85, 105, 0.28);
+//	    --player-edge-fade: rgba(71, 85, 105, 0.08);
+//	    --player-shadow:
+//	        inset 0 1px 0 rgba(255, 255, 255, 0.72),
+//	        0 -8px 20px rgba(15, 23, 42, 0.04);
+//	}
+//
+// 这几条把播放栏从半透明玻璃换成一块不透明的 #e6edf4 面（`backdrop-filter:
+// none`，见 playerBarMaterial），并把向上投影收紧成 8/20（见
+// playerBarShadowSpec）。除这四个令牌外，键面填充（rgba(248,251,254,.88) / 激活
+// #d9eef9）、弹层不透明底与 `background-image: none` 由渲染层读
+// Theme.ReducedTransparency 分支给出。
+//
+// 幂等；退回普通时按**时段**重新推导、并保留高对比（两块的源序是 reduced-
+// transparency 在前、contrast 在后，见 withPreferences）。
+func (t Theme) withReduceTransparency(rt bool) Theme {
+	if t.ReducedTransparency == rt {
+		return t
+	}
+	if !rt {
+		base := ThemeFor(t.Period)
+		if t.HighContrast {
+			base = base.withHighContrast(true)
+		}
+		return base
+	}
+	t.ReducedTransparency = true
+	t.PlayerSurface = ui.Hex("#e6edf4")
+	t.PlayerBorder = ui.Hex("#475569").Alpha(0.28)
+	t.PlayerEdgeFade = ui.Hex("#475569").Alpha(0.08)
+	return t
+}
+
+// withPreferences 从**时段基态**重新推导两个无障碍偏好（减少透明度 + 高对比）。
+// 原版两条媒体查询的源序是 `prefers-reduced-transparency` 在前、
+// `prefers-contrast` 在后，且都写 `html:root #player`：重叠的令牌（--player-border）
+// 由高对比那条胜出。所以这里也先叠减少透明度、再叠高对比。
+//
+// 每次都从 ThemeFor(Period) 重建，所以调用方不必先单独撤掉某一个偏好，
+// 两个布尔一起传就得到该时段下正确的合成主题。
+func (t Theme) withPreferences(hc, rt bool) Theme {
+	base := ThemeFor(t.Period)
+	if rt {
+		base = base.withReduceTransparency(true)
+	}
+	if hc {
+		base = base.withHighContrast(true)
+	}
+	return base
 }
 
 // CoverPlaceholder 是封面还没加载出来时的底色。
