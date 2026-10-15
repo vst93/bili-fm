@@ -191,3 +191,11 @@ func TestPartsAddAllTooltip(t *testing.T) {
 		t.Error("「全部添加」键没接上 partsAddAllTip")
 	}
 }
+
+// TestPartsAddAllInk 钉住「全部添加」键的图标 / 文字色（原版 pageList.tsx
+// 的 AddOne fill="#666" + span 继承；此前误用抽屉表头通用的 #475569）。
+func TestPartsAddAllInk(t *testing.T) {
+	if partsAddAllInk != ui.Hex("#666666") {
+		t.Errorf("「全部添加」图标色 = %v，应为 #666666（原版 AddOne fill=#666）", partsAddAllInk)
+	}
+}

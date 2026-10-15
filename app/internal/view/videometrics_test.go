@@ -129,11 +129,15 @@ func TestVideoInfoPadShiftsContent(t *testing.T) {
 	}
 }
 
-// TestVideoTitleBoxHeightNarrow 钉住窄窗（@media ≤680px）的标题盒高：原版只
-// 把 `#video-title h2` 的 `min-height` 放开成 auto，`max-height: 58px` 与
-// line-height 1.18 仍在 —— 两行内容 51.92 < 52，盒高 52；单行则随内容（不拉满
-// 52）。此前原生版窄窗两行标题完全没有上限，框架按 1.5em/行的自然行盒量到 66
-// （两行 × 33），比原版高 14px，把简介 / 胶囊 / 操作行整体顶下去。
+// TestVideoTitleBoxHeightNarrow 钉住窄窗（@media ≤680px）的标题盒高：原版把
+// `#video-title h2` 的 `min-height` 放开成 auto，`max-height: 58px` 与
+// line-height 1.18 仍在 —— 盒高随折行数，单行 1.18 × 22 ≈ 25.96、两行
+// ≈ 51.92（都不是框架自然行盒的 33 / 66）。
+//
+// 此前原生版窄窗用 `ui.Text + MaxHeight(52)`：两行被框架按 1.5em/行量到 66
+// 再截到 52（比原版高 0.08px，可忽略），但**单行是 33**（自然行盒压不下去），
+// 比原版高 7px，把简介 / 胶囊 / 操作行整体顶下去一截。本轮改自绘逐行落点
+// （与宽窗同路），盒高 = 折行数 × infoTitlePitch，两种折行数都对上原版。
 func TestVideoTitleBoxHeightNarrow(t *testing.T) {
 	long := ""
 	for i := 0; i < 6; i++ {
@@ -147,9 +151,10 @@ func TestVideoTitleBoxHeightNarrow(t *testing.T) {
 	if !ok {
 		t.Fatal("窄窗找不到长标题")
 	}
-	t.Logf("窄窗两行标题 rect = %+v", r)
-	if r.H != 52 {
-		t.Errorf("窄窗两行标题盒高 %v，want 52（max-height 保留、两行 1.18 落在 52）", r.H)
+	t.Logf("窄窗两行标题 rect = %+v（infoTitlePitch=%v）", r, infoTitlePitch)
+	want := 2 * infoTitlePitch
+	if d := abs32(r.H - want); d > 0.5 {
+		t.Errorf("窄窗两行标题盒高 %v，want %v（2 × line-height 1.18 × 22）", r.H, want)
 	}
 
 	b := descApp()
@@ -160,9 +165,48 @@ func TestVideoTitleBoxHeightNarrow(t *testing.T) {
 	if !ok {
 		t.Fatal("窄窗找不到短标题")
 	}
-	t.Logf("窄窗单行标题 rect = %+v", r2)
+	t.Logf("窄窗单行标题 rect = %+v（infoTitlePitch=%v）", r2, infoTitlePitch)
+	if d := abs32(r2.H - infoTitlePitch); d > 0.5 {
+		t.Errorf("窄窗单行标题盒高 %v，want %v（min-height auto ⇒ line-height 1.18 × 22；框架自然行盒 33 是在此之前的口径）", r2.H, infoTitlePitch)
+	}
 	if r2.H >= 52 {
 		t.Errorf("窄窗单行标题盒高 %v，应随内容（min-height auto，小于 52）", r2.H)
+	}
+}
+
+// TestVideoTitleBoxHeightNarrowWired 是换桩反证：窄窗标题盒高真的由
+// `infoTitlePitch` 与折行数驱动 —— 把 infoTitlePitch 换回框架自然行盒（33），
+// 单行盒高应随之变 33、两行变 66（旧 `MaxHeight` 口径是 52）。
+func TestVideoTitleBoxHeightNarrowWired(t *testing.T) {
+	long := ""
+	for i := 0; i < 6; i++ {
+		long += "这是一个很长的视频标题用于测试两行截断"
+	}
+	measure := func(title string) float32 {
+		a := descApp()
+		a.Info.Title = title
+		a.Track.Title = title
+		tt := shellTesterSize(t, a, 400, 900)
+		r, ok := tt.Find(title)
+		if !ok {
+			t.Fatal("窄窗找不到标题")
+		}
+		return r.H
+	}
+	oneLine, twoLine := measure("短标题"), measure(long)
+	old := infoTitlePitch
+	infoTitlePitch = naturalLineBox(infoTitleSize)
+	defer func() { infoTitlePitch = old }()
+	oneNatural, twoNatural := measure("短标题"), measure(long)
+	t.Logf("单行盒高：自绘 %v → 自然行盒桩 %v；两行：自绘 %v → %v", oneLine, oneNatural, twoLine, twoNatural)
+	if d := abs32(oneNatural - naturalLineBox(infoTitleSize)); d > 0.5 {
+		t.Errorf("换桩后单行盒高 %v，want 自然行盒 %v（说明盒高确实由 infoTitlePitch 驱动）", oneNatural, naturalLineBox(infoTitleSize))
+	}
+	if !(oneLine < oneNatural) {
+		t.Errorf("自绘单行盒高 %v 没有比自然行盒 %v 矮，行距没修复", oneLine, oneNatural)
+	}
+	if abs32(twoLine-twoNatural) < 0.5 {
+		t.Errorf("自绘两行盒高 %v 与自然行盒桩 %v 相同，盒高没随折行数变", twoLine, twoNatural)
 	}
 }
 

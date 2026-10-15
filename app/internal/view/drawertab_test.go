@@ -403,3 +403,30 @@ func TestDrawerTabHoverFillWired(t *testing.T) {
 		t.Errorf("悬停只让 %d 个像素变化：悬停材质（白 .30 底 + 亮边 + 抬起）没接上？", changed)
 	}
 }
+
+// TestDanmakuTabSwitchResetsAutoScroll 钉住切 tab 重置自动跟随（原版
+// danmakuList.tsx 的 handleViewModeChange：setIsAutoScroll(true) +
+// lastScrollIndexRef=-1）。用户手动暂停跟随后切到评论再切回弹幕，跟随
+// 应恢复开启。
+func TestDanmakuTabSwitchResetsAutoScroll(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerDanmaku
+	a.DanmakuAutoScroll = false // 用户手动暂停跟随
+	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
+	tt.Frame()
+
+	// 弹幕 tab 标签带条数（无弹幕时是「弹幕 (0)」），Click 精确匹配。
+	if err := tt.Click("评论"); err != nil {
+		t.Fatalf("点「评论」tab：%v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("弹幕 (0)"); err != nil {
+		t.Fatalf("点回「弹幕」tab：%v", err)
+	}
+	tt.Frame()
+
+	if !a.DanmakuAutoScroll {
+		t.Error("切回弹幕 tab 后自动跟随应重置为开（原版 handleViewModeChange 里 setIsAutoScroll(true)）")
+	}
+}

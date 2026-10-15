@@ -52,6 +52,16 @@ func (a *App) playlistTabs(c *ui.Context) {
 	}
 }
 
+// playModeIconInk 解析播放模式图标的颜色（原版 playlist.tsx）：顺序用 Order，
+// fill="#888"；单曲循环 LoopOnce 与随机 Shuffle 都是 fill="#3b82f6"（蓝）。
+// 此前三种模式统一用抽屉表头的 #475569、非顺序才转主题蓝，色值都不对。
+func playModeIconInk(mode string) ui.Color {
+	if mode == PlayModeSequence {
+		return ui.Hex("#888888")
+	}
+	return ui.Hex("#3b82f6")
+}
+
 // playModeButton 是播放模式开关（顺序 → 单曲循环 → 随机 → 顺序）。
 func (a *App) playModeButton(c *ui.Context) {
 	t := a.Theme
@@ -71,8 +81,7 @@ func (a *App) playModeButton(c *ui.Context) {
 		b.Background(t.GlassActive)
 	}
 	b.Children(func() {
-		ui.Icon(c, ic).Size(18, 18).
-			TextColor(pick(a.PlayMode == PlayModeSequence, ui.Hex("#475569"), t.Blue))
+		ui.Icon(c, ic).Size(18, 18).TextColor(playModeIconInk(a.PlayMode))
 	})
 	if b.Clicked() && a.Act.CyclePlayMode != nil {
 		a.Act.CyclePlayMode()

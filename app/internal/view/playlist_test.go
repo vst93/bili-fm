@@ -365,3 +365,17 @@ func TestPlaylistRowDimsWhileDragging(t *testing.T) {
 		t.Fatalf("拖拽中源行没变淡（亮度=%d），opacity-40 没接上", dragging)
 	}
 }
+
+// TestPlayModeIconInk 逐值钉住播放模式键图标色（原版 playlist.tsx）：
+// 顺序 Order fill="#888"；单曲循环 LoopOnce 与随机 Shuffle 都是 fill="#3b82f6"。
+func TestPlayModeIconInk(t *testing.T) {
+	if got := playModeIconInk(PlayModeSequence); got != ui.Hex("#888888") {
+		t.Errorf("顺序图标色 = %v，应为 #888888", got)
+	}
+	if got := playModeIconInk(PlayModeSingle); got != ui.Hex("#3b82f6") {
+		t.Errorf("单曲循环图标色 = %v，应为 #3b82f6", got)
+	}
+	if got := playModeIconInk(PlayModeShuffle); got != ui.Hex("#3b82f6") {
+		t.Errorf("随机图标色 = %v，应为 #3b82f6", got)
+	}
+}

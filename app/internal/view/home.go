@@ -37,6 +37,11 @@ type homeLayout struct {
 // homeNarrowWidth 是主区单列的断点（原版 @media (max-width: 680px)）。
 const homeNarrowWidth = 680
 
+// nowPlayingPadX 是 .home-now-playing 的左右内边距（原版基线/窄窗都是 8px，
+// 见 globals.css 的 `padding: 0 8px 32px` 与窄窗 `padding: 16px 8px 12px`）。
+// 声明成常量供标题列宽预算与内边距共用，避免两处各写一个 8 而漂移。
+const nowPlayingPadX float32 = 8
+
 // faceHoverAnim 是主区 UP 主头像悬停放大 / 回落的动画：原版 #video-owner-face 的
 // `transition: box-shadow 0.2s ease, transform 0.18s ease`（globals.css:2178），
 // 用 CSS `ease` = cubic-bezier(.25,.1,.25,1)。之前用 ui.Snappy 弹簧（约 500ms），
@@ -329,18 +334,20 @@ func userAvatarSilhouette(p *ui.Painter, r ui.Rect, col ui.Color) {
 // （原版 @media (max-width: 680px) 把 grid 改成 1fr 并加 overflow-y:auto）。
 func (a *App) nowPlaying(c *ui.Context, l homeLayout) {
 	if l.Single {
-		ui.Scroll(c).FillWidth().Grow(1).Shrink(1).Padding(16, 8, 12, 8).Children(func() {
+		ui.Scroll(c).FillWidth().Grow(1).Shrink(1).Padding(16, nowPlayingPadX, 12, nowPlayingPadX).Children(func() {
 			ui.Column(c).FillWidth().Gap(12).Children(func() {
 				a.coverDisc(c, l.CoverShell)
-				a.videoInfo(c, false)
+				// 窄窗标题盒高随折行数变化，需要标题列宽：主区宽减两侧内边距
+				// （本块的 nowPlayingPadX，与下同）。
+				a.videoInfo(c, false, windowWidth(c)-2*(l.StagePadX+nowPlayingPadX))
 			})
 		})
 		return
 	}
 	ui.Row(c).FillWidth().Grow(1).Shrink(1).Gap(28).AlignItems(ui.Center).
-		Padding(0, 8, 32, 8).Children(func() {
+		Padding(0, nowPlayingPadX, 32, nowPlayingPadX).Children(func() {
 		ui.Box(c).Width(304).Shrink(0).Children(func() { a.coverDisc(c, l.CoverShell) })
-		a.videoInfo(c, true)
+		a.videoInfo(c, true, 0)
 	})
 }
 
@@ -753,7 +760,12 @@ var (
 //
 // wide 为 false 时是窄窗单列（原版 @media ≤680px）：不再 Grow 充满高度，
 // 标题的 min-height 也从 52 放开成 auto（由内容决定），整块跟随外层滚动。
-func (a *App) videoInfo(c *ui.Context, wide bool) {
+//
+// titleW 只在窄窗用得上：标题盒高随折行数变化（1 行 25.96 / 2 行 51.92），
+// 而框架的布局期拿不到可用宽（`Draw` 里才有 `r.W`），所以由调用方按
+// `windowWidth − 两侧内边距` 预算出标题列宽传进来定盒高；宽窗盒高恒为 52，
+// 传 0 即可。
+func (a *App) videoInfo(c *ui.Context, wide bool, titleW float32) {
 	t := a.Theme
 	col := ui.Column(c).FillWidth().AlignItems(ui.Start)
 	if wide {
@@ -783,12 +795,20 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 		} else {
 			// 窄窗原版 @media (max-width: 680px) 只把 `#video-title h2` 的
 			// `min-height` 放开成 auto，`max-height: 58px` 与 line-height 1.18
-			// 仍在 —— 两行内容 51.92 < 52，所以两行盒高同样是 52，单行则随内容
-			// （不拉满 52）。这里仍用 ui.Text + MaxHeight（硬底会按内容 58 撑到 58）
-			// 压回 52。
-			ui.Text(c, a.infoTitle()).FontSize(infoTitleSize).FontWeight(infoTitleWeight).
-				TextColor(t.Ink).LineHeight(infoTitleLineHeight).MaxLines(2).
-				Selectable().MaxHeight(videoTitleBoxH)
+			// 仍在 —— 两行内容 51.92 < 52，单行则是 25.96（不拉满 52）。
+			//
+			// 框架的自然行盒是 33/行，`ui.Text` 无论单行（33 vs 25.96）还是两行
+			// （66 截到 52）都对不上，所以与宽窗一样自绘逐行落点：用预算出的标题
+			// 列宽 titleW 在**布局期**折出折行数定盒高（lines × infoTitlePitch），
+			// `Draw` 里再用实测 `r.W` 重折一遍绘制 —— 绘制按真实盒宽，高度按
+			// 预算宽，两者只在宽度跨过折行临界点时才可能差一行（届时像素上表现
+			// 为末行略出走形，远优于固定差 7px/行的行距偏离）。
+			h := float32(len(wrapTextLines(a.infoTitle(), infoTitleFont, titleW, 2))) * infoTitlePitch
+			title := ui.Box(c).FillWidth().Height(h).Label(a.infoTitle())
+			title.Draw(func(p *ui.Painter, r ui.Rect) {
+				lines := wrapTextLines(a.infoTitle(), infoTitleFont, r.W, 2)
+				paintTextLines(p, r, lines, infoTitleFont, infoTitlePitch, t.Ink)
+			})
 		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有

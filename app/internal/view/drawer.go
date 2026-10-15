@@ -319,13 +319,13 @@ func (a *App) drawerHeader(c *ui.Context) {
 		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#ffffff").Alpha(0.40))
 	})
 
-	// 关闭键浮在右上角（原版是绝对定位的 close 按钮）。
+	// 关闭键浮在右上角（原版是绝对定位的 close 按钮）。圆角是 HeroUI 按钮默认的
+	// md（8），不是工具键的 6；材质见 drawerCloseSurface（常驻玻璃，不再只在悬停时出现）。
 	ui.Box(c).Absolute().Right(10).Top(8).Children(func() {
-		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(ToolButtonR).Center().
+		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(8).Center().
 			Label("关闭").Tooltip("关闭")
-		if b.Hovered() {
-			buttonSurface(b, false, true, ui.Color{}, ui.Hex("#ffffff").Alpha(0.30))
-		}
+		drawerCloseSurface(b, b.Hovered(), b.Pressed())
+		drawerClosePress(b)
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
 			a.Drawer = ""
@@ -963,6 +963,78 @@ var drawerHeaderPress = func(b ui.Element) {
 		pose = ui.Pose{Scale: 0.94}
 	}
 	b.AnimatePose(pose, drawerHeaderPressAnim)
+}
+
+// drawerClosePaint 是抽屉右上角关闭键在某一状态下解析好的样式。原版
+// globals.css:4112-4140 的 `button[aria-label="Close"]` 三条规则：
+//
+//	常态  background --glass-bg（白 .24）+ 1px --glass-border（白 .55）
+//	      + inset 0 1px 1px --glass-highlight（白 .9）
+//	      + inset 0 -1px 1px 墨 .04 + 0 6px 16px 墨 .08
+//	悬停  background --glass-bg-hover（白 .38），投影抬到 0 8px 20px 墨 .10
+//	按下  background --glass-bg-active（白 .16）、transform: scale(.9)
+//
+// 原版 :active 只覆写 background 与 transform，所以按下态沿用常态的描边 /
+// 内影 / 投影（只有 :hover 才换投影），不能「先铺常态再叠悬停」。
+type drawerClosePaint struct {
+	BG         ui.Color
+	Border     ui.Color
+	Inset      ui.Color
+	BotIn      ui.Color
+	Shadow     ui.Color
+	ShadowY    float32
+	ShadowBlur float32
+	// Scale 是按下时的缩放，其余状态为 1。
+	Scale float32
+}
+
+// drawerClosePaintFor 解析常态 / 悬停 / 按下三态。
+func drawerClosePaintFor(hovered, pressed bool) drawerClosePaint {
+	p := drawerClosePaint{
+		BG:         ui.Hex("#ffffff").Alpha(0.24), // --glass-bg
+		Border:     ui.Hex("#ffffff").Alpha(0.55), // --glass-border
+		Inset:      ui.Hex("#ffffff").Alpha(0.90), // --glass-highlight
+		BotIn:      ui.Hex("#0f172a").Alpha(0.04),
+		Shadow:     ui.Hex("#0f172a").Alpha(0.08),
+		ShadowY:    6,
+		ShadowBlur: 16,
+		Scale:      1,
+	}
+	if hovered {
+		p.BG = ui.Hex("#ffffff").Alpha(0.38) // --glass-bg-hover
+		p.BotIn = ui.Hex("#0f172a").Alpha(0.05)
+		p.Shadow = ui.Hex("#0f172a").Alpha(0.10)
+		p.ShadowY, p.ShadowBlur = 8, 20
+	}
+	if pressed {
+		p.BG = ui.Hex("#ffffff").Alpha(0.16) // --glass-bg-active
+		p.Scale = 0.9
+	}
+	return p
+}
+
+// drawerCloseSurface 把解析出的玻璃材质铺到关闭键上。常驻（不再只在悬停时画），
+// 否则关闭键在常态是一枚裸图标。声明成 var 便于测试换桩做反证（同 drawerHeaderSurface）。
+var drawerCloseSurface = func(b ui.Element, hovered, pressed bool) ui.Element {
+	p := drawerClosePaintFor(hovered, pressed)
+	return b.Background(p.BG).Border(1, p.Border).
+		InsetShadow(0, 1, 1, 0, p.Inset).
+		InsetShadow(0, -1, 1, 0, p.BotIn).
+		Shadow(0, p.ShadowY, p.ShadowBlur, 0, p.Shadow)
+}
+
+// drawerClosePressAnim 是关闭键的 :active 过渡：原版 `transition: ... transform
+// 0.1s ease`。色值由 drawerCloseSurface 当帧铺，这里只补缩放这一路。
+var drawerClosePressAnim = ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut}
+
+// drawerClosePress 给关闭键加原版 :active 的 scale(.9)。**悬停无位移**（原版这条
+// 规则没有 :hover 的 transform），所以不悬停时把目标姿势写回 0，避免停在上一帧。
+var drawerClosePress = func(b ui.Element) {
+	pose := ui.Pose{}
+	if b.Pressed() {
+		pose = ui.Pose{Scale: 0.9}
+	}
+	b.AnimatePose(pose, drawerClosePressAnim)
 }
 
 // headerButtonOff 同 headerButton，但可置为加载形态。对应原版抽屉表头里
@@ -1779,6 +1851,10 @@ func cardFooterBG(hovered bool) ui.Color {
 	return ui.Hex("#ffffff").Alpha(0.22)
 }
 
+// cardTitleBadgePadY 是卡片标题前胶囊的上下内边距。原版 feedList.tsx 的
+// titlePrefix span 是 `px-1 py-0.5`，py-0.5 = 2px。声明成常量便于测试钉值。
+const cardTitleBadgePadY = 2
+
 func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	t := a.Theme
 	// 原版抽屉卡片（globals.css 的 [role=button][class*=bg-content]）：
@@ -1893,9 +1969,13 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 				// text-white / mr-1），标题在后并占满剩余宽度。
 				if spec.Badge != "" {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+						// 原版胶囊是 `py-0.5`（上下 2px）+ 行盒；mygo 这里是 border-box
+						// 且盒高锁在标题行盒 th 上（胶囊是 inline span，内边距不撑高
+						// 行盒，见 cardfooter_test.go 的 TestCardTitleBadgeLineBox），
+						// 所以只在盒内补 2px 上下内边距，盒高保持 th。
 						ui.Text(c, spec.Badge).FontSize(14).FontWeight(700).
 							TextColor(ui.Hex("#ffffff")).Height(th).Translate(0, tsh).
-							Padding(0, 4).Radius(8).
+							Padding(cardTitleBadgePadY, 4).Radius(8).
 							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
 						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
 							TextColor(t.Ink).SingleLine().Height(th).Translate(0, tsh).
@@ -2063,6 +2143,12 @@ func (a *App) BrowseTo(info *Info) {
 // 悬停看不到「加到哪儿」的说明。
 const partsAddAllTip = "将全部选集添加到播放列表"
 
+// partsAddAllInk 是「全部添加」键的图标 / 文字色。原版 pageList.tsx 里这个键的
+// 图标是 `<AddOne fill="#666" size={16}/>`，后面的 span 继承同一文字色。此前原生
+// 版用的是抽屉表头通用的 #475569（偏蓝的灰），色相不对；这里对齐 #666666。
+// 声明成 var 便于测试逐值钉住（同 partSearchPlaceholderInk）。
+var partsAddAllInk = ui.Hex("#666666")
+
 // partsHeader 是选集抽屉的表头（原版 pageList.tsx）：「选集(N)」+ 定位当前 +
 // 「全部添加」到播放列表。
 func (a *App) partsHeader(c *ui.Context) {
@@ -2145,8 +2231,8 @@ func (a *App) partsHeader(c *ui.Context) {
 		drawerHeaderPress(b)
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconAdd).Size(16, 16).TextColor(ui.Hex("#475569"))
-				ui.Text(c, "全部添加").FontSize(12).TextColor(ui.Hex("#475569"))
+				ui.Icon(c, iconAdd).Size(16, 16).TextColor(partsAddAllInk)
+				ui.Text(c, "全部添加").FontSize(12).TextColor(partsAddAllInk)
 			})
 		})
 		if b.Clicked() && a.Act.AddAllToPlaylist != nil {
@@ -2484,6 +2570,10 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	a.tabs(c, "dm", tabs, a.DanmakuTab, func(k string) {
 		a.DanmakuTab = k
 		a.danmakuScrollIdx = -1
+		// 原版 danmakuList.tsx 的 handleViewModeChange：切 tab 时
+		// setIsAutoScroll(true) + lastScrollIndexRef=-1，即自动跟随重置为开（与
+		// 关抽屉时 handleOpenChange(false) 的行为一致，见 drawer.go 的关抽屉分支）。
+		a.DanmakuAutoScroll = true
 		if a.Act.SwitchDanmakuTab != nil {
 			a.Act.SwitchDanmakuTab(k)
 		}
@@ -3188,16 +3278,28 @@ func (a *App) locatePart(keyword string) {
 	a.Notify("没有匹配的分集：" + kw)
 }
 
+// collectScrollBtnPaintFor 解析收藏夹滚动键的常态 / 悬停 / 按下底色。原版
+// globals.css 的 `.collect-scroll-btn`：常态 `rgba(15,23,42,.06)`；`:hover
+// background: rgba(14,165,233,.14)`（浅蓝 #0ea5e9 14%）；`:active
+// background: rgba(15,23,42,.12)`（深灰蓝）。此前 hover 误用了 :active 的深灰蓝，
+// 底色方向偏了（原版悬停是浅蓝）。按下优先于悬停（:active 在 :hover 之后）。
+func collectScrollBtnPaintFor(hovered, pressed bool) ui.Color {
+	switch {
+	case pressed:
+		return ui.Hex("#0f172a").Alpha(0.12)
+	case hovered:
+		return ui.Hex("#0ea5e9").Alpha(0.14)
+	}
+	return ui.Hex("#0f172a").Alpha(0.06)
+}
+
 // collectScrollBtn 是收藏夹表头的左右滚动键（原版 collect-scroll-btn）：
 // 把横向滚动位置拨 200px。
 func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(26, 28).Radius(7).Center().
 		Label(label).Tooltip(label)
-	b.Background(ui.Hex("#0f172a").Alpha(0.06))
-	if b.Hovered() {
-		b.Background(ui.Hex("#0f172a").Alpha(0.12))
-	}
+	b.Background(collectScrollBtnPaintFor(b.Hovered(), b.Pressed()))
 	// 原版 `.collect-scroll-btn:focus-visible`：`outline: 0; color: #0284c7;
 	// box-shadow: 0 0 0 2px rgba(2,132,199,.4)` —— 换色跟悬停同值（聚光蓝），
 	// 环是 titleBarFocus 那一款无偏移的 2px 蓝环。
