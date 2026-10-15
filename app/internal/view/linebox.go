@@ -23,6 +23,15 @@ package view
 // （ascent 0.8 + descent 0.2 的度量族），取 1.5。
 const naturalLineRatio = 1.5
 
+// 原版 CSS 里两个最常用的字号类（Tailwind / HeroUI 默认）的行盒倍数，供
+// textLineBox 压回原版行高：text-sm（HeroUI 的 text-small 同值）是
+// 14px / 20px 行高，text-xs 是 12px / 16px 行高。卡片页脚、播放列表行等处
+// 的单行文本都用这两个。
+const (
+	textSmLH = 20.0 / 14.0
+	textXsLH = 16.0 / 12.0
+)
+
 // textLineBox 返回把单行文本压到原版 CSS 的 line-height 时，元素盒高（不含
 // 内边距）与字形需要上移的量。size 是字号，cssLineHeight 是原版 line-height
 // 的倍数（如 1 / 1.2 / 1.25）。盒高恒为正、shift 恒为非正（自然行盒 ≥ 原版

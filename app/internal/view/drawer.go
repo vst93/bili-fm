@@ -1759,12 +1759,8 @@ type cardSpec struct {
 // 卡片页脚（原版 `[data-slot="footer"]`）里两条文本的行盒：标题是 HeroUI 的
 // text-small（14px / 20px 行高），meta 行是 Tailwind 的 text-xs（12px / 16px
 // 行高）。框架的自然行盒分别是 22 / 18（≈1.5× 字号），页脚因此比原版高 4px、
-// 每张卡都偏高。用显式盒高 + 字形上移压回原版（见 linebox.go）。
-const (
-	cardTitleLH = 20.0 / 14.0
-	cardMetaLH  = 16.0 / 12.0
-)
-
+// 每张卡都偏高。用显式盒高 + 字形上移压回原版（见 linebox.go 的 textSmLH /
+// textXsLH）。
 // cardFooterBG 是卡片页脚的洗色：原版 `[data-slot="footer"]` 的
 // `background: rgba(255,255,255,.22) !important`；悬停时该元素随
 // `--hover-strength=1` 涨到 `.22 + 1×.14 = .36`。此前误写成 .12（漏了
@@ -1883,7 +1879,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			Background(cardFooterBG(hovered)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
-				th, tsh := textLineBox(14, cardTitleLH)
+				th, tsh := textLineBox(14, textSmLH)
 				// 原版标题：text-small（14）/ bold / 单行截断。
 				// 有标题前胶囊时（原版 feedList 的 titlePrefix）把标题行换成
 				// Row：胶囊在前（bg-red-400 / px-1 py-0.5 / rounded-lg /
@@ -1931,8 +1927,8 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 	now := time.Now()
 	ink := ui.Hex("#71717a") // 原版 text-default-500（zinc-500）
 	// meta 行是 Tailwind 的 text-xs（12px / 16px 行高）：框架自然行盒 18，
-	// 整行因此比原版高 2px（见 cardMetaLH / linebox.go）。
-	mh, msh := textLineBox(12, cardMetaLH)
+	// 整行因此比原版高 2px（见 textXsLH / linebox.go）。
+	mh, msh := textLineBox(12, textXsLH)
 	row.Children(func() {
 		first := true
 		for i, f := range fields {

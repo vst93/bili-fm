@@ -376,6 +376,12 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		})
 
 		ui.Column(c).Grow(1).MinWidth(0).Children(func() {
+			// 原版两行都是 Tailwind 字号类：首行 text-sm（14px / 20px 行高）、
+			// 次行 text-xs（12px / 16px）。框架的自然行盒是 21 / 18，整行因此
+			// 比原版高 3px（行高 54→57）；用显式盒高 + 字形上移压回（见
+			// linebox.go 的 textSmLH / textXsLH）。
+			th, tsh := textLineBox(14, textSmLH)
+			mh, msh := textLineBox(12, textXsLH)
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				if current {
 					// 原版 <Play fill="#3b82f6" size={12} theme="filled" />：蓝色圆盘
@@ -385,12 +391,14 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 				// 原版首行：常态 .text-gray-800（#1e293b/600），当前项
 				// .playlist-current p:first-of-type（#064e7a/800）。
 				ui.Text(c, item.Part).FontSize(14).SingleLine().
-					TextColor(p.PartInk).FontWeight(p.PartWeight)
+					TextColor(p.PartInk).FontWeight(p.PartWeight).
+					Height(th).Translate(0, tsh)
 			})
 			// 原版次行：常态 .text-gray-400（#64748b），当前项
 			// .playlist-current p:last-of-type（#334155/600）。
 			ui.Text(c, item.Title).FontSize(12).SingleLine().
-				TextColor(p.TitleInk).FontWeight(p.TitleWeight)
+				TextColor(p.TitleInk).FontWeight(p.TitleWeight).
+				Height(mh).Translate(0, msh)
 		})
 
 		// 我的列表才允许删除（排序靠拖拽）。原版那颗键**始终渲染**，靠
