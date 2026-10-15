@@ -1440,7 +1440,7 @@ func (a *App) progress(c *ui.Context) {
 	// PaddingX(7) 让取值区间两端各缩进一个滑块半径，滑块的圆心才能走到
 	// 轨道的两个端点（原生 range 的行为）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
-		PaddingX(timelineInset).Label("播放进度")
+		PaddingX(timelineInset).Label("播放进度").Step(0.1)
 	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
@@ -2022,7 +2022,7 @@ func (a *App) miniProgress(c *ui.Context) {
 	}
 	// 与主窗同一套规则与外观（见 progress / paintTimeline）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).Grow(1).Height(timelineH).
-		PaddingX(timelineInset).Label("播放进度")
+		PaddingX(timelineInset).Label("播放进度").Step(0.1)
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)

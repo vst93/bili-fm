@@ -1250,3 +1250,131 @@ func TestSetVolumeZeroMutes(t *testing.T) {
 		t.Errorf(">0 的音量应被记住，得到 %v", a.LastVolume)
 	}
 }
+
+// ---------------------------------------------------------------- 赞助跳过
+//
+// 以下测试钉住 maybeSkipSponsor 与原版 player.tsx 逐值对齐的四条行为：
+//   1. 提前量 lead=0.25s：pos 落入 [start-lead, end) 即触发
+//   2. 落点 padding=0.05s：seek 到 end+pad
+//   3. 时长容差 2s：videoDuration 与 Dur 偏差超过则丢弃
+//   4. toast 频控 10s
+
+// newTestController 创建一个最小化的 controller 用于 sponsor 测试。
+// SeekBusy=true 让 seek 只记 PendingSeek 不实际执行（避免依赖 mp）。
+func newTestController(segs []bilibili.SponsorSegment, dur float64) *controller {
+	a := &view.App{Dur: dur}
+	a.SeekBusy = true
+	return &controller{
+		app:       a,
+		sponsor:   segs,
+		skipped:   map[int]bool{},
+		sponsorOn: true,
+	}
+}
+
+// TestSponsorLeadSeconds 钉住跳过提前量：pos = start - 0.25 即触发。
+func TestSponsorLeadSeconds(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20},
+	}, 100)
+
+	// pos=9.75（start - lead）应触发跳过。
+	c.maybeSkipSponsor(9.75)
+	if !c.skipped[0] {
+		t.Error("pos=start-0.25 应触发跳过，但没有")
+	}
+}
+
+// TestSponsorNoLeadBeforeWindow 钉住提前量边界：pos < start-lead 不触发。
+func TestSponsorNoLeadBeforeWindow(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20},
+	}, 100)
+
+	// pos=9.74（刚好在 lead 之外）不应触发。
+	c.maybeSkipSponsor(9.74)
+	if c.skipped[0] {
+		t.Error("pos < start-lead 不应触发跳过")
+	}
+}
+
+// TestSponsorSeekPad 钉住落点 padding：seek 到 end+0.05。
+func TestSponsorSeekPad(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20},
+	}, 100)
+
+	c.maybeSkipSponsor(15)
+	if c.app.PendingSeek != 20.05 {
+		t.Errorf("seek 目标 = %v，应为 20.05（end+0.05）", c.app.PendingSeek)
+	}
+}
+
+// TestSponsorDurationTolerance 钉住时长容差：videoDuration 与 Dur 偏差 >2s 则丢弃。
+func TestSponsorDurationTolerance(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20, VideoDuration: 97}, // |97-100|=3 > 2
+	}, 100)
+
+	// pos=15 落入分段，但 videoDuration 偏差超过容差，应丢弃不跳过。
+	c.maybeSkipSponsor(15)
+	if !c.skipped[0] {
+		t.Error("videoDuration 偏差 >2s 应标记 skipped")
+	}
+	if c.app.PendingSeek != 0 {
+		t.Error("被容差丢弃的分段不应触发 seek")
+	}
+}
+
+// TestSponsorDurationWithinTolerance 钉住容差内正常跳过。
+func TestSponsorDurationWithinTolerance(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20, VideoDuration: 99}, // |99-100|=1 < 2
+	}, 100)
+
+	c.maybeSkipSponsor(15)
+	if c.app.PendingSeek != 20.05 {
+		t.Errorf("容差内的分段应正常跳过，seek=%v", c.app.PendingSeek)
+	}
+}
+
+// TestSponsorToastMinInterval 钉住 toast 频控常量 = 10s（原版 SPONSOR_TOAST_MIN_INTERVAL_MS）。
+func TestSponsorToastMinInterval(t *testing.T) {
+	if sponsorToastMinInterval != 10*time.Second {
+		t.Errorf("sponsorToastMinInterval = %v，应为 10s", sponsorToastMinInterval)
+	}
+}
+
+// TestSponsorStartBeyondDuration 钉住起点越界保护（原版
+// `if (start >= mediaDuration && hasDuration) continue`）：分段起点已越过媒体
+// 时长时，即便 pos 落进了「提前量窗口」，也不处理、且不标记 skipped。
+//
+// 这条保护只在视频末尾的窄窗口里可见：end 在时长之外的分段，pos 可能已经
+// 进入 [start-lead, end)，若不拦住就会 seek 到时长之外。
+func TestSponsorStartBeyondDuration(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 100, End: 110}, // start == Dur
+	}, 100)
+
+	// pos=99.9 已进入 [100-0.25, 110)，但 start 越界，应整段不处理。
+	c.maybeSkipSponsor(99.9)
+	if c.app.PendingSeek != 0 {
+		t.Errorf("起点越界的分段不应触发 seek，得到 %v", c.app.PendingSeek)
+	}
+	if c.skipped[0] {
+		t.Error("起点越界是「本帧不处理」，不应标记 skipped")
+	}
+}
+
+// TestSponsorStartBeforeDurationStillFires 是上一条的对照：起点在时长之内时，
+// 同一提前量窗口照常触发（反证越界判断没有把正常跳过也拦掉）。
+func TestSponsorStartBeforeDurationStillFires(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 99, End: 110}, // start < Dur
+	}, 100)
+
+	c.maybeSkipSponsor(99)
+	if c.app.PendingSeek != 110.05 {
+		t.Errorf("起点在时长之内的分段应照常跳过，seek=%v", c.app.PendingSeek)
+	}
+}

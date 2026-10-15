@@ -2525,7 +2525,30 @@ func toDanmakuList(items []bilibili.DanmakuItem) []view.Danmaku {
 	return out
 }
 
+// SponsorBlock 跳过的四个常量，逐值取自原版 player.tsx：
+const (
+	// sponsorLeadSeconds 是跳过的提前量：pos 落入 [start - lead, end) 即触发。
+	// 原版 SPONSOR_SEGMENT_LEAD_SECONDS = 0.25。
+	sponsorLeadSeconds = 0.25
+	// sponsorSeekPadSeconds 是跳过后的落点 padding：seek 到 end + pad，
+	// 避免正好落在段尾被再次触发（死循环）。原版 SPONSOR_SEEK_PAD_SECONDS = 0.05。
+	sponsorSeekPadSeconds = 0.05
+	// sponsorDurationTolerance 是视频时长容差：分段对应的 videoDuration 与
+	// 实际 mediaDuration 相差超过该值则丢弃该分段。
+	// 原版 SPONSOR_DURATION_TOLERANCE_SECONDS = 2。
+	sponsorDurationTolerance = 2.0
+	// sponsorToastMinInterval 是「已跳过恰饭片段」toast 的最短间隔。
+	// 原版 SPONSOR_TOAST_MIN_INTERVAL_MS = 10_000。
+	sponsorToastMinInterval = 10 * time.Second
+)
+
 // maybeSkipSponsor 在播放到跳过分段时自动跳过去。
+// 逐值对齐原版 player.tsx 的 maybeSkipSponsor：
+//   - 提前量 lead（pos >= start - lead 即触发）
+//   - 落点 padding（seek 到 end + pad）
+//   - 时长容差校验（videoDuration 与 mediaDuration 偏差 > 2s 则丢弃）
+//   - 起点越界跳过（start >= mediaDuration 时不处理）
+//   - toast 频控 10s
 func (c *controller) maybeSkipSponsor(pos float64) {
 	if !c.sponsorOn || len(c.sponsor) == 0 {
 		return
@@ -2534,15 +2557,29 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 		if c.skipped[i] {
 			continue
 		}
-		if pos >= s.Start && pos < s.End {
+		// 时长容差校验：分段属于另一版视频则丢弃（原版同一条规则）。
+		if s.VideoDuration > 0 && c.app.Dur > 0 {
+			if diff := s.VideoDuration - c.app.Dur; diff < -sponsorDurationTolerance || diff > sponsorDurationTolerance {
+				c.skipped[i] = true
+				continue
+			}
+		}
+		// 分段起点已在媒体时长之外：本帧的 pos 到不了它（原版
+		// `if (start >= mediaDuration && hasDuration) continue`）。
+		// 注意不标记 skipped：这不是「丢掉」，只是这一帧不处理。
+		if c.app.Dur > 0 && s.Start >= c.app.Dur {
+			continue
+		}
+		// 提前量：pos 落入 [start - lead, end) 即触发跳过。
+		if pos >= s.Start-sponsorLeadSeconds && pos < s.End {
 			c.skipped[i] = true
 			log.Printf("跳过赞助分段 %.1f-%.1f (%s)", s.Start, s.End, s.Category)
 			// 与原版一致：跳过时弹一条 toast，但频控（同一段只弹一次）。
-			if time.Since(c.lastSponsorToast) > 5*time.Second {
+			if time.Since(c.lastSponsorToast) > sponsorToastMinInterval {
 				c.lastSponsorToast = time.Now()
 				c.app.Notify("已跳过恰饭片段")
 			}
-			c.seek(s.End)
+			c.seek(s.End + sponsorSeekPadSeconds)
 			return
 		}
 	}
