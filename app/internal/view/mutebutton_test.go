@@ -1,7 +1,10 @@
 package view
 
 import (
+	"bytes"
 	"image"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -127,6 +130,46 @@ func TestPlayerMuteSurfaceWired(t *testing.T) {
 	}
 	if !got[len(got)-1] {
 		t.Errorf("已静音时 playerMuteSurface 收到 muted=false")
+	}
+}
+
+// TestPlayerMuteCheckedWired 钉住音量弹层静音键把按压态交给无障碍层：原版这颗键是
+// `aria-pressed={volume === 0}`，mygo 的对应 API 是 Checked(on)（toggle button
+// 角色下屏幕阅读器读作「已按下」）。它和视觉/标签读同一个 `muted` 判据——标签、
+// 材质、墨色都对了，但按压态此前没接线，读屏用户听到的「取消静音」按钮是「未按下」。
+//
+// 无头 Tester 不暴露无障碍树（mygo 的 ui 包只把 Access/Checked 写进内部 tree，
+// 没有导出查询），所以沿用 cardtooltip_test.go 的手法：在源码里确认 `.Checked(muted)`
+// 真接在静音键那一串上（写了常量没接等于没写），并断言主窗音量键**没有**被误接
+// （它是弹出层开关，原版是 `aria-expanded` 语义而非 `aria-pressed`）。
+func TestPlayerMuteCheckedWired(t *testing.T) {
+	src, err := os.ReadFile("playerbar.go")
+	if err != nil {
+		t.Fatalf("读 playerbar.go 失败：%v", err)
+	}
+
+	// 静音键：Label/Tooltip 后面紧跟 Checked(muted)。把源码里的空白全部去掉后逐字
+	// 匹配整条链，避免只搜到别处的 Checked(...)。
+	flat := strings.Join(strings.Fields(string(src)), "")
+	chain := strings.Join(strings.Fields(`Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)`), "")
+	if !strings.Contains(flat, chain) {
+		t.Errorf("音量弹层静音键没把 Checked(muted) 接在标签链上（原版 aria-pressed={volume===0}）")
+	}
+
+	// 反证：主窗音量键是弹出层开关，不应有 Checked（原版只有 aria-label/title）。
+	volChain := strings.Join(strings.Fields(`Label("音量").Tooltip("音量")`), "")
+	if i := strings.Index(flat, volChain); i >= 0 {
+		// 取这段到函数末尾（播放栏音量键体积很小）的一小段，确认其中没有 Checked。
+		seg := flat[i:min(len(flat), i+400)]
+		if strings.Contains(seg, ".Checked(") || strings.Contains(seg, "Checked(") {
+			t.Error("主窗音量键被误接 Checked：原版它是 aria-expanded 的弹层开关，不是 aria-pressed")
+		}
+	}
+
+	// 反证：整个 playerbar.go 里 Checked 只该出现在静音键这一处（当前播放栏没有
+	// 别的 toggle-button 语义的无障碍接线）。
+	if n := bytes.Count(src, []byte("Checked(muted)")); n != 1 {
+		t.Errorf("playerbar.go 里 Checked(muted) 出现 %d 次，应只在静音键接一次", n)
 	}
 }
 

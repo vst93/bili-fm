@@ -1910,9 +1910,13 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		// 静音态 = 音量 0（原版 `data-active={volume === 0}`，没有独立布尔），
 		// 标签 / 材质 / 图标都读同一个判据。
 		muted := a.Muted || a.Volume <= 0
+		// 原版这颗键是 `aria-pressed={volume === 0}`：屏幕阅读器读出「已按下」
+		// 才与标签「取消静音」自洽。mygo 的对应 API 是 Checked（toggle button
+		// 角色下读作 pressed），和视觉一样读同一个 muted 判据。
 		mute := ui.ButtonBase(c.Key("volume-mute")).Size(volumeMuteSize, volumeMuteSize).
 			Radius(RadiusSmall).
-			Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音"))
+			Center().Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).
+			Checked(muted)
 		// 原版静音键材质：常态白 .22 底 + slate .2 描边 + 白 .44 内高光（悬停不换面），
 		// 已静音只转蓝调墨色/描边（见 playerMuteSurface）。
 		playerMuteSurface(a.Theme, mute, muted)
