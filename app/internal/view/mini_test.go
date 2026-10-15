@@ -14,6 +14,7 @@ import (
 //	常态  background transparent; color --studio-muted; opacity .72
 //	悬停  background-color --glass-bg-hover（白 .38）; color #0284c7; opacity 1
 //	激活  （迷你窗图钉 aria-pressed=true）同悬停 + inset 内高光
+//	按下  background-color --glass-bg-active（白 .16）; transform scale(.94)
 //
 // 之前迷你窗控制键的激活态误用了「玻璃 Tint 时代」的蓝 .28 底色 + 白描边，
 // 与 --glass-bg-hover 的白 .38 不符；标题栏迷你入口也漏了常态 opacity .72 与
@@ -21,7 +22,7 @@ import (
 func TestTitleBarButtonStyle(t *testing.T) {
 	th := ThemeFor(PeriodAt(12))
 
-	bg, ink, op, hi := titleBarButtonStyle(th, false, false)
+	bg, ink, op, hi := titleBarButtonStyle(th, false, false, false)
 	if bg != ui.Transparent {
 		t.Errorf("常态底色 = %v，应为透明", bg)
 	}
@@ -43,7 +44,7 @@ func TestTitleBarButtonStyle(t *testing.T) {
 		{"激活", true, false},
 		{"激活+悬停", true, true},
 	} {
-		bg, ink, op, hi := titleBarButtonStyle(th, tc.active, tc.hovered)
+		bg, ink, op, hi := titleBarButtonStyle(th, tc.active, tc.hovered, false)
 		if bg != th.GlassHover {
 			t.Errorf("%s 底色 = %v，应为 --glass-bg-hover %v", tc.name, bg, th.GlassHover)
 		}
@@ -55,6 +56,29 @@ func TestTitleBarButtonStyle(t *testing.T) {
 		}
 		if !hi {
 			t.Errorf("%s 应叠内高光", tc.name)
+		}
+	}
+}
+
+// TestTitleBarButtonStylePressed 钉住按下态底色换 --glass-bg-active（白 .16）。
+// 原版 `.mini-window-controls button:active:not(:disabled)` 用 `!important` 把
+// 背景从 hover 的 --glass-bg-hover 覆盖成 --glass-bg-active，且 `[aria-pressed="true"]`
+// 那条规则带 `:not(:active)` 排除——按下时无论是否置顶/悬停，底色都是白 .16。
+func TestTitleBarButtonStylePressed(t *testing.T) {
+	th := ThemeFor(PeriodAt(12))
+
+	for _, tc := range []struct {
+		name            string
+		active, hovered bool
+	}{
+		{"按下+悬停", false, true},
+		{"按下+激活", true, false},
+		{"按下+激活+悬停", true, true},
+		{"按下+常态", false, false},
+	} {
+		bg, _, _, _ := titleBarButtonStyle(th, tc.active, tc.hovered, true)
+		if bg != th.GlassActive {
+			t.Errorf("%s 底色 = %v，应为 --glass-bg-active %v", tc.name, bg, th.GlassActive)
 		}
 	}
 }
