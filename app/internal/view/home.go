@@ -705,6 +705,22 @@ var videoInfoPad = [4]float32{2, 0, 2, 3}
 // 声明成 var 便于测试做反证（见 videometrics_test）。
 var videoTitleBoxH float32 = 52
 
+// 标题的排版参数（原版 globals.css `#video-title h2`）：22px / 800 /
+// line-height 1.18。infoTitlePitch 是 1.18 × 22 ≈ 25.96px 的**像素**行距，
+// 交给 multilinetext.go 的 paintTextLines 逐行落点（框架的自然行盒 33 压不下去）。
+const (
+	infoTitleSize       = 22
+	infoTitleWeight     = 800
+	infoTitleLineHeight = 1.18
+)
+
+var (
+	infoTitleFont = ui.Font{Size: infoTitleSize, Weight: infoTitleWeight}
+	// infoTitlePitch 由 textLineBox 算出（= 1.18 × 22），一并声明成 var 便于
+	// 测试换桩做反证。
+	infoTitlePitch = func() float32 { h, _ := textLineBox(infoTitleSize, infoTitleLineHeight); return h }()
+)
+
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
 // UP 主行 / 标题 / 简介 / 选集胶囊 / 操作行 / 工具条，自上而下。
 //
@@ -723,21 +739,29 @@ func (a *App) videoInfo(c *ui.Context, wide bool) {
 		a.videoInfoHead(c)
 		// 原版 #video-title h2：22px / 800 / line-height 1.18 / 2 行截断 /
 		// min-height 52、max-height 58。#video-title 与 h2 都是 margin: 0（此前
-		// 多加了 8px 上边距，会把 366 的固定盒高顶穿）。
-		// line-height 1.18 必须显式给：框架默认的自然行高（约 1.4×）两行会超出
-		// max-height 58 而被裁；1.18 让两行正好落进 58。max-height 58 更是必须——
-		// 否则固定盒高里吃不完的剩余空间会被标题吸收（长标题时盒子涨到 66，把
-		// 下方的简介 / 胶囊 / 操作行整体顶下去）。
-		title := ui.Text(c, a.infoTitle()).FontSize(22).FontWeight(800).TextColor(t.Ink).
-			LineHeight(1.18).MaxLines(2).Selectable()
+		// 多加了 8px 上边距，会把 366 的固定盒高顶穿）。盒高固定 52（要么自绘
+		// 盒高，要么 ui.Text + MaxHeight），否则固定盒高里吃不完的剩余空间会被
+		// 标题吸收（长标题时盒子涨到 66，把下方的简介 / 胶囊 / 操作行整体顶下去）。
 		if wide {
-			title.Height(videoTitleBoxH)
+			// 宽窗标题自绘逐行落点：框架把每行行盒夹在自然行盒（22px 中文实测
+			// 33 = 1.5em）之上，`LineHeight(1.18)` 的 25.96 过不了那道夹，两行
+			// 的**行距**会被顶到 33 —— 第二行比原版低 7px（盒高 52 已对齐）。
+			// 这里按原版行距 1.18 × 22 逐行落点绘制（断行仍交给框架，见
+			// multilinetext.go），单行时字形也随负 half-leading 上移 3.5px。
+			title := ui.Box(c).FillWidth().Height(videoTitleBoxH).Label(a.infoTitle())
+			title.Draw(func(p *ui.Painter, r ui.Rect) {
+				lines := wrapTextLines(a.infoTitle(), infoTitleFont, r.W, 2)
+				paintTextLines(p, r, lines, infoTitleFont, infoTitlePitch, t.Ink)
+			})
 		} else {
 			// 窄窗原版 @media (max-width: 680px) 只把 `#video-title h2` 的
 			// `min-height` 放开成 auto，`max-height: 58px` 与 line-height 1.18
 			// 仍在 —— 两行内容 51.92 < 52，所以两行盒高同样是 52，单行则随内容
-			// （不拉满 52）。这里用 MaxHeight（硬底会按内容 58 撑到 58）压回 52。
-			title.MaxHeight(videoTitleBoxH)
+			// （不拉满 52）。这里仍用 ui.Text + MaxHeight（硬底会按内容 58 撑到 58）
+			// 压回 52。
+			ui.Text(c, a.infoTitle()).FontSize(infoTitleSize).FontWeight(infoTitleWeight).
+				TextColor(t.Ink).LineHeight(infoTitleLineHeight).MaxLines(2).
+				Selectable().MaxHeight(videoTitleBoxH)
 		}
 		// 原版 #video-desc（后者覆盖前者）：13px / var(--studio-muted) /
 		// margin-top 14 / max-height 60 = 3 行（line-height 1.55）；内部 p 还有

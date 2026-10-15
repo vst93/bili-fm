@@ -17,8 +17,9 @@ import "github.com/egoist/mygo/ui"
 //  2. 用 Translate() 把字形上移原版的**负 half-leading** =（原版行盒 − 自然
 //     行盒）/ 2，字形的落点才与原版一致。
 //
-// 只对**单行**文本成立：多行文本的行**间距**由框架逐行决定，盒高压不掉行距，
-// 所以标题 / 简介 / 楼中楼这类多行文本不适用（框架硬底）。
+// 只对**单行**文本成立。多行文本的行**间距**由框架逐行决定，盒高压不掉行距 ——
+// 要么退回到自然行盒，要么像 `#video-title h2` 那样自绘逐行落点
+// （见 multilinetext.go 的 wrapTextLines / paintTextLines，同一套负 half-leading）。
 
 // naturalLineBox 返回框架在**默认行高**（未指定 line-height）下给一行文本的
 // 行盒高度：字体度量的 ascent + descent + lineGap。框架把每行夹在

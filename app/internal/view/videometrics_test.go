@@ -166,10 +166,11 @@ func TestVideoTitleBoxHeightNarrow(t *testing.T) {
 	}
 }
 
-// TestVideoTitleTwoLineNotClipped 是像素反证：固定 Height(52) 不能让框架把
-// 超出行盒的第二行裁掉或重新居中。扫标题盒下方竖条里的「有墨迹的行」，应当看到
-// 两行标题墨迹（第二行在盒顶约 33px 以下 —— 框架自然行盒 1.5em）与随后的
-// 简介首行，且第二行底与简介首行顶之间仍有一条空隙（≥4px），不叠字。
+// TestVideoTitleTwoLineNotClipped 是像素反证：固定 Height(52) 不能让自绘的
+// 第二行裁掉或重新居中。扫标题盒下方竖条里的「有墨迹的行」，应当看到
+// 两行标题墨迹（原版行距 1.18 × 22 ≈ 26，第二行墨迹顶在盒顶约 29px 处，见
+// multilinetext_test.go）与随后的简介首行，且第二行底与简介首行顶之间仍有
+// 一条空隙（≥4px），不叠字。
 func TestVideoTitleTwoLineNotClipped(t *testing.T) {
 	title := "这是一个相当长的视频标题用来测试两行截断的效果另一个很长的视频标题"
 	a := descApp()
