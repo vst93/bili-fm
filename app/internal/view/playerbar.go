@@ -2058,6 +2058,45 @@ var seekBubbleFadeAnim = ui.Animation{
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
+// .player-seek-bubble 的几何与材质取值（globals.css:3160）。原版这条是
+// `padding: 2px 6px; border: 1px solid 白 .72; border-radius: 7px;
+// font-size: 10px; line-height: 1.4`（box-sizing: border-box）。
+const (
+	seekBubbleFont   = 10  // font-size: 10px
+	seekBubbleLH     = 1.4 // line-height: 1.4
+	seekBubblePadY   = 2   // padding 上下
+	seekBubblePadX   = 6   // padding 左右
+	seekBubbleBorder = 1   // border 宽度
+	seekBubbleRadius = 7   // border-radius
+	// 盒高 = 上下 padding 2×2 + 行盒 1.4×10 = 14 + 上下 border 1×2 = 20。
+	// 此前写死 18（漏了 `box-sizing` 下 border 也是盒高的一部分），气泡比原版矮 2px。
+	seekBubbleH = 2*seekBubblePadY + seekBubbleLH*seekBubbleFont + 2*seekBubbleBorder
+)
+
+// seekBubbleTopHighlight 是气泡顶缘的 1px 内高光（原版 box-shadow 的第一层
+// `inset 0 1px 1px rgba(255,255,255,.95)`）。此前整条 box-shadow 只画了外投影、
+// 漏了这层顶内高光。声明成 var 便于测试换桩反证。
+var seekBubbleTopHighlight = func() ui.Color { return ui.Hex("#ffffff").Alpha(0.95) }
+
+// seekBubbleWidth 按**实测文字宽度**算气泡盒宽：原版 `.player-seek-bubble` 是 auto
+// 宽度，`box-sizing: border-box` 下盒宽 = 文字 + 左右 padding 2×6 + 左右 border 1×2。
+// 此前用 `len(label)*6.2` 的经验值估算，短标签（如 0:48）偏宽约 4px、长标签
+// （1:02:03）偏宽约 7px —— 气泡底比文字宽出一圈。measure 传入实测文字宽。
+func seekBubbleWidth(measure func(string) float32, label string) float32 {
+	return measure(label) + 2*seekBubblePadX + 2*seekBubbleBorder
+}
+
+// seekBubbleMeasure 返回在当前字体下量一段气泡文案宽度的函数（与气泡里
+// numericText 的实际字体一致：10px / 650 / tabular-nums）。
+func seekBubbleMeasure(c *ui.Context) func(string) float32 {
+	return func(s string) float32 {
+		w, _ := c.MeasureText(0, ui.Span{
+			Text: s, Size: seekBubbleFont, Weight: 650, Features: tabularNums[0],
+		})
+		return w
+	}
+}
+
 // seekBubble 是悬停时间气泡（原版 .player-seek-bubble）：指针停在轨道上时，
 // 在对应位置的上方 6px 显示那个点的时间。原版只在精确指针下启用（触摸不显示），
 // mygo 拿不到指针类型，就一视同仁。
@@ -2073,33 +2112,39 @@ func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
 	show := over && dur > 0
 	w := s.Bounds().W
 	span := w - 2*timelineInset
+	measure := seekBubbleMeasure(c)
 	if show && span > 0 {
 		ratio := clampF(float64((px-timelineInset)/span), 0, 1)
 		a.seekBubbleLabel = fmtTime(dur * ratio)
-		bw := float32(len(a.seekBubbleLabel))*6.2 + 14
-		left := px - bw/2
+		a.seekBubbleWidth = seekBubbleWidth(measure, a.seekBubbleLabel)
+		left := px - a.seekBubbleWidth/2
 		if left < 0 {
 			left = 0
 		}
-		if max := w - bw; left > max {
-			left = max
+		if maxLeft := w - a.seekBubbleWidth; left > maxLeft {
+			left = maxLeft
 		}
 		a.seekBubbleLeft = left
 	}
-	// 气泡宽度按字符数估（原版靠 CSS 自适应，mygo 要自己算才能居中）。
+	// 气泡宽度按**实测文字宽**算（原版 CSS 是 auto 宽度，靠字体排版决定）。
 	label := a.seekBubbleLabel
-	bw := float32(len(label))*6.2 + 14
+	bw := a.seekBubbleWidth
 	left := a.seekBubbleLeft
+	// 文本按原版行盒（line-height 1.4 × 10 = 14）压回并做负 half-leading 位移：
+	// 框架的自然行盒是 15（10px 的 ascent+descent），不给显式盒高时文字会溢出
+	// 14 的内容盒（气泡盒高 20 − padding 4 − border 2 = 14）。
+	th, tsh := textLineBox(seekBubbleFont, seekBubbleLH)
 	// 作为进度条的**子元素**挂上去：Absolute 的定位基准是父级的 padding box，
 	// 直接建在这里会以「播放栏那一行」为父级，整块位置会偏掉。
 	// PassThrough：气泡只是显示，不能把进度条的指针事件吃掉。
 	s.Children(func() {
 		box := ui.Box(c).Key("seek-bubble").
 			Absolute().Left(left).Bottom(timelineH+6).
-			Width(bw).Height(18).Center().PassThrough().
-			Padding(2, 6).Radius(7).
+			Width(bw).Height(seekBubbleH).Center().PassThrough().
+			Padding(seekBubblePadY, seekBubblePadX).Radius(seekBubbleRadius).
 			Background(ui.Hex("#ffffff").Alpha(0.86)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.72)).
+			Border(seekBubbleBorder, ui.Hex("#ffffff").Alpha(0.72)).
+			InsetShadow(0, 1, 1, 0, seekBubbleTopHighlight()).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.14))
 		target := float32(0)
 		if show {
@@ -2108,7 +2153,8 @@ func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
 		box.Opacity(box.AnimateTo("seek-bubble-fade", target, seekBubbleFadeAnim))
 		if label != "" {
 			box.Children(func() {
-				numericText(c, label).FontSize(10).FontWeight(650).
+				numericText(c, label).FontSize(seekBubbleFont).FontWeight(650).
+					Height(th).Translate(0, tsh).
 					TextColor(ui.Hex("#0f172a"))
 			})
 		}

@@ -649,12 +649,14 @@ type App struct {
 	// SeekStableAt 是最近一次「滑块交接点」的时间（按下/松手/seek 完成）：
 	// 此后一小段时间不跟随播放位置，等引擎追上。
 	SeekStableAt time.Time
-	// seekBubbleLabel / seekBubbleLeft 是悬停时间气泡（原版
-	// .player-seek-bubble）最后一次悬停时定下的文案与左边界。原版只在
+	// seekBubbleLabel / seekBubbleLeft / seekBubbleWidth 是悬停时间气泡（原版
+	// .player-seek-bubble）最后一次悬停时定下的文案、左边界与盒宽。原版只在
 	// handleTimelineHover 里写 textContent / style.left，移开指针后仅翻
-	// data-visible，气泡停在原处淡出；缓存这两个值就是为了复刻这一点。
+	// data-visible，气泡停在原处淡出；缓存这几个值就是为了复刻这一点。宽度
+	// 由实测文字宽算出（原版 CSS 是 auto 宽度），一并缓存供无头测试断言。
 	seekBubbleLabel string
 	seekBubbleLeft  float32
+	seekBubbleWidth float32
 	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
 	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
 	// 记在这里，等条件允许后执行一次（排队而不是丢弃）——
