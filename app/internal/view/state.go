@@ -1100,7 +1100,7 @@ var (
 	iconCoin       = iconPark(parkHandleB)
 	iconStar       = iconPark(parkStar)
 	iconStarFilled = iconPark(parkStarFilled)
-	iconEQ         = iconPark(parkEqualizer)
+	iconEQ         = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
 	// 恰饭跳过：icon-park 的 Ad（圆圈 + 「广」）。
 	iconSponsor = iconPark(parkAd)
 

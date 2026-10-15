@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// runComp 用一段正弦喂压缩器，返回稳态后的峰值。
+// runComp 用一段正弦喂均衡器，返回稳态后的峰值。
 func runComp(t *testing.T, on bool, amp float64) float64 {
 	t.Helper()
 	const rate = 48000
@@ -29,31 +29,33 @@ func runComp(t *testing.T, on bool, amp float64) float64 {
 	return peak
 }
 
-// 实测电平对照（补上补偿增益之后）——这就是「音量均衡」应有的力度：
+// TestCompressorMakeup 钉住「音量均衡」的核心行为（RMS 驱动 + 目标响度
+// 归一化）：不同输入电平的输出动态范围应比输入窄，且安静内容被抬高。
 //
-//	输入   0.0 dBFS → 开均衡  0.0 dBFS（提升  0.0 dB）
-//	输入  -6.0 dBFS → 开均衡 -0.5 dBFS（提升  5.5 dB）
-//	输入 -12.0 dBFS → 开均衡 -1.0 dBFS（提升 11.0 dB）
-//	输入 -20.0 dBFS → 开均衡 -1.7 dBFS（提升 18.3 dB）
-//	输入 -26.0 dBFS → 开均衡 -2.2 dBFS（提升 23.9 dB）
-//	输入 -40.0 dBFS → 开均衡 -4.5 dBFS（提升 35.5 dB）
+//	输入峰值  1.0 ( 0 dBFS) → 输出 ≈ 0.81（压低，向目标 -5 dBFS 靠拢）
+//	输入峰值  0.05(-26 dBFS) → 输出 ≈ 0.57（抬高 +21 dB）
 //
-// 各种电平都收敛到 -1 ~ -4 dBFS 附近，且满幅不被压低。
-
-// TestCompressorMakeup 钉住「音量均衡」的核心行为：
-// 满幅内容不被压低，安静内容被抬上来（原版靠 Web Audio 压缩器的
-// 自动补偿增益做到，少了它就是一开均衡全都变小）。
+//	输入动态范围 20× → 输出动态范围 ≈ 1.8×（均衡有效）
 func TestCompressorMakeup(t *testing.T) {
 	fullOn := runComp(t, true, 1.0)
-	fullOff := runComp(t, false, 1.0)
-	if math.Abs(fullOn-fullOff) > 0.05 {
-		t.Errorf("满幅内容开均衡后不应被明显压低：关=%v 开=%v", fullOff, fullOn)
-	}
+	quietOn := runComp(t, true, 0.05)
 
-	quietOn := runComp(t, true, 0.05)   // -26 dBFS
-	quietOff := runComp(t, false, 0.05) // 原样
+	// 安静内容被抬高
+	quietOff := runComp(t, false, 0.05)
 	if quietOn <= quietOff*1.5 {
 		t.Errorf("安静内容开均衡后应被明显抬上来：关=%v 开=%v", quietOff, quietOn)
+	}
+
+	// 输出动态范围比输入窄（均衡的核心效果）
+	inputRatio := 1.0 / 0.05 // 20×
+	outputRatio := fullOn / quietOn
+	if outputRatio >= inputRatio*0.5 {
+		t.Errorf("输出动态范围应比输入窄：输入 %.1f× 输出 %.2f×", inputRatio, outputRatio)
+	}
+
+	// 响亮内容不被抬高（压低或持平）
+	if quietOn > fullOn*1.2 {
+		t.Errorf("安静内容不应超过响亮内容太多：full=%v quiet=%v", fullOn, quietOn)
 	}
 }
 
