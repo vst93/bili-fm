@@ -81,9 +81,13 @@ func (a *App) MiniShell(c *ui.Context) {
 					dot := ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
 						Radius(RadiusPill).Background(dotInk)
 					dot.Shadow(0, 0, 0, 4, dotInk.Alpha(0.12))
-					// 原版 .mini-part：12px / 650 / #526174。
+					// 原版 .mini-part：12px / 650 / #526174 / line-height 1.2。
+					// 框架自然行盒（12px ≈ 18）下不去，这一行会高约 3.6px、把
+					// 信息列（Justify Center）整体推偏；用显式盒高 + 字形上移
+					// 复现（见 linebox.go）。
+					mh, msh := textLineBox(12, 1.2)
 					ui.Text(c, a.partTitle()).FontSize(12).FontWeight(650).
-						TextColor(ui.Hex("#526174")).SingleLine()
+						TextColor(ui.Hex("#526174")).SingleLine().Height(mh).Translate(0, msh)
 				})
 			})
 

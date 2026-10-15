@@ -1836,9 +1836,15 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
+			// 原版 `font-size:11px; line-height:1.2; padding:2px 5px`（盒高
+			// 2+13.2+2 = 17.2）。框架的自然行盒（11px ≈ 16.5）下不去，角标会
+			// 比原版高约 4px、盖住更多封面；用显式盒高 + 字形上移复现（见
+			// linebox.go）。
 			if spec.Duration != "" {
+				dh, dsh := textLineBox(11, 1.2)
 				numericText(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
+					Height(dh + 4).Translate(0, dsh).
 					Padding(2, 5).Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
 			if spec.Playing {

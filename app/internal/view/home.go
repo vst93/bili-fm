@@ -780,7 +780,12 @@ func (a *App) videoInfoHead(c *ui.Context) {
 			}
 
 			ui.Column(c).MinWidth(0).Children(func() {
-				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6"))
+				// 原版 .video-kicker：10px / 700 / line-height 1 / margin-bottom 1px。
+				// 框架自然行盒（10px ≈ 15）下不去，Kicker 会高 5px 并把名字挤低；
+				// 用显式盒高 + 字形上移复现（见 linebox.go）。
+				kh, ksh := textLineBox(10, 1)
+				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6")).
+					Height(kh).Margin(0, 0, 1, 0).Translate(0, ksh)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
 					name.Background(ui.Transparent)
@@ -788,10 +793,13 @@ func (a *App) videoInfoHead(c *ui.Context) {
 					// var(--studio-blue); outline-offset: 2px`。
 					focusOutline(name, 4, focusStudio)
 					name.Children(func() {
-						// 原版 #video-owner-name：15px / 650 / hover #0284c7。
+						// 原版 #video-owner-name：15px / 650 / line-height 1.25。
+						// 框架自然行盒（15px ≈ 22.5）下不去，名字会高约 4px；用显式
+						// 盒高 + 字形上移复现（见 linebox.go）。
+						nh, nsh := textLineBox(15, 1.25)
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
 							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
-							SingleLine().MaxWidth(240)
+							SingleLine().MaxWidth(240).Height(nh).Translate(0, nsh)
 					})
 					if name.Clicked() {
 						a.openUp()
@@ -1027,11 +1035,13 @@ func (a *App) contextDock(c *ui.Context) {
 				}
 			})
 		if n := a.playlistBadgeCount(); n > 0 {
-			// 原版 .nav-badge：14 高、圆角 7、1px 白边 + 内高光 +
-			// 一层玫红投影（合集来源才换紫底）。
+			// 原版 .nav-badge：`height:14px; min-width:14px; line-height:1;
+			// padding:0 3px`（display:flex 居中）、圆角 7、1px 白边 + 内高光 +
+			// 一层玫红投影（合集来源才换紫底）。此前用自然行盒 + `Padding(1,4)`，
+			// 角标比原版高约 1.5px、也宽 2px；改用原版的盒高 / 最小宽 / 内边距。
 			badge := ui.Text(c, a.playlistBadgeText()).FontSize(9).Bold().
 				TextColor(ui.Hex("#ffffff")).
-				Absolute().Right(-4).Top(-4).Padding(1, 4).Radius(RadiusPill).
+				Absolute().Right(-4).Top(-4).Height(14).MinWidth(14).Padding(0, 3).Radius(RadiusPill).
 				Background(a.playlistBadgeInk()).
 				Border(1, ui.Hex("#ffffff").Alpha(0.55)).
 				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
