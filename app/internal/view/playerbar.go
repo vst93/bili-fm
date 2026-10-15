@@ -1394,6 +1394,18 @@ var playerTimeInk = func(t Theme) ui.Color { return t.PlayerTime }
 // seekSettle 是松手/seek 完成后滑块停在目标值、不跟随播放位置的时长。
 const seekSettle = 250 * time.Millisecond
 
+// thumbScaleAnim 是滑块 transform 过渡动画参数（原版
+// `transition: transform 100ms ease`，globals.css:3277）。
+var thumbScaleAnim = ui.Animation{
+	Duration: 100 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1), // ease ≈ CSS ease
+}
+
+// progressDisabledOpacity 是进度条禁用态的目标 opacity（原版
+// `#player input[type="range"]:disabled { opacity: 0.42; }`）。
+// mygo 框架对 disabled 元素自动乘 0.5，用 disabledDim 抵消后得到 0.42。
+const progressDisabledOpacity = 0.42
+
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
@@ -1445,7 +1457,7 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	}
 
 	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
-	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, s)
+	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, rp.ThumbScale, s)
 }
 
 func (a *App) progress(c *ui.Context) {
@@ -1477,6 +1489,12 @@ func (a *App) progress(c *ui.Context) {
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
 	focusOutline(s, 0, focusStudio)
+	// 禁用态 opacity 对齐原版：原版 `#player input[type="range"]:disabled
+	// { opacity: 0.42; }`。mygo 框架对 disabled 元素自动乘 0.5，用
+	// disabledDim 抵消后得到 0.42（见 disabled.go 的总说明）。
+	if a.Dur <= 0 {
+		s.Opacity(disabledDim(progressDisabledOpacity))
+	}
 	_, _, held := s.Dragged()
 	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
 
@@ -1496,9 +1514,14 @@ func (a *App) progress(c *ui.Context) {
 	a.SeekValue = next
 	a.wasHeld = held
 
+	// 滑块 scale 过渡（原版 `transition: transform 100ms ease`）：
+	// 目标 scale 由悬停/按下态决定，用 AnimateTo 逐帧逼近，不再瞬时跳变。
+	targetScale := rangeThumbScale(s.Hovered(), held)
+	thumbScale := s.AnimateTo("progress-thumb-scale", targetScale, thumbScaleAnim)
+
 	frac := float32(a.SeekValue / hi)
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintTimeline(p, r, a.timelinePaint(s, frac, held))
+		paintTimeline(p, r, a.timelinePaint(s, frac, held, thumbScale))
 	})
 	a.seekBubble(c, s, a.Dur)
 }
@@ -1513,18 +1536,20 @@ func bufferedFrac(buffered, dur float64) float32 {
 
 // timelinePaint 收集进度条这一帧的绘制输入：悬停 / 拖动态取自框架的指针
 // 状态（主窗与迷你窗各有一条进度条，两条共用同一套外观与状态机），
-// 缓冲区比例与广告段数据取自 App。
-func (a *App) timelinePaint(s ui.Element, frac float32, held bool) rangePaint {
+// 缓冲区比例与广告段数据取自 App。thumbScale 由调用方用 AnimateTo 过渡后
+// 传入（原版 `transition: transform 100ms ease`）。
+func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale float32) rangePaint {
 	return rangePaint{
-		Frac:     frac,
-		Buffered: bufferedFrac(a.Buffered, a.Dur),
-		Segs:     a.SponsorSegments,
-		Dur:      a.Dur,
-		Hovered:  s.Hovered(),
-		Held:     held,
-		Dark:     a.Theme.Dark,
-		Colors:   rangeColorsFor(a.Theme),
-		Geom:     timelineGeom,
+		Frac:       frac,
+		Buffered:   bufferedFrac(a.Buffered, a.Dur),
+		Segs:       a.SponsorSegments,
+		Dur:        a.Dur,
+		Hovered:    s.Hovered(),
+		Held:       held,
+		Dark:       a.Theme.Dark,
+		Colors:     rangeColorsFor(a.Theme),
+		Geom:       timelineGeom,
+		ThumbScale: thumbScale,
 	}
 }
 
@@ -2114,6 +2139,10 @@ func (a *App) miniProgress(c *ui.Context) {
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)
+	// 禁用态 opacity 对齐原版（同主窗 progress）。
+	if a.Dur <= 0 {
+		s.Opacity(disabledDim(progressDisabledOpacity))
+	}
 	_, _, held := s.Dragged()
 	changed := s.Changed()
 	if held != a.wasHeld {
@@ -2132,9 +2161,13 @@ func (a *App) miniProgress(c *ui.Context) {
 	a.SeekValue = next
 	a.wasHeld = held
 
+	// 滑块 scale 过渡（原版 `transition: transform 100ms ease`）。
+	targetScale := rangeThumbScale(s.Hovered(), held)
+	thumbScale := s.AnimateTo("mini-progress-thumb-scale", targetScale, thumbScaleAnim)
+
 	frac := float32(a.SeekValue / hi)
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintTimeline(p, r, a.timelinePaint(s, frac, held))
+		paintTimeline(p, r, a.timelinePaint(s, frac, held, thumbScale))
 	})
 	a.seekBubble(c, s, a.Dur)
 }

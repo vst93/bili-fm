@@ -18,12 +18,13 @@ const (
 
 // rangePaint 是一条输入条（进度 / 音量）这一帧的绘制输入。
 type rangePaint struct {
-	Frac    float32     // 已填充比例 0..1
-	Hovered bool        // 指针停在条上（原版 :hover）
-	Held    bool        // 正在拖动 / 按下（原版 :active）
-	Dark    bool        // 烟熏玻璃时段（原版深色块整组覆写轨道/滑块的影与滑块底色）
-	Colors  rangeColors // 轨道描边与底色（随时段变，见 rangeColorsFor）
-	Geom    rangeGeom   // 轨道与滑块行程的几何（见 timelineGeom / volumeGeom）
+	Frac       float32     // 已填充比例 0..1
+	Hovered    bool        // 指针停在条上（原版 :hover）
+	Held       bool        // 正在拖动 / 按下（原版 :active）
+	Dark       bool        // 烟熏玻璃时段（原版深色块整组覆写轨道/滑块的影与滑块底色）
+	Colors     rangeColors // 轨道描边与底色（随时段变，见 rangeColorsFor）
+	Geom       rangeGeom   // 轨道与滑块行程的几何（见 timelineGeom / volumeGeom）
+	ThumbScale float32     // 滑块缩放（由调用方用 AnimateTo 过渡后的值）
 	// 进度条独有：已预读比例与广告段标记（音量条没有这两层）。
 	Buffered float32
 	Segs     []Segment
@@ -96,14 +97,14 @@ var rangeSkinFor = rangeSkinForTheme
 func rangeSkinForTheme(dark, hovered bool) rangeSkin {
 	// 亮色一套（:root 的字面量）。
 	s := rangeSkin{
-		TrackTop:    ui.Hex("#ffffff").Alpha(0.88), // inset 0 1px 1px 白 .88
-		TrackBottom: shadowInk.Alpha(0.08),         // inset 0 -1px 1px 墨 .08
-		TrackGlow:   ui.Hex("#0ea5e9").Alpha(0.10), // 0 2px 7px 蓝 .1
+		TrackTop:    ui.Hex("#ffffff").Alpha(0.88),  // inset 0 1px 1px 白 .88
+		TrackBottom: shadowInk.Alpha(0.08),          // inset 0 -1px 1px 墨 .08
+		TrackGlow:   ui.Hex("#0ea5e9").Alpha(0.10),  // 0 2px 7px 蓝 .1
 		ThumbBorder: ui.Hex("#ffffff").Alpha(0.90),
 		ThumbFill:   ui.Hex("#e0f2fe").Alpha(0.62),
 		// 原版滑块高光是 `radial-gradient(circle at 34% 24%, 白 .98 …)`，
-		// 用 135° 线性近似时起点取 .86（见 paintRangeThumb）。
-		ThumbGlint: ui.Hex("#ffffff").Alpha(0.86),
+		// 用 135° 线性近似时起点取 .98（见 paintRangeThumb）。
+		ThumbGlint: ui.Hex("#ffffff").Alpha(0.98),
 		ThumbTop:   ui.Hex("#ffffff").Alpha(0.92), // inset 0 1px 1px 白 .92
 		// 亮色独有的底内影 `inset 0 -1px 2px rgba(2,132,199,.1)`。
 		ThumbBottom: ui.Hex("#0284c7").Alpha(0.10),
@@ -115,7 +116,7 @@ func rangeSkinForTheme(dark, hovered bool) rangeSkin {
 		s.TrackGlow = ui.Hex("#0ea5e9").Alpha(0.07) // 0 2px 7px 蓝 .07
 		s.ThumbBorder = ui.Hex("#ffffff").Alpha(0.68)
 		s.ThumbFill = ui.Hex("#e0f2fe").Alpha(0.48)
-		s.ThumbGlint = ui.Hex("#ffffff").Alpha(0.78) // 深色径向白 .9
+		s.ThumbGlint = ui.Hex("#ffffff").Alpha(0.90) // 深色径向白 .9
 		s.ThumbTop = ui.Hex("#ffffff").Alpha(0.58)   // inset 0 1px 1px 白 .58
 		s.ThumbBottom = ui.Transparent               // 深色规则没有底内影
 		s.ThumbGlow = ui.Hex("#0284c7").Alpha(0.20)  // 0 2px 7px 蓝 .2
@@ -226,8 +227,11 @@ func paintRangeInsets(p *ui.Painter, track ui.Rect, s rangeSkin) {
 // paintRangeThumb 画滑块：淡蓝底 + 左上玻璃高光 + 两条 inset + 1px 白描边 +
 // 蓝色投影；悬停放大到 1.1 并多一圈 3px 蓝晕，按下放大到 1.12（原版 thumb 的
 // 三态）。描边 / 底色 / 高光 / 内影 / 外影都取自 rangeSkin，深色时段整体压暗一档。
-func paintRangeThumb(p *ui.Painter, cx, cy float32, hovered, held bool, s rangeSkin) {
-	d := timelineThumb * rangeThumbScale(hovered, held)
+//
+// ThumbScale 由调用方用 AnimateTo 过渡后传入（原版 `transition: transform
+// 100ms ease`），不再在函数内部瞬时计算。
+func paintRangeThumb(p *ui.Painter, cx, cy float32, hovered, held bool, scale float32, s rangeSkin) {
+	d := timelineThumb * scale
 	k := ui.Rect{X: cx - d/2, Y: cy - d/2, W: d, H: d}
 	if hovered || held {
 		// 0 0 0 3px rgba(14,165,233,.1)
@@ -265,5 +269,10 @@ func paintRangeBar(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	s := rangeSkinFor(rp.Dark, rp.Hovered)
 	paintRangeShadow(p, track, rp.Hovered, s)
 	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
-	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, s)
+	// 音量条没有外部动画状态，用内部计算的瞬时 scale。
+	scale := rp.ThumbScale
+	if scale == 0 {
+		scale = rangeThumbScale(rp.Hovered, rp.Held)
+	}
+	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, scale, s)
 }

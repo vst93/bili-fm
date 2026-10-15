@@ -50,3 +50,10 @@
 - 永久否决：关窗行为选项、主题跟随系统、歌单导入导出。
 - SponsorBlock 默认关，mini 模式不显示跳过入口（后台跳过仍生效）。
 - 更新记录：`.pending-bugs.md`（每轮 commit 后追加一行）。
+
+## 进度条对齐（2026-10-15）
+
+- 原版 `main:src/styles/globals.css`（3067-3277 区间）/ mygo `app/internal/view/rangeslider.go` + `app/internal/view/playerbar.go` 进度条区域。
+- 修复 3 项差异：① 禁用态 opacity 从 0.5 对齐到 0.42（`disabledDim` 抵消框架减半）；② 滑块 scale 从瞬时改为 100ms ease 过渡（`AnimateTo`）；③ 滑块高光 alpha 亮色 0.86→0.98、深色 0.78→0.90。
+- 已知未对齐：Seek bubble 在触摸设备（`@media (hover:none), (pointer:coarse)`）原版 `display:none`，mygo 无法检测指针类型。
+- volume thumb 圆心 1px 偏移（原版 `margin-top:-5px`）在 mygo 中已修正为居中，不回退。
