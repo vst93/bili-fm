@@ -731,12 +731,16 @@ func TestDanmakuListResetsOnDataChange(t *testing.T) {
 //
 // 原版 `.danmaku-message-text` 只有一条白色 text-shadow、没有 background；白底
 // 只该来自胶囊本体 `.danmaku-message-row`（white .48 / Linux .9，见
-// danmakuChipPaint）。4408e18 曾用「白 .68 的 Absolute 副本」模拟那条阴影，结果
-// 在胶囊里显出一块方形白底（用户报「弹幕文字默认白底」）。本轮把白层与透明
-// 占位那套 Absolute 手法整个删掉。
+// danmakuChipPaint）。4408e18 曾用「白 .68 的 Absolute **矩形**副本」模拟那条
+// 阴影，结果在胶囊里显出一块方形白底（用户报「弹幕文字默认白底」）。本轮把白
+// 矩形与透明占位那套 Absolute 手法整个删掉。
 //
-// 两条断言：源码里不再有白 .68 的文字层；弹幕文字是普通 flow 子元素（不再有
-// TextColor(ui.Transparent) 的占位或 Absolute 双写）。
+// 那条柔光阴影本身是**原版就有的**（globals.css:4535），删掉矩形时被一并丢了。
+// danmakuText 把它以**字形副本**的形式补回来（`Draw` 里下移 1px 画一份同字体
+// 的白字，元素自己的深色字形再盖上去），因此不再是白底矩形。
+//
+// 断言：源码里不再有白 .68 的矩形白层；弹幕文字是普通 flow 子元素（不再有
+// TextColor(ui.Transparent) 的占位或 Absolute 双写），且经 danmakuText 画。
 func TestDanmakuTextHasNoBackground(t *testing.T) {
 	flat := flatten(t, "drawer.go")
 	if strings.Contains(flat, `Background(ui.Hex("#ffffff").Alpha(0.68))`) {
@@ -745,9 +749,14 @@ func TestDanmakuTextHasNoBackground(t *testing.T) {
 	if strings.Contains(flat, `FixedLineHeight(18).TextColor(ui.Transparent)`) {
 		t.Error("弹幕文字仍有透明占位副本（Absolute 白层手法的残留）")
 	}
-	want := `ui.Text(c,e.Text).FontSize(13).FontWeight(650).FixedLineHeight(18).TextColor(danmakuInk(e.Color,t.Dark)).SingleLine()`
+	// 文字仍必须是普通 flow 子元素（不是 Absolute 双写）：danmakuText 返回的
+	// ui.Text 同时也是 chip 的 flow 子元素，链在 danmakuText 里成型。
+	want := `ui.Text(c,s).FontSize(font.Size).FontWeight(font.Weight).`
 	if !strings.Contains(flat, want) {
-		t.Error("弹幕文字没有回到普通 flow 子元素（找不到文字链）")
+		t.Error("弹幕文字没有回到普通 flow 子元素（找不到 danmakuText 的文字链）")
+	}
+	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuInk(e.Color,t.Dark))`) {
+		t.Error("danmakuGroupRow 没有用 danmakuText 画文字（柔光阴影应随之回来）")
 	}
 }
 

@@ -3125,16 +3125,20 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						InsetShadow(0, 1, 0, 0, paint.Inset).
 						Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
 					chip.Children(func() {
-						// 原版 `.danmaku-message-text` 只有一条白色 text-shadow、**没有底色**。
-						// 此前用「白 .68 Absolute 副本」模拟那条阴影（见 4408e18），在胶囊
-						// 里显出一块方形的白底——用户报「弹幕文字默认白底，没有必要」。
-						// 核对 main 原版：文字层无 background，白底只该来自胶囊本体
-						// （.danmaku-message-row 的 white .48 / Linux .9）。本轮去掉
-						// 白层与透明占位那套 Absolute 手法，文字回到 flow：胶囊宽度由
-						// 文字 + ×N 自然撑开，也不再需要手动让开 ×N 的右缘。
-						ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-							FixedLineHeight(18).
-							TextColor(danmakuInk(e.Color, t.Dark)).SingleLine()
+						// 原版 `.danmaku-message-text` 的文字层**没有底色**，白底只该来自
+						// 胶囊本体（.danmaku-message-row 的 white .48 / Linux .9）。
+						//
+						// 但也确实有一条柔光阴影：`text-shadow: 0 1px 1px
+						// rgba(255,255,255,.68)`（globals.css:4535）。此前用「白 .68 Absolute
+						// **矩形**垫底」模拟它（见 4408e18），在胶囊里显出一块方形白底 ——
+						// 用户报「弹幕文字默认白底，没有必要」，那条矩形被删掉了，阴影
+						// 也跟着一起没了（残留差异）。
+						//
+						// 这里用与 CSS 同义的画法补回来：**字形的一份白色副本**下移 1px，
+						// 由元素自己的 `.Draw` 在字形**之前**绘制（框架的 `.Draw` 先于本
+						// 元素的字形，正好是 text-shadow 的层序）——只有字形轮廓外那 1px
+						// 的偏移露出白，不再是矩形白底。
+						danmakuText(c, e.Text, danmakuInk(e.Color, t.Dark))
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。
 							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，
@@ -3155,6 +3159,37 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 			})
 		})
 	})
+}
+
+// danmakuTextInkShadow 是弹幕文字那条白色柔光阴影的不透明度（原版
+// `.danmaku-message-text { text-shadow: 0 1px 1px rgba(255,255,255,.68) }`）。
+// 声明成 var 便于测试换桩反证。
+var danmakuTextInkShadow = func() ui.Color { return ui.Hex("#ffffff").Alpha(0.68) }
+
+// danmakuTextShadow 是弹幕文字那条白色柔光阴影的偏移（原版 text-shadow 的
+// `0 1px 1px`：垂直下移 1px）。
+const danmakuTextShadowY = 1
+
+// danmakuText 画一条弹幕文字（原版 `.danmaku-message-text`：13px / 650 /
+// line-height 18px / single-line），并补回原版那条白色柔光阴影。
+//
+// 阴影画法：元素自己的 `.Draw` 在框架里先于它的字形（paint.go 的顺序是
+// 背景 → paintFn → kindText 字形），所以在 `.Draw` 里把**相同字体、相同文本**
+// 的一份白色副本下移 danmakuTextShadowY 画一遍，再由元素自己的深色字形盖上去
+// —— 只有字形轮廓外面那 1px 的偏移露出白，与 CSS 的 text-shadow 同义。
+// 这是**字形副本**，不是 4408e18 那块被用户否掉的方形白底矩形。
+func danmakuText(c *ui.Context, s string, ink ui.Color) ui.Element {
+	font := ui.Font{Size: 13, Weight: 650}
+	e := ui.Text(c, s).FontSize(font.Size).FontWeight(font.Weight).
+		FixedLineHeight(18).TextColor(ink).SingleLine()
+	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		if s == "" {
+			return
+		}
+		// 字形原点与元素自身一致（无内边距，文本盒即边框盒）。
+		p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y+danmakuTextShadowY, danmakuTextInkShadow())
+	})
+	return e
 }
 
 // danmakuSepColors 给出弹幕分组行分隔线（.danmaku-time-group 的 border-bottom）
