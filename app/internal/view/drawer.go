@@ -3358,7 +3358,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 					Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
 					for j, rp := range cm.Replies {
 						ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
-							FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
+							FillWidth().Gap(replyFirstLinePad).AlignItems(ui.Start).Children(func() {
 							// .text-primary-500 同时覆写成 600 字重。昵称有 Shrink(0)、
 							// 不参与换行（自然宽即单行），可以安全地压行盒；正文可换行，
 							// 行距由框架逐行决定、压不下去，改自绘逐行落点（见 replyBody）。
@@ -3411,9 +3411,11 @@ var replyLinePitch = textXsLH * replyFont.Size
 // （评论行外层的横向内边距就是原版卡片的 `margin: 4px 6px`，见 commentRow。）
 const replyBodyChrome = 2 + 20 + 12 + 2 + 64 + 40 + 12 + 4
 
-// replyBodyWidthFor 是楼中楼正文在**布局期**能拿到的可用宽（DIP）：窗口宽减去
-// replyBodyChrome，再减去昵称的实测宽（原版 span 之间 `ml-1` 的 4px 已计入
-// chrome）。
+// replyBodyWidthFor 是楼中楼正文的**首行**可用宽（DIP），也是原生版行里
+// body 盒的实宽：窗口宽减去 replyBodyChrome，再减去昵称的实测宽。原版首行
+// 接着昵称（两个 inline span），可用宽正是「容器宽 − 昵称宽 − 4」；原生版把
+// body 盒（Grow(1)）放在昵称 + `Gap(4)` 之后，其左缘 = 昵称右缘 + 4，盒宽恰好
+// 就是同一个值 —— 首行在盒内从盒左缘起、用盒整宽，逐值吻合。
 //
 // 框架的布局期拿不到「本帧可用宽」（Context 只暴露 MeasureText，见 home.go
 // videoInfo 的同类说明），而多行文本的行距由框架逐行决定、盒高压不下去
@@ -3424,21 +3426,47 @@ func replyBodyWidthFor(winW float32, user string) float32 {
 	return winW - replyBodyChrome - textWidth(user+":", ui.Font{Size: 12, Weight: 600})
 }
 
+// replyFirstLinePad 是「昵称:」与正文首行之间的间距（原版第二个 span 的
+// `ml-1`，即 4px；原生版用行容器的 `Gap(4)` 实现）。
+const replyFirstLinePad = 4
+
+// replyRestWidthFor 是正文**续行**的可用宽：原版续行从容器左缘起、用整行
+// （两个 inline span 的 inline 流，续行没有悬挂缩进）。它比首行宽多出
+// 「昵称宽 + 4」那一截。
+func replyRestWidthFor(winW float32, user string) float32 {
+	return replyBodyWidthFor(winW, user) + textWidth(user+":", ui.Font{Size: 12, Weight: 600}) + replyFirstLinePad
+}
+
+// replyLines 折出楼中楼正文的每一行：**悬挂缩进**（首行被昵称挤窄、续行用整行），
+// 复现原版 danmakuList.tsx:375-380 两个 inline span 的 inline 流。
+func replyLines(winW float32, rp Comment) []string {
+	return wrapHangingLines(rp.Content, replyFont,
+		replyBodyWidthFor(winW, rp.User), replyRestWidthFor(winW, rp.User), replyMaxLines)
+}
+
 // replyBody 画楼中楼正文（原版 danmakuList.tsx:379 的第二个 span）：12px 的
 // 多行文本，原版行高是 Tailwind `text-xs` 的 16px。框架的自然行盒是 18，
 // `LineHeight` 只能把行距放大、压不下去（linebox.go），所以自绘逐行落点
 // （行距 replyLinePitch = 16，断行仍交给框架）。盒高 = 折行数 × 16。
+//
+// 折行按**悬挂缩进**：原版正文与昵称同处一个段落（两个 inline span），首行
+// 接着昵称、被昵称挤窄，续行从容器左缘起用整行；此前用 Row(Gap(4)) + Grow(1)
+// 把正文与昵称分开，正文盒整列左缘对齐昵称右缘，**续行也带悬挂缩进**
+// （残留差异）。这里让首行在盒内从盒左缘起（= 昵称右缘 + 4），续行向左回退到
+// 容器左缘（盒左缘 − 昵称宽 − 4）、用整行宽。
 func (a *App) replyBody(c *ui.Context, rp Comment) {
-	w := replyBodyWidthFor(windowWidth(c), rp.User)
-	lines := wrapTextLines(rp.Content, replyFont, w, replyMaxLines)
+	winW := windowWidth(c)
+	name := rp.User + ":"
+	nameW := textWidth(name, ui.Font{Size: 12, Weight: 600})
+	lines := replyLines(winW, rp)
 	box := ui.Box(c).Grow(1).MinWidth(0).Height(float32(len(lines)) * replyLinePitch)
 	if rp.Content != "" {
 		// Label 让无头测试与读屏都能拿到正文（原版就是一段可见文本）。
 		box.Label(rp.Content)
 	}
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintTextLines(p, r, wrapTextLines(rp.Content, replyFont, r.W, replyMaxLines),
-			replyFont, replyLinePitch, ui.Hex(replyInkSub))
+		paintHangingLines(p, r, replyLines(winW, rp),
+			replyFont, replyLinePitch, nameW+replyFirstLinePad, ui.Hex(replyInkSub))
 	})
 }
 

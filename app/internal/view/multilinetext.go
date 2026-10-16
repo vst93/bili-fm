@@ -67,6 +67,60 @@ func wrapTextLines(s string, font ui.Font, width float32, maxLines int) []string
 	return lines
 }
 
+// wrapHangingFirst 把 body 按 firstW 宽折出**第一行**，返回该行文本与余下部分。
+// 供悬挂缩进的段落使用（原版楼中楼是「昵称: 正文」两个 inline span：正文首行
+// 接着昵称、可用宽被昵称挤窄，续行却从容器左缘开始、可用宽是整行）。
+// 断行仍交给框架（ShapeText + Caret 的 Y 抬高），只是把「第一行的宽」与
+// 「续行的宽」分开喂给两次折行。
+func wrapHangingFirst(body string, font ui.Font, firstW float32) (first, rest string) {
+	if body == "" || firstW <= 0 {
+		return "", body
+	}
+	layout := ui.ShapeText(body, font, firstW)
+	runes := []rune(body)
+	units := make([]int, len(runes)+1)
+	for i, r := range runes {
+		units[i+1] = units[i] + utf16.RuneLen(r)
+	}
+	prevY := layout.Caret(units[0]).Y
+	for i := 1; i <= len(runes); i++ {
+		if layout.Caret(units[i]).Y != prevY {
+			return string(runes[:i]), string(runes[i:])
+		}
+	}
+	return body, ""
+}
+
+// wrapHangingLines 折一个**悬挂缩进**的段落：第一行限宽 firstW，续行限宽
+// restW（≥ firstW）。原版楼中楼正文（danmakuList.tsx:379）是「用户:正文」两个
+// inline span 组成的段落，续行没有悬挂缩进 —— 首行接着昵称、被昵称的宽挤窄，
+// 续行从容器左缘起、用整行宽。这里把两段宽分别折行后拼起来，复现这套 inline 流。
+func wrapHangingLines(body string, font ui.Font, firstW, restW float32, maxLines int) []string {
+	if maxLines <= 0 {
+		return nil
+	}
+	if body == "" {
+		return []string{""}
+	}
+	first, rest := wrapHangingFirst(body, font, firstW)
+	lines := make([]string, 0, 4)
+	if first != "" {
+		lines = append(lines, first)
+	}
+	if rest != "" {
+		lines = append(lines, wrapTextLines(rest, font, restW, maxLines)...)
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		last := []rune(lines[maxLines-1])
+		for len(last) > 0 && textWidth(string(last)+"…", font) > restW {
+			last = last[:len(last)-1]
+		}
+		lines[maxLines-1] = string(last) + "…"
+	}
+	return lines
+}
+
 // textWidth 是单行文本的实测宽度（DIP），用于省略号截断判定。
 func textWidth(s string, font ui.Font) float32 {
 	if s == "" {
@@ -90,5 +144,25 @@ func paintTextLines(p *ui.Painter, r ui.Rect, lines []string, font ui.Font, line
 			continue
 		}
 		p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y+float32(i)*linePitch+shift, c)
+	}
+}
+
+// paintHangingLines 同 paintTextLines，但首行与续行的**左缘不同**：首行在盒
+// 左缘（盒左缘就是容器左缘 + 昵称宽 + 4），续行向左回退 indent（= 昵称宽 + 4）
+// 到容器左缘 —— 复现原版楼中楼「昵称: 正文」两个 inline span 的悬挂缩进。
+func paintHangingLines(p *ui.Painter, r ui.Rect, lines []string, font ui.Font, linePitch, indent float32, c ui.Color) {
+	if linePitch <= 0 {
+		return
+	}
+	_, shift := pxLineBox(font.Size, linePitch)
+	for i, s := range lines {
+		if s == "" {
+			continue
+		}
+		x := r.X
+		if i > 0 {
+			x = r.X - indent
+		}
+		p.TextLayout(ui.ShapeText(s, font, 0), x, r.Y+float32(i)*linePitch+shift, c)
 	}
 }
