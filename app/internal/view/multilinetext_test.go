@@ -144,6 +144,33 @@ func TestVideoTitleLinePitchMatchesOriginal(t *testing.T) {
 	}
 }
 
+// TestNarrowTitleWidthBudgetMatchesLayout 钉住窄窗标题的「预算列宽 == 实测
+// 盒宽」。窄窗分支要在**布局期**按预算列宽折行定盒高（框架不给布局期可用
+// 宽），而 Draw 里用实测 r.W 重折 —— 只有两者逐值相等，盒高与绘制才一致。
+// 预算 = windowWidth − 2×(StagePadX + nowPlayingPadX)（nowPlaying 传给
+// videoInfo 的算式，与 homeStage/nowPlaying 的内边距链同源）。
+//
+// 反证：把 nowPlaying 的预算算式多减一次 StagePadX（或把 nowPlayingPadX 改成
+// 别的值），实测盒宽不变而预算变窄，这条会立刻变红。
+func TestNarrowTitleWidthBudgetMatchesLayout(t *testing.T) {
+	title := "这是一个相当长的视频标题用来测试窄窗折行预算宽度与实测盒宽一致"
+	for _, w := range []int{420, 500, 600, 680} {
+		a := narrowApp()
+		a.Track.Title = title
+		tt := shellTesterSize(t, a, w, 900)
+		r, ok := tt.Find(title)
+		if !ok {
+			t.Fatalf("win=%d：找不到标题", w)
+		}
+		l := homeLayoutFor(float32(w))
+		budget := float32(w) - 2*(l.StagePadX+nowPlayingPadX)
+		if math.Abs(float64(r.W-budget)) > 0.5 {
+			t.Errorf("win=%d：标题实测盒宽 = %v，预算列宽 = %v（窄窗盒高按预算算，两者必须相等）",
+				w, r.W, budget)
+		}
+	}
+}
+
 // TestVideoTitleInkWiderThanFrameNatural 证明自绘没有把标题画丢：两行标题都
 // 有墨迹、且在标题盒宽度内（横向不跑到窗外）。
 func TestVideoTitleInkWiderThanFrameNatural(t *testing.T) {

@@ -3280,11 +3280,22 @@ func canLoadMoreComments(hasMore, loading bool, first, last, rows int) bool {
 // commentRow 画一行评论（原版 danmakuList 评论 tab 的卡片行）：32 圆头像 +
 // 昵称 / 「Lv.N · 时间」、正文、点赞数、楼中楼预览。由 repliesBody 的虚拟列表
 // 按需构建。
+//
+// 外层盒吃原版卡片的 `margin: 4px 6px`（用 Padding 而非 Margin）：ui.List 给
+// 行根的宽度恒为内容宽（layoutBox(r.e, cw, …)），行根再 `FillWidth()` 就是
+// cw，叠上 margin 会**溢出**右侧（原版块级 div 的 margin 会从宽度里扣）。
+// 卡片因此会比原版宽 12px、右缘探进 6px（原版右缘离滚动区内容边 6px，
+// 原生版探到 -6px）。外层盒吃内边距、卡片 FillWidth，宽度就与原版一致，
+// 垂直间距不变（4 + 卡片 + 4）。
 func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
-	// 原版行：py-2 px-8 border-b，但 globals.css 又把它覆写成玻璃卡片：
-	// margin 4px 6px、圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
-	row := ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().
-		Margin(4, 6).Padding(8, 32).Gap(8).Radius(10)
+	ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Padding(4, 6).
+		Children(func() { a.commentCard(c, cm, i) })
+}
+
+// commentCard 是评论行的玻璃卡片本体（原版 `.py-2.px-8.border-b` 被 globals.css
+// 覆写后的样子）：圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
+func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
+	row := ui.Column(c).FillWidth().Padding(8, 32).Gap(8).Radius(10)
 	// 悬停换底 / 换边：原版 `.py-2.px-8.border-b` 的
 	// `transition: background-color .14s ease, border-color .14s ease,
 	// box-shadow .14s ease`——底与边走 140ms 过渡（阴影无逐通道
@@ -3362,15 +3373,13 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 					for j, rp := range cm.Replies {
 						ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
 							FillWidth().Gap(4).AlignItems(ui.Start).Children(func() {
-							// .text-primary-500 同时覆写成 600 字重。
-							// 昵称有 Shrink(0)、不参与换行（自然宽即单行），可以安全地压
-							// 行盒；正文可换行，多行行距由框架逐行决定、压不下去（见文末
-							// 剩余差异）。
+							// .text-primary-500 同时覆写成 600 字重。昵称有 Shrink(0)、
+							// 不参与换行（自然宽即单行），可以安全地压行盒；正文可换行，
+							// 行距由框架逐行决定、压不下去，改自绘逐行落点（见 replyBody）。
 							ui.Text(c, rp.User+":").FontSize(12).
 								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0).
 								Height(metaH).Translate(0, metaShift)
-							ui.Text(c, rp.Content).FontSize(12).
-								TextColor(ui.Hex(replyInkSub)).Grow(1)
+							a.replyBody(c, rp)
 						})
 					}
 					if cm.RepliesMore || len(cm.Replies) >= 3 {
@@ -3385,6 +3394,65 @@ func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
 				})
 			}
 		})
+	})
+}
+
+// replyFont 是楼中楼正文的字体：原版 `<span className="ml-1 …">` 继承外层
+// `div.text-xs` → 12px、字重 400。
+var replyFont = ui.Font{Size: 12}
+
+// replyMaxLines 是楼中楼正文的行数上限。原版 `<span>` 没有任何行数截断
+// （globals.css 只给标题/简介/迷你标题挂 -webkit-line-clamp），这里给一个足够
+// 大的数，让 wrapTextLines 只负责折行、不做省略号截断（它要求 maxLines > 0）。
+const replyMaxLines = 1 << 20
+
+// replyLinePitch 是楼中楼正文的**像素**行距：原版 Tailwind `text-xs` 是
+// 12px / 16px 行高，即每行 16px（textXsLH 是倍数 16/12，乘回字号才是像素）。
+var replyLinePitch = textXsLH * replyFont.Size
+
+// replyBodyChrome 是楼中楼正文宽度链上**除昵称以外**的固定内边距之和（DIP）。
+// 抽屉面板铺满整窗，正文列宽可以从窗口宽度按这条链算出来：
+//
+//	抽屉面板 Border(1)          -2
+//	List.Padding(0,10)        -20
+//	评论行外层 Padding(0,6)    -12
+//	评论卡 Border(1)           -2
+//	评论卡 Padding(0,32)       -64
+//	正文列 Padding(0,0,0,40)   -40
+//	楼中楼列 Padding(0,0,0,12) -12
+//	行 Gap(4)                   -4
+//
+// （评论行外层的横向内边距就是原版卡片的 `margin: 4px 6px`，见 commentRow。）
+const replyBodyChrome = 2 + 20 + 12 + 2 + 64 + 40 + 12 + 4
+
+// replyBodyWidthFor 是楼中楼正文在**布局期**能拿到的可用宽（DIP）：窗口宽减去
+// replyBodyChrome，再减去昵称的实测宽（原版 span 之间 `ml-1` 的 4px 已计入
+// chrome）。
+//
+// 框架的布局期拿不到「本帧可用宽」（Context 只暴露 MeasureText，见 home.go
+// videoInfo 的同类说明），而多行文本的行距由框架逐行决定、盒高压不下去
+// （linebox.go），只能自绘逐行落点（multilinetext.go）—— 自绘要在**布局期**
+// 知道折行数，所以用这条与布局同源的算式代替实测宽。
+// TestReplyBodyWidthMatchesLayout 钉住它与实际盒宽逐值相等。
+func replyBodyWidthFor(winW float32, user string) float32 {
+	return winW - replyBodyChrome - textWidth(user+":", ui.Font{Size: 12, Weight: 600})
+}
+
+// replyBody 画楼中楼正文（原版 danmakuList.tsx:379 的第二个 span）：12px 的
+// 多行文本，原版行高是 Tailwind `text-xs` 的 16px。框架的自然行盒是 18，
+// `LineHeight` 只能把行距放大、压不下去（linebox.go），所以自绘逐行落点
+// （行距 replyLinePitch = 16，断行仍交给框架）。盒高 = 折行数 × 16。
+func (a *App) replyBody(c *ui.Context, rp Comment) {
+	w := replyBodyWidthFor(windowWidth(c), rp.User)
+	lines := wrapTextLines(rp.Content, replyFont, w, replyMaxLines)
+	box := ui.Box(c).Grow(1).MinWidth(0).Height(float32(len(lines)) * replyLinePitch)
+	if rp.Content != "" {
+		// Label 让无头测试与读屏都能拿到正文（原版就是一段可见文本）。
+		box.Label(rp.Content)
+	}
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintTextLines(p, r, wrapTextLines(rp.Content, replyFont, r.W, replyMaxLines),
+			replyFont, replyLinePitch, ui.Hex(replyInkSub))
 	})
 }
 
