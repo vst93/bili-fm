@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -429,4 +430,79 @@ func TestDanmakuTabSwitchResetsAutoScroll(t *testing.T) {
 	if !a.DanmakuAutoScroll {
 		t.Error("切回弹幕 tab 后自动跟随应重置为开（原版 handleViewModeChange 里 setIsAutoScroll(true)）")
 	}
+}
+
+// TestDrawerTabGroupRoleAndSelection 钉住抽屉 tab 排的无障碍结构与键盘行为，
+// 对齐原版 HeroUI <Tabs aria-label=…>（每个抽屉表头都是它）：
+//
+//   - 整排是 role=tablist（mygo RoleTabList）+ FocusGroup(Horizontal)；
+//   - 每颗 tab 是 role=tab（RoleTab），选中态带 checked（aria-selected）；
+//   - 左右方向键在 tab 间移动焦点，且**移动即选中**（HeroUI Tabs 默认
+//     keyboardActivation="automatic"）。
+//
+// 此前整排只是个裸 Row、每颗 tab 是普通 button：读屏看不到「这是一组 tab」、
+// 也不知道谁被选中，键盘也只能逐个 Tab。
+func TestDrawerTabGroupRoleAndSelection(t *testing.T) {
+	// 源码链（无头 Tester 不导出无障碍树）：
+	flat := flattenNoComments(t, "drawer.go")
+	if !strings.Contains(flat, `Role(ui.RoleTabList).FocusGroup(ui.Horizontal).Label(tabListLabel(group))`) {
+		t.Error("tab 排没有接 role=tablist + FocusGroup(Horizontal) + aria-label")
+	}
+	if !strings.Contains(flat, `Role(ui.RoleTab).Checked(active)`) {
+		t.Error("tab 没有接 role=tab + 选中态（aria-selected）")
+	}
+	if !strings.Contains(flat, `tabArrowSelect(els,func(iint){onSelect(items[i].Key)})`) {
+		t.Error("tab 排没有接左右方向键的「移动即选中」")
+	}
+	// aria-label 逐组对齐原版：六个抽屉 tab 组各有文案。
+	for group, label := range map[string]string{
+		"sort": "搜索结果排序", "rec": "热门/推荐切换", "hist": "历史/稍后再看切换",
+		"up": "视频/合集切换", "dm": "弹幕/评论切换", "playlist": "播放列表来源切换",
+	} {
+		if got := tabListLabel(group); got != label {
+			t.Errorf("tabListLabel(%q) = %q，应为 %q（原版 <Tabs aria-label>）", group, got, label)
+		}
+	}
+
+	// 无头实测：搜索抽屉三个 tab，点「综合」聚焦，Right 两次依次选中
+	// 「最多播放」「最新发布」。
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerSearch
+	a.Query = "关键词"
+	a.SortOrder = SortTotal
+	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
+	tt.Frame()
+	if err := tt.Click("综合"); err != nil {
+		t.Fatalf("点「综合」失败：%v", err)
+	}
+	tt.Frame()
+	if !tt.Focused("综合") {
+		t.Fatal("点「综合」后焦点不在它上面")
+	}
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if !tt.Focused("最多播放") {
+		t.Error("按 → 后焦点没有移到「最多播放」")
+	}
+	if a.SortOrder != SortClick {
+		t.Errorf("按 → 后排序 = %q，应为 %q（移动即选中）", a.SortOrder, SortClick)
+	}
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if !tt.Focused("最新发布") {
+		t.Error("再按 → 后焦点没有移到「最新发布」")
+	}
+	if a.SortOrder != SortUpdate {
+		t.Errorf("再按 → 后排序 = %q，应为 %q", a.SortOrder, SortUpdate)
+	}
+	// ← 回退：焦点与选中一起回到「最多播放」。
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+	if !tt.Focused("最多播放") || a.SortOrder != SortClick {
+		t.Errorf("按 ← 后没有回到「最多播放」（focused=%v sort=%q）",
+			tt.Focused("最多播放"), a.SortOrder)
+	}
+	// 反证：把 tabArrowSelect 里的 choose(to) 去掉 → 上面三条
+	// 「移动即选中」断言变红（已实测）。
 }

@@ -392,11 +392,17 @@ func (a *App) drawerTabs(c *ui.Context) {
 		a.collectScrollBtn(c, "collect-left", "向左滚动", -200)
 		ui.ScrollHorizontal(c).Grow(1).MinWidth(0).Height(32).
 			TrackScroll(&a.CollectScroll).Children(func() {
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				for _, f := range a.Folders {
-					a.folderTab(c, f)
-				}
-			})
+			// 收藏夹胶囊一排也是 HeroUI 的 <Tabs aria-label="收藏夹切换">：
+			// 整排是 role=tablist + FocusGroup，每颗胶囊是 role=tab + aria-selected。
+			ui.Row(c).Gap(6).AlignItems(ui.Center).
+				Role(ui.RoleTabList).FocusGroup(ui.Horizontal).Label("收藏夹切换").
+				Children(func() {
+					var els []ui.Element
+					for _, f := range a.Folders {
+						els = append(els, a.folderTab(c, f))
+					}
+					tabArrowSelect(els, func(i int) { a.selectFolderByIndex(i) })
+				})
 		})
 		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
@@ -858,22 +864,93 @@ var drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element {
 
 // tabs 是一排胶囊 tab（原版抽屉表头的 HeroUI Tabs）：
 // 高 32、内边距 0 14、圆角 8、字号 13/600；选中态填充更实、文字变蓝。
+// 无障碍（原版 <Tabs aria-label=…>）：整排是一个 `role=tablist` 的
+// FocusGroup(Horizontal) —— 左右方向键在 tab 间移动焦点，且**移动即选中**
+// （HeroUI Tabs 的 arrows 选择语义）；每颗 tab 是 `role=tab`，选中态带
+// `aria-selected`。此前整排只是一个裸 Row：读屏看不到「这是一组 tab」、
+// 也不知道哪一颗被选中，键盘也只能逐个 Tab。
 func (a *App) tabs(c *ui.Context, group string, items []tabItem, selected string, onSelect func(string)) {
-	ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).Children(func() {
+	var els []ui.Element
+	list := ui.Row(c).Gap(6).Shrink(0).AlignItems(ui.Center).
+		Role(ui.RoleTabList).FocusGroup(ui.Horizontal).Label(tabListLabel(group))
+	list.Children(func() {
 		for _, it := range items {
-			a.tab(c, group, it, it.Key == selected, onSelect)
+			els = append(els, a.tab(c, group, it, it.Key == selected, onSelect))
 		}
 	})
+	// HeroUI <Tabs> 默认 keyboardActivation="automatic"：左右方向键不仅移动
+	// 焦点，**移过去即选中**（自动激活）。见 tabArrowSelect。
+	tabArrowSelect(els, func(i int) { onSelect(items[i].Key) })
 }
 
-func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect func(string)) {
+// tabArrowSelect 在 role=tablist + FocusGroup 上补 HeroUI <Tabs> 的自动激活：
+// 左右方向键把焦点移到相邻 tab 时**一并选中它**（原版 Tabs 默认
+// keyboardActivation="automatic"）。框架的 FocusGroup 只做焦点移动（不点），
+// 所以这里每个方向键自己找当前聚焦的 tab、把焦点与选中一起挪过去。
+//
+// 元素级注册会占住方向键、使 groupKey 不再接管焦点，所以这里必须自己调 Focus()。
+// els 按显示顺序给出 tab 元素，choose(i) 负责落选中（下标即 els 下标）。
+func tabArrowSelect(els []ui.Element, choose func(i int)) {
+	if len(els) == 0 {
+		return
+	}
+	step := func(dir int) {
+		cur := -1
+		for i, el := range els {
+			if el.Focused() {
+				cur = i
+				break
+			}
+		}
+		if cur < 0 {
+			return
+		}
+		n := len(els)
+		to := (cur + dir + n) % n
+		els[to].Focus()
+		choose(to)
+	}
+	// 方向键注册在**每一颗 tab**上：焦点在哪一颗，按键就在哪一颗被捕获（元素级
+	// 注册沿焦点链上浮也会命中），然后自己把焦点与选中挪到相邻那颗。
+	for _, el := range els {
+		el.OnShortcut(0, ui.KeyRight, func() { step(1) })
+		el.OnShortcut(0, ui.KeyLeft, func() { step(-1) })
+	}
+}
+
+// tabListLabel 是各抽屉 tab 组的 aria-label（原版每个 <Tabs> 都写了：
+// 搜索排序 / 热门推荐 / 历史稍后再看 / 视频合集 / 弹幕评论 / 播放列表来源）。
+// 未知组回退到通用文案，不至于读屏念空。
+func tabListLabel(group string) string {
+	switch group {
+	case "sort":
+		return "搜索结果排序"
+	case "rec":
+		return "热门/推荐切换"
+	case "hist":
+		return "历史/稍后再看切换"
+	case "up":
+		return "视频/合集切换"
+	case "dm":
+		return "弹幕/评论切换"
+	case "playlist":
+		return "播放列表来源切换"
+	}
+	return "选项"
+}
+
+func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect func(string)) ui.Element {
 	// 原版 header 是单行 flex：tab 不参与收缩（globals.css:4055 的
 	// `header [data-slot="base"]:has([data-slot="tabList"]) { flex: 0 0 auto }`
 	// 与 `[data-slot="tab"] { white-space: nowrap }`）——长标签（如条数变大后的
 	// 「我的列表(12345)」）会把 tab 挤窄、文字折行。这里按钮 Shrink(0)、文字
 	// SingleLine，宽度随标签内容快速变化，永不换行。
 	b := ui.ButtonBase(c.Key("tab-"+group+"-"+it.Key)).Height(32).Padding(0, 14).
-		Shrink(0).Radius(Radius).Center().Label(it.Label)
+		Shrink(0).Radius(Radius).Center().Label(it.Label).
+		// 原版是 HeroUI 的 [data-slot="tab"]（role=tab + aria-selected）。
+		// mygo 对应 RoleTab + Checked（选中态 → AccessChecked，即 aria-selected）。
+		// 放进上面的 role=tablist + FocusGroup 里，左右方向键就能来回选。
+		Role(ui.RoleTab).Checked(active)
 	// 液态玻璃材质（见 drawerTabSurface）：1px 玻璃边 + --liquid-bg 底 +
 	// ::before 洗光 + ::after 聚光描边；悬停 / 选中各自换色抬起。
 	// 原版 `header [data-slot="tab"]:active { transform: none !important }`——
@@ -896,14 +973,17 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 	if b.Clicked() && !active {
 		onSelect(it.Key)
 	}
+	return b
 }
 
 // folderTab 是一个收藏夹 tab（原版显示「标题 (条数)」）。
-func (a *App) folderTab(c *ui.Context, f Folder) {
+func (a *App) folderTab(c *ui.Context, f Folder) ui.Element {
 	active := f.ID == a.FolderID
 	label := fmt.Sprintf("%s (%d)", f.Title, f.Count)
 	b := ui.ButtonBase(c.Key(fmt.Sprintf("folder-%d", f.ID))).Height(32).Padding(0, 14).
-		Shrink(0).Radius(Radius).Center().Label(label)
+		Shrink(0).Radius(Radius).Center().Label(label).
+		// 同普通 tab：HeroUI 的 [data-slot="tab"] 是 role=tab + aria-selected。
+		Role(ui.RoleTab).Checked(active)
 	// 收藏夹 tab 也是 HeroUI 的 `[data-slot="tab"]`（只在 .collect-tabs-scroll
 	// 里横向滚动），材质与普通 tab 完全一致。
 	b = drawerTabSurface(b, active, b.Hovered())
@@ -915,6 +995,19 @@ func (a *App) folderTab(c *ui.Context, f Folder) {
 		a.FolderID = f.ID
 		a.reload()
 	}
+	return b
+}
+
+// selectFolderByIndex 按显示顺序选中第 i 个收藏夹（方向键自动选中用）。
+func (a *App) selectFolderByIndex(i int) {
+	if i < 0 || i >= len(a.Folders) {
+		return
+	}
+	if a.Folders[i].ID == a.FolderID {
+		return
+	}
+	a.FolderID = a.Folders[i].ID
+	a.reload()
 }
 
 // headerButton 是表头里的图标键（原版是 variant="light" 的小按钮）。
