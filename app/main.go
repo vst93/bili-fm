@@ -104,6 +104,13 @@ type controller struct {
 	winGate winGate
 	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
 	videoSilent bool
+
+	// tray 是系统托盘的强引用。Linux（AppIndicator）的原生托盘不持有
+	// mygo 的 TrayHandler，mygo 的 Menu 只被 *Tray 强引用（点击派发走的是
+	// menuItems 里的 weak.Pointer）——本字段一旦不存在，*Tray / Menu / 每个
+	// MenuItem 都可能被 GC 回收，菜单项点击静默失效（macOS/Windows 的原生
+	// 托盘持有 handler，所以只有 Linux 中招）。见 setupTray。
+	tray *mygo.Tray
 }
 
 func main() {
@@ -478,6 +485,9 @@ func main() {
 		if !*noTray {
 			c.setupTray()
 		}
+		// Windows 任务栏缩略图工具栏（悬停任务栏图标时的 上一首/播放暂停/下一首）；
+		// 其它平台 no-op。
+		c.setupTaskbar()
 		if !*noKeys {
 			c.setupMediaKeys()
 		}

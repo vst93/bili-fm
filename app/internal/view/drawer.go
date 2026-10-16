@@ -3019,30 +3019,16 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						InsetShadow(0, 1, 0, 0, paint.Inset).
 						Shadow(0, 2, paint.ShadowBlur, 0, paint.Shadow)
 					chip.Children(func() {
-						// 透明占位撑开 chip 宽度：下面两层都是 Absolute（脱离 flow），
-						// chip 的宽度全靠这个透明文字；×N 胶囊保持 flow，免得被
-						// 白层盖住。
+						// 原版 `.danmaku-message-text` 只有一条白色 text-shadow、**没有底色**。
+						// 此前用「白 .68 Absolute 副本」模拟那条阴影（见 4408e18），在胶囊
+						// 里显出一块方形的白底——用户报「弹幕文字默认白底，没有必要」。
+						// 核对 main 原版：文字层无 background，白底只该来自胶囊本体
+						// （.danmaku-message-row 的 white .48 / Linux .9）。本轮去掉
+						// 白层与透明占位那套 Absolute 手法，文字回到 flow：胶囊宽度由
+						// 文字 + ×N 自然撑开，也不再需要手动让开 ×N 的右缘。
 						ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-								FixedLineHeight(18).
-							TextColor(ui.Transparent).SingleLine()
-						// 白色柔光阴影（原版 .danmaku-message-text 的
-						// `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。框架没有
-						// 文字阴影 API：白层是一块文字行盒大小的白 .68， Absolute
-						// 垫在原文字下方 1px。Absolute 元素总在 flow 兄弟之上，所以
-						// 原色文字也改成 Absolute 盖回来（后声明在上层）；白层右缘
-						// 让开 ×N 的 39px（gap 5 + 胶囊 34），只覆盖文字行盒区域。
-						right := float32(7) // chip padding-right
-						if e.Count > 1 {
-							right += 39
-						}
-						ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
-							Background(ui.Hex("#ffffff").Alpha(0.68)).Translate(0, 1)
-						ui.Box(c).Absolute().Left(9).Top(3.5).Height(20).Right(right).
-							Children(func() {
-								ui.Text(c, e.Text).FontSize(13).FontWeight(650).
-								FixedLineHeight(18).
-									TextColor(danmakuInk(e.Color, t.Dark)).SingleLine()
-							})
+							FixedLineHeight(18).
+							TextColor(danmakuInk(e.Color, t.Dark)).SingleLine()
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。
 							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，

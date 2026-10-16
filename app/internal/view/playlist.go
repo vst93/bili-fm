@@ -23,6 +23,12 @@ const playlistRowRadius = 10
 // 的直边；当前项已不画强调条，见 playlistRowPaint）。
 const playlistAccentRadius = 0
 
+// playlistRowPadL 是记录行的左内边距：原版 p-2 = 8px，当前项也一样。
+// 原版当前项的内容起点是 12px（border-left 4 + padding 8）；原生版去掉了那条
+// 强调条之后，若继续把当前项的左内边距收成 0，缩略图就贴在行左缘（用户报
+// 「当前播放项的左侧图片贴边了」）。不画强调条时，当前项按普通项的 8px 对齐。
+const playlistRowPadL = 8
+
 // playlistTabs 是播放列表抽屉的表头。
 func (a *App) playlistTabs(c *ui.Context) {
 	tabs := []tabItem{{Key: ListUser, Label: fmt.Sprintf("我的列表(%d)", len(a.Playlist))}}
@@ -332,14 +338,14 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	// 行在指针下滑过时 row.Hovered() 会在相邻行间跳，底/边/删除键显隐每帧翻转。
 	locked := a.scrollHoldHeld
 	// 原版行：p-2（8）、rounded-lg（8，但 .group 覆写成 10）、gap-2（8）。
-	// 当前项有 border-left 4px 强调条：原来是把 4px 色条当普通子元素放在
-	// 8px 左内边距之后，缩略图被推到 20px；原版是 4+8=12px。当前项把左内边距
-	// 收成 0，让「强调条(4) + gap(8)」正好把内容推到 12px。
-	padL := float32(8)
-	if current {
-		padL = 0
-	}
-	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(8, 8, 8, padL).
+	//
+	// 左内边距：原版当前项多一条 `border-left: 4px`（内容起点 4+8=12px），
+	// 原生版早先为了对齐这个 12px 把「当前项左内边距收成 0」，让强调条(4)+gap(8)
+	// 把封面推到 12px。但强调条后来被删掉了（用户反馈那条竖线太脏，见
+	// playlistRowPaint），左内边距却没收回来——当前项的缩略图直接贴在行左缘
+	// （用户报「当前播放项的左侧图片贴边了」）。既然不画强调条，当前项就与
+	// 普通项一样吃 8px 左内边距（内容起点 1px 边框 + 8 = 9），封面不再贴边。
+	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(8, 8, 8, playlistRowPadL).
 		Radius(playlistRowRadius).Gap(8).AlignItems(ui.Center)
 
 	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。

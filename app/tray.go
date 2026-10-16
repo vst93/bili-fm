@@ -68,7 +68,12 @@ func (c *controller) setupTray() {
 		log.Printf("托盘创建失败（关窗后将无法恢复窗口）: %v", err)
 		return
 	}
-	_ = tray
+	// 必须留住托盘本身：Linux（AppIndicator）的原生托盘不持有 mygo 的
+	// TrayHandler，而 mygo 的菜单派发（menuItems）只对 MenuItem 持弱引用，
+	// Menu 又只被 *Tray 强引用 —— 不存这一笔，*Tray/Menu/每个 MenuItem 都会被
+	// GC 回收，托盘菜单点上去没有任何反应（macOS/Windows 的原生托盘持有
+	// handler，链子不断，所以只有 Linux 用户报这个）。
+	c.tray = tray
 }
 
 // setupMediaKeys 注册全局媒体键。

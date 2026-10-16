@@ -399,3 +399,40 @@ func TestPlaylistNoAccentBar(t *testing.T) {
 		}
 	}
 }
+
+// TestPlaylistCurrentRowNotFlush 钉住「当前播放项的缩略图不贴行左缘」。
+//
+// 回归点：当前项曾把左内边距收成 0（为了用「强调条 4 + gap 8」凑出原版的
+// 12px 内容起点），强调条后来删掉后内边距却没收回，缩略图直接贴在行左缘
+// （用户报「当前播放项的左侧图片贴边了」）。
+//
+// 判法：当前项在分集名前多画一颗 12px 的播放图标 + 4px gap，所以当前项的
+// 分集名 x 应比普通项大 16；若当前项的左内边距又被收成 0，差值会掉到 8。
+func TestPlaylistCurrentRowNotFlush(t *testing.T) {
+	if playlistRowPadL <= 0 {
+		t.Fatalf("左内边距 = %v，应 >0（当前项也一样）", playlistRowPadL)
+	}
+	render := func(idx int) ui.Rect {
+		a := NewApp(func() {})
+		a.Playlist = []PlayItem{
+			{ID: "a", Part: "P0", Title: "T0"},
+			{ID: "b", Part: "P1", Title: "T1"},
+		}
+		a.PlayingPlaylist = ListUser
+		a.Index = idx
+		a.Drawer = DrawerPlaylist
+		tt := shellTester(t, a)
+		p0, ok := tt.Find("P0")
+		if !ok {
+			t.Fatal("找不到分集名 P0")
+		}
+		return p0
+	}
+	normal := render(-1)
+	current := render(0)
+	delta := current.X - normal.X
+	if delta < 15.5 || delta > 16.5 {
+		t.Errorf("当前项分集名 x 比普通项大 %v，应为 16（播放图标 12 + gap 4）；"+
+			"偏小说明当前项左内边距没收回、缩略图又贴边了", delta)
+	}
+}

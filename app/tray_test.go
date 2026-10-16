@@ -4,7 +4,12 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/egoist/mygo"
 )
 
 // decodePNG 解一张图标；解不开直接 Fatal（资源必须永远是合法 PNG）。
@@ -124,6 +129,44 @@ func TestTrayTemplateIsUsable(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestTrayRetainedOnController 钉住「托盘被 controller 强引用」这条不变量。
+//
+// 用户报「Linux 下托盘菜单的控制按钮点了没反应」，根因不在应用逻辑：mygo 的
+// 菜单点击派发用 weak.Pointer（menu.go 的 menuItems.byID），而 MenuItem 只被
+// Menu 强引用、Menu 只被 *Tray 强引用。macOS / Windows 的原生托盘把 mygo 的
+// TrayHandler 存了下来（handler 反向持有 *Tray），链子不断；Linux（AppIndicator）
+// 的 tray 结构体根本没有这个字段，于是 *Tray 变成孤儿，随时可被 GC 回收——回收后
+// lookupMenuItem 返回 nil，托盘菜单的所有项（含播放/暂停、上一集、下一集）都
+// 静默失效。修复=controller 持有 *Tray。
+//
+// 这里用反射 + 源码链两条断言，任一条被删都会红：
+//  1. controller 有 tray 字段且类型为 *mygo.Tray；
+//  2. setupTray 真的把 NewTray 的返回值写进它。
+func TestTrayRetainedOnController(t *testing.T) {
+	ft, ok := reflect.TypeOf(controller{}).FieldByName("tray")
+	if !ok {
+		t.Fatal("controller 没有 tray 字段：Linux 托盘会因 GC 回收而点击失效")
+	}
+	if ft.Type != reflect.TypeOf((*mygo.Tray)(nil)) {
+		t.Errorf("controller.tray 类型 = %v，应为 *mygo.Tray", ft.Type)
+	}
+
+	flat := flattenSrc(t, "tray.go")
+	if !strings.Contains(flat, "c.tray=tray") {
+		t.Error("setupTray 没有把 NewTray 的返回值记到 c.tray（托盘会被 GC 回收）")
+	}
+}
+
+// flattenSrc 读一份源码并压掉所有空白，便于逐字匹配源码链。
+func flattenSrc(t *testing.T, path string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读 %s 失败：%v", path, err)
+	}
+	return strings.Join(strings.Fields(string(src)), "")
 }
 
 // TestTrayColoredIconIsNotTemplate 记一笔「为什么彩色图不能当模板」：它的 alpha

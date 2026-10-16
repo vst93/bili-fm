@@ -59,10 +59,16 @@ func (a *App) playerBar(c *ui.Context) {
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
 		[]shadowSpec{playerBarShadowSpec(t, false)}).
+		// 顶边 1px（原版 border-top）用 Draw 画，而不是 Absolute 子盒：
+		// Draw 在元素自身的背景/材质之后、**所有子元素之前**；Absolute 子盒
+		// 却在本元素的所有流式子元素之后绘制。进度条的时间胶囊（Absolute，
+		// 挂在进度条滑块下）向上伸出栏顶 10px，正好被 Absolute 的顶边切在
+		// 胶囊腰部（用户报「时间文字腰部被一条线分割」）。Draw 同样不占布局，
+		// 内容区保持完整 56px。
+		Draw(func(p *ui.Painter, r ui.Rect) {
+			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, t.PlayerBorder, 0)
+		}).
 		Children(func() {
-			// 顶边 1px（原版 border-top）用 Absolute 画，不占布局——
-			// 内容区保持完整 56px。
-			ui.Box(c).FillWidth().Height(1).Absolute().Top(0).Background(t.PlayerBorder)
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 				AlignItems(ui.Center).Children(func() {
 				a.transport(c)
@@ -2248,7 +2254,18 @@ func seekBubbleMeasure(c *ui.Context) func(string) float32 {
 // style.left，hideTimelineHover 只翻 data-visible）：移开指针后气泡停在最后
 // 悬停的点上原样淡出，不会跟着指针滑走、也不会因为文案清空而缩窄。
 func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
-	px, _, over := s.PointerPosition()
+	px, _, _ := s.PointerPosition()
+	// 「指针在不在进度条上」以命中链为准（s.Hovered()），而不是
+	// PointerPosition 的矩形包含（它的 over 只看矩形）。音量 / 倍速弹层挂在
+	// 播放栏右侧、与进度条处在同一水平带，矩形跟进度条重叠：矩形判定会让
+	// 在弹层上做选择时也点亮时间胶囊（用户报的「弹窗交互触发下一层进度条的
+	// 悬浮逻辑」——正是事件穿透/命中链问题）。Hovered() 读本帧命中链的最上层
+	// 元素及其祖先，弹层在上时进度条不在链里，胶囊不会出现；气泡自己是
+	// PassThrough，不会把进度条从链里挤掉。
+	//
+	// PointerPosition 仍要调：它置 flagTrackPointer，框架才会在指针移动时
+	// 重画（胶囊要跟着指针走）。
+	over := s.Hovered()
 	show := over && dur > 0
 	w := s.Bounds().W
 	span := w - 2*timelineInset

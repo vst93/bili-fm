@@ -104,6 +104,8 @@ func (c *controller) mediaOnMain(fn func()) {
 // syncMediaTrack 把当前曲目、播放状态、可导航性推给系统媒体中心。
 // 只在主线程调用（它读界面状态）。
 func (c *controller) syncMediaTrack() {
+	// Windows 任务栏缩略图工具栏先同步（不依赖系统媒体中心是否可用）。
+	c.syncTaskbar()
 	if c.media == nil {
 		return
 	}

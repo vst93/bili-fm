@@ -727,65 +727,36 @@ func TestDanmakuListResetsOnDataChange(t *testing.T) {
 	}
 }
 
-// bandAvg 采样一帧里某矩形下方 dyOff 起、宽 2px 的水平带的平均亮度
-// （R+G+B 均值）。带 x 范围收窄 2px 避开边缘。
-func bandAvg(img *image.RGBA, r ui.Rect, dyOff int) float64 {
-	y := int(r.Y+r.H) + dyOff
-	if y < 0 || y >= img.Rect.Dy() {
-		return -1
-	}
-	sum, n := 0, 0
-	for x := int(r.X) + 2; x < int(r.X+r.W)-2 && x < img.Rect.Dx(); x++ {
-		i := img.PixOffset(x, y)
-		sum += int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
-		n += 3
-	}
-	if n == 0 {
-		return -1
-	}
-	return float64(sum) / float64(n)
-}
-
-// TestDanmakuMessageTextShadow 钉住弹幕文字的白色柔光阴影（原版
-// .danmaku-message-text 的 `text-shadow: 0 1px 1px rgba(255,255,255,.68)`）。
+// TestDanmakuTextHasNoBackground 钉住「弹幕文字不再自带白底」。
 //
-// 框架没有文字阴影 API：白层是一块文字行盒大小的白 .68、Absolute 垫在
-// 原文字下方 1px（先声明画在下层），原色文字 Absolute 盖回来。白层只在
-// 文字行盒区域（右缘让开 ×N），文字下缘外露出 1~2px 的白晕：该行亮度
-// ≈252（白 .68 over chip 底 247）。此前完全没有这层，文字下缘就是
-// chip 底 247。把白层的 Box 删掉，这条即变红。
-func TestDanmakuMessageTextShadow(t *testing.T) {
-	a := NewApp(func() {})
-	a.Theme = ThemeFor(PeriodAt(12))
-	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}}
-	a.Drawer = DrawerDanmaku
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame()
-
-	r, ok := tst.Find("测试弹幕文字")
-	if !ok {
-		t.Fatal("渲染帧里找不到弹幕文字")
+// 原版 `.danmaku-message-text` 只有一条白色 text-shadow、没有 background；白底
+// 只该来自胶囊本体 `.danmaku-message-row`（white .48 / Linux .9，见
+// danmakuChipPaint）。4408e18 曾用「白 .68 的 Absolute 副本」模拟那条阴影，结果
+// 在胶囊里显出一块方形白底（用户报「弹幕文字默认白底」）。本轮把白层与透明
+// 占位那套 Absolute 手法整个删掉。
+//
+// 两条断言：源码里不再有白 .68 的文字层；弹幕文字是普通 flow 子元素（不再有
+// TextColor(ui.Transparent) 的占位或 Absolute 双写）。
+func TestDanmakuTextHasNoBackground(t *testing.T) {
+	flat := flatten(t, "drawer.go")
+	if strings.Contains(flat, `Background(ui.Hex("#ffffff").Alpha(0.68))`) {
+		t.Error("drawer.go 里仍有白 .68 的弹幕文字层（用户报的「文字白底」不该存在）")
 	}
-	img := tst.Image()
-	// 白层 = 文字行盒下移 1px：文字 ink 底缘（r.Y+r.H）下方 0..1px
-	// 仍在白层内（行盒底 +1px 偏移，白层底 = r.Y+r.H+1）。
-	below0 := bandAvg(img, r, 0)
-	below1 := bandAvg(img, r, 1)
-	t.Logf("文字下缘带亮度: dy0=%.1f dy1=%.1f", below0, below1)
-	// 白层 .68 白 over chip 底 ≈252；无白层时 chip 底 ≈247。
-	if below0 < 251 || below1 < 251 {
-		t.Errorf("文字下缘白晕缺失：dy0=%.1f dy1=%.1f，应 >251（白 .68 over chip 底）", below0, below1)
+	if strings.Contains(flat, `FixedLineHeight(18).TextColor(ui.Transparent)`) {
+		t.Error("弹幕文字仍有透明占位副本（Absolute 白层手法的残留）")
 	}
-	// 白层底缘之外（dy=2）应回到 chip 底 ≈247。
-	if below2 := bandAvg(img, r, 2); below2 > 250 {
-		t.Errorf("dy=2 处亮度 %.1f 仍偏亮：白层覆盖超出行盒区域", below2)
+	want := `ui.Text(c,e.Text).FontSize(13).FontWeight(650).FixedLineHeight(18).TextColor(danmakuInk(e.Color,t.Dark)).SingleLine()`
+	if !strings.Contains(flat, want) {
+		t.Error("弹幕文字没有回到普通 flow 子元素（找不到文字链）")
 	}
 }
 
-// TestDanmakuRepeatCountNotFogged 钉住有 ×N 胶囊时白层不盖住胶囊：
-// 白层右缘让开 gap 5 + 胶囊 34px，胶囊保持清晰（蓝字 + 浅蓝底），
-// 不被白 .68 雾罩。反证：把白层 Box 的 Right 改成 0（覆盖到胶囊区），
-// 胶囊区域亮度会被抬到 ≈252。
+// TestDanmakuRepeatCountNotFogged 钉住有 ×N 胶囊时文字与胶囊各归其位：
+// 胶囊保持清晰的浅蓝底 + 蓝字，不被任何白层雾罩。
+//
+// 白底文字层已删（见 TestDanmakuTextHasNoBackground），这条从「白层让开右缘」
+// 退化为「胶囊底色本就是偏蓝的浅色、不是中性白」——但仍能抓住「有人往弹幕
+// 文字上再叠一块白层、盖住 ×N」的回归。
 func TestDanmakuRepeatCountNotFogged(t *testing.T) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
