@@ -315,6 +315,8 @@ func jsonToAny(v any) []any {
 
 // progressLabel 把稍后再看的观看进度变成「已看 30% / 已看完」。
 // B 站用 progress = -1 表示已看完（直接按比例算会得到负数）。
+// 百分比按原版 `Math.round((progress / duration) * 100)` 四舍五入（整数除法会
+// 向下取整：30/100 在 progress=29.5 时原版给 30%、mygo 只给 29%）。
 func progressLabel(progress, duration int64) string {
 	if progress < 0 {
 		return "已看完"
@@ -322,7 +324,7 @@ func progressLabel(progress, duration int64) string {
 	if duration <= 0 {
 		return ""
 	}
-	ratio := progress * 100 / duration
+	ratio := int(float64(progress)*100/float64(duration) + 0.5)
 	if ratio > 100 {
 		ratio = 100
 	}

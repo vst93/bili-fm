@@ -161,10 +161,12 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 			TextColor(ui.Hex("#334155"))
 	})
 	ui.Box(c).FillWidth().Center().Children(func() {
-		// .login-qr-card：padding 12、圆角 12、shadow-lg；里面是 160 的二维码。
+		// .login-qr-card：padding 12、圆角 12；里面是 160 的二维码（w-40 h-40）。
+		p := loginQRCardPaint()
 		card := ui.Box(c).Size(184, 184).Radius(12).Padding(12).
-			Background(ui.Hex("#ffffff")).
-			Shadow(0, 10, 15, 0, ui.Hex("#0f172a").Alpha(0.12))
+			Background(p.BG).Border(1, p.Border)
+		applyInsetShadows(card, p.Inset)
+		applyShadows(card, p.Outer)
 		card.Children(func() {
 			if m.QR != nil {
 				ui.Image(c, m.QR).Fill().Fit(ui.Contain)
@@ -175,6 +177,39 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 			}
 		})
 	})
+}
+
+// loginQRCardPaint 是登录二维码卡片（原版 `.login-qr-card`）的底 / 边 / 影。
+//
+//	.login-qr-card {
+//	    background: rgba(255,255,255,.95);
+//	    border: 1px solid rgba(255,255,255,.6);
+//	    box-shadow: inset 0 1px 0 rgba(255,255,255,1),
+//	                0 8px 24px rgba(15,23,42,.1),
+//	                0 1px 2px rgba(15,23,42,.06);
+//	}
+//
+// 原生版此前画成了**纯白实底 + 单条 Tailwind `shadow-lg` 的近似**（0 10 15 墨
+// .12），少了原版的 1px 白描边、顶部内高光与第二条贴身暗影。卡片就贴在同样
+// 近白的登录玻璃面板上，没有那条 1px 白边和顶部内高光时，卡与面板糊成一片、
+// 看不出卡片的边界（用户可感知）。这里逐值对齐原版，抽成纯函数便于单测。
+type loginQRCardPaintSpec struct {
+	BG     ui.Color
+	Border ui.Color
+	Inset  []shadowSpec
+	Outer  []shadowSpec
+}
+
+func loginQRCardPaint() loginQRCardPaintSpec {
+	return loginQRCardPaintSpec{
+		BG:     ui.Hex("#ffffff").Alpha(0.95),
+		Border: ui.Hex("#ffffff").Alpha(0.60),
+		Inset:  []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(1)}},
+		Outer: []shadowSpec{
+			{0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.10)},
+			{0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.06)},
+		},
+	}
 }
 
 // modalMessage 是通用提示（关于 / 快捷键 / 消息）。
@@ -249,13 +284,26 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 // 225°→315° 那段）。圆环路径从右侧（0）起、顺时针一圈为 1，顶弧即
 // [0.625, 0.875)；旋转就是把这个区间整体沿圆周平移。
 func (a *App) dialogSpinner(c *ui.Context, ink ui.Color) {
-	const size, ring = 28, 3
-	el := ui.Box(c).Size(size, size).Shrink(0).Margin(2, 0, 0, 0)
+	ringSpinner(c, ink, 28, 3, "dialog-spin", 2, 0, 0, 0)
+}
+
+// ringSpinner 是「细环 + 顶弧」转圈指示器的共用实现（原版 dialog-spin 关键帧
+// 之下两处用它：对话框 `.dialog-loading-spinner` 28/3，搜索键内联 spinner
+// `.search-submit-spinner` 14/2，都是 0.7s linear infinite）。参数化尺寸与描边
+// 宽度，几何按原版 border 模型算（描边全在盒内、中心线半径 = (边长 − 描边)/2）。
+// margin 是原版各处不同的外边距（对话框 mt-0.5 = 2，搜索键 0），key 前缀让
+// 多处同时转圈时各自一条 Loop。
+func ringSpinner(c *ui.Context, ink ui.Color, size, ring float32, key string,
+	marginTop, marginRight, marginBottom, marginLeft float32) ui.Element {
+	el := ui.Box(c).Size(size, size).Shrink(0)
+	if marginTop != 0 || marginRight != 0 || marginBottom != 0 || marginLeft != 0 {
+		el.Margin(marginTop, marginRight, marginBottom, marginLeft)
+	}
 	// 原版 dialog-spin 0.7s linear infinite：Loop 给 0→1 的线性进度，逐帧算角度。
-	ph := float64(el.Loop("dialog-spin", 700*time.Millisecond, ui.Linear))
+	ph := float64(el.Loop(key, 700*time.Millisecond, ui.Linear))
 	el.Draw(func(p *ui.Painter, r ui.Rect) {
 		cx, cy := r.X+r.W/2, r.Y+r.H/2
-		// border 3px 在盒内：圆环中心线半径 = (边长 − 3) / 2。
+		// border 在盒内：圆环中心线半径 = (边长 − 描边) / 2。
 		rad := (min(r.W, r.H) - ring) / 2
 		var circle ui.Path
 		circle.Circle(cx, cy, rad)
@@ -275,6 +323,7 @@ func (a *App) dialogSpinner(c *ui.Context, ink ui.Color) {
 		head.Circle(cx, cy, rad).Trim(0, end)
 		p.StrokePath(&head, ring, ink)
 	})
+	return el
 }
 
 // dialogSpinnerArc 返回顶弧在圆环路径上的 [start,end] 比例区间（0 = 右侧、

@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"slices"
 	"testing"
 	"time"
 
@@ -164,4 +165,35 @@ func pixelAt(t *testing.T, img *image.RGBA, x, y int) [3]int {
 // lum 是感知亮度（与原版 YIQ 同系数，测试里只用来比较明暗）。
 func lum(c [3]int) int {
 	return (c[0]*299 + c[1]*587 + c[2]*114) / 1000
+}
+
+// TestLoginQRCardPaint 钉住登录二维码卡片（原版 .login-qr-card）的底 / 边 / 影：
+//
+//	background: rgba(255,255,255,.95)
+//	border:     1px solid rgba(255,255,255,.6)
+//	box-shadow: inset 0 1px 0 rgba(255,255,255,1),
+//	            0 8px 24px rgba(15,23,42,.1),
+//	            0 1px 2px rgba(15,23,42,.06)
+//
+// 原生版此前画成纯白实底 + 单条 Tailwind shadow-lg 的近似（0 10 15 墨 .12），
+// 少了 1px 白描边、顶部内高光与贴身暗影 —— 卡片贴在同样近白的登录玻璃面板上
+// 会糊成一片、看不出边界。
+func TestLoginQRCardPaint(t *testing.T) {
+	p := loginQRCardPaint()
+	if p.BG != ui.Hex("#ffffff").Alpha(0.95) {
+		t.Errorf("二维码卡片底色 = %v，应为白 .95", p.BG)
+	}
+	if p.Border != ui.Hex("#ffffff").Alpha(0.60) {
+		t.Errorf("二维码卡片描边 = %v，应为白 .60", p.Border)
+	}
+	if len(p.Inset) != 1 || p.Inset[0] != (shadowSpec{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(1)}) {
+		t.Errorf("二维码卡片内高光 = %+v，应为 inset 0 1 0 白 1", p.Inset)
+	}
+	want := []shadowSpec{
+		{0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.10)},
+		{0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.06)},
+	}
+	if !slices.Equal(p.Outer, want) {
+		t.Errorf("二维码卡片外投影 = %+v，应为 0 8 24 墨 .1 + 0 1 2 墨 .06", p.Outer)
+	}
 }

@@ -362,6 +362,12 @@ const (
 	ToolButtonR = 6
 	AvatarSize  = 36
 
+	// 搜索键内联 spinner（原版 .search-submit-spinner）：14×14、2px 描边，
+	// 复用 dialog-spin 关键帧（0.7s linear infinite）。原生版此前用框架的
+	// ui.Spinner（辐条式）且画成 18px，与原版「细环 + 顶弧」的 14px 不对。
+	searchSubmitSpinnerSize = 14
+	searchSubmitSpinnerRing = 2
+
 	// 原版两组图标按钮（globals.css）：
 	//   .video-content-actions .nav-icon-btn  34×34 圆角 8
 	//   .video-context-dock .nav-icon-btn     34×34 圆角 7

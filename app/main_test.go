@@ -124,6 +124,10 @@ func TestProgressLabel(t *testing.T) {
 	if got := progressLabel(0, 100); got != "" {
 		t.Errorf("progressLabel(0) = %q, want empty", got)
 	}
+	// 原版是 Math.round：29.5% 进位到 30%，整数向下取整会给 29%。
+	if got := progressLabel(59, 200); got != "已看 30%" {
+		t.Errorf("progressLabel(59,200) = %q，应为已看 30%%（Math.round）", got)
+	}
 }
 
 func TestBvidFromURL(t *testing.T) {

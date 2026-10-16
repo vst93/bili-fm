@@ -166,10 +166,11 @@ func (a *App) searchField(c *ui.Context) {
 		//（disable.go 里有这条例外的说明）。
 		submit.Children(func() {
 			if searching {
-				// 搜索中：用框架的 Spinner（原版是自己写 CSS 关键帧做
-				// .search-submit-spinner）。v0.4.2 起 Spinner 会跟着
-				// TextColor 上色，所以能直接染成主题蓝。
-				ui.Spinner(c).Size(18, 18).TextColor(t.Blue)
+				// 搜索中：原版 `.search-submit-spinner` 是 14×14、2px 浅蓝整圈 +
+				// 深蓝顶弧的圆环（0.7s linear infinite）——不是 mygo 的辐条
+				// Spinner，也不是 18px 的对话框尺寸；用共用实现逐值复现。
+				ringSpinner(c, t.Blue, searchSubmitSpinnerSize, searchSubmitSpinnerRing,
+					"search-spinner", 0, 0, 0, 0).Label("搜索中")
 			} else {
 				topToolInk(ui.Icon(c, iconMagnifier).Size(18, 18), sub.Ink)
 			}
