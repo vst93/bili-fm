@@ -235,4 +235,24 @@ func TestNavBadgeLineBox(t *testing.T) {
 	if r.W < 14 {
 		t.Errorf("角标宽 %v，want ≥14（.nav-badge min-width:14px）", r.W)
 	}
+
+	// 角标必须挂在播放列表按钮的**右上角**（原版 `<span class="nav-badge">`
+	// 是 `<button class="nav-icon-btn">` 的子元素，`.nav-icon-btn .nav-badge`
+	// 是 top/right:-4px）。此前角标是 dock 行的兄弟，定位基准是行的 padding
+	// box，整块飘到行右上角：比原版高 3px（行 padding 3）、左 3px。
+	btn, ok := tt.Find("播放列表")
+	if !ok {
+		t.Skip("找不到播放列表键")
+	}
+	t.Logf("播放列表键 rect = %+v", btn)
+	// 期望：角标右上角 = 按钮右上角 + (4, -4)；即
+	//   r.X + r.W == btn.X + btn.W + 4，r.Y == btn.Y - 4。
+	if got := (r.X + r.W) - (btn.X + btn.W); math.Abs(float64(got-4)) > 0.01 {
+		t.Errorf("角标右缘比按钮右缘的偏移 = %v，want 4（.nav-icon-btn .nav-badge right:-4px）",
+			got)
+	}
+	if got := r.Y - btn.Y; math.Abs(float64(got+4)) > 0.01 {
+		t.Errorf("角标上缘比按钮上缘的偏移 = %v，want -4（.nav-icon-btn .nav-badge top:-4px）",
+			got)
+	}
 }

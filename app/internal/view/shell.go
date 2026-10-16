@@ -123,8 +123,12 @@ func (a *App) titleBar(c *ui.Context) {
 				if Logo != nil {
 					ui.Image(c, Logo).Size(24, 24)
 				}
-				// 原版 text-sm（14px）。
-				ui.Text(c, "bili-FM").FontSize(14).FontWeight(600).TextColor(t.Ink)
+				// 原版 `text-sm`（14px），字重继承 `.app-title-bar { font-weight: 500 }`
+				// （品牌 <span> 与「设置」<button> 都在这条规则下，两边同一个 500）。
+				// 此前品牌写 600、设置钮默认 400：`#settings-entry` 与品牌同字号却差
+				// 两级字重，CJK 字形的墨迹落点被拉低 1~1.5px，摆在同一行里看上去
+				// 「设置钮往下沉」（用户报的 Linux 上标题栏没对齐）。两边统一 500。
+				ui.Text(c, "bili-FM").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink)
 				if settings {
 					a.settingsButton(c)
 				}
@@ -146,6 +150,13 @@ func (a *App) titleBar(c *ui.Context) {
 		actions.Children(func() {
 			// 迷你入口按钮（原 switch-window-mode，ZoomInternal 图标）已移除：
 			// 浮窗应用不需要在标题栏放一颗看似全屏的按钮，避免误导。
+			//
+			// 隐身模式开关放在这里（右侧动作区，**一切平台、一切窗宽都常驻**）：
+			// 它会影响所有列表/播放的云端进度同步，用户明确否掉了「藏在设置菜单/
+			// 历史抽屉二级入口」的方案，要求常驻可见、一次点击可达、状态一眼可见。
+			// actions 行每帧无条件建出（不像品牌行会在 ≤600px 隐藏），且它就在
+			// 原生窗口控件左侧，位置稳定、不易误触。
+			a.incognitoToggle(c)
 		})
 		ui.Box(c).Width(tb.Right).Shrink(0)
 	})
@@ -207,7 +218,8 @@ func (a *App) settingsButton(c *ui.Context) {
 		l.draw(b, 4)
 	}
 	b.Children(func() {
-		ui.Text(c, "设置").FontSize(14).TextColor(t.Ink)
+		// 同品牌文字：字重 500（见 titleBarFontWeight）。
+		ui.Text(c, "设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink)
 	})
 	// 点击开合（原版 toggleMenu）；面板由 PopoverBase 放进 Overlay，画在最上层。
 	if b.Clicked() {

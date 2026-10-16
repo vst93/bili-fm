@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"strings"
 	"testing"
 	"time"
 
@@ -234,5 +235,124 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 		if _, ok := tst.Find(item); !ok {
 			t.Fatalf("设置菜单打开后看不到条目 %q", item)
 		}
+	}
+}
+
+// TestTitleBarBrandAndSettingsAlign 钉住标题栏里「品牌行（logo + bili-FM）」
+// 与「设置」钮的垂直对齐。用户实测（Linux）报告「设置按钮看起来下移了」。
+//
+// 原版 .app-title-bar 自己声明 `font-weight: 500`，品牌 <span class="text-sm">
+// 与 #settings-entry <button> 都继承它；.app-title-bar 是 flex + align-items:
+// center，所以两者的盒中心必然同在栏中线上。原生版此前把品牌写成 600、
+// 设置钮用默认 400——同字号、差两级字重，CJK 与拉丁字形的墨迹落点被拉开
+// 1.5px，摆在同一行里看上去就是设置钮沉了一截。
+//
+// 两条断言：
+//  1. 两边字重必须同为 titleBarFontWeight（500）；
+//  2. 无头实测两者文字盒中心都落在 36px 标题栏的中线上（差 ≤ 0.5px）。
+func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
+	if titleBarFontWeight != 500 {
+		t.Fatalf("titleBarFontWeight = %d，应为 500（.app-title-bar font-weight:500）",
+			titleBarFontWeight)
+	}
+	tst := titleBarProbe(t)
+	brand, ok := tst.Find("bili-FM")
+	if !ok {
+		t.Fatal("标题栏里找不到品牌名")
+	}
+	settings, ok := tst.Find("设置")
+	if !ok {
+		t.Fatal("标题栏里找不到设置键")
+	}
+	want := float32(TitleBarHeight) / 2
+	bc, sc := brand.Y+brand.H/2, settings.Y+settings.H/2
+	t.Logf("品牌盒中心=%.2f 设置盒中心=%.2f（栏中线=%.2f）", bc, sc, want)
+	if d := bc - want; d < -0.5 || d > 0.5 {
+		t.Errorf("品牌盒中心 %.2f 不在栏中线上（want %.2f）", bc, want)
+	}
+	if d := sc - want; d < -0.5 || d > 0.5 {
+		t.Errorf("设置键盒中心 %.2f 不在栏中线上（want %.2f）", sc, want)
+	}
+
+	// 源码链：两边都走同一个 titleBarFontWeight（500）。此前品牌写 600、设置
+	// 钮不写字重（默认 400），字号相同而字重差两级，CJK/拉丁字形的墨迹落点
+	// 被拉开——把任一改回旧值，这里即变红。
+	flat := flattenNoComments(t, "shell.go")
+	if !strings.Contains(flat, `ui.Text(c,"bili-FM").FontSize(14).FontWeight(titleBarFontWeight)`) {
+		t.Error("品牌文字没有用 titleBarFontWeight（应与设置钮同一字重 500）")
+	}
+	if !strings.Contains(flat, `ui.Text(c,"设置").FontSize(14).FontWeight(titleBarFontWeight)`) {
+		t.Error("设置钥文字没有用 titleBarFontWeight（应与品牌同一字重 500）")
+	}
+}
+
+// TestTitleBarIncognitoToggle 钉住标题栏右侧的常驻隐身开关（用户 2026-10-17 报告：
+// 「隐身模式放设置菜单中太蠢了」，要求常驻可见、一次点击可达、状态一眼可见）。
+//
+// 三个要点：
+//  1. 无需展开任何菜单，标题栏里就找得到它（Find 命中）；
+//  2. 点它直接触发 ToggleIncognito，且**没有**打开任何弹层（管它是不是开关，
+//     都要求「一下即点」）；
+//  3. 窄窗（品牌行被隐藏）它仍然在——它挂在 actions 行，不像品牌行会在 ≤600px 消失。
+func TestTitleBarIncognitoToggle(t *testing.T) {
+	for _, w := range []int{1000, 500} {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		clicks := 0
+		a.Act.ToggleIncognito = func() { clicks++; a.Incognito = !a.Incognito }
+		// 用一个新的 controller 语义：view 只认 Act（ToggleIncognito），
+		// a.Incognito 由测试自己翻，验证「一次点击即翻转」。
+		tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, w, 700)
+		tt.Frame()
+		if _, ok := tt.Find("隐身模式"); !ok {
+			t.Fatalf("窗宽 %d：标题栏里找不到常驻隐身键（无需展开菜单即应可见）", w)
+		}
+		// 没用 uid 区分 Label/Tooltip，Click 命中键中心即点中它。
+		if err := tt.Click("隐身模式"); err != nil {
+			t.Fatalf("窗宽 %d：点常驻隐身键失败：%v", w, err)
+		}
+		tt.Frame()
+		if clicks != 1 {
+			t.Fatalf("窗宽 %d：点击次数 = %d，应为 1（一次点击即切换）", w, clicks)
+		}
+		if a.ShowSettings {
+			t.Fatalf("窗宽 %d：点隐身键后设置菜单被打开了（它不该打开任何弹层）", w)
+		}
+	}
+}
+
+// TestTitleBarIncognitoActiveInk 钉住常驻键的激活视觉与历史抽屉那颗同源：
+// 开启时图标墨色取 incognitoInk(true)（#0e7490），不是标题栏通用的 --studio-blue。
+func TestTitleBarIncognitoActiveInk(t *testing.T) {
+	if got := incognitoInk(true); got != ui.Hex("#0e7490") {
+		t.Fatalf("incognitoInk(true) = %v，应为 #0e7490", got)
+	}
+	flat := flattenNoComments(t, "settingsmenu.go")
+	if !strings.Contains(flat, `ifa.Incognito{ink=incognitoInk(true)}`) {
+		t.Error("标题栏常驻键在隐身开启时没有把墨色换成 incognitoInk(true)")
+	}
+	if !strings.Contains(flat, `pick(a.Incognito,iconMaskFilled,iconMask)`) {
+		t.Error("标题栏常驻键的图标没有随开关态在 filled/outline 间切换")
+	}
+}
+
+// TestTitleBarIncognitoOnMac 钉住常驻隐身键在 macOS 上也在：macOS 的品牌行不挂
+// 设置钮（原版 isMac 分支），隐身键挂在 actions 行，**平台无关**，所以那里同样
+// 一眼可见、一下即点。
+func TestTitleBarIncognitoOnMac(t *testing.T) {
+	orig := viewGOOS
+	viewGOOS = "darwin"
+	t.Cleanup(func() { viewGOOS = orig })
+
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Frame()
+	if _, ok := tst.Find("隐身模式"); !ok {
+		t.Fatal("macOS 上找不到常驻隐身键（actions 行应平台无关）")
+	}
+	// macOS 上设置键不渲染（原版 isMac 分支），所以它不该出现在标题栏里。
+	if _, ok := tst.Find("设置"); ok {
+		t.Error("macOS 上仍有「设置」键（原版 isMac 分支不挂它）")
 	}
 }

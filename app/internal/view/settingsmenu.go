@@ -99,54 +99,55 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.chooseSettingsItem(label)
 				}
 			}
-	// 分隔线 + 隐身模式开关（用户报「放在历史记录里太深」）。
-	ui.Box(c).FillWidth().Height(1).Shrink(0).
-		Background(a.Theme.Ink.Alpha(0.10))
-	a.settingsIncognitoRow(c)
 		})
 	})
 }
 
-// settingsIncognitoRow 是设置菜单底部的「隐身模式」开关行。
+// incognitoToggle 是标题栏右侧的常驻「隐身模式」开关（用户 2026-10-17 报告）。
 //
-// 原版只在历史抽屉表头放了隐身开关（`.history-incognito-switch`）；本 fork 里
-// 隐身模式会影响所有列表/播放的云端进度同步，藏在历史抽屉里太深（用户报告）。
-// 这里在设置下拉里补一个同样的开关（历史抽屉里那颗**保留**，与原版一致）。
+// 背景：隐身模式影响 **所有**列表/播放的云端进度读写，此前只在历史抽屉表头
+// （原版 `.history-incognito-switch`）和设置下拉底部各有一个入口。用户原话：
+// 「隐身模式放设置菜单中太蠢了，一般用户怎么会去点他」，明确要求入口**常驻
+// 可见、一次点击可达、状态一眼可见**，不得藏进任何二级菜单。
 //
-// 复用历史抽屉的开关视觉（incognitoInk / incognitoTrack），文案用原版的
-// aria-label 语义（tooltip 随开关态切换，见 incognitoTip）。点它**不关菜单**：
-// 它是个开关，用户看得到状态翻转才放心。
-func (a *App) settingsIncognitoRow(c *ui.Context) {
-	const label = "隐身模式"
-	ink := settingsItemInk
-	row := ui.ButtonBase(c.Key("settings-隐身模式")).
-		FillWidth().Height(settingsItemH).Padding(0, settingsItemPadX).
-		Justify(ui.Start).Radius(0).Label(label).Tooltip(incognitoTip(a.Incognito))
-	// 与其它条目同一套悬停/按下反馈（settingsItemPaint）。
-	bg, inset, scale := settingsItemPaint(a.Theme, row.Hovered(), row.Pressed())
-	row.Background(bg)
-	if inset {
-		row.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+// 选位：标题栏右侧动作区（`actions` 行）。它是全平台、全窗宽都每帧无条件建出的
+// 一行（品牌行在 ≤600px 会被隐藏，设置下拉要展开才看得到），且紧邻原生窗口
+// 控件，位置固定、一眼可见、一下即点，不用先展开任何菜单。
+//
+// 形态：复用标题栏小键（`.app-title-bar-btn`）的 30×30 / 圆角 6 / 悬停玻璃底 +
+// 聚光 + 三条土阴影 + 按压 scale(.94)，与最小化/关闭键同一套观感；图标换成
+// mask（开启）与 eye-off 轮廓（关闭），墨色开启时转主题青（`incognitoInk`），
+// 与历史抽屉那颗开关**同一事实源**，状态一眼可辨。
+//
+// 无障碍：`role="switch"` + `aria-checked`（mygo 的 RoleSwitch + Checked），
+// 与另两个入口同语义；tooltip 用 `incognitoTip`（随开关态切换）。
+func (a *App) incognitoToggle(c *ui.Context) {
+	t := a.Theme
+	b := ui.ButtonBase(c.Key("tb-incognito")).Size(30, 30).Radius(RadiusSmall).
+		Center().Label("隐身模式").Tooltip(incognitoTip(a.Incognito)).
+		Role(ui.RoleSwitch).Checked(a.Incognito)
+	// 与标题栏小键同一套三态底色/墨色/不透明度（titleBarButtonStyle）：
+	// 激活（隐身开）时常态就保持玻璃底 + 图标转 --studio-blue；否则常态透明。
+	bg, ink, opacity, _ := titleBarButtonStyle(t, a.Incognito, b.Hovered(), b.Pressed(), false)
+	// 隐身开启时用主题青（incognitoInk）取代标题栏通用的 --studio-blue，
+	// 与历史抽屉/设置菜单两颗开关的墨色一致（同一事实源）。
+	if a.Incognito {
+		ink = incognitoInk(true)
 	}
-	p := ui.Pose{}
-	if scale != 1 {
-		p.Scale = scale
+	bg, ink, opacity = titleBarBtnFade(b, bg, ink, opacity, reduceMotion(c))
+	b.Background(bg).Opacity(opacity)
+	// 三条土阴影（::after）与悬停聚光（::before）同标题栏小键。
+	titleBarBtnHighlight(b, a.Incognito, b.Hovered())
+	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+		l.draw(b, RadiusSmall)
 	}
-	row.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
-	// 无障碍语义同历史抽屉那颗开关：role=switch + checked。
-	row.Role(ui.RoleSwitch).Checked(a.Incognito)
-	inkOn := incognitoInk(a.Incognito)
-	row.Children(func() {
-		ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(inkOn)
-			ui.Text(c, label).FontSize(14).TextColor(ink)
-			ui.Box(c).Grow(1)
-			incognitoTrack(c, a.Incognito)
-		})
+	pressScale(b)
+	focusOutline(b, RadiusSmall, focusGlow)
+	b.Children(func() {
+		ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(16, 16).TextColor(ink)
 	})
-	if row.Clicked() && a.Act.ToggleIncognito != nil {
+	if b.Clicked() && a.Act.ToggleIncognito != nil {
 		a.Act.ToggleIncognito()
-		a.ShowSettings = true // 开关不关菜单
 	}
 }
 

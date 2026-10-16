@@ -340,6 +340,12 @@ const (
 	TitleBarHeight = 36
 	MiniTitleBar   = 24
 	PlayerBarPad   = 10
+	// titleBarFontWeight 是标题栏文字的字重。原版 `.app-title-bar` 自己声明
+	// `font-weight: 500`，品牌 <span class="text-sm"> 与「设置」<button> 都
+	// 继承它；原生版此前品牌写 600、设置钮默认 400，同字号下两边墨迹落点差
+	// 1~1.5px（CJK 字形对字重更敏感），看上去就是「设置钮往下沉了」。
+	// 见 shell.go 的 titleBar / settingsButton。
+	titleBarFontWeight = 500
 	// PlayerBarHeight 是播放栏（#player）的高度。原版 .home-stage 是
 	// `height: calc(100% - 56px)`，而 100% 基准 .app-main 会被 flex-grow 撑满
 	// 整窗（见 homeStage），所以主区**只**减播放栏高度、不减标题栏 ——

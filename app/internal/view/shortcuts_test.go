@@ -73,13 +73,20 @@ func TestSpaceInSearchField(t *testing.T) {
 	a.Act.TogglePlay = func() { plays++ }
 
 	tt := shellTester(t, a)
-	// Tab 两次落到搜索输入框（第一次是窗口/搜索药丸容器）。
-	tt.Key(0, ui.KeyTab)
-	tt.Frame()
-	tt.Key(0, ui.KeyTab)
-	tt.Frame()
-	if _, ok := tt.TextCaret(); !ok {
-		t.Fatal("Tab 两次后焦点不在搜索输入框上，测试前提不成立")
+	// Tab 到搜索输入框（标题栏的键（设置 / 隐身模式）现在也可聚焦，Tab 次数不再
+	// 固定；改成按下 Tab 直到光标进入输入框，最多试 8 次，这样新增可聚焦控件
+	// 不会把测试变成「数 Tab 次数」的脆弱断言）。
+	focused := false
+	for i := 0; i < 8; i++ {
+		tt.Key(0, ui.KeyTab)
+		tt.Frame()
+		if _, ok := tt.TextCaret(); ok {
+			focused = true
+			break
+		}
+	}
+	if !focused {
+		t.Fatal("Tab 多次后焦点仍未落到搜索输入框上（找不到可编辑光标）")
 	}
 	tt.TypeKey(0, ui.KeySpace, " ")
 	tt.Frame()

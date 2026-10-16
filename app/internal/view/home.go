@@ -1131,7 +1131,13 @@ func (a *App) contextDock(c *ui.Context) {
 				plistInk = ui.Hex("#a855f7") // 合集来源是紫色（原版）
 			}
 		}
-		a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, iconOpticalSize,
+		// 角标是**这颗按钮的子元素**（原版：`<span class="nav-badge">` 就写在
+		// `<button class="nav-icon-btn">` 里，`.nav-icon-btn .nav-badge` 把它压到
+		// 按钮本体的右上角 top/right:-4px）。此前把角标建成 dock 行的**兄弟**：
+		// Absolute 的定位基准是 dock 行的 padding box（不是按钮），于是角标整块
+		// 偏到行右上角——比原版高 4px（含行 padding 3）、右 4px，飘在「合集」与
+		// 「播放列表」键之间的上沿（用户可感知）。挂到按钮上才与原版几何一致。
+		plist := a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, iconOpticalSize,
 			plistInk, false, func() {
 				if a.Drawer == DrawerPlaylist {
 					a.Drawer = ""
@@ -1140,21 +1146,33 @@ func (a *App) contextDock(c *ui.Context) {
 				}
 			})
 		if n := a.playlistBadgeCount(); n > 0 {
-			// 原版 .nav-badge：`height:14px; min-width:14px; line-height:1;
-			// padding:0 3px`（display:flex 居中）、圆角 7、1px 白边 + 内高光 +
-			// 一层玫红投影（合集来源才换紫底）。此前用自然行盒 + `Padding(1,4)`，
-			// 角标比原版高约 1.5px、也宽 2px；改用原版的盒高 / 最小宽 / 内边距。
-			badge := ui.Text(c, a.playlistBadgeText()).FontSize(9).Bold().
-				TextColor(ui.Hex("#ffffff")).
-				Absolute().Right(-4).Top(-4).Height(14).MinWidth(14).Padding(0, 3).Radius(RadiusPill).
-				Background(a.playlistBadgeInk()).
-				Border(1, ui.Hex("#ffffff").Alpha(0.55)).
-				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
-				InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.08)).
-				Shadow(0, 2, 6, 0, t.Rose.Alpha(0.20))
-			badge.Label("播放列表数量")
+			plist.Children(func() { a.playlistBadge(c) })
 		}
 	})
+}
+
+// playlistBadge 是播放列表键右上角的数量角标（原版 `.nav-badge` +
+// `.nav-icon-btn .nav-badge`）：
+//
+//	.nav-badge                  height:14px; min-width:14px; padding:0 3px;
+//	                            line-height:1; border-radius:7; 9px bold 白字；
+//	                            底 rgba(225,29,72,.72)（合集来源换成 #a855f7）；
+//	                            1px 白边 + 上白 .5 / 下墨 .08 内影 + 玫红投影。
+//	.nav-icon-btn .nav-badge    top:-4px; right:-4px（压到按钮本体右上角）。
+//
+// 它是**按钮的子元素**（见 contextDock 的注释），Absolute 的基准就是按钮本体；
+// PassThrough 让它只显示，不吃按钮的指针事件。
+func (a *App) playlistBadge(c *ui.Context) {
+	badge := ui.Text(c, a.playlistBadgeText()).FontSize(9).Bold().
+		TextColor(ui.Hex("#ffffff")).
+		Absolute().Right(-4).Top(-4).Height(14).MinWidth(14).Padding(0, 3).Radius(RadiusPill).
+		Background(a.playlistBadgeInk()).
+		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
+		InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.50)).
+		InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.08)).
+		Shadow(0, 2, 6, 0, a.Theme.Rose.Alpha(0.20))
+	badge.Label("播放列表数量")
+	badge.PassThrough()
 }
 
 // playlistBadgeCount 是播放列表按钮角标要显示的条数（当前播放的来源）。

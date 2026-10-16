@@ -2,6 +2,7 @@ package view
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -197,54 +198,50 @@ func TestSettingsMenuChosen(t *testing.T) {
 	}
 }
 
-// TestSettingsMenuIncognitoRow 钉住设置菜单底部的隐身模式开关（用户报「放在
-// 历史记录里太深」）：开关存在、点击触发 ToggleIncognito 且**不关菜单**
-//（开关要看到状态翻转）。历史抽屉里的原版开关保留，这里只是第二个入口。
-func TestSettingsMenuIncognitoRow(t *testing.T) {
-	a, tst := settingsProbe(t, 12)
-	clicks := 0
-	a.Act.ToggleIncognito = func() { clicks++; a.Incognito = !a.Incognito }
-	menuRects(t, tst)
-	if _, ok := tst.Find("隐身模式"); !ok {
-		t.Fatal("设置菜单没有「隐身模式」开关行")
+// TestSettingsMenuIncognitoGone 钉住设置菜单里**不再**有隐身开关（用户明确否掉了
+// 「藏在设置菜单里」这个方案）：设置菜单只剩原版四项，隐身入口在标题栏常驻
+// （见 titlebar_test.go 的 TestTitleBarIncognitoToggle*）。
+func TestSettingsMenuIncognitoGone(t *testing.T) {
+	_, tst := settingsProbe(t, 12)
+	items := menuRects(t, tst)
+	// 设置菜单只剩原版四项（menuRects 只查 settingsItems()，这里再确认面板里
+	// 没有第五条）。
+	for _, r := range items {
+		_ = r
 	}
-	if err := tst.Click("隐身模式"); err != nil {
-		t.Fatalf("点隐身模式失败：%v", err)
+	flat := flattenNoComments(t, "settingsmenu.go")
+	if srcHas(flat, "settingsIncognitoRow") {
+		t.Error("settingsmenu.go 仍建 settingsIncognitoRow（用户已否掉这个位置）")
 	}
-	tst.Frame()
-	if clicks != 1 {
-		t.Fatalf("点击次数 = %d，应为 1", clicks)
-	}
-	if _, ok := tst.Find("隐身模式"); !ok {
-		t.Fatal("点隐身开关后菜单被关掉了（开关不关菜单）")
+	if count := strings.Count(flat, "ui.Text(c,label).FontSize(14).TextColor(settingsItemInk)"); count != 1 {
+		t.Errorf("设置菜单条目渲染点 %d 处，应恰好 1 处（面板里不应再挂隐身行）", count)
 	}
 }
 
-// TestSettingsIncognitoSharedVisual 钉住两个入口（历史抽屉 + 设置菜单）共用同一
-// 套开关视觉：incognitoInk / incognitoTrack 是唯一事实源。
-func TestSettingsIncognitoSharedVisual(t *testing.T) {
+// TestIncognitoSharedVisual 钉住所有入口共用同一套开关视觉：incognitoInk 是唯一
+// 事实源（图标 + 墨色），历史抽屉与标题栏常驻键都读它。
+func TestIncognitoSharedVisual(t *testing.T) {
 	if got := incognitoInk(true); got != ui.Hex("#0e7490") {
 		t.Errorf("incognitoInk(true) = %v，应为 #0e7490", got)
 	}
 	if got := incognitoInk(false); got != ui.Hex("#64748b") {
 		t.Errorf("incognitoInk(false) = %v，应为 #64748b", got)
 	}
-	for _, name := range []string{"drawer.go", "settingsmenu.go"} {
-		flat := flattenNoComments(t, name)
-		if !srcHas(flat, "incognitoTrack(c,a.Incognito)") {
-			t.Errorf("%s 没有复用 incognitoTrack", name)
-		}
-		if !srcHas(flat, "incognitoInk(a.Incognito)") {
-			t.Errorf("%s 没有复用 incognitoInk", name)
-		}
+	drawer := flattenNoComments(t, "drawer.go")
+	if !srcHas(drawer, "incognitoInk(a.Incognito)") {
+		t.Error("drawer.go 没有复用 incognitoInk")
+	}
+	menu := flattenNoComments(t, "settingsmenu.go")
+	if !srcHas(menu, "incognitoInk(true)") {
+		t.Error("settingsmenu.go（标题栏常驻键）没有复用 incognitoInk")
 	}
 }
 
-// TestSettingsMenuIncognitoA11y 钉住设置菜单里的隐身开关也是 role=switch +
-// checked（与历史抽屉那颗同一语义），读屏用户能听到开/关。
-func TestSettingsMenuIncognitoA11y(t *testing.T) {
+// TestIncognitoToggleA11y 钉住标题栏常驻键也是 role=switch + checked（与历史抽屉
+// 那颗同一语义），读屏用户能听到开/关。
+func TestIncognitoToggleA11y(t *testing.T) {
 	flat := flattenNoComments(t, "settingsmenu.go")
-	if !srcHas(flat, `row.Role(ui.RoleSwitch).Checked(a.Incognito)`) {
-		t.Error("设置菜单的隐身开关没有 Role(ui.RoleSwitch) + Checked(a.Incognito)")
+	if !srcHas(flat, `ui.ButtonBase(c.Key("tb-incognito")).Size(30,30).Radius(RadiusSmall).Center().Label("隐身模式").Tooltip(incognitoTip(a.Incognito)).Role(ui.RoleSwitch).Checked(a.Incognito)`) {
+		t.Error("标题栏隐身键没有 Role(ui.RoleSwitch) + Checked(a.Incognito)")
 	}
 }
