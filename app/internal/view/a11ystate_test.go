@@ -200,3 +200,47 @@ func TestSettingsMenuA11yWired(t *testing.T) {
 		t.Errorf("设置键没接 Role(ui.RoleMenuButton) + Expanded(a.ShowSettings)")
 	}
 }
+
+// flattenNoComments 读源码并「剥注释 + 压空白」。flatten 会把换行折掉，
+// 若注释里恰好出现待匹配的代码片段就会误判，所以跨行的契约断言用它。
+func flattenNoComments(t *testing.T, path string) string {
+	t.Helper()
+	return strings.Join(strings.Fields(stripGoComments(flattenRaw(t, path))), "")
+}
+
+func flattenRaw(t *testing.T, path string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读 %s 失败：%v", path, err)
+	}
+	return string(src)
+}
+
+// stripGoComments 删掉 Go 的行注释（// 到行尾）与块注释（/* */）。
+func stripGoComments(src string) string {
+	var out []byte
+	for i := 0; i < len(src); {
+		switch {
+		case src[i] == '/' && i+1 < len(src) && src[i+1] == '/':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+		case src[i] == '/' && i+1 < len(src) && src[i+1] == '*':
+			i += 2
+			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+				i++
+			}
+			i += 2
+		default:
+			out = append(out, src[i])
+			i++
+		}
+	}
+	return string(out)
+}
+
+// srcHas 是压空白后的子串判定。
+func srcHas(haystack, needle string) bool {
+	return needle != "" && strings.Contains(haystack, needle)
+}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo"
+	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -60,29 +61,88 @@ func TestAppMenuTemplate(t *testing.T) {
 			t.Errorf("编辑[%d] = %q，应为 %q", i, edit.Submenu[i].Label, want.label)
 		}
 	}
-	// 设置子菜单：四项紧排、顺序与原版一致、退出应用带 Cmd+Q。
+	// 设置子菜单：前四项紧排、顺序与原版一致、退出应用带 Cmd+Q；
+	// 本 fork 在「检查更新」与「退出应用」之间插了分隔线 + 「隐身模式」复选框
+	//（入口上移，见 settingsIncognitoRow）。
 	settings := items[2]
 	if settings.Label != "设置" {
 		t.Errorf("第三项 = %q，应为「设置」", settings.Label)
 	}
 	wantLabels := []string{"关于应用", "快捷键", "检查更新", "退出应用"}
-	if len(settings.Submenu) != len(wantLabels) {
-		t.Fatalf("设置子菜单 %d 项，应为 %d", len(settings.Submenu), len(wantLabels))
+	// 去掉新加的分隔线与隐身项，还原原版的四项再逐项校验。
+	var plain []*mygo.MenuItem
+	var incognito *mygo.MenuItem
+	for _, it := range settings.Submenu {
+		if it.Type == mygo.MenuItemSeparator {
+			continue
+		}
+		if it.Label == "隐身模式" {
+			incognito = it
+			continue
+		}
+		plain = append(plain, it)
+	}
+	if len(plain) != len(wantLabels) {
+		t.Fatalf("设置子菜单原版条目 %d 项，应为 %d", len(plain), len(wantLabels))
 	}
 	for i, label := range wantLabels {
-		it := settings.Submenu[i]
+		it := plain[i]
 		if it.Label != label {
 			t.Errorf("设置[%d] = %q，应为 %q", i, it.Label, label)
-		}
-		if it.Type == mygo.MenuItemSeparator {
-			t.Errorf("设置[%d] 是分隔线，原版没有分隔线", i)
 		}
 		if it.Click == nil {
 			t.Errorf("设置[%d]（%s）没有点击回调", i, label)
 		}
 	}
-	if got := settings.Submenu[3].Accelerator; got != "CmdOrCtrl+Q" {
+	if got := plain[3].Accelerator; got != "CmdOrCtrl+Q" {
 		t.Errorf("退出应用快捷键 = %q，应为 CmdOrCtrl+Q", got)
+	}
+	// 隐身模式复选框（本 fork 入口上移）。
+	if incognito == nil {
+		t.Fatal("设置子菜单缺「隐身模式」复选框（隐身入口上移）")
+	}
+	if incognito.Type != mygo.MenuItemCheckbox {
+		t.Errorf("隐身模式 Type = %v，应为 Checkbox", incognito.Type)
+	}
+	if incognito.Click == nil {
+		t.Error("隐身模式没有点击回调")
+	}
+}
+
+// TestMenuToggleIncognito 钉住原生菜单的隐身复选框：框架在调 Click 前
+// 已翻转 Checked，回调要把它读成真值并落盘（菜单打开时的初始 Checked
+// 取自 app.Incognito）。
+func TestMenuToggleIncognito(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{}
+	c := &controller{app: a, kv: kv}
+
+	it := &mygo.MenuItem{Type: mygo.MenuItemCheckbox, Label: "隐身模式", Checked: true}
+	c.menuToggleIncognito(it)
+	if !a.Incognito {
+		t.Error("勾选后 app.Incognito 应为 true")
+	}
+	if got := kv.String("incognito"); got != "true" {
+		t.Errorf("落盘 incognito = %q，应为 true", got)
+	}
+	it.SetChecked(false)
+	c.menuToggleIncognito(it)
+	if a.Incognito {
+		t.Error("取消勾选后 app.Incognito 应为 false")
+	}
+	if got := kv.String("incognito"); got != "false" {
+		t.Errorf("落盘 incognito = %q，应为 false", got)
+	}
+	// 菜单初始 Checked 与 app.Incognito 同源。
+	a.Incognito = true
+	settings := menuTemplate(t, c)[2].Submenu
+	for _, it := range settings {
+		if it.Label == "隐身模式" && !it.Checked {
+			t.Error("菜单初始 Checked 应取自 app.Incognito=true")
+		}
 	}
 }
 

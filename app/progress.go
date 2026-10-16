@@ -101,11 +101,42 @@ func (c *controller) saveResumePoint(key string, seconds float64) {
 	}
 }
 
+// resumeTarget 把「续播点」修正成实际要跳到的秒数（原版 player.tsx 的
+// applyPendingCloudProgress）：
+//
+//	断点比开头还靠（< resumeMinSeconds）     → 0，从头
+//	断点离结尾不到 resumeTailSeconds        → 0，从头
+//	其余                                  → 断点
+//
+// 这条对**历史记录里已听完的视频**是关键：B 站把「已看完」记成 progress = -1
+// （云端读到就是 0，自然从头）；但云端也可能把断点停在最后几秒，或者本地
+// 断点就是最后几秒 —— 原版一律回到 0 从**头**播，而不是跳到末尾一闪而过。
+// 此前原生版直接把断点传给 Seek（只有 `>= 5` 一道门槛），从历史里点一条
+// 看完的视频会直接停在最后一点。抽成纯函数便于单测。
+func resumeTarget(resume, dur float64) float64 {
+	if resume < resumeMinSeconds {
+		return 0
+	}
+	if dur > 0 && resume >= dur-resumeTailSeconds {
+		return 0
+	}
+	return resume
+}
+
+// cloudProgressOn 报告云端播放记录/进度同步是否开启。隐身模式（原版
+// localStorage 的 incognitoMode）下关掉：**不读取也不上报**（本地断点照写，
+// 与原版一致）。所有碰云端进度的路径都必须先过这一条 —— resolveResume 读、
+// trackResume/flushProgress/finishProgress 写。
+func (c *controller) cloudProgressOn() bool { return !c.app.Incognito }
+
 // resolveResume 定这条视频的续播位置（秒）。云端最多等 800ms，超时或失败就
 // 只用本地断点；晚到的云端响应不再管（否则会把已经在播的曲目跳走）。
+//
+// 隐身模式下**根本不发云端请求**（此前守卫写成 `c.app.Incognito || …`，语义
+// 相同但散落在多处；抽成 cloudProgressOn 后只有一处判据）。
 func (c *controller) resolveResume(aid, cid int64) float64 {
 	local := c.localResumePoint(mediaKey(aid, cid))
-	if c.app.Incognito || aid == 0 || cid == 0 {
+	if !c.cloudProgressOn() || aid == 0 || cid == 0 {
 		return local
 	}
 	ch := make(chan int, 1)
@@ -138,7 +169,11 @@ func (c *controller) trackResume(pos float64) {
 	if c.app.Dur > 0 && pos >= c.app.Dur-resumeTailSeconds {
 		pos = 0
 	}
+	// 刚播完的这条：不再写进度（已发 -1，别用末尾位置盖回去）。
 	key := mediaKey(t.Aid, t.Cid)
+	if c.finishedKey != "" && key == c.finishedKey {
+		return
+	}
 	now := time.Now()
 
 	if pos > 0 && now.Sub(c.resumeWroteAt) >= localResumeWriteEvery {
@@ -146,7 +181,7 @@ func (c *controller) trackResume(pos float64) {
 		c.saveResumePoint(key, pos)
 	}
 
-	if c.app.Incognito || c.app.Dur <= 0 {
+	if !c.cloudProgressOn() || c.app.Dur <= 0 {
 		return
 	}
 	// 换了一集就立刻报一次。
@@ -160,8 +195,11 @@ func (c *controller) trackResume(pos float64) {
 }
 
 // reportProgress 上报一次云端进度，异步、失败只记日志。
+//
+// 这是**唯一**调 BL.ReportPlayProgress 的地方（契约测试钉住）：隐身模式下
+// 直接返回，一次请求都不发。seconds 为 -1 表示「已看完」（B 站约定）。
 func (c *controller) reportProgress(aid, cid int64, seconds float64) {
-	if c.app.Incognito || aid == 0 || cid == 0 {
+	if !c.cloudProgressOn() || aid == 0 || cid == 0 {
 		return
 	}
 	go func() {
@@ -177,6 +215,10 @@ func (c *controller) flushProgress(pos float64) {
 	if t == nil || t.Cid == 0 || pos <= 0 {
 		return
 	}
+	// 刚播完（已发 -1）：不要再用末尾位置盖回去。
+	if c.finishedKey != "" && mediaKey(t.Aid, t.Cid) == c.finishedKey {
+		return
+	}
 	if c.app.Dur > 0 && pos >= c.app.Dur-resumeTailSeconds {
 		return // 听完了，保留上一次的断点没有意义
 	}
@@ -184,6 +226,33 @@ func (c *controller) flushProgress(pos float64) {
 	c.saveResumePoint(mediaKey(t.Aid, t.Cid), pos)
 	c.reportedAt = time.Now()
 	c.reportProgress(t.Aid, t.Cid, pos)
+}
+
+// finishProgress 在一条视频**自然播完**时补一次「已看完」上报。
+//
+// 原版 <audio> 的 onEnded 会调 `reportCloudProgress(-1, true)`
+//（main:src/components/player.tsx:1171）：B 站用 progress = -1 表示已看完，
+// 只有发了这一笔，服务端的观看记录才会把这集标成「看完」而不是「停在最后
+// 几秒」。原生版此前只在**视频弹窗**那条路径上报 -1，主窗音频引擎播完只走
+// handleEnded 续播下一集 —— 于是每条视频都停在最后一点，历史记录里全是
+// 「未看完」，下次加载又从末端续播。这里补上这一笔并清掉本地断点。
+//
+// 隐身模式下不发云端请求（cloudProgressOn），本地断点照清。
+func (c *controller) finishProgress() {
+	t := c.app.Current()
+	if t == nil || t.Cid == 0 {
+		return
+	}
+	c.clearResume(t.Aid, t.Cid)
+	// 记住这条已完：后续 flushProgress/trackResume 不再盖回去（同一次播放期间），
+	// 隐身与否都要拦（本地断点也不该在播完后立刻写回末尾）。
+	c.finishedKey = mediaKey(t.Aid, t.Cid)
+	if !c.cloudProgressOn() {
+		return
+	}
+	// 换集后第一笔上报不该被 30 秒节流窗口挡住（-1 是「完成」这个独立事件）。
+	c.reportedKey, c.reportedAt = "", time.Time{}
+	c.reportProgress(t.Aid, t.Cid, -1)
 }
 
 // clearResume 把这一集的断点清掉（听完 / 手动从头播）。

@@ -53,14 +53,31 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			{Label: "全选", Role: mygo.RoleSelectAll},
 		}},
 		// 原版的「设置」子菜单：四个条目紧排，没有分隔线；「退出应用」带 Cmd+Q。
+		// 末尾补一条「隐身模式」复选框（本 fork 的入口上移，见 
+		// app/internal/view/settingsmenu.go）：它影响所有列表的云端进度同步，
+		// 藏在历史抽屉里太深。历史抽屉里的原版开关保留。
 		{Label: "设置", Submenu: []*mygo.MenuItem{
 			{Label: "关于应用", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuAbout() }},
 			{Label: "快捷键", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuShortcuts() }},
 			{Label: "检查更新", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuCheckUpdate() }},
+			mygo.Separator(),
+			{Label: "隐身模式", Type: mygo.MenuItemCheckbox, Checked: c.app != nil && c.app.Incognito,
+				Click: func(it *mygo.MenuItem, _ *mygo.Window) { c.menuToggleIncognito(it) }},
 			{Label: "退出应用", Accelerator: "CmdOrCtrl+Q",
 				Click: func(*mygo.MenuItem, *mygo.Window) { c.quit() }},
 		}},
 	}
+}
+
+// menuToggleIncognito 是 macOS 原生菜单里「隐身模式」复选框的点击回调。
+// 复选框的 Checked 由框架在调 Click 前自动翻转，所以这里只需校验并落盘。
+func (c *controller) menuToggleIncognito(it *mygo.MenuItem) {
+	if c.app == nil {
+		return
+	}
+	c.app.Incognito = it != nil && it.IsChecked()
+	_ = c.kv.SetString("incognito", map[bool]string{true: "true", false: "false"}[c.app.Incognito])
+	c.app.Win.Update(func() {})
 }
 
 // 下面三个小包装把原生菜单动作接到 App 的 Actions 上（与窗口内「设置」下拉

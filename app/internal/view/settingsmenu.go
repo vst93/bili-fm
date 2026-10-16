@@ -99,8 +99,55 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.chooseSettingsItem(label)
 				}
 			}
+	// 分隔线 + 隐身模式开关（用户报「放在历史记录里太深」）。
+	ui.Box(c).FillWidth().Height(1).Shrink(0).
+		Background(a.Theme.Ink.Alpha(0.10))
+	a.settingsIncognitoRow(c)
 		})
 	})
+}
+
+// settingsIncognitoRow 是设置菜单底部的「隐身模式」开关行。
+//
+// 原版只在历史抽屉表头放了隐身开关（`.history-incognito-switch`）；本 fork 里
+// 隐身模式会影响所有列表/播放的云端进度同步，藏在历史抽屉里太深（用户报告）。
+// 这里在设置下拉里补一个同样的开关（历史抽屉里那颗**保留**，与原版一致）。
+//
+// 复用历史抽屉的开关视觉（incognitoInk / incognitoTrack），文案用原版的
+// aria-label 语义（tooltip 随开关态切换，见 incognitoTip）。点它**不关菜单**：
+// 它是个开关，用户看得到状态翻转才放心。
+func (a *App) settingsIncognitoRow(c *ui.Context) {
+	const label = "隐身模式"
+	ink := settingsItemInk
+	row := ui.ButtonBase(c.Key("settings-隐身模式")).
+		FillWidth().Height(settingsItemH).Padding(0, settingsItemPadX).
+		Justify(ui.Start).Radius(0).Label(label).Tooltip(incognitoTip(a.Incognito))
+	// 与其它条目同一套悬停/按下反馈（settingsItemPaint）。
+	bg, inset, scale := settingsItemPaint(a.Theme, row.Hovered(), row.Pressed())
+	row.Background(bg)
+	if inset {
+		row.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+	}
+	p := ui.Pose{}
+	if scale != 1 {
+		p.Scale = scale
+	}
+	row.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+	// 无障碍语义同历史抽屉那颗开关：role=switch + checked。
+	row.Role(ui.RoleSwitch).Checked(a.Incognito)
+	inkOn := incognitoInk(a.Incognito)
+	row.Children(func() {
+		ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(inkOn)
+			ui.Text(c, label).FontSize(14).TextColor(ink)
+			ui.Box(c).Grow(1)
+			incognitoTrack(c, a.Incognito)
+		})
+	})
+	if row.Clicked() && a.Act.ToggleIncognito != nil {
+		a.Act.ToggleIncognito()
+		a.ShowSettings = true // 开关不关菜单
+	}
 }
 
 // chooseSettingsItem 执行设置菜单里选中的条目（原版 titleBar.tsx 的

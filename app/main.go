@@ -85,6 +85,11 @@ type controller struct {
 	resumeWroteAt time.Time
 	reportedKey   string
 	reportedAt    time.Time
+	// finishedKey 是刚刚自然播完（已发 -1）的那一集。播完时刻的后续
+	// flushProgress/trackResume（handleEnded → step 会先补报一次断点）不得
+	// 用「末尾位置」把 -1 覆盖回「已看 98%」（原版靠 onEnded 后不再有后续
+	// 上报天然避开；原生版的 step 会补报，所以要显式记住）。换集时清掉。
+	finishedKey string
 
 	// lastSponsorToast 是「已跳过恰饭片段」toast 的频控时间点。
 	lastSponsorToast time.Time
@@ -655,7 +660,14 @@ func (c *controller) wirePlayer() {
 		})
 	})
 	c.mp.OnEnded(func() {
-		c.app.Win.Update(func() { c.handleEnded() })
+		c.app.Win.Update(func() {
+			// 自然播完：补一次「已看完」（progress = -1）并清掉本地断点，与
+			// 原版 <audio> 的 onEnded 一致。不补这一笔的话每条视频都会停在最后
+			// 一点（服务端记成未看完，下次加载又从末端续播）。续播决策在
+			// handleEnded 里做，所以先补账再续集。
+			c.finishProgress()
+			c.handleEnded()
+		})
 	})
 	c.mp.OnError(func(err error) {
 		log.Printf("播放错误: %v", err)
@@ -2337,18 +2349,21 @@ func (c *controller) startCurrent() {
 			}
 		})
 
-		// 续播：本地/云端断点比 5 秒靠后才跳。
-		if resume >= resumeMinSeconds {
-			if err := c.mp.Seek(resume); err != nil {
+		// 续播：断点经 resumeTarget 修正（太靠前 / 太靠后都回到开头），
+		// 修正后 > 0 才真跳。「已听完的视频从历史里点开」因此从头播。
+		if target := resumeTarget(resume, c.mp.Duration()); target > 0 {
+			if err := c.mp.Seek(target); err != nil {
 				log.Printf("续播跳转失败: %v", err)
 			} else {
 				c.app.Win.Update(func() {
-					c.app.Pos, c.app.SeekValue = resume, resume
+					c.app.Pos, c.app.SeekValue = target, target
 				})
 			}
 		}
-		// 换集后第一笔上报要立刻发（不要等 30 秒的节流窗口）。
+		// 换集后第一笔上报要立刻发（不要等 30 秒的节流窗口）；上一条的
+		// 「已完」标记也随之作废。
 		c.reportedKey, c.reportedAt = "", time.Time{}
+		c.finishedKey = ""
 
 		// 弹幕与跳过分段：可选增强，失败不影响播放。弹幕预取同样置
 		// isLoadingDanmaku —— 若此时用户打开弹幕抽屉，表头刷新键会转圈，
@@ -2736,14 +2751,9 @@ func (c *controller) wireVideo() {
 		})
 	})
 	c.vid.OnEnded(func() {
-		// 看完：B 站用 progress = -1 表示已看完，并清掉本地断点
-		// （与 progress.go 的 resumeTailSeconds 语义一致）。
-		if t := c.app.Current(); t != nil && !c.app.Incognito {
-			c.reportProgress(t.Aid, t.Cid, -1)
-		}
-		if t2 := c.app.Current(); t2 != nil {
-			c.clearResume(t2.Aid, t2.Cid)
-		}
+		// 看完：同主窗音频引擎，补一次「已看完」并清掉本地断点（见 finishProgress）。
+		// 弹窗是独立页面，它的 onEnded 只回调到这里，所以这里就是它唯一的上报点。
+		c.finishProgress()
 		c.app.Win.Update(func() { c.handleEnded() })
 	})
 	// 弹窗里按 Ctrl/Cmd+Q 退出整个应用。原版单窗下视频浮层与主窗共用同一个

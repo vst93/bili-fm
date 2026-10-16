@@ -606,7 +606,27 @@ func historyRefreshLabel(tab string) string {
 	return "刷新历史记录"
 }
 
-// incognitoSwitch 是历史抽屉表头里的「隐身」开关（原版 .history-incognito-switch）：
+// incognitoInk 是隐身开关的墨色（图标 / 文字 / 轨道都用它）：开启时青
+// #0e7490，关闭时 #64748b。原版 `.history-incognito-switch[data-active="true"]`
+// 把图标与文字都改成青色。
+func incognitoInk(on bool) ui.Color {
+	return pick(on, ui.Hex("#0e7490"), ui.Hex("#64748b"))
+}
+
+// incognitoTrack 画开关右端的小轨道（原版 .history-incognito-track /
+// .history-incognito-thumb）：27×16（padding 2、圆角 999、内凹影）、
+// 滑块 12，打开时右移 11。抽屉表头与设置菜单里那颗开关共用它。
+func incognitoTrack(c *ui.Context, on bool) {
+	ui.Box(c).Width(27).Height(16).Shrink(0).Radius(RadiusPill).Padding(2).
+		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.10)).
+		Background(pick(on, ui.Hex("#0891b2"), ui.Hex("#64748b").Alpha(0.32))).
+		Children(func() {
+			ui.Box(c).Size(12, 12).Radius(RadiusPill).Background(ui.Hex("#ffffff")).
+				Margin(0, 0, 0, pick(on, float32(11), float32(0)))
+		})
+}
+
+
 // 32 高、图标 + 文字 + 一个小轨道。打开后不读也不写云端进度。
 func (a *App) incognitoSwitch(c *ui.Context) {
 	// 原版 .history-incognito-switch：min-width 92、高 32、gap 7、padding 0 8、
@@ -627,7 +647,7 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	// 原版 `.history-incognito-switch:focus-visible`：`outline: 2px solid
 	// rgba(14,165,233,.44); outline-offset: 2px`（没有换色 / 换底的整态差异）。
 	focusOutline(b, Radius, focusSky44)
-	ink := pick(a.Incognito, ui.Hex("#0e7490"), ui.Hex("#64748b"))
+	ink := incognitoInk(a.Incognito)
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(ink)
@@ -636,14 +656,7 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 			if showLabel {
 				ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(ink)
 			}
-			// 轨道 27×16（padding 2、圆角 999、内凹影），滑块 12，打开时右移 11。
-			ui.Box(c).Width(27).Height(16).Shrink(0).Radius(RadiusPill).Padding(2).
-				InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.10)).
-				Background(pick(a.Incognito, ui.Hex("#0891b2"), ui.Hex("#64748b").Alpha(0.32))).
-				Children(func() {
-					ui.Box(c).Size(12, 12).Radius(RadiusPill).Background(ui.Hex("#ffffff")).
-						Margin(0, 0, 0, pick(a.Incognito, float32(11), float32(0)))
-				})
+			incognitoTrack(c, a.Incognito)
 		})
 	})
 	if b.Clicked() && a.Act.ToggleIncognito != nil {
