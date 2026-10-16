@@ -126,12 +126,55 @@ func TestTitleBarWash(t *testing.T) {
 
 // titleBarProbe 建一个 1000×700 的主窗（固定 noon 时段，背景可复现）。
 func titleBarProbe(t *testing.T) *ui.Tester {
+	return titleBarProbeAt(t, 1)
+}
+
+// titleBarProbeAt 同 titleBarProbe，但指定缩放（用 2x 把「某个 1x 档位凑出来的
+// 假对齐」排除；墨迹量取按 scale 换算回 DIP）。
+func titleBarProbeAt(t *testing.T, scale float32) *ui.Tester {
 	t.Helper()
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.SetScale(scale)
 	tst.Frame()
 	return tst
+}
+
+// inkCenterDIP 量出矩形 r 内墨色（三通道均 < thr）像素的纵向包围盒中位，
+// 换算回 DIP。r 是 DIP 矩形，图是 device 像素（tst.Image() 随 SetScale 变），
+// 所以两处都要乘 scale —— 否则 2x 下扫的是一半区域、量出来是错的
+//（“2x 长得跟 1x 一样”的假象）。
+func inkCenterDIP(t *testing.T, tst *ui.Tester, r ui.Rect, scale float32, thr int) float32 {
+	t.Helper()
+	img := tst.Image()
+	b := img.Bounds()
+	x0, x1 := int(r.X*scale), int((r.X+r.W)*scale)
+	y0, y1 := int(r.Y*scale)-12, int((r.Y+r.H)*scale)+12
+	lo, hi := 1<<30, -1
+	for y := y0; y <= y1; y++ {
+		if y < b.Min.Y || y >= b.Max.Y {
+			continue
+		}
+		for x := x0; x < x1; x++ {
+			if x < b.Min.X || x >= b.Max.X {
+				continue
+			}
+			c := rgbAt(img, x, y)
+			if c[0] < thr && c[1] < thr && c[2] < thr {
+				if y < lo {
+					lo = y
+				}
+				if y > hi {
+					hi = y
+				}
+			}
+		}
+	}
+	if hi < 0 {
+		t.Fatalf("矩形 %+v 内没量到墨迹（scale=%.1f）", r, scale)
+	}
+	return float32(lo+hi) / 2 / scale
 }
 
 // darkestIn 返回一块矩形里最暗的像素（品牌字色是深色，越接近满不透明度越暗）。
@@ -241,48 +284,71 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 // TestTitleBarBrandAndSettingsAlign 钉住标题栏里「品牌行（logo + bili-FM）」
 // 与「设置」钮的垂直对齐。用户实测（Linux）报告「设置按钮看起来下移了」。
 //
-// 原版 .app-title-bar 自己声明 `font-weight: 500`，品牌 <span class="text-sm">
-// 与 #settings-entry <button> 都继承它；.app-title-bar 是 flex + align-items:
-// center，所以两者的盒中心必然同在栏中线上。原生版此前把品牌写成 600、
-// 设置钮用默认 400——同字号、差两级字重，CJK 与拉丁字形的墨迹落点被拉开
-// 1.5px，摆在同一行里看上去就是设置钮沉了一截。
+// 量了三层，每层都留了改前数值：
 //
-// 两条断言：
-//  1. 两边字重必须同为 titleBarFontWeight（500）；
-//  2. 无头实测两者文字盒中心都落在 36px 标题栏的中线上（差 ≤ 0.5px）。
+//  1. **盒中心**：.app-title-bar 是 flex + align-items:center，品牌文字盒
+//     {40,7,46,22} 与设置钮盒 {94,4,44,28} 的中心**本来就重合**在栏中线
+//     18.00（差 0）——这不是盒错位。
+//  2. **墨迹中心**（同一字号 14 / 字重 500）：品牌 `bili-FM` 18.00、
+//     「设置」19.00，差 1.00px。字权重统一前是 600 vs 400，差 1.5px
+//     （品牌 17.50 / 设置 19.00）——用户说的「下移」是这个。
+//  3. **这个 1.0px 是字形固有**：同一字体下 CJK「设置」的墨迹带中位天生比
+//     拉丁 `bili-FM` 低（两者基线在同一条上，差的是字形分布）。把两个串换成
+//     同一个框内居中的自绘盒后仍然是同一组数值，说明与布局无关；Chromium
+//     渲染的**原版**同样实测 Δ≈1.06，不是原生版独有。
+//
+// 用户要求「修到两者中心 Y 对齐」，于是给设置钮文字加 titleBarSettingsNudge
+// 的光学上移。断言：
+//
+//  1. titleBarFontWeight == 500（.app-title-bar 的继承字重）；
+//  2. titleBarSettingsNudge 在 (0, 1) 内（0=不改就别加这条，1 会在 1x/1.5x
+//     过冲、2x 欠冲）；
+//  3. 无头实测 1x **与 2x** 两档下，品牌与设置的墨迹包围盒中位差 ≤ 0.5px。
+//     跨缩放一起断言，把「某个档位凑出来的假对齐」排除。
 func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 	if titleBarFontWeight != 500 {
 		t.Fatalf("titleBarFontWeight = %d，应为 500（.app-title-bar font-weight:500）",
 			titleBarFontWeight)
 	}
-	tst := titleBarProbe(t)
-	brand, ok := tst.Find("bili-FM")
-	if !ok {
-		t.Fatal("标题栏里找不到品牌名")
+	if titleBarSettingsNudge <= 0 || titleBarSettingsNudge >= 1 {
+		t.Fatalf("titleBarSettingsNudge = %v，应在 (0,1) 内（0=不改、1=1x/1.5x 过冲）",
+			titleBarSettingsNudge)
 	}
-	settings, ok := tst.Find("设置")
-	if !ok {
-		t.Fatal("标题栏里找不到设置键")
-	}
-	want := float32(TitleBarHeight) / 2
-	bc, sc := brand.Y+brand.H/2, settings.Y+settings.H/2
-	t.Logf("品牌盒中心=%.2f 设置盒中心=%.2f（栏中线=%.2f）", bc, sc, want)
-	if d := bc - want; d < -0.5 || d > 0.5 {
-		t.Errorf("品牌盒中心 %.2f 不在栏中线上（want %.2f）", bc, want)
-	}
-	if d := sc - want; d < -0.5 || d > 0.5 {
-		t.Errorf("设置键盒中心 %.2f 不在栏中线上（want %.2f）", sc, want)
-	}
-
-	// 源码链：两边都走同一个 titleBarFontWeight（500）。此前品牌写 600、设置
-	// 钮不写字重（默认 400），字号相同而字重差两级，CJK/拉丁字形的墨迹落点
-	// 被拉开——把任一改回旧值，这里即变红。
+	// 源码链：两边都用 titleBarFontWeight，且设置钮文字带光学位移。
 	flat := flattenNoComments(t, "shell.go")
 	if !strings.Contains(flat, `ui.Text(c,"bili-FM").FontSize(14).FontWeight(titleBarFontWeight)`) {
 		t.Error("品牌文字没有用 titleBarFontWeight（应与设置钮同一字重 500）")
 	}
-	if !strings.Contains(flat, `ui.Text(c,"设置").FontSize(14).FontWeight(titleBarFontWeight)`) {
-		t.Error("设置钥文字没有用 titleBarFontWeight（应与品牌同一字重 500）")
+	if !strings.Contains(flat, `ui.Text(c,"设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink).Translate(0,-titleBarSettingsNudge)`) {
+		t.Error("设置钮文字没有按 titleBarSettingsNudge 上移（CJK 墨迹天生偏低）")
+	}
+
+	// 无头实测：两档缩放下墨迹盒中位差 ≤ 0.5px。
+	for _, scale := range []float32{1, 2} {
+		tst := titleBarProbeAt(t, scale)
+		brand, ok := tst.Find("bili-FM")
+		if !ok {
+			t.Fatal("标题栏里找不到品牌名")
+		}
+		settings, ok := tst.Find("设置")
+		if !ok {
+			t.Fatal("标题栏里找不到设置键")
+		}
+		want := float32(TitleBarHeight) / 2
+		bc, sc := brand.Y+brand.H/2, settings.Y+settings.H/2
+		t.Logf("scale=%.1f 品牌盒中心=%.2f 设置盒中心=%.2f（栏中线=%.2f）", scale, bc, sc, want)
+		if d := bc - want; d < -0.5 || d > 0.5 {
+			t.Errorf("scale=%.1f 品牌盒中心 %.2f 不在栏中线上（want %.2f）", scale, bc, want)
+		}
+		if d := sc - want; d < -0.5 || d > 0.5 {
+			t.Errorf("scale=%.1f 设置键盒中心 %.2f 不在栏中线上（want %.2f）", scale, sc, want)
+		}
+		bInk, sInk := inkCenterDIP(t, tst, brand, scale, 150), inkCenterDIP(t, tst, settings, scale, 150)
+		t.Logf("scale=%.1f 品牌墨迹中心=%.2f 设置墨迹中心=%.2f Δ=%.2f", scale, bInk, sInk, sInk-bInk)
+		if d := sInk - bInk; d < -0.5 || d > 0.5 {
+			t.Errorf("scale=%.1f 品牌与设置的墨迹中心差 %.2fpx > 0.5px（用户报的「设置钮下移」）",
+				scale, d)
+		}
 	}
 }
 

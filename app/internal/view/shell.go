@@ -218,8 +218,10 @@ func (a *App) settingsButton(c *ui.Context) {
 		l.draw(b, 4)
 	}
 	b.Children(func() {
-		// 同品牌文字：字重 500（见 titleBarFontWeight）。
-		ui.Text(c, "设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink)
+		// 同品牌文字：字重 500（见 titleBarFontWeight），并按 titleBarSettingsNudge
+		// 光学上移，抵消 CJK 字形相对拉丁品牌的墨迹下沉。
+		ui.Text(c, "设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink).
+			Translate(0, -titleBarSettingsNudge)
 	})
 	// 点击开合（原版 toggleMenu）；面板由 PopoverBase 放进 Overlay，画在最上层。
 	if b.Clicked() {
