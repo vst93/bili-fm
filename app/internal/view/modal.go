@@ -1,6 +1,7 @@
 package view
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
@@ -184,8 +185,7 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 	// 快捷键 / 更新成功 / 更新失败 / 发现新版本 / 检查更新中）都带它。
 	ui.Row(c).Gap(16).AlignItems(ui.Start).Margin(0, 0, 20, 0).Children(func() {
 		if st.Spinner {
-			ui.Spinner(c).Size(28, 28).Shrink(0).TextColor(st.Ink).
-				Margin(2, 0, 0, 0)
+			a.dialogSpinner(c, st.Ink)
 		} else {
 			ui.Icon(c, st.Icon).Size(28, 28).Shrink(0).TextColor(st.Ink).
 				Margin(2, 0, 0, 0)
@@ -234,6 +234,63 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 			})
 		}
 	})
+}
+
+// dialogSpinner 是原版 `.dialog-loading-spinner`（globals.css:5634）的自绘：
+//
+//	width/height 28px; border: 3px solid rgba(14,165,233,.15);
+//	border-top-color: #0ea5e9; border-radius: 50%;
+//	animation: dialog-spin .7s linear infinite
+//
+// 即「3px 浅蓝整圈 + 深蓝顶弧」的圆环，0.7s 线性转一圈。mygo 的 ui.Spinner 画的是
+// 12 根渐隐辐条（中心密、边缘疏），与原版不是一回事；这里按原版自绘。
+//
+// 原版 border-top-color 上色的「顶弧」是圆环的上 1/4（方框顶边圆角后落在
+// 225°→315° 那段）。圆环路径从右侧（0）起、顺时针一圈为 1，顶弧即
+// [0.625, 0.875)；旋转就是把这个区间整体沿圆周平移。
+func (a *App) dialogSpinner(c *ui.Context, ink ui.Color) {
+	const size, ring = 28, 3
+	el := ui.Box(c).Size(size, size).Shrink(0).Margin(2, 0, 0, 0)
+	// 原版 dialog-spin 0.7s linear infinite：Loop 给 0→1 的线性进度，逐帧算角度。
+	ph := float64(el.Loop("dialog-spin", 700*time.Millisecond, ui.Linear))
+	el.Draw(func(p *ui.Painter, r ui.Rect) {
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		// border 3px 在盒内：圆环中心线半径 = (边长 − 3) / 2。
+		rad := (min(r.W, r.H) - ring) / 2
+		var circle ui.Path
+		circle.Circle(cx, cy, rad)
+		p.StrokePath(&circle, ring, ui.Hex("#0ea5e9").Alpha(0.15))
+		start, end, wrap := dialogSpinnerArc(ph)
+		if !wrap {
+			var arc ui.Path
+			arc.Circle(cx, cy, rad).Trim(start, end)
+			p.StrokePath(&arc, ring, ink)
+			return
+		}
+		// 旋转越过起点（0）时拆成两段：start→1 与 0→end。
+		var tail ui.Path
+		tail.Circle(cx, cy, rad).Trim(start, 1)
+		p.StrokePath(&tail, ring, ink)
+		var head ui.Path
+		head.Circle(cx, cy, rad).Trim(0, end)
+		p.StrokePath(&head, ring, ink)
+	})
+}
+
+// dialogSpinnerArc 返回顶弧在圆环路径上的 [start,end] 比例区间（0 = 右侧、
+// 顺时针一圈为 1；顶弧占上 1/4，即基准 [0.625, 0.875]）。ph 是 0→1 的旋转
+// 进度，整体顺时针平移；平移后越过 1 时返回 wrap = true，并已把区间归一到
+// [0,1)（end 是拆出来的前半段上界）。抽成纯函数便于单测。
+func dialogSpinnerArc(ph float64) (start, end float32, wrap bool) {
+	s := math.Mod(0.625+ph, 1)
+	if s < 0 {
+		s += 1
+	}
+	e := s + 0.25
+	if e > 1 {
+		return float32(s), float32(e - 1), true
+	}
+	return float32(s), float32(e), false
 }
 
 // modalButton 是模态框里的按钮（原版 .liquid-dialog-btn / -primary）。

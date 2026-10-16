@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -219,6 +220,139 @@ func TestDialogMessageLineHeight(t *testing.T) {
 	gap := two.Y - one.Y
 	if gap < 45 || gap > 47 {
 		t.Errorf("两行（含中间空行）的间距 = %v，应 ≈45.9（2×22.95）", gap)
+	}
+}
+
+// TestDialogSpinnerArc 钉住加载转圈顶弧的区间：原版 `.dialog-loading-spinner`
+// 是「3px 浅蓝整圈 + 深蓝顶弧」，顶弧占圆环上 1/4（border-top-color）。圆环
+// 路径从右侧（0）起、顺时针一圈为 1，顶弧基准区间是 [0.625, 0.875)；旋转 ph
+// （0→1 一圈）把这个区间整体沿圆周平移，越过起点（1）时拆分。
+func TestDialogSpinnerArc(t *testing.T) {
+	cases := []struct {
+		ph         float64
+		start, end float32
+		wrap       bool
+	}{
+		{0, 0.625, 0.875, false},
+		{0.1, 0.725, 0.975, false},
+		{0.25, 0.875, 0.125, true}, // 转 1/4 圈时顶弧跨过起点
+		{0.3, 0.925, 0.175, true},
+		{0.5, 0.125, 0.375, false},
+		{0.75, 0.375, 0.625, false},
+		{0.9, 0.525, 0.775, false},
+	}
+	for _, c := range cases {
+		start, end, wrap := dialogSpinnerArc(c.ph)
+		if absF(start-c.start) > 1e-5 || absF(end-c.end) > 1e-5 || wrap != c.wrap {
+			t.Errorf("dialogSpinnerArc(%v) = (%v, %v, %v)，应为 (%v, %v, %v)",
+				c.ph, start, end, wrap, c.start, c.end, c.wrap)
+		}
+	}
+	// 区间宽度恒为 1/4（顶弧就是四分之一圈）。
+	for _, ph := range []float64{0, 0.13, 0.4, 0.62, 0.99} {
+		start, end, wrap := dialogSpinnerArc(ph)
+		width := end - start
+		if wrap {
+			width += 1
+		}
+		if absF(width-0.25) > 1e-5 {
+			t.Errorf("dialogSpinnerArc(%v) 的弧宽 = %v，应为 0.25", ph, width)
+		}
+	}
+}
+
+// absF 是 float32 绝对值。
+func absF(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// TestDialogSpinnerRing 是无头渲染实测：loading 对话框左侧画的是**圆环**
+// （空心），而不是 mygo ui.Spinner 的 12 根辐条（中心密、边缘疏）。扫标题左侧
+// 那 28px 带里所有泛蓝像素（B−R > 15：浅蓝环 rgba(14,165,233,.15) 铺在面板
+// 底上 B−R ≈ 40），取它们的包围盒——圆环的包围盒近似正方形且直径 ≈ 28−3；
+// 再查包围盒正中心一小块：圆环中心是空的（辐条的中心是实的）。
+func TestDialogSpinnerRing(t *testing.T) {
+	tst := modalProbe(t, &Modal{
+		Kind: "message", Type: "loading", Title: "检查更新中",
+		Message: "正在检查更新…",
+	})
+	r, ok := tst.Find("检查更新中")
+	if !ok {
+		t.Fatalf("找不到对话框标题：%v", tst.Texts())
+	}
+	img := tst.Image()
+	// 图标/转圈在标题左侧 28px + 间距 16 的带里（同 TestModalTypeIconPixels 的几何）。
+	x0, x1 := int(r.X)-48, int(r.X)-16
+	y0, y1 := int(r.Y)-8, int(r.Y)+36
+	bluish := func(x, y int) bool {
+		if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+			return false
+		}
+		i := img.PixOffset(x, y)
+		// 浅蓝环 rgba(14,165,233,.15) 铺在面板底上 B−R ≈ 40；面板的 loading
+		// 强调色 tint（#0ea5e9 .06）只有 ≈21，阈值取 30 把两者分开。
+		return int(img.Pix[i+2])-int(img.Pix[i]) > 30
+	}
+	minX, minY, maxX, maxY := 1<<30, 1<<30, -1, -1
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if bluish(x, y) {
+				minX, minY = min(minX, x), min(minY, y)
+				maxX, maxY = max(maxX, x), max(maxY, y)
+			}
+		}
+	}
+	if maxX < 0 {
+		t.Fatalf("标题左侧没有泛蓝像素：转圈没画出来（区域 %d,%d..%d,%d）", x0, y0, x1, y1)
+	}
+	w, h := maxX-minX+1, maxY-minY+1
+	t.Logf("转圈泛蓝像素包围盒 %d,%d..%d,%d（%d×%d）", minX, minY, maxX, maxY, w, h)
+	// 圆环外径 ≈ 28（含描边），包围盒宽高都应在 24..30。
+	if w < 24 || w > 30 || h < 24 || h > 30 {
+		t.Errorf("转圈包围盒 %d×%d，应 ≈ 28×28 的圆环", w, h)
+	}
+	// 圆环中心是空的：正中心 5×5 里几乎不该有泛蓝像素。
+	cx, cy := (minX+maxX)/2, (minY+maxY)/2
+	hollow := 0
+	for y := cy - 2; y <= cy+2; y++ {
+		for x := cx - 2; x <= cx+2; x++ {
+			if bluish(x, y) {
+				hollow++
+			}
+		}
+	}
+	if hollow > 3 {
+		t.Errorf("转圈中心有 %d/25 个泛蓝像素，圆环应是空心的", hollow)
+	}
+	// 关键判据：圆环在中心线半径（(28−3)/2 = 12.5）上是**连续**的。扫一圈 72
+	// 个方向（每 5°）、每个方向在半径 12.5±1.5 里找泛蓝像素，圆环应几乎全覆盖；
+	// mygo 的 ui.Spinner 是 12 根 2.5px 宽的辐条（在半径 12.5 处只盖住 ≈1/3
+	// 的方向），覆盖率会低到 ≈0.35。这条把两者分开。
+	const rad = 12.5
+	hit := 0
+	for k := 0; k < 72; k++ {
+		ang := float64(k) * 5 * math.Pi / 180
+		ok := false
+		for d := -1.5; d <= 1.5; d += 0.5 {
+			rr := rad + d
+			px := cx + int(math.Round(rr*math.Cos(ang)))
+			py := cy + int(math.Round(rr*math.Sin(ang)))
+			if bluish(px, py) {
+				ok = true
+				break
+			}
+		}
+		if ok {
+			hit++
+		}
+	}
+	coverage := float64(hit) / 72
+	t.Logf("半径 %v 上 72 个方向的泛蓝覆盖率 = %.2f（%d/72）", rad, coverage, hit)
+	if coverage < 0.9 {
+		t.Errorf("圆环在半径 %v 上不连续：覆盖率 %.2f（辐条 spinner ≈ 0.35，圆环应 ≥ 0.9）", rad, coverage)
 	}
 }
 

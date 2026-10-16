@@ -1345,7 +1345,15 @@ func (a *App) listBody(c *ui.Context) bool {
 	l := a.list()
 	switch {
 	case l.Loading && len(l.Cards) == 0:
-		a.scrollBody(c, l, func() { a.skeletonGrid(c) })
+		// 原版只有 searchList / collectList / recommendList 三处 import 了
+		// ListSkeleton（见 skeletonDrawers），其余卡片网格抽屉首载渲染的是空
+		// 网格。这里同源：只有这三个抽屉铺骨架屏，其余留空（空态仍由下一分支
+		// 在加载完成后给出）。
+		a.scrollBody(c, l, func() {
+			if skeletonFor(a.Drawer) {
+				a.skeletonGrid(c)
+			}
+		})
 		return false
 	case len(l.Cards) == 0:
 		a.scrollBody(c, l, func() { a.emptyState(c, a.emptyHint()) })
@@ -1576,11 +1584,31 @@ func prefetchWindow(st *ui.ListState, n, cols int) (first, last int) {
 // 写死 `for row := 0; row < 3`，宽窗（≥640 三列）下多铺了一整排（9 张 vs 原版 6 张）。
 const skeletonItems = 6
 
+// skeletonDrawers 是原版 ListSkeleton 的**调用点**：searchList / collectList /
+// recommendList（main:src/components/listSkeleton.tsx 只被这三个文件 import）。
+// 其余卡片网格抽屉（动态 feed / 历史 history / UP 空间 up / 合集 series）首载
+// 渲染的是空网格，不铺骨架屏。键与 Sections / DrawerSearch 同源。
+var skeletonDrawers = map[string]bool{
+	DrawerSearch: true, // searchList
+	"favorite":   true, // collectList
+	"popular":    true, // recommendList（热门与推荐）
+}
+
+// skeletonFor 报告某个抽屉首载是否该铺骨架屏（原版 ListSkeleton 的调用点）。
+func skeletonFor(drawer string) bool { return skeletonDrawers[drawer] }
+
 // skeletonRows 返回骨架屏的行数：把 skeletonItems 张卡按 cols 张一排铺开。
 func skeletonRows(winW float32) int {
 	cols := gridColsFor(winW)
 	return (skeletonItems + cols - 1) / cols
 }
+
+// skeletonEase 是原版 `.list-skeleton-item { animation: list-skeleton-pulse
+// 1.4s ease-in-out infinite }` 的 CSS 曲线。CSS 的 `ease-in-out` 是
+// cubic-bezier(0.42, 0, 0.58, 1)；mygo 的 ui.EaseInOut 是标准三次 in-out，
+// 与它在 1/8 周期处相差约 0.03 不透明度（0.578 vs 0.608）。直接用框架的
+// CubicBezier 逐字对齐原版曲线。
+var skeletonEase = ui.CubicBezier(0.42, 0, 0.58, 1)
 
 // skeletonPulse 把一次脉冲周期里的线性进度（0→1）换算成骨架卡片的不透明度，
 // 对齐原版 `.list-skeleton-item` 的 `animation: list-skeleton-pulse 1.4s
@@ -1588,7 +1616,7 @@ func skeletonRows(winW float32) int {
 // `ease-in-out`（所以是「缓入缓出的三角波」，不是线性三角波）。
 func skeletonPulse(ph float64) float64 {
 	tri := 1 - abs(2*ph-1) // 0 → 1 → 0 的三角波
-	return 0.55 + 0.45*float64(ui.EaseInOut(float32(tri)))
+	return 0.55 + 0.45*float64(skeletonEase(float32(tri)))
 }
 
 // skeletonGrid 是列表加载中的骨架屏（原版 ListSkeleton）：灰底占位卡片。
@@ -1603,7 +1631,11 @@ func (a *App) skeletonGrid(c *ui.Context) {
 	cols := gridColsFor(windowWidth(c))
 	rows := skeletonRows(windowWidth(c))
 	n := 0
-	ui.Column(c).Gap(8).Children(func() {
+	// 原版 `.list-skeleton-grid` 带 `aria-hidden="true"`（纯装饰，对读屏隐藏）。
+	// mygo 没有 aria-hidden，但有等价的 `RoleNone`（“把元素本身从无障碍树里
+	// 拿掉，保留子元素”）：骨架元素本来就都是无标签的裸 Box，子元素也不会被
+	// 读屏播报，这里再显式给容器标一个装饰态。
+	ui.Column(c).Gap(8).Role(ui.RoleNone).Children(func() {
 		for row := 0; row < rows; row++ {
 			ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
 				for j := 0; j < cols && n < skeletonItems; j++ {
