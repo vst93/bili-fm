@@ -187,7 +187,7 @@ func TestStatCountWiredInSource(t *testing.T) {
 		`numericText(c, spec.Count).FontSize(9).FontWeight(statCountWeight).TextColor(valueInk).
 			Opacity(navIconStatValueOpacity(spec.Off)).SingleLine().
 			Height(statCountBoxH).Translate(0, statCountShift).
-			Attach(ui.AnchorBottom, ui.AnchorTop).Top(gap)`), "")
+			Attach(ui.AnchorBottom, ui.AnchorTop).Top(1)`), "")
 	if !strings.Contains(flat, chain) {
 		t.Error("操作行计数没接上 statCountWeight / statCountBoxH / statCountShift")
 	}

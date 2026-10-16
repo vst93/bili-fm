@@ -735,21 +735,6 @@ func playerPlayInk(t Theme, playing, hovered bool) ui.Color {
 	return ui.Hex("#475569")
 }
 
-// glassOn 给「常态无框」的小图标按钮上材质：只有激活/悬停才铺半透明面，
-// 常态保持透明 —— 原版 .nav-icon-btn 常态就是透明 + 一点径向高光，
-// 每颗都铺一块面会显得"每个图标都套了个盒子"。激活/悬停同样是填充而非
-// Backdrop 真玻璃（原版没有 backdrop-filter，且每次 backdrop 都是一次
-// render pass）。
-func glassOn(b ui.Element, active, hovered bool, activeTint, hoverTint ui.Color) ui.Element {
-	switch {
-	case active && activeTint.A > 0:
-		return buttonSurface(b, true, hovered, activeTint, hoverTint)
-	case hovered && hoverTint.A > 0:
-		return buttonSurface(b, false, true, activeTint, hoverTint)
-	}
-	return b.Background(ui.Transparent)
-}
-
 // disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
 // 禁用 + opacity .42。mygo 的禁用节点会自己再乘 .5（ui/paint.go），所以元素值要写
 // disabledDim(.42)=.84 抵消掉（见 disabled.go 的总说明）。

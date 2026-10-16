@@ -1,6 +1,8 @@
 package view
 
 import (
+	"github.com/egoist/mygo/ui"
+	"image"
 	"math"
 	"testing"
 )
@@ -95,5 +97,69 @@ func TestStatCountDoesNotGrowActionsRow(t *testing.T) {
 	// 老实现（计数等高列，比按钮高 13px）会让间距变成 43；显式排除。
 	if gap >= 40 {
 		t.Errorf("间距 %v 偏大，像计数仍在撑高操作行", gap)
+	}
+}
+
+// TestStatButtonNoActiveBackground 钉住「赞/币/藏三键任何状态都不铺底色」。
+//
+// 原版 JSX 只把 svg 的 fill 在激活时换成动作色，globals.css 里没有任何
+// `.nav-stat-btn[data-active]` / `.nav-icon-btn[aria-pressed]` 的面规则 ——
+// 已赞/已投币/已收藏的按钮底仍是通用 `.nav-icon-btn` 的「常态透明、悬停
+// 白 .38、按下白 .16」。原生版此前给激活态铺 `ActiveInk.Alpha(0.26)` 的着色面
+// + 1px 白边（dd2cb91 的遗留），已赞是红底、已投币是琥珀底、已收藏是黄底加白框，
+// 与只有图标变色的原版完全对不上。
+//
+// 无头实测：把三个键的 fav/like/coin 状态从「未激活」切到「已激活」，按钮
+// 矩形内除图标笔画外应**没有任何**成片的底/边颜色出现 —— 即激活不该新增底色。
+// 判据：三种激活态的按钮内像素与「未激活」同态几乎逐像素相同，只在图标颜色上
+// 有别（图标墨迹只占按钮的小部分）。这里直接量「按钮底/边区域」（图标笔画之外
+// 的环带）的像素差：激活态不应在环带里新增任何着色底。
+func TestStatButtonNoActiveBackground(t *testing.T) {
+	render := func(active bool) *image.RGBA {
+		a := descApp()
+		a.Info.Like, a.Info.Coin, a.Info.Favorite = 1234, 5678, 9012
+		a.Liked, a.Coined, a.Faved = active, active, active
+		return shellTesterSize(t, a, 1000, 700).Image()
+	}
+
+	off := render(false)
+	on := render(true)
+
+	// 三个按钮的矩形按已知布局几何定位：34 宽、圆角 8、间距 4，行首是「点赞」。
+	// 标签（aria-label）随激活态切换（点赞↔取消点赞），Find 靠不住，所以用
+	// 未激活态的「点赞」定锚、再按 gap 推出后两个。
+	anchor := ui.NewTester(func(c *ui.Context) { descApp().Shell(c) }, 1000, 700)
+	anchor.Frame()
+	like, ok := anchor.Find("点赞")
+	if !ok {
+		t.Fatal("找不到点赞按钮")
+	}
+	btns := []ui.Rect{
+		like,
+		{X: like.X + ContentIcon + 4, Y: like.Y, W: ContentIcon, H: ContentIcon},
+		{X: like.X + 2*(ContentIcon+4), Y: like.Y, W: ContentIcon, H: ContentIcon},
+	}
+	names := []string{"点赞", "投币", "收藏"}
+
+	// 每个按钮取上缘 3px 环带（避开正中的图标笔画）：底 / 边框若有变化，环带里
+	// 会大量显现；只换图标 fill 时环带（图标不触及）应几乎不变。
+	for i, r := range btns {
+		ring := ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 3}
+		diff, total := diffInRect(off, on, ring)
+		t.Logf("%s 上缘环带：%d/%d 像素随激活变化", names[i], diff, total)
+		if diff > total/4 {
+			t.Errorf("%s 激活后在按钮上缘环带里新增了 %d/%d 像素 —— 激活态仍在铺底/画边框（原版只有图标变色）",
+				names[i], diff, total)
+		}
+		// 计数条（按钮下方 13px）：原版计数色恒 #64748b，激活不改；此前原生版
+		// 让激活态计数跟图标一起染动作色（红/琥珀/黄）。两态的计数数值相同
+		//（1234/5678/9012），所以计数条应逐像素一致。
+		strip := ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 13}
+		diffCount, totalCount := diffInRect(off, on, strip)
+		t.Logf("%s 计数条：%d/%d 像素随激活变化", names[i], diffCount, totalCount)
+		if diffCount > totalCount/8 {
+			t.Errorf("%s 激活后计数条变了 %d/%d 像素 —— 激活态计数仍在染动作色（原版恒 #64748b）",
+				names[i], diffCount, totalCount)
+		}
 	}
 }

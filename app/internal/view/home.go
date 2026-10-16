@@ -1294,16 +1294,24 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 	disableNav(b, spec.Off)
 	navIconFade(b, spec.Off, navIconRestOpacityFor(navIconContent))
 	navIconPose(b)
-	// 半透明填充；激活（已赞/已投币/已收藏）用该状态的强调色做底色。
-	switch {
-	case spec.Off:
+	// 按钮面：赞/币/藏三键**任何状态都不铺底色 / 不画边框**。
+	//
+	// 原版 JSX 只把 svg 的 `fill` 在激活时换成动作色（`ThumbsUp fill={isLiked ?
+	// "#e11d48" : gray}` 等），globals.css 里**没有** `.nav-stat-btn[data-active]`、
+	// `.nav-icon-btn[aria-pressed]` 之类的激活面规则——`.nav-icon-btn.nav-stat-btn`
+	// 只是把尺寸定成 32×32，面还是通用 `.nav-icon-btn` 的「常态透明、悬停
+	// --glass-bg-hover（白 .38）、按下 --glass-bg-active（白 .16）」。
+	//
+	// 此前原生版给激活态铺了 `ActiveInk.Alpha(0.26)` 的着色面 + 1px 白边
+	//（`glassOn`→`buttonSurface`，dd2cb91 的「玻璃 Tint 时代」遗留）—— 已赞是红底、
+	// 已投币是琥珀底、已收藏是黄底加白框，与只有图标变色的原版完全对不上。
+	// 本轮去掉：三个键统一走通用 `.nav-icon-btn` 的底色迁移。
+	if spec.Off {
 		navIconBgTo(b, ui.Transparent)
-	case spec.Active:
-		glassOn(b, true, b.Hovered(), spec.ActiveInk.Alpha(0.26), spec.ActiveInk.Alpha(0.26))
-	default:
-		// 原版 .nav-icon-btn：常态透明，悬停 --glass-bg-hover（白 .38）、
-		// 按下 --glass-bg-active（白 .16）；底色淡入（background-color
-		// 0.18s ease），悬停的内高光由下面 ::after 补齐。
+	} else {
+		// 常态透明，悬停 --glass-bg-hover、按下 --glass-bg-active；底色淡入
+		//（background-color 0.18s ease），悬停的内高光由下面 ::after 补齐。
+		// 激活与否都不改变底色：悬停时即使已赞也是白 .38 的通用底。
 		navIconBgTo(b, pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
 	}
 	// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
@@ -1324,23 +1332,21 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		// 的 padding-bottom 14 预留展示区）。作为按钮子元素，它还随按钮一起
 		// 上浮 1px / 按下缩放（原版数值就是按钮子元素）。
 		//
-		// Attach 按父级 **padding box** 定位，而激活态的 buttonSurface 带 1px
-		// 边框（原版 stat 键无边框，这是原生版的另一处偏离）：补回这 1px，让
-		// 计数不会因按钮是否激活而上下跳。
+		// 计数墨色：原版 `.nav-icon-btn > .nav-stat-value` 恒为 `color: #64748b`，
+		// 激活（已赞/已投币/已收藏）**不改**计数色（变色的只有图标）；禁用时
+		// `.nav-stat-btn:disabled .nav-stat-value { color: inherit }` 继承按钮
+		// 的 `#475569`。此前原生版让激活态计数跟图标一起染动作色（红 / 琥珀 /
+		// 黄），与恒灰的原版对不上，本轮改回。
 		if spec.Count != "" {
-			valueInk := pick(spec.Active, spec.ActiveInk, ui.Hex("#64748b"))
+			valueInk := ui.Hex("#64748b")
 			if spec.Off {
 				valueInk = ui.Hex("#475569")
-			}
-			gap := float32(1)
-			if spec.Active {
-				gap += 1 // buttonSurface 的 1px 边框
 			}
 			numericText(c, spec.Count).FontSize(9).FontWeight(statCountWeight).TextColor(valueInk).
 				Opacity(navIconStatValueOpacity(spec.Off)).
 				SingleLine().
 				Height(statCountBoxH).Translate(0, statCountShift).
-				Attach(ui.AnchorBottom, ui.AnchorTop).Top(gap)
+				Attach(ui.AnchorBottom, ui.AnchorTop).Top(1)
 		}
 	})
 	if b.Clicked() && spec.OnClick != nil {
