@@ -3507,6 +3507,10 @@ func (a *App) locatePart(keyword string) {
 	a.Notify("没有匹配的分集：" + kw)
 }
 
+// collectScrollIconSize 是滚动键箭头图标的边长（原版 collectList 的
+// <Left size="16"> / <Right size="16">，见下 collectScrollBtn）。
+const collectScrollIconSize float32 = 16
+
 // collectScrollBtnPaintFor 解析收藏夹滚动键的常态 / 悬停 / 按下底色。原版
 // globals.css 的 `.collect-scroll-btn`：常态 `rgba(15,23,42,.06)`；`:hover
 // background: rgba(14,165,233,.14)`（浅蓝 #0ea5e9 14%）；`:active
@@ -3532,10 +3536,13 @@ func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) 
 	// 原版 `.collect-scroll-btn:focus-visible`：`outline: 0; color: #0284c7;
 	// box-shadow: 0 0 0 2px rgba(2,132,199,.4)` —— 换色跟悬停同值（聚光蓝），
 	// 环是 titleBarFocus 那一款无偏移的 2px 蓝环。
+	// 原版 collectList 里 <Left size="16" theme="outline" /> / <Right size="16" .../>：
+	// 箭头是 16px。此前画成 14px（比原版小一圈），核对 main 逐值后改回 16。
 	b.Children(func() {
 		ic := pick(delta < 0, iconLeft, iconRight)
 		lit := b.Hovered() || b.FocusVisible()
-		ui.Icon(c, ic).Size(14, 14).TextColor(pick(lit, t.Blue, ui.Hex("#475569")))
+		ui.Icon(c, ic).Size(collectScrollIconSize, collectScrollIconSize).
+			TextColor(pick(lit, t.Blue, ui.Hex("#475569")))
 	})
 	focusOutline(b, 7, focusGlow)
 	if b.Clicked() {

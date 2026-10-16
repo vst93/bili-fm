@@ -909,6 +909,38 @@ func TestDrawerCloseButtonSurfaceWired(t *testing.T) {
 	}
 }
 
+// TestCollectScrollIconSize 钉住收藏夹滚动键的箭头图标边长：原版 collectList
+// 写的是 <Left size="16" theme="outline" /> / <Right size="16" .../>，原生版此前
+// 画成 14px（比原版小一圈）。这里既钉常量，又用无头像素实测把 14/16 两档分开：
+// 箭头是描边图形，16px 画布的墨迹像素数约是 14px 的两倍（实测 16 vs 8）。
+func TestCollectScrollIconSize(t *testing.T) {
+	if collectScrollIconSize != 16 {
+		t.Fatalf("collectScrollIconSize = %v，应为 16（原版 <Left size=\"16\">）", collectScrollIconSize)
+	}
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = "favorite"
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tst.Frame()
+	r := mustFind(t, tst, "向右滚动")
+	img := tst.Image()
+	// 常态墨 #475569（亮背景上明显更暗）；数滚动键矩形内的墨迹像素。
+	ink := 0
+	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			c := rgbAt(img, x, y)
+			if c[0] < 130 && c[1] < 140 && c[2] < 150 {
+				ink++
+			}
+		}
+	}
+	t.Logf("滚动键箭头墨迹像素 = %d（图标常量 %v）", ink, collectScrollIconSize)
+	// 16px 画布实测 16 个墨迹像素；14px 只有 8（缩小后描边被抗锯齿抹淡）。
+	if ink < 12 {
+		t.Errorf("箭头墨迹像素 = %d，偏少（14px 画布只有 8）：图标应按原版 16px 画", ink)
+	}
+}
+
 // TestCollectScrollBtnPaintTokens 逐值钉住收藏夹滚动键三态底色（原版
 // globals.css 的 .collect-scroll-btn：常态墨 .06、:hover 浅蓝、:active 墨 .12）。
 func TestCollectScrollBtnPaintTokens(t *testing.T) {
