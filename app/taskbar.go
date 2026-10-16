@@ -31,9 +31,17 @@ func (c *controller) setupTaskbar() {
 	if c.app.Win == nil {
 		return
 	}
-	hwnd := c.app.Win.NativeHandle()
-	taskbarInit(hwnd)
-	c.app.Win.OnShow(func() { taskbarInit(hwnd) })
+	// 窗口句柄在每次回调里重新取，而不是在闭包里存第一次的 hwnd：
+	// mygo 的 OnShow 回调注册在窗口生命期内只挂一次，但窗口重建（进/出迷你
+	// 模式会 resize，某些平台/后端下会重新创建原生窗口）后 NativeHandle()
+	// 会变。存旧句柄会让重挂打到已销毁的 HWND 上（ThumbBarAddButtons 失败且
+	// 静默），而 taskbarInit 内部的 `st.hwnd == hwnd && st.added` 判据正好
+	// 按句柄判断是否需要重挂 —— 所以这里每次现取。
+	//
+	// 原版（main:src-tauri/src/taskbar.rs 的 init）只有一次 setup 调用、没有
+	// OnShow 重试；原生版多这一步是为了兜住「Explorer 重启后缩略图工具栏丢失」
+	//（window 首次显示前 ThumbBarAddButtons 也会失败）。
+	c.app.Win.OnShow(func() { taskbarInit(c.app.Win.NativeHandle()) })
 }
 
 // syncTaskbar 把播放状态与可上一首/下一首推给任务栏按钮（换图标 / 禁用态）。

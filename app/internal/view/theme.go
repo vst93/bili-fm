@@ -609,6 +609,20 @@ var titleBarBtnHighlight = func(b ui.Element, active, hovered bool) ui.Element {
 	return b
 }
 
+// tbIncognitoRestInk 是隐身键**开启**时其所在行（标题栏 actions 行）在静息态
+// 该有的不透明度下限。
+//
+// 背景：原版 `.app-title-bar > *` 静息只到 .32、唤出才到 .82（见 titleBarReveal），
+// 原生版一字不差照做。但这一行现在**只装常驻隐身键**（迷你入口已删除），于是
+// `.32` 唯一的可见后果就是把「隐身开着」的状态压得几乎融进标题栏——无头实测
+// 键内最暗像素亮度和：关闭态 592/720、开启态 560/720（只差 32），键内仅 5.6%
+// 的像素在两态间可辨。用户明确要求这颗键的状态「一眼可见」，.32 达不到。
+//
+// 取舍：只对**开启**态加下限（关闭态照旧 .32/退到背景里是多少就是多少），
+// 行本身仍走 titleBarFade 的 0.24s 过渡（动效不变，只是静息目标从 .32 抬到
+// tbIncognitoRestInk）；唤出态是 .82，本来就高于这个下限，不受影响。
+const tbIncognitoRestInk = float32(0.62)
+
 // titleBarReveal 是标题栏的 hover-to-reveal 两态（原版 .app-title-bar 的
 // `:hover` / `:focus-within`），返回四层的不透明度：
 //

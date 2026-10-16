@@ -303,8 +303,14 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 //  1. titleBarFontWeight == 500（.app-title-bar 的继承字重）；
 //  2. titleBarSettingsNudge 在 (0, 1) 内（0=不改就别加这条，1 会在 1x/1.5x
 //     过冲、2x 欠冲）；
-//  3. 无头实测 1x **与 2x** 两档下，品牌与设置的墨迹包围盒中位差 ≤ 0.5px。
-//     跨缩放一起断言，把「某个档位凑出来的假对齐」排除。
+//  3. 无头实测 **四档缩放**（1 / 1.25 / 1.5 / 2，Linux HiDPI 常用 1.25 与 1.5）
+//     下，品牌与设置的墨迹包围盒中位差 ≤ 0.5px。跨缩放一起断言，把「某个档位
+//     凑出来的假对齐」排除。实测（本机，修正后）：
+//
+//	缩放   1.00   1.25   1.50   2.00
+//	Δ(px) -0.00  -0.00  +0.33  -0.25
+//
+//     反证：把 titleBarSettingsNudge 退回 0 → 1x Δ=1.00、1.5x Δ=1.33，报红。
 func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 	if titleBarFontWeight != 500 {
 		t.Fatalf("titleBarFontWeight = %d，应为 500（.app-title-bar font-weight:500）",
@@ -324,7 +330,7 @@ func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 	}
 
 	// 无头实测：两档缩放下墨迹盒中位差 ≤ 0.5px。
-	for _, scale := range []float32{1, 2} {
+	for _, scale := range []float32{1, 1.25, 1.5, 2} {
 		tst := titleBarProbeAt(t, scale)
 		brand, ok := tst.Find("bili-FM")
 		if !ok {
@@ -420,5 +426,74 @@ func TestTitleBarIncognitoOnMac(t *testing.T) {
 	// macOS 上设置键不渲染（原版 isMac 分支），所以它不该出现在标题栏里。
 	if _, ok := tst.Find("设置"); ok {
 		t.Error("macOS 上仍有「设置」键（原版 isMac 分支不挂它）")
+	}
+}
+
+// TestTitleBarIncognitoRestVisibility 是本轮（2026-10-17 第二轮）新增的回归，
+// 钉住常驻隐身键在**静息态**（鼠标不在标题栏上）也有可辨的激活视觉 —— 用户对
+// 这颗常驻入口的要求原文是「常驻可见、一次点击可达、**状态一眼可见**」。
+//
+// 背景：`.app-title-bar > *` 静息只到 .32、唤出才 .82（见 titleBarReveal，原版
+// globals.css 如此），而 actions 这一行现在**只装隐身键**，于是 .32 唯一的可见
+// 后果就是把「开着」压得几乎融进标题栏。无头实测（静息、1000×700、noon）：
+//
+//	               关闭态最暗亮度和   开启态最暗亮度和
+//	改前（行恒 .32）        592              560      ← 两态只差 32/720，键内仅 5.6% 像素可辨
+//	改后（开态行 .62）      592              434      ← 差 158
+//
+// 修法：隐身**开启**时给它所在行动静息不透明度加下限 tbIncognitoRestInk（.62），
+// 关闭态照旧 .32（关着的开关本就该安静）。唤出态 .82 高于下限、不受影响。
+//
+// 反证：把 shell.go 里那段下限去掉（childTarget 直接用 child），第一条断言变红。
+func TestTitleBarIncognitoRestVisibility(t *testing.T) {
+	childRest, _, _, _ := titleBarReveal(false)
+	if tbIncognitoRestInk <= childRest {
+		t.Fatalf("tbIncognitoRestInk = %v，必须高于静息值（否则下限不起作用）", tbIncognitoRestInk)
+	}
+	flat := flattenNoComments(t, "shell.go")
+	if !strings.Contains(flat, "ifa.Incognito&&childTarget<tbIncognitoRestInk{") {
+		t.Error("隐身开启时没有给 actions 行的静息不透明度加下限（状态不「一眼可见」）")
+	}
+
+	// 无头实测：静息态下量键内最暗像素的亮度和（越小=激活视觉越明显）。
+	darkestSum := func(on bool, hover bool) int {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.Incognito = on
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+		tst.Frame()
+		if hover {
+			tst.Move(500, 18)
+		} else {
+			tst.Move(500, 400)
+		}
+		tst.Frame()
+		r, ok := tst.Find("隐身模式")
+		if !ok {
+			t.Fatal("找不到常驻隐身键")
+		}
+		img := tst.Image()
+		best := 1 << 30
+		for y := int(r.Y); y <= int(r.Y+r.H); y++ {
+			for x := int(r.X); x <= int(r.X+r.W); x++ {
+				i := img.PixOffset(x, y)
+				if s := int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2]); s < best {
+					best = s
+				}
+			}
+		}
+		return best
+	}
+	restOff, restOn := darkestSum(false, false), darkestSum(true, false)
+	t.Logf("静息态 键内最暗亮度和：关闭 %d 开启 %d（差 %d，白底 720）", restOff, restOn, restOn-restOff)
+	if restOff-restOn < 80 {
+		t.Errorf("静息态开启/关闭两态只差 %d（<80），激活视觉不够「一眼可见」（开 %d 关 %d）",
+			restOff-restOn, restOn, restOff)
+	}
+	// 唤出态两态仍可辨（下限不参与，行是 .82）。
+	hovOff, hovOn := darkestSum(false, true), darkestSum(true, true)
+	t.Logf("唤出态 键内最暗亮度和：关闭 %d 开启 %d", hovOff, hovOn)
+	if hovOff <= hovOn {
+		t.Errorf("唤出态开启键不比关闭键深：开 %d 关 %d", hovOn, hovOff)
 	}
 }

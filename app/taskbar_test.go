@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -161,5 +162,25 @@ func TestTaskbarThemeIsDark(t *testing.T) {
 	}
 	if taskbarThemeIsDark(0, false) {
 		t.Error("读不到时应按浅色处理")
+	}
+}
+
+// TestTaskbarInitRetriedWithFreshHandle 钉住 setupTaskbar 在 OnShow 重试时
+// 重新取窗口句柄，而不是闭包捕获第一次的 hwnd。
+//
+// 背景：窗口重建（某些后端下进/出迷你模式会重造原生窗口）或 Explorer 重启后
+// 需要重挂缩略图工具栏，taskbarInit 按 `st.hwnd == hwnd && st.added` 判是否
+// 跳过；若回调里用的是旧句柄，重挂就永远打到已销毁的 HWND 上（ThumbBarAddButtons
+// 失败且静默，用户看到的就是「悬停任务栏没有按钮」）。
+//
+// 反证：把 OnShow 回调改回捕获 `hwnd` 变量 → 源码链断言变红。
+func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
+	flat := flattenSrc(t, "taskbar.go")
+	if !strings.Contains(flat, "c.app.Win.OnShow(func(){taskbarInit(c.app.Win.NativeHandle())})") {
+		t.Error("OnShow 重试没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
+	}
+	// 初始化那一次也应现取，避免"先捕获、后复用"的同一个坑。
+	if strings.Contains(flat, "taskbarInit(hwnd)") {
+		t.Error("taskbarInit 用了捕获的 hwnd 变量，应每次现取 NativeHandle()")
 	}
 }

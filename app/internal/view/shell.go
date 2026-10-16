@@ -146,7 +146,15 @@ func (a *App) titleBar(c *ui.Context) {
 		}
 		actions := ui.Row(c).Gap(4).Shrink(0).AlignItems(ui.Center)
 		// `.app-title-bar > *` 的不透明度（.32 ↔ .82）走 0.24s 过渡。
-		actions.Opacity(titleBarFade(actions, "tb-child", child))
+		// 隐身键开启时给本行的静息不透明度加一个下限（见 tbIncognitoRestInk）：
+		// 原版 `.app-title-bar > *` 静息只到 .32，而这一行现在**只装隐身键**，
+		// .32 会把「开着」的状态压得几乎看不出（用户明确要求状态一眼可见）。
+		// 关闭态不设下限——关着的隐身键本就该安静地退到背景里。
+		childTarget := child
+		if a.Incognito && childTarget < tbIncognitoRestInk {
+			childTarget = tbIncognitoRestInk
+		}
+		actions.Opacity(titleBarFade(actions, "tb-child", childTarget))
 		actions.Children(func() {
 			// 迷你入口按钮（原 switch-window-mode，ZoomInternal 图标）已移除：
 			// 浮窗应用不需要在标题栏放一颗看似全屏的按钮，避免误导。
