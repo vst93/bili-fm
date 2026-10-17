@@ -236,11 +236,24 @@ func (a *App) drawer(c *ui.Context) {
 		// 位移走 Bottom（布局）而不是 AnimatePose 的 transform：软件渲染器对带
 		// transform 的 op 一律逐像素重绘，整棵抽屉子树（面板 + 卡片 + 文字）都会
 		// 中招（见 drawerAnimOffset 的实测）。每帧重建 ≈0.5ms，远小于省下的绘制。
+		// 面板的边：原版 `[data-slot="wrapper"] > section` 只有 **border-top**
+		// （1px var(--glass-border)），左右 / 下那圈 1px 亮边来自 `::after` 的
+		// --liquid-rim 聚光描边（inset:0 / padding 1px / mask exclude，**不占布局**）。
+		// 此前原生版用 `Border(1, GlassBorder)` 画满四边：那 1px 是**布局边框**
+		// （Border 会占掉元素内部 1px），左右各吃掉 1px ⇒ 抽屉正文比原版窄 2px
+		// （既有的残留差异）。改成「上边 1px 布局边 + 全圈 1px 不占布局的聚光
+		// 描边」（paintPlayerRim 就是 --liquid-rim 的四边线性近似），正文宽度
+		// 与原版逐值对齐。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
 			Clip().
 			Background(drawerPanelFill()).
-			Border(1, a.Theme.GlassBorder).
+			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
+				// exclude，不占布局），上缘最亮。::after 没有 opacity 覆写 ⇒ 整圈 1。
+				paintPlayerRim(p, r, 18, 1)
+			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
 		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
@@ -3540,7 +3553,7 @@ var replyLinePitch = textXsLH * replyFont.Size
 // replyBodyChrome 是楼中楼正文宽度链上**除昵称以外**的固定内边距之和（DIP）。
 // 抽屉面板铺满整窗，正文列宽可以从窗口宽度按这条链算出来：
 //
-//	抽屉面板 Border(1)          -2
+//	抽屉面板（只 top 布局边）    -0
 //	List.Padding(0,10)        -20
 //	评论行外层 Padding(0,6)    -12
 //	评论卡 Border(1)           -2
@@ -3549,8 +3562,10 @@ var replyLinePitch = textXsLH * replyFont.Size
 //	楼中楼列 Padding(0,0,0,12) -12
 //	行 Gap(4)                   -4
 //
-// （评论行外层的横向内边距就是原版卡片的 `margin: 4px 6px`，见 commentRow。）
-const replyBodyChrome = 2 + 20 + 12 + 2 + 64 + 40 + 12 + 4
+// （面板原先满四边 `Border(1)` 会吃掉左右各 1px，现改为「只 top 布局边 +
+// 全圈不占布局的聚光描边」后不再计入。评论行外层的横向内边距就是原版卡片的
+// `margin: 4px 6px`，见 commentRow。）
+const replyBodyChrome = 20 + 12 + 2 + 64 + 40 + 12 + 4
 
 // replyBodyWidthFor 是楼中楼正文的**首行**可用宽（DIP），也是原生版行里
 // body 盒的实宽：窗口宽减去 replyBodyChrome，再减去昵称的实测宽。原版首行

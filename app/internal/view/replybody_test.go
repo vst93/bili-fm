@@ -122,9 +122,11 @@ func TestCommentCardWidthMatchesOriginal(t *testing.T) {
 		if !ok {
 			t.Fatalf("win=%d：找不到评论正文", winW)
 		}
-		// 窗口 − 面板边框 2 − List 内边距 20 − 外层内边距 12 − 卡片边框 2
-		// − 卡片内边距 64 − 正文列左缩进 40 = 窗口 − 140。
-		want := float32(winW) - 140
+		// 窗口 − List 内边距 20 − 外层内边距 12 − 卡片边框 2
+		// − 卡片内边距 64 − 正文列左缩进 40 = 窗口 − 138。
+		// （抽屉面板原满四边 `Border(1)` 会再扣 2px；现改为「只 top 布局边 +
+		// 全圈不占布局的聚光描边」，与原版 `border-top` 一致，不再计入。）
+		want := float32(winW) - 138
 		if math.Abs(float64(r.W-want)) > 0.5 {
 			t.Errorf("win=%d：评论正文列盒宽 = %v，应 %v（卡片宽度按原版 margin 4px 6px 扣）",
 				winW, r.W, want)

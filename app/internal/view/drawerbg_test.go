@@ -92,3 +92,26 @@ func TestDrawerPanelFillIsOpaqueToken(t *testing.T) {
 		t.Fatalf("drawerPanelFill alpha=%.3f，应落在 [0.6,0.8]", alpha)
 	}
 }
+
+// TestDrawerPanelTopBorderOnly 钉住抽屉面板的**布局边只有上边**（原版
+// `[data-slot="wrapper"] > section { border-top: 1px solid var(--glass-border) }`）。
+//
+// 此前原生版写 `Border(1, GlassBorder)`：框架的 Border 是**布局边框**（占掉
+// 元素内部 1px），四边各吃 1px ⇒ 抽屉正文比原版窄 2px（既有残留差异）。
+// 原版左右 / 下那圈 1px 亮边来自 `::after` 的 --liquid-rim 聚光描边（inset:0 /
+// padding 1px / mask exclude，**不占布局**）。这里两条断言：
+//   - 源码链：面板用 BorderWidth(1,0,0,0)（只上边）而不是 Border(1, ...)；
+//   - 无头像素：面板左缘内侧 1px 处是**面板底色的延续**（不是一条亮白边），
+//     即左右没有布局边框 —— 若退回四边 Border，最外 1px 会被 --glass-border
+//     的亮白盖出一条明显更亮的竖线。
+func TestDrawerPanelTopBorderOnly(t *testing.T) {
+	flat := flatten(t, "drawer.go")
+	if !srcHas(flat, "BorderWidth(1,0,0,0).BorderColor(a.Theme.GlassBorder)") {
+		t.Error("抽屉面板没有改成「只上边」的布局边（BorderWidth(1,0,0,0)）")
+	}
+	// 面板不再用满四边的 Border(1)（那会吃掉左右各 1px）。只查面板那一处：
+	// 面板 Background 之后紧跟的写法。
+	if srcHas(flat, "Background(drawerPanelFill()).Border(1,") {
+		t.Error("抽屉面板仍在用满四边 Border(1, ...)：正文会比原版窄 2px")
+	}
+}
