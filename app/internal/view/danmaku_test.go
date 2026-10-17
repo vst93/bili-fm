@@ -744,11 +744,17 @@ func TestDanmakuTextHasNoBackground(t *testing.T) {
 	if strings.Contains(flat, `FixedLineHeight(18).TextColor(ui.Transparent)`) {
 		t.Error("弹幕文字仍有透明占位副本（Absolute 白层手法的残留）")
 	}
-	// 文字仍必须是普通 flow 子元素（不是 Absolute 双写）：danmakuText 返回的
-	// ui.Text 同时也是 chip 的 flow 子元素，链在 danmakuText 里成型。
-	want := `ui.Text(c,s).FontSize(font.Size).FontWeight(font.Weight).`
-	if !strings.Contains(flat, want) {
-		t.Error("弹幕文字没有回到普通 flow 子元素（找不到 danmakuText 的文字链）")
+	// v0.5.5 起 danmakuText 改用「实测宽 Box + 双 Absolute（下移 1px 的 Blur
+	// 白副本 + 真字形）」：文字元素不能带非文字子元素（框架禁止），所以补回真
+	// 模糊阴影只能走兄弟绝对层。断言这结构在（且阴影层带真 Blur）。
+	if !strings.Contains(flat, `danmakuTextFont`) {
+		t.Error("弹幕文字没有用 danmakuTextFont（13px/650）")
+	}
+	if !strings.Contains(flat, `shadow.Blur(danmakuTextShadowBlur)`) {
+		t.Error("弹幕文字阴影层没有接 Element.Blur（真模糊没画）")
+	}
+	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuInk(e.Color,t.Dark))`) {
+		t.Error("danmakuGroupRow 没有用 danmakuText 画文字")
 	}
 	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuInk(e.Color,t.Dark))`) {
 		t.Error("danmakuGroupRow 没有用 danmakuText 画文字（柔光阴影应随之回来）")

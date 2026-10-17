@@ -3179,9 +3179,21 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 // 声明成 var 便于测试换桩反证。
 var danmakuTextInkShadow = func() ui.Color { return ui.Hex("#ffffff").Alpha(0.68) }
 
-// danmakuTextShadow 是弹幕文字那条白色柔光阴影的偏移（原版 text-shadow 的
+// danmakuTextFont 是弹幕文字的字体（原版 `.danmaku-message-text`：13px / 650）。
+var danmakuTextFont = ui.Font{Size: 13, Weight: 650}
+
+// danmakuTextLineH 是弹幕文字的行盒高（原版 `.danmaku-message-text` 的
+// `line-height: 18px`）。
+const danmakuTextLineH = 18
+
+// danmakuTextShadowY 是弹幕文字那条白色柔光阴影的偏移（原版 text-shadow 的
 // `0 1px 1px`：垂直下移 1px）。
 const danmakuTextShadowY = 1
+
+// danmakuTextShadowBlur 是柔光阴影的模糊半径（原版 text-shadow 的第三个参数
+// `1px`，即 σ=1）。v0.5.5 起框架提供 Element.Blur，用它做真正的高斯模糊，
+// 不再用硬切副本近似。
+const danmakuTextShadowBlur = 1
 
 // danmakuText 画一条弹幕文字（原版 `.danmaku-message-text`：13px / 650 /
 // line-height 18px / single-line），并补回原版那条白色柔光阴影。
@@ -3192,17 +3204,33 @@ const danmakuTextShadowY = 1
 // —— 只有字形轮廓外面那 1px 的偏移露出白，与 CSS 的 text-shadow 同义。
 // 这是**字形副本**，不是 4408e18 那块被用户否掉的方形白底矩形。
 func danmakuText(c *ui.Context, s string, ink ui.Color) ui.Element {
-	font := ui.Font{Size: 13, Weight: 650}
-	e := ui.Text(c, s).FontSize(font.Size).FontWeight(font.Weight).
-		FixedLineHeight(18).TextColor(ink).SingleLine()
-	e.Draw(func(p *ui.Painter, r ui.Rect) {
-		if s == "" {
-			return
-		}
-		// 字形原点与元素自身一致（无内边距，文本盒即边框盒）。
-		p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y+danmakuTextShadowY, danmakuTextInkShadow())
+	font := danmakuTextFont
+	if s == "" {
+		// 空文本仍建一个 0 宽占位，保持元素树形状稳定（见调用点）。
+		return ui.Box(c).Label(s)
+	}
+	w, _ := ui.ShapeText(s, font, 0).Size()
+	// 「实测宽 × 18 高」的盒，里面叠两层绝对定位的字形：
+	//   下层 = 下移 1px 的白色副本，用 Element.Blur(1) 做真正的 1px 高斯模糊
+	//          （即 CSS `text-shadow: 0 1px 1px rgba(255,255,255,.68)` 的 blur；
+	//          v0.5.5 起框架提供 Blur，此前只能画硬切副本近似）；
+	//   上层 = 弹幕本色字形，盖住副本，只从轮廓外露出那圈柔光。
+	// 文字元素不能带非文字子元素（框架禁止），所以阴影副本只能用这种
+	// 「兄弟绝对层」而不是元素自己的 .Draw —— 层序仍是副本在下、字形在上。
+	// Label(s) 让无头测试与读屏都能拿到这条弹幕文本。
+	return ui.Box(c).Width(w).Height(danmakuTextLineH).Label(s).Children(func() {
+		shadow := ui.Box(c).Absolute().Left(0).Top(danmakuTextShadowY).
+			Width(w).Height(danmakuTextLineH).PassThrough()
+		shadow.Draw(func(p *ui.Painter, r ui.Rect) {
+			p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y, danmakuTextInkShadow())
+		})
+		shadow.Blur(danmakuTextShadowBlur)
+		glyph := ui.Box(c).Absolute().Left(0).Top(0).
+			Width(w).Height(danmakuTextLineH).PassThrough()
+		glyph.Draw(func(p *ui.Painter, r ui.Rect) {
+			p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y, ink)
+		})
 	})
-	return e
 }
 
 // danmakuSepColors 给出弹幕分组行分隔线（.danmaku-time-group 的 border-bottom）
