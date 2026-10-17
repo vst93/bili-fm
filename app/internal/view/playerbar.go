@@ -806,8 +806,10 @@ func playerRimOpacity(dark, tool bool) float32 {
 // 描边改成真正的 conic 环，不再是「上亮下淡」的四边线性近似
 // （那个近似把最亮点放错到正上方、整圈缺了 conic 的定向光）。
 //
-// `playerRimPaintFor` 保留的是旧的四边线性取值：小控件已全部走 conic，只有
-// **超过 `playerRimConicMaxArea` 的大表面**（见 paintPlayerRim）才回退到它。
+// `playerRimPaintFor` 保留的是旧的四边线性取值：**已不作为生产画法**，只留给
+// 测试做对照与反证（见 TestPlayerRimLinearApproximationPutLightOnTop、
+// TestPlayerRimPaintFor）。小控件走真 conic 环，大表面走
+// `paintPlayerRimDirectional`（四条带、端点色从 conic 采样）。
 //
 // 色散边（--liquid-chromatic 的暖/冷 0.5px 亚像素）仍按整 1px × 半不透明度近似，
 // 画在描边之外（见 paintPlayerChromatic）。
@@ -827,6 +829,87 @@ func playerRimPaintFor(opacity float32) playerRimPaint {
 		Width:      1,
 	}
 }
+
+// playerRimConicColorAt 按 CSS conic 的语义采出 --liquid-rim 在某点的颜色：
+// `conic-gradient(from A at X% Y%)` 的角度顺时针从正上方起算，所以某点的位置
+// `t = ((atan2(dx,-dy) · 180/π − A) / 360) mod 1`，dx/dy 是相对圆心的设备偏移。
+// 与框架 `FillPathConicGradient` 同一套语义（见 TestPlayerRimConicDirection 的
+// 实测标定）。
+func playerRimConicColorAt(r ui.Rect, px, py, opacity float32) ui.Color {
+	cx := r.X + r.W*playerRimConicCenter.X
+	cy := r.Y + r.H*playerRimConicCenter.Y
+	dx, dy := px-cx, py-cy
+	theta := float32(math.Atan2(float64(dx), float64(-dy))) * 180 / math.Pi
+	t := (theta - playerRimConicAngle) / 360
+	t -= float32(math.Floor(float64(t)))
+	return playerRimConicColorAtT(t, opacity)
+}
+
+// playerRimConicColorAtT 是 conic 停靠点在位置 t（0..1，已归一）的插值色。
+func playerRimConicColorAtT(t float32, opacity float32) ui.Color {
+	stops := playerRimConicStops(opacity)
+	for i := 0; i+1 < len(stops); i++ {
+		a, b := stops[i], stops[i+1]
+		if t >= a.At && t <= b.At {
+			if b.At <= a.At {
+				return b.Color
+			}
+			k := (t - a.At) / (b.At - a.At)
+			return ui.Color{
+				R: uint8(float32(a.Color.R) + k*(float32(b.Color.R)-float32(a.Color.R))),
+				G: uint8(float32(a.Color.G) + k*(float32(b.Color.G)-float32(a.Color.G))),
+				B: uint8(float32(a.Color.B) + k*(float32(b.Color.B)-float32(a.Color.B))),
+				A: uint8(float32(a.Color.A) + k*(float32(b.Color.A)-float32(a.Color.A))),
+			}
+		}
+	}
+	return stops[len(stops)-1].Color
+}
+
+// paintPlayerRimDirectional 是大表面（抽屉面板整幅、视频信息栏）用的定向光
+// 近似：四条边各铺一条 1px 渐变带，端点色从真 conic **采样**（左中偏亮、正上
+// 偏暗——与原版一致），既拿到 conic 的方向性，又不做整幅路径光栅化（那是
+// `FillPathConicGradient` 的代价：860×520 面板每帧一次全幅掩码，动画时掩码
+// 无法跨帧复用，实测 ≈2.5× 帧成本；下面的 `paintPlayerRimBands` 只画 4 条 1px
+// 带，≈线性近似的成本）。
+//
+// 为什么不能直接用旧的四边线性近似：那个近似把最亮点放在**正上沿**（白 .85），
+// 而原版 conic 被 `from 215deg at 30% -5%` 推到**左上**，正上方落在谷底（≈.05）
+// —— 方向正好相反（见 TestPlayerRimLinearApproximationPutLightOnTop 的反证）。
+func paintPlayerRimDirectional(p *ui.Painter, r ui.Rect, radius, opacity float32) {
+	if r.W < 2 || r.H < 2 {
+		return
+	}
+	const w = 1
+	// 每条带 3 个停靠点（首 / 中 / 尾），色从 conic 采样；横带从左到右（Angle 90）、
+	// 竖带从上到下（Angle 180）。左右竖带占满高度，上下横带左右各让开 1px，
+	// 避免四角被两条带叠成双倍 alpha。整组裁在元素圆角内，圆角处自动跟随弧线。
+	p.Clip(r, radius, func() {
+		p.FillGradient(ui.Rect{X: r.X + w, Y: r.Y, W: r.W - 2*w, H: w}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.03, r.Y, opacity), At: 0},
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.50, r.Y, opacity), At: 0.5},
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.97, r.Y, opacity), At: 1},
+		}}, 0)
+		p.FillGradient(ui.Rect{X: r.X + w, Y: r.Y + r.H - w, W: r.W - 2*w, H: w}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.03, r.Y+r.H, opacity), At: 0},
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.50, r.Y+r.H, opacity), At: 0.5},
+			{Color: playerRimConicColorAt(r, r.X+r.W*0.97, r.Y+r.H, opacity), At: 1},
+		}}, 0)
+		p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.03, opacity), At: 0},
+			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.50, opacity), At: 0.5},
+			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.97, opacity), At: 1},
+		}}, 0)
+		p.FillGradient(ui.Rect{X: r.X + r.W - w, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
+			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.03, opacity), At: 0},
+			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.50, opacity), At: 0.5},
+			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.97, opacity), At: 1},
+		}}, 0)
+	})
+}
+
+// playerRimDirectionalFn 是定向光带绘制的入口（测试可换桩关掉做反证）。
+var playerRimDirectionalFn = paintPlayerRimDirectional
 
 // playerRimConicCenter / playerRimConicAngle 是 --liquid-rim 的圆心与起始角
 // （原版 `conic-gradient(from 215deg at 30% -5%)`）。
@@ -918,27 +1001,19 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if opacity <= 0 {
 		return
 	}
-	// 面积闸门：conic 走路径光栅化（每个环一份 α 蒙版 + 一次 conic 采样），
-	// 在**大表面**上（抽屉面板整幅、视频信息栏）比四边线性带贵得多。原版那边
-	// 也是同一套运行时（Chromium 为每个 conic 生成纹理），所以这里对小控件用
-	// 真 conic（按钮 / 胶囊 / tab / 搜索框，面积 ≤ 2 万 DIP²），对大表面保留
-	// 便宜的四边线性近似 —— 大表面的描边本身很淡（整圈 opacity 1、最亮点 alpha
-	// ≈.2），肉眼只看得到「边缘一圈淡淡的光」，看不出方向性，但每帧省一次全幅
-	// 路径光栅（实测 840×620：conic ≈2.9ms vs 线性 ≈0.9ms）。
+	// 面积闸门：conic 走路径光栅化（每个环一份 α 蒙版 + 一次 conic 采样）。
+	// 小控件（按钮 / 胶囊 / tab / 搜索框）用真 conic 环，成本可忽略；
+	// **大表面**（抽屉面板整幅、视频信息栏）改用 `paintPlayerRimDirectional`：
+	// 四条 1px 梯度带，端点色从真 conic 采样，拿到同一条定向光（最亮点偏
+	// 左上）而**不**做整幅路径光栅化 —— 大面板每帧一次全幅掩码、动画时掩码
+	// 无法跨帧复用，实测 ≈2.5× 帧成本（860×520 面板：全 conic ≈2.5× 线性）。
+	// 为什么不用旧的四边线性近似：它把最亮点放在**正上沿**（白 .85），与原版
+	// conic 的左上亮相**反**（见 TestPlayerRimLinearApproximationPutLightOnTop）。
 	if r.W*r.H <= playerRimConicMaxArea {
 		paintPlayerRimConicFn(p, r, radius, opacity)
 		return
 	}
-	paint := playerRimPaintFor(opacity)
-	w := paint.Width
-	p.Clip(r, radius, func() {
-		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: w}, paint.Top, 0)
-		for _, x := range [2]float32{r.X, r.X + r.W - w} {
-			p.FillGradient(ui.Rect{X: x, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{
-				From: paint.SideTop, To: paint.SideBottom, Angle: 180}, 0)
-		}
-		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - w, W: r.W, H: w}, paint.Bottom, 0)
-	})
+	playerRimDirectionalFn(p, r, radius, opacity)
 }
 
 // paintPlayerRimConic 用路径 + conic 渐变填充画出 1px 聚光环。
@@ -959,14 +1034,18 @@ var paintPlayerRimConicFn = paintPlayerRimConic
 
 // playerRimConicMaxArea 是「用真 conic 环」的面积上限（DIP²）。
 //
-// conic 环要光栅化一条环形路径（一份 α 蒙版）再按角度采样，成本随表面尺寸线性增长；
-// 按钮 / 胶囊 / tab / 搜索框这些**小控件**（面积 ≤ 2 万 DIP²，最大也就 200×36=7200）
-// 换来的是原版那条定向光（最亮点偏左上，不是正上沿），性价比高；抽屉面板 / 视频
-// 信息栏这些**大表面**（几十万 DIP²）每帧一次全幅路径光栅明显更贵，而原版 CSS 的
-// 观感在那里只是「边缘一圈淡淡的光」（最亮点 alpha ≈.2）—— 回退到四边线性近似。
+// conic 环要光栅化一条环形路径（一份 α 蒙版）再按角度采样，成本随表面尺寸线性
+// 增长；按钮 / 胶囊 / tab / 搜索框这些**小控件**（面积 ≤ 2 万 DIP²，最大也就
+// 200×36=7200）每帧光栅一次也便宜，换来原版那条 conic 定向光（最亮点偏左上）；
+// 抽屉面板 / 视频信息栏这些**大表面**（几十万 DIP²）每帧一次全幅路径光栅明显
+// 更贵（动画时掩码无法跨帧复用），而大表面的描边本身很淡（整圈 opacity 1、最亮
+// 点 alpha ≈.2），肉眼只看得到「边缘一圈淡淡的光」—— 改走 `paintPlayerRimDirectional`：
+// 四条 1px 梯度带，端点色从真 conic **采样**，方向与原版一致（左亮上暗），
+// 成本与旧的四边线性带相当。
 //
-// 实测（无头软渲染，单帧）：840×620 面板 conic ≈2.9ms vs 线性 ≈0.9ms；
-// 200×36 搜索框 conic ≈0.11ms vs 线性 ≈0.06ms；34×32 按钮两者都 ≈0.05ms。
+// 实测（无头软渲染，860×520 面板，动画帧即掩码每帧重建）：
+//   全 conic 环 ≈85ms/帧 vs 四边带 ≈31ms/帧（≈2.5×）。静态帧掩码可跨帧缓存
+//   时两者相近，但动画（抽屉拖拽 / 弹层滑入）时差距拉开，故大表面不走 conic。
 const playerRimConicMaxArea = 20000
 
 // playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色

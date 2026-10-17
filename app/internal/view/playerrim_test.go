@@ -266,6 +266,94 @@ func TestPlayerRimLinearApproximationPutLightOnTop(t *testing.T) {
 	}
 }
 
+
+// TestPlayerRimLargeSurfaceRoutesDirectional 钉住面积闸门的两条分支：大表面
+// （抽屉面板整幅、视频信息栏）走 paintPlayerRimDirectional（四条 1px 梯度带、
+// 端点色从 conic 采样），小控件（按钮/胶囊/tab/搜索框）仍走真 conic 环。
+// 反证：把闸门常量调大 → 大表面会回到 conic（下面第二条断言立刻红）。
+func TestPlayerRimLargeSurfaceRoutesDirectional(t *testing.T) {
+	origConic, origDir := paintPlayerRimConicFn, playerRimDirectionalFn
+	defer func() { paintPlayerRimConicFn, playerRimDirectionalFn = origConic, origDir }()
+
+	render := func(w, h float32) (conic, dir int) {
+		paintPlayerRimConicFn = func(*ui.Painter, ui.Rect, float32, float32) { conic++ }
+		playerRimDirectionalFn = func(*ui.Painter, ui.Rect, float32, float32) { dir++ }
+		ui.Render(func(c *ui.Context) {
+			ui.Box(c).Width(w).Height(h).Draw(func(p *ui.Painter, r ui.Rect) {
+				paintPlayerRim(p, r, 8, 1)
+			})
+		}, int(w), int(h), 1)
+		return conic, dir
+	}
+
+	// 860×520 = 447200 DIP² ≫ 20000：抽屉面板整幅。
+	if conic, dir := render(860, 520); dir == 0 || conic != 0 {
+		t.Errorf("大表面应走定向光带：directional=%d conic=%d（期望 >0/0）", dir, conic)
+	}
+	// 200×36 = 7200 DIP² < 20000：搜索框。
+	if conic, dir := render(200, 36); conic == 0 || dir != 0 {
+		t.Errorf("小控件应走真 conic 环：conic=%d directional=%d（期望 >0/0）", conic, dir)
+	}
+	// 闸门边界：刚好等于上限仍算小控件（原版 `<=`）。
+	if conic, dir := render(200, 100); conic == 0 || dir != 0 {
+		t.Errorf("面积 == playerRimConicMaxArea 应走 conic：conic=%d directional=%d", conic, dir)
+	}
+}
+
+// TestPlayerRimDirectionalKeepsConicLightDirection 无头实测大表面的定向光：
+// 同一 400×200 盒上分别用真 conic 环与定向光带画描边，量左中/上中/右中/下中
+// 边缘像素的亮度。两者都必须「左中最亮、正上偏暗」（原版 conic 被
+// `from 215deg at 30% -5%` 推到左上），且定向光带的左中亮度与 conic 接近。
+//
+// 反证：旧的 `playerRimPaintFor` 四边线性近似把最亮点放在正上沿
+// （TestPlayerRimLinearApproximationPutLightOnTop 已钉住），这条断言会红。
+func TestPlayerRimDirectionalKeepsConicLightDirection(t *testing.T) {
+	const w, h = 400, 200
+	render := func(mode string) *image.RGBA {
+		return ui.Render(func(c *ui.Context) {
+			c.Root().Background(ui.RGB(0, 0, 0))
+			ui.Box(c).Width(w).Height(h).Radius(18).Background(ui.RGB(0, 0, 0)).
+				Draw(func(p *ui.Painter, r ui.Rect) {
+					switch mode {
+					case "conic":
+						paintPlayerRimConic(p, r, 18, 1)
+					case "directional":
+						paintPlayerRimDirectional(p, r, 18, 1)
+					}
+				})
+		}, w, h, 1)
+	}
+	edges := func(img *image.RGBA) (left, top, right, bottom int) {
+		// 边缘 1px 带：左右取中列中点，上下取中行中点（避开圆角）。
+		left = lumaSum(rgbAt(img, 0, h/2))
+		right = lumaSum(rgbAt(img, w-1, h/2))
+		top = lumaSum(rgbAt(img, w/2, 0))
+		bottom = lumaSum(rgbAt(img, w/2, h-1))
+		return
+	}
+	dl, dt, dr, db := edges(render("directional"))
+	cl, ct, _, _ := edges(render("conic"))
+	t.Logf("定向光带：左=%d 上=%d 右=%d 下=%d；conic：左=%d 上=%d", dl, dt, dr, db, cl, ct)
+
+	if dl <= 0 {
+		t.Fatal("定向光带的左侧边没画出来")
+	}
+	if dl <= dt {
+		t.Errorf("定向光带应把最亮点放在左侧（原版 conic 左中 .95 > 上中 .20）：左=%d 上=%d", dl, dt)
+	}
+	if dl <= dr {
+		t.Errorf("定向光带左侧应亮于右侧：左=%d 右=%d", dl, dr)
+	}
+	if dl <= db {
+		t.Errorf("定向光带左侧应亮于下侧：左=%d 下=%d", dl, db)
+	}
+	// 与真 conic 的取样色一致（端点色就是从 conic 采的，差异只来自 1px 带的
+	// 抗锯齿摊布），允许 10% 偏差。
+	if diff := math.Abs(float64(dl-cl)) / float64(cl); diff > 0.10 {
+		t.Errorf("定向光带左中亮度 %d 与 conic %d 相差 %.1f%%（应 ≤10%%）", dl, cl, diff*100)
+	}
+}
+
 // TestPlayerRimDisabledFlattens 反证：把 playerRimOpacityFn 换成恒 0（等于
 // 不画描边）后，音量键边缘总亮度应整体回落 —— 证明「边缘更亮」真的来自描边，
 // 而不是按钮自带的顶部内高光或投影。
@@ -606,15 +694,26 @@ func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
 	orig := paintPlayerChromaticFn
 	defer func() { paintPlayerChromaticFn = orig }()
 
-	// panelTopAt 从顶往下在 x=400 找面板上沿（避开搜栏与圆角）。
+	// panelTopAt 从顶往下在 x=400 找面板上沿（避开搜栏与圆角）：取 0..200 里
+	// 亮度跳变最大的一行分隔（背景 → 面板本体）。**不用「第一行够白」**那种判法
+	// —— 面板最上一行会被描边/色散边改写，大表面走 conic 采样的定向光带后
+	// 上沿中点是 ≈.20 的淡光（原版语义），不再是旧四边线性近似的白 .85，
+	// 「够白」判法会因描边实现变更而失效（本轮实测：top=-1）。
 	panelTopAt := func(img *image.RGBA) int {
+		luma := func(y int) int {
+			i := img.PixOffset(400, y)
+			return int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
+		}
+		best, bestAt := 0, -1
 		for y := 0; y < 200; y++ {
-			r, g, b, _ := img.At(400, y).RGBA()
-			if r>>8 >= 252 && g>>8 >= 252 && b>>8 >= 252 {
-				return y
+			if d := luma(y+1) - luma(y); d > best {
+				best, bestAt = d, y+1
 			}
 		}
-		return -1
+		if best < 100 { // 面板本体比背景亮得多；跳变不够大说明没找到面板
+			return -1
+		}
+		return bestAt
 	}
 	render := func(mode string) (*image.RGBA, int) {
 		switch mode {
