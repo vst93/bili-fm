@@ -825,6 +825,8 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	}
 	paint := playerRimPaintFor(opacity)
 	w := paint.Width
+	// 色散边画在描边之外（clip 之前）：暖边紧贴下缘外、冷边紧贴上缘外。
+	paintPlayerChromaticFn(p, r, radius)
 	p.Clip(r, radius, func() {
 		// 上边：光最聚处（原版 conic 的 0deg/360deg 白 1）。
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: w}, paint.Top, 0)
@@ -840,6 +842,32 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - w, W: r.W, H: w}, paint.Bottom, 0)
 	})
 }
+
+// playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色
+// （原版 globals.css:996 的 `0 0.5px 0 rgba(255,250,240,.5)` /
+// `0 -0.5px 0 rgba(200,220,240,.2)`）。声明成 var 便于测试换桩反证。
+var (
+	playerChromaticWarm = func() ui.Color { return ui.RGBA(255, 250, 240, 128) } // #fffaf0 @ .5
+	playerChromaticCool = func() ui.Color { return ui.RGBA(200, 220, 240, 51) }  // #c8dcf0 @ .2
+)
+
+// paintPlayerChromatic 画 --liquid-chromatic 的亚像素色散边：一个 0.5px 的暖
+// （米白）描边**下偏**、一个 0.5px 的冷（冷蓝）描边**上偏**（原版 ::after 的
+// `box-shadow: 0 0.5px 0 warm, 0 -0.5px 0 cool`）。框架的 Fill 吸附到设备像素，
+// 画不出半像素；用「整 1px 带 × 半不透明度」近似 —— 观感上是紧贴边缘、比主描边
+// 更暗的一线暖/冷色，落在元素外侧（box-shadow 不带 spread、偏移半像素时只在
+// 边缘外露出那半条）。裁到 r 的圆角外一圈。
+func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius float32) {
+	if r.W < 2 || r.H < 2 {
+		return
+	}
+	// 暖边在下缘外 0.5px、冷边在上缘外 0.5px；圆角处随圆角弯曲由四边近似兜住。
+	p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
+	p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
+}
+
+// paintPlayerChromaticFn 是视图取色散边绘制的入口（测试可换桩关掉做反证）。
+var paintPlayerChromaticFn = paintPlayerChromatic
 
 // playerRimOpacityFn 是视图取整圈 opacity 的入口（测试可换桩关掉描边做反证）。
 var playerRimOpacityFn = playerRimOpacity

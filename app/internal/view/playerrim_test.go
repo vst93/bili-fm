@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -276,5 +277,51 @@ func TestPlayerIconShadowAddsWhite(t *testing.T) {
 	t.Logf("音量键图标区总亮度：有压印=%d 无压印=%d", withShadow, withoutShadow)
 	if withShadow <= withoutShadow {
 		t.Errorf("白色压印没有抬高图标区亮度：有=%d 无=%d", withShadow, withoutShadow)
+	}
+}
+
+// TestPlayerChromaticFringe 钉住 --liquid-chromatic 的暖/冷色散边真的接进了
+// paintPlayerRim（原版 globals.css:996 的
+// `0 0.5px 0 rgba(255,250,240,.5)` / `0 -0.5px 0 rgba(200,220,240,.2)`）。
+//
+// 框架的 Fill 吸附设备像素、画不出 0.5px，这里用「1px 带 × 半不透明度」近似，
+// 画在描边之外（暖边贴下缘外、冷边贴上缘外）。反证：把 paintPlayerChromaticFn
+// 换成 no-op → 播放栏逐像素相同（差异必须 >0）。
+func TestPlayerChromaticFringe(t *testing.T) {
+	// 纯函数取值逐条对齐原版。
+	if got := playerChromaticWarm(); got != ui.RGBA(255, 250, 240, 128) {
+		t.Errorf("暖边 = %v，应为 rgba(255,250,240,.5)", got)
+	}
+	if got := playerChromaticCool(); got != ui.RGBA(200, 220, 240, 51) {
+		t.Errorf("冷边 = %v，应为 rgba(200,220,240,.2)", got)
+	}
+	// 源码链：paintPlayerRim 在 clip 之前调用色散边（画在描边之外）。
+	flat := flattenNoComments(t, "playerbar.go")
+	if !strings.Contains(flat, "paintPlayerChromaticFn(p,r,radius)") {
+		t.Error("paintPlayerRim 没有调用色散边绘制")
+	}
+
+	orig := paintPlayerChromaticFn
+	defer func() { paintPlayerChromaticFn = orig }()
+
+	render := func(stub bool) *ui.Tester {
+		paintPlayerChromaticFn = orig
+		if stub {
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+		}
+		_, tst := playerBarProbe(t, nil)
+		return tst
+	}
+	on, off := render(false), render(true)
+	ia, ib := on.Image(), off.Image()
+	n := 0
+	for i := range ia.Pix {
+		if ia.Pix[i] != ib.Pix[i] {
+			n++
+		}
+	}
+	t.Logf("色散边差异通道 %d", n)
+	if n == 0 {
+		t.Fatal("色散边整条没画出来（与关掉时逐像素相同）")
 	}
 }
