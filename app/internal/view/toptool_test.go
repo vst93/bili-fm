@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -101,6 +102,7 @@ func TestSectionButtonHoverTurnsBlue(t *testing.T) {
 	}
 	rest := inRect()
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
 	hover := inRect()
 	t.Logf("入口键图标：静息=%v 悬停=%v", rest, hover)
@@ -132,6 +134,7 @@ func TestAvatarHoverShadow(t *testing.T) {
 	px, py := int(r.X+r.W/2), int(r.Y+r.H+3)
 	rest := rgbAt(tt.Image(), px, py)
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
 	hover := rgbAt(tt.Image(), px, py)
 	t.Logf("头像下方：静息=%v 悬停=%v", rest, hover)

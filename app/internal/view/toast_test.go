@@ -117,7 +117,7 @@ func toastProbe(t *testing.T, typ, msg string) (*ui.Tester, ui.Rect) {
 	tst.Frame() // viewport 先建出来，toast 才算「在已存在的父级里出现」（Enter 生效）
 	a.NotifyType(typ, msg)
 	tst.Frame()
-	time.Sleep(400 * time.Millisecond) // 等 300ms 入场结束
+	tst.Advance(400 * time.Millisecond) // 推过 300ms 入场（v0.5.5 冻结时钟）
 	tst.Frame()
 	r, ok := tst.Find(msg)
 	if !ok {
@@ -222,9 +222,12 @@ func TestToastFadesIn(t *testing.T) {
 	tst, r := build()
 	x0, y0, x1, y1 := box(r)
 	born := countDark(tst.Image(), x0, y0, x1, y1)
-	// 再走两帧：入场还没跑完（10s），像素必须仍有变化。
+	// 再走两帧：入场还没跑完（10s），像素必须仍有变化。v0.5.5 冻结时钟，
+	// 两帧之间用 Advance 推进（否则时钟不动、画面逐像素相同）。
+	tst.Advance(100 * time.Millisecond)
 	tst.Frame()
 	f2 := tst.Image()
+	tst.Advance(100 * time.Millisecond)
 	tst.Frame()
 	f3 := tst.Image()
 	diff := 0

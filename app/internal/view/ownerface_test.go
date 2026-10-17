@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -27,6 +28,7 @@ func ownerProbeOn(t *testing.T, back ui.Color) (*App, *ui.Tester) {
 		}
 		bg.Children(func() { a.videoInfoHead(c) })
 	}, 600, 160)
+	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	return a, tst
 }
@@ -128,6 +130,7 @@ func TestOwnerFaceHoverShadow(t *testing.T) {
 	px, py := int(r.X+r.W/2), int(r.Y+r.H+8)
 	rest := rgbAt(tst.Image(), px, py)
 	tst.Move(r.X+r.W/2, r.Y+r.H/2)
+	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	hover := rgbAt(tst.Image(), px, py)
 	t.Logf("头像下方 8px：静息=%v 悬停=%v", rest, hover)
@@ -155,6 +158,7 @@ func TestOwnerGlassDimsOnHover(t *testing.T) {
 	px, py := int(r.X+r.W/2), int(r.Y+3)
 	rest := rgbAt(tst.Image(), px, py)
 	tst.Move(r.X+r.W/2, r.Y+r.H/2)
+	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	hover := rgbAt(tst.Image(), px, py)
 	t.Logf("头像上缘玻璃：静息=%v 悬停=%v", rest, hover)

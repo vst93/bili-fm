@@ -115,6 +115,7 @@ func TestPlayerToolInkFadesToBlue(t *testing.T) {
 	// 悬停：settle 把 140ms 过渡走完，收敛到蓝。
 	hov := rest
 	hov.Move(r.X+r.W/2, r.Y+r.H/2)
+	hov.Advance(200 * time.Millisecond) // 推过 140ms 颜色过渡（v0.5.5 冻结时钟）
 	hov.Frame()
 	hovBlue := blueness(hov, r)
 	t.Logf("音量键内最大蓝调：静息=%d 悬停=%d", restBlue, hovBlue)

@@ -113,6 +113,7 @@ func TestVolumePopoverEnterWired(t *testing.T) {
 		a.ShowVolume = true
 		tst.Frame()
 		f2 := tst.Image()
+		tst.Advance(50 * time.Millisecond) // v0.5.5 冻结时钟：推一点让入场过渡走动
 		tst.Frame()
 		f3 := tst.Image()
 		n := 0

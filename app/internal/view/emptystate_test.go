@@ -68,9 +68,7 @@ func emptyProbe(t *testing.T, setup func(a *App)) (*App, *ui.Tester) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.LoggedIn = true
 	setup(a)
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
-	tt.Frame()
-	return a, tt
+	return a, settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600))
 }
 
 // emptyOffset 返回空态文案中心相对表头文案中心的竖直偏移（两者都随抽屉

@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -23,6 +24,7 @@ func hoverProbe(t *testing.T, a *App) (*ui.Tester, *[]hfRec) {
 		a.Shell(c)
 		recs = append(recs, hfRec{held: a.scrollHoldHeld, hover: a.hoverChannels.Load()})
 	}, 800, 600)
+	tt.Advance(400 * time.Millisecond) // 推过抽屉入场（v0.5.5 冻结时钟）
 	tt.Frame()
 	return tt, &recs
 }

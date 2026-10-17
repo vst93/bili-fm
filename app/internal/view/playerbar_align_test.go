@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -229,6 +230,7 @@ func TestPlayerBarHoverTurnsIconBlue(t *testing.T) {
 	}
 	rest := blueness()
 	tst.Move(r.X+r.W/2, r.Y+r.H/2)
+	tst.Advance(200 * time.Millisecond)
 	tst.Frame()
 	hover := blueness()
 	t.Logf("「下一集」键内最大蓝调（B−R）静息=%d 悬停=%d", rest, hover)

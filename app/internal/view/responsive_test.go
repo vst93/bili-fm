@@ -2,6 +2,7 @@ package view
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -70,12 +71,17 @@ func TestTitleBarShowsBrand(t *testing.T) {
 	}
 }
 
+// settleTester 跑一帧后把 Tester 的冻结时钟（v0.5.5 起）推过入场动画，返回它。
+func settleTester(tt *ui.Tester) *ui.Tester {
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+	return tt
+}
+
 // shellTesterSize 起一个指定尺寸的无头窗口跑真实的 App.Shell。
 func shellTesterSize(t *testing.T, a *App, w, h int) *ui.Tester {
 	t.Helper()
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, w, h)
-	tt.Frame()
-	return tt
+	return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, w, h))
 }
 
 // narrowApp 造一个 400px 宽的主窗上下文：有标题/选集，封面模式下用一张确定的

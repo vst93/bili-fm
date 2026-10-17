@@ -92,6 +92,7 @@ func topToolSubject(t *testing.T, hover bool) (*image.RGBA, ui.Rect) {
 	if hover {
 		tt.Move(r.X+r.W/2, r.Y+r.H/2)
 	}
+	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
 	return tt.Image(), r
 }

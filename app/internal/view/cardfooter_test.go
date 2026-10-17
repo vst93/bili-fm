@@ -61,8 +61,7 @@ func TestCardFooterLineBox(t *testing.T) {
 	a := NewApp(func() {})
 	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题标题", Up: "UP主名字"}}
 	a.Drawer = "feed"
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	title, ok := tt.Find("标题标题")
 	if !ok {
@@ -91,8 +90,7 @@ func TestCardTitleBadgeLineBox(t *testing.T) {
 	a := NewApp(func() {})
 	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "充电视频", Badge: "充电专属", Up: "UP主"}}
 	a.Drawer = "feed"
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	badge, ok := tt.Find("充电专属")
 	if !ok {

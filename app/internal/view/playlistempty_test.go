@@ -3,6 +3,7 @@ package view
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -41,6 +42,7 @@ func emptyStateRects(t *testing.T, winW, winH int) (l1, l2 ui.Rect) {
 	a.Drawer = DrawerPlaylist
 	a.PlaylistTab = ListUser
 	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, winW, winH)
+	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
 
 	var ok bool
@@ -107,8 +109,7 @@ func TestPlaylistEmptySeriesTabCentered(t *testing.T) {
 	a.LoggedIn = true
 	a.Drawer = DrawerPlaylist
 	a.PlaylistTab = ListSeries
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600))
 	r, ok := tt.Find("合集列表为空（在合集里点「播放全部」加载）")
 	if !ok {
 		t.Fatal("找不到合集 tab 的空态文案")

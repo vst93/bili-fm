@@ -330,8 +330,7 @@ func TestCardGridVirtualized(t *testing.T) {
 	a.ListFor("feed").Cards = cards
 	a.Drawer = "feed"
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	if !tst.HasText("视频标题0") {
 		t.Fatal("首屏应构建第一排卡片")
@@ -373,8 +372,7 @@ func TestPartsGridVirtualized(t *testing.T) {
 	a.Info = newPartsInfo(300, "cover")
 	a.Drawer = DrawerParts
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	if !tst.HasText("选集标题0") {
 		t.Fatal("首屏应构建第一排分集卡片")
 	}
@@ -437,8 +435,7 @@ func TestPartsLocateScrollsGrid(t *testing.T) {
 	a.locateNow = true
 	a.locatePartIndex = 250 // 第 83 行，远在屏外
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	if !tst.HasText("选集标题250") {
 		t.Fatal("定位应把目标分集滚进视野")
 	}
@@ -456,7 +453,7 @@ func TestPartsGridLazyLoadsVisibleCovers(t *testing.T) {
 	a.Info = newPartsInfo(300, cs.URL)
 	a.Drawer = DrawerParts
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900))
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		tst.Frame()
@@ -546,12 +543,7 @@ func TestDrawerBackdropLayers(t *testing.T) {
 		l.Cards[i] = Card{Bvid: fmt.Sprintf("BV%02d", i), Title: fmt.Sprintf("标题%d", i)}
 	}
 	a.Drawer = "feed"
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	// 等入场动画停稳（入场按真实时钟走），这样接下来的一帧是稳态一帧。
-	for i := 0; i < 30; i++ {
-		time.Sleep(20 * time.Millisecond)
-		tst.Frame()
-	}
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	BackdropLayers() // 丢掉轮询期的计数，只量稳定后的这一帧
 	tst.Frame()
 	if got := BackdropLayers(); got > 2 {
@@ -653,20 +645,15 @@ func TestDrawerExitState(t *testing.T) {
 	l.Cards = []Card{{Bvid: "BV1", Title: "标题"}}
 	a.Drawer = "feed"
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 500, 400)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 500, 400))
 
 	a.Drawer = ""
 	tst.Frame()
 	if a.drawerOpenKey != "" {
 		t.Fatal("退场开始后 drawerOpenKey 应为空，否则同一抽屉重开没有入场动画")
 	}
-	// 再跑几帧，退场应走完并收尾（drawerShown 清空）。动画按真实时钟走
-	// （drawerIn = 220ms），每帧之间等一下让它走完。
-	for i := 0; i < 20 && a.drawerShown != ""; i++ {
-		time.Sleep(60 * time.Millisecond)
-		tst.Frame()
-	}
+	// 再推时间，退场应走完并收尾（drawerShown 清空）。v0.5.5 冻结时钟用 Advance。
+	tst.Advance(400 * time.Millisecond)
 	if a.drawerShown != "" {
 		t.Fatal("退场停稳后没有收尾，面板会一直留在场景里")
 	}
@@ -754,8 +741,7 @@ func newFeedList(t *testing.T, n int) (*App, *List) {
 // 行（原版 historyList 的 .history-load-more-retry），错误态清掉后又消失。
 func TestLoadMoreErrorShowsRetryRow(t *testing.T) {
 	a, l := newFeedList(t, 30)
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	if tst.HasText("加载失败，点击重试") {
 		t.Fatal("没有加载失败时不该有重试行")
 	}
@@ -783,8 +769,7 @@ func TestLoadMoreErrorStopsAutoRetry(t *testing.T) {
 	calls := 0
 	a.Act.LoadMore = func() { calls++; l.Loading = true }
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	// 滚到底：第一次自动翻页。
 	tst.Scroll(490, 400, 0, 100000)
@@ -883,8 +868,7 @@ func TestDrawerCloseButtonSurfaceWired(t *testing.T) {
 		a.Theme = ThemeFor(PeriodAt(12))
 		a.Drawer = DrawerSearch
 		a.Query = "关键词"
-		tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
-		tt.Frame()
+		tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 		r, ok := tt.Find("关闭")
 		if !ok {
 			t.Fatal("抽屉表头里找不到关闭键")
@@ -920,8 +904,7 @@ func TestCollectScrollIconSize(t *testing.T) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Drawer = "favorite"
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	r := mustFind(t, tst, "向右滚动")
 	img := tst.Image()
 	// 常态墨 #475569（亮背景上明显更暗）；数滚动键矩形内的墨迹像素。

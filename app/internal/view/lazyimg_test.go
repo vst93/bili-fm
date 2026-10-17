@@ -84,9 +84,10 @@ func TestCardGridLazyLoadsVisibleCovers(t *testing.T) {
 	a.Drawer = "feed"
 
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
-	// 等首屏封面抓完。
+	// 等首屏封面抓完（v0.5.5 冻结时钟：逐帧 Advance 让抽屉入场走完、列表布局）。
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
+		tst.Advance(50 * time.Millisecond)
 		tst.Frame()
 		if cs.count() > 0 && a.Images.Pending() == 0 {
 			break
@@ -106,10 +107,17 @@ func TestCardGridLazyLoadsVisibleCovers(t *testing.T) {
 		t.Fatal("第 250 张在屏外，不该被请求")
 	}
 
-	// 滚到底：远处的卡片这时才请求。
+	// 滚到底：远处的卡片这时才请求。v0.5.5 冻结时钟，逐帧推时间让虚拟列表重排
+	// 触发新可见行的预取；预取后的真实抓取走墙钟 goroutine，所以要等它落库。
 	tst.Scroll(700, 700, 0, 100000)
-	for i := 0; i < 5; i++ {
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tst.Advance(20 * time.Millisecond)
 		tst.Frame()
+		if cs.requested("/c299.png") {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if !cs.requested("/c299.png") {
 		t.Fatal("滚到底后最后一张的封面应被请求")
@@ -278,8 +286,7 @@ func TestOffScreenCardsUseGetNotFetch(t *testing.T) {
 	a.ListFor("feed").Cards = cards
 	a.Drawer = "feed"
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
-	tst.Frame()
+	settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900))
 	// 只有预取窗口的卡片被 Bitmap（发起抓取）：不该是 50 张全请求。
 	// Lazy 构建期会对全表 Get（只读、零请求），所以这里按 Bitmap 口径断言。
 	if got := asked.unique(); got >= len(cards) {
@@ -301,8 +308,7 @@ func TestScrollCancelsOffscreenPrefetch(t *testing.T) {
 	a.ListFor("feed").Cards = cards
 	a.Drawer = "feed"
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1400, 900))
 	// 首屏卡片 0 在预取窗口内（不该被取消）。
 	if asked.canceledURL("cover0") {
 		t.Fatal("首屏可见的 cover0 不该被 Cancel")

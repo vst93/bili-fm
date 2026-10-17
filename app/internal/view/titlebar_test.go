@@ -240,8 +240,10 @@ func TestTitleBarRevealOnHover(t *testing.T) {
 // settleTitleBarFade 等标题栏那 0.24s 过渡跑完再出帧。Tester 的时钟是真实
 // 墙钟、settle 只跑 20 帧，240ms 的过渡未必能在 settle 里收敛（机器快时 20 帧
 // 不到 240ms），所以显式睡过时长再出一帧。
+// settleTitleBarFade 推过标题栏 hover-to-reveal 的 0.24s 过渡。v0.5.5 的 Tester
+// 时钟冻结，用 Advance 推进（旧版靠墙钟 Sleep）。
 func settleTitleBarFade(tst *ui.Tester) {
-	time.Sleep(300 * time.Millisecond)
+	tst.Advance(300 * time.Millisecond)
 	tst.Frame()
 }
 

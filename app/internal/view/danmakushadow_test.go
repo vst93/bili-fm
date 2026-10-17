@@ -22,9 +22,7 @@ func TestDanmakuTextShadowHalo(t *testing.T) {
 		a.Danmaku = []Danmaku{{Time: 0, Text: "弹幕阴影测试"}}
 		a.Pos = -1
 		a.Drawer = DrawerDanmaku
-		tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-		tt.Frame()
-		return tt
+		return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 	}
 	diffPixels := func(a, b *ui.Tester) int {
 		ia, ib := a.Image(), b.Image()

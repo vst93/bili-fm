@@ -91,8 +91,7 @@ func TestPartAddButtonRendered(t *testing.T) {
 	a := NewApp(func() {})
 	a.Info = newPartsInfo(1, "cover")
 	a.Drawer = DrawerParts
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	r, ok := tst.Find("添加到播放列表")
 	if !ok {
@@ -129,8 +128,7 @@ func TestWatchLaterRemoveButtonRendered(t *testing.T) {
 	a.Drawer = "history"
 	a.HistTab = HistWatchLater
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	r, ok := tst.Find("从稍后再看移除")
 	if !ok {

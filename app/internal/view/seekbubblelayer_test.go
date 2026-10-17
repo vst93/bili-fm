@@ -3,6 +3,7 @@ package view
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -110,6 +111,7 @@ func TestPlayerBarTopBorderUnderChildren(t *testing.T) {
 	}
 	// 悬停进度条中段，生成时间胶囊。
 	tst.Move(bar.X+bar.W*0.5, bar.Y+bar.H/2)
+	tst.Advance(200 * time.Millisecond)
 	tst.Frame()
 	if a.seekBubbleLabel == "" {
 		t.Fatal("悬停进度条后没有时间胶囊")

@@ -46,9 +46,7 @@ func drawerTabProbe(t *testing.T) (*App, *ui.Tester) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Drawer = DrawerSearch
 	a.Query = "关键词"
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
-	tt.Frame()
-	return a, tt
+	return a, settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 }
 
 // TestDrawerTabPaintTokens 逐值钉住三态。
@@ -357,7 +355,7 @@ func TestFolderTabUsesDrawerTabSurface(t *testing.T) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Drawer = "favorite"
 	a.Folders = []Folder{{ID: 1, Title: "默认收藏夹", Count: 3}}
-	ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680).Frame()
+	settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 	if calls < 1 {
 		t.Errorf("收藏夹 tab 没走 drawerTabSurface（调用 %d 次）", calls)
 	}
@@ -414,8 +412,7 @@ func TestDanmakuTabSwitchResetsAutoScroll(t *testing.T) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Drawer = DrawerDanmaku
 	a.DanmakuAutoScroll = false // 用户手动暂停跟随
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 
 	// 弹幕 tab 标签带条数（无弹幕时是「弹幕 (0)」），Click 精确匹配。
 	if err := tt.Click("评论"); err != nil {
@@ -471,8 +468,7 @@ func TestDrawerTabGroupRoleAndSelection(t *testing.T) {
 	a.Drawer = DrawerSearch
 	a.Query = "关键词"
 	a.SortOrder = SortTotal
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 	if err := tt.Click("综合"); err != nil {
 		t.Fatalf("点「综合」失败：%v", err)
 	}

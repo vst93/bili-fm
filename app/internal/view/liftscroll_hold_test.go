@@ -3,6 +3,7 @@ package view
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -97,6 +98,7 @@ func feedTester(t *testing.T, a *App) (*ui.Tester, *[]passRec) {
 		a.Shell(c)
 		recs = append(recs, passRec{held: a.scrollHoldHeld, lift: a.liftChannels.Load()})
 	}, 800, 600)
+	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
 	return tt, &recs
 }

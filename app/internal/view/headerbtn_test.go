@@ -99,9 +99,7 @@ func partsHeaderProbe(t *testing.T) (*App, *ui.Tester) {
 	}}
 	a.Track = &Track{Bvid: "BV1", Cid: 11, Title: "标题"}
 	a.Drawer = DrawerParts
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
-	tst.Frame()
-	return a, tst
+	return a, settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700))
 }
 
 // TestDrawerHeaderNoHoverLift 表头小键悬停**不上浮**：原版这条规则没有
@@ -140,6 +138,7 @@ func TestDrawerHeaderPressScales(t *testing.T) {
 	}
 	cx, cy := rest.X+rest.W/2, rest.Y+rest.H/2
 	tst.Press(cx, cy)
+	tst.Advance(150 * time.Millisecond) // 推过 100ms 按压动画（v0.5.5 冻结时钟）
 	pressed, ok := tst.Find("全部添加")
 	if !ok {
 		t.Fatal("按下后找不到「全部添加」")
@@ -148,6 +147,7 @@ func TestDrawerHeaderPressScales(t *testing.T) {
 		t.Errorf("按下应缩到 .94：宽 %v → %v", rest.W, pressed.W)
 	}
 	tst.Release(cx, cy)
+	tst.Advance(150 * time.Millisecond)
 	released, ok := tst.Find("全部添加")
 	if !ok {
 		t.Fatal("松手后找不到「全部添加」")

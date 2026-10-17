@@ -10,9 +10,7 @@ import (
 // 用来验证全局快捷键（纯函数测试看不到按键路由，那正是这一轮修的东西）。
 func shellTester(t *testing.T, a *App) *ui.Tester {
 	t.Helper()
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
-	tt.Frame()
-	return tt
+	return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600))
 }
 
 // focusedInfo 给主区一份「正在播放的视频」，让点赞/投币/收藏这三个按钮可用

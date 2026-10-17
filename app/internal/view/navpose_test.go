@@ -122,6 +122,7 @@ func renderNavPose(t *testing.T, s navPoseSubject, hover bool) (*image.RGBA, ui.
 	if hover {
 		tt.Move(r.X+r.W/2, r.Y+r.H/2)
 	}
+	tt.Advance(200 * time.Millisecond)
 	tt.Frame()
 	return tt.Image(), r
 }

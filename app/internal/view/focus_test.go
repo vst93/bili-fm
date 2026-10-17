@@ -193,9 +193,7 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 		a.Theme = ThemeFor(PeriodAt(12))
 		a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
 		a.Dur, a.Pos = 100, 10
-		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, miniWidth, miniHeight)
-		tst.Frame()
-		return tst
+		return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, miniWidth, miniHeight))
 	}
 	historyProbe := func(watchLater bool) func(*testing.T) *ui.Tester {
 		return func(t *testing.T) *ui.Tester {
@@ -208,9 +206,7 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 			} else {
 				a.HistTab = HistHistory
 			}
-			tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-			tst.Frame()
-			return tst
+			return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 		}
 	}
 	mainProbe := func(t *testing.T) *ui.Tester {
@@ -219,17 +215,13 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 		// 有在播的曲目：播放栏的按钮才不是禁用态（禁用的元素不进 Tab 序）。
 		a.Queue = []Track{{Bvid: "BV1", Title: "标题", Up: "UP"}}
 		a.Index, a.Playing, a.Dur, a.Pos = 0, true, 100, 10
-		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-		tst.Frame()
-		return tst
+		return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	}
 	favoriteProbe := func(t *testing.T) *ui.Tester {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
 		a.Drawer = "favorite"
-		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-		tst.Frame()
-		return tst
+		return settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	}
 
 	for _, c := range []struct {

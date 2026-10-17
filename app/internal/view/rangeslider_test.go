@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -33,6 +34,7 @@ func playerBarProbeAt(t *testing.T, period Period, mutate func(a *App)) (*App, *
 		mutate(a)
 	}
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	return a, tst
 }
@@ -252,6 +254,7 @@ func TestPlayerBarTimelineThumbSwells(t *testing.T) {
 
 	restL, restR := rgbAt(tst.Image(), lx, cy), rgbAt(tst.Image(), rx, cy)
 	tst.Move(r.X+r.W*0.5, r.Y+r.H/2)
+	tst.Advance(200 * time.Millisecond) // 推过 100ms 滑块肿胀（v0.5.5 冻结时钟）
 	tst.Frame()
 	hovL, hovR := rgbAt(tst.Image(), lx, cy), rgbAt(tst.Image(), rx, cy)
 	t.Logf("滑块两侧 静息=%v / %v，悬停=%v / %v", restL, restR, hovL, hovR)

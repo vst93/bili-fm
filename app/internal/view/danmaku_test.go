@@ -316,8 +316,7 @@ func TestDanmakuChipLinuxOpaqueWired(t *testing.T) {
 		a.Danmaku = []Danmaku{{Time: 0, Text: "平台配色测试"}}
 		a.Pos = -1 // 不标当前组：当前组胶囊不受 Linux 覆写影响
 		a.Drawer = DrawerDanmaku
-		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-		tst.Frame()
+		tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 		r, ok := tst.Find("平台配色测试")
 		if !ok {
 			t.Fatal("渲染帧里找不到弹幕文字")
@@ -473,8 +472,7 @@ func TestDanmakuTimeLabelCapsuleFitContent(t *testing.T) {
 	a.Drawer = DrawerDanmaku
 	a.Pos = 30
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 
 	r, ok := tst.Find("00:30")
 	if !ok {
@@ -515,8 +513,7 @@ func TestDanmakuCurrentHighlightWired(t *testing.T) {
 	a.DanmakuAutoScroll = false // 关键：关掉跟随
 	a.Pos = 30
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 
 	r, ok := tst.Find("00:30")
 	if !ok {
@@ -623,8 +620,7 @@ func TestRepliesListAnchorOnWindowSlide(t *testing.T) {
 	a.Drawer = DrawerDanmaku
 	a.DanmakuTab = TabReply
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	tst.Scroll(490, 400, 0, 4000)
 	tst.Frame()
 
@@ -707,8 +703,7 @@ func TestDanmakuListResetsOnDataChange(t *testing.T) {
 	a.DanmakuTab = TabDanmaku
 	a.DanmakuAutoScroll = false // 关掉跟随，免得它把列表滚回当前组
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	tst.Scroll(490, 400, 0, 4000)
 	tst.Frame()
 
@@ -771,8 +766,7 @@ func TestDanmakuRepeatCountNotFogged(t *testing.T) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}, {Time: 0.5, Text: "测试弹幕文字"}}
 	a.Drawer = DrawerDanmaku
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 
 	if _, ok := tst.Find("测试弹幕文字"); !ok {
 		t.Fatal("渲染帧里找不到弹幕文字")
@@ -805,8 +799,7 @@ func TestDanmakuRepeatCountHeight(t *testing.T) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Danmaku = []Danmaku{{Time: 0, Text: "测试弹幕文字"}, {Time: 0.5, Text: "测试弹幕文字"}}
 	a.Drawer = DrawerDanmaku
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
 
 	rr, ok := tst.Find("×2")
 	if !ok {
@@ -1039,8 +1032,7 @@ func TestDanmakuAutoScrollCentered(t *testing.T) {
 	a.DanmakuTab = TabDanmaku
 	a.DanmakuAutoScroll = true
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 
 	// 当前组应在视口中央附近，而不是被怼到视口下缘
 	r, ok := tst.Find("弹幕40")

@@ -143,8 +143,7 @@ func TestCoverDurationLineBox(t *testing.T) {
 	a := NewApp(func() {})
 	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题", Cover: "", Duration: "1:23:45"}}
 	a.Drawer = "feed"
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 700)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 700))
 	r, ok := tt.Find("1:23:45")
 	if !ok {
 		t.Fatal("找不到时长角标")

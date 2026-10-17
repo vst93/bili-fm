@@ -143,8 +143,7 @@ func TestPartSearchFocusRing(t *testing.T) {
 			a.Info = newPartsInfo(3, "cover")
 			a.Track = &Track{Bvid: "BV1", Cid: 1000, Title: "视频"}
 			a.Drawer = DrawerParts
-			tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-			tt.Frame()
+			tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 			r, ok := tt.Find("搜索选集")
 			if !ok {
 				t.Fatal("找不到选集搜索框（label「搜索选集」）")
@@ -231,8 +230,7 @@ func partSearchFrame(want string) *ui.Tester {
 	a.Track = &Track{Bvid: "BV1", Cid: 1000, Title: "视频"}
 	a.Drawer = DrawerParts
 	a.PartSearch = want
-	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tt.Frame()
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	return tt
 }
 

@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -67,6 +68,7 @@ func seekBubbleProbe2(t *testing.T) (*App, ui.Rect, ui.Rect, *ui.Tester) {
 		t.Fatal("播放栏里找不到进度条")
 	}
 	tst.Move(bar.X+bar.W*0.25, bar.Y+bar.H/2)
+	tst.Advance(200 * time.Millisecond)
 	tst.Frame()
 	lbl, ok := tst.Find("0:48")
 	if !ok {

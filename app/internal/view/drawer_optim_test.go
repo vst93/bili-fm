@@ -206,8 +206,7 @@ func TestPlaylistRowsVirtualized(t *testing.T) {
 	a.Drawer = DrawerPlaylist
 	a.PlaylistTab = ListUser
 
-	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
-	tst.Frame()
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	if !tst.HasText("记录0") {
 		t.Fatal("首屏应构建第一条记录行")
 	}

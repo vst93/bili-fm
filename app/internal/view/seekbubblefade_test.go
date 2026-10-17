@@ -55,6 +55,7 @@ func TestSeekBubbleFreezesOnLeave(t *testing.T) {
 	// 指针悬停在轨道 1/4 处：200s × 0.25 ≈ 0:48。
 	hx := r.X + r.W*0.25
 	tst.Move(hx, r.Y+r.H/2)
+	tst.Advance(200 * time.Millisecond)
 	tst.Frame()
 	hover, ok := tst.Find("0:48")
 	if !ok {
@@ -92,6 +93,7 @@ func TestSeekBubbleFadesOutOnLeave(t *testing.T) {
 	rest := cloneRGBA(tst.Image())
 	hx := r.X + r.W*0.25
 	tst.Move(hx, r.Y+r.H/2)
+	tst.Advance(200 * time.Millisecond)
 	tst.Frame()
 	tr, ok := tst.Find("0:48")
 	if !ok {

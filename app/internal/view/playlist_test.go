@@ -274,9 +274,8 @@ func TestPlaylistDeleteFadesIn(t *testing.T) {
 	}
 	restLum := darkest()
 	tt.Move(rest.X+rest.W/2, rest.Y+rest.H/2)
-	for i := 0; i < 30; i++ { // 150ms 淡入在无头帧下要跑几帧
-		tt.Frame()
-	}
+	tt.Advance(300 * time.Millisecond) // 推过 150ms 删除键淡入（v0.5.5 冻结时钟）
+	tt.Frame()
 	hoverLum := darkest()
 	t.Logf("删除键区域亮度 静息=%d 悬停=%d", restLum, hoverLum)
 	if restLum < 220 {
