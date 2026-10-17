@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"math"
 	"strings"
 	"testing"
 
@@ -9,10 +10,11 @@ import (
 )
 
 // 本轮（播放栏聚光描边 + 图标压印）的测试。原版每颗 `#player .player-button`
-// 上有两层此前原生版没画：`::after` 的 1px 聚光描边（--liquid-rim 的白色
-// conic-gradient，上边最亮往下渐淡）与 `svg` 的白色 drop-shadow 压印。mygo
-// 画不了 conic-gradient / svg 滤镜，这里用「上亮下淡的四条边带」与「下方 1px
-// 的白色副本」近似。下面先钉住纯函数取值，再用无头渲染实测两条判据。
+// 上有两层此前原生版没画：`::after` 的 1px 聚光描边（`--liquid-rim` 的白色
+// conic-gradient）与 `svg` 的白色 drop-shadow 压印。压印用「下方 1px 的白色
+// 副本」近似（mygo 没有 svg 滤镜）；描边到 v0.5.5 起改用真 conic 环
+// （`FillPathConicGradient` + 外圈顺时针 / 内圈逆时针的环形路径），不再用
+// 「上亮下淡的四条边带」。下面先钉住纯函数取值，再用无头渲染实测判据。
 
 // TestPlayerRimOpacity 钉住聚光描边整圈的不透明度（原版三条规则）：
 // 工具键 `::after { opacity: .52 }`、播放键/静音键不吃覆写（1.0）、
@@ -36,8 +38,10 @@ func TestPlayerRimOpacity(t *testing.T) {
 	}
 }
 
-// TestPlayerRimPaintFor 钉住描边四边色：上缘白 .85、侧白 .40→.10（竖直渐变）、
-// 下缘白 .08，再乘整圈 opacity；宽度 1（原版 ::after 的 padding: 1px）。
+// TestPlayerRimPaintFor 钉住「四边线性近似」的取值（历史口径：上缘白 .85、
+// 侧白 .40→.10、下缘白 .08，宽 1）。生产画法已改成真 conic 环（见
+// TestPlayerRimConicStops / TestPlayerRimConicDirection），这个纯函数只留给
+// 对照与回退（TestPlayerRimLinearApproximationPutLightOnTop 用它当反证）。
 func TestPlayerRimPaintFor(t *testing.T) {
 	p := playerRimPaintFor(1.0)
 	if p.Top != ui.Hex("#ffffff").Alpha(0.85) {
@@ -55,7 +59,7 @@ func TestPlayerRimPaintFor(t *testing.T) {
 	if p.Width != 1 {
 		t.Errorf("描边宽度 = %v，应为 1", p.Width)
 	}
-	// 上边最亮，往下渐淡。
+	// 上边最亮，往下渐淡（这是近似口径；conic 的真值见同文件的停靠点断言）。
 	if !(p.Top.A > p.SideTop.A && p.SideTop.A > p.SideBottom.A && p.SideBottom.A >= p.Bottom.A) {
 		t.Errorf("描边应上亮下淡：上=%v 侧上=%v 侧下=%v 下=%v", p.Top, p.SideTop, p.SideBottom, p.Bottom)
 	}
@@ -72,28 +76,199 @@ func btnEdgeLuma(img *image.RGBA, r ui.Rect) (top, bottom int) {
 	return lumaSum(rgbAt(img, cx, int(r.Y))), lumaSum(rgbAt(img, cx, int(r.Y+r.H-1)))
 }
 
+// btnMidColumnLuma 取按钮矩形左/右边缘中点那一列像素的亮度（R+G+B）。
+func btnMidColumnLuma(img *image.RGBA, r ui.Rect) (left, right int) {
+	cy := int(r.Y + r.H/2)
+	return lumaSum(rgbAt(img, int(r.X), cy)), lumaSum(rgbAt(img, int(r.X+r.W-1), cy))
+}
+
 func lumaSum(c [3]int) int { return c[0] + c[1] + c[2] }
 
-// TestPlayerRimBrightensTopEdge 无头实测：音量键（工具键、半径 8 的直边）
-// 上边的亮度应高于下边 —— 聚光描边「光聚在上边」。
-func TestPlayerRimBrightensTopEdge(t *testing.T) {
-	_, tst := playerBarProbe(t, nil)
-	tst.Move(-1, -1)
-	tst.Frame()
-	r, ok := tst.Find("音量")
-	if !ok {
-		t.Fatal("找不到音量键")
+// TestPlayerRimConicStops 钉住 --liquid-rim 的 conic 停靠点（原版 globals.css:987
+// 的 `from 215deg at 30% -5%`：白 1 → .3@65° → .05@140° → .08@225° → .55@305°
+// → 1@360°），并断言整圈 opacity 乘进每个点的 alpha。
+func TestPlayerRimConicStops(t *testing.T) {
+	if playerRimConicAngle != 215 {
+		t.Errorf("conic 起始角 = %v，应为 215deg", playerRimConicAngle)
 	}
-	top, bottom := btnEdgeLuma(tst.Image(), r)
-	t.Logf("音量键上边亮度=%d 下边亮度=%d", top, bottom)
-	if top <= bottom {
-		t.Errorf("上边应比下边亮（聚光在上）：上=%d 下=%d", top, bottom)
+	if playerRimConicCenter != (ui.Point{X: 0.30, Y: -0.05}) {
+		t.Errorf("conic 圆心 = %+v，应为 30%% -5%%", playerRimConicCenter)
+	}
+	stops := playerRimConicStops(1.0)
+	want := []struct {
+		at float32
+		a  float32
+	}{{0, 1}, {65.0 / 360, 0.3}, {140.0 / 360, 0.05}, {225.0 / 360, 0.08}, {305.0 / 360, 0.55}, {1, 1}}
+	if len(stops) != len(want) {
+		t.Fatalf("停靠点 %d 个，应为 %d", len(stops), len(want))
+	}
+	for i, w := range want {
+		if math.Abs(float64(stops[i].At-w.at)) > 1e-6 {
+			t.Errorf("停靠点 %d 位置 %v，应为 %v", i, stops[i].At, w.at)
+		}
+		if got := float64(stops[i].Color.A) / 255; math.Abs(got-float64(w.a)) > 0.01 {
+			t.Errorf("停靠点 %d alpha %.3f，应为 %.3f", i, got, w.a)
+		}
+	}
+	half := playerRimConicStops(0.52)
+	if half[0].Color.A >= stops[0].Color.A {
+		t.Errorf("工具键（.52）描边应比播放键（1.0）淡：%v vs %v", half[0].Color, stops[0].Color)
+	}
+}
+
+// TestPlayerRimConicDirection 无头实测 conic 环的定向光：同一颗音量键，把
+// conic 环换成 no-op 再渲染一帧，量「边缘各点因描边而增加的亮度」。原版 conic
+// 的最亮点被 `from 215deg at 30% -5%` 推到左上宽区（左中 ≈.66 / 下中 ≈.44 /
+// 右中 ≈.20 / 上中 ≈.16），**不是**正上沿；旧的四边线性近似恰好把最亮点放在
+// 上沿（反证见 TestPlayerRimLinearApproximationPutLightOnTop）。
+func TestPlayerRimConicDirection(t *testing.T) {
+	box := func(tst *ui.Tester, key string) (ui.Rect, *image.RGBA) {
+		t.Helper()
+		r, ok := tst.Find(key)
+		if !ok {
+			t.Fatalf("找不到 %q", key)
+		}
+		return r, tst.Image()
+	}
+	// 沿边缘取样：把矩形外圈 2px 内所有像素的亮度增量加起来（描边 1px 会落在
+	// 边缘上并因抗锯齿摊到 2px）。
+	edgeGain := func(a, b *image.RGBA, r ui.Rect, side string) int {
+		gain := 0
+		add := func(x, y int) {
+			ia := a.PixOffset(x, y)
+			ib := b.PixOffset(x, y)
+			ga := int(a.Pix[ia]) + int(a.Pix[ia+1]) + int(a.Pix[ia+2])
+			gb := int(b.Pix[ib]) + int(b.Pix[ib+1]) + int(b.Pix[ib+2])
+			gain += ga - gb
+		}
+		x0, x1 := int(r.X)-1, int(r.X+r.W)
+		y0, y1 := int(r.Y)-1, int(r.Y+r.H)
+		switch side {
+		case "left":
+			for y := int(r.Y) + 2; y < int(r.Y+r.H)-2; y++ {
+				for x := x0; x <= x0+1; x++ {
+					add(x, y)
+				}
+			}
+		case "right":
+			for y := int(r.Y) + 2; y < int(r.Y+r.H)-2; y++ {
+				for x := x1 - 1; x <= x1; x++ {
+					add(x, y)
+				}
+			}
+		case "top":
+			for x := int(r.X) + 2; x < int(r.X+r.W)-2; x++ {
+				for y := y0; y <= y0+1; y++ {
+					add(x, y)
+				}
+			}
+		case "bottom":
+			for x := int(r.X) + 2; x < int(r.X+r.W)-2; x++ {
+				for y := y1 - 1; y <= y1; y++ {
+					add(x, y)
+				}
+			}
+		}
+		return gain
+	}
+
+	on, tstOn := playerBarProbe(t, nil)
+	_ = on
+	tstOn.Move(-1, -1)
+	tstOn.Frame()
+	r, imgOn := box(tstOn, "音量")
+
+	orig := paintPlayerRimConicFn
+	defer func() { paintPlayerRimConicFn = orig }()
+	paintPlayerRimConicFn = func(p *ui.Painter, r ui.Rect, radius, opacity float32) {}
+	_, tstOff := playerBarProbe(t, nil)
+	tstOff.Move(-1, -1)
+	tstOff.Frame()
+	imgOff := tstOff.Image()
+
+	left := edgeGain(imgOn, imgOff, r, "left")
+	right := edgeGain(imgOn, imgOff, r, "right")
+	top := edgeGain(imgOn, imgOff, r, "top")
+	bottom := edgeGain(imgOn, imgOff, r, "bottom")
+	t.Logf("音量键边缘亮度增量：左=%d 右=%d 上=%d 下=%d", left, right, top, bottom)
+	if left <= 0 {
+		t.Fatal("左侧边缘没有因描边变亮：conic 环整条没画出来？")
+	}
+	if left <= right {
+		t.Errorf("conic 定向光应把最亮点放在左侧：左=%d 未大于右=%d", left, right)
+	}
+	if left <= top {
+		t.Errorf("左侧是最亮区（原版左中 ≈.66 > 上中 ≈.16）：左=%d 未大于上=%d", left, top)
+	}
+	if left <= bottom {
+		t.Errorf("左侧是最亮区（原版左中 ≈.66 > 下中 ≈.44）：左=%d 未大于下=%d", left, bottom)
+	}
+}
+
+// TestPlayerRimRingPathGeometry 钉住环形路径的构造：Bounds 与外框一致，
+// 且外框小于 2×环宽时退化为空路径（不画）。
+func TestPlayerRimRingPathGeometry(t *testing.T) {
+	r := ui.Rect{X: 10, Y: 20, W: 40, H: 32}
+	path := playerRimRingPath(r, 8)
+	b := path.Bounds()
+	if math.Abs(float64(b.W-r.W)) > 0.5 || math.Abs(float64(b.H-r.H)) > 0.5 {
+		t.Errorf("环路径 Bounds %v 与外框 %v 不一致", b, r)
+	}
+	if math.Abs(float64(b.X-r.X)) > 0.5 || math.Abs(float64(b.Y-r.Y)) > 0.5 {
+		t.Errorf("环路径 Bounds 起点 %v 与外框 %v 不一致", b, r)
+	}
+	narrow := playerRimRingPath(ui.Rect{W: 1.5, H: 10}, 0)
+	if w := narrow.Bounds().W; w != 0 {
+		t.Errorf("过窄外框应返回空路径，得到宽 %v", w)
+	}
+}
+
+// TestPlayerRimLinearApproximationPutLightOnTop 反证：旧的四边线性近似确实把
+// 最亮点放在上沿（上中明显亮于左中）。拿旧画法与真 conic 画法在同一盒上比，
+// 两者的最亮方位相反 —— 这条钉住本轮换成 conic 到底改掉了什么。
+func TestPlayerRimLinearApproximationPutLightOnTop(t *testing.T) {
+	const w, h = 34, 32
+	luma := func(img *image.RGBA, x, y int) int {
+		i := img.PixOffset(x, y)
+		return int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
+	}
+	render := func(linear bool) *image.RGBA {
+		return ui.Render(func(c *ui.Context) {
+			c.Root().Background(ui.RGB(20, 30, 40))
+			ui.Box(c).Width(w).Height(h).Radius(8).
+				Background(ui.RGB(100, 100, 100)).
+				Draw(func(p *ui.Painter, r ui.Rect) {
+					if linear {
+						paint := playerRimPaintFor(1.0)
+						p.Clip(r, 8, func() {
+							p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: paint.Width}, paint.Top, 0)
+							for _, x := range [2]float32{r.X, r.X + r.W - paint.Width} {
+								p.FillGradient(ui.Rect{X: x, Y: r.Y, W: paint.Width, H: r.H}, ui.LinearGradient{
+									From: paint.SideTop, To: paint.SideBottom, Angle: 180}, 0)
+							}
+							p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - paint.Width, W: r.W, H: paint.Width}, paint.Bottom, 0)
+						})
+						return
+					}
+					paintPlayerRimConic(p, r, 8, 1)
+				})
+		}, w, h, 1)
+	}
+	lin, conic := render(true), render(false)
+	linTop, linLeft := luma(lin, w/2, 0), luma(lin, 0, h/2)
+	conicTop, conicLeft := luma(conic, w/2, 0), luma(conic, 0, h/2)
+	t.Logf("线性近似 上中=%d 左中=%d；conic 上中=%d 左中=%d", linTop, linLeft, conicTop, conicLeft)
+	if linTop <= linLeft {
+		t.Errorf("线性近似应把最亮点放在上沿：上=%d 左=%d", linTop, linLeft)
+	}
+	if conicLeft <= conicTop {
+		t.Errorf("conic 应把最亮点放在左中：左=%d 上=%d", conicLeft, conicTop)
 	}
 }
 
 // TestPlayerRimDisabledFlattens 反证：把 playerRimOpacityFn 换成恒 0（等于
-// 不画描边），音量键上/下边的亮度差应比挂描边时小 —— 证明「上边更亮」真的
-// 来自描边，而不是按钮自带的顶部内高光或投影。
+// 不画描边）后，音量键边缘总亮度应整体回落 —— 证明「边缘更亮」真的来自描边，
+// 而不是按钮自带的顶部内高光或投影。
 func TestPlayerRimDisabledFlattens(t *testing.T) {
 	on, tstOn := playerBarProbe(t, nil)
 	_ = on
@@ -103,7 +278,7 @@ func TestPlayerRimDisabledFlattens(t *testing.T) {
 	if !ok {
 		t.Fatal("找不到音量键")
 	}
-	topOn, bottomOn := btnEdgeLuma(tstOn.Image(), r)
+	boxOn := edgeLumaSum(tstOn.Image(), r)
 
 	orig := playerRimOpacityFn
 	defer func() { playerRimOpacityFn = orig }()
@@ -111,40 +286,27 @@ func TestPlayerRimDisabledFlattens(t *testing.T) {
 	_, tstOff := playerBarProbe(t, nil)
 	tstOff.Move(-1, -1)
 	tstOff.Frame()
-	topOff, bottomOff := btnEdgeLuma(tstOff.Image(), r)
+	boxOff := edgeLumaSum(tstOff.Image(), r)
 
-	t.Logf("上-下亮度差：挂描边=%d 关描边=%d", topOn-bottomOn, topOff-bottomOff)
-	if topOff-bottomOff >= topOn-bottomOn {
-		t.Errorf("关掉描边后上/下亮度差没变小（挂 %d vs 关 %d），说明差异不是描边造成的",
-			topOn-bottomOn, topOff-bottomOff)
+	t.Logf("音量键边缘总亮度：挂描边=%d 关描边=%d", boxOn, boxOff)
+	if boxOff >= boxOn {
+		t.Errorf("关掉描边后边缘总亮度没变小（挂 %d vs 关 %d），说明亮度不是描边造成的",
+			boxOn, boxOff)
 	}
 }
 
-// TestPlayerRimTopEdgeRises 无头实测（直接因果）：同一颗音量键，挂描边时
-// 上边亮度必须高于关掉描边时 —— 比「上 vs 下」更直接地钉住描边画在了上边。
-func TestPlayerRimTopEdgeRises(t *testing.T) {
-	on, tstOn := playerBarProbe(t, nil)
-	_ = on
-	tstOn.Move(-1, -1)
-	tstOn.Frame()
-	r, ok := tstOn.Find("音量")
-	if !ok {
-		t.Fatal("找不到音量键")
+// edgeLumaSum 累加按钮矩形**外圈**（上下左右各 1px 边）像素的亮度。
+func edgeLumaSum(img *image.RGBA, r ui.Rect) int {
+	sum := 0
+	for x := int(r.X); x < int(r.X+r.W); x++ {
+		sum += lumaSum(rgbAt(img, x, int(r.Y)))
+		sum += lumaSum(rgbAt(img, x, int(r.Y+r.H-1)))
 	}
-	topOn, _ := btnEdgeLuma(tstOn.Image(), r)
-
-	orig := playerRimOpacityFn
-	defer func() { playerRimOpacityFn = orig }()
-	playerRimOpacityFn = func(bool, bool) float32 { return 0 }
-	_, tstOff := playerBarProbe(t, nil)
-	tstOff.Move(-1, -1)
-	tstOff.Frame()
-	topOff, _ := btnEdgeLuma(tstOff.Image(), r)
-
-	t.Logf("音量键上边亮度：挂描边=%d 关描边=%d", topOn, topOff)
-	if topOn <= topOff {
-		t.Errorf("挂描边后上边没有变亮：挂=%d 关=%d", topOn, topOff)
+	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		sum += lumaSum(rgbAt(img, int(r.X), y))
+		sum += lumaSum(rgbAt(img, int(r.X+r.W-1), y))
 	}
+	return sum
 }
 
 // TestPlayerRimOpacityWired 无头反证：视图给每颗键传对了「是不是工具键」——

@@ -998,11 +998,11 @@ func (a *App) partPill(c *ui.Context) {
 //	::before  inset:0 + border-radius:inherit，铺 --glass-sheen-static（低透明度
 //	          斜向洗光：径向 140%×80% @22% -5% 白 .24 + 线性 170deg 白 .07→.015）
 //	::after   inset:0 + padding 1px + mask exclude，背景 --liquid-rim
-//	          （1px 聚光描边，上缘最亮）
+//	          （1px 聚光描边；conic 定向光，最亮点偏左上）
 //
-// 两层此前都没画：胶囊只有一层平铺的白 .15 底，比原版平一档。mygo 没有径向 /
-// conic 渐变接口，光泽复用播放栏那套逐像素烘焙的 --glass-sheen-static 位图
-// （sheenGlassBaked），描边复用播放栏的四边线性近似（paintPlayerRim）——
+// 两层此前都没画：胶囊只有一层平铺的白 .15 底，比原版平一档。光泽复用播放栏那套
+// 逐像素烘焙的 --glass-sheen-static 位图（mygo 没有径向渐变接口；sheenGlassBaked），
+// 描边复用播放栏的 --liquid-rim 绘制（paintPlayerRim）——胶囊面积小，走真 conic 分支——
 // 与 .part-search 的 partSearchGlass 同一套。整个函数声明成 var 便于测试换桩反证。
 //
 // 视觉近似：位图按胶囊自己的宽高比烘焙（paintBakedSheen → sheenBaked.bitmapFor），

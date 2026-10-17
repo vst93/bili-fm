@@ -795,17 +795,29 @@ func playerRimOpacity(dark, tool bool) float32 {
 	return 1.0
 }
 
-// playerRimPaint 是一圈聚光描边的上/侧/下颜色与宽度。
+// playerRimPaint 是一圈聚光描边在各方向的颜色与宽度。
 //
-// 原版 --liquid-rim 是 conic-gradient（最亮点落在按钮上缘），mygo 只有线性
-// 渐变，用「上边最亮、左右次之、下边最淡」三段近似：上白 .85、侧白 .40→.10
-// （竖直渐变）、下白 .08，再乘整圈 opacity。
+// 原版 --liquid-rim 是 conic-gradient：`from 215deg at 30% -5%`，停靠点
+// 白 1 → .3@65° → .05@140° → .08@225° → .55@305° → 1@360°。它的最亮点不在
+// 正上方（0deg），而是被 215° 的起点与 30% -5% 的圆心推到**左上偏**；正上方落在
+// 起点后 145° 的谷底附近（≈.05）。v0.5.5 起框架提供
+// `Painter.FillPathConicGradient` + `ui.ConicGradient`（语义与 CSS 的
+// `conic-gradient(from A at X% Y%)` 逐值相等，实测偏差 ≤0.005 alpha），于是
+// 描边改成真正的 conic 环，不再是「上亮下淡」的四边线性近似
+// （那个近似把最亮点放错到正上方、整圈缺了 conic 的定向光）。
+//
+// `playerRimPaintFor` 保留的是旧的四边线性取值：小控件已全部走 conic，只有
+// **超过 `playerRimConicMaxArea` 的大表面**（见 paintPlayerRim）才回退到它。
+//
+// 色散边（--liquid-chromatic 的暖/冷 0.5px 亚像素）仍按整 1px × 半不透明度近似，
+// 画在描边之外（见 paintPlayerChromatic）。
 type playerRimPaint struct {
 	Top, SideTop, SideBottom, Bottom ui.Color
 	Width                            float32
 }
 
-// playerRimPaintFor 由整圈 opacity 算出描边四边色。抽成纯函数便于测试钉值。
+// playerRimPaintFor 由整圈 opacity 算出「四边线性近似」的描边色（历史口径，
+// 已不作为生产画法，保留给测试做对照）。抽成纯函数便于钉值。
 func playerRimPaintFor(opacity float32) playerRimPaint {
 	return playerRimPaint{
 		Top:        ui.Hex("#ffffff").Alpha(0.85 * opacity),
@@ -816,32 +828,146 @@ func playerRimPaintFor(opacity float32) playerRimPaint {
 	}
 }
 
-// paintPlayerRim 画一圈聚光描边：在 1px 边框之上，上边最亮、左右次之、
-// 下边最淡。用四条实心/渐变边带（框架的 Fill/FillGradient 会吸附到设备像素，
-// 覆盖完整，不像路径描边在半像素位置上被摊薄），四角由圆角裁剪自然收尾。
+// playerRimConicCenter / playerRimConicAngle 是 --liquid-rim 的圆心与起始角
+// （原版 `conic-gradient(from 215deg at 30% -5%)`）。
+var (
+	playerRimConicCenter         = ui.Point{X: 0.30, Y: -0.05}
+	playerRimConicAngle  float32 = 215
+)
+
+// playerRimConicStops 返回 --liquid-rim 的 conic 停靠点（原版 globals.css:987）。
+// 各点的 alpha 再乘整圈 opacity（原版 ::after 的 `opacity: .52` / 深色时段 `.3`）。
+func playerRimConicStops(opacity float32) []ui.GradientStop {
+	clamp := func(a float64) float64 { return min(max(a, 0), 1) }
+	a := func(v float64) ui.Color {
+		return ui.Hex("#ffffff").Alpha(float32(clamp(v) * float64(opacity)))
+	}
+	return []ui.GradientStop{
+		{Color: a(1.0), At: 0},
+		{Color: a(0.3), At: 65.0 / 360},
+		{Color: a(0.05), At: 140.0 / 360},
+		{Color: a(0.08), At: 225.0 / 360},
+		{Color: a(0.55), At: 305.0 / 360},
+		{Color: a(1.0), At: 1},
+	}
+}
+
+// playerRimRingPath 构造「1px 环」路径：外圈顺时针、内圈逆时针绕行，靠
+// non-zero 填充规则挖空 —— 等价于原版 ::after 的 `inset:0` + `padding:1px` +
+// `mask-composite:exclude`（只留下边缘那一圈 1px）。
+func playerRimRingPath(r ui.Rect, radius float32) ui.Path {
+	return playerRimRingPathWidth(r, radius, 1)
+}
+
+// playerRimRingPathWidth 同上，环宽可调（色散边/加粗场景备用）。
+//
+// radius 按 CSS 的 border-radius 规则钳到「短边的一半」：原版大量元素用
+// `border-radius: 999px`（胶囊 / 圆形按钮），不钳的话外圈弧的圆心会跑到盒外，
+// 环形路径的两条同向绕行在 non-zero 规则下不再互相抵消，整块会被填成白色。
+func playerRimRingPathWidth(r ui.Rect, radius, width float32) ui.Path {
+	var p ui.Path
+	if r.W < 2*width || r.H < 2*width {
+		return p
+	}
+	radius = min(radius, min(r.W, r.H)/2)
+	const k = 0.5522847498
+	outer := func() {
+		x0, y0, x1, y1 := r.X, r.Y, r.X+r.W, r.Y+r.H
+		rad := radius
+		p.MoveTo(x0+rad, y0)
+		p.LineTo(x1-rad, y0)
+		p.CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad)
+		p.LineTo(x1, y1-rad)
+		p.CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1)
+		p.LineTo(x0+rad, y1)
+		p.CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad)
+		p.LineTo(x0, y0+rad)
+		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
+		p.Close()
+	}
+	// 内圈：矩形内缩 width、半径相应减小，**反向绕行**。
+	inner := func() {
+		x0, y0 := r.X+width, r.Y+width
+		x1, y1 := r.X+r.W-width, r.Y+r.H-width
+		rad := max(radius-width, 0)
+		p.MoveTo(x0+rad, y0)
+		p.LineTo(x0, y0+rad)
+		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
+		p.LineTo(x1-rad, y0)
+		p.CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad)
+		p.LineTo(x1, y1-rad)
+		p.CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1)
+		p.LineTo(x0+rad, y1)
+		p.CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad)
+		p.LineTo(x0, y0+rad)
+		p.Close()
+	}
+	outer()
+	inner()
+	return p
+}
+
+// paintPlayerRim 画一圈聚光描边：真正的 --liquid-rim conic 环（1px，圆角与元素
+// 一致），在 1px 边框之上、图标之下；色散边画在描边之外。
 func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
-	paint := playerRimPaintFor(opacity)
-	w := paint.Width
 	// 色散边画在描边之外（clip 之前）：暖边紧贴下缘外、冷边紧贴上缘外。
 	paintPlayerChromaticFn(p, r, radius)
+	if opacity <= 0 {
+		return
+	}
+	// 面积闸门：conic 走路径光栅化（每个环一份 α 蒙版 + 一次 conic 采样），
+	// 在**大表面**上（抽屉面板整幅、视频信息栏）比四边线性带贵得多。原版那边
+	// 也是同一套运行时（Chromium 为每个 conic 生成纹理），所以这里对小控件用
+	// 真 conic（按钮 / 胶囊 / tab / 搜索框，面积 ≤ 2 万 DIP²），对大表面保留
+	// 便宜的四边线性近似 —— 大表面的描边本身很淡（整圈 opacity 1、最亮点 alpha
+	// ≈.2），肉眼只看得到「边缘一圈淡淡的光」，看不出方向性，但每帧省一次全幅
+	// 路径光栅（实测 840×620：conic ≈2.9ms vs 线性 ≈0.9ms）。
+	if r.W*r.H <= playerRimConicMaxArea {
+		paintPlayerRimConicFn(p, r, radius, opacity)
+		return
+	}
+	paint := playerRimPaintFor(opacity)
+	w := paint.Width
 	p.Clip(r, radius, func() {
-		// 上边：光最聚处（原版 conic 的 0deg/360deg 白 1）。
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: w}, paint.Top, 0)
-		// 左右：从靠近上边的 .40 竖直淡到下边的 .10。
 		for _, x := range [2]float32{r.X, r.X + r.W - w} {
 			p.FillGradient(ui.Rect{X: x, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{
-				From:  paint.SideTop,
-				To:    paint.SideBottom,
-				Angle: 180,
-			}, 0)
+				From: paint.SideTop, To: paint.SideBottom, Angle: 180}, 0)
 		}
-		// 下边：最淡。
 		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - w, W: r.W, H: w}, paint.Bottom, 0)
 	})
 }
+
+// paintPlayerRimConic 用路径 + conic 渐变填充画出 1px 聚光环。
+func paintPlayerRimConic(p *ui.Painter, r ui.Rect, radius, opacity float32) {
+	path := playerRimRingPath(r, radius)
+	if path.Bounds().W <= 0 || path.Bounds().H <= 0 {
+		return
+	}
+	p.FillPathConicGradient(&path, ui.ConicGradient{
+		Stops:  playerRimConicStops(opacity),
+		Center: playerRimConicCenter,
+		Angle:  playerRimConicAngle,
+	})
+}
+
+// paintPlayerRimConicFn 是 conic 描边绘制的入口（测试可换桩关掉做反证）。
+var paintPlayerRimConicFn = paintPlayerRimConic
+
+// playerRimConicMaxArea 是「用真 conic 环」的面积上限（DIP²）。
+//
+// conic 环要光栅化一条环形路径（一份 α 蒙版）再按角度采样，成本随表面尺寸线性增长；
+// 按钮 / 胶囊 / tab / 搜索框这些**小控件**（面积 ≤ 2 万 DIP²，最大也就 200×36=7200）
+// 换来的是原版那条定向光（最亮点偏左上，不是正上沿），性价比高；抽屉面板 / 视频
+// 信息栏这些**大表面**（几十万 DIP²）每帧一次全幅路径光栅明显更贵，而原版 CSS 的
+// 观感在那里只是「边缘一圈淡淡的光」（最亮点 alpha ≈.2）—— 回退到四边线性近似。
+//
+// 实测（无头软渲染，单帧）：840×620 面板 conic ≈2.9ms vs 线性 ≈0.9ms；
+// 200×36 搜索框 conic ≈0.11ms vs 线性 ≈0.06ms；34×32 按钮两者都 ≈0.05ms。
+const playerRimConicMaxArea = 20000
 
 // playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色
 // （原版 globals.css:996 的 `0 0.5px 0 rgba(255,250,240,.5)` /
@@ -924,8 +1050,8 @@ type sheenStop struct {
 // 可选的线性层（径向在上）。几何全部相对盒宽/高表示，与 CSS 的百分比写法对应。
 // Background 是 ::before 的 background-color（透明则不铺底色）。
 type sheenSpec struct {
-	Background ui.Color // ::before 的 background-color（ui.Transparent 则不铺）
-	Radial     bool
+	Background                ui.Color // ::before 的 background-color（ui.Transparent 则不铺）
+	Radial                    bool
 	RCX, RCY, RRX, RRY, RStop float32
 	RCol                      ui.Color
 
@@ -980,8 +1106,8 @@ var (
 	sheenMiniPlay = sheenSpec{
 		Background: ui.Hex("#bae6fd").Alpha(0.35),
 		Radial:     true, RCX: 0.30, RCY: 0, RRX: 1.00, RRY: 0.76, RStop: 0.58,
-		RCol:       ui.Hex("#ffffff").Alpha(0.80),
-		Linear:     true, LAngle: 165,
+		RCol:   ui.Hex("#ffffff").Alpha(0.80),
+		Linear: true, LAngle: 165,
 		LStops: []sheenStop{
 			{At: 0, Col: ui.Hex("#0ea5e9").Alpha(0.12)},
 			{At: 1, Col: ui.Hex("#7dd3fc").Alpha(0.06)},
@@ -1805,7 +1931,7 @@ func playerPopoverBorder(t Theme, light ui.Color) ui.Color {
 
 // playerPopoverInsets 是音量 / 倍速弹层 box-shadow 的前两层 inset。烟熏玻璃时段
 // 原版把弹层的 `--glass-specular` 换成单条 `inset 0 1px 0 rgba(255,255,255,.26)`
-//（更淡的顶内高光）。浅色那条 --glass-specular 由框架玻璃的边缘折光近似，这里
+// （更淡的顶内高光）。浅色那条 --glass-specular 由框架玻璃的边缘折光近似，这里
 // 不再重复。返回 nil 表示这一帧不铺内影。
 func playerPopoverInsets(t Theme) []shadowSpec {
 	if t.Dark {
@@ -1816,7 +1942,7 @@ func playerPopoverInsets(t Theme) []shadowSpec {
 
 // playerPopoverLiftSpec 是弹层向下的外投影。浅色近似 `--liquid-shadow-lifted`
 // （0 14px 40px 墨 .10）；烟熏玻璃时段原版整条换成 `0 10px 24px rgba(15,23,42,.14)`
-//（更紧、更深一档）。声明成函数便于测试逐值钉住。
+// （更紧、更深一档）。声明成函数便于测试逐值钉住。
 func playerPopoverLiftSpec(t Theme) shadowSpec {
 	if t.Dark {
 		return shadowSpec{0, 10, 24, 0, shadowInk.Alpha(0.14)}

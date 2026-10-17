@@ -242,7 +242,8 @@ func (a *App) drawer(c *ui.Context) {
 		// 此前原生版用 `Border(1, GlassBorder)` 画满四边：那 1px 是**布局边框**
 		// （Border 会占掉元素内部 1px），左右各吃掉 1px ⇒ 抽屉正文比原版窄 2px
 		// （既有的残留差异）。改成「上边 1px 布局边 + 全圈 1px 不占布局的聚光
-		// 描边」（paintPlayerRim 就是 --liquid-rim 的四边线性近似），正文宽度
+		// 描边」（paintPlayerRim 画的就是 --liquid-rim；面板面积大，走其中的四边
+		// 线性分支），正文宽度
 		// 与原版逐值对齐。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
@@ -251,7 +252,8 @@ func (a *App) drawer(c *ui.Context) {
 			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
-				// exclude，不占布局），上缘最亮。::after 没有 opacity 覆写 ⇒ 整圈 1。
+				// exclude，不占布局）。::after 没有 opacity 覆写 ⇒ 整圈 1；面板面积大，
+				// 走 paintPlayerRim 的线性分支。
 				paintPlayerRim(p, r, 18, 1)
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
@@ -832,9 +834,10 @@ var drawerTabRimOpacity = func(b ui.Element, target float32) float32 {
 }
 
 // drawerTabGlass 画 tab 的 `::before` 洗光（--glass-sheen-static）与 `::after`
-// 的 1px 聚光描边（--liquid-rim）。与 partSearchGlass / partPillGlass 同一套近似：
-// mygo 没有径向 / conic 渐变接口，光泽复用播放栏那套烘焙位图（sheenGlassBaked
-// 就是 --glass-sheen-static），描边复用四边线性近似（paintPlayerRim）。
+// 的 1px 聚光描边（--liquid-rim）。与 partSearchGlass / partPillGlass 同一套画法：
+// 光泽复用播放栏那套烘焙位图（sheenGlassBaked 就是 --glass-sheen-static；mygo 没有
+// 径向渐变接口），描边复用播放栏的 --liquid-rim 绘制（paintPlayerRim）—— tab 面积
+// 小，走其中的真 conic 分支。
 // sheen 走 paintBakedSheen：按 tab 自己的宽高比烘一张，线性层的角度不被拉偏。
 // 声明成 var 便于测试换桩做反证。
 var drawerTabGlass = func(b ui.Element, rimOpacity float32) ui.Element {
@@ -2574,9 +2577,9 @@ var partSearchIconFade = func(b ui.Element, key string, target ui.Color) ui.Colo
 }
 
 // partSearchGlass 画 `.part-search::before` 的 --glass-sheen-static 光泽与
-// `::after` 的 1px 聚光描边（--liquid-rim）。mygo 没有径向渐变接口、也画不了
-// conic-gradient，光泽复用播放栏那套烘焙位图（sheenGlassBaked 就是
-// --glass-sheen-static），描边复用播放栏的四边线性近似（paintPlayerRim）。
+// `::after` 的 1px 聚光描边（--liquid-rim）。光泽复用播放栏那套烘焙位图（mygo 没有
+// 径向渐变接口；sheenGlassBaked 就是 --glass-sheen-static），描边复用播放栏的
+// --liquid-rim 绘制（paintPlayerRim）—— 搜索框面积小，走其中的真 conic 分支。
 // sheen 走 paintBakedSheen：搜索框是 200×36 的宽盒，按它的宽高比烘一张，
 // 线性层的角度才不会被正方形位图的非等比拉伸带偏。
 // 声明成 var 便于测试换桩做反证。

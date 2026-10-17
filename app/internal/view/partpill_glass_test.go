@@ -56,7 +56,9 @@ func TestPartPillGlassPaint(t *testing.T) {
 //
 //	① 只铺平底（对照）
 //	② 加 sheen 后：左上的平均亮度明显抬升，且左上 > 右上（径向偏心在左）
-//	③ 加 rim 后：胶囊**最上沿**比最下沿亮（--liquid-rim 上缘最亮）
+//	③ 加 rim 后：最亮的 1px 落在**左侧**中点（--liquid-rim 是 conic-gradient，
+//	   from 215deg at 30% -5% —— 左中角 ≈.66、右中 ≈.20、上中 ≈.16、下中 ≈.44；
+//	   最亮点是偏左上的宽区、不是正上沿）。
 func TestPartPillGlassLayers(t *testing.T) {
 	const w, h = 300, 36
 	render := func(withSheen, withRim bool) *image.RGBA {
@@ -119,13 +121,17 @@ func TestPartPillGlassLayers(t *testing.T) {
 		t.Errorf("sheen 右上 %.1f 不弱于左上 %.1f —— 径向中心不在左侧（22%%）？", tr(sheen), sheenTL)
 	}
 
-	// rim：只叠描边的图里，胶囊的第 1 行（最上沿）明显比最后一行亮。
+	// rim：只叠描边的图里，**左侧中点**那一行是 conic 的最亮区（原版
+	// `from 215deg at 30% -5%`：左中 ≈.66 vs 右中 ≈.20 / 上中 ≈.16 / 下中 ≈.44）。
+	// 旧实现（「上边最亮」的四边线性近似）把最亮点错放在上沿，这正是本轮改成
+	// 真 conic 环要修的偏差。
 	rim := render(false, true)
+	leftCol := cellMean(rim, x0, y0+4, 1, h-8)
+	rightCol := cellMean(rim, x0+w-1, y0+4, 1, h-8)
 	topRow := cellMean(rim, x0+2, y0, w-4, 1)
-	botRow := cellMean(rim, x0+2, y0+h-1, w-4, 1)
-	t.Logf("rim 描边：上沿 %.1f / 下沿 %.1f", topRow, botRow)
-	if topRow-botRow < 5 {
-		t.Errorf("--liquid-rim 上沿 %.1f 未明显亮于下沿 %.1f —— 聚光描边方向不对？", topRow, botRow)
+	t.Logf("rim 描边：左中 %.1f / 右中 %.1f / 上沿 %.1f", leftCol, rightCol, topRow)
+	if leftCol-rightCol < 30 {
+		t.Errorf("--liquid-rim 左中 %.1f 未明显亮于右中 %.1f —— conic 定向光不对？", leftCol, rightCol)
 	}
 }
 
