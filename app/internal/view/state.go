@@ -362,7 +362,9 @@ type Actions struct {
 	Favorite      func()
 	Quit          func()
 	Minimize      func()
-	SetMini       func(on bool)
+	// HideWindow 把主窗隐藏到托盘（原版标题栏「隐藏窗口」键的 hide_window）。
+	HideWindow func()
+	SetMini    func(on bool)
 	TogglePin     func()
 	SetCoverMode  func(mode string)
 	ToggleAmbient func()
@@ -1105,6 +1107,8 @@ var (
 	// 关窗 / 抽屉关闭 / 播放列表行删除（原版 Close）/ 登录面板关闭（原版 CloseSmall）。
 	iconClose      = iconPark(parkClose)
 	iconCloseSmall = iconPark(parkCloseSmall)
+	// 标题栏自绘的最小化键图标（原版 titleBar.tsx 的 Minus，48 画布正中一横）。
+	iconMinus = iconPark(parkMinus)
 	// 互动：icon-park 的 ThumbsUp / HandleB（投币，圆形钱币）/ Star。
 	// 收藏键的 active 态是 Star 的 filled 变体（原版
 	// `theme={isFavorite ? "filled" : "outline"}`），所以两枚都留着。

@@ -56,3 +56,48 @@ func TestDanmakuTextShadowHalo(t *testing.T) {
 		t.Errorf("差异像素 %d 接近文字盒面积 %d：阴影像是整块矩形（用户否掉的那种），不是字形副本", n, area)
 	}
 }
+
+// TestDanmakuFollowIconShadowWired 钉住弹幕「自动跟随」键的图标白色压印
+//（原版 `.danmaku-follow-btn svg { filter: drop-shadow(0 1px 0 rgba(255,255,255,.55)) }`）。
+//
+// 之前这颗键只画了键面材质（底色/描边/内高光/蓝环），漏了图标下缘 1px 的白压印。
+//
+// 两条断言：① 常量取值逐值等于原版 .55；② 视图真的把这层压印接在跟随键的图标上
+//（换桩记录调用，确认 opacity=.55 且传的 svg 就是 iconConnection）。
+// 反证：把调用删掉 → 第 ② 条找不到调用，当场红。
+func TestDanmakuFollowIconShadowWired(t *testing.T) {
+	if danmakuFollowIconShadowInk != 0.55 {
+		t.Fatalf("danmakuFollowIconShadowInk = %v，应为 .55（原版 drop-shadow 白 .55）",
+			danmakuFollowIconShadowInk)
+	}
+
+	orig := playerIconShadowFn
+	defer func() { playerIconShadowFn = orig }()
+	type call struct {
+		svg     *ui.SVG
+		opacity float32
+	}
+	var calls []call
+	playerIconShadowFn = func(b ui.Element, svg *ui.SVG, dx, dy, opacity float32) ui.Element {
+		calls = append(calls, call{svg, opacity})
+		return orig(b, svg, dx, dy, opacity)
+	}
+
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabDanmaku
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720))
+	_ = tst
+
+	found := false
+	for _, c := range calls {
+		if c.svg == iconConnection && c.opacity == danmakuFollowIconShadowInk {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("跟随键图标没挂白色压印（playerIconShadowFn 未以 iconConnection/.55 被调用，共 %d 次调用）",
+			len(calls))
+	}
+}

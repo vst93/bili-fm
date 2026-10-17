@@ -487,3 +487,126 @@ func TestPlayerChromaticFringe(t *testing.T) {
 		t.Fatal("色散边整条没画出来（与关掉时逐像素相同）")
 	}
 }
+
+// TestPlayerChromaticFringeFollowsCorners 钉住色散边（--liquid-chromatic）不再是
+// 两条横贯整宽、切过圆角的**直角色线**（用户 2026-10-18 报告「很多按钮的上下边
+// 有带颜色的线条，超出了圆角的范围……整体检查」；底栏播放器与抽屉按钮都中招）。
+//
+// 原版这两条是 box-shadow：形状是元素自己的圆角矩形平移半像素，只从边缘外露出
+// 半条，**必然跟着圆角弯曲**。此前原生版直接画两条整宽 1px 直线（不裁圆角），
+// 于是圆角处露出一段超出圆角的直角色线。修法是把这个「外扩 1px 的圆角矩形」
+// 当作裁剪区。
+//
+// 判法（无头像素实测）：在按钮上缘之外那一行，比较「色散边开 / 关」的差异像素。
+//   - **直边段**（避开圆角）必须有差异（色散边还在）；
+//   - **圆角段**（x < 半径 + 外扩 1px）差异必须远小于直边段 —— 退回直角绘制时
+//     圆角段与直边段一样满，当场红。
+//
+// 反证：把 paintPlayerChromatic 里的 Clip 去掉（放回两条整宽直线）→ 圆角段
+// 差异从个位数升到 ~2×(半径+1) 满行，测试红。
+func TestPlayerChromaticFringeFollowsCorners(t *testing.T) {
+	orig := paintPlayerChromaticFn
+	defer func() { paintPlayerChromaticFn = orig }()
+
+	const side, radius = 32, 8
+	render := func(stub bool) *image.RGBA {
+		paintPlayerChromaticFn = orig
+		if stub {
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+		}
+		tst := ui.NewTester(func(c *ui.Context) {
+			ui.Box(c).Absolute().Left(100).Top(100).Width(side).Height(side).Radius(radius).
+				Background(ui.Hex("#334155")).
+				Draw(func(p *ui.Painter, r ui.Rect) { paintPlayerRim(p, r, radius, 1) })
+		}, 260, 260)
+		tst.Frame()
+		return tst.Image()
+	}
+	on, off := render(false), render(true)
+
+	// 冷边贴在上缘外 1px（y = 100-1 = 99）；暖边贴在下缘外 1px（y = 132）。
+	diffAt := func(y, x0, x1 int) int {
+		n := 0
+		for x := x0; x <= x1; x++ {
+			i := on.PixOffset(x, y)
+			j := off.PixOffset(x, y)
+			if on.Pix[i] != off.Pix[j] || on.Pix[i+1] != off.Pix[j+1] || on.Pix[i+2] != off.Pix[j+2] {
+				n++
+			}
+		}
+		return n
+	}
+	// 圆角段：x ∈ [盒左-2, 盒左+半径-1]；直边段取中段（半径 + 4 之后）。
+	const left = 100
+	cornerCool := diffAt(99, left-2, left+radius-1)
+	straightCool := diffAt(99, left+radius+2, left+side-radius-3)
+	cornerWarm := diffAt(132, left-2, left+radius-1)
+	straightWarm := diffAt(132, left+radius+2, left+side-radius-3)
+	t.Logf("冷边圆角段=%d 直边段=%d；暖边圆角段=%d 直边段=%d",
+		cornerCool, straightCool, cornerWarm, straightWarm)
+
+	if straightCool < 8 {
+		t.Errorf("冷色散边直边段没画出来（%d < 8）", straightCool)
+	}
+	if straightWarm < 8 {
+		t.Errorf("暖色散边直边段没画出来（%d < 8）", straightWarm)
+	}
+	// 圆角处只允许极少量（连续圆角把外扩弧与直角的差摊开的亚像素残留），
+	// 退回直角绘制会是满行（圆角段宽 = 半径 + 外扩 ≈ 10）。
+	const maxCorner = 6
+	if cornerCool > maxCorner {
+		t.Errorf("冷色散边在圆角区仍是直线（圆角段 %d > %d）：未按圆角裁切",
+			cornerCool, maxCorner)
+	}
+	if cornerWarm > maxCorner {
+		t.Errorf("暖色散边在圆角区仍是直线（圆角段 %d > %d）：未按圆角裁切",
+			cornerWarm, maxCorner)
+	}
+}
+
+// TestPlayerChromaticFringeDrawerTop 是抽屉面板的同类断言（用户点名「抽屉打开时
+// 的很多按钮」+「抽屉弹窗顶部的圆角上方有直角虚线细线」）。这里直接渲染打开
+// 抽屉的主窗，断言面板顶边那一行（y = 面板顶 - 1）的冷色散边不越过面板左上
+// 圆角：圆角段应远小于直边段。
+//
+// 实测（800×600、noon、feed 抽屉，面板顶 y=54）：冷色散边 = rgb(200,220,240)。
+// 改前圆角段（x<18）满行 18，直边段（x24..400）377 —— 一条横贯整宽的直线；
+// 改后圆角段 1，直边段仍 377。反证：去掉 Clip → 圆角段回到 18。
+func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
+	_, tst := drawerProbe(t, "feed")
+	settleTester(tst)
+	img := tst.Image()
+	// 面板顶边：在 x=400（避开搜栏与圆角）从菜单位置往上找面板上沿。
+	top := -1
+	for y := 0; y < 200; y++ {
+		r, g, b, _ := img.At(400, y).RGBA()
+		if r>>8 >= 252 && g>>8 >= 252 && b>>8 >= 252 {
+			top = y
+			break
+		}
+	}
+	if top < 1 || top > 120 {
+		t.Fatalf("抽屉面板顶边定位失败：top=%d", top)
+	}
+	// 冷色散边精确值 rgb(200,220,240)，只数这一行里这个精确色的像素。
+	fringeRow := top - 1
+	cor, str := 0, 0
+	for x := 0; x < 800; x++ {
+		r, g, b, _ := img.At(x, fringeRow).RGBA()
+		if r>>8 == 200 && g>>8 == 220 && b>>8 == 240 {
+			if x < 18 {
+				cor++
+			}
+			if x >= 24 && x <= 400 {
+				str++
+			}
+		}
+	}
+	t.Logf("抽屉顶边 y=%d 冷色散边：圆角段=%d 直边段=%d", fringeRow, cor, str)
+	if str < 100 {
+		t.Errorf("抽屉顶边直边段没有冷色散边（%d）", str)
+	}
+	if cor > 3 {
+		t.Errorf("抽屉顶部圆角上方仍是直角细线（圆角段 %d > 3）", cor)
+	}
+}

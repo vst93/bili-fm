@@ -636,6 +636,9 @@ func (c *controller) wireActions() {
 		TogglePin:          c.togglePin,
 		Quit:               c.quit,
 		Minimize:           func() { a.Win.Minimize() },
+		// 「隐藏窗口」：与关窗的 OnClose（隐藏到托盘）同一条路径。原版标题栏
+		// 的隐藏键调 hide_window，等价于这里 Hide()。
+		HideWindow: func() { a.Win.Hide() },
 	}
 }
 

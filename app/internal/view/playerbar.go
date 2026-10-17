@@ -987,9 +987,16 @@ func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
-	// 暖边在下缘外 0.5px、冷边在上缘外 0.5px；圆角处随圆角弯曲由四边近似兜住。
-	p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
-	p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
+	// 暖边在下缘外 0.5px、冷边在上缘外 0.5px。原版这两条是 box-shadow：形状
+	// 是**元素自己的圆角矩形平移半像素**，只从边缘外露出半条，因此**必然跟着
+	// 圆角弯曲**。此前直接画两条横贯整宽的 1px 直线（不裁圆角），在四个圆角处
+	// 就成了一条超出圆角范围的直角色线（用户报「上下边的彩色线条超出圆角范围」）。
+	// 这里把两条带裁到「元素圆角矩形向外扩 1px」的形状（半径相应 +1）：直边上
+	// 照旧露在边缘外，四个圆角处被扩出的弧线裁掉，与 CSS 逐形一致。
+	p.Clip(ui.Rect{X: r.X - 1, Y: r.Y - 1, W: r.W + 2, H: r.H + 2}, radius+1, func() {
+		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
+		p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
+	})
 }
 
 // paintPlayerChromaticFn 是视图取色散边绘制的入口（测试可换桩关掉做反证）。

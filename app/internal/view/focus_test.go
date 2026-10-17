@@ -244,7 +244,10 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 		// `.top-tool-btn:focus-visible`：offset 2 + 2px → 外扩 4。
 		{"主页工具栏键", mainProbe, "动态", 2, 4, 40, 8},
 		// `.home-user-button:focus-visible`：offset 3 + 2px → 外扩 5。
-		{"登录键", mainProbe, "登录账号", 3, 5, 60, 10},
+		// Tab 预算放到 40：标题栏现在有若干可聚焦小键（迷你入口 / 隐身 / 自绘
+		// 窗口控件），主区控件在 Tab 序里被推后（原版同样如此）。tabTo 会一直按
+		// 到命中为止，给足预算即可，断言的是「环的几何」不是「按几次 Tab」。
+		{"登录键", mainProbe, "登录账号", 3, 5, 60, 40},
 		// `#player .player-button:focus-visible`：offset 2 + 2px → 外扩 4。
 		// 用「音量均衡」工具键（标签唯一，不会撞上封面唱片那颗同样叫「播放」的键）。
 		{"均衡键", mainProbe, "音量均衡: 关", 2, 4, 60, 24},

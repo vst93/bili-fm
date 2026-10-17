@@ -177,6 +177,37 @@ func inkCenterDIP(t *testing.T, tst *ui.Tester, r ui.Rect, scale float32, thr in
 	return float32(lo+hi) / 2 / scale
 }
 
+// inkBottomDIP 同 inkCenterDIP，但返回墨迹的**底部**（最大 y）换算回 DIP ——
+// 2026-10-18 用户追诉「文字底部还没对齐」，需要单独量这个指标。
+func inkBottomDIP(t *testing.T, tst *ui.Tester, r ui.Rect, scale float32, thr int) float32 {
+	t.Helper()
+	img := tst.Image()
+	b := img.Bounds()
+	x0, x1 := int(r.X*scale), int((r.X+r.W)*scale)
+	y0, y1 := int(r.Y*scale)-12, int((r.Y+r.H)*scale)+12
+	hi := -1
+	for y := y0; y <= y1; y++ {
+		if y < b.Min.Y || y >= b.Max.Y {
+			continue
+		}
+		for x := x0; x < x1; x++ {
+			if x < b.Min.X || x >= b.Max.X {
+				continue
+			}
+			c := rgbAt(img, x, y)
+			if c[0] < thr && c[1] < thr && c[2] < thr {
+				if y > hi {
+					hi = y
+				}
+			}
+		}
+	}
+	if hi < 0 {
+		t.Fatalf("矩形 %+v 内没量到墨迹（scale=%.1f）", r, scale)
+	}
+	return float32(hi) / scale
+}
+
 // darkestIn 返回一块矩形里最暗的像素（品牌字色是深色，越接近满不透明度越暗）。
 func darkestIn(img *image.RGBA, x0, y0, x1, y1 int) [3]int {
 	best := [3]int{1 << 20, 1 << 20, 1 << 20}
@@ -284,42 +315,41 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 }
 
 // TestTitleBarBrandAndSettingsAlign 钉住标题栏里「品牌行（logo + bili-FM）」
-// 与「设置」钮的垂直对齐。用户实测（Linux）报告「设置按钮看起来下移了」。
+// 与「设置」钮的垂直对齐。用户实测（Linux）报告「设置按钮看起来下移了」，
+// 2026-10-18 追诉：「文字底部仍未对齐、各平台都要检查」。
 //
 // 量了三层，每层都留了改前数值：
 //
 //  1. **盒中心**：.app-title-bar 是 flex + align-items:center，品牌文字盒
 //     {40,7,46,22} 与设置钮盒 {94,4,44,28} 的中心**本来就重合**在栏中线
 //     18.00（差 0）——这不是盒错位。
-//  2. **墨迹中心**（同一字号 14 / 字重 500）：品牌 `bili-FM` 18.00、
-//     「设置」19.00，差 1.00px。字权重统一前是 600 vs 400，差 1.5px
-//     （品牌 17.50 / 设置 19.00）——用户说的「下移」是这个。
-//  3. **这个 1.0px 是字形固有**：同一字体下 CJK「设置」的墨迹带中位天生比
-//     拉丁 `bili-FM` 低（两者基线在同一条上，差的是字形分布）。把两个串换成
-//     同一个框内居中的自绘盒后仍然是同一组数值，说明与布局无关；Chromium
-//     渲染的**原版**同样实测 Δ≈1.06，不是原生版独有。
+//  2. **墨迹**（同一字号 14 / 字重 500）：品牌 `bili-FM` 墨迹 [13..23]（高
+//     10）、「设置」墨迹 [13..25]（高 12），**顶/基线已重合**，但 CJK 表意框
+//     上下各多一个像素——于是中心差 +1.00、底部差 +2.00。这个高差是**字形
+//     固有**（换成同一框内居中的自绘盒后数值不变；Chromium 渲染的**原版**
+//     同样实测 Δ≈1.06，不是原生版独有），所以中心与底部**不能同时**对到 0。
+//  3. 字权在上上轮已被统一到 500（此前 600 vs 400，差 1.5px）。
 //
-// 用户要求「修到两者中心 Y 对齐」，于是给设置钮文字加 titleBarSettingsNudge
-// 的光学上移。断言：
+// 用户先后要求「中心对齐」与「底部对齐」，于是本轮同时钉**两个指标**，并把
+// titleBarSettingsNudge 调到同时把两者收进 1px 的值（见 theme.go 的表）：
+// nudge=1.0 时中心 max ≤0.5、底部 min ≥1.0（0.75 时底部 1.33、1.5 时中心飘
+// 到 1.0）。断言：
 //
 //  1. titleBarFontWeight == 500（.app-title-bar 的继承字重）；
-//  2. titleBarSettingsNudge 在 (0, 1) 内（0=不改就别加这条，1 会在 1x/1.5x
-//     过冲、2x 欠冲）；
+//  2. titleBarSettingsNudge 在 (0, 1.5] 内（0=不改、>1.5 中心会飘）；
 //  3. 无头实测 **四档缩放**（1 / 1.25 / 1.5 / 2，Linux HiDPI 常用 1.25 与 1.5）
-//     下，品牌与设置的墨迹包围盒中位差 ≤ 0.5px。跨缩放一起断言，把「某个档位
-//     凑出来的假对齐」排除。实测（本机，修正后）：
+//     下，墨迹**中心差 ≤ 0.5px**（上上轮要求）且**底部差 ≤ 1.0px**（本轮要求，
+//     字形高差 ~2px 时的下限）。跨缩放一起断言，把「某个档位凑出来的假对齐」排除。
 //
-//	缩放   1.00   1.25   1.50   2.00
-//	Δ(px) -0.00  -0.00  +0.33  -0.25
-//
-//     反证：把 titleBarSettingsNudge 退回 0 → 1x Δ=1.00、1.5x Δ=1.33，报红。
+//     反证：把 titleBarSettingsNudge 退回 0 → 1x 中心 1.00、1.5x 底部 2.00，两条报红；
+//     退回到上一轮的 0.75 → 1.5x 底部 1.33 > 1.0，底部那条报红。
 func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 	if titleBarFontWeight != 500 {
 		t.Fatalf("titleBarFontWeight = %d，应为 500（.app-title-bar font-weight:500）",
 			titleBarFontWeight)
 	}
-	if titleBarSettingsNudge <= 0 || titleBarSettingsNudge >= 1 {
-		t.Fatalf("titleBarSettingsNudge = %v，应在 (0,1) 内（0=不改、1=1x/1.5x 过冲）",
+	if titleBarSettingsNudge <= 0 || titleBarSettingsNudge > 1.5 {
+		t.Fatalf("titleBarSettingsNudge = %v，应在 (0, 1.5] 内（0=不改、>1.5 中心会飘到 >1px）",
 			titleBarSettingsNudge)
 	}
 	// 源码链：两边都用 titleBarFontWeight，且设置钮文字带光学位移。
@@ -331,7 +361,7 @@ func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 		t.Error("设置钮文字没有按 titleBarSettingsNudge 上移（CJK 墨迹天生偏低）")
 	}
 
-	// 无头实测：两档缩放下墨迹盒中位差 ≤ 0.5px。
+	// 无头实测：四档缩放下墨迹中心差 ≤ 0.5px、底部差 ≤ 1.5px。
 	for _, scale := range []float32{1, 1.25, 1.5, 2} {
 		tst := titleBarProbeAt(t, scale)
 		brand, ok := tst.Find("bili-FM")
@@ -355,6 +385,12 @@ func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 		t.Logf("scale=%.1f 品牌墨迹中心=%.2f 设置墨迹中心=%.2f Δ=%.2f", scale, bInk, sInk, sInk-bInk)
 		if d := sInk - bInk; d < -0.5 || d > 0.5 {
 			t.Errorf("scale=%.1f 品牌与设置的墨迹中心差 %.2fpx > 0.5px（用户报的「设置钮下移」）",
+				scale, d)
+		}
+		bBot, sBot := inkBottomDIP(t, tst, brand, scale, 150), inkBottomDIP(t, tst, settings, scale, 150)
+		t.Logf("scale=%.1f 品牌墨迹底=%.2f 设置墨迹底=%.2f Δ=%.2f", scale, bBot, sBot, sBot-bBot)
+		if d := sBot - bBot; d < -1.0 || d > 1.0 {
+			t.Errorf("scale=%.1f 品牌与设置的墨迹底部差 %.2fpx > 1.0px（2026-10-18 用户报的「文字底部没对齐」）",
 				scale, d)
 		}
 	}
@@ -497,5 +533,121 @@ func TestTitleBarIncognitoRestVisibility(t *testing.T) {
 	t.Logf("唤出态 键内最暗亮度和：关闭 %d 开启 %d", hovOff, hovOn)
 	if hovOff <= hovOn {
 		t.Errorf("唤出态开启键不比关闭键深：开 %d 关 %d", hovOn, hovOff)
+	}
+}
+
+// TestTitleBarSelfDrawnWindowControls 钉住 Linux/Windows 在**没有原生窗口控件**
+// 时自绘的最小化 / 隐藏窗口两颗键（用户 2026-10-18 报告「Linux 下测试，关闭和
+// 缩小操作按钮怎么也没有了」）。
+//
+// 背景：原版 Tauri 在非 macOS 上 decorations:false、前端自绘这两颗键
+//（titleBar.tsx 的 #wds-handle-group）。mygo 用 TitleBarHidden 让 GTK 画原生
+// 标题按钮，但 Wayland 下由合成器装饰窗口的桌面（KWin/Hyprland/Sway）与平铺
+// 窗管根本不给原生按钮，于是 Linux 用户看到按钮消失。
+//
+// 判据：
+//  1. `tb.Right == 0`（无原生占位）时，非 macOS 平台 Find 命中两颗键、点击触发
+//     Minimize / HideWindow；
+//  2. `tb.Right > 0`（原生控件在位）时**不**画自绘键（不重复）；
+//  3. macOS 平台不画（红绿灯是系统原生的）。
+//
+// 反证：把 `!mac && tb.Right <= 0` 判据去掉（或恒真）→ 第 2/3 条红。
+func TestTitleBarSelfDrawnWindowControls(t *testing.T) {
+	orig := viewGOOS
+	defer func() { viewGOOS = orig }()
+
+	probe := func(goos string, tb ui.TitleBar) (*App, *ui.Tester) {
+		viewGOOS = goos
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+		tst.SetTitleBar(tb)
+		tst.Frame()
+		return a, tst
+	}
+
+	// ① Linux、无原生控件：两颗键都在，点击分别走 Minimize / HideWindow。
+	a, tst := probe("linux", ui.TitleBar{Height: 36})
+	for _, lab := range []string{"最小化", "隐藏窗口"} {
+		if _, ok := tst.Find(lab); !ok {
+			t.Fatalf("Linux 无原生控件时找不到自绘键 %q", lab)
+		}
+	}
+	minClicks, hideClicks := 0, 0
+	a.Act.Minimize = func() { minClicks++ }
+	a.Act.HideWindow = func() { hideClicks++ }
+	if err := tst.Click("最小化"); err != nil {
+		t.Fatalf("点最小化键失败：%v", err)
+	}
+	tst.Frame()
+	if err := tst.Click("隐藏窗口"); err != nil {
+		t.Fatalf("点隐藏窗口键失败：%v", err)
+	}
+	tst.Frame()
+	if minClicks != 1 || hideClicks != 1 {
+		t.Errorf("点击回调次数 minimize=%d hide=%d，应为 1/1", minClicks, hideClicks)
+	}
+
+	// ② Linux、原生控件在位：不画自绘键。
+	_, tst2 := probe("linux", ui.TitleBar{Height: 36, Right: 140})
+	for _, lab := range []string{"最小化", "隐藏窗口"} {
+		if _, ok := tst2.Find(lab); ok {
+			t.Errorf("原生控件在位时仍画了自绘键 %q（会与系统按钮重复）", lab)
+		}
+	}
+
+	// ③ macOS：红绿灯是系统原生的，不自绘。
+	_, tst3 := probe("darwin", ui.TitleBar{Height: 36, Left: 78})
+	for _, lab := range []string{"最小化", "隐藏窗口"} {
+		if _, ok := tst3.Find(lab); ok {
+			t.Errorf("macOS 上画了自绘键 %q（应走系统红绿灯）", lab)
+		}
+	}
+}
+
+// TestTitleBarMiniEntryRestored 钉住标题栏右侧的「切换到迷你模式」入口（原
+// #switch-window-mode）。用户 2026-10-18 要求「看看 Linux 下能不能恢复迷你模式」：
+// 原版 Tauri 在 Linux 禁用迷你模式（webkit2gtk 的无边界窗口改不了尺寸），但 mygo
+// 的 Linux 后端直接驱动 GTK（gtkWindowResize），运行时改尺寸正常，所以三平台都
+// 能进迷你模式。该入口曾在 `53f7cb5` 被整体移除，导致迷你模式只剩 `--mini`
+// 启动参数可达——本轮恢复。
+//
+// 判据：Linux 与 Windows 上 Find 命中该键、点击触发 SetMini(true)；且图标是
+// iconMini（原版 ZoomInternal）。
+//
+// 反证：把 miniEntryButton 调用删掉 → Find 失败，第一条报红。
+func TestTitleBarMiniEntryRestored(t *testing.T) {
+	orig := viewGOOS
+	defer func() { viewGOOS = orig }()
+	for _, goos := range []string{"linux", "windows"} {
+		viewGOOS = goos
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		clicks := 0
+		a.Act.SetMini = func(on bool) {
+			if on {
+				clicks++
+			}
+		}
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+		tst.Frame()
+		if _, ok := tst.Find("切换到迷你模式"); !ok {
+			t.Fatalf("%s：标题栏里找不到「切换到迷你模式」入口", goos)
+		}
+		if err := tst.Click("切换到迷你模式"); err != nil {
+			t.Fatalf("%s：点迷你入口失败：%v", goos, err)
+		}
+		tst.Frame()
+		if clicks != 1 {
+			t.Fatalf("%s：迷你入口点击次数 = %d，应为 1", goos, clicks)
+		}
+	}
+	// 源码链：入口键用 iconMini（15px）并触发 SetMini(true)。
+	flat := flattenNoComments(t, "shell.go")
+	if !strings.Contains(flat, "ui.Icon(c,iconMini).Size(15,15)") {
+		t.Error("迷你入口没用 iconMini 15px（原版 <ZoomInternal size=\"15\">）")
+	}
+	if !strings.Contains(flat, `b.Clicked()&&a.Act.SetMini!=nil{a.Act.SetMini(true)}`) {
+		t.Error("迷你入口点击没有触发 SetMini(true)")
 	}
 }

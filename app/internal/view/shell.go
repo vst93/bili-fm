@@ -67,15 +67,17 @@ func (a *App) backdrop(c *ui.Context) {
 	}
 }
 
-// titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧一个「切换到迷你模式」。
+// titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧依次是
+// 「切换到迷你模式」入口、隐身开关，以及（无原生控件时）自绘的最小化/关闭键。
 //
 // 窗口用原生窗口控件（mygo 的 TitleBarHidden：macOS 是红绿灯、Windows 是
 // 最小化/最大化/关闭、Linux 是 GTK 的标题按钮），与旧版一致 —— 旧版在
 // macOS 上就是 decorations + TitleBarStyle::Overlay。c.TitleBar() 给出原生
 // 控件占的宽高，两边留出来就不会被压住，同时保持品牌落在窗口正中。
 //
-// 旧版在 Linux 上不提供迷你模式（webkit2gtk 的窗口改不了尺寸），所以那里
-// 不画这个按钮；原生窗口没这个限制。
+// 与原版的 Linux 差异：原版 Tauri 在 Linux 上不提供迷你模式（webkit2gtk 的
+// 无边框窗口改不了尺寸），所以在那里不画迷你入口；mygo 的 Linux 后端直接驱动
+// GTK（gtkWindowResize），运行时改尺寸正常，所以三平台都画（见 miniEntryButton）。
 func (a *App) titleBar(c *ui.Context) {
 	t := a.Theme
 	tb := c.TitleBar()
@@ -156,9 +158,16 @@ func (a *App) titleBar(c *ui.Context) {
 		}
 		actions.Opacity(titleBarFade(actions, "tb-child", childTarget))
 		actions.Children(func() {
-			// 迷你入口按钮（原 switch-window-mode，ZoomInternal 图标）已移除：
-			// 浮窗应用不需要在标题栏放一颗看似全屏的按钮，避免误导。
+			// 迷你模式入口（原 #switch-window-mode，ZoomInternal 图标）：用户
+			// 2026-10-18 要求「看看 Linux 下能不能恢复迷你模式」。原版 Tauri 在
+			// Linux 禁用迷你模式，因为 webkit2gtk 的无边框窗口**无法在运行时改尺寸**；
+			// mygo 的 Linux 后端是直接驱动 GTK（internal/linux 的 gtkWindowResize /
+			// gtkWindowSetDefaultSize），运行时 SetSize 正常生效，所以这个限制在
+			// 原生版不存在——三平台都能进迷你模式。
 			//
+			// 形态对齐原版：30×30、图标 15px、常态透明 + 图标 72%，悬停玻璃底 +
+			// 图标转蓝，按下 scale(.94)（`.app-title-bar-btn` 那套）。
+			a.miniEntryButton(c)
 			// 隐身模式开关放在这里（右侧动作区，**一切平台、一切窗宽都常驻**）：
 			// 它会影响所有列表/播放的云端进度同步，用户明确否掉了「藏在设置菜单/
 			// 历史抽屉二级入口」的方案，要求常驻可见、一次点击可达、状态一眼可见。
@@ -166,7 +175,37 @@ func (a *App) titleBar(c *ui.Context) {
 			// 原生窗口控件左侧，位置稳定、不易误触。
 			a.incognitoToggle(c)
 		})
-		ui.Box(c).Width(tb.Right).Shrink(0)
+		// 自绘窗口控件（最小化 / 关闭）：原版 titleBar.tsx 在**非 macOS** 上始终
+		// 自绘这两颗键（Tauri 的 decorations:false，前端 .app-title-bar-actions
+		// 里的 #wds-handle-group）。mygo 用 TitleBarHidden 让 GTK 画原生标题按钮，
+		// 但 **Wayland 下由合成器装饰窗口的桌面（KWin/Hyprland/Sway）与平铺窗管**
+		// 根本不给原生按钮（mygo 文档明说「possibly none」），于是 Linux 用户看到
+		// 「关闭/最小化按钮消失了」（用户 2026-10-17 报告，③）。
+		// 判据：非 macOS 且 `tb.Right == 0`（窗口右侧没有任何原生控件占位）
+		// 时补上自绘的两颗键——与原生控件存在时**不**重复画。
+		if !mac && tb.Right <= 0 {
+			wc := ui.Row(c).Gap(1).Shrink(0).AlignItems(ui.Center)
+			// 与 actions 行同一层探用 titleBarFade 走 0.32 ↔ 0.82 的
+			// hover-to-reveal（原版 `.app-title-bar > *`）；按钮自身那层
+			// 0.72 ↔ 1 由 titleBarButtonStyle 给（`.app-title-bar-btn`）。
+			wc.Opacity(titleBarFade(wc, "tb-wc", child))
+			wc.Children(func() {
+				a.windowControlButton(c, "tb-min", "最小化", iconMinus, false, func() {
+					if a.Act.Minimize != nil {
+						a.Act.Minimize()
+					}
+				})
+				a.windowControlButton(c, "tb-close", "隐藏窗口", iconClose, true, func() {
+					// 原版关闭键调 hide_window（隐藏到托盘），不是退出应用——
+					// 与 mygo 的 OnClose（关窗=隐藏到托盘）同一条路径。
+					if a.Act.HideWindow != nil {
+						a.Act.HideWindow()
+					}
+				})
+			})
+		} else {
+			ui.Box(c).Width(tb.Right).Shrink(0)
+		}
 	})
 }
 
@@ -236,6 +275,87 @@ func (a *App) settingsButton(c *ui.Context) {
 		a.ShowSettings = !a.ShowSettings
 	}
 	a.settingsMenu(c, b)
+}
+
+// windowControlButton 画出标题栏窗口控制区的一颗键（见 titleBar 的窗口控件分支）。
+// close 为真时悬停图标转暖红（原版 `.app-title-bar button.app-title-bar-close:hover`
+// 的 #e11d48 + 玫红底）。
+func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, close bool, fn func()) {
+	t := a.Theme
+	b := titleBarIconButton(c, key, label)
+	// 两颗键都是非开关的动作键，所以「激活」态传给 false；悬停/按下/聚焦由
+	// titleBarButtonStyle + 下面两条覆写处理。
+	bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), false)
+	focus := b.FocusVisible()
+	if focus {
+		ink, opacity = t.Blue, 1
+		if !b.Hovered() {
+			bg = ui.Transparent
+		}
+	}
+	// 关闭键暖红悬停（原版特异度 (2,2,1) 且 !important，压过通用的悬停蓝）：
+	// 图标 #e11d48、底色 rgba(225,29,72,.10)。
+	if close && (b.Hovered() || b.Pressed()) {
+		ink = ui.Hex("#e11d48")
+		bg = ui.Hex("#e11d48").Alpha(0.10)
+	}
+	b.Background(bg).Opacity(opacity)
+	if focus {
+		b.InsetShadow(0, 1, 1, 0, t.Highlight)
+	}
+	titleBarBtnHighlight(b, false, b.Hovered())
+	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+		l.draw(b, RadiusSmall)
+	}
+	pressScale(b)
+	b.Children(func() {
+		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
+	})
+	focusOutline(b, RadiusSmall, focusGlow)
+	if b.Clicked() {
+		fn()
+	}
+}
+
+// miniEntryButton 是标题栏右侧的「切换到迷你模式」入口（原 #switch-window-mode）。
+//
+// 它曾被移除（`53f7cb5`，理由「浮窗应用不需要看似全屏的按钮」），但用户 2026-10-18
+// 明确要求恢复 Linux 的迷你模式；且移除后迷你模式**完全无法从界面进入**
+//（只剩 `--mini` 启动参数），所以本体恢复。
+//
+// 形态：30×30、图标 15px（原版 `<ZoomInternal size="15">`）、常态透明 + 图标 72%，
+// 悬停玻璃底 + 图标转蓝，按下 scale(.94)。
+func (a *App) miniEntryButton(c *ui.Context) {
+	t := a.Theme
+	b := titleBarIconButton(c, "switch-mode", "切换到迷你模式")
+	bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), false)
+	focus := b.FocusVisible()
+	if focus {
+		ink, opacity = t.Blue, 1
+		if !b.Hovered() {
+			bg = ui.Transparent
+		}
+	}
+	b.Background(bg).Opacity(opacity)
+	if focus {
+		b.InsetShadow(0, 1, 1, 0, t.Highlight)
+	}
+	titleBarBtnHighlight(b, false, b.Hovered())
+	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
+		l.draw(b, RadiusSmall)
+	}
+	pressScale(b)
+	b.Children(func() { ui.Icon(c, iconMini).Size(15, 15).TextColor(ink) })
+	focusOutline(b, RadiusSmall, focusGlow)
+	if b.Clicked() && a.Act.SetMini != nil {
+		a.Act.SetMini(true)
+	}
+}
+
+// titleBarIconButton 是标题栏右侧动作区里图标键的公共壳（尺寸/圆角/无障碍）。
+func titleBarIconButton(c *ui.Context, key, label string) ui.Element {
+	return ui.ButtonBase(c.Key(key)).Size(30, 30).Radius(RadiusSmall).Center().
+		Label(label).Tooltip(label)
 }
 
 // ambient 是「氛围光」：把当前封面铺满整窗、压到 31% 不透明度，再叠一层

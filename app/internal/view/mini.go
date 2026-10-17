@@ -6,8 +6,9 @@ import (
 )
 
 // miniWidth / miniHeight 是迷你模式的窗口尺寸，与原版一致（400×155）。
-// 原版在 Linux 上禁用迷你模式，因为 webkit2gtk 的无边框窗口无法在运行时
-// 调整大小；原生窗口没有这个限制，所以三个平台都能用。
+// 原版 Tauri 在 Linux 上禁用迷你模式，因为 webkit2gtk 的无边框窗口无法在运行时
+// 调整大小；mygo 的 Linux 后端直接驱动 GTK（gtkWindowResize / 改 default size），
+// 运行时 SetSize 正常生效，所以三个平台都能用（入口见 titleBar 的 miniEntryButton）。
 const (
 	miniWidth  = 400
 	miniHeight = 155

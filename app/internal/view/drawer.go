@@ -2784,6 +2784,10 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	}
 }
 
+// danmakuFollowIconShadowInk 是 `.danmaku-follow-btn svg` 的白色图标压印
+// 不透明度（原版 globals.css:4390 的 `drop-shadow(0 1px 0 rgba(255,255,255,.55))`）。
+const danmakuFollowIconShadowInk = 0.55
+
 // danmakuFollowButton 是弹幕 tab 的「自动跟随」键（原版 .danmaku-follow-btn）：
 // 32×32 图标钮，未开启是灰玻璃、开启是蓝边 + 蓝字 + 一圈光晕。
 // 它不走通用 headerButton —— 原版给了单独的 is-active 态，通用键没有。
@@ -2812,7 +2816,11 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 	pressPose(b)
 	b.Children(func() {
 		ink := pick(a.DanmakuAutoScroll, ui.Hex("#0369a1"), ui.Hex("#64748b"))
-		ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+		icon := ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+		// 原版 `.danmaku-follow-btn svg { filter: drop-shadow(0 1px 0 rgba(255,255,255,.55)) }`
+		// —— 图标下缘 1px 白压印（与播放栏 svg 的 drop-shadow 同一手法）。此前
+		// 这颗键只画了键面材质，漏了图标的白色压印，深色描边上少了一道立体感。
+		playerIconShadowFn(icon, iconConnection, 0, 1, danmakuFollowIconShadowInk)
 	})
 	if b.Clicked() {
 		a.DanmakuAutoScroll = !a.DanmakuAutoScroll
