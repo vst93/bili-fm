@@ -449,16 +449,41 @@ func TestPlayerIconShadowAddsWhite(t *testing.T) {
 // 框架的 Fill 吸附设备像素、画不出 0.5px，这里用「1px 带 × 半不透明度」近似，
 // 画在描边之外（暖边贴下缘外、冷边贴上缘外）。反证：把 paintPlayerChromaticFn
 // 换成 no-op → 播放栏逐像素相同（差异必须 >0）。
+//
+// 2026-10-19 修正：**旧断言本身写错了** —— 它拿 `ui.RGBA(255,250,240,128)` 当
+// 期望值，而那正是生产代码的错误写法（ui.RGBA 的 alpha 是 0..1 浮点，传 128 被
+// `alphaByte` 钳成 255），于是「期望值 == 被感染的实现」自证成绿，把用户 ①/② 的
+// 真根因放过去了。现在按 **CSS 语义**钉 alpha 字节（.5 → 128、.2 → 51），并额外
+// 断言它不是 255（满不透明）。
 func TestPlayerChromaticFringe(t *testing.T) {
-	// 纯函数取值逐条对齐原版。
-	if got := playerChromaticWarm(); got != ui.RGBA(255, 250, 240, 128) {
-		t.Errorf("暖边 = %v，应为 rgba(255,250,240,.5)", got)
+	// 纯函数取值逐条对齐原版：albedo 逐字节、alpha 按 CSS 小数。
+	warm, cool := playerChromaticWarm(), playerChromaticCool()
+	if warm.R != 255 || warm.G != 250 || warm.B != 240 {
+		t.Errorf("暖边色 = %v，应为 rgb(255,250,240)", warm)
 	}
-	if got := playerChromaticCool(); got != ui.RGBA(200, 220, 240, 51) {
-		t.Errorf("冷边 = %v，应为 rgba(200,220,240,.2)", got)
+	if cool.R != 200 || cool.G != 220 || cool.B != 240 {
+		t.Errorf("冷边色 = %v，应为 rgb(200,220,240)", cool)
+	}
+	if warm.A != 128 {
+		t.Errorf("暖边 alpha = %d，应为 128（rgba(255,250,240,.5)）", warm.A)
+	}
+	if cool.A != 51 {
+		t.Errorf("冷边 alpha = %d，应为 51（rgba(200,220,240,.2)）", cool.A)
+	}
+	// 反证：满不透明（字节值被钳成 255）就是用户报的「实色线条」。
+	if warm.A == 255 || cool.A == 255 {
+		t.Errorf("色散边 alpha 被钳成 255（满不透明）：这正是「按钮上下边实色线条」的根因")
+	}
+	// 源码链：ui.RGBA 的 alpha 是 0..1，用 Hex(...).Alpha(小数) 才不会踩坑。
+	flat := flattenNoComments(t, "playerbar.go")
+	if strings.Contains(flat, "ui.RGBA(255,250,240,128)") || strings.Contains(flat, "ui.RGBA(200,220,240,51)") {
+		t.Error("色散边仍在用 ui.RGBA 传字节 alpha（会被 alphaByte 钳成 255）")
+	}
+	if !strings.Contains(flat, "ui.Hex(\"#fffaf0\").Alpha(0.5)") ||
+		!strings.Contains(flat, "ui.Hex(\"#c8dcf0\").Alpha(0.2)") {
+		t.Error("色散边没有按 CSS 的 rgba(...，.5 / .2) 取小数 alpha")
 	}
 	// 源码链：paintPlayerRim 在 clip 之前调用色散边（画在描边之外）。
-	flat := flattenNoComments(t, "playerbar.go")
 	if !strings.Contains(flat, "paintPlayerChromaticFn(p,r,radius)") {
 		t.Error("paintPlayerRim 没有调用色散边绘制")
 	}
@@ -566,47 +591,82 @@ func TestPlayerChromaticFringeFollowsCorners(t *testing.T) {
 
 // TestPlayerChromaticFringeDrawerTop 是抽屉面板的同类断言（用户点名「抽屉打开时
 // 的很多按钮」+「抽屉弹窗顶部的圆角上方有直角虚线细线」）。这里直接渲染打开
-// 抽屉的主窗，断言面板顶边那一行（y = 面板顶 - 1）的冷色散边不越过面板左上
-// 圆角：圆角段应远小于直边段。
+// 抽屉的主窗，在面板顶边外那一行（y = 面板顶 − 1）比较「开 / 关色散边」的差异
+// 像素，断言它不越过面板左上圆角：圆角段应远小于直边段。
 //
-// 实测（800×600、noon、feed 抽屉，面板顶 y=54）：冷色散边 = rgb(200,220,240)。
-// 改前圆角段（x<18）满行 18，直边段（x24..400）377 —— 一条横贯整宽的直线；
-// 改后圆角段 1，直边段仍 377。反证：去掉 Clip → 圆角段回到 18。
+// 判法用**差分**（开 vs 关 paintPlayerChromaticFn）而不是数某个精确色值：
+// 2026-10-19 发现旧版把期望色写死成 `rgb(200,220,240)`，那正是**被污染的
+// 满不透明**值（见 playerChromaticWarm/Cool 的注释），于是测试一边跟着 bug 走、
+// 一边把用户 ①/② 放过去。差分与色值无关，改多少 alpha 都成立。
+//
+// 实测（800×600、noon、feed 抽屉，面板顶 y=54，色散边行 y=53）：圆角段
+// （x ≤ 10）差异 0，直边段（x ∈ [24,400]）差异 377。**反证**：把色散边换成
+// 「两条不裁圆角的整宽直线」→ 圆角段立刻变成 11（x=0..10 逐像素可见），红。
 func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
-	_, tst := drawerProbe(t, "feed")
-	settleTester(tst)
-	img := tst.Image()
-	// 面板顶边：在 x=400（避开搜栏与圆角）从菜单位置往上找面板上沿。
-	top := -1
-	for y := 0; y < 200; y++ {
-		r, g, b, _ := img.At(400, y).RGBA()
-		if r>>8 >= 252 && g>>8 >= 252 && b>>8 >= 252 {
-			top = y
-			break
+	orig := paintPlayerChromaticFn
+	defer func() { paintPlayerChromaticFn = orig }()
+
+	// panelTopAt 从顶往下在 x=400 找面板上沿（避开搜栏与圆角）。
+	panelTopAt := func(img *image.RGBA) int {
+		for y := 0; y < 200; y++ {
+			r, g, b, _ := img.At(400, y).RGBA()
+			if r>>8 >= 252 && g>>8 >= 252 && b>>8 >= 252 {
+				return y
+			}
 		}
+		return -1
 	}
+	render := func(mode string) (*image.RGBA, int) {
+		switch mode {
+		case "on":
+			paintPlayerChromaticFn = orig
+		case "off":
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+		case "noclip":
+			// 反证用：退回两条不裁圆角的整宽直线。
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {
+				p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
+				p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
+			}
+		}
+		_, tst := drawerProbe(t, "feed")
+		settleTester(tst)
+		img := tst.Image()
+		return img, panelTopAt(img)
+	}
+
+	on, top := render("on")
+	off, _ := render("off")
 	if top < 1 || top > 120 {
 		t.Fatalf("抽屉面板顶边定位失败：top=%d", top)
 	}
-	// 冷色散边精确值 rgb(200,220,240)，只数这一行里这个精确色的像素。
 	fringeRow := top - 1
-	cor, str := 0, 0
-	for x := 0; x < 800; x++ {
-		r, g, b, _ := img.At(x, fringeRow).RGBA()
-		if r>>8 == 200 && g>>8 == 220 && b>>8 == 240 {
-			if x < 18 {
-				cor++
-			}
-			if x >= 24 && x <= 400 {
-				str++
+	// segment 数 [x0,x1] 上「开 / 关色散边」的差异像素。
+	segment := func(img, ref *image.RGBA, x0, x1 int) int {
+		n := 0
+		for x := x0; x <= x1; x++ {
+			i := img.PixOffset(x, fringeRow)
+			j := ref.PixOffset(x, fringeRow)
+			if img.Pix[i] != ref.Pix[j] || img.Pix[i+1] != ref.Pix[j+1] || img.Pix[i+2] != ref.Pix[j+2] {
+				n++
 			}
 		}
+		return n
 	}
-	t.Logf("抽屉顶边 y=%d 冷色散边：圆角段=%d 直边段=%d", fringeRow, cor, str)
-	if str < 100 {
-		t.Errorf("抽屉顶边直边段没有冷色散边（%d）", str)
+	corner := segment(on, off, 0, 10)
+	straight := segment(on, off, 24, 400)
+	t.Logf("抽屉顶边 y=%d 色散边差异：圆角段(x0..10)=%d 直边段(24..400)=%d", fringeRow, corner, straight)
+	if straight < 100 {
+		t.Errorf("抽屉顶边直边段没有色散边（%d）", straight)
 	}
-	if cor > 3 {
-		t.Errorf("抽屉顶部圆角上方仍是直角细线（圆角段 %d > 3）", cor)
+	if corner > 3 {
+		t.Errorf("抽屉顶部圆角上方仍是直角细线（圆角段 %d > 3）", corner)
+	}
+	// 反证：不裁圆角的整宽直线在这里必须红（圆角段满行）。
+	noclip, _ := render("noclip")
+	if bad := segment(noclip, off, 0, 10); bad <= 3 {
+		t.Errorf("反证失败：不裁圆角时圆角段只有 %d（应 > 3）—— 判法分不开两种画法", bad)
+	} else {
+		t.Logf("反证：不裁圆角 → 圆角段 %d（> 3，判法有效）", bad)
 	}
 }

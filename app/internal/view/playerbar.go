@@ -972,9 +972,19 @@ const playerRimConicMaxArea = 20000
 // playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色
 // （原版 globals.css:996 的 `0 0.5px 0 rgba(255,250,240,.5)` /
 // `0 -0.5px 0 rgba(200,220,240,.2)`）。声明成 var 便于测试换桩反证。
+//
+// 注意 ui.RGBA 的 alpha 是 **0..1 的浮点**（`ui.RGBA(255,250,240,0.5)` →
+// A=128），不是 0..255 的字节。此前这里误传了字节值 128 / 51，被
+// `alphaByte` 判成 `a >= 1` 一律钳成 **255** —— 两条色散边于是以**满不透明**
+// 画出：`p.Fill` 一条 `rgb(200,220,240)` / `rgb(255,250,240)` 的实色 1px 直线，
+// 盖在元素边缘上。这正是用户 2026-10-18 ①「很多按钮的上下边有**带颜色的线条**，
+// 超出了圆角的范围……抽屉顶部的圆角上方也有一个**直角边的虚线细线**」的根因：
+// 原版那两条是 `box-shadow`，只有 .5 / .2 的透明度，肉眼是「紧贴边缘的一线
+// 极淡暖/冷色」；画成满不透明就成了一条扎眼的实色描边（还是直角直线）。
+// 圆的裁切（见 paintPlayerChromatic）此前已经补上，但色值本身才是主因。
 var (
-	playerChromaticWarm = func() ui.Color { return ui.RGBA(255, 250, 240, 128) } // #fffaf0 @ .5
-	playerChromaticCool = func() ui.Color { return ui.RGBA(200, 220, 240, 51) }  // #c8dcf0 @ .2
+	playerChromaticWarm = func() ui.Color { return ui.Hex("#fffaf0").Alpha(0.5) } // rgba(255,250,240,.5)
+	playerChromaticCool = func() ui.Color { return ui.Hex("#c8dcf0").Alpha(0.2) } // rgba(200,220,240,.2)
 )
 
 // paintPlayerChromatic 画 --liquid-chromatic 的亚像素色散边：一个 0.5px 的暖
