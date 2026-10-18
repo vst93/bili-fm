@@ -78,15 +78,24 @@ func TestPartPillGlassLayers(t *testing.T) {
 			}
 		}, 340, 80, 1)
 	}
-	// 胶囊在 340×80 的画布上居中，先找到它的左上角。
+	// 胶囊在 340×80 的画布上居中，先量出它的**包围盒**（不能拿「第一行里第一个
+	// 够亮的像素」当左上角 —— 胶囊是 18 半径的胶囊形，第一行只在 x≈18 处才有
+	// 本体，那样量到的 x0/y0 会把左右极点算错）。
 	base := render(false, false)
-	x0, y0 := -1, -1
-	for y := 0; y < base.Bounds().Dy() && y0 < 0; y++ {
+	x0, y0, x1 := -1, -1, -1
+	for y := 0; y < base.Bounds().Dy(); y++ {
 		for x := 0; x < base.Bounds().Dx(); x++ {
 			i := base.PixOffset(x, y)
 			if base.Pix[i+0] > 60 && base.Pix[i+1] > 70 && base.Pix[i+2] > 80 {
-				x0, y0 = x, y
-				break
+				if x0 < 0 || x < x0 {
+					x0 = x
+				}
+				if x > x1 {
+					x1 = x
+				}
+				if y0 < 0 || y < y0 {
+					y0 = y
+				}
 			}
 		}
 	}
@@ -121,17 +130,35 @@ func TestPartPillGlassLayers(t *testing.T) {
 		t.Errorf("sheen 右上 %.1f 不弱于左上 %.1f —— 径向中心不在左侧（22%%）？", tr(sheen), sheenTL)
 	}
 
-	// rim：只叠描边的图里，**左侧中点**那一行是 conic 的最亮区（原版
+	// rim：只叠描边的图里，**左侧极点**那一格是 conic 的最亮区（原版
 	// `from 215deg at 30% -5%`：左中 ≈.66 vs 右中 ≈.20 / 上中 ≈.16 / 下中 ≈.44）。
 	// 旧实现（「上边最亮」的四边线性近似）把最亮点错放在上沿，这正是本轮改成
 	// 真 conic 环要修的偏差。
+	//
+	// 胶囊（RadiusPill → 短边一半 18）的左右「极」各只有一个像素：
+	// (x0, y0+h/2) 与 (x0+w-1, y0+h/2)。上下极同理。内部必须是**未上光的平底**
+	// —— `--liquid-rim` 是 1px 环，不是整块填充（2026-10-22 修的真 bug：内圈
+	// 与外圈同向 ⇒ non-zero 下 winding=2 不抵消，整幅被 conic 渐变色洗过一遍）。
 	rim := render(false, true)
-	leftCol := cellMean(rim, x0, y0+4, 1, h-8)
-	rightCol := cellMean(rim, x0+w-1, y0+4, 1, h-8)
-	topRow := cellMean(rim, x0+2, y0, w-4, 1)
-	t.Logf("rim 描边：左中 %.1f / 右中 %.1f / 上沿 %.1f", leftCol, rightCol, topRow)
-	if leftCol-rightCol < 30 {
-		t.Errorf("--liquid-rim 左中 %.1f 未明显亮于右中 %.1f —— conic 定向光不对？", leftCol, rightCol)
+	luma := func(img *image.RGBA, x, y int) int {
+		i := img.PixOffset(x, y)
+		return int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
+	}
+	mid := y0 + h/2
+	left := luma(rim, x0, mid) - luma(base, x0, mid)
+	right := luma(rim, x1, mid) - luma(base, x1, mid)
+	top := luma(rim, (x0+x1)/2, y0) - luma(base, (x0+x1)/2, y0)
+	interior := luma(rim, (x0+x1)/2, mid) - luma(base, (x0+x1)/2, mid)
+	t.Logf("rim 描边：左极 +%d / 右极 +%d / 上极 +%d / 正中 +%d", left, right, top, interior)
+	if left-right < 30 {
+		t.Errorf("--liquid-rim 左极 +%d 未明显亮于右极 +%d —— conic 定向光不对？", left, right)
+	}
+	if left <= top {
+		t.Errorf("--liquid-rim 左极 +%d 未亮于上极 +%d —— 最亮点应在左上宽区", left, top)
+	}
+	// 反证（内圈同向的回归闸门）：若「环」其实是整幅填充，正中会被抬高几十灰阶。
+	if interior > 3 {
+		t.Errorf("--liquid-rim 把胶囊内部也铺上了（正中 +%d）—— 1px 环的内圈没反向", interior)
 	}
 }
 

@@ -223,6 +223,155 @@ func TestPlayerRimRingPathGeometry(t *testing.T) {
 	}
 }
 
+// TestPlayerRimRingPathIsHollow 无头像素实测：`playerRimRingPath` 是一条
+// **1px 环**，不是整块填充。
+//
+// 这是 2026-10-22 修的真 bug：内圈虽然「矩形内缩 width、半径相应减小」，但顶点
+// 序列与外圈**同向**（只是换了个起点）—— non-zero 规则下同一处的 winding 是 2，
+// `vec.Rasterizer.Mask` 把 |2| 钳成 1，于是内外圈**不互相抵消**，整个元素的内部
+// 被 conic 渐变色洗过一遍。所有走 `paintPlayerRimConic` 的控件（播放键/工具键、
+// 抽屉 tab、搜索框、选集胶囊）都因此比原版多了一层整块内部上光；大表面还要为
+// 这层满幅掩码多付 ~4× 的光栅成本（实测 2560×1400：6.15ms/帧 → 1.54ms/帧）。
+//
+// 判法：给 1px 环路径填白。环上（边缘 1px）必须全白，内部（内缩 3px 以上）
+// 必须**全黑**。反证：把内圈改回「与外圈同向」→ 内部立刻变白，当场红。
+func TestPlayerRimRingPathIsHollow(t *testing.T) {
+	const w, h = 40, 32
+	render := func(path func(r ui.Rect) ui.Path) *image.RGBA {
+		return ui.Render(func(c *ui.Context) {
+			c.Root().Background(ui.RGB(0, 0, 0))
+			ui.Box(c).Size(w, h).Draw(func(p *ui.Painter, r ui.Rect) {
+				pp := path(r)
+				p.FillPath(&pp, ui.RGB(255, 255, 255))
+			})
+		}, w, h, 1)
+	}
+	ring := render(func(r ui.Rect) ui.Path { return playerRimRingPath(r, 6) })
+	val := func(img *image.RGBA, x, y int) int { return int(img.Pix[img.PixOffset(x, y)]) }
+	// 直边中点必须被环盖到（左右 / 上下的 1px）。
+	for _, pt := range [][2]int{{0, h / 2}, {w - 1, h / 2}, {w / 2, 0}, {w / 2, h - 1}} {
+		if got := val(ring, pt[0], pt[1]); got < 200 {
+			t.Errorf("环在直边中点 (%d,%d) 只有 %d（应 ≥200）—— 环没画出来？", pt[0], pt[1], got)
+		}
+	}
+	// 内部必须空心（内缩 2px 的全部区域都要是 0）。
+	interior := 0
+	for y := 3; y < h-3; y++ {
+		for x := 3; x < w-3; x++ {
+			if got := val(ring, x, y); got > 0 {
+				interior++
+			}
+		}
+	}
+	t.Logf("内部非零像素 %d / %d", interior, (w-6)*(h-6))
+	if interior > 0 {
+		t.Fatalf("环路径的内部被填了 %d 个非零像素 —— 这是「整块填充」而不是 1px 环（内圈与外圈同向，winding 2 未抵消）", interior)
+	}
+
+	// 反证：把内圈换成「与外圈同向」的写法（旧 bug），内部必须变白。
+	buggy := render(func(r ui.Rect) ui.Path {
+		var p ui.Path
+		const k = 0.5522847498
+		rad := float32(6)
+		x0, y0, x1, y1 := r.X, r.Y, r.X+r.W, r.Y+r.H
+		p.MoveTo(x0+rad, y0)
+		p.LineTo(x1-rad, y0)
+		p.CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad)
+		p.LineTo(x1, y1-rad)
+		p.CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1)
+		p.LineTo(x0+rad, y1)
+		p.CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad)
+		p.LineTo(x0, y0+rad)
+		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
+		p.Close()
+		ix0, iy0, ix1, iy1, irad := r.X+1, r.Y+1, r.X+r.W-1, r.Y+r.H-1, rad-1
+		p.MoveTo(ix0+irad, iy0)
+		p.LineTo(ix0, iy0+irad)
+		p.CubeTo(ix0, iy0+irad-irad*k, ix0+irad-irad*k, iy0, ix0+irad, iy0)
+		p.LineTo(ix1-irad, iy0)
+		p.CubeTo(ix1-irad+irad*k, iy0, ix1, iy0+irad-irad*k, ix1, iy0+irad)
+		p.LineTo(ix1, iy1-irad)
+		p.CubeTo(ix1, iy1-irad+irad*k, ix1-irad+irad*k, iy1, ix1-irad, iy1)
+		p.LineTo(ix0+irad, iy1)
+		p.CubeTo(ix0+irad-irad*k, iy1, ix0, iy1-irad+irad*k, ix0, iy1-irad)
+		p.LineTo(ix0, iy0+irad)
+		p.Close()
+		return p
+	})
+	badInterior := 0
+	for y := 3; y < h-3; y++ {
+		for x := 3; x < w-3; x++ {
+			if val(buggy, x, y) > 0 {
+				badInterior++
+			}
+		}
+	}
+	if badInterior == 0 {
+		t.Fatalf("反证失败：内圈同向的写法内部也是空的（%d）—— 判法分不开环与实心填充", badInterior)
+	}
+	t.Logf("反证：内圈同向 → 内部 %d 个非零像素（判法有效）", badInterior)
+}
+
+// TestPlayerRimConicLeavesInteriorUntouched 无头 A/B 实测：在**真实控件**上，
+// conic 描边（`paintPlayerRimConic`）只改边缘 2px 带，内部像素与「关掉描边」几乎
+// 逐像素相同。这是上一条缺陷的用户可感知面：整块内部被 conic 洗色，播放栏每颗
+// 工具键、抽屉 tab / 搜索框、选集胶囊都中招。
+//
+// 反证：把内圈改回同向（旧 bug）→ 内部差异立刻成百上升，红。
+func TestPlayerRimConicLeavesInteriorUntouched(t *testing.T) {
+	orig := paintPlayerRimConicFn
+	defer func() { paintPlayerRimConicFn = orig }()
+
+	render := func(stub bool) (*image.RGBA, ui.Rect) {
+		paintPlayerRimConicFn = orig
+		if stub {
+			paintPlayerRimConicFn = func(*ui.Painter, ui.Rect, float32, float32) {}
+		}
+		_, tst := playerBarProbe(t, nil)
+		settleTester(tst)
+		r, ok := tst.Find("音量")
+		if !ok {
+			t.Fatal("找不到音量键")
+		}
+		return tst.Image(), r
+	}
+	on, r := render(false)
+	off, _ := render(true)
+	luma := func(img *image.RGBA, x, y int) int {
+		i := img.PixOffset(x, y)
+		return int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
+	}
+	edge, in, inMax := 0, 0, 0
+	for y := int(r.Y) - 1; y < int(r.Y+r.H)+1; y++ {
+		for x := int(r.X) - 1; x < int(r.X+r.W)+1; x++ {
+			isEdge := x < int(r.X)+2 || x >= int(r.X+r.W)-2 || y < int(r.Y)+2 || y >= int(r.Y+r.H)-2
+			d := luma(on, x, y) - luma(off, x, y)
+			if d < 0 {
+				d = -d
+			}
+			if d <= 3 {
+				continue
+			}
+			if isEdge {
+				edge++
+			} else {
+				in++
+				if d > inMax {
+					inMax = d
+				}
+			}
+		}
+	}
+	t.Logf("音量键：边缘 >3 灰阶的像素 %d；**内部** %d（最大 %d）", edge, in, inMax)
+	if edge == 0 {
+		t.Fatal("边缘没有任何描边像素 —— conic 环没画出来？")
+	}
+	// 内部允许极少量（图标的字号抗锯齿此刻也会被描边轻微影响），但绝不该成片。
+	if in > 20 {
+		t.Errorf("conic 描边把按钮内部也改了 %d 个像素（最大 %d 灰阶）—— 环没挖空，是整块填充", in, inMax)
+	}
+}
+
 // TestPlayerRimLinearApproximationPutLightOnTop 反证：旧的四边线性近似确实把
 // 最亮点放在上沿（上中明显亮于左中）。拿旧画法与真 conic 画法在同一盒上比，
 // 两者的最亮方位相反 —— 这条钉住本轮换成 conic 到底改掉了什么。
@@ -265,7 +414,6 @@ func TestPlayerRimLinearApproximationPutLightOnTop(t *testing.T) {
 		t.Errorf("conic 应把最亮点放在左中：左=%d 上=%d", conicLeft, conicTop)
 	}
 }
-
 
 // TestPlayerRimLargeSurfaceRoutesDirectional 钉住面积闸门的两条分支：大表面
 // （抽屉面板整幅、视频信息栏）走 paintPlayerRimDirectional（四条 1px 梯度带、

@@ -242,9 +242,8 @@ func (a *App) drawer(c *ui.Context) {
 		// 此前原生版用 `Border(1, GlassBorder)` 画满四边：那 1px 是**布局边框**
 		// （Border 会占掉元素内部 1px），左右各吃掉 1px ⇒ 抽屉正文比原版窄 2px
 		// （既有的残留差异）。改成「上边 1px 布局边 + 全圈 1px 不占布局的聚光
-		// 描边」（paintPlayerRim 画的就是 --liquid-rim；面板面积大，走其中的四边
-		// 线性分支），正文宽度
-		// 与原版逐值对齐。
+		// 描边」（paintPlayerRim 画的就是 --liquid-rim；面板面积大，走其中的
+		// 定向光带分支），正文宽度与原版逐值对齐。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
 			Clip().
@@ -253,7 +252,7 @@ func (a *App) drawer(c *ui.Context) {
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
 				// exclude，不占布局）。::after 没有 opacity 覆写 ⇒ 整圈 1；面板面积大，
-				// 走 paintPlayerRim 的线性分支。
+				// 走 paintPlayerRim 的定向光带分支。
 				paintPlayerRim(p, r, 18, 1)
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).

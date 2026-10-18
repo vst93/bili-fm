@@ -869,9 +869,8 @@ func playerRimConicColorAtT(t float32, opacity float32) ui.Color {
 // paintPlayerRimDirectional 是大表面（抽屉面板整幅、视频信息栏）用的定向光
 // 近似：四条边各铺一条 1px 渐变带，端点色从真 conic **采样**（左中偏亮、正上
 // 偏暗——与原版一致），既拿到 conic 的方向性，又不做整幅路径光栅化（那是
-// `FillPathConicGradient` 的代价：860×520 面板每帧一次全幅掩码，动画时掩码
-// 无法跨帧复用，实测 ≈2.5× 帧成本；下面的 `paintPlayerRimBands` 只画 4 条 1px
-// 带，≈线性近似的成本）。
+// `FillPathConicGradient` 的代价：每条环一份掩码，动画时掩码无法跨帧复用，
+// 实测 2560×1400 上每帧 6.15ms vs 定向带 1.54ms；这里只画 4 条 1px 带）。
 //
 // 为什么不能直接用旧的四边线性近似：那个近似把最亮点放在**正上沿**（白 .85），
 // 而原版 conic 被 `from 215deg at 30% -5%` 推到**左上**，正上方落在谷底（≈.05）
@@ -946,7 +945,16 @@ func playerRimRingPath(r ui.Rect, radius float32) ui.Path {
 //
 // radius 按 CSS 的 border-radius 规则钳到「短边的一半」：原版大量元素用
 // `border-radius: 999px`（胶囊 / 圆形按钮），不钳的话外圈弧的圆心会跑到盒外，
-// 环形路径的两条同向绕行在 non-zero 规则下不再互相抵消，整块会被填成白色。
+// 两条同向绕行的边界会跨过盒外，掩码出现残边。
+//
+// ⚠️ 两条同向绕行在 non-zero 规则下**不会**互相抵消（winding 2 在 `Mask` 里
+// 仍是 1），内圈必须**真反向**。此前内圈的头三条指令是
+// `MoveTo(ix0+rad, iy0)` → `LineTo(ix0, iy0+rad)` → `CubeTo(… → ix0+rad, iy0)`
+// —— 起点/终点重合，整条内圈其实与外圈同向（换了个起点而已），于是
+// non-zero 下直接把**整个元素**填成 conic 渐变色：每个走 `paintPlayerRimConic`
+// 的控件（播放键/工具键、抽屉 tab、搜索框、选集胶囊）都被铺上一层
+// 「内部渐变洗色」，而不是原版那条 1px 聚光描边。无头实测（26×26 r6 白填充）：
+// 改前中心=255（实心）、改后中心=0（空心环）。
 func playerRimRingPathWidth(r ui.Rect, radius, width float32) ui.Path {
 	var p ui.Path
 	if r.W < 2*width || r.H < 2*width {
@@ -954,7 +962,8 @@ func playerRimRingPathWidth(r ui.Rect, radius, width float32) ui.Path {
 	}
 	radius = min(radius, min(r.W, r.H)/2)
 	const k = 0.5522847498
-	outer := func() {
+	// 外圈：顺时针（y 向下的屏幕坐标里 = 视觉顺时针）。
+	{
 		x0, y0, x1, y1 := r.X, r.Y, r.X+r.W, r.Y+r.H
 		rad := radius
 		p.MoveTo(x0+rad, y0)
@@ -968,25 +977,24 @@ func playerRimRingPathWidth(r ui.Rect, radius, width float32) ui.Path {
 		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
 		p.Close()
 	}
-	// 内圈：矩形内缩 width、半径相应减小，**反向绕行**。
-	inner := func() {
+	// 内圈：矩形内缩 width、半径相应减小，**严格逆时针**（外圈顶点序列的逆序）：
+	// 左边下 → 左下弧 → 下边右 → 右下弧 → 右边上 → 右上弧 → 上边左 → 左上弧。
+	// 起点取「左边、左上弧之下」（对应外圈起点 (x0+rad, y0) 的逆序顶点 (x0, y0+rad)）。
+	{
 		x0, y0 := r.X+width, r.Y+width
 		x1, y1 := r.X+r.W-width, r.Y+r.H-width
 		rad := max(radius-width, 0)
-		p.MoveTo(x0+rad, y0)
-		p.LineTo(x0, y0+rad)
-		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
-		p.LineTo(x1-rad, y0)
-		p.CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad)
-		p.LineTo(x1, y1-rad)
-		p.CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1)
-		p.LineTo(x0+rad, y1)
-		p.CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad)
-		p.LineTo(x0, y0+rad)
+		p.MoveTo(x0, y0+rad)
+		p.LineTo(x0, y1-rad)
+		p.CubeTo(x0, y1-rad+rad*k, x0+rad-rad*k, y1, x0+rad, y1)
+		p.LineTo(x1-rad, y1)
+		p.CubeTo(x1-rad+rad*k, y1, x1, y1-rad+rad*k, x1, y1-rad)
+		p.LineTo(x1, y0+rad)
+		p.CubeTo(x1, y0+rad-rad*k, x1-rad+rad*k, y0, x1-rad, y0)
+		p.LineTo(x0+rad, y0)
+		p.CubeTo(x0+rad-rad*k, y0, x0, y0+rad-rad*k, x0, y0+rad)
 		p.Close()
 	}
-	outer()
-	inner()
 	return p
 }
 
@@ -1005,8 +1013,8 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	// 小控件（按钮 / 胶囊 / tab / 搜索框）用真 conic 环，成本可忽略；
 	// **大表面**（抽屉面板整幅、视频信息栏）改用 `paintPlayerRimDirectional`：
 	// 四条 1px 梯度带，端点色从真 conic 采样，拿到同一条定向光（最亮点偏
-	// 左上）而**不**做整幅路径光栅化 —— 大面板每帧一次全幅掩码、动画时掩码
-	// 无法跨帧复用，实测 ≈2.5× 帧成本（860×520 面板：全 conic ≈2.5× 线性）。
+	// 左上）而**不**做整幅路径光栅化 —— 大面板每帧一份掩码、动画时掩码无法
+	// 跨帧复用，2560×1400 上 conic 6.15ms/帧 vs 定向带 1.54ms/帧。
 	// 为什么不用旧的四边线性近似：它把最亮点放在**正上沿**（白 .85），与原版
 	// conic 的左上亮相**反**（见 TestPlayerRimLinearApproximationPutLightOnTop）。
 	if r.W*r.H <= playerRimConicMaxArea {
@@ -1037,15 +1045,24 @@ var paintPlayerRimConicFn = paintPlayerRimConic
 // conic 环要光栅化一条环形路径（一份 α 蒙版）再按角度采样，成本随表面尺寸线性
 // 增长；按钮 / 胶囊 / tab / 搜索框这些**小控件**（面积 ≤ 2 万 DIP²，最大也就
 // 200×36=7200）每帧光栅一次也便宜，换来原版那条 conic 定向光（最亮点偏左上）；
-// 抽屉面板 / 视频信息栏这些**大表面**（几十万 DIP²）每帧一次全幅路径光栅明显
+// 抽屉面板 / 视频信息栏这些**大表面**（几十万 DIP²）每帧一次环形路径光栅明显
 // 更贵（动画时掩码无法跨帧复用），而大表面的描边本身很淡（整圈 opacity 1、最亮
 // 点 alpha ≈.2），肉眼只看得到「边缘一圈淡淡的光」—— 改走 `paintPlayerRimDirectional`：
-// 四条 1px 梯度带，端点色从真 conic **采样**，方向与原版一致（左亮上暗），
-// 成本与旧的四边线性带相当。
+// 四条 1px 梯度带，端点色从真 conic **采样**，方向与原版一致（左亮上暗）。
 //
-// 实测（无头软渲染，860×520 面板，动画帧即掩码每帧重建）：
-//   全 conic 环 ≈85ms/帧 vs 四边带 ≈31ms/帧（≈2.5×）。静态帧掩码可跨帧缓存
-//   时两者相近，但动画（抽屉拖拽 / 弹层滑入）时差距拉开，故大表面不走 conic。
+// 实测（无头软渲染，面板每帧换 1px 偏移 ⇒ 掩码的像素网格 key 变、缓存不命中）：
+//
+//	800×646   none 217µs  directional 317µs  conic 1.20ms（5.5× none）
+//	1900×995  none 609µs  directional 837µs  conic 2.84ms（4.7×）
+//	2560×1400 none 1.37ms directional 1.54ms conic 6.15ms（4.5×）
+//
+// 大表面走 conic 在 2560×1400 上每帧多花 ~4.6ms（≈28% 的 16.7ms 帧预算），
+// 而两条画法的边缘取样色差 ≤3%（见 TestPlayerRimDirectionalKeepsConicLightDirection），
+// 故大表面仍走定向光带。静态帧掩码可跨帧缓存时两者相近（~13µs vs ~11µs）。
+//
+// 注：这里的倍数在 2026-10-22 之前被记成「≈2.5×」——那个数是拿**旧的有 bug 的**
+// 环路径量的（内圈与外圈同向 ⇒ non-zero 下整幅被填充，掩码是满幅而不是 1px 环），
+// 修好挖空后重测才是上表。
 const playerRimConicMaxArea = 20000
 
 // playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色
