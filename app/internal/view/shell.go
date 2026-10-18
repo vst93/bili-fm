@@ -64,12 +64,13 @@ func (a *App) backdrop(c *ui.Context) {
 }
 
 // titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧依次是
-// 「切换到迷你模式」入口、隐身开关，以及（无原生控件时）自绘的最小化/关闭键。
+// 「切换到迷你模式」入口、隐身开关，以及（非 macOS）自绘的最小化/关闭键。
 //
-// 窗口用原生窗口控件（mygo 的 TitleBarHidden：macOS 是红绿灯、Windows 是
-// 最小化/最大化/关闭、Linux 是 GTK 的标题按钮），与旧版一致 —— 旧版在
-// macOS 上就是 decorations + TitleBarStyle::Overlay。c.TitleBar() 给出原生
-// 控件占的宽高，两边留出来就不会被压住，同时保持品牌落在窗口正中。
+// 窗口控件：macOS 走原生红绿灯（mygo 的 TitleBarHidden，与旧版的
+// decorations + Overlay 一致），`c.TitleBar()` 给出它们占的宽高，两边留出来
+// 就不会被压住，同时保持品牌落在窗口正中；Windows / Linux 主窗是 Frameless
+// （见 main.go 的 WindowOptions），没有原生 caption，`tb.Right == 0`，下面
+// 那个分支画出与原版 `.app-title-bar-btn` 逐值对齐的两颗键。
 //
 // 与原版的 Linux 差异：原版 Tauri 在 Linux 上不提供迷你模式（webkit2gtk 的
 // 无边框窗口改不了尺寸），所以在那里不画迷你入口；mygo 的 Linux 后端直接驱动
@@ -173,12 +174,12 @@ func (a *App) titleBar(c *ui.Context) {
 		})
 		// 自绘窗口控件（最小化 / 关闭）：原版 titleBar.tsx 在**非 macOS** 上始终
 		// 自绘这两颗键（Tauri 的 decorations:false，前端 .app-title-bar-actions
-		// 里的 #wds-handle-group）。mygo 用 TitleBarHidden 让 GTK 画原生标题按钮，
-		// 但 **Wayland 下由合成器装饰窗口的桌面（KWin/Hyprland/Sway）与平铺窗管**
-		// 根本不给原生按钮（mygo 文档明说「possibly none」），于是 Linux 用户看到
-		// 「关闭/最小化按钮消失了」（用户 2026-10-17 报告，③）。
-		// 判据：非 macOS 且 `tb.Right == 0`（窗口右侧没有任何原生控件占位）
-		// 时补上自绘的两颗键——与原生控件存在时**不**重复画。
+		// 里的 #wds-handle-group）。主窗在 Windows / Linux 上是 Frameless，
+		// `tb.Right` 恒为 0，所以两颗键总会画出来 —— 既修掉了「Wayland 下合成器
+		// 不给原生按钮 → 关闭/最小化消失」（用户 2026-10-17 报告 ③），也修掉了
+		// 「Windows 的 DWM caption 键样式与原版对不上」（用户 2026-10-18 晚间 ①）。
+		// 判据保留 `tb.Right <= 0`：万一某个平台仍有原生控件占位（macOS 以外的
+		// 隐藏标题栏窗口），也不重复画。
 		if !mac && tb.Right <= 0 {
 			// 间距/内边距逐值对齐原版 #wds-handle-group（titleBar.tsx:411）：
 			// `flex items-center gap-1 px-1 py-0.5` —— Tailwind gap-1 = 4px、
@@ -286,8 +287,17 @@ func (a *App) settingsButton(c *ui.Context) {
 // close 为真时悬停图标转暖红（原版 `.app-title-bar button.app-title-bar-close:hover`
 // 的 #e11d48 + 玫红底）。
 func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, close bool, fn func()) {
+	a.windowControlButtonSized(c, key, label, ic, close, 30, 14, fn)
+}
+
+// windowControlButtonSized 是 windowControlButton 的可调尺寸版：迷你模式的
+// 标题栏只有 24px 高，原版 `body.mini-mode .app-title-bar #wds-handle-group
+// .app-title-bar-btn` 把两颗键收到 20×20、图标 12（主窗是 30×30 / 14）。
+// 除了尺寸，其余样式（悬停玻璃底 + 蓝图标、关闭键暖红、按压缩放、::after 三条
+// 阴影、左上角聚光、焦点环）与主窗完全同一套。
+func (a *App) windowControlButtonSized(c *ui.Context, key, label string, ic *ui.SVG, close bool, size, iconSize float32, fn func()) {
 	t := a.Theme
-	b := titleBarIconButton(c, key, label)
+	b := titleBarIconButton(c, key, label).Size(size, size)
 	// 两颗键都是非开关的动作键，所以「激活」态传给 false；悬停/按下/聚焦由
 	// titleBarButtonStyle + 下面两条覆写处理。
 	bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), false)
@@ -314,7 +324,7 @@ func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, 
 	}
 	pressScale(b)
 	b.Children(func() {
-		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
+		ui.Icon(c, ic).Size(iconSize, iconSize).TextColor(ink)
 	})
 	focusOutline(b, RadiusSmall, focusGlow)
 	if b.Clicked() {

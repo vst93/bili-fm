@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -241,8 +242,22 @@ func main() {
 			// 本来也放不大，Windows 的标题栏按钮里就不该出现「最大化/还原」
 			// —— 只剩缩小 + 关闭，与原版 Tauri 版一致（macOS 仍走系统红绿灯）。
 			DisableMaximize: true,
-			// 保留原生窗口控件（macOS 的红绿灯、Windows/Linux 的标题栏按钮），
-			// 页面自己画标题栏 —— 旧版在 macOS 上用的就是这种（Overlay）。
+			// 窗口控件：macOS 走系统红绿灯（TitleBarHidden = 旧版的 Overlay），
+			// Windows / Linux 走**自绘**（Frameless），与原版 Tauri 版一致。
+			//
+			// 用户 2026-10-18 晚间 ①：「样式也和原版的不一致」。此前 Windows 留着
+			// DWM 画的 caption 键（DisableMaximize 只去掉放大键），它的大小/圆角/
+			// 悬停都是系统风格，改不动。原版 titleBar.tsx 在非 macOS 上本来就是
+			// `decorations: false` + 自绘 `#wds-handle-group`（30×30、圆角 6、悬停
+			// 玻璃底、关闭键暖红），view.titleBar 里那套自绘分支早已逐值对齐。
+			// 无边框后 `c.TitleBar()` 不再给原生控件占位（tb.Right == 0），
+			// 自绘的两颗键（最小化 / 隐藏窗口）就会画出来，Windows 上不再有
+			// 第三颗放大键、也不再是系统样式。
+			//
+			// 代价只有「原生缩放边框」——主窗本来就是固定尺寸（DisableResize，
+			// 原版 resizable(false)），迷你模式走 SetSize，用不到。拖拽仍走
+			// 标题栏的 DragWindow（mygo 的 StartDrag 在无边框窗上照常生效）。
+			Frameless:     runtime.GOOS != "darwin",
 			TitleBarStyle: mygo.TitleBarHidden,
 			Content:       ui.View(app.Shell),
 		}

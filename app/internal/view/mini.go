@@ -15,9 +15,19 @@ const (
 
 	// miniTitleBar 是迷你模式的标题栏高度；整窗 = 24 + 88 + 43 = 155。
 	miniTitleBar = 24
-	miniInfoH    = 88
-	miniPlayerH  = 43
-	miniCover    = 64
+
+	// 迷你模式标题栏的内边距（原版 `body.mini-mode .app-title-bar` 的
+	// `padding: 0 10px`）。
+	miniTitleBarPadX = 10
+	// 迷你模式的两颗窗口键：原版 `body.mini-mode .app-title-bar
+	// #wds-handle-group` 把按钮收到 20×20、图标 12、组内 padding 1px 3px
+	// （主窗是 30×30 / 14 / px-1）。
+	miniWinCtrlSize = 20
+	miniWinCtrlIcon = 12
+	miniWinCtrlPadX = 3
+	miniInfoH       = 88
+	miniPlayerH     = 43
+	miniCover       = 64
 
 	// 信息行（原版 #min-video-info：padding 6 12、gap 11、
 	// grid-template-columns 64px minmax(0,1fr) 30px）的横向几何。
@@ -46,7 +56,7 @@ var (
 
 // MiniShell 是迷你模式的界面（原版 body.mini-mode）：
 //
-//	24px  标题栏（macOS 是原生红绿灯；Windows/Linux 是原生窗口按钮）
+//	24px  标题栏（macOS 是原生红绿灯；Windows/Linux 是自绘的最小化 / 关闭）
 //	88px  #min-video-info：64px 封面 + 标题/选集 + 右侧窗口控制
 //	43px  #player：切曲 / 当前时间 / 进度 / 时长 / 音量
 //
@@ -65,14 +75,15 @@ func (a *App) MiniShell(c *ui.Context) {
 	})
 
 	ui.Column(c).Absolute().Fill().Children(func() {
-		// 标题栏：只用来拖动窗口。原版 mini 下 `.app-title-bar > *` 整条淡到
-		// opacity 0（只剩 Windows/Linux 由前端自绘的窗口按钮）——但标题栏那两层
-		// hover-to-reveal 贴边**照旧**：`::before` 顶沿投影 .52 → hover .78、
-		// `::after` 白玻璃洗层 0 → hover 1（都是 `transition: opacity .24s ease`）。
-		// mygo 的迷你窗标题栏没有自绘子元素（窗口按钮是 OS 绘制的原生控件，
-		// 应用没法淡入它们），所以这两层贴边就是迷你窗标题栏的 hover 反馈，
-		// 与主窗同一手法（titleBarLayer + titleBarReveal）。
-		bar := ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()
+		// 标题栏：拖动 + 窗口控件。原版 mini 下 `.app-title-bar > *` 整条淡到
+		// opacity 0，只有 `#wds-handle-group`（最小化 / 关闭）被单独恢复成可见
+		// （globals.css:4759，mini 里收到 20×20 / 图标 12、组 padding 1px 3px）。
+		// 主窗在非 macOS 上是 Frameless，迷你模式同样没有原生 caption——不画
+		// 这两颗键的话，迷你窗只剩「切换到窗口模式」，没法直接关窗/最小化。
+		// 标题栏那两层 hover-to-reveal 贴边**照旧**：`::before` 顶沿投影 .52 →
+		// hover .78、`::after` 白玻璃洗层 0 → hover 1（`transition: opacity .24s`）。
+		bar := ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).
+			Padding(0, miniTitleBarPadX).DragWindow()
 		_, _, edge, wash := titleBarReveal(bar.Hovered() || bar.FocusWithin())
 		bar.Children(func() {
 			// 两层**无条件**建出来（静息时白玻璃那层 opacity 0、整棵子树不绘制）：
@@ -81,6 +92,25 @@ func (a *App) MiniShell(c *ui.Context) {
 			// 两层整棵子树都 PassThrough：它们盖在信息行之上，不能挡拖动与命中。
 			titleBarLayer(c, "mini-tb-edge", titleBarEdgeStops, miniTitleBar*1.7, edge)
 			titleBarLayer(c, "mini-tb-wash", titleBarWashStops, miniTitleBar*1.4, wash)
+			// 窗口控件行（原版 #wds-handle-group 在 mini 里的几何：gap-1 = 4、
+			// px-1 py-0.5 → 这里用原版 mini 覆写的 padding 1px 3px）。整行不参与
+			// 命中（只有两颗键参与），空白处仍能拖窗。
+			if viewGOOS != "darwin" {
+				wc := ui.Row(c).Grow(1).Justify(ui.End).Gap(tbWinCtrlGap).
+					Padding(1, miniWinCtrlPadX).AlignItems(ui.Center)
+				wc.Children(func() {
+					a.windowControlButtonSized(c, "mini-min", "最小化", iconMinus, false, miniWinCtrlSize, miniWinCtrlIcon, func() {
+						if a.Act.Minimize != nil {
+							a.Act.Minimize()
+						}
+					})
+					a.windowControlButtonSized(c, "mini-close", "隐藏窗口", iconClose, true, miniWinCtrlSize, miniWinCtrlIcon, func() {
+						if a.Act.HideWindow != nil {
+							a.Act.HideWindow()
+						}
+					})
+				})
+			}
 		})
 
 		// 主体：封面 + 标题 + 选集 + 窗口控制。

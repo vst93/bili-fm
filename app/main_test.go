@@ -1627,3 +1627,33 @@ func TestSeriesPaginationStopsOnDuplicatePage(t *testing.T) {
 		t.Error("loadSeriesVideos 的 HasMore 仍按「本页满 30 条」判定（不足一页就停在第 1 页）")
 	}
 }
+
+// TestMainWindowChromeSelfDrawn 钉住主窗口的窗口控件走「非 macOS 自绘」：
+// 用户 2026-10-18 晚间 ① 报「Windows 的三大金刚键不该有放大，且样式和原版
+// 不一致」。原版 Tauri 在非 macOS 上是 `decorations: false` + 前端自绘
+// `#wds-handle-group`（30×30、圆角 6、悬停玻璃底、关闭键暖红），mygo 里对应
+// `Frameless: true` + view.titleBar 的自绘分支（见 TestTitleBarWindowControlsGeometry）。
+//
+// 判据（源码级，因为窗口选项只有真起窗才生效）：
+//  1. 非 macOS 用 Frameless（Windows 上就不会再有 DWM 画的 caption 键）；
+//  2. macOS 仍走 TitleBarHidden（红绿灯）；
+//  3. DisableMaximize 保持 —— 浮窗应用没有放大键。
+//
+// 反证：把 Frameless 去掉（回到一律 TitleBarHidden）→ 第 1 条红；把条件改成
+// 恒真（macOS 也 Frameless）→ 第 2 条红。
+func TestMainWindowChromeSelfDrawn(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	if !strings.Contains(flat, `Frameless:runtime.GOOS!="darwin"`) {
+		t.Error("主窗没有在非 macOS 上 Frameless —— Windows 仍会画出系统样式的 caption 键")
+	}
+	if !strings.Contains(flat, `TitleBarStyle:mygo.TitleBarHidden`) {
+		t.Error("主窗丢了 TitleBarStyle: TitleBarHidden（macOS 红绿灯要靠它）")
+	}
+	if !strings.Contains(flat, `DisableMaximize:true`) {
+		t.Error("主窗没关掉放大键（浮窗应用不该有最大化）")
+	}
+}

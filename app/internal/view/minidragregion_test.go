@@ -43,8 +43,11 @@ func TestMiniInfoRowIsDeepDragRegion(t *testing.T) {
 	if !strings.Contains(src, row) {
 		t.Errorf("信息行不再带 DragWindow（原版是 data-tauri-drag-region=deep）：找不到 %q", row)
 	}
-	// 标题栏整条也是拖动区。
-	if !strings.Contains(src, "ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).DragWindow()") {
+	// 标题栏整条也是拖动区（迷你标题栏同时装了自绘的最小化/关闭键，
+	// 原版 mini 下 `#wds-handle-group` 保持可见；键本身是交互元素，
+	// 命中链会选它而不是拖动，空白处仍归标题栏）。
+	if !strings.Contains(src, "ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0)."+
+		"Padding(0,miniTitleBarPadX).DragWindow()") {
 		t.Error("迷你标题栏不再带 DragWindow")
 	}
 }

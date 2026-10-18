@@ -246,3 +246,83 @@ func TestMiniControlNoPressScaleWhenPending(t *testing.T) {
 	}
 	tst.Release(before.X+before.W/2, before.Y+before.H/2)
 }
+
+// TestMiniTitleBarWindowControls 钉住迷你模式标题栏里的自绘最小化 / 隐藏窗口键。
+//
+// 背景：主窗在非 macOS 上改成 Frameless（main.go，用户 2026-10-18 晚间 ①
+// 「Windows 的三颗键样式和原版不一致」），迷你模式跟着没有原生 caption。
+// 原版 mini 下 `.app-title-bar > *` 整条淡出，只把 `#wds-handle-group` 恢复成
+// 可见，并收到 20×20 / 图标 12 / 组 padding 1px 3px（globals.css:4759-4785）。
+// 不画这两颗键的话，迷你窗只剩「切换到窗口模式」，没法直接关窗/最小化。
+//
+// 判据：Linux/Windows 上命中两颗键、20×20、同一水平线、组间距 4、关闭键右缘
+// 距窗口右边 13（栏 padding 10 + 组 3）；点击分别走 Minimize / HideWindow；
+// macOS 走系统红绿灯，不自绘。
+//
+// 反证：删掉 mini.go 里的 wc 那段 → 前两条红；把 viewGOOS 判据去掉 → 第三条红。
+func TestMiniTitleBarWindowControls(t *testing.T) {
+	orig := viewGOOS
+	defer func() { viewGOOS = orig }()
+
+	probe := func(goos string) (*App, *ui.Tester) {
+		viewGOOS = goos
+		a := NewApp(func() {})
+		a.Mini = true
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, miniWidth, miniHeight)
+		tst.Frame()
+		return a, tst
+	}
+
+	for _, goos := range []string{"linux", "windows"} {
+		a, tst := probe(goos)
+		min, ok := tst.Find("最小化")
+		if !ok {
+			t.Fatalf("%s：迷你标题栏里找不到「最小化」键", goos)
+		}
+		cl, ok := tst.Find("隐藏窗口")
+		if !ok {
+			t.Fatalf("%s：迷你标题栏里找不到「隐藏窗口」键", goos)
+		}
+		for name, r := range map[string]ui.Rect{"最小化": min, "隐藏窗口": cl} {
+			if r.W != 20 || r.H != 20 {
+				t.Errorf("%s：%s 键 %v×%v，应为 20×20（原版 mini 覆写）", goos, name, r.W, r.H)
+			}
+			if r.Y+r.H > miniTitleBar {
+				t.Errorf("%s：%s 键底边 %v 超出 24px 标题栏", goos, name, r.Y+r.H)
+			}
+		}
+		if min.Y != cl.Y {
+			t.Errorf("%s：两颗键不在同一水平线上：%v vs %v", goos, min.Y, cl.Y)
+		}
+		if gap := cl.X - (min.X + min.W); gap != 4 {
+			t.Errorf("%s：两颗键间距 %v，应为 4（gap-1）", goos, gap)
+		}
+		if right := float32(miniWidth) - (cl.X + cl.W); right != 13 {
+			t.Errorf("%s：关闭键右缘距窗口右边 %v，应为 13（栏 10 + 组 3）", goos, right)
+		}
+		minClicks, hideClicks := 0, 0
+		a.Act.Minimize = func() { minClicks++ }
+		a.Act.HideWindow = func() { hideClicks++ }
+		if err := tst.Click("最小化"); err != nil {
+			t.Fatalf("%s：点最小化键失败：%v", goos, err)
+		}
+		tst.Frame()
+		if err := tst.Click("隐藏窗口"); err != nil {
+			t.Fatalf("%s：点隐藏窗口键失败：%v", goos, err)
+		}
+		tst.Frame()
+		if minClicks != 1 || hideClicks != 1 {
+			t.Errorf("%s：点击回调次数 minimize=%d hide=%d，应为 1/1", goos, minClicks, hideClicks)
+		}
+	}
+
+	// macOS：红绿灯是系统原生的，迷你窗不自绘。
+	_, tst := probe("darwin")
+	for _, lab := range []string{"最小化", "隐藏窗口"} {
+		if _, ok := tst.Find(lab); ok {
+			t.Errorf("macOS 迷你窗画了自绘键 %q（应走系统红绿灯）", lab)
+		}
+	}
+}
