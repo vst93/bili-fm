@@ -151,9 +151,15 @@ func (m *Manager) Open(o Options) error {
 	}()
 
 	// 复用路径：弹窗还在，只换源。这是内存上最关键的一条 —— 见 switchTo。
+	//
+	// 换源失败（窗口正好在这一帧被用户关掉：OnClosed 还没跑完、IsDestroyed()
+	// 仍是 false 的极短窗口）时**不吞掉**这一集，而是回落到下面的新建路径。
+	// 此前是「复用就直接 return nil」——那一下 Eval 落空、下一集不播，用户看到
+	// 的是「点下一集没反应」。
 	if w != nil && !w.IsDestroyed() {
-		m.switchTo(w, o)
-		return nil
+		if err := m.switchTo(w, o); err == nil {
+			return nil
+		}
 	}
 
 	m.Close()
@@ -199,11 +205,18 @@ func (m *Manager) Open(o Options) error {
 // 「旧窗口正在拆、新窗口正在建」会同时驻留两份，用户实测「切几个视频 +
 // 翻几个抽屉后内存 315MB」里有一份就是这种叠加。原地换集只改 <video> 的
 // src，进程、页面、解码器初始化都留着，切集的内存曲线是平的。
-func (m *Manager) switchTo(w *mygo.Window, o Options) {
-	w.SetTitle(o.Title)
-	if p := w.Page(); p != nil {
-		_, _ = p.Eval(switchScript(o))
+//
+// 返回 error 表示「这一下没换成」（窗口已死 / 页面还没就绪）：调用方据此回落
+// 到新建路径，而不是静默丢掉这一集。
+func (m *Manager) switchTo(w *mygo.Window, o Options) error {
+	p := w.Page()
+	if p == nil {
+		return fmt.Errorf("video: 弹窗页面已消失")
 	}
+	if _, err := p.Eval(switchScript(o)); err != nil {
+		return err
+	}
+	w.SetTitle(o.Title)
 	if w.IsMinimized() {
 		w.Restore()
 	}
@@ -212,6 +225,7 @@ func (m *Manager) switchTo(w *mygo.Window, o Options) {
 	m.mu.Lock()
 	m.st = State{Speed: o.Speed}
 	m.mu.Unlock()
+	return nil
 }
 
 // Close 关闭弹窗（若开着）。

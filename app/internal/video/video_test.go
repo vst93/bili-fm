@@ -697,3 +697,44 @@ func TestVideoPageSwitchHook(t *testing.T) {
 		t.Error("loadedmetadata 仍是一次性监听：换集后不再同步起播位置")
 	}
 }
+
+// TestOpenFallsBackWhenSwitchFails 钉住「换源失败不吞这一集」：
+// switchTo 必须把「页面已消失 / Eval 报错」当错误返回，Open 的复用分支必须
+// 只在 err == nil 时 return，否则落回下面的 m.Close() + NewWindow 新建路径。
+//
+// 背景（11-05 轮剩余差异②）：用户点关闭 → OnClosed 在主线程跑，IsDestroyed()
+// 还没变 true 的极短窗口里若正好换集，Eval 会落空 —— 此前直接 return nil，
+// 用户看到「点下一集没反应」。
+func TestOpenFallsBackWhenSwitchFails(t *testing.T) {
+	src, err := os.ReadFile("video.go")
+	if err != nil {
+		t.Fatalf("读不到 video.go：%v", err)
+	}
+	code := string(src)
+
+	// switchTo 的签名必须带 error。
+	if !strings.Contains(code, "func (m *Manager) switchTo(w *mygo.Window, o Options) error {") {
+		t.Fatal("switchTo 没有返回 error：换源失败无法被调用方感知")
+	}
+	// 页面没了 / Eval 失败两条都要变成 error（不能再 `_, _ =` 吞掉）。
+	if strings.Contains(code, "_, _ = p.Eval(") {
+		t.Error("switchTo 仍在吞掉 Eval 的错误")
+	}
+	if !strings.Contains(code, "if _, err := p.Eval(switchScript(o)); err != nil {") {
+		t.Error("switchTo 没有把 Eval 的错误传出去")
+	}
+	if !strings.Contains(code, `return fmt.Errorf("video: 弹窗页面已消失")`) {
+		t.Error("switchTo 没有把「页面已消失」当失败")
+	}
+
+	body := code[strings.Index(code, "func (m *Manager) Open("):]
+	// 复用分支必须是「成功才 return」，失败要能往下走到新建路径。
+	if !strings.Contains(body, "if err := m.switchTo(w, o); err == nil {") {
+		t.Error("Open 的复用分支没有按 err == nil 判定（失败会静默丢掉这一集）")
+	}
+	reuse := strings.Index(body, "m.switchTo(w, o)")
+	newWin := strings.Index(body, "mygo.NewWindow(")
+	if newWin < 0 || reuse < 0 || reuse > newWin {
+		t.Fatal("复用分支必须排在新建窗口之前（换源失败才回落新建）")
+	}
+}

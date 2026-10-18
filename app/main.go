@@ -1612,7 +1612,17 @@ func (c *controller) finishWinControl() {
 
 // maxRetainedCards 是单个列表在内存里保留的卡片上限：超出后从头部释放
 // （有界滑动窗口），避免长列表无限增长（原版 listRetention.ts 的同名上限）。
-const maxRetainedCards = 160
+//
+// 取值与原版逐值一致：`LIST_RETENTION_CAP = 128`（main:src/lib/listRetention.ts:21，
+// 原版轮 25 把它从 160 收到 128，理由「头部释放配合下长期滚动不受影响，但单个
+// 列表驻留的条目 / 解码封面位图更少」）。原生版此前停在 160 —— 每个列表比原版
+// 多留 25% 的卡片（每张带封面/头像地址、标题与元信息字符串、Track 结构）。
+// 用户 2026-10-18 晚间 ⑥ 的第一诉求是内存，这里没有理由比原版更松。
+//
+// 头部释放不会让视口跳动：抽屉网格的 ListState 都设了 Key（drawer.go:1557 /
+// :2640、playlist.go:148），框架按 key 认锚点行，行数在上方增减时会把已量
+// 行高整体平移（mygo ui/list.go:sync 的 heights.shift(j-anchor)）。
+const maxRetainedCards = 128
 
 // setCards 写入列表卡片：replace 为真时替换，否则追加；无论哪种都保持上限。
 func setCards(list *view.List, cards []view.Card, replace bool) {

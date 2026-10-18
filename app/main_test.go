@@ -294,11 +294,27 @@ func TestSetCardsRetention(t *testing.T) {
 	if len(list.Cards) != maxRetainedCards {
 		t.Fatalf("retention len = %d, want %d", len(list.Cards), maxRetainedCards)
 	}
-	// 超上限时从头部释放，保留尾部。
+	// 上限本身必须等于原版 listRetention.ts 的 LIST_RETENTION_CAP（写死 128，
+	// 不引用常量：常量被改错时断言不能跟着一起错）。
+	if maxRetainedCards != 128 {
+		t.Fatalf("maxRetainedCards = %d, 原版 LIST_RETENTION_CAP 是 128", maxRetainedCards)
+	}
+	// 超上限时从**头部**释放、保留尾部（最新翻出来的那批），且保留下来的
+	// 确实是尾部那些卡片（不是随便截 128 条）。
 	list2 := &view.List{}
-	setCards(list2, make([]view.Card, maxRetainedCards+30), true)
+	all := make([]view.Card, maxRetainedCards+30)
+	for i := range all {
+		all[i].Bvid = fmt.Sprintf("BV%04d", i)
+	}
+	setCards(list2, all, true)
 	if len(list2.Cards) != maxRetainedCards {
 		t.Fatalf("cap len = %d", len(list2.Cards))
+	}
+	if got, want := list2.Cards[0].Bvid, fmt.Sprintf("BV%04d", 30); got != want {
+		t.Fatalf("释放后首条 = %s，应为 %s（头部 30 条被释放）", got, want)
+	}
+	if got, want := list2.Cards[len(list2.Cards)-1].Bvid, fmt.Sprintf("BV%04d", len(all)-1); got != want {
+		t.Fatalf("释放后末条 = %s，应为 %s（尾部最新一条必须留着）", got, want)
 	}
 }
 
