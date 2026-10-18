@@ -867,45 +867,137 @@ func playerRimConicColorAtT(t float32, opacity float32) ui.Color {
 }
 
 // paintPlayerRimDirectional 是大表面（抽屉面板整幅、视频信息栏）用的定向光
-// 近似：四条边各铺一条 1px 渐变带，端点色从真 conic **采样**（左中偏亮、正上
-// 偏暗——与原版一致），既拿到 conic 的方向性，又不做整幅路径光栅化（那是
-// `FillPathConicGradient` 的代价：每条环一份掩码，动画时掩码无法跨帧复用，
-// 实测 2560×1400 上每帧 6.15ms vs 定向带 1.54ms；这里只画 4 条 1px 带）。
+// 近似：四条边各铺一条 1px 渐变带，停靠点色从真 conic **逐点采样**，既拿到
+// conic 的定向光，又不做整幅路径光栅化（那是 `FillPathConicGradient` 的代价：
+// 每条环一份掩码，动画时掩码无法跨帧复用，实测 2560×1400 上每帧 6.15ms vs
+// 定向带 1.54ms；这里只画 4 条 1px 带）。
 //
 // 为什么不能直接用旧的四边线性近似：那个近似把最亮点放在**正上沿**（白 .85），
 // 而原版 conic 被 `from 215deg at 30% -5%` 推到**左上**，正上方落在谷底（≈.05）
 // —— 方向正好相反（见 TestPlayerRimLinearApproximationPutLightOnTop 的反证）。
+//
+// ⚠️ 两个必须遵守的约束（都是**实测踩出来的**，缺一个就会画出用户可感知的错）：
+//
+//  1. **停靠点密度**：conic 圆心在盒的 30%/-5%（左上加偏），于是**整条上边**都
+//     落在「圆心正上方 ±90°」的扇面里，角度沿 x 快速扫过全部六个停靠点 —— 上边
+//     在圆心正上方（x≈0.30W）有一处 alpha 峰（≈.77），两端分别落到 ≈.5 / ≈.15，
+//     中间还有个**尖谷**（x≈0.317W 处 .51）。只要 3 个停靠点（首/中/尾）根本描
+//     不出这个峰（中点 0.5W 落在峰右侧的平稳谷里）。实测（900×600 面板顶边，
+//     `playerRimConicColorAt` 逐像素对照，见 playerrim_test.go）：3 停靠点最大
+//     alpha 偏差 **0.67**，`playerRimBandPitch=12` 降到 **0.05**。
+//  2. **每段 ≤ `scene.MaxStops`（32）个停靠点**：框架把一次渐变的停靠点**截断**
+//     到 32 个（`ui/paint.go` 的 `stops`：`if i == scene.MaxStops { break }`），
+//     超出的部分**静默丢弃**。900 宽的面板按 12px 采出 76 个停靠点 ⇒ 只剩前 32 个，
+//     后 2/3 条边上的色全被压成第 32 个停靠点的色（**画成一整条平色**）。所以一条
+//     边必须切成多段，每段各自成一条 ≤32 停靠点的渐变。
+//
+// 本轮之前只有「3 停靠点、不分段」一条，两条都犯；面板顶边的亮斑被抹平、下半
+// 条的色还被截断成平色（见 TestPlayerRimDirectionalBandDensity 的两条反证）。
 func paintPlayerRimDirectional(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
 	const w = 1
-	// 每条带 3 个停靠点（首 / 中 / 尾），色从 conic 采样；横带从左到右（Angle 90）、
-	// 竖带从上到下（Angle 180）。左右竖带占满高度，上下横带左右各让开 1px，
-	// 避免四角被两条带叠成双倍 alpha。整组裁在元素圆角内，圆角处自动跟随弧线。
+	// 上下横带左右各让开 1px（避免四角被两条带叠成双倍 alpha），左右竖带占满
+	// 高度；整组裁在元素圆角内，圆角处自动跟随弧线。
 	p.Clip(r, radius, func() {
-		p.FillGradient(ui.Rect{X: r.X + w, Y: r.Y, W: r.W - 2*w, H: w}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.03, r.Y, opacity), At: 0},
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.50, r.Y, opacity), At: 0.5},
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.97, r.Y, opacity), At: 1},
-		}}, 0)
-		p.FillGradient(ui.Rect{X: r.X + w, Y: r.Y + r.H - w, W: r.W - 2*w, H: w}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.03, r.Y+r.H, opacity), At: 0},
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.50, r.Y+r.H, opacity), At: 0.5},
-			{Color: playerRimConicColorAt(r, r.X+r.W*0.97, r.Y+r.H, opacity), At: 1},
-		}}, 0)
-		p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
-			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.03, opacity), At: 0},
-			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.50, opacity), At: 0.5},
-			{Color: playerRimConicColorAt(r, r.X, r.Y+r.H*0.97, opacity), At: 1},
-		}}, 0)
-		p.FillGradient(ui.Rect{X: r.X + r.W - w, Y: r.Y, W: w, H: r.H}, ui.LinearGradient{Angle: 180, Stops: []ui.GradientStop{
-			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.03, opacity), At: 0},
-			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.50, opacity), At: 0.5},
-			{Color: playerRimConicColorAt(r, r.X+r.W, r.Y+r.H*0.97, opacity), At: 1},
-		}}, 0)
+		// 上边：x 从 r.X+w 到 r.X+r.W-w。
+		playerRimBand(p, ui.Rect{X: r.X + w, Y: r.Y, W: r.W - 2*w, H: w}, 90,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+w+u*(r.W-2*w), r.Y, opacity) })
+		// 下边。
+		playerRimBand(p, ui.Rect{X: r.X + w, Y: r.Y + r.H - w, W: r.W - 2*w, H: w}, 90,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+w+u*(r.W-2*w), r.Y+r.H, opacity) })
+		// 左边（从上到下）。
+		playerRimBand(p, ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, 180,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X, r.Y+u*r.H, opacity) })
+		// 右边。
+		playerRimBand(p, ui.Rect{X: r.X + r.W - w, Y: r.Y, W: w, H: r.H}, 180,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+r.W, r.Y+u*r.H, opacity) })
 	})
 }
+
+// playerRimBand 沿一条 1px 带铺 conic 采样光，并按框架的停靠点上限分段。
+//
+// rect 是带的矩形，angle 是渐变方向（90 = 横带从左到右、180 = 竖带从上到下），
+// sample 由「带上的归一位置 u ∈ [0,1]」给出该点的色（调用方把整圈 opacity 乘进
+// alpha）。每一段各自成一条 ≤ `playerRimBandMaxGaps+1`（= 32，框架的 `scene.MaxStops`）
+// 个停靠点的线性渐变：
+// 段的矩形按段在带上的比例裁出来，段内的 At 重归一到 [0,1]。
+func playerRimBand(p *ui.Painter, rect ui.Rect, angle float32, sample func(u float32) ui.Color) {
+	for _, seg := range playerRimBandSegments(rect, angle, sample) {
+		p.FillGradient(seg.Rect, ui.LinearGradient{Angle: angle, Stops: seg.Stops}, 0)
+	}
+}
+
+// playerRimBandSeg is one gradient of a band: the sub-rectangle it covers and the
+// stops to fill it with.
+type playerRimBandSeg struct {
+	Rect  ui.Rect
+	Stops []ui.GradientStop
+}
+
+// playerRimBandSegments cuts a band into the gradients that draw it, each with at
+// most playerRimBandMaxGaps+1 stops (the framework's scene.MaxStops). Split out of
+// playerRimBand so a test can count the stops it sends without rendering.
+func playerRimBandSegments(rect ui.Rect, angle float32, sample func(u float32) ui.Color) []playerRimBandSeg {
+	length := rect.W
+	if angle != 90 {
+		length = rect.H
+	}
+	n := int(length/playerRimBandPitch) + 1
+	if n < 2 {
+		n = 2
+	}
+	var segs []playerRimBandSeg
+	for s := 0; s < n-1; s += playerRimBandMaxGaps {
+		e := min(s+playerRimBandMaxGaps, n-1)
+		gaps := e - s
+		stops := make([]ui.GradientStop, gaps+1)
+		for i := 0; i <= gaps; i++ {
+			u := (float32(s) + float32(i)) / float32(n-1)
+			stops[i] = ui.GradientStop{Color: sample(u), At: float32(i) / float32(gaps)}
+		}
+		a0 := float32(s) / float32(n-1)
+		a1 := float32(e) / float32(n-1)
+		sub := rect
+		if angle == 90 {
+			sub.X = rect.X + a0*rect.W
+			sub.W = (a1 - a0) * rect.W
+		} else {
+			sub.Y = rect.Y + a0*rect.H
+			sub.H = (a1 - a0) * rect.H
+		}
+		segs = append(segs, playerRimBandSeg{Rect: sub, Stops: stops})
+	}
+	return segs
+}
+
+// playerRimBandPitch 是定向光带的停靠点间距（DIP）。原版是**真 conic**（逐像素
+// 按角度取值），本近似要在一条边的长度内把 conic 的角向变化采出来；上边圆心正
+// 上方那处亮斑（alpha ≈.77 → .51 的尖谷 → .33）的横向跨度只有 ~10% 边长，
+// 所以停靠点必须远密于 3 个。
+//
+// 实测（900×600，`playerRimConicColorAt` 沿顶边逐像素对照）：
+//
+//	密度     最大 alpha 偏差   2560×1400 顶边停靠点
+//	∞(3)     0.67            3
+//	48px     0.077           54
+//	24px     0.114           107
+//	12px     0.051           214
+//	8px      0.006           321
+//
+// 取 12px（跨分段后实测最大 alpha 偏差 0.05 ⇒ 已远小于原版的两条边带近似的
+// ~0.4）；更密（8px）能把偏差压到 0.006，但停靠点的光栅成本与个数无关（实测
+// 900 宽上 2/19/38/76/226 个停靠点都是 ~470µs/帧——`FillGradient` 本身掌主导），
+// 真正变多的是**分段的段数**（每段一次 FillGradient）—— 900 宽 12px ⇒ 76 个
+// 停靠点 ⇒ 3 段，仍是三条很便宜的 1px 带填充。动画压力下（每帧换 1px 偏移、
+// 掩码与渐变缓存全不命中）分段带仍比真 conic 环便宜 ~1.5×：2560×1400 上
+// 分段带 27.8ms/帧 vs 真 conic 环 40.3ms/帧（见 playerRimConicMaxArea 的表）。
+const playerRimBandPitch = 12
+
+// playerRimBandMaxGaps 是一段带里最多几个「间隔」—— 停靠点数 = 间隔数 + 1，
+// 上限是框架的 `scene.MaxStops`（32）个停靠点，所以间隔数最多 31。
+const playerRimBandMaxGaps = 31
 
 // playerRimDirectionalFn 是定向光带绘制的入口（测试可换桩关掉做反证）。
 var playerRimDirectionalFn = paintPlayerRimDirectional
