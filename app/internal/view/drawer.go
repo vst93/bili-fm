@@ -2137,8 +2137,10 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
 	// 的那张挂上：PointerPosition 会让引擎在指针每次移动时补帧，全网格都挂就
 	// 成了「鼠标一动重建整窗」。按下态还要叠原版 :active 背景的两个固定径向。
-	if !locked && (box.Hovered() || pressed) {
-		cardSurface(box, pressed)
+	// 指针离开后不是当帧抹掉：原版那层有 `transition: opacity .12s ease`，由
+	// cardGlowLayer 记住离开时的圆心、渐隐 120ms（ReduceMotion 下直接不画）。
+	if !locked {
+		a.cardGlowLayer(c, box, spec.Key, hovered, pressed)
 	}
 
 	box.Children(func() {

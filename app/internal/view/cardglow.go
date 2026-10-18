@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -87,12 +88,26 @@ func paintRadialGradient(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity 
 // 同心圆写法做反证（见 cardglow_test.go 的 radialGradientBitmapStepped）。
 var radialPaint = paintRadialGradient
 
+// cardGlowFadeAnim 是卡片指针光晕的淡出曲线（原版
+// `.is-pointer-hovered::before { transition: opacity .12s ease }`）。此前原生版
+// 是「指针在就画、一走就没了」的瞬时切换，指针滑出卡片时那团白光硬跳一下。
+var cardGlowFadeAnim = ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut}
+
 // paintCardGlow 把指针跟随的径向光晕画进卡片，裁到圆角矩形（原版的 ::before
 // 是 overflow:hidden 卡片里的绝对定位层）。px/py 是指针相对卡片左上角的坐标，
 // box 是卡片矩形。
 func paintCardGlow(p *ui.Painter, box ui.Rect, px, py float32) {
+	paintCardGlowAlpha(p, box, px, py, cardGlowOpacity)
+}
+
+// paintCardGlowAlpha 同 paintCardGlow，但整层不透明度由调用方给：淡出期间
+// 从 cardGlowOpacity 逐帧降到 0。
+func paintCardGlowAlpha(p *ui.Painter, box ui.Rect, px, py, opacity float32) {
+	if opacity <= 0 {
+		return
+	}
 	p.Clip(box, 12, func() {
-		radialPaint(p, cardGlowBmp(), box.X+px, box.Y+py, cardGlowRadius, cardGlowOpacity)
+		radialPaint(p, cardGlowBmp(), box.X+px, box.Y+py, cardGlowRadius, opacity)
 	})
 }
 
@@ -173,17 +188,55 @@ func paintCardPressGlow(p *ui.Painter, box ui.Rect) {
 }
 
 // cardSurface 在卡片背景之上、子元素之前画它的「背景图」层：按下态的两个
-// 固定径向高光（原版 :active 的 background 前两层），外加悬停时指针跟随的
-// 光晕（原版 ::before，画在背景之上）。两者必须合成**一个** Draw ——
+// 固定径向高光（原版 :active 的 background 前两层），外加指针跟随的光晕
+// （原版 ::before，画在背景之上）。两者必须合成**一个** Draw ——
 // Element.Draw 只存一个 paintFn，先后调两次会互相覆盖。
-func cardSurface(box ui.Element, pressed bool) {
-	px, py, over := box.PointerPosition()
+func cardSurface(box ui.Element, pressed bool, px, py, glow float32) {
 	box.Draw(func(p *ui.Painter, r ui.Rect) {
 		if pressed {
 			paintCardPressGlow(p, r)
 		}
-		if over {
-			paintCardGlow(p, r, px, py)
+		if glow > 0 {
+			paintCardGlowAlpha(p, r, px, py, glow)
 		}
 	})
+}
+
+// cardGlowLayer 是卡片光晕这一层的每帧接线：指针进入这张卡时从 0 渐显到
+// cardGlowOpacity，离开后按原版 120ms 渐隐（圆心停在离开处，不再跟着指针走）。
+//
+// 只给「最后悬停的那一张」挂 Draw/动画通道：原版也只给 activeCard 设
+// --hover-x/--hover-y，其余卡片上那层 ::before 的 opacity 恒为 0。
+//
+// 原版 pointerEffectsEnabled 还要求 `(prefers-reduced-motion: no-preference)`：
+// 桌面要求减少动态效果时，App.tsx 直接 clearAll()，光晕整层不画 —— 这里同样
+// 在 reduceMotion 下把目标压成 0（悬停的底/边/上浮不受影响，它们是静态状态）。
+func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, pressed bool) {
+	px, py, over := box.PointerPosition()
+	entered := over && a.cardGlowKey != key
+	if over {
+		a.cardGlowKey, a.cardGlowX, a.cardGlowY = key, px, py
+	}
+	if a.cardGlowKey != key {
+		return
+	}
+	if entered {
+		// 指针刚进入这张卡：把通道种到 0，整层从 0 渐显（AnimateTo 第一次
+		// 调用会直接返回目标值，不种就会「第一次悬停瞬亮、之后才渐显」）。
+		box.Jump("card-glow", 0)
+	}
+	want := float32(0)
+	if hovered && !reduceMotion(c) {
+		want = cardGlowOpacity
+	}
+	glow := box.AnimateTo("card-glow", want, cardGlowFadeAnim)
+	if want == 0 && glow < 0.01 {
+		// 淡出结束：放掉这条记录，这张卡不再挂 Draw，也不再请帧。
+		a.cardGlowKey = ""
+		if !pressed {
+			return
+		}
+		glow = 0
+	}
+	cardSurface(box, pressed, a.cardGlowX, a.cardGlowY, glow)
 }

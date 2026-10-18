@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -127,11 +128,13 @@ func TestCardGlowFollowsPointer(t *testing.T) {
 	bPt := [2]int{190, 90}
 
 	tst.Move(float32(aPt[0]), float32(aPt[1]))
+	tst.Advance(200 * time.Millisecond) // 光晕 120ms 渐显（原版 opacity .12s）
 	imgA := tst.Image()
 	aa := grayAt(imgA, aPt[0], aPt[1])
 	ba := grayAt(imgA, bPt[0], bPt[1])
 
 	tst.Move(float32(bPt[0]), float32(bPt[1]))
+	tst.Advance(200 * time.Millisecond)
 	imgB := tst.Image()
 	ab := grayAt(imgB, aPt[0], aPt[1])
 	bb := grayAt(imgB, bPt[0], bPt[1])
@@ -147,14 +150,82 @@ func TestCardGlowFollowsPointer(t *testing.T) {
 		t.Errorf("光晕随指针移动的亮度差太小：A %d→%d, B %d→%d", aa, ab, ba, bb)
 	}
 
-	// 指针移出卡片：光晕消失，两点的亮度回到同一水平（只剩卡片本身的底色）。
+	// 指针移出卡片：光晕渐隐（原版 `transition: opacity .12s ease`，渐隐本身
+	// 由 TestCardGlowFadesOut 逐帧钉）。这里量的是渐隐结束后两点只剩卡片底色 ——
+	// 渐隐期间圆心停在离开处，A 点距离开点 133px、几乎照不到光，只能等它走完。
 	tst.Move(280, 240)
+	tst.Advance(200 * time.Millisecond)
 	out := tst.Image()
 	oa := grayAt(out, aPt[0], aPt[1])
 	ob := grayAt(out, bPt[0], bPt[1])
-	t.Logf("指针移出：A=%d B=%d", oa, ob)
+	t.Logf("指针移出 200ms：A=%d B=%d", oa, ob)
 	if diff := oa - ob; diff > 2 || diff < -2 {
 		t.Errorf("指针移出后两点应只剩底色（相等）：A=%d B=%d", oa, ob)
+	}
+}
+
+// TestCardGlowFadesOut 钉住原版 `.is-pointer-hovered::before` 的
+// `transition: opacity .12s ease`：指针离开卡片后光晕不是当帧消失，而是在
+// 120ms 里降到 0；圆心停在离开时的位置（原版 activeCard 只在 pointermove 里
+// 更新 --hover-x/y，离开后不再变）。
+//
+// 反证：把 cardGlowFadeAnim.Duration 改成 0（瞬时切换，改动前的行为）→
+// 「移出当帧应仍有光」与「中点应介于两者之间」两条报红。
+func TestCardGlowFadesOut(t *testing.T) {
+	tst, box := cardGlowProbe(t)
+	cx, cy := int(box.X+box.W/2), int(box.Y+box.H/2)
+	tst.Move(float32(cx), float32(cy))
+	tst.Advance(200 * time.Millisecond)
+	hover := grayAt(tst.Image(), cx, cy)
+
+	tst.Move(box.X+box.W+60, box.Y+box.H+60) // 移出卡片
+	first := grayAt(tst.Image(), cx, cy)
+	tst.Advance(60 * time.Millisecond)
+	mid := grayAt(tst.Image(), cx, cy)
+	tst.Advance(140 * time.Millisecond)
+	end := grayAt(tst.Image(), cx, cy)
+	t.Logf("圆心亮度 悬停=%d 移出当帧=%d 60ms=%d 200ms=%d", hover, first, mid, end)
+
+	if hover-first < 2 {
+		t.Fatalf("移出当帧光晕就没了（悬停 %d → %d）—— 没有渐隐", hover, first)
+	}
+	if !(first > mid && mid > end) {
+		t.Errorf("光晕没有单调渐隐：当帧 %d → 60ms %d → 200ms %d", first, mid, end)
+	}
+	if first-mid < 1 || mid-end < 1 {
+		t.Errorf("渐隐太快/太慢，60ms 中点看不出过渡：%d → %d → %d", first, mid, end)
+	}
+	if end != grayAt(tst.Image(), cx, cy) {
+		t.Errorf("200ms 后光晕应已完全消失")
+	}
+}
+
+// TestCardGlowReduceMotion 钉住原版 pointerEffectsEnabled 里的
+// `(prefers-reduced-motion: no-preference)`：桌面要求减少动态效果时，
+// App.tsx 直接 clearAll()，那层径向光晕整层不画（悬停的底/边/上浮是静态
+// 状态，照旧）。用 radialPaint 计数做判据，不去猜某个像素色。
+//
+// 反证：把 cardGlowLayer 里的 `!reduceMotion(c)` 去掉 → 第二条报红。
+func TestCardGlowReduceMotion(t *testing.T) {
+	old := radialPaint
+	t.Cleanup(func() { radialPaint = old })
+	var painted int
+	radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {
+		painted++
+		old(p, bmp, cx, cy, radius, opacity)
+	}
+	tst, box := cardGlowProbe(t)
+	tst.Move(box.X+box.W/2, box.Y+box.H/2)
+	tst.Advance(200 * time.Millisecond)
+	if painted == 0 {
+		t.Fatal("常态悬停时没画光晕（radialPaint 未被调用）")
+	}
+
+	painted = 0
+	tst.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tst.Frame()
+	if painted != 0 {
+		t.Errorf("ReduceMotion 下仍画了 %d 次光晕（原版 pointerEffectsEnabled 要求 no-preference）", painted)
 	}
 }
 
@@ -222,7 +293,7 @@ func TestCardPressRendered(t *testing.T) {
 	}
 	rest := patch()
 	tst.Move(box.X+box.W/2, box.Y+box.H/2)
-	tst.Frame()
+	tst.Advance(200 * time.Millisecond) // 光晕渐显完再量悬停亮度
 	hover := patch()
 	tst.Press(box.X+box.W/2, box.Y+box.H/2)
 	tst.Frame()
@@ -371,3 +442,4 @@ func TestRadialBakeCached(t *testing.T) {
 		t.Fatalf("烘焙边长 %d 超出 [128,512]：小了有台阶、大了白占显存", radialBakeSize)
 	}
 }
+
