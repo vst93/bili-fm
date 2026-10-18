@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -265,7 +266,7 @@ func (c *controller) runUpdateCheck(user bool) {
 				}
 			case err != nil:
 				if user {
-					a.Modal = updateFailedModal(err.Error(), "检查更新失败")
+					a.Modal = updateFailedModal(updateFailText(err, true), "检查更新失败")
 				}
 			case up == nil:
 				if user {
@@ -311,7 +312,7 @@ func (c *controller) installUpdate(up *mygo.Update) {
 			}
 			c.updateCancel = nil
 			if err != nil {
-				a.Modal = updateFailedModal(err.Error(), "更新失败")
+				a.Modal = updateFailedModal(updateFailText(err, false), "更新失败")
 				return
 			}
 			a.Modal = updateReadyModal(func() { mygo.App.Relaunch() })
@@ -382,6 +383,44 @@ func updateDisabledModal() *view.Modal {
 		LinkURL:   "https://github.com/vst93/bili-fm/releases/latest",
 		Buttons:   []view.ModalButton{{Label: "好的", Primary: true}},
 	}
+}
+
+// updateFailText 把更新流程的底层错误翻成用户能看懂的中文。
+//
+// 背景（用户 2026-10-18 晚间 ③）：检查更新失败时，对话框直接把 mygo 的英文
+// 报错贴出来（清单缺失 / 没有发行版本 / 网络错误的原文都是英文），用户看到
+// 一串英文一头雾水。这里按种类分区给中文提示，原文只进日志：
+//
+//   - 网络/服务异常（超时、DNS、连接、TLS、EOF、5xx）→ 提示检查网络；
+//   - 确实没有可用的发行版本（清单缺失 / 404 / 没有 release）→ 提示稍后再试；
+//   - 其它 → 检查失败 / 更新失败，请稍后重试。
+//
+// checking 区分「检查」与「下载安装」两个阶段，只说用户当时在等的那件事。
+func updateFailText(err error, checking bool) string {
+	if err == nil {
+		return ""
+	}
+	raw := err.Error()
+	stage := "下载安装"
+	if checking {
+		stage = "检查"
+	}
+	log.Printf("更新：%s失败（原始错误：%s）", stage, raw)
+	lower := strings.ToLower(raw)
+	for _, s := range []string{"timeout", "deadline", "no such host", "connection", "tls", "eof", "network", "proxy", "unreachable", "502", "503", "504"} {
+		if strings.Contains(lower, s) {
+			return "网络连接失败，请检查网络后重试"
+		}
+	}
+	for _, s := range []string{"manifest", "release", "not found", "no such", "404", "incomplete", "empty"} {
+		if strings.Contains(lower, s) {
+			return "暂时没有可用的发行版本，请稍后再试"
+		}
+	}
+	if checking {
+		return "检查更新失败，请稍后重试"
+	}
+	return "更新下载或安装失败，请稍后重试"
 }
 
 func updateFailedModal(msg, title string) *view.Modal {

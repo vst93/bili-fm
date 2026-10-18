@@ -753,11 +753,19 @@ func TestDanmakuTextHasNoBackground(t *testing.T) {
 	if !strings.Contains(flat, `shadow.Blur(danmakuTextShadowBlur)`) {
 		t.Error("弹幕文字阴影层没有接 Element.Blur（真模糊没画）")
 	}
-	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuInk(e.Color,t.Dark))`) {
+	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuListInk(e.Color))`) {
 		t.Error("danmakuGroupRow 没有用 danmakuText 画文字")
 	}
-	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuInk(e.Color,t.Dark))`) {
-		t.Error("danmakuGroupRow 没有用 danmakuText 画文字（柔光阴影应随之回来）")
+	// 用户 2026-10-18 晚间 ⑤：弹幕列表的墨色必须走浅色分支（默认白弹幕 →
+	// #1a1a1a / 无颜色 → #000000），不能跟着播放栏的烟熏时段翻成白字。
+	if strings.Contains(flat, `danmakuInk(e.Color,t.Dark)`) {
+		t.Error("弹幕列表的墨色跟了播放栏的 Theme.Dark（浅色玻璃上会出白字白底）")
+	}
+	if got := danmakuListInk(0xffffff); got != ui.Hex("#1a1a1a") {
+		t.Errorf("danmakuListInk(默认白弹幕) = %v, want #1a1a1a", got)
+	}
+	if got := danmakuListInk(0); got != ui.Hex("#000000") {
+		t.Errorf("danmakuListInk(无颜色) = %v, want #000000", got)
 	}
 }
 

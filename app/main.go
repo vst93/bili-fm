@@ -24,6 +24,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -236,6 +237,10 @@ func main() {
 			// 旧版是固定窗口（resizable(false)），布局就是按 800×600 调的；
 			// 迷你模式是自己改尺寸，不受这个限制。
 			DisableResize: true,
+			// 用户 2026-10-18 晚间 ①：浮窗应用不该有放大键。固定尺寸的窗口
+			// 本来也放不大，Windows 的标题栏按钮里就不该出现「最大化/还原」
+			// —— 只剩缩小 + 关闭，与原版 Tauri 版一致（macOS 仍走系统红绿灯）。
+			DisableMaximize: true,
 			// 保留原生窗口控件（macOS 的红绿灯、Windows/Linux 的标题栏按钮），
 			// 页面自己画标题栏 —— 旧版在 macOS 上用的就是这种（Overlay）。
 			TitleBarStyle: mygo.TitleBarHidden,
@@ -485,6 +490,7 @@ func main() {
 			}
 			e.PreventDefault()
 			app.Win.Hide()
+			trimMemory()
 		})
 
 		if !*noTray {
@@ -2820,7 +2826,21 @@ func (c *controller) closeVideo() {
 	c.vid.Close()
 	c.app.VideoOpen = false
 	c.app.Win.Update(func() {})
+	trimMemory()
 }
+
+// trimMemory 把 Go 的堆立刻还给操作系统。
+//
+// 为什么需要它：Go 的堆只涨到「下次 GC 的目标」才回收，而被丢弃的位图/列表
+// 数据留下的空页在 Windows 上仍然算进进程的私有工作集（任务管理器看到的数字
+// 就是它）。用户实测「多切几个视频、多翻几个抽屉后 315MB」里，有一份是这种
+// 「已经没人引用、但还没还给系统」的页。两个时刻值得主动还：
+//
+//   - 视频弹窗关闭：刚丢掉整窗的渲染缓存与视频调度的临时缓冲；
+//   - 窗口隐藏到托盘：用户已经不看界面了，早还晚还都一样。
+//
+// 异步跑（FreeOSMemory 会同步做一次完整 GC），不挡界面线程。
+func trimMemory() { go debug.FreeOSMemory() }
 
 // ---------------------------------------------------------------- 小工具
 

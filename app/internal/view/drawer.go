@@ -2981,6 +2981,19 @@ func danmakuInk(color int, dark bool) ui.Color {
 	return ui.RGB(uint8(r), uint8(g), uint8(b))
 }
 
+// danmakuListInk 是弹幕列表里用的墨色。
+//
+// 用户 2026-10-18 晚间 ⑤：「默认弹幕文字是白色，但背景是偏白的透明色，看起来
+// 不协调，把默认文字颜色改为黑色」。根因不在 danmakuInk 的取值，而在调用点：
+// 它把播放栏的「烟熏玻璃时段」标志（Theme.Dark，文档里写明**只影响播放栏**）
+// 当成了弹幕列表的背景色。深色时段里 B 站默认白弹幕（#ffffff，亮度 255）被翻成
+// #ffffff，压在始终浅色的抽屉玻璃上 —— 白字白底。
+//
+// 弹幕列表的背景恒为浅色玻璃，所以这里固定走 danmakuInk 的浅色分支：默认白
+// 弹幕 → #1a1a1a（原版 getColorStyle 在 isDarkMode=false 时的取值），无颜色 /
+// 纯黑 → #000000。
+func danmakuListInk(color int) ui.Color { return danmakuInk(color, false) }
+
 // nearestGroup 返回当前播放时间最近的弹幕组下标（原版 danmakuList 的
 // currentIndex）：先二分找到第一个 second ≥ pos 的组，再和它前一组比距离，
 // 取更近的那个。不是「最后一个不超过 pos 的组」。
@@ -3183,7 +3196,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						// 由元素自己的 `.Draw` 在字形**之前**绘制（框架的 `.Draw` 先于本
 						// 元素的字形，正好是 text-shadow 的层序）——只有字形轮廓外那 1px
 						// 的偏移露出白，不再是矩形白底。
-						danmakuText(c, e.Text, danmakuInk(e.Color, t.Dark))
+						danmakuText(c, e.Text, danmakuListInk(e.Color))
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。
 							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，

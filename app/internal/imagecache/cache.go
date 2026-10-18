@@ -99,9 +99,15 @@ type Cache struct {
 	// 「闪一下」（用户报的登录/UP 头像不定期闪动）。Retain 每帧重申一次，
 	// 让这些图钉在缓存里。
 	retained map[key]struct{}
+
+	// bytes 是当前缓存里所有位图的解码字节数（CPU 侧；GPU 侧由框架另存
+	// 一份同尺寸纹理，实际占用约为它的 2 倍）。受 cacheByteLimit 约束。
+	bytes int64
 }
 
 type entry struct {
+	// bytes 是这一条的解码字节数（位图 + 氛围光小图）。
+	bytes  int64
 	bitmap *ui.Bitmap
 	// small 是同一张图的缩小版，只为氛围光的调色留一份源
 	//（见 ambient.go）。64×64 的图像约 16KB。
@@ -275,6 +281,18 @@ func (c *Cache) acquire(e *entry, high bool) func() {
 // 64 条约 12MB，够覆盖 4 屏卡片（15 张/屏）；再远就淘汰，需要时重新抓。
 // 从前是 300 条（约 57MB），长列表从头滚到尾会把所有位图都攒下来。
 const cacheLimit = 64
+
+// cacheByteLimit 是缓存解码位图的字节上限（默认 12MB）。
+//
+// 条目数上限不够：主播放器封面是 480w（480×270×4 ≈ 0.5MB，是 240w 卡片的
+// 4 倍），64 条全落在 480w 上是 33MB —— 条目数看着「还在预算内」，字节数却
+// 翻了 4 倍。用户报「切几个视频 + 翻几个抽屉后内存涨到 315MB」里，这类
+// 「同样 64 条、尺寸不同」的波动是 Go 侧唯一能压的部分（其余是系统库 /
+// WebView2，见 .pending-bugs.md 的内存构成实测）。
+//
+// 12MB 覆盖 4 屏卡片（约 8MB）+ 当前曲目的 480w 封面 + 播放列表缩略图；
+// 超出按同一套 LRU（retained 不动）淘汰。
+const cacheByteLimit = 12 << 20
 
 // maxConcurrentFetches 是同时抓取 / 解码的封面数。
 //
@@ -703,10 +721,13 @@ func (c *Cache) finish(rawURL string, width int, bmp *ui.Bitmap, small *image.RG
 		c.stats.Ready++
 	}
 	if e := c.items[k]; e != nil {
+		c.bytes -= e.bytes // 旧的一条（重抓时）先退账
 		if e.pending {
 			c.loading--
 		}
 		e.bitmap, e.small, e.failed, e.pending = bmp, small, failed, false
+		e.bytes = bitmapBytes(bmp, small)
+		c.bytes += e.bytes
 		if failed {
 			e.failedAt = time.Now()
 			e.tries++
@@ -738,10 +759,25 @@ func (c *Cache) touchLocked(k key) {
 // 从队首往后找第一个非 pending 的淘汰；跳过 pending 的（它们就绪后会
 // 变回可淘汰）与 Retain 过的常驻图（头像）。这样即使一次涌入大量抓取请求，
 // 缓存也不会无界增长，而界面上一直可见的小图不会被列表封面挤走。
+// bitmapBytes 算一条缓存占的解码字节（位图 + 氛围光小图）。
+func bitmapBytes(bmp *ui.Bitmap, small *image.RGBA) int64 {
+	var n int64
+	if bmp != nil {
+		w, h := bmp.Size()
+		n += int64(w) * int64(h) * 4
+	}
+	if small != nil {
+		b := small.Bounds()
+		n += int64(b.Dx()) * int64(b.Dy()) * 4
+	}
+	return n
+}
+
 func (c *Cache) evictLocked() {
-	for len(c.order) > c.limit {
+	over := func() bool { return len(c.order) > c.limit || c.bytes > cacheByteLimit }
+	for over() {
 		evicted := false
-		for i := 0; i < len(c.order) && len(c.order) > c.limit; i++ {
+		for i := 0; i < len(c.order) && over(); i++ {
 			u := c.order[i]
 			if _, keep := c.retained[u]; keep {
 				continue // 常驻图（头像）不淘汰
@@ -750,6 +786,9 @@ func (c *Cache) evictLocked() {
 				continue // 抓取中的先留着，就绪后下一轮淘汰
 			}
 			c.order = append(c.order[:i], c.order[i+1:]...)
+			if e := c.items[u]; e != nil {
+				c.bytes -= e.bytes
+			}
 			delete(c.items, u)
 			c.stats.Evicted++
 			evicted = true
