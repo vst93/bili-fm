@@ -184,3 +184,33 @@ func TestTrayColoredIconIsNotTemplate(t *testing.T) {
 		t.Errorf("彩色 tray.png 非透明占比只有 %.2f，与「不能用模板」的前提不符", frac)
 	}
 }
+
+// TestTrayItemsAllRouteThroughTrayAction 钉住「托盘菜单的每一项都经 trayAction
+// 派发」这条约定。
+//
+// 背景：Linux 的托盘是 AppIndicator/DBusMenu，点击由 GTK 的 "activate" 信号
+// 派发（internal/linux/menu.go 的 cbMenuActivate），Windows/macOS 的原生托盘
+// 各自在自己的消息循环里回调 —— 回调线程**不保证**是 mygo 的事件循环线程。
+// trayAction 是唯一的兜底（主线程上零开销直调、否则投递并等待）并留下
+// 「托盘菜单：xxx」日志，便于把「回调没进来」与「动作没生效」分开。
+//
+// 此前「检查更新…」「退出 bili-FM」两项直接调动作，是这条约定唯一的例外
+// （用户报的「Linux 托盘控制按钮点击无效果」正是这类不一致的表现）。反证：
+// 把任一项改回直接调 → 本测试红。
+func TestTrayItemsAllRouteThroughTrayAction(t *testing.T) {
+	src, err := os.ReadFile("tray.go")
+	if err != nil {
+		t.Fatalf("读 tray.go 失败：%v", err)
+	}
+	flat := string(src)
+	for _, name := range []string{"show", "togglePlay", "prev", "next", "checkUpdate", "quit"} {
+		if want := `c.trayAction("` + name + `"`; !strings.Contains(flat, want) {
+			t.Errorf("托盘项 %q 没有经 trayAction 派发（应有 %s）", name, want)
+		}
+	}
+	for _, bad := range []string{"{ c.menuCheckUpdate() }", "{ c.quit() }"} {
+		if strings.Contains(flat, bad) {
+			t.Errorf("托盘项绕过 trayAction 直接调动作：%s", bad)
+		}
+	}
+}

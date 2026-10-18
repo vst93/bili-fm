@@ -346,6 +346,12 @@ const (
 	// 1~1.5px（CJK 字形对字重更敏感），看上去就是「设置钮往下沉了」。
 	// 见 shell.go 的 titleBar / settingsButton。
 	titleBarFontWeight = 500
+	// tbWinCtrlGap / tbWinCtrlPadX 是标题栏窗口控制键组（原版 #wds-handle-group）
+	// 的间距与左右内边距：`flex items-center gap-1 px-1 py-0.5`
+	// （main:src/components/titleBar.tsx:411）——gap-1 = 4px、px-1 = 4px。
+	// 组右侧那 4px 叠在标题栏自身的 16px 内边距上，关闭键右缘离窗口右边 20px。
+	tbWinCtrlGap  = 4
+	tbWinCtrlPadX = 4
 	// titleBarSettingsNudge 是「设置」钮文字的**光学**上移量（DIP）。
 	//
 	// 2026-10-18 追诉：「上一轮按字重对齐了盒中心，但用户实测文字底部仍未对齐

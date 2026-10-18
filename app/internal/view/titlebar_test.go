@@ -734,3 +734,43 @@ func TestTitleBarMiniEntryRestored(t *testing.T) {
 		t.Error("迷你入口点击没有触发 SetMini(true)")
 	}
 }
+
+// TestTitleBarWindowControlsGeometry 钉住标题栏自绘窗口控制键组（原版
+// #wds-handle-group）的几何：`flex items-center gap-1 px-1 py-0.5`
+// （main:src/components/titleBar.tsx:411）。
+//
+// 用户 2026-10-18 晚间 ①：「浮窗应用不应有放大按钮，只留缩小 + 关闭，
+// 样式也要对齐原版」。放大键在窗口选项里已经关掉（DisableMaximize），
+// 这里量的是**样式**：两颗键 30×30（`.app-title-bar-btn`）、间距 gap-1 = 4px、
+// 组左右各 4px（px-1）——关闭键右缘离窗口右边 = 栏内边距 16 + 组 4 = 20。
+//
+// 反证：把 Gap 退回 1px、去掉 Padding(0, 4) → 两条断言分别红（间距 1、
+// 右缘 16）。
+func TestTitleBarWindowControlsGeometry(t *testing.T) {
+	tst := titleBarProbeAt(t, 1)
+	min, ok := tst.Find("最小化")
+	if !ok {
+		t.Fatalf("标题栏里找不到「最小化」键：%v", tst.Texts())
+	}
+	cl, ok := tst.Find("隐藏窗口")
+	if !ok {
+		t.Fatalf("标题栏里找不到「隐藏窗口」键：%v", tst.Texts())
+	}
+	t.Logf("最小化 %+v / 隐藏窗口 %+v", min, cl)
+	for name, r := range map[string]ui.Rect{"最小化": min, "隐藏窗口": cl} {
+		if r.W != 30 || r.H != 30 {
+			t.Errorf("%s 键 %v×%v，应为 30×30（.app-title-bar-btn）", name, r.W, r.H)
+		}
+		if min.Y != cl.Y {
+			t.Errorf("两颗键不在同一水平线上：%v vs %v", min.Y, cl.Y)
+		}
+	}
+	// 期望值写死成原版 CSS 的数字（不引用布局常量）：否则「常量改错、
+	// 断言跟着改错」会互相掩护，测试永远绿（本轮反证时踩过）。
+	if gap := cl.X - (min.X + min.W); gap != 4 {
+		t.Errorf("两颗键间距 %v，应为 4（原版 gap-1 = 4px）", gap)
+	}
+	if right := 1000 - (cl.X + cl.W); right != 20 {
+		t.Errorf("关闭键右缘距窗口右边 %v，应为 20（栏 padding 16 + 组 px-1 4）", right)
+	}
+}

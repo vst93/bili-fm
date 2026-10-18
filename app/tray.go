@@ -56,12 +56,14 @@ func (c *controller) setupTray() {
 			mygo.Separator(),
 			// 「检查更新」：与设置菜单 / 原生菜单栏走同一条应用内流程
 			//（弹液态玻璃对话框，而不是 updater 插件的原生窗口）。
-			{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuCheckUpdate() }},
+			// 所有菜单项一律经 trayAction 派发（线程 + 日志一条路），
+			// 不要有「这一项直接调」的例外——那正是 Linux 上时好时坏的来源。
+			{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("checkUpdate", c.menuCheckUpdate) }},
 			mygo.Separator(),
 			// 用自己的退出项而不是 RoleQuit：RoleQuit 走 App.Quit()，
 			// 而「关窗=隐藏到托盘」的 OnClose 会把它拦掉（Role 那条路
 			// 不经过我们的 quit，看不到 quitting 标志）。这里统一走 c.quit。
-			{Label: "退出 bili-FM", Click: func(*mygo.MenuItem, *mygo.Window) { c.quit() }},
+			{Label: "退出 bili-FM", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("quit", c.quit) }},
 		}),
 	})
 	if err != nil {

@@ -180,7 +180,11 @@ func (a *App) titleBar(c *ui.Context) {
 		// 判据：非 macOS 且 `tb.Right == 0`（窗口右侧没有任何原生控件占位）
 		// 时补上自绘的两颗键——与原生控件存在时**不**重复画。
 		if !mac && tb.Right <= 0 {
-			wc := ui.Row(c).Gap(1).Shrink(0).AlignItems(ui.Center)
+			// 间距/内边距逐值对齐原版 #wds-handle-group（titleBar.tsx:411）：
+			// `flex items-center gap-1 px-1 py-0.5` —— Tailwind gap-1 = 4px、
+			// px-1 = 左右各 4px。此前写的是 Gap(1)（1px）且没有 px-1，两颗键
+			// 几乎贴在一起、右侧也比原版少 4px（栏 16 + 组 4 = 20）。
+			wc := ui.Row(c).Gap(tbWinCtrlGap).Padding(0, tbWinCtrlPadX).Shrink(0).AlignItems(ui.Center)
 			// 与 actions 行同一层探用 titleBarFade 走 0.32 ↔ 0.82 的
 			// hover-to-reveal（原版 `.app-title-bar > *`）；按钮自身那层
 			// 0.72 ↔ 1 由 titleBarButtonStyle 给（`.app-title-bar-btn`）。
