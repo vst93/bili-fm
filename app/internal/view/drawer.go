@@ -660,8 +660,10 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(minW).Height(32).Padding(0, 8).
 		Radius(Radius).Role(ui.RoleSwitch).Label("隐身").Tooltip(incognitoTip(a.Incognito)).
 		Checked(a.Incognito)
-	// 半透明填充；开启隐身时用青色底表达（原版是 rgba(207,250,254,.5) 底）。
-	buttonSurface(b, a.Incognito, b.Hovered(),
+	// 半透明填充。用户 2026-10-18 晚间 ②：开启态那块青色底太突兀，去掉 ——
+	// 底色只由悬停决定（与普通玻璃键一致），开启状态只改图标墨色（incognitoInk）
+	// 与图标 filled，三个入口（标题栏 / 设置菜单 / 这里）同一套视觉。
+	buttonSurface(b, false, b.Hovered(),
 		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
 		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
 	// 原版 `.history-incognito-switch:focus-visible`：`outline: 2px solid
@@ -3219,11 +3221,6 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 	})
 }
 
-// danmakuTextInkShadow 是弹幕文字那条白色柔光阴影的不透明度（原版
-// `.danmaku-message-text { text-shadow: 0 1px 1px rgba(255,255,255,.68) }`）。
-// 声明成 var 便于测试换桩反证。
-var danmakuTextInkShadow = func() ui.Color { return ui.Hex("#ffffff").Alpha(0.68) }
-
 // danmakuTextFont 是弹幕文字的字体（原版 `.danmaku-message-text`：13px / 650）。
 var danmakuTextFont = ui.Font{Size: 13, Weight: 650}
 
@@ -3231,51 +3228,19 @@ var danmakuTextFont = ui.Font{Size: 13, Weight: 650}
 // `line-height: 18px`）。
 const danmakuTextLineH = 18
 
-// danmakuTextShadowY 是弹幕文字那条白色柔光阴影的偏移（原版 text-shadow 的
-// `0 1px 1px`：垂直下移 1px）。
-const danmakuTextShadowY = 1
-
-// danmakuTextShadowBlur 是柔光阴影的模糊半径（原版 text-shadow 的第三个参数
-// `1px`，即 σ=1）。v0.5.5 起框架提供 Element.Blur，用它做真正的高斯模糊，
-// 不再用硬切副本近似。
-const danmakuTextShadowBlur = 1
-
 // danmakuText 画一条弹幕文字（原版 `.danmaku-message-text`：13px / 650 /
-// line-height 18px / single-line），并补回原版那条白色柔光阴影。
+// line-height 18px / single-line）。
 //
-// 阴影画法：元素自己的 `.Draw` 在框架里先于它的字形（paint.go 的顺序是
-// 背景 → paintFn → kindText 字形），所以在 `.Draw` 里把**相同字体、相同文本**
-// 的一份白色副本下移 danmakuTextShadowY 画一遍，再由元素自己的深色字形盖上去
-// —— 只有字形轮廓外面那 1px 的偏移露出白，与 CSS 的 text-shadow 同义。
-// 这是**字形副本**，不是 4408e18 那块被用户否掉的方形白底矩形。
+// 用户 2026-10-18 晚间再次报「弹幕文字默认白底」：原版 CSS 里文字本身**没有**
+// background，白底只该来自胶囊本体 `.danmaku-message-row`；此前为了还原
+// `text-shadow: 0 1px 1px rgba(255,255,255,.68)` 在文字下面垫的那层白色柔光
+// 副本，在浅色玻璃上看起来就是文字自带的白底（用户看到的「白色背景」）。
+// 用户明确要求去掉，这里恢复成**单层普通文字**：没有白层、没有阴影副本、
+// 没有透明占位，墨色由调用点给（danmakuListInk）。
 func danmakuText(c *ui.Context, s string, ink ui.Color) ui.Element {
-	font := danmakuTextFont
-	if s == "" {
-		// 空文本仍建一个 0 宽占位，保持元素树形状稳定（见调用点）。
-		return ui.Box(c).Label(s)
-	}
-	w, _ := ui.ShapeText(s, font, 0).Size()
-	// 「实测宽 × 18 高」的盒，里面叠两层绝对定位的字形：
-	//   下层 = 下移 1px 的白色副本，用 Element.Blur(1) 做真正的 1px 高斯模糊
-	//          （即 CSS `text-shadow: 0 1px 1px rgba(255,255,255,.68)` 的 blur；
-	//          v0.5.5 起框架提供 Blur，此前只能画硬切副本近似）；
-	//   上层 = 弹幕本色字形，盖住副本，只从轮廓外露出那圈柔光。
-	// 文字元素不能带非文字子元素（框架禁止），所以阴影副本只能用这种
-	// 「兄弟绝对层」而不是元素自己的 .Draw —— 层序仍是副本在下、字形在上。
-	// Label(s) 让无头测试与读屏都能拿到这条弹幕文本。
-	return ui.Box(c).Width(w).Height(danmakuTextLineH).Label(s).Children(func() {
-		shadow := ui.Box(c).Absolute().Left(0).Top(danmakuTextShadowY).
-			Width(w).Height(danmakuTextLineH).PassThrough()
-		shadow.Draw(func(p *ui.Painter, r ui.Rect) {
-			p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y, danmakuTextInkShadow())
-		})
-		shadow.Blur(danmakuTextShadowBlur)
-		glyph := ui.Box(c).Absolute().Left(0).Top(0).
-			Width(w).Height(danmakuTextLineH).PassThrough()
-		glyph.Draw(func(p *ui.Painter, r ui.Rect) {
-			p.TextLayout(ui.ShapeText(s, font, 0), r.X, r.Y, ink)
-		})
-	})
+	return ui.Text(c, s).FontSize(danmakuTextFont.Size).
+		FontWeight(danmakuTextFont.Weight).
+		FixedLineHeight(danmakuTextLineH).TextColor(ink)
 }
 
 // danmakuSepColors 给出弹幕分组行分隔线（.danmaku-time-group 的 border-bottom）

@@ -137,9 +137,13 @@ func (a *App) incognitoToggle(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("tb-incognito")).Size(30, 30).Radius(RadiusSmall).
 		Center().Label("隐身模式").Tooltip(incognitoTip(a.Incognito)).
 		Role(ui.RoleSwitch).Checked(a.Incognito)
-	// 与标题栏小键同一套三态底色/墨色/不透明度（titleBarButtonStyle）：
-	// 激活（隐身开）时常态就保持玻璃底 + 图标转 --studio-blue；否则常态透明。
-	bg, ink, opacity, _ := titleBarButtonStyle(t, a.Incognito, b.Hovered(), b.Pressed(), false)
+	// 与标题栏小键同一套三态底色/墨色/不透明度（titleBarButtonStyle）。
+	//
+	// 用户 2026-10-18 晚间 ②：「激活态底色突兀」。此前把 a.Incognito 传给
+	// titleBarButtonStyle 的 active 参数，开启后常态就常驻一块 GlassHover 玻璃底；
+	// 这里 active 固定 false —— 底色只由 hover / pressed 决定（与相邻的迷你窗键
+	// 完全一致），开启状态只改图标墨色（incognitoInk(true)）与图标 filled。
+	bg, ink, opacity, _ := titleBarButtonStyle(t, false, b.Hovered(), b.Pressed(), false)
 	// 隐身开启时用主题青（incognitoInk）取代标题栏通用的 --studio-blue，
 	// 与历史抽屉/设置菜单两颗开关的墨色一致（同一事实源）。
 	if a.Incognito {
@@ -147,8 +151,9 @@ func (a *App) incognitoToggle(c *ui.Context) {
 	}
 	bg, ink, opacity = titleBarBtnFade(b, bg, ink, opacity, reduceMotion(c))
 	b.Background(bg).Opacity(opacity)
-	// 三条土阴影（::after）与悬停聚光（::before）同标题栏小键。
-	titleBarBtnHighlight(b, a.Incognito, b.Hovered())
+	// 三条土阴影（::after）与悬停聚光（::before）同标题栏小键；active 同样传
+	// false，避免开启态常驻一层高光（只保留悬停时的聚光）。
+	titleBarBtnHighlight(b, false, b.Hovered())
 	if l, ok := titleBarBtnLight(b.Pressed(), b.Hovered()); ok {
 		l.draw(b, RadiusSmall)
 	}

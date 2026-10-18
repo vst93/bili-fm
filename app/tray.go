@@ -48,7 +48,7 @@ func (c *controller) setupTray() {
 		IconIsTemplate: template, // macOS 会按菜单栏明暗着色
 		ToolTip:        "bili-FM",
 		Menu: mygo.NewMenu([]*mygo.MenuItem{
-			{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.showWindow() }},
+			{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("show", c.showWindow) }},
 			mygo.Separator(),
 			{Label: "播放 / 暂停", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("togglePlay", c.togglePlay) }},
 			{Label: "上一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("prev", func() { c.step(-1) }) }},
@@ -92,12 +92,22 @@ func (c *controller) setupMediaKeys() {
 	register("MediaPreviousTrack", func() { c.step(-1) })
 }
 
-// trayAction 执行一个托盘菜单动作。菜单回调不一定是主线程上的
-// mygo 事件循环里，所以这里打印一行日志便于排查「点了没反应」——
-// 有日志说明回调确实进来了，问题在动作本身；没日志就是菜单没接上。
+// trayAction 执行一个托盘菜单动作。
+//
+// 菜单回调**不保证**跑在 mygo 的事件循环线程上：Linux 的托盘菜单是
+// AppIndicator 的 DBusMenu，点击最终由 GTK 的 "activate" 信号派发到
+// internal/linux/menu.go 的 cbMenuActivate（GTK 主循环线程），而
+// Windows/macOS 的原生托盘各自在自己的消息循环里回调。此前这里直接
+// 调用动作，动作里对界面状态的读写（以及 Win.Update 的排队）就依赖
+// 「回调线程恰好等于 mygo 主线程」这个假设 —— Linux 上不成立时表现为
+// 「菜单点得动、控制按钮没反应」。
+//
+// 统一用 mygo.RunOnMain 兜住：已经在主线程时它直接执行（零开销），
+// 不在时投递到事件循环并等待。日志保留，便于区分「回调没进来」与
+// 「动作本身没生效」。
 func (c *controller) trayAction(name string, fn func()) {
 	log.Printf("托盘菜单：%s", name)
-	fn()
+	mygo.RunOnMain(fn)
 }
 
 // showWindow 从托盘恢复主窗口。除了 Show/Focus，还要处理「窗口最小化」

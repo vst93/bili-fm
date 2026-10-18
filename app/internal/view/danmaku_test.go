@@ -744,14 +744,17 @@ func TestDanmakuTextHasNoBackground(t *testing.T) {
 	if strings.Contains(flat, `FixedLineHeight(18).TextColor(ui.Transparent)`) {
 		t.Error("弹幕文字仍有透明占位副本（Absolute 白层手法的残留）")
 	}
-	// v0.5.5 起 danmakuText 改用「实测宽 Box + 双 Absolute（下移 1px 的 Blur
-	// 白副本 + 真字形）」：文字元素不能带非文字子元素（框架禁止），所以补回真
-	// 模糊阴影只能走兄弟绝对层。断言这结构在（且阴影层带真 Blur）。
+	// 用户 2026-10-18 晚间再次要求去掉「弹幕文字默认白底」：此前为还原原版
+	// `text-shadow` 垫的那层白色柔光副本（danmakuTextInkShadow / shadow.Blur）
+	// 在浅色玻璃上就是一块白底，本轮整个删掉，文字回到单层。
+	if strings.Contains(flat, `danmakuTextInkShadow`) {
+		t.Error("drawer.go 里仍有弹幕文字的白色柔光层（用户要求去掉白底）")
+	}
+	if strings.Contains(flat, `shadow.Blur(`) {
+		t.Error("drawer.go 里仍有弹幕文字的白色阴影副本层")
+	}
 	if !strings.Contains(flat, `danmakuTextFont`) {
 		t.Error("弹幕文字没有用 danmakuTextFont（13px/650）")
-	}
-	if !strings.Contains(flat, `shadow.Blur(danmakuTextShadowBlur)`) {
-		t.Error("弹幕文字阴影层没有接 Element.Blur（真模糊没画）")
 	}
 	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuListInk(e.Color))`) {
 		t.Error("danmakuGroupRow 没有用 danmakuText 画文字")

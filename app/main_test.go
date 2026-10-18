@@ -1571,3 +1571,43 @@ func TestWinControlPendingTracksGate(t *testing.T) {
 		t.Error("finishWinControl 应复位 app.WindowControlPending（否则两颗键永久禁用）")
 	}
 }
+
+// TestUpHasMore 钉住 UP 空间视频列表的「还能不能续页」判据（用户 2026-10-18
+// 报「只加载了第 1 页」）：原版只看 offset 有没有值，不看 has_more；接口把
+// has_more 报成 false 但 offset 仍可续时必须继续翻页。
+func TestUpHasMore(t *testing.T) {
+	cases := []struct {
+		name        string
+		apiHasMore  bool
+		next, asked string
+		want        bool
+	}{
+		{"api 说还有", true, "off2", "off1", true},
+		{"api 说没有但游标前进", false, "off2", "off1", true},
+		{"api 说没有且游标没前进", false, "off1", "off1", false},
+		{"api 说没有且游标为空", false, "", "off1", false},
+	}
+	for _, tc := range cases {
+		if got := upHasMore(tc.apiHasMore, tc.next, tc.asked); got != tc.want {
+			t.Errorf("%s：upHasMore(%v,%q,%q) = %v，应为 %v",
+				tc.name, tc.apiHasMore, tc.next, tc.asked, got, tc.want)
+		}
+	}
+}
+
+// TestSeriesPaginationStopsOnDuplicatePage 钉住合集翻页不会因「接口返回不足
+// 30 条」就停在第 1 页（原版 seriesList 只要这一页带回视频就允许续页），同时
+// 用「本页没追加新卡片」兜住接口重复返回同一页的死循环。
+func TestSeriesPaginationStopsOnDuplicatePage(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	if !strings.Contains(flat, "added:=len(list.Cards)-before") {
+		t.Error("loadSeriesVideos 没有按「本页追加了多少新卡片」判定是否还能续页")
+	}
+	if !strings.Contains(flat, "list.HasMore=added>0&&len(archives)>0") {
+		t.Error("loadSeriesVideos 的 HasMore 仍按「本页满 30 条」判定（不足一页就停在第 1 页）")
+	}
+}

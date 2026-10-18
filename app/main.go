@@ -1248,6 +1248,20 @@ func (c *controller) openUp(mid int64, name string) {
 	}()
 }
 
+// upHasMore 判定 UP 空间视频列表这一页之后还能不能续。
+//
+// 原版 upVideoList 的滚动到底判据是 `bottom && upVideoList.offset`（不看
+// has_more）：接口在某些账号 / UP 主下把 has_more 报成 false，但 offset 仍是
+// 有效游标 —— 只信 has_more 会让列表永远停在第 1 页（用户 2026-10-18 报
+// 「UP 主空间视频列表只加载了第 1 页」）。同时防「游标原地踏步」的请求风暴：
+// 续页游标没前进就当到底了。
+func upHasMore(apiHasMore bool, nextOffset, askedOffset string) bool {
+	if apiHasMore {
+		return true
+	}
+	return nextOffset != "" && nextOffset != askedOffset
+}
+
 // loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
 // mid 由调用方在主线程取好传进来，不在网络 goroutine 里读界面状态。
 func (c *controller) loadUpVideos(mid int64, offset string) {
@@ -1265,8 +1279,8 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 			}
 			cards := toUpCards(l.Items)
 			setCards(list, cards, offset == "")
+			list.HasMore = upHasMore(l.HasMore, l.Offset, offset)
 			c.app.UpOffset = l.Offset
-			list.HasMore = l.HasMore
 			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
@@ -1323,10 +1337,19 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			for _, ar := range archives {
 				cards = append(cards, seriesCard(ar, c.app.UpName))
 			}
+			before := len(list.Cards)
 			setCards(list, cards, page <= 1)
 			list.Page = page
-			// 合集接口每页 30 条；不足一页就到到底了。
-			list.HasMore = len(archives) >= 30
+			// 合集接口 page_size=30，但**不能**用「不足 30 条就到底」判定：
+			// 接口偶尔忽略 page_size（返回更少）或某页刚好被过滤掉几条，会
+			// 让列表永远停在第 1 页（用户 2026-10-18 报「合集同样检查」）。
+			// 与原版 seriesList 一致：只要这一页还带回视频就允许再翻一页；
+			// 同时用「本页没追加任何新卡片」兜住接口重复返回同一页的死循环。
+			added := len(list.Cards) - before
+			if page <= 1 {
+				added = len(cards)
+			}
+			list.HasMore = added > 0 && len(archives) > 0
 			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
