@@ -83,6 +83,87 @@ func grayAt(img *image.RGBA, x, y int) int {
 	return (int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])) / 3
 }
 
+// titleBarLayerWorstDiff 量「渲染 vs CSS 多停靠点精确采样」的最大逐通道差：
+// 一层标题栏渐变画在纯色底上，按 180°（CSS 里两层都是 180deg）投影对照。
+func titleBarLayerWorstDiff(t *testing.T, stops []gradStop, height, opacity float32, bg ui.Color) int {
+	t.Helper()
+	const w, h = 400, 300
+	img := ui.Render(func(c *ui.Context) {
+		c.Root().Background(bg)
+		ui.Box(c).FillWidth().Height(TitleBarHeight).Children(func() {
+			titleBarLayer(c, "probe-layer", stops, height, opacity)
+		})
+	}, w, h, 1)
+	// 层的几何：贴顶、整宽、高 height（DIP）。渐变是 180°（纯垂直），所以
+	// t 就是层内的相对高度。
+	worst := 0
+	for y := 1; y < int(height); y += 2 {
+		for x := 2; x < w-2; x += 7 {
+			tv := (float32(y) + 0.5) / height
+			want := gradAt(stops, tv)
+			a := opacity * float32(want.A) / 255
+			exp := [3]int{
+				int(float32(bg.R)*(1-a) + float32(want.R)*a + 0.5),
+				int(float32(bg.G)*(1-a) + float32(want.G)*a + 0.5),
+				int(float32(bg.B)*(1-a) + float32(want.B)*a + 0.5),
+			}
+			o := img.PixOffset(x, y)
+			got := [3]int{int(img.Pix[o]), int(img.Pix[o+1]), int(img.Pix[o+2])}
+			for i := 0; i < 3; i++ {
+				if d := int(abs32(float32(got[i] - exp[i]))); d > worst {
+					worst = d
+				}
+			}
+		}
+	}
+	return worst
+}
+
+// TestTitleBarLayersMatchCSS 钉住标题栏那两层（`::before` 顶沿投影、`::after`
+// 白玻璃）现在走的是**真多停靠点**渐变，与 CSS 逐点一致（≤1 灰阶）。
+//
+// 反证：换回「4 条等高带拼」的旧写法 → 两层都超 1（实测 titleBarWash 最坏 8）。
+func TestTitleBarLayersMatchCSS(t *testing.T) {
+	white := ui.RGB(255, 255, 255)
+	if worst := titleBarLayerWorstDiff(t, titleBarEdgeStops, TitleBarHeight*1.7, 0.52, white); worst > 1 {
+		t.Errorf("::before 顶沿投影与 CSS 差 %d 灰阶（应 ≤1）", worst)
+	}
+	gray := ui.Hex("#808080")
+	if worst := titleBarLayerWorstDiff(t, titleBarWashStops, TitleBarHeight*1.4, 1, gray); worst > 1 {
+		t.Errorf("::after 白玻璃与 CSS 差 %d 灰阶（应 ≤1）", worst)
+	}
+}
+
+// TestTitleBarLayersCounterProof 是 TestTitleBarLayersMatchCSS 的反证。
+//
+// 注意这里的反证余量**很薄**：两层都是 180°（纯垂直），渐变线与带边垂直，
+// 所以逐带重投影只在带内保留比例，误差只有 **2 灰阶**。真正的分带之痛在 135°
+// 的斜向层（dialogSheen / loginSheen 实测 38 / 17）。这条反证存在的意义是钉住
+// 「180° 也不能退回分带」这个下限，不是声称分带在 180° 下会明显翻车。
+func TestTitleBarLayersCounterProof(t *testing.T) {
+	saved := titleBarLayerFn
+	defer func() { titleBarLayerFn = saved }()
+	titleBarLayerFn = func(c *ui.Context, key string, stops []gradStop, height, opacity float32) {
+		box := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(height).PassThrough()
+		box.Opacity(titleBarFade(box, key, opacity))
+		box.Children(func() {
+			ui.Column(c).Fill().PassThrough().Children(func() {
+				for _, b := range gradBands(stops, 4) {
+					ui.Box(c).FillWidth().Grow(1).PassThrough().LinearGradient(ui.LinearGradient{
+						From: b[0], To: b[1], Angle: 180,
+					})
+				}
+			})
+		})
+	}
+	worst := titleBarLayerWorstDiff(t, titleBarWashStops, TitleBarHeight*1.4, 1, ui.Hex("#808080"))
+	if worst <= 1 {
+		t.Errorf("退回分带拼法后 ::after 与 CSS 只差 %d 灰阶，反证不成立", worst)
+	} else {
+		t.Logf("::after 分带拼法实测最坏 %d 灰阶", worst)
+	}
+}
+
 // TestTitleBarEdgeBand 是无头渲染实测：`.app-title-bar::before` 是顶沿往下
 // 淡出的投影（整层 opacity .52，高度 170% 标题栏）。顶部最暗，越往下越浅，
 // 到 170%（≈61px）处已经完全透明。
@@ -144,7 +225,7 @@ func titleBarProbeAt(t *testing.T, scale float32) *ui.Tester {
 // inkCenterDIP 量出矩形 r 内墨色（三通道均 < thr）像素的纵向包围盒中位，
 // 换算回 DIP。r 是 DIP 矩形，图是 device 像素（tst.Image() 随 SetScale 变），
 // 所以两处都要乘 scale —— 否则 2x 下扫的是一半区域、量出来是错的
-//（“2x 长得跟 1x 一样”的假象）。
+// （“2x 长得跟 1x 一样”的假象）。
 func inkCenterDIP(t *testing.T, tst *ui.Tester, r ui.Rect, scale float32, thr int) float32 {
 	t.Helper()
 	img := tst.Image()
@@ -336,7 +417,9 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 // 到 1.0）。断言：
 //
 //  1. titleBarFontWeight == 500（.app-title-bar 的继承字重）；
+//
 //  2. titleBarSettingsNudge 在 (0, 1.5] 内（0=不改、>1.5 中心会飘）；
+//
 //  3. 无头实测 **四档缩放**（1 / 1.25 / 1.5 / 2，Linux HiDPI 常用 1.25 与 1.5）
 //     下，墨迹**中心差 ≤ 0.5px**（上上轮要求）且**底部差 ≤ 1.0px**（本轮要求，
 //     字形高差 ~2px 时的下限）。跨缩放一起断言，把「某个档位凑出来的假对齐」排除。
@@ -541,7 +624,7 @@ func TestTitleBarIncognitoRestVisibility(t *testing.T) {
 // 缩小操作按钮怎么也没有了」）。
 //
 // 背景：原版 Tauri 在非 macOS 上 decorations:false、前端自绘这两颗键
-//（titleBar.tsx 的 #wds-handle-group）。mygo 用 TitleBarHidden 让 GTK 画原生
+// （titleBar.tsx 的 #wds-handle-group）。mygo 用 TitleBarHidden 让 GTK 画原生
 // 标题按钮，但 Wayland 下由合成器装饰窗口的桌面（KWin/Hyprland/Sway）与平铺
 // 窗管根本不给原生按钮，于是 Linux 用户看到按钮消失。
 //

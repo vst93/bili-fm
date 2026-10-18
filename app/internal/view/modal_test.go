@@ -560,3 +560,63 @@ func TestModalButtonOnClick(t *testing.T) {
 		t.Fatal("不带 OnClick 的按钮应沿用「关面板」的惯例")
 	}
 }
+
+// TestDialogSheenMatchesCSS 是无头像素实测：`dialogSheen` 必须与 CSS 的
+//
+//	linear-gradient(135deg, 白 .35 0%, 透明 35%, 透明 65%, 白 .10 100%)
+//
+// 在 460×200 面板上逐点一致（≤1 灰阶）。
+//
+// 反证见 TestDialogSheenCounterProof：退回「4 条等高带拼」的旧写法 → 最坏
+// **38 灰阶**（第二条「透明 35%~65%」那一段被拼法重新投影成了非零的斜带）。
+func TestDialogSheenMatchesCSS(t *testing.T) {
+	if worst := dialogSheenWorstDiff(t, 460, 200); worst > 1 {
+		t.Errorf("dialogSheen 与 CSS 135° 差 %d 灰阶（应 ≤1）", worst)
+	}
+}
+
+// dialogSheenWorstDiff 在一层中灰底上画 dialogSheen，量「渲染 vs CSS 135° 精确
+// 采样」的最大逐通道差。
+func dialogSheenWorstDiff(t *testing.T, w, h int) int {
+	t.Helper()
+	tst := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Size(float32(w), float32(h)).Background(ui.Hex("#606060")).Children(func() {
+			dialogSheen(c)
+		})
+	}, w+40, h+40)
+	tst.Frame()
+	img := tst.Image()
+	worst := 0
+	for y := 20; y < h-20; y += 2 {
+		for x := 20; x < w-20; x += 2 {
+			want := gradAt(dialogSheenStops, cssLinearT(float32(x)+0.5, float32(y)+0.5,
+				float32(w), float32(h), 135))
+			exp := int(0x60 + float32(want.A)/255*(255-0x60))
+			o := img.PixOffset(x, y)
+			if d := int(abs32(float32(int(img.Pix[o]) - exp))); d > worst {
+				worst = d
+			}
+		}
+	}
+	return worst
+}
+
+// TestDialogSheenCounterProof 是 TestDialogSheenMatchesCSS 的反证。
+func TestDialogSheenCounterProof(t *testing.T) {
+	saved := dialogSheenFn
+	defer func() { dialogSheenFn = saved }()
+	dialogSheenFn = func(c *ui.Context) {
+		ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
+			Radius(18).Clip().PassThrough().Children(func() {
+			for _, b := range gradBands(dialogSheenStops, 4) {
+				ui.Box(c).FillWidth().Grow(1).PassThrough().
+					LinearGradient(ui.LinearGradient{From: b[0], To: b[1], Angle: 135})
+			}
+		})
+	}
+	if worst := dialogSheenWorstDiff(t, 460, 200); worst <= 1 {
+		t.Errorf("退回分带拼法后与 CSS 只差 %d 灰阶，反证不成立", worst)
+	} else {
+		t.Logf("分带拼法实测最坏 %d 灰阶", worst)
+	}
+}

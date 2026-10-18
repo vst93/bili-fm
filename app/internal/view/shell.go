@@ -57,14 +57,10 @@ func (a *App) Shell(c *ui.Context) {
 	})
 }
 
-// backdrop 叠出时段背景渐变。
+// backdrop 铺窗口背景：原版 `#root` 的 `background: var(--liquid-backdrop)` ——
+// 一条 **165° 的多停靠点**线性渐变，整块一次铺满（见 backdrop.go 的说明）。
 func (a *App) backdrop(c *ui.Context) {
-	const bands = 4
-	for _, b := range a.Theme.Period.BackdropBands(bands) {
-		ui.Box(c).FillWidth().Grow(1).LinearGradient(ui.LinearGradient{
-			From: b[0], To: b[1], Angle: 180,
-		})
-	}
+	a.Theme.Period.Fill(ui.Box(c).FillWidth().Grow(1))
 }
 
 // titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧依次是
@@ -216,18 +212,23 @@ func (a *App) titleBar(c *ui.Context) {
 // 参与命中测试，标题栏里按下的就是它（或者它的祖先 —— 带 DragWindow 的那一行），
 // 按钮就再也点不到了。
 func titleBarLayer(c *ui.Context, key string, stops []gradStop, height, opacity float32) {
+	titleBarLayerFn(c, key, stops, height, opacity)
+}
+
+// titleBarLayerFn 是 titleBarLayer 的实际绘制（测试可换成旧的「4 条带拼法」）。
+var titleBarLayerFn = func(c *ui.Context, key string, stops []gradStop, height, opacity float32) {
 	box := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Height(height).PassThrough()
 	// 整层的不透明度走 0.24s 过渡（原版 `transition: opacity 0.24s ease`），
 	// 鼠标进出标题栏时白玻璃与顶沿投影是淡入淡出，不是硬切。
 	box.Opacity(titleBarFade(box, key, opacity))
+	// 一条**多停靠点**渐变整块铺满（`ui.LinearGradient.Stops`），不再按 4 条
+	// 等高带拼。180° 纯垂直下拼法的误差本来就小（实测最坏 2 灰阶，因为渐变线
+	// 与带边垂直，逐带重投影只在带内保留比例），但两处 135° 的同类层误差达
+	// **38 灰阶 / 0.68 alpha**（见 dialogSheen / loginSheen），所以统一走真停靠点：
+	// 一处写法、一处测试口径，也就不再有「某个角度下才出问题」的暗礁。
 	box.Children(func() {
-		ui.Column(c).Fill().PassThrough().Children(func() {
-			for _, b := range gradBands(stops, 4) {
-				ui.Box(c).FillWidth().Grow(1).PassThrough().LinearGradient(ui.LinearGradient{
-					From: b[0], To: b[1], Angle: 180,
-				})
-			}
-		})
+		ui.Box(c).Fill().PassThrough().
+			LinearGradient(ui.LinearGradient{Angle: 180, Stops: gradStops(stops)})
 	})
 }
 
@@ -321,7 +322,7 @@ func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, 
 //
 // 它曾被移除（`53f7cb5`，理由「浮窗应用不需要看似全屏的按钮」），但用户 2026-10-18
 // 明确要求恢复 Linux 的迷你模式；且移除后迷你模式**完全无法从界面进入**
-//（只剩 `--mini` 启动参数），所以本体恢复。
+// （只剩 `--mini` 启动参数），所以本体恢复。
 //
 // 形态：30×30、图标 15px（原版 `<ZoomInternal size="15">`）、常态透明 + 图标 72%，
 // 悬停玻璃底 + 图标转蓝，按下 scale(.94)。

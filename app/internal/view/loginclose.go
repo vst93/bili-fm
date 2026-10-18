@@ -45,6 +45,11 @@ type loginClosePaint struct {
 // 底 / 边 / 投影沿用 :hover 的那套（`:active` 规则里没有 background / border /
 // box-shadow），所以这里按下态只在悬停态之上改 Scale。
 func loginClosePaintFor(hovered, pressed bool) loginClosePaint {
+	return loginClosePaintFn(hovered, pressed)
+}
+
+// loginClosePaintFn 是 loginClosePaintFor 的实际取值（测试可换成「裸图标」做反证）。
+var loginClosePaintFn = func(hovered, pressed bool) loginClosePaint {
 	p := loginClosePaint{
 		BG:     ui.Hex("#ffffff").Alpha(0.20),
 		Border: ui.Hex("#ffffff").Alpha(0.30),

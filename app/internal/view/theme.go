@@ -693,10 +693,25 @@ var titleBarBtnFade = func(b ui.Element, bg, ink ui.Color, opacity float32, redu
 }
 
 // gradStop 是一条多停靠点线性渐变的停靠点（位置 0..1 + 颜色）。原版 CSS 里这类
-// 渐变有 4~5 个停靠点，而 ui.LinearGradient 只有两个颜色，所以按带拼（见 gradBands）。
+// 渐变有 4~9 个停靠点；v0.5.5 起 `ui.LinearGradient.Stops` 原生支持（一条渐变
+// 最多 32 个停靠点），所以**直接用真停靠点**：转成 `[]ui.GradientStop` 即可，
+// 与 CSS 的 `linear-gradient(Adeg, c1 p1%, …)` 逐值等价。
+//
+// 不要退回「按 n 条等高盒子拼」的旧写法（`gradBands`）：那等于把渐变线当成水平的、
+// 逐带重新投影，斜向（135°）渐变的误差实测最坏 **38 灰阶**（见 loginsheen_test.go
+// 的 TestLoginSheenMatchesCSS）。`gradBands` 与 `gradAt` 现只留给测试与按列采样用。
 type gradStop struct {
 	At float32
 	C  ui.Color
+}
+
+// gradStops 把 []gradStop 转成框架的多停靠点渐变停靠点（CSS 的 `c p%`）。
+func gradStops(stops []gradStop) []ui.GradientStop {
+	out := make([]ui.GradientStop, len(stops))
+	for i, s := range stops {
+		out[i] = ui.GradientStop{Color: s.C, At: s.At}
+	}
+	return out
 }
 
 // gradAt 在停靠点之间线性插值采样，与 CSS 的多停靠点线性渐变一致。
@@ -723,8 +738,8 @@ func gradAt(stops []gradStop, t float32) ui.Color {
 	return last.C
 }
 
-// gradBands 把多停靠点渐变切成 n 条等高的带，供视图叠出这块渐变。接缝处两侧
-// 颜色相同，所以看不出拼接 —— 与 Period.BackdropBands 同一手法。
+// gradBands 把多停靠点渐变切成 n 条等高的带。**只给按列取色的旧调用点/测试用**
+// ——视图请用 `gradStops` + `ui.LinearGradient.Stops`（见上）。
 func gradBands(stops []gradStop, n int) [][2]ui.Color {
 	if n < 1 {
 		n = 1

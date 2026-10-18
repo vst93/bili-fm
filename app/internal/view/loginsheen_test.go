@@ -60,7 +60,10 @@ func TestLoginSheenRendered(t *testing.T) {
 	if tl-br < 30 {
 		t.Errorf("左上 %d 应比右下 %d 亮至少 30（白 .2 起、右下全透明）", tl, br)
 	}
-	if got := pixelAt(t, img, 310, 290); got != [3]int{0x40, 0x40, 0x40} {
+	// 右下角取样点必须真的落在 100% 停靠点之外（t = 1 在盒右下角**顶点**，
+	// 而 135° 渐变线过中心，所以顶点附近的 t 只到 ≈0.97，那里还剩一点白）。
+	// 取更右下的位置：`(310,290)` 的 t ≈ 0.969，`(318,298)` 的 t ≈ 0.99。
+	if got := pixelAt(t, img, 318, 298); got != [3]int{0x40, 0x40, 0x40} {
 		t.Errorf("右下角 %v 应为底色 #404040（100%% 停靠点全透明）", got)
 	}
 }
@@ -117,5 +120,65 @@ func TestLoginPanelSheenWired(t *testing.T) {
 	t.Logf("停靠点全透明后：顶部 %d vs 底部 %d，差 %d", top2, bot2, top2-bot2)
 	if top2-bot2 >= 3 {
 		t.Errorf("光泽已置透明，顶部仍比底部亮 %d（面板玻璃自带渐变？断言前提不成立）", top2-bot2)
+	}
+}
+
+// TestLoginSheenMatchesCSS 是无头像素实测：`loginSheen` 必须与 CSS 的
+// `linear-gradient(135deg, 白 .2 → 白 .08 50% → 透明 100%)` 在 320×300 面板上
+// 逐点一致（≤1 灰阶）。
+//
+// 反证（实测过）：退回「按 4 条等高带拼」的旧写法 → 最坏 **38 灰阶**
+// （右下角一带原版几乎全透明，拼法还留着 .18 的白 —— 因为每带都把 135° 的
+// 渐变线当成水平的重新投影）。见 below 的 TestLoginSheenCounterProof。
+func TestLoginSheenMatchesCSS(t *testing.T) {
+	if worst := loginSheenWorstDiff(t, 320, 300); worst > 1 {
+		t.Errorf("loginSheen 与 CSS 135° 差 %d 灰阶（应 ≤1）", worst)
+	}
+}
+
+// loginSheenWorstDiff 在一层中灰底上画 loginSheen，量「渲染 vs CSS 135° 精确
+// 采样（gradAt + cssLinearT）」的最大逐通道差。
+func loginSheenWorstDiff(t *testing.T, w, h int) int {
+	t.Helper()
+	tst := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Size(float32(w), float32(h)).Background(ui.Hex("#404040")).Children(func() {
+			loginSheen(c)
+		})
+	}, w+40, h+40)
+	tst.Frame()
+	img := tst.Image()
+	worst := 0
+	for y := 25; y < h-15; y += 2 {
+		for x := 25; x < w-15; x += 2 {
+			want := gradAt(loginSheenStops, cssLinearT(float32(x)+0.5, float32(y)+0.5,
+				float32(w), float32(h), 135))
+			exp := int(0x40 + float32(want.A)/255*(255-0x40))
+			o := img.PixOffset(x, y)
+			if d := abs32(float32(int(img.Pix[o]) - exp)); int(d) > worst {
+				worst = int(d)
+			}
+		}
+	}
+	return worst
+}
+
+// TestLoginSheenCounterProof 是 TestLoginSheenMatchesCSS 的反证：把实现退回
+// 「4 条等高带拼」的旧写法，与同一 CSS 参考的差应显著 > 1。
+func TestLoginSheenCounterProof(t *testing.T) {
+	saved := loginSheenFn
+	defer func() { loginSheenFn = saved }()
+	loginSheenFn = func(c *ui.Context) {
+		ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
+			Radius(loginSheenRadius).Clip().PassThrough().Children(func() {
+			for _, b := range gradBands(loginSheenStops, 4) {
+				ui.Box(c).FillWidth().Grow(1).PassThrough().
+					LinearGradient(ui.LinearGradient{From: b[0], To: b[1], Angle: 135})
+			}
+		})
+	}
+	if worst := loginSheenWorstDiff(t, 320, 300); worst <= 1 {
+		t.Errorf("退回分带拼法后与 CSS 只差 %d 灰阶，反证不成立", worst)
+	} else {
+		t.Logf("分带拼法实测最坏 %d 灰阶", worst)
 	}
 }

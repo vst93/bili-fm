@@ -388,14 +388,16 @@ func (a *App) modalButton(c *ui.Context, btn ModalButton, fn func()) {
 // 之上（圆角由父级的 overflow:hidden 裁）。这里同样 Absolute 到父级内边距盒、
 // 用 Radius + Clip 裁圆角，整棵子树 PassThrough —— 它盖在正文与按钮上方，
 // 只要参与命中测试，面板里点任何东西都会落到它身上。
-func dialogSheen(c *ui.Context) {
+//
+// 一条**多停靠点**渐变整块铺满，不再按 4 条等高带拼（拼法的斜向误差实测最坏
+// **38 灰阶**，见 dialog_test.go 的 TestDialogSheenMatchesCSS）。
+func dialogSheen(c *ui.Context) { dialogSheenFn(c) }
+
+// dialogSheenFn 是 dialogSheen 的实际绘制（测试可换成旧的「4 条带拼法」做反证）。
+var dialogSheenFn = func(c *ui.Context) {
 	ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
-		Radius(18).Clip().PassThrough().Children(func() {
-		for _, b := range gradBands(dialogSheenStops, 4) {
-			ui.Box(c).FillWidth().Grow(1).PassThrough().
-				LinearGradient(ui.LinearGradient{From: b[0], To: b[1], Angle: 135})
-		}
-	})
+		Radius(18).Clip().PassThrough().
+		LinearGradient(ui.LinearGradient{Angle: 135, Stops: gradStops(dialogSheenStops)})
 }
 
 // dialogTypeStyle 是对话框类型的视觉参数（原版 DialogProvider 的 iconForType /

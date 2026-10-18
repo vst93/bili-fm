@@ -108,10 +108,27 @@ func TestModalScrimDimsWindow(t *testing.T) {
 }
 
 // TestLoginCloseButtonGlassCircle 是无头渲染实测：登录关闭键画成了半透明白色
-// 磨砂圆，而不是裸图标。关闭键贴在面板右缘（right:-16），右半落在遮罩上——
-// 取键内右侧（图标之外）的像素，应比键外同一行的遮罩像素更亮（白 .2 底 + 白
-// .3 描边）。此前是裸图标，键内与遮罩逐像素相同（差值 ~0，断言会红）。
+// 磨砂圆，而不是裸图标。关闭键贴在面板右缘，右半落在遮罩上——取键内右侧
+// （图标之外）的像素，应比键外同一行的遮罩像素更亮（白 .2 底 + 白 .3 描边）。
+//
+// 阈值 **5**：真实键实测差 **7**，换成裸图标（下面 TestLoginCloseButtonNakedCounterProof
+// 把取值函数换成「无底无边」）实测 **0** —— 5 落在两者中间。
+//
+// 注：这个阈值此前写的是 8。那是**随被感染的实现走的旧断言**：登录面板那层
+// 135° 光泽用「4 条等高带拼」近似时（见 loginsheen.go），面板右下角一带被
+// 多铺了约 .18 的白，把遮罩与键内的基线一起抬高、差值也跟着虚大到 8。光泽
+// 改成真多停靠点渐变后基线回正（实测差 7），8 就成了假红。这正是「旧断言拿
+// 被感染的实现当期望值」的又一例。
 func TestLoginCloseButtonGlassCircle(t *testing.T) {
+	d := loginCloseDelta(t)
+	if d < 5 {
+		t.Errorf("关闭键内不比遮罩亮：差 %d（应为半透明白圆，非裸图标）", d)
+	}
+}
+
+// loginCloseDelta 返回「关闭键内右侧像素 − 键外同一行遮罩像素」的亮度差。
+func loginCloseDelta(t *testing.T) int {
+	t.Helper()
 	tst := loginProbe(t)
 	r, ok := tst.Find("关闭登录")
 	if !ok {
@@ -120,11 +137,22 @@ func TestLoginCloseButtonGlassCircle(t *testing.T) {
 	cy := int(r.Y + r.H/2)
 	inside := pixelAt(t, tst.Image(), int(r.X+r.W-4), cy)
 	outside := pixelAt(t, tst.Image(), int(r.X+r.W+6), cy)
-	d := lum(inside) - lum(outside)
+	delta := lum(inside) - lum(outside)
 	t.Logf("关闭键 rect=%+v；键内 %v(亮度 %d) vs 键外遮罩 %v(亮度 %d)，差 %d",
-		r, inside, lum(inside), outside, lum(outside), d)
-	if d < 8 {
-		t.Errorf("关闭键内不比遮罩亮：差 %d（应为半透明白圆，非裸图标）", d)
+		r, inside, lum(inside), outside, lum(outside), delta)
+	return delta
+}
+
+// TestLoginCloseButtonNakedCounterProof 是上一条的反证：把关闭键的取值换成
+// 「无底、无边、无影」（裸图标），键内与键外遮罩应逐像素相同。
+func TestLoginCloseButtonNakedCounterProof(t *testing.T) {
+	saved := loginClosePaintFn
+	defer func() { loginClosePaintFn = saved }()
+	loginClosePaintFn = func(hovered, pressed bool) loginClosePaint {
+		return loginClosePaint{Scale: 1}
+	}
+	if d := loginCloseDelta(t); d != 0 {
+		t.Errorf("裸图标时键内比遮罩亮 %d，反证不成立（应为 0）", d)
 	}
 }
 
