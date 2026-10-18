@@ -25,5 +25,14 @@ func glassLayer(g glass.Glass) glass.Glass {
 	return g
 }
 
+// blurLayer 是 glassLayer 的「只模糊不染色」版（glass.Blur）：同样读一次
+// backdrop，所以同样计数。原版 CSS 里 `backdrop-filter` 与 `background` 是两件
+// 独立的事 —— 有些表面（toast）的 background 被内联渐变整个顶掉，只留模糊，
+// 这时用 Regular 玻璃会把白调亮，比原版白一档。
+func blurLayer(b glass.Blur) glass.Blur {
+	backdropLayers.Add(1)
+	return b
+}
+
 // BackdropLayers 返回并清零自上次调用以来构建的 backdrop 层数，供测试断言。
 func BackdropLayers() int { return int(backdropLayers.Swap(0)) }

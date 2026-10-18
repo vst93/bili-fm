@@ -645,6 +645,25 @@ var titleBarBtnHighlight = func(b ui.Element, active, hovered bool) ui.Element {
 // tbIncognitoRestInk）；唤出态是 .82，本来就高于这个下限，不受影响。
 const tbIncognitoRestInk = float32(0.62)
 
+// glassBlurSigma 是 `--glass-blur: blur(20px) saturate(1.45)`（globals.css:959）
+// 里的 20，交给 glass.Blur.Radius（它的文档说明这就是 CSS blur() 的那个值，
+// 即高斯标准差）。框架的玻璃材质没有 saturate 这一项，其余按原版照抄。
+const glassBlurSigma float32 = 20
+
+// paintGlassPanelFill 把 `--glass-bg`（白 .24）铺在面板边框的内缘。
+//
+// 用在「原版 background 是 --glass-bg、backdrop-filter 是 --glass-blur」的面板
+// （toast / 设置下拉 / 合作 UP 主下拉）：它们的材质是 glass.Blur（只模糊、不
+// 染色），底色必须自己补 —— 用 glass.Glass{}（Regular）会让面板比原版白一档
+// （实测 +21 灰阶，原版白 .24 只值 +6）。inset 1px 是为了不盖住面板自己的
+// `1px var(--glass-border)`：Draw 在 background/border 之后跑。
+func paintGlassPanelFill(p *ui.Painter, r ui.Rect, radius float32, c ui.Color) {
+	if c.A == 0 {
+		return
+	}
+	p.Fill(ui.Rect{X: r.X + 1, Y: r.Y + 1, W: r.W - 2, H: r.H - 2}, c, max(radius-1, 0))
+}
+
 // titleBarReveal 是标题栏的 hover-to-reveal 两态（原版 .app-title-bar 的
 // `:hover` / `:focus-within`），返回四层的不透明度：
 //

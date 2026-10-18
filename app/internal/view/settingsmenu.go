@@ -67,19 +67,27 @@ func settingsItemPaint(t Theme, hovered, pressed bool) (bg ui.Color, inset bool,
 // settingsMenu 是设置键的下拉面板。用 PopoverBase：框架负责开合、点外部关、
 // Esc 关与焦点归还，面板本身由这里照原版上材质。
 func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
+	t := a.Theme
 	ui.PopoverBase(c, anchor, &a.ShowSettings, func(panel ui.Element) {
 		// 原版 #settings-menu：min-w 120、圆角 8、py-1、玻璃底 + 白边 + 两层投影。
 		// 材质用框架玻璃（与原版同一种液态玻璃，自带边缘聚光），外投影按原版
 		// 的 --glass-specular + 0 18px 44px 补上。
 		panel.MinWidth(settingsMenuMinW).Padding(settingsMenuPadY, 0).
 			Radius(settingsMenuRadius).Margin(settingsMenuGap, 0, 0, 0).
-			Material(glassLayer(glass.Glass{})).
+			// 材质：原版 #settings-menu 是 `background-color: var(--glass-bg)`
+			// （白 .24）+ `backdrop-filter: var(--liquid-blur)`（blur 20px）。
+			// 用 glass.Blur（只模糊）+ 自铺白 .24 才对得上；此前用 Regular
+			// 玻璃（glass.Glass{}）会把面板提亮 —— 实测面板右中比背景亮 +20.9
+			// 灰阶，原版白 .24 只值 +6，整块比原版白一档。
+			Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+			Border(1, t.GlassBorder).
 			// 原版 `#settings-menu { background-image: var(--glass-sheen-static)
 			// !important }`（globals.css:1928）：在玻璃底之上、条目之下再铺一层
 			// 「左上径向热点 + 170° 斜向洗光」。此前只画了玻璃材质，面板顶左比
 			// 原版平一档（同为玻璃浮层的抽屉 tab / 搜索框 / 播放栏都已铺这条洗光，
 			// 只有设置菜单与合作 UP 主下拉漏着）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
+				paintGlassPanelFill(p, r, settingsMenuRadius, t.Glass)
 				paintBakedSheen(p, r, settingsMenuRadius, sheenGlassBaked)
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).

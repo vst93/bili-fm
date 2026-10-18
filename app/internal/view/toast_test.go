@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,5 +403,53 @@ func TestToastSpecularInsets(t *testing.T) {
 	if topRow-inner < 3 {
 		t.Errorf("顶行 %.1f 未明显亮于内部 %.1f —— --glass-specular 顶缘内高光没接上",
 			topRow, inner)
+	}
+}
+
+// TestToastBlurOnlyMaterial 钉住 toast 的底材质：原版 `.toast-glass` 的
+// `background: var(--glass-bg)`（白 .24）被 Toast.tsx 的内联 `style.background`
+// 简写整个顶掉，只剩 `backdrop-filter: blur(20px) saturate(1.45)` + 内联渐变。
+// 因此这里必须用 `glass.Blur`（只模糊、不 frosts/lightens），不能用
+// `glass.Glass{}`（Regular 材质会把玻璃下的东西提亮，整块比原版白一档 ——
+// 这正是 11-07 剩余差异 ④）。边框是 `.toast-glass` 的
+// `border: 1px solid var(--glass-border)` = 白 .55。
+//
+// 反证：把 blurLayer(glass.Blur{...}) 改回 glassLayer(glass.Glass{}) → 第一条红；
+// 去掉 Border(1, toastBorder()) → 第二条红。
+func TestToastBlurOnlyMaterial(t *testing.T) {
+	if glassBlurSigma != 20 {
+		t.Errorf("glassBlurSigma = %v，应为 20（--glass-blur 的 blur(20px)）", glassBlurSigma)
+	}
+	if b := ThemeFor(PeriodAt(12)).GlassBorder; b.A != 140 || b.R != 255 || b.G != 255 || b.B != 255 {
+		t.Errorf("Theme.GlassBorder = %v，应为白 .55 = alpha 140（--glass-border: rgba(255,255,255,0.55)）", b)
+	}
+	flat := flattenNoComments(t, "toast.go")
+	if !strings.Contains(flat, `Material(blurLayer(glass.Blur{Radius:glassBlurSigma}))`) {
+		t.Error("toast 底材质不是 glass.Blur（只模糊不染色）——Regular 玻璃会比原版白")
+	}
+	if strings.Contains(flat, "glass.Glass{}") {
+		t.Error("toast 仍用了 glass.Glass{}（Regular 材质会提亮，原版的背景已被内联渐变顶掉）")
+	}
+	if !strings.Contains(flat, `Border(1,a.Theme.GlassBorder)`) {
+		t.Error("toast 没有 1px 白 .55 边框（.toast-glass 的 --glass-border）")
+	}
+}
+
+// TestToastNoGlassLift 无头渲染实测：渐变在右下角几乎透明（类型色 8%），
+// 所以面板右下角内侧应当≈同一处背景 —— Regular 玻璃会把这块明显提亮。
+// 取面板右下角内侧 6×6 与正下方同宽的一带比，差超过 6 灰阶即视为被提亮
+// （实测 blur-only 约 1~3；改回 glass.Glass{} 后 >10）。
+func TestToastNoGlassLift(t *testing.T) {
+	tst, r := toastProbe(t, "success", "已收藏")
+	panel := toastPanelRect(r)
+	img := tst.Image()
+	x1 := int(panel.X+panel.W) - 14
+	y1 := int(panel.Y+panel.H) - 5
+	inside := avgLuma(img, x1-6, y1-6, x1, y1)
+	outside := avgLuma(img, x1-6, y1+7, x1, y1+13)
+	t.Logf("toast 右下角内侧 %.1f / 正下方背景 %.1f（差 %.1f）", inside, outside, inside-outside)
+	if inside-outside > 6 {
+		t.Errorf("右下角内侧 %.1f 比背景 %.1f 亮 %.1f —— 玻璃把底提亮了（应为只模糊不染色）",
+			inside, outside, inside-outside)
 	}
 }

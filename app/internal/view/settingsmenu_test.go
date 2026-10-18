@@ -98,8 +98,13 @@ func TestSettingsMenuGeometry(t *testing.T) {
 		t.Errorf("首条目上缘 = %.1f，应为 %.1f（设置键下缘 + %d + %d）",
 			items[0].Y, wantTop, settingsMenuGap, settingsMenuPadY)
 	}
-	if items[0].W < settingsMenuMinW-1 {
-		t.Errorf("条目宽 = %.1f，应不小于面板 min-width %d", items[0].W, settingsMenuMinW)
+	// 原版 Tailwind preflight 是 `box-sizing: border-box`：min-width 120 是**含
+	// 1px 边框**的外宽，条目 `w-full` 拿到的是内容宽 118。面板本轮补上了
+	// `border: 1px solid var(--glass-border) !important`（globals.css:1926），
+	// 所以条目宽从 120 变成 118 —— 这正是原版渲染出来的数字。
+	if d := items[0].W - (settingsMenuMinW - 2); d < -1 || d > 1 {
+		t.Errorf("条目宽 = %.1f，应为 min-width %d 减两侧 1px 边框 = %d",
+			items[0].W, settingsMenuMinW, settingsMenuMinW-2)
 	}
 	// 面板没有左右内边距，所以所有条目（含底部隐身开关行）都铺满同一宽度。
 	for i := 1; i < len(items); i++ {

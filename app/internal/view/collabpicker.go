@@ -220,12 +220,17 @@ func (a *App) collabMenu(c *ui.Context, anchor ui.Element) {
 		panel.Width(collabMenuWidthFor(windowWidth(c))).
 			Padding(collabMenuPad).Radius(collabMenuRadius).
 			Margin(collabMenuGap, 0, 0, 0).
-			Material(glassLayer(glass.Glass{})).
+			// 材质：原版 .video-owner-picker-menu 是 `background: var(--glass-bg)`
+			// （白 .24）+ `backdrop-filter: var(--liquid-blur)`，与设置下拉同一族，
+			// 同样用「只模糊 + 自铺白 .24」（Regular 玻璃会把面板提亮一档）。
+			Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+			Border(1, t.GlassBorder).
 			// 原版 `.video-owner-picker-menu { background-image:
 			// var(--glass-sheen-static) }`（globals.css:2136）：玻璃底之上、条目
 			// 之下那层「左上径向热点 + 170° 斜向洗光」。此前漏画，面板顶左
 			// 比原版平一档（同一族：设置菜单本轮一并补上）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
+				paintGlassPanelFill(p, r, collabMenuRadius, t.Glass)
 				paintBakedSheen(p, r, collabMenuRadius, sheenGlassBaked)
 			}).
 			InsetShadow(0, 1, 1, 0, t.Highlight).

@@ -32,6 +32,13 @@ var toastTransition = func() ui.ElementTransition {
 // toastRadius 是 .toast-glass 的 `border-radius: 13px`。
 const toastRadius = 13
 
+// 注意 toast 的原版**没有**玻璃底色：Toast.tsx 的内联 `style.background` 是
+// 简写，把 `.toast-glass` 的 `background: var(--glass-bg)`（白 .24）一起顶掉了，
+// 只剩 `backdrop-filter: var(--glass-blur)`（blur 20px）+ 内联渐变。所以这里
+// 必须用 glass.Blur（只模糊、不染色/不提亮）+ 内联渐变，不能用 glass.Glass{}——
+// 后者是 Regular 材质，会把玻璃下的东西「frosts and lightens」，整块比原版白
+// 一档（实测右下角比背景亮 +18.5 灰阶，改后 +2.1）。
+
 // toastSpecularInsets 是 .toast-glass 的 `box-shadow: var(--glass-specular)` 那两层
 // 内影（globals.css:964）：顶缘 1px 白 .9 的聚光 + 下缘 1px 深 slate .06 的暗线。
 // 框架玻璃只在 1px 环上做边缘折光，顶不到 .9 的高光，也没有那条下缘暗线，
@@ -66,12 +73,14 @@ func (a *App) toastViewport(c *ui.Context) {
 			from, to := toastFillStops(tint)
 			// 入场/退场：原版是 CSS transition（上方 8px、300ms）。
 			p.Root.Transition(toastTransition())
-			// 材质用框架玻璃打底（原版 .toast-glass 的 backdrop-filter +
-			// 玻璃底 + 白边）；类型色那层不写成玻璃 Tint（会变成整块匀色），
-			// 而是按原版做成第一个子节点里的 135° 渐变 —— 盖在玻璃之上、
-			// 内容之下（LinearGradient 会顶掉 Material，所以只能分层）。
+			// 材质用「只模糊不染色」的 glass.Blur 打底（原版 .toast-glass 的
+			// `backdrop-filter: blur(20px) saturate(1.45)`；saturate 框架没有对应
+			// 项）。**不能**用 glass.Glass{}：原版 Toast.tsx 的内联 background
+			// 把 .toast-glass 的白 .24 底色一起顶掉了，Regular 玻璃的提亮会让整块
+			// 比原版白一档（这正是 11-07 剩余差异 ④）。
 			p.Root.Row().Gap(8).Padding(8, 16).Radius(toastRadius).
-				Material(glassLayer(glass.Glass{})).
+				Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+				Border(1, a.Theme.GlassBorder).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
 			ins := toastSpecularInsets()

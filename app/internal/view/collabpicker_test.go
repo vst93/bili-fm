@@ -154,8 +154,10 @@ func TestCollabMenuGeometry(t *testing.T) {
 	if d := got.X - (btn.X + collabMenuPad); d < -1.5 || d > 1.5 {
 		t.Errorf("条目左缘 = %.1f，应为触发键左缘 %.1f + %d", got.X, btn.X, collabMenuPad)
 	}
-	if d := got.W - (collabMenuWidth - 2*collabMenuPad); d < -1.5 || d > 1.5 {
-		t.Errorf("条目宽 = %.1f，应为 %d", got.W, collabMenuWidth-2*collabMenuPad)
+	// 面板本轮补上 1px 边框（原版 `.video-owner-picker-menu` 的白边），
+	// box-sizing: border-box 下条目宽相应少 2：240 - 2*4 - 2 = 230。
+	if d := got.W - (collabMenuWidth - 2*collabMenuPad - 2); d < -1.5 || d > 1.5 {
+		t.Errorf("条目宽 = %.1f，应为 %d", got.W, collabMenuWidth-2*collabMenuPad-2)
 	}
 	if d := got.H - collabItemMinH; d < -1.5 || d > 1.5 {
 		t.Errorf("无角色条目高 = %.1f，应为 %d", got.H, collabItemMinH)
