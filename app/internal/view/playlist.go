@@ -207,12 +207,18 @@ func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
 // 文案色/字重来自同一作用域的覆写：.text-gray-800 → #1e293b/600、
 // .text-gray-400 → #64748b、当前项首行 → #064e7a/800、末行 → #334155/600。
 //
-// 说明（框架硬底）：当前项:hover / 拖拽态的 CSS 是**三段**线性渐变
-// （天蓝 .36 → .20@42% → 白 .62），mygo 的 LinearGradient 只有两段
-// （From/To），所以两端取值、中间用两段插值近似。
+// 说明（2026-10-26 修）：当前项:hover 的 CSS 是**三段**线性渐变
+// （天蓝 .36 → .20@42% → 白 .62），mygo 此前只有两段（From/To），中间只能
+// 按两端插值近似。渲染器按**预乘 alpha** 插值，两段近似在 42% 处混出的
+// 颜色比原版亮一档但量级不大（浅色面板上实测逐通道 ≤6）；换成 v0.5.5 的
+// `ui.LinearGradient.Stops` 真三段后与 CSS 逐值一致，也不再依赖面板底色
+// （压在暗面板上时两段近似会明显偏白）。见 playlistCurrentHoverStops。
+// 拖拽态原版本身就是两段（.24→白 .56），不动。
 type playlistPaint struct {
 	From, To    ui.Color // 渐变/纯色底；Gradient 为假时只用 From
 	Gradient    bool
+	// Stops 非空时替代 From/To（多停靠点渐变，逐值对应原版 CSS）。
+	Stops []ui.GradientStop
 	Border      ui.Color
 	Accent      ui.Color // 左缘强调条；AccentWidth 为 0 表示不画
 	AccentW     float32
@@ -226,6 +232,20 @@ type playlistPaint struct {
 	PartWeight  int
 	TitleInk    ui.Color
 	TitleWeight int
+}
+
+// playlistCurrentHoverStops 是当前项悬停时的三段渐变停靠点（原版
+// `[data-slot="wrapper"] .playlist-current:hover`）：
+//
+//	linear-gradient(90deg, rgba(14,165,233,.36), rgba(14,165,233,.2) 42%, rgba(255,255,255,.62))
+//
+// 声明成 var 便于测试换桩退回旧的两段近似做反证。
+var playlistCurrentHoverStops = func() []ui.GradientStop {
+	return []ui.GradientStop{
+		{Color: ui.Hex("#0ea5e9").Alpha(0.36), At: 0},
+		{Color: ui.Hex("#0ea5e9").Alpha(0.20), At: 0.42},
+		{Color: ui.Hex("#ffffff").Alpha(0.62), At: 1},
+	}
 }
 
 // playlistRowPaint 返回播放列表一行的配色。状态优先级与原版 CSS 一致：
@@ -267,6 +287,7 @@ func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
 			p.From = ui.Hex("#0ea5e9").Alpha(0.36)
 			p.To = ui.Hex(white).Alpha(0.62)
 			p.Gradient = true
+			p.Stops = playlistCurrentHoverStops()
 			p.Border = ui.Hex("#0284c7").Alpha(0.58)
 		}
 	case hovered:
@@ -279,6 +300,7 @@ func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
 	}
 	if pressed {
 		p.Gradient = false
+		p.Stops = nil
 		p.To = ui.Transparent
 		p.Ring = false
 		if current {
@@ -371,10 +393,14 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	}
 
 	p := playlistRowPaint(current, rowHovered, dragOver, row.Pressed())
-	if p.Gradient {
-		// 原版 .playlist-current 的蓝→白 90° 渐变。
+	switch {
+	case len(p.Stops) > 0:
+		// 原版 .playlist-current:hover 的三段蓝→白渐变（逐值见停靠点函数）。
+		row.LinearGradient(ui.LinearGradient{Angle: 90, Stops: p.Stops})
+	case p.Gradient:
+		// 拖拽悬停：原版 `.bg-blue-50` 覆写为两段天蓝→白渐变。
 		row.Gradient(p.From, p.To, 90)
-	} else {
+	default:
 		row.Background(p.From)
 	}
 	row.Border(1, p.Border).InsetShadow(0, 1, 0, 0, p.InsetTop)

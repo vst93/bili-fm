@@ -1,6 +1,8 @@
 package view
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -74,6 +76,15 @@ func ownerFaceFocusShadows() []shadowSpec {
 	}
 }
 
+// ownerGlassFadeAnim 是玻璃罩悬停淡出的过渡：原版
+// `.video-owner-wrap::before { transition: opacity 0.2s ease }`（CSS 的 ease =
+// cubic-bezier(.25,.1,.25,1)）。原生版此前直接 set 目标不透明度，悬停/移开是
+// 硬切；这里走 AnimateTo，与播放栏/标题栏的悬停过渡同一条路子。
+var ownerGlassFadeAnim = ui.Animation{
+	Duration: 200 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // ownerGlassOpacity 是玻璃罩的透明度：常态 1，悬停 .7
 // （原版 .video-owner-wrap:hover::before）。
 func ownerGlassOpacity(hovered bool) float32 {
@@ -83,50 +94,41 @@ func ownerGlassOpacity(hovered bool) float32 {
 	return 1
 }
 
-// ownerGlassTopGradient 是玻璃罩上半段（原版 180° 渐变的 0% → 45%：
-// 白 .22 → 白 .06）。
-func ownerGlassTopGradient() ui.LinearGradient {
+// ownerGlassGradient 是玻璃罩的整条渐变（原版 `.video-owner-wrap::before` 的
+// 180° 三段渐变）：
+//
+//	linear-gradient(180deg,
+//	    rgba(255,255,255,.22) 0%,
+//	    rgba(255,255,255,.06) 45%,
+//	    rgba(14,165,233,.06) 100%)
+//
+// v0.5.5 起 `ui.LinearGradient.Stops` 支持任意停靠点，于是一条渐变即可。
+// 此前框架只有两端，这里拆成两层绝对定位的圆（上半段 0→45% 白 .22→.06、
+// 下半段 45%→100% 透明→蓝 .06）—— 下半段那条透明的起点让**上半层的白 .06
+// 一直垫在蓝下面**，底部 55% 多出一层 6% 白，深色封面上是一层可见的奶雾。
+// 单层三段渐变与 CSS 逐值一致（见 ownerface_test.go 的底部像素反证）。
+func ownerGlassGradient() ui.LinearGradient {
 	return ui.LinearGradient{
-		From:  ui.Hex("#ffffff").Alpha(0.22),
-		To:    ui.Hex("#ffffff").Alpha(0.06),
 		Angle: 180,
-		Start: 0,
-		End:   0.45,
-	}
-}
-
-// ownerGlassBottomGradient 是玻璃罩下半段（原版 180° 渐变的 45% → 100%：
-// 白 .06 → 蓝 .06）。mygo 的 LinearGradient 只有两端，所以和上半段拼出三停靠点：
-// 下半段在 45% 之前是透明的，45% 处由上半段的「45% 之后恒为白 .06」兜住。
-func ownerGlassBottomGradient() ui.LinearGradient {
-	return ui.LinearGradient{
-		From:  ui.Transparent,
-		To:    ui.Hex("#0ea5e9").Alpha(0.06),
-		Angle: 180,
-		Start: 0.45,
-		End:   1,
+		Stops: []ui.GradientStop{
+			{Color: ui.Hex("#ffffff").Alpha(0.22), At: 0},
+			{Color: ui.Hex("#ffffff").Alpha(0.06), At: 0.45},
+			{Color: ui.Hex("#0ea5e9").Alpha(0.06), At: 1},
+		},
 	}
 }
 
 // ownerGlassOverlay 画 UP 主头像上的磨砂玻璃罩（原版 .video-owner-wrap::before）：
-// 48×48 圆、锚在 wrap 左上、盖在头像上、不吃指针。
+// 48×48 圆、锚在 wrap 左上、盖在头像上、不吃指针；常态 opacity 1、悬停 .7，
+// 外加原版两道 inset（上缘白高光、下缘墨影，画在渐变之上）。
 //
-// 原版是一个三停靠点的渐变 + 两道 inset；mygo 的 LinearGradient 只有两端，
-// 所以拆成两层绝对定位的圆：上层铺 0→45%，下层铺 45→100% 并带 inset 高光。
-// 两层共用同一个 opacity（常态 1 / 悬停 .7）。
-func ownerGlassOverlay(c *ui.Context, hovered bool) {
-	op := ownerGlassOpacity(hovered)
-
-	top := ui.Box(c).Absolute().Left(0).Top(0).
+// 声明成 var 便于测试换桩退回旧的两层画法做反证。
+var ownerGlassOverlay = func(c *ui.Context, hovered bool) {
+	glass := ui.Box(c).Absolute().Left(0).Top(0).
 		Size(ownerGlassSize, ownerGlassSize).Radius(RadiusPill).PassThrough()
-	top.Opacity(op)
-	top.LinearGradient(ownerGlassTopGradient())
-
-	bottom := ui.Box(c).Absolute().Left(0).Top(0).
-		Size(ownerGlassSize, ownerGlassSize).Radius(RadiusPill).PassThrough()
-	bottom.Opacity(op)
-	bottom.LinearGradient(ownerGlassBottomGradient())
-	// 原版的两道 inset（画在渐变之上）：上缘白高光、下缘墨影。
-	bottom.InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.60))
-	bottom.InsetShadow(0, -1, 2, 0, shadowInk.Alpha(0.08))
+	glass.Opacity(glass.AnimateTo("owner-glass-fade",
+		ownerGlassOpacity(hovered), ownerGlassFadeAnim))
+	glass.LinearGradient(ownerGlassGradient())
+	glass.InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.60))
+	glass.InsetShadow(0, -1, 2, 0, shadowInk.Alpha(0.08))
 }

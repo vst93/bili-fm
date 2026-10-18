@@ -13,7 +13,7 @@ import (
 // .playlist-current / .playlist-current:hover / [class*="bg-blue-50"] /
 // :active 六组规则。这些是用户可感知的差异：原生版此前常态没有玻璃卡底、
 // 悬停只有白 .38、文案色用了 Tailwind 原值（未被绘板的覆写），当前项也只
-// 有两段渐变。
+// 有两段渐变（原版悬停是三段，见 playlistCurrentHoverStops）。
 func TestPlaylistRowPaintStates(t *testing.T) {
 	const white = "#ffffff"
 
@@ -92,9 +92,23 @@ func TestPlaylistRowPaintStates(t *testing.T) {
 
 	t.Run("当前项悬停", func(t *testing.T) {
 		p := playlistRowPaint(true, true, false, false)
-		if !p.Gradient || p.From != ui.Hex("#0ea5e9").Alpha(0.36) || p.To != ui.Hex(white).Alpha(0.62) {
-			t.Errorf("当前项悬停渐变 = %v→%v (gradient=%v), want 天蓝 .36→白 .62",
-				p.From, p.To, p.Gradient)
+		if !p.Gradient {
+			t.Fatal("当前项悬停应是渐变底")
+		}
+		// 原版是**三段**渐变（天蓝 .36 → .20@42% → 白 .62）；两段近似在 42%
+		// 处的停靠色不是 .20 天蓝（按预乘插值混成浅一档）。逐停靠点钉住。
+		want := []ui.GradientStop{
+			{Color: ui.Hex("#0ea5e9").Alpha(0.36), At: 0},
+			{Color: ui.Hex("#0ea5e9").Alpha(0.20), At: 0.42},
+			{Color: ui.Hex(white).Alpha(0.62), At: 1},
+		}
+		if len(p.Stops) != len(want) {
+			t.Fatalf("当前项悬停停靠点 %d 个，want %d（原版三段渐变）", len(p.Stops), len(want))
+		}
+		for i := range want {
+			if p.Stops[i] != want[i] {
+				t.Errorf("停靠点 %d = %+v，want %+v", i, p.Stops[i], want[i])
+			}
 		}
 		if p.Border != ui.Hex("#0284c7").Alpha(0.58) {
 			t.Errorf("当前项悬停边 = %v, want 2,132,199 .58", p.Border)

@@ -93,15 +93,22 @@ func TestOwnerFacePaintFor(t *testing.T) {
 		t.Errorf("玻璃罩透明度 = %v / %v，应为 1 / .7", ownerGlassOpacity(false), ownerGlassOpacity(true))
 	}
 
-	top := ownerGlassTopGradient()
-	if top.From != ui.Hex("#ffffff").Alpha(0.22) || top.To != ui.Hex("#ffffff").Alpha(0.06) ||
-		top.Angle != 180 || top.End != 0.45 {
-		t.Errorf("玻璃罩上半段 = %+v，应为 180° 白 .22 → 45%% 白 .06", top)
+	// 原版是一条 180° 三段渐变：白 .22 → 45% 白 .06 → 100% 蓝 .06。
+	// 旧实现拆成两层（上半段 + 下半段），下半层的「透明起点」让白 .06 一直
+	// 垫在蓝下面，底部多一层 6% 白；单层三段与 CSS 逐值一致。
+	glass := ownerGlassGradient()
+	want := []ui.GradientStop{
+		{Color: ui.Hex("#ffffff").Alpha(0.22), At: 0},
+		{Color: ui.Hex("#ffffff").Alpha(0.06), At: 0.45},
+		{Color: ui.Hex("#0ea5e9").Alpha(0.06), At: 1},
 	}
-	bottom := ownerGlassBottomGradient()
-	if bottom.From.A != 0 || bottom.To != ui.Hex("#0ea5e9").Alpha(0.06) ||
-		bottom.Angle != 180 || bottom.Start != 0.45 || bottom.End != 1 {
-		t.Errorf("玻璃罩下半段 = %+v，应为 180° 透明 → 100%% 蓝 .06（45%% 起）", bottom)
+	if glass.Angle != 180 || len(glass.Stops) != len(want) {
+		t.Fatalf("玻璃罩渐变 = %+v，应为 180° 三段", glass)
+	}
+	for i := range want {
+		if glass.Stops[i] != want[i] {
+			t.Errorf("玻璃罩停靠点 %d = %+v，应为 %+v", i, glass.Stops[i], want[i])
+		}
 	}
 }
 
@@ -166,5 +173,122 @@ func TestOwnerGlassDimsOnHover(t *testing.T) {
 	lum := func(c [3]int) int { return c[0] + c[1] + c[2] }
 	if lum(rest)-lum(hover) < 12 {
 		t.Errorf("悬停时玻璃罩应明显更透明、像素变暗：静息=%v 悬停=%v", rest, hover)
+	}
+}
+
+// legacyOwnerGlassOverlay 是旧的两层画法（上半段 + 下半段），只为反证保留。
+func legacyOwnerGlassOverlay(c *ui.Context, hovered bool) {
+	op := ownerGlassOpacity(hovered)
+	top := ui.Box(c).Absolute().Left(0).Top(0).
+		Size(ownerGlassSize, ownerGlassSize).Radius(RadiusPill).PassThrough()
+	top.Opacity(op)
+	top.LinearGradient(ui.LinearGradient{
+		From: ui.Hex("#ffffff").Alpha(0.22), To: ui.Hex("#ffffff").Alpha(0.06),
+		Angle: 180, Start: 0, End: 0.45,
+	})
+	bottom := ui.Box(c).Absolute().Left(0).Top(0).
+		Size(ownerGlassSize, ownerGlassSize).Radius(RadiusPill).PassThrough()
+	bottom.Opacity(op)
+	bottom.LinearGradient(ui.LinearGradient{
+		From: ui.Transparent, To: ui.Hex("#0ea5e9").Alpha(0.06),
+		Angle: 180, Start: 0.45, End: 1,
+	})
+	bottom.InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.60))
+	bottom.InsetShadow(0, -1, 2, 0, shadowInk.Alpha(0.08))
+}
+
+// TestOwnerGlassBottomHasNoExtraWhite 无头实测玻璃罩底部不再多一层 6% 白。
+//
+// 原版是一条 180° 三段渐变（白 .22 → 45% 白 .06 → 100% 蓝 .06）。旧实现拆成
+// 两层：上半层在 45% 之后是**实心白 .06**（End=.45），下半层从 .45 起由透明
+// 渐变到蓝 .06 —— 于是底部同时有白 .06 与蓝 .06，比原版多一层 6% 白，在深色
+// 封面上是一层可见的奶雾。压深色底取样，底部亮度应比旧画法低。
+func TestOwnerGlassBottomHasNoExtraWhite(t *testing.T) {
+	measure := func(overlay func(*ui.Context, bool)) float32 {
+		orig := ownerGlassOverlay
+		defer func() { ownerGlassOverlay = orig }()
+		ownerGlassOverlay = overlay
+
+		_, tst := ownerProbeOn(t, ui.Hex("#101820"))
+		face, ok := tst.Find("UP 主空间")
+		if !ok {
+			t.Fatal("找不到 UP 主头像")
+		}
+		img := tst.Image()
+		cx := int(face.X + face.W/2)
+		cy := int(face.Y + face.H)
+		var sum float32
+		var n int
+		// 头像（44，margin 2）压在玻璃罩（48）里，四周留出 2px 玻璃环：
+		// 环上只有玻璃渐变，压在深色底上，正是旧画法多出的那层白最显形的地方。
+		for y := cy; y < cy+2; y++ {
+			for x := cx - 5; x <= cx+5; x++ {
+				i := img.PixOffset(x, y)
+				sum += float32(int(img.Pix[i])+int(img.Pix[i+1])+int(img.Pix[i+2])) / 3
+				n++
+			}
+		}
+		return sum / float32(n)
+	}
+
+	newL := measure(ownerGlassOverlay)
+	oldL := measure(legacyOwnerGlassOverlay)
+	t.Logf("玻璃罩底部平均亮度 单层三段=%.1f 旧两层=%.1f", newL, oldL)
+	if oldL-newL < 3 {
+		t.Errorf("旧两层只比单层亮 %.1f，反证不足（应 ≥3：多出的那层白 .06）", oldL-newL)
+	}
+}
+
+// TestOwnerGlassFadeIsAnimated 无头实测玻璃罩悬停是**渐变**而不是硬切：
+// 原版 `.video-owner-wrap::before { transition: opacity 0.2s ease }`。
+//
+// 压在深色底上量玻璃环（头像四周 2px）的亮度：常态 opacity 1 最亮；
+// 悬停目标 .7 更暗。刚移上去那一帧应几乎没变（过渡从 1 开始），推进 250ms
+// 后才落到暗处。原生版此前直接 set 目标值，移上去第一帧就已经变暗（反证）。
+func TestOwnerGlassFadeIsAnimated(t *testing.T) {
+	if ownerGlassFadeAnim.Duration != 200*time.Millisecond {
+		t.Fatalf("淡出时长 = %v，应为 200ms（原版 opacity .2s）", ownerGlassFadeAnim.Duration)
+	}
+
+	_, tst := ownerProbeOn(t, ui.Hex("#101820"))
+	ringLum := func() float32 {
+		face, ok := tst.Find("UP 主空间")
+		if !ok {
+			t.Fatal("找不到 UP 主头像")
+		}
+		img := tst.Image()
+		cx := int(face.X + face.W/2)
+		cy := int(face.Y + face.H)
+		var sum float32
+		var n int
+		for y := cy; y < cy+2; y++ {
+			for x := cx - 7; x <= cx+7; x++ {
+				i := img.PixOffset(x, y)
+				sum += float32(int(img.Pix[i])+int(img.Pix[i+1])+int(img.Pix[i+2])) / 3
+				n++
+			}
+		}
+		return sum / float32(n)
+	}
+	rest := ringLum()
+	// 悬停在**名字**上（仍在 .video-owner-wrap 里）：玻璃罩会淡出，但头像
+	// 不会 scale(1.06) 挡住那圈 2px 玻璃环。
+	name, ok := tst.Find("示例 UP")
+	if !ok {
+		t.Fatal("找不到 UP 主名字")
+	}
+	tst.Move(name.X+name.W/2, name.Y+name.H/2)
+	tst.Frame()
+	fresh := ringLum()
+	tst.Advance(250 * time.Millisecond)
+	tst.Frame()
+	faded := ringLum()
+	t.Logf("玻璃环亮度 常态=%.1f 悬停首帧=%.1f 250ms 后=%.1f", rest, fresh, faded)
+
+	if rest-fresh > 1.5 {
+		t.Errorf("悬停首帧就暗了 %.1f —— 过渡没接上（硬切）", rest-fresh)
+	}
+	if rest-faded < 2 {
+		t.Errorf("250ms 后只暗了 %.1f —— 悬停终态 .7 没落到玻璃罩上", rest-faded)
 	}
 }

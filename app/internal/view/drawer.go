@@ -2074,7 +2074,23 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	if hovered {
 		a.hoverChannels.Add(1)
 	}
+	// 按下态：原版 `[data-slot="wrapper"] [role="button"][class*="bg-content"]:active`
+	// （globals.css:4138）排在悬停规则之后、同为 !important，所以**整组替换**
+	// 悬停的底/影；描边不动（保留悬停那条蓝边；在播卡片的 2px 蓝边也保留）。
+	// 原版按下时整卡 translateY(0) + scale(.985)：上浮归零、按进去半毫米。
+	pressed := box.Pressed() && !locked
 	switch {
+	case pressed:
+		pp := cardPressPaintFor()
+		box.LinearGradient(cardPressGradient())
+		if spec.Active {
+			box.Border(2, ui.Hex("#0284c7"))
+		} else {
+			box.Border(1, ui.Hex("#0369a1").Alpha(0.60))
+		}
+		box.InsetShadow(0, 1, 0, 0, pp.Inset).
+			Shadow(0, 0, 0, 2, pp.Ring).
+			Shadow(0, 4, 12, 0, pp.Shadow)
 	case spec.Active:
 		// 原版选集卡片的在播态就是 border-2 border-[#0284c7]。
 		box.Background(t.Blue.Alpha(0.22)).
@@ -2106,15 +2122,21 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		if box.Hovered() || spec.Active {
 			lift = -3
 		}
+		if pressed {
+			// 原版按下态的 `transform: translateY(0) scale(.985)`。
+			lift = 0
+		}
 		a.liftChannels.Add(1)
-		box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim))
+		// 按下缩放与上浮走同一条 160ms ease（原版基础规则的 transform 过渡）。
+		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
+		box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim)).Scale(sc, sc)
 	}
 
 	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
 	// 的那张挂上：PointerPosition 会让引擎在指针每次移动时补帧，全网格都挂就
-	// 成了「鼠标一动重建整窗」。
-	if !locked && box.Hovered() {
-		cardGlow(box)
+	// 成了「鼠标一动重建整窗」。按下态还要叠原版 :active 背景的两个固定径向。
+	if !locked && (box.Hovered() || pressed) {
+		cardSurface(box, pressed)
 	}
 
 	box.Children(func() {

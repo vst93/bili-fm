@@ -157,3 +157,85 @@ func TestCardGlowFollowsPointer(t *testing.T) {
 		t.Errorf("指针移出后两点应只剩底色（相等）：A=%d B=%d", oa, ob)
 	}
 }
+
+// TestCardPressPaint 钉住抽屉卡片按下态的取值（原版 globals.css:4138 的
+// `[data-slot="wrapper"] [role="button"][class*="bg-content"]:active`）：
+//
+//	background: radial(18% 10%, 白 .7, transparent 34%),
+//	            radial(86% 88%, 天蓝 .13, transparent 38%),
+//	            linear-gradient(145deg, 白 .52, 白 .32 54%, #e2f2fb .42)
+//	box-shadow: inset 0 1px 0 白 .84, 0 0 0 2px 天蓝 .16, 0 4px 12px 墨 .10
+//	transform:  translateY(0) scale(.985)
+func TestCardPressPaint(t *testing.T) {
+	g := cardPressGradient()
+	want := []ui.GradientStop{
+		{Color: ui.Hex("#ffffff").Alpha(0.52), At: 0},
+		{Color: ui.Hex("#ffffff").Alpha(0.32), At: 0.54},
+		{Color: ui.Hex("#e2f2fb").Alpha(0.42), At: 1},
+	}
+	if g.Angle != 145 || len(g.Stops) != len(want) {
+		t.Fatalf("按下态底 = %+v，应为 145° 三段", g)
+	}
+	for i := range want {
+		if g.Stops[i] != want[i] {
+			t.Errorf("停靠点 %d = %+v，应为 %+v", i, g.Stops[i], want[i])
+		}
+	}
+	if len(cardPressTopStops) != 2 || cardPressTopStops[0].C != ui.Hex("#ffffff").Alpha(0.70) ||
+		cardPressTopStops[1].At != 0.34 || cardPressTopStops[1].C.A != 0 {
+		t.Errorf("左上高光停靠点 = %+v，应为 白 .7 → 34%% 透明", cardPressTopStops)
+	}
+	if len(cardPressBottomStops) != 2 || cardPressBottomStops[0].C != ui.Hex("#0ea5e9").Alpha(0.13) ||
+		cardPressBottomStops[1].At != 0.38 || cardPressBottomStops[1].C.A != 0 {
+		t.Errorf("右下反光停靠点 = %+v，应为 天蓝 .13 → 38%% 透明", cardPressBottomStops)
+	}
+	pp := cardPressPaintFor()
+	if pp.Inset != ui.Hex("#ffffff").Alpha(0.84) ||
+		pp.Ring != ui.Hex("#0ea5e9").Alpha(0.16) ||
+		pp.Shadow != ui.Hex("#0f172a").Alpha(0.10) {
+		t.Errorf("按下态投影 = %+v，应为 白 .84 / 天蓝 .16 / 墨 .10", pp)
+	}
+	if cardPressScale != 0.985 {
+		t.Errorf("按下缩放 = %v，应为 .985", cardPressScale)
+	}
+}
+
+// TestCardPressRendered 无头实测：按住卡片时整卡换到「按下态」亮玻璃
+// （左上白高光 .7 + 145° 白底），松开回落到悬停态。
+//
+// 取卡片左上 46×26 一块（封面区，按下底最亮处）的平均亮度。反证：把
+// renderCard 里的 pressed 恒置 false（不接按下态），按下前后亮度不变。
+func TestCardPressRendered(t *testing.T) {
+	tst, box := cardGlowProbe(t)
+	patch := func() float32 {
+		img := tst.Image()
+		var sum float32
+		var n int
+		for y := int(box.Y) + 4; y < int(box.Y)+30; y++ {
+			for x := int(box.X) + 4; x < int(box.X)+50; x++ {
+				i := img.PixOffset(x, y)
+				sum += float32(int(img.Pix[i])+int(img.Pix[i+1])+int(img.Pix[i+2])) / 3
+				n++
+			}
+		}
+		return sum / float32(n)
+	}
+	rest := patch()
+	tst.Move(box.X+box.W/2, box.Y+box.H/2)
+	tst.Frame()
+	hover := patch()
+	tst.Press(box.X+box.W/2, box.Y+box.H/2)
+	tst.Frame()
+	pressed := patch()
+	tst.Release(box.X+box.W/2, box.Y+box.H/2)
+	tst.Frame()
+	released := patch()
+	t.Logf("左上亮度 常态=%.1f 悬停=%.1f 按下=%.1f 松开=%.1f", rest, hover, pressed, released)
+
+	if pressed-hover < 30 {
+		t.Errorf("按下只比悬停亮 %.1f —— 按下态背景没接上", pressed-hover)
+	}
+	if released-hover > 6 || hover-released > 6 {
+		t.Errorf("松开后亮度 %.1f 没回到悬停态 %.1f —— 按下态没撤销", released, hover)
+	}
+}
