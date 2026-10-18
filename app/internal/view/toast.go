@@ -29,6 +29,20 @@ var toastTransition = func() ui.ElementTransition {
 	}
 }
 
+// toastRadius 是 .toast-glass 的 `border-radius: 13px`。
+const toastRadius = 13
+
+// toastSpecularInsets 是 .toast-glass 的 `box-shadow: var(--glass-specular)` 那两层
+// 内影（globals.css:964）：顶缘 1px 白 .9 的聚光 + 下缘 1px 深 slate .06 的暗线。
+// 框架玻璃只在 1px 环上做边缘折光，顶不到 .9 的高光，也没有那条下缘暗线，
+// 此前 toast 只接了 --glass-shadow-lifted 的外投影，整块比原版平一档。
+func toastSpecularInsets() [2]ui.Color {
+	return [2]ui.Color{
+		ui.Hex("#ffffff").Alpha(0.9),  // inset 0 1px 1px .5px var(--glass-highlight)
+		ui.Hex("#0f172a").Alpha(0.06), // inset 0 -1px 1px rgba(15,23,42,.06)
+	}
+}
+
 // toastFillStops 是原版根元素的内联背景
 // `linear-gradient(135deg, rgba(255,255,255,0.5), accentForType(type))`，
 // 其中 accentForType 是类型色 8%。135°：左上白、右下透出类型色。
@@ -56,18 +70,36 @@ func (a *App) toastViewport(c *ui.Context) {
 			// 玻璃底 + 白边）；类型色那层不写成玻璃 Tint（会变成整块匀色），
 			// 而是按原版做成第一个子节点里的 135° 渐变 —— 盖在玻璃之上、
 			// 内容之下（LinearGradient 会顶掉 Material，所以只能分层）。
-			p.Root.Row().Gap(8).Padding(8, 16).Radius(13).
+			p.Root.Row().Gap(8).Padding(8, 16).Radius(toastRadius).
 				Material(glassLayer(glass.Glass{})).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
+			ins := toastSpecularInsets()
 			p.Root.Children(func() {
 				ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
-					Radius(13).PassThrough().
+					Radius(toastRadius).PassThrough().
 					LinearGradient(ui.LinearGradient{From: from, To: to, Angle: 135})
 				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(tint)
 				// 原版：text-sm（14）font-medium text-slate-800。
 				ui.Text(c, t.Title).FontSize(14).FontWeight(500).
 					TextColor(ui.Hex("#1e293b"))
+				// `.toast-glass::after`（globals.css:5345）的 `--glass-sheen-static`：
+				// 左上径向热点（白 .24 @22% -5%，48% 归零）+ 170° 斜向洗光。
+				// 伪元素是**定位**元素，CSS 的绘制顺序把它排在流式子元素（图标 /
+				// 文案）之后 —— 所以这层必须建成最后一个 Absolute 子盒，不能像
+				// 设置菜单那样用面板自己的 Draw（Draw 在子元素之前）。
+				// 原版 `.toast-glass` 的 `--glass-specular` 两层内影也挂在这一层：
+				// CSS 的 inset box-shadow 画在 background-image 之上、内容之下，
+				// 而我们的类型渐变是子盒（在元素自身的 inset 之上），所以内影必须
+				// 跟着这层「最上面」的 Absolute 子盒走，否则会被渐变盖掉（实测顶行
+				// 反而比内部暗 8 luma）。它只占 1~2px 的缘，压不到文案。
+				ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
+					Radius(toastRadius).PassThrough().
+					InsetShadow(0, 1, 1, 0, ins[0]).
+					InsetShadow(0, -1, 1, 0, ins[1]).
+					Draw(func(p *ui.Painter, r ui.Rect) {
+						paintBakedSheen(p, r, toastRadius, sheenGlassBaked)
+					})
 			})
 		}
 	})

@@ -2,6 +2,7 @@ package view
 
 import (
 	"image"
+	"math"
 	"testing"
 	"time"
 
@@ -290,5 +291,116 @@ func TestToastGradientPixels(t *testing.T) {
 	t.Logf("toast %d,%d..%d,%d 左上亮度 %.1f / 右下亮度 %.1f", tx0, ty0, tx1, ty1, tl, br)
 	if tl-br < 5 {
 		t.Errorf("左上 %.1f 未明显亮于右下 %.1f（135° 白→类型色渐变没画出来）", tl, br)
+	}
+}
+
+// toastPanelRect 由文案矩形反推 .toast-glass 整块：左 16(内边距) + 20(图标) +
+// 8(间距) = 44，上下各 8，右 16。
+func toastPanelRect(r ui.Rect) ui.Rect {
+	return ui.Rect{X: r.X - 44, Y: r.Y - 8, W: r.W + 60, H: r.H + 16}
+}
+
+// TestToastSheen 钉住 `.toast-glass::after`（globals.css:5345）的
+// `--glass-sheen-static` 洗光：
+//
+//   - 结构：渲染一条 toast 时，`playerSheenPaint` 必须被调用一次，且矩形正好是
+//     toast 整块、圆角正好是 13（说明洗光建在 toast 的 Absolute 子层上，而不是
+//     漏画或画到别处）；
+//   - 像素：开/关洗光相减，面板左上角必须真的变亮（toast 底接近纯白，白 .24 的
+//     热点在 luma 上只有 1 上下，阈值按实测取 0.3；右下角径向 48% / 线性 60%
+//     已归零，必须几乎不变）。
+//
+// 反证：删掉最后一层 Absolute 洗光，`playerSheenPaint` 在 toast 矩形上一次都
+// 不会被调到（结构断言红），左上角差也归零（像素断言红）。
+func TestToastSheen(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Frame()
+	a.NotifyType("info", "已复制链接")
+	tst.Frame()
+	tst.Advance(400 * time.Millisecond)
+	tst.Frame()
+	r, ok := tst.Find("已复制链接")
+	if !ok {
+		t.Fatalf("找不到 toast 文案：%v", tst.Texts())
+	}
+	panel := toastPanelRect(r)
+
+	// 结构：换桩记录每一次洗光绘制的（矩形、圆角）。
+	type sheenCall struct {
+		r      ui.Rect
+		radius float32
+	}
+	var calls []sheenCall
+	saved := playerSheenPaint
+	playerSheenPaint = func(p *ui.Painter, rr ui.Rect, radius float32, _ *ui.Bitmap) {
+		calls = append(calls, sheenCall{rr, radius})
+	}
+	tst.Frame()
+	playerSheenPaint = saved
+	hit := false
+	for _, c := range calls {
+		if c.radius == toastRadius &&
+			math.Abs(float64(c.r.W-panel.W)) < 1 && math.Abs(float64(c.r.H-panel.H)) < 1 {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Errorf("toast 面板 %+v 上没有画 `--glass-sheen-static` 洗光（调用 %d 次：%+v）",
+			panel, len(calls), calls)
+	}
+
+	// 像素：开/关洗光的逐像素差。先按真实绘制再跑一帧（上一帧是记录桩，
+	// 画面里没有洗光）。
+	tst.Frame()
+	on := tst.Image()
+	playerSheenPaint = func(*ui.Painter, ui.Rect, float32, *ui.Bitmap) {}
+	tst.Frame()
+	off := tst.Image()
+	playerSheenPaint = saved
+	// 左上采样取「径向热点所在、且避开图标（x 偏移 16..36、y 25..45）」的横带：
+	// x 偏移 20..50、y 偏移 2..7。圆角 13 让 x 偏移 3..13 那一角落在圆角外，
+	// 采到的是背景，不能用来量洗光。
+	top := panelRegion{int(panel.X) + 20, int(panel.Y) + 2, int(panel.X) + 50, int(panel.Y) + 7}
+	bottom := panelRegion{
+		int(panel.X+panel.W) - 13, int(panel.Y+panel.H) - 11,
+		int(panel.X+panel.W) - 3, int(panel.Y+panel.H) - 3,
+	}
+	dTop := meanDiff(t, on, off, top)
+	dBottom := meanDiff(t, on, off, bottom)
+	t.Logf("toast 面板 %+v 洗光开/关 平均差：左上 %.2f / 右下 %.2f", panel, dTop, dBottom)
+	if dTop < 0.3 {
+		t.Errorf("toast 左上角只差 %.2f —— 洗光画了但没落到面板上", dTop)
+	}
+	if dBottom > 0.5 {
+		t.Errorf("toast 右下角也差 %.2f —— 洗光不该到底部还亮", dBottom)
+	}
+}
+
+// TestToastSpecularInsets 实测 `.toast-glass` 的 `--glass-specular` 顶缘内高光
+// （inset 0 1px 1px .5px 白 .9）：关掉洗光后，面板顶行仍应比内部亮。
+//
+// 反证：去掉 toastSpecularInsets 的接线，顶行与内部亮度差归零。
+func TestToastSpecularInsets(t *testing.T) {
+	tst, r := toastProbe(t, "success", "已收藏")
+	panel := toastPanelRect(r)
+	saved := playerSheenPaint
+	playerSheenPaint = func(*ui.Painter, ui.Rect, float32, *ui.Bitmap) {}
+	tst.Frame()
+	img := tst.Image()
+	playerSheenPaint = saved
+	// 避开圆角（半径 13）与图标 / 文案：取面板中段上方的横带。
+	// `inset 0 1px 1px` 的高光落在最顶那一行，第二行是模糊衰减。
+	x0, x1 := int(panel.X)+50, int(panel.X)+80
+	row := func(y0, y1 int) float64 {
+		return avgLuma(img, x0, y0, x1, y1)
+	}
+	topRow := row(int(panel.Y), int(panel.Y)+1)
+	inner := row(int(panel.Y)+4, int(panel.Y)+8)
+	t.Logf("toast 面板 %+v 顶行亮度 %.1f / 内部 %.1f", panel, topRow, inner)
+	if topRow-inner < 3 {
+		t.Errorf("顶行 %.1f 未明显亮于内部 %.1f —— --glass-specular 顶缘内高光没接上",
+			topRow, inner)
 	}
 }
