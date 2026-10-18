@@ -11,6 +11,44 @@ import (
 // modalIn 是模态框入场（缩放 + 淡入）的时长。
 const modalIn = 180 * time.Millisecond
 
+// loginGlassBlur 是 `.login-glass` 的 `backdrop-filter: blur(28px)`
+// （globals.css:5363）里的 28；dialogGlassBlur 是 `.liquid-dialog` 的
+// `blur(24px)`（globals.css:5654）里的 24。两者都是 CSS blur() 的那个值，
+// 也就是 glass.Blur.Radius 的口径。
+const (
+	loginGlassBlur  float32 = 28
+	dialogGlassBlur float32 = 24
+)
+
+// loginPanelFill 是 `.login-glass` 的 `background: rgba(255,255,255,0.28)`。
+//
+// 声明成 var 是为了让无头测试能把它改成透明做反证（见 modalglass_test.go）：
+// 改透明后面板的提亮必须消失，才能证明那点亮来自这层底色。
+var loginPanelFill = ui.Hex("#ffffff").Alpha(0.28)
+
+// dialogPanelGradient 是 `.liquid-dialog` 的内联 background
+// （main:src/components/dialog/DialogProvider.tsx:160）：
+//
+//	linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,255,255,.75) 55%,
+//	                accentForType(type))
+//
+// 145deg 与 ui.LinearGradient.Angle 同一口径（0 = 朝上、顺时针），停靠点位置
+// 也照抄 55%。accent 就是 dialogTypeStyleFor().Tint（与 accentForType 逐值相同）。
+func dialogPanelGradient(accent ui.Color) ui.LinearGradient {
+	return ui.LinearGradient{Angle: 145, Stops: []ui.GradientStop{
+		{Color: ui.Hex("#ffffff").Alpha(0.88), At: 0},
+		{Color: ui.Hex("#ffffff").Alpha(0.75), At: 0.55},
+		{Color: accent, At: 1},
+	}}
+}
+
+// paintDialogPanelFill 把上面那条渐变铺在面板边框的内缘（inset 1px：Draw 在
+// border 之后跑，不 inset 会盖掉自己的 1px 白边，口径同 paintGlassPanelFill）。
+func paintDialogPanelFill(p *ui.Painter, r ui.Rect, radius float32, accent ui.Color) {
+	p.FillGradient(ui.Rect{X: r.X + 1, Y: r.Y + 1, W: r.W - 2, H: r.H - 2},
+		dialogPanelGradient(accent), max(radius-1, 0))
+}
+
 // modal 画当前模态对话框（原版的 DialogProvider + 登录面板）。
 //
 // v0.4.0 起用官方 `ui.DialogBase`：Esc / 点外部关闭是框架行为（Dismissed），
@@ -35,10 +73,20 @@ func (a *App) modal(c *ui.Context) {
 		switch m.Kind {
 		case "login":
 			// 原版 .login-glass：320 宽（w-80）、圆角 16（rounded-2xl）。
+			//
+			// 材质：原版 background 白 .28 与 backdrop-filter blur(28px) 是**两件
+			// 独立的事**。此前写的是 `Material(glass.Glass{})` + `Background(白.28)`——
+			// Material 把 fill 置成 material，其后的 Background 是空操作（被静默
+			// 忽略），于是面板只剩 Regular 玻璃的「模糊 + 提亮」，白 .28 从来没画
+			// 上去，整块比原版亮一档（同 toast / 设置下拉那一族）。
+			// 现在：glass.Blur（只模糊）+ Draw 里自铺白 .28（`::before` 光泽层仍由
+			// modalLogin 的 loginSheen 画在这层之上、内容之下）。
 			panel.Width(loginPanelWidth).Radius(16).
 				Padding(32, 24, 24).
-				Material(glassLayer(glass.Glass{})).
-				Background(ui.Hex("#ffffff").Alpha(0.28)).
+				Material(blurLayer(glass.Blur{Radius: loginGlassBlur})).
+				Draw(func(p *ui.Painter, r ui.Rect) {
+					paintGlassPanelFill(p, r, 16, loginPanelFill)
+				}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.40)).
 				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.30)).
 				Shadow(0, 8, 32, 0, ui.Hex("#0f172a").Alpha(0.20)).
@@ -50,16 +98,18 @@ func (a *App) modal(c *ui.Context) {
 			st := dialogTypeStyleFor(m.Type)
 			panel.MinWidth(360).MaxWidth(460).Radius(18).
 				Padding(28, 32, 22).
-				// 原版这里是 backdrop-filter: blur(24px) 的一层玻璃；用框架玻璃后
-				// 不再手搓底色（Material 之后调 Background 是空操作，会被静默忽略；
-				// LinearGradient 更会把 Material 整个顶掉），类型强调色改从
-				// Glass.Tint 透出来。
+				// 原版 .liquid-dialog 的 `backdrop-filter: blur(24px)` 是材质，
+				// 真正的底色是 DialogProvider 的内联 `linear-gradient(145deg, …)`：
+				// 白 .88 → 白 .75（55%）→ accentForType(type)。
 				//
-				// 实底 fallback：玻璃材质在某些渲染路径下可能出现背景断层
-				// （面板中部出现不连续的色带）。给面板铺一层近实底作为
-				// fallback，玻璃只在之上叠加折射效果，断层消失。
-				Material(glassLayer(glass.Glass{Tint: st.Tint})).
-				Background(ui.Hex("#f1f5f9").Alpha(0.88)).
+				// 此前是 `Material(glass.Glass{Tint})` + `Background(#f1f5f9 .88)`：
+				// 前者把 fill 置成 material，后者是空操作 —— 那条渐变（以及它末尾的
+				// 类型强调色）从来没画上去，面板只剩玻璃。现在按同一套写法重排：
+				// glass.Blur 只模糊，渐变由 Draw 自铺（inset 1px 让开边框）。
+				Material(blurLayer(glass.Blur{Radius: dialogGlassBlur})).
+				Draw(func(p *ui.Painter, r ui.Rect) {
+					paintDialogPanelFill(p, r, 18, st.Tint)
+				}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.65)).
 				InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.85)).
 				InsetShadow(0, -1, 3, 0, ui.Hex("#0f172a").Alpha(0.05)).

@@ -86,11 +86,18 @@ func TestLoginPanelSheenWired(t *testing.T) {
 	pl := pr - 320
 	img := tst.Image()
 
-	// 沿左侧一列（远离居中的标题 / 二维码）向下扫，亮度跌破 200 就是出了面板。
+	// 沿左侧一列（远离居中的标题 / 二维码）向下扫，亮度跌回面板外背景水平
+	// 就是出了面板。
+	//
+	// 阈值以前写的是绝对亮度 200：那时登录面板只有 Regular 玻璃的提亮（实测
+	// 内侧 229），白 .28 那层被 Material 静默顶掉。底色真正铺上之后内侧是
+	// 200.8（.28 白叠在 179.7 上），刚好压在 200 这条线上，扫描一步就断。
+	// 改成相对面板外背景（+4）判定，与面板自身亮度解耦。
 	col := pl + 20
+	outside := lum(pixelAt(t, img, pl-20, pt+120))
 	bottom := pt + 20
 	for y := pt + 20; y < img.Rect.Dy(); y++ {
-		if lum(pixelAt(t, img, col, y)) < 200 {
+		if lum(pixelAt(t, img, col, y)) <= outside+4 {
 			break
 		}
 		bottom = y

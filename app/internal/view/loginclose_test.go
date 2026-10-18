@@ -144,15 +144,18 @@ func loginCloseDelta(t *testing.T) int {
 }
 
 // TestLoginCloseButtonNakedCounterProof 是上一条的反证：把关闭键的取值换成
-// 「无底、无边、无影」（裸图标），键内与键外遮罩应逐像素相同。
+// 「无底、无边、无影」（裸图标），键内与键外遮罩应几乎逐像素相同。
+//
+// 阈值 2 而不是 0：面板的 `::before` 光泽（135° 白 .2 → 透明）与玻璃模糊在
+// 键内、键外两点（相距 10px）之间本来就差 1 灰阶（实测 1）。
 func TestLoginCloseButtonNakedCounterProof(t *testing.T) {
 	saved := loginClosePaintFn
 	defer func() { loginClosePaintFn = saved }()
 	loginClosePaintFn = func(hovered, pressed bool) loginClosePaint {
 		return loginClosePaint{Scale: 1}
 	}
-	if d := loginCloseDelta(t); d != 0 {
-		t.Errorf("裸图标时键内比遮罩亮 %d，反证不成立（应为 0）", d)
+	if d := loginCloseDelta(t); d > 2 {
+		t.Errorf("裸图标时键内比遮罩亮 %d，反证不成立（应 ≈0）", d)
 	}
 }
 

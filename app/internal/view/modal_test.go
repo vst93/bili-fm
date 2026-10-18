@@ -292,9 +292,13 @@ func TestDialogSpinnerRing(t *testing.T) {
 			return false
 		}
 		i := img.PixOffset(x, y)
-		// 浅蓝环 rgba(14,165,233,.15) 铺在面板底上 B−R ≈ 40；面板的 loading
-		// 强调色 tint（#0ea5e9 .06）只有 ≈21，阈值取 30 把两者分开。
-		return int(img.Pix[i+2])-int(img.Pix[i]) > 30
+		// 浅蓝环 rgba(14,165,233,.15) 铺在面板底上 B−R ≈ 33（面板底在那个
+		// 位置是 145° 渐变的起头，白 .88 —— 中性，B−R ≈ 1）。
+		//
+		// 阈值以前写的是 30：那时面板是 glass.Glass{Tint: loading 强调色}，
+		// 整个面板都泛蓝，环与底只差 30 出头。现在强调色只在渐变**末端**
+		// （右下角），转圈所在的白 .88 区段完全不染色，12 就把环分出来了。
+		return int(img.Pix[i+2])-int(img.Pix[i]) > 12
 	}
 	minX, minY, maxX, maxY := 1<<30, 1<<30, -1, -1
 	for y := y0; y < y1; y++ {
