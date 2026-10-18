@@ -203,7 +203,7 @@ var miniPlayerEdgeFade = func(t Theme) ui.Color {
 func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 	t := a.Theme
 	var volSlot ui.Element
-	applyShadows(
+	playerBarPaint(t, applyShadows(
 		applyInsetShadows(
 			playerBarMaterial(t,
 				ui.Column(c).FillWidth().Height(miniPlayerH).Shrink(0)),
@@ -213,7 +213,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 			playerBarShadowInsets(t, true)),
 		// 向上投影与主窗同一套令牌，但 mini 浅色的兜底更紧（22px，
 		// 见 playerBarShadowSpec）。
-		[]shadowSpec{playerBarShadowSpec(t, true)}).
+		[]shadowSpec{playerBarShadowSpec(t, true)}), ui.Transparent).
 		Children(func() {
 			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).
@@ -395,15 +395,15 @@ func miniPlayShadowSpecs(t Theme, playing, hovered, pressed bool) (inset, outer 
 	case t.Dark:
 		// 深色基态（1,2,1，源序在 mini 之后）。
 		return []shadowSpec{
-				{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)},
-				{0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)},
-			}, []shadowSpec{{0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10)}}
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)},
+			{0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)},
+		}, []shadowSpec{{0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10)}}
 	default:
 		// mini 浅色基态（原版 body.mini-mode #player .player-play-button）。
 		return []shadowSpec{
-				{0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)},
-				{0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)},
-			}, []shadowSpec{{0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12)}}
+			{0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.90)},
+			{0, -2, 4, 0, ui.Hex("#0284c7").Alpha(0.08)},
+		}, []shadowSpec{{0, 2, 6, 0, ui.Hex("#0284c7").Alpha(0.12)}}
 	}
 }
 

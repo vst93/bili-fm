@@ -48,7 +48,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 高度 56，本身仍是普通流式元素；Shell 把它整条套进一个贴底的 absolute 盒里
 	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
 	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
-	applyShadows(
+	playerBarPaint(t, applyShadows(
 		applyInsetShadows(
 			playerBarMaterial(t,
 				ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0)),
@@ -58,16 +58,13 @@ func (a *App) playerBar(c *ui.Context) {
 			playerBarShadowInsets(t, false)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
-		[]shadowSpec{playerBarShadowSpec(t, false)}).
-		// 顶边 1px（原版 border-top）用 Draw 画，而不是 Absolute 子盒：
-		// Draw 在元素自身的背景/材质之后、**所有子元素之前**；Absolute 子盒
-		// 却在本元素的所有流式子元素之后绘制。进度条的时间胶囊（Absolute，
-		// 挂在进度条滑块下）向上伸出栏顶 10px，正好被 Absolute 的顶边切在
-		// 胶囊腰部（用户报「时间文字腰部被一条线分割」）。Draw 同样不占布局，
-		// 内容区保持完整 56px。
-		Draw(func(p *ui.Painter, r ui.Rect) {
-			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, t.PlayerBorder, 0)
-		}).
+		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder).
+		// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
+		// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
+		// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
+		// 的时间胶囊（Absolute，挂在进度条滑块下）向上伸出栏顶 10px，正好被
+		// Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
+		// Draw 同样不占布局，内容区保持完整 56px。
 		Children(func() {
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 				AlignItems(ui.Center).Children(func() {
@@ -125,6 +122,9 @@ var playerBarTint = func(t Theme) ui.Color {
 // 该分支的顶缘内高光白 .72 由 playerBarShadowInsets 一并给出（与常态玻璃
 // 那条同走一套 inset 接线，不再在这里内联）。
 //
+// 除底色外原版还给这一层铺 `background-image`（见 playerBarSheen 的说明），
+// 它由 playerBarPaint 叠在玻璃之上、子元素之下。
+//
 // 声明成 var（可换桩）便于无头测试做反证：换桩记录「有没有人被套上 glass」，
 // 断言偏好为真时播放栏不再走框架玻璃路径。
 var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
@@ -132,6 +132,65 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 		return b.Background(t.PlayerSurface)
 	}
 	return b.Material(glassLayer(glass.Glass{Tint: playerBarTint(t)}))
+}
+
+// playerBarSheen 是播放栏**本体**这一帧该铺的 `background-image`（原版
+// `#player .player-controls { background-image: var(--player-sheen,
+// var(--glass-sheen-static)) }`；mini 那条 `body.mini-mode #player .player-controls`
+// 是同一条声明加 `!important`）。
+//
+// 这是「音量 / 倍速弹层的整面洗光」那一批的同族遗漏：按钮族（`::before`）、
+// 两层弹层都逐层接上了，唯独**面积最大的播放栏本体**一直只由框架 Liquid Glass
+// 的边缘折光承担 —— 玻璃只有 1px 描光，没有 CSS 那条铺满整面的渐变，于是
+// 栏体左上（径向中心在 22% -5%）少了一圈白、右上到右下也少了那道 170° 的斜向
+// 洗光，整条栏比原版平一档。
+//
+// 三个分支与 CSS 的层叠逐值对应：
+//
+//	浅色时段  --player-sheen 未定义 → 落到兜底 --glass-sheen-static（sheenGlass）
+//	烟熏玻璃  --player-sheen 被覆写成径向 120%×90% @18% -20% 白 .2 +
+//	          线性 170deg 白 .055（sheenDark）——它盖过兜底
+//	减少透明度 --player-sheen: none → background-image 整条撤掉（返回 nil）
+//
+// 声明成 var 便于测试换桩反证（同 volumePopoverSheen 的手法：返回 nil = 这一帧
+// 不铺洗光）。
+var playerBarSheen = func(t Theme) *sheenBaked {
+	if t.ReducedTransparency {
+		return nil
+	}
+	if t.Dark {
+		return sheenDarkBaked
+	}
+	return sheenGlassBaked
+}
+
+// playerBarPaint 把原版 `#player .player-controls` 的两层“画在背景之后、子元素
+// 之前”的东西一次挂上：`background-image` 的整面洗光，以及（主窗）那条
+// `border-top: 1px` 顶边。
+//
+// 必须合成**一个** Draw：mygo 的 `Element.Draw` 只存一个 paintFn，先后调两次是
+// 互相覆盖（不是一个叠加）。两者的绘制时机也与原版一致 —— Draw 在元素自身的
+// 背景 / 材质之后、**所有子元素之前**，而 CSS 里 `background-image` 也排在
+// `background-color` 之上、子元素之下；顶边那次 Draw 同时兼顾上一轮的修复
+// （用 Draw 而不是 Absolute 子盒，才不会被进度条时间胶囊向上伸出栏顶的那 10px
+// 压在胶囊腰部，见 TestPlayerBarTopBorderUnderChildren）。
+//
+// topBorder 为透明时不画顶边（mini 的 1px 顶边是单独的子盒，见 miniPlayerBar）。
+var playerBarPaint = func(t Theme, b ui.Element, topBorder ui.Color) ui.Element {
+	sheen := playerBarSheen(t)
+	if sheen == nil && topBorder.A == 0 {
+		return b
+	}
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		if sheen != nil {
+			// radius 0 = 播放栏无圆角（铺满整条栏）；位图按栏的宽高比烘，
+			// 线性层角度不被拉偏。
+			paintBakedSheen(p, r, 0, sheen)
+		}
+		if topBorder.A > 0 {
+			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, topBorder, 0)
+		}
+	})
 }
 
 // playerBarShadowSpec 是播放栏向**上**投到内容区的那道淡影（原版
@@ -1243,6 +1302,12 @@ const (
 	// 的盒把长边放到几千像素，这里封顶（此时宽高比仍按盒保持），保证缓存
 	// 与内存有界。
 	sheenMaxLong = 512
+
+	// sheenBakeCacheMax 是**单条** sheen 的位图缓存上限。播放栏本体的宽度
+	// 跟着窗口走：拖拽改窗口大小时每 1px 宽度就是一个新尺寸，按宽高比烘的
+	// 位图（512×29 约 59KB）不封顶的话一次拖拽能攒下上千张。这里到上限就
+	// 整表清空重来 —— 只是缓存，重烘一张（512×29 的逐像素插值）< 0.2ms。
+	sheenBakeCacheMax = 64
 )
 
 // sheenStop 是线性渐变的一个色停（At 是 0..1 的位置）。
@@ -1401,6 +1466,11 @@ func (s *sheenBaked) bitmapFor(boxW, boxH float32) *ui.Bitmap {
 	defer s.mu.Unlock()
 	if b, ok := s.byBox[key]; ok {
 		return b
+	}
+	if len(s.byBox) >= sheenBakeCacheMax {
+		// 宽高比随窗口尺寸连续变化（播放栏本体），缓存必须封顶：清空重来，
+		// 比按 LRU 淘汰简单且够用（同尺寸下一帧只会再烘一次）。
+		s.byBox = nil
 	}
 	b := ui.NewBitmap(sheenPixels(s.spec, w, h))
 	if s.byBox == nil {

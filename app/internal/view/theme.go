@@ -699,7 +699,8 @@ var titleBarBtnFade = func(b ui.Element, bg, ink ui.Color, opacity float32, redu
 //
 // 不要退回「按 n 条等高盒子拼」的旧写法（`gradBands`）：那等于把渐变线当成水平的、
 // 逐带重新投影，斜向（135°）渐变的误差实测最坏 **38 灰阶**（见 loginsheen_test.go
-// 的 TestLoginSheenMatchesCSS）。`gradBands` 与 `gradAt` 现只留给测试与按列采样用。
+// 的 TestLoginSheenMatchesCSS）。`gradBands` 已挪进 `gradbands_test.go`（只剩反证
+// 在用），生产代码只留 `gradStops` 与 `gradAt`（按列采样的调用点仍用后者）。
 type gradStop struct {
 	At float32
 	C  ui.Color
@@ -736,22 +737,6 @@ func gradAt(stops []gradStop, t float32) ui.Color {
 		}
 	}
 	return last.C
-}
-
-// gradBands 把多停靠点渐变切成 n 条等高的带。**只给按列取色的旧调用点/测试用**
-// ——视图请用 `gradStops` + `ui.LinearGradient.Stops`（见上）。
-func gradBands(stops []gradStop, n int) [][2]ui.Color {
-	if n < 1 {
-		n = 1
-	}
-	out := make([][2]ui.Color, n)
-	for i := range out {
-		out[i] = [2]ui.Color{
-			gradAt(stops, float32(i)/float32(n)),
-			gradAt(stops, float32(i+1)/float32(n)),
-		}
-	}
-	return out
 }
 
 // 原版 .app-title-bar::before / ::after 的多停靠点渐变（globals.css）。两层都

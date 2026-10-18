@@ -141,3 +141,134 @@ func TestPlayerSheenBrightensDarkButton(t *testing.T) {
 		t.Errorf("深色 sheen 没有抬高键面亮度：有=%d 无=%d", with, without)
 	}
 }
+
+// TestPlayerBarSheenTokens 钉住播放栏**本体** `background-image` 的三分支：
+// 原版 `#player .player-controls { background-image: var(--player-sheen,
+// var(--glass-sheen-static)) }`（mini 那条同一条声明 + !important），
+// `--player-sheen` 只在烟熏玻璃时段定义，减少透明度时置 `none`。
+func TestPlayerBarSheenTokens(t *testing.T) {
+	light, dark := ThemeFor(PeriodAt(12)), ThemeFor(PeriodAt(0))
+	if got := playerBarSheen(light); got != sheenGlassBaked {
+		t.Errorf("浅色时段播放栏应铺 --glass-sheen-static，得到 %p", got)
+	}
+	if got := playerBarSheen(dark); got != sheenDarkBaked {
+		t.Errorf("烟熏玻璃时段播放栏应铺 --player-sheen，得到 %p", got)
+	}
+	for _, th := range []Theme{
+		light.withReduceTransparency(true),
+		dark.withReduceTransparency(true),
+	} {
+		if got := playerBarSheen(th); got != nil {
+			t.Errorf("减少透明度时原版 `--player-sheen: none`，应返回 nil，得到 %p", got)
+		}
+	}
+}
+
+// TestPlayerBarSheenWired 无头实测：主窗与迷你窗的**栏体**（整条矩形，不是按钮）
+// 都真的铺上了洗光，且用的是按栏宽高比烘的那张位图（线性层角度不被拉偏）。
+// 反证：把 playerBarSheen 换成恒返回 nil 的桩，这条整条栏的绘制就消失。
+func TestPlayerBarSheenWired(t *testing.T) {
+	orig := playerSheenPaint
+	defer func() { playerSheenPaint = orig }()
+	type hit struct {
+		r      ui.Rect
+		radius float32
+		bmp    *ui.Bitmap
+	}
+	var got []hit
+	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {
+		got = append(got, hit{r, radius, bmp})
+		orig(p, r, radius, bmp)
+	}
+
+	// 找到「整条栏」那一次绘制：宽度等于窗口宽、高度等于栏高。
+	findBar := func(w, h float32) *hit {
+		for i := range got {
+			if got[i].r.W == w && got[i].r.H == h {
+				return &got[i]
+			}
+		}
+		return nil
+	}
+
+	playerBarOnlyProbe(t, nil)
+	bar := findBar(1000, PlayerBarHeight)
+	if bar == nil {
+		t.Fatal("主窗播放栏本体没有铺 background-image 洗光")
+	}
+	if want := sheenGlassBaked.bitmapFor(bar.r.W, bar.r.H); bar.bmp != want {
+		t.Error("主窗播放栏本体铺的不是 --glass-sheen-static（按栏宽高比烘）")
+	}
+	if bar.radius != 0 {
+		t.Errorf("播放栏无圆角，radius 应为 0，得到 %v", bar.radius)
+	}
+
+	got = nil
+	miniProbe(t, false)
+	mbar := findBar(miniWidth, miniPlayerH)
+	if mbar == nil {
+		t.Fatal("迷你窗播放栏本体没有铺 background-image 洗光")
+	}
+	if want := sheenGlassBaked.bitmapFor(mbar.r.W, mbar.r.H); mbar.bmp != want {
+		t.Error("迷你窗播放栏本体铺的不是 --glass-sheen-static（按栏宽高比烘）")
+	}
+
+	// 反证：换桩后整条栏的洗光不再出现（按钮自己那条还在，所以只找整栏）。
+	got = nil
+	origBar := playerBarSheen
+	playerBarSheen = func(Theme) *sheenBaked { return nil }
+	defer func() { playerBarSheen = origBar }()
+	playerBarOnlyProbe(t, nil)
+	if findBar(1000, PlayerBarHeight) != nil {
+		t.Error("换桩后整条栏仍在铺洗光 —— 说明它不是从 playerBarSheen 来的")
+	}
+}
+
+// TestPlayerBarSheenBrightensBar 无头实测（直接因果）：**烟熏玻璃**时段栏体
+// 左侧内边距（x=1..16，18px padding 内没有子元素）在挂洗光时必须比把
+// playerBarSheen 换成不画的桩更亮。用深色量：浅色栏体本身就是近白，白 .24
+// 的径向光叠上去逐通道不变化（实测差值恒为 0），量不出因果。
+func TestPlayerBarSheenBrightensBar(t *testing.T) {
+	sum := func(tst *ui.Tester) int {
+		img := tst.Image()
+		total := 0
+		for y := 648; y < 688; y++ {
+			for x := 1; x < 16; x++ {
+				c := rgbAt(img, x, y)
+				total += c[0] + c[1] + c[2]
+			}
+		}
+		return total
+	}
+	dark := func(a *App) { a.Theme = ThemeFor(PeriodAt(0)) }
+	_, on := playerBarProbe(t, dark)
+	on.Move(-1, -1)
+	on.Frame()
+	with := sum(on)
+
+	orig := playerBarSheen
+	defer func() { playerBarSheen = orig }()
+	playerBarSheen = func(Theme) *sheenBaked { return nil }
+	_, off := playerBarProbe(t, dark)
+	off.Move(-1, -1)
+	off.Frame()
+	without := sum(off)
+
+	t.Logf("深色栏体左侧总亮度：有洗光=%d 无洗光=%d", with, without)
+	if with <= without {
+		t.Errorf("播放栏本体的洗光没有抬高栏面亮度：有=%d 无=%d", with, without)
+	}
+}
+
+// TestSheenBakeCacheCapped 钉住「按宽高比烘」的位图缓存必须封顶：播放栏本体
+// 的宽度跟着窗口走，拖拽改尺寸时每 1px 就是一个新尺寸（512×29 约 59KB），
+// 不封顶等于一次拖拽攒下上千张位图。
+func TestSheenBakeCacheCapped(t *testing.T) {
+	baked := &sheenBaked{spec: sheenGlass}
+	for w := float32(600); w < 900; w++ {
+		baked.bitmapFor(w, PlayerBarHeight)
+	}
+	if n := len(baked.byBox); n > sheenBakeCacheMax {
+		t.Errorf("位图缓存没有封顶：%d 项 > %d", n, sheenBakeCacheMax)
+	}
+}
