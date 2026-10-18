@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -502,236 +503,215 @@ func TestPlayerRimDirectionalKeepsConicLightDirection(t *testing.T) {
 	}
 }
 
-// TestPlayerRimDirectionalBandDensity 钉住大表面定向光带的**停靠点密度**与**分段**。
+// TestPlayerRimPathConicMatchesTrueRing 是大表面描边的**硬判据**：把 1px 环拆成
+// 8 块（4 条直边 + 4 个圆角扇区）、每块各喂一次 `FillPathConicGradient` 之后，
+// 逐像素必须与「整幅 conic 环」完全一致（那是原版的画法，只是掩码是整幅 W×H）。
 //
-// 背景：原版 --liquid-rim 是**真 conic**（逐像素按角度取值），圆心在盒的
-// `30% -5%`（左上加偏）。于是**整条上边**都落在「圆心正上方 ±90°」的扇面里，
-// 角度沿 x 快速扫过全部六个停靠点：上边在**圆心正上方**（x ≈ 0.30W）有一处
-// alpha 峰（≈.77），右侧紧跟一处尖谷（≈.51 @0.317W），两端分别落到 ≈.5（左）
-// 与 ≈.15（右）。
+// 为什么这条判据比「平均偏差够小」硬：拆块时只要有一块几何没接上（切点算错、
+// 内弧没反向、直边少 1px），对应位置立刻出现整块空白或双倍 alpha —— 逐像素
+// 比对是唯一能同时抓住「漏」与「重」的判据。
 //
-// 此前 `paintPlayerRimDirectional` 犯了**两个**错，都会画出用户可感知的偏差：
-//
-//  1. **每带只 3 个停靠点**（首 / 中点 / 尾 = 0.03W / 0.50W / 0.97W）：中点 0.50W
-//     正好落在峰**右侧的平稳谷**里（≈.19），于是把「中偏左的亮斑」整个抹平成
-//     一条单调下降的暗带 —— 面板上沿那道光「断了」。实测（900×600 顶边逐像素
-//     对照 `playerRimConicColorAt`）：3 停靠点最大 alpha 偏差 **0.67**（≈171 灰阶）。
-//  2. **一条边只发一条渐变**：框架把一次渐变的停靠点**静默截断**到
-//     `scene.MaxStops = 32`（`ui/paint.go` 的 `stops`：`if i == scene.MaxStops { break }`），
-//     900 宽按 12px 采出 76 个停靠点 ⇒ 只剩前 32 个，后半条边的色被压成第 32 个
-//     停靠点的色（**一整条平色**）。
-//
-// 判据（三条，缺一即红）：
-//  1. 每条渐变的停靠点数 ≤ 32（不超框架上限）；
-//  2. 整条带的停靠点总数 ≥ 边长 / playerRimBandPitch（够密）；
-//  3. 无头实测：900×600 面板上「定向带」与「真 conic 环」的顶边亮度逐像素一致
-//     （最大偏差 ≤ 12/765）。
-//     反证：把 ① 的密度退回 3 个停靠点、或把 ② 的分段拆掉（一条渐变铺到尾），
-//     ③ 的实测立刻红（前者漏掉亮斑、后者后半条被截成平色）。
-func TestPlayerRimDirectionalBandDensity(t *testing.T) {
-	r := ui.Rect{X: 0, Y: 0, W: 900, H: 600}
-	sample := func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+u*r.W, r.Y, 1) }
-
-	// ①② 纯函数级：每条渐变的停靠点数 ≤ 32，总数够密。
-	segs := playerRimBandSegments(ui.Rect{X: 0, Y: 0, W: 900, H: 1}, 90, sample)
-	total := 0
-	for _, s := range segs {
-		if len(s.Stops) > 32 {
-			t.Errorf("一条渐变发了 %d 个停靠点（框架上限 scene.MaxStops=32，超出会被静默丢弃）", len(s.Stops))
-		}
-		if len(s.Stops) < 2 {
-			t.Errorf("一条渐变只有 %d 个停靠点", len(s.Stops))
-		}
-		// 段的矩形要连续铺满整条带（无缝隙、不过界）。
-		total += len(s.Stops)
-	}
-	want := int(900/playerRimBandPitch) + 1
-	if total < want {
-		t.Errorf("900 宽的带只采了 %d 个停靠点（应 ≥ %d，否则描不出 conic 的亮斑）", total, want)
-	}
-	t.Logf("900 宽的带切了 %d 段、共 %d 个停靠点", len(segs), total)
-
-	// 旧实现（3 停靠点、不分段）的剖面偏差作为对照。
-	at := func(u float32) float32 { return float32(playerRimConicColorAt(r, r.X+u*r.W, r.Y, 1).A) / 255 }
-	lerpStops := func(stops []ui.GradientStop, u float32) float32 {
-		for i := 0; i+1 < len(stops); i++ {
-			if u >= stops[i].At && u <= stops[i+1].At {
-				d := stops[i+1].At - stops[i].At
-				if d <= 0 {
-					return float32(stops[i+1].Color.A) / 255
-				}
-				k := (u - stops[i].At) / d
-				return (float32(stops[i].Color.A) + k*(float32(stops[i+1].Color.A)-float32(stops[i].Color.A))) / 255
-			}
-		}
-		return float32(stops[len(stops)-1].Color.A) / 255
-	}
-	// 本实现的剖面：把各段的停靠点按全局 u 展开。
-	type gp struct {
-		u float32
-		a float32
-	}
-	var all []gp
-	for _, s := range segs {
-		for _, st := range s.Stops {
-			u := (s.Rect.X - r.X) / r.W
-			seg := s.Rect.W / r.W
-			all = append(all, gp{u + st.At*seg, float32(st.Color.A) / 255})
-		}
-	}
-	maxErrBand := func(points []gp) float64 {
-		worst := 0.0
-		for i := 0; i <= 900; i++ {
-			u := float32(i) / 900
-			k := 0
-			for k < len(points)-2 && points[k+1].u < u {
-				k++
-			}
-			var got float32
-			if u <= points[0].u {
-				got = points[0].a
-			} else if u >= points[len(points)-1].u {
-				got = points[len(points)-1].a
-			} else {
-				got = points[k].a + (points[k+1].a-points[k].a)*(u-points[k].u)/(points[k+1].u-points[k].u)
-			}
-			if d := math.Abs(float64(got - at(u))); d > worst {
-				worst = d
-			}
-		}
-		return worst
-	}
-	old := []ui.GradientStop{
-		{Color: playerRimConicColorAt(r, r.X+r.W*0.03, r.Y, 1), At: 0},
-		{Color: playerRimConicColorAt(r, r.X+r.W*0.50, r.Y, 1), At: 0.5},
-		{Color: playerRimConicColorAt(r, r.X+r.W*0.97, r.Y, 1), At: 1},
-	}
-	oldErr := 0.0
-	for i := 0; i <= 900; i++ {
-		u := float32(i) / 900
-		if d := math.Abs(float64(lerpStops(old, u) - at(u))); d > oldErr {
-			oldErr = d
-		}
-	}
-	bandErr := maxErrBand(all)
-	t.Logf("900 宽顶边最大 alpha 偏差：本实现=%.4f，旧的 3 停靠点=%.4f", bandErr, oldErr)
-	if bandErr > 0.06 {
-		t.Errorf("本实现的顶边最大 alpha 偏差 %.4f > 0.06", bandErr)
-	}
-	if oldErr < 0.3 {
-		t.Errorf("反证失败：旧的 3 停靠点偏差只有 %.4f（应 ≫0.3，否则判法分不开两种画法）", oldErr)
-	}
-
-	// ③ 无头像素实测：定向带 vs 真 conic 环，顶边亮度逐像素一致。
+// 两条反证（都在本测试里实跑）：
+//  1. 圆角：旧的「四条直带 + 圆角裁切」在 45° 方向**完全没画**（直带离弧 5.4px），
+//     45° 像素亮度 0，而真环是 61；
+//  2. 顶边：旧的 12px 采样带在圆心正上方的亮斑/尖谷处差 0.05 alpha（≈13 灰阶）。
+func TestPlayerRimPathConicMatchesTrueRing(t *testing.T) {
 	const w, h = 900, 600
-	render := func(conic bool) *image.RGBA {
+	radius := float32(18)
+	render := func(paint func(*ui.Painter, ui.Rect)) *image.RGBA {
 		return ui.Render(func(c *ui.Context) {
 			c.Root().Background(ui.RGB(0, 0, 0))
-			ui.Box(c).Width(w).Height(h).Background(ui.RGB(0, 0, 0)).Draw(func(p *ui.Painter, rr ui.Rect) {
-				if conic {
-					paintPlayerRimConic(p, rr, 18, 1)
-					return
-				}
-				paintPlayerRimDirectional(p, rr, 18, 1)
-			})
+			ui.Box(c).Width(w).Height(h).Background(ui.RGB(0, 0, 0)).
+				Draw(func(p *ui.Painter, r ui.Rect) { paint(p, r) })
 		}, w, h, 1)
 	}
-	band, ref := render(false), render(true)
-	// 判据用**用户可感知的尺度**：conic 在圆心正上方有一处 ~1px 宽的尖点
-	//（真 conic 环本身的性质，逐像素对比会在那一列差 ~57 灰阶——任何按 pitch
-	// 采样插值的带都描不出单像素峰顶，这是近似固有的下限）。所以先把剖面做
-	// **9px 滑窗平均**（低于人眼在 1px 描边上能分辨的尺度），再比：
-	//  ① 平滑后的最大 alpha 偏差 ≤ 0.08；
-	//  ② **亮度峰值位置**必须落在真 conic 的峰值附近（±8px）。
-	// ② 才是「亮斑有没有被描出来」的硬判据 —— 旧的 3 停靠点实现把峰放在 x=24
-	//（带子的左端点），离真 conic 的 248 差 224px，一眼就能看出光带位置错。
-	profile := func(img *image.RGBA) []float32 {
-		out := make([]float32, w)
-		for x := 0; x < w; x++ {
-			i := img.PixOffset(x, 0)
-			out[x] = (float32(img.Pix[i]) + float32(img.Pix[i+1]) + float32(img.Pix[i+2])) / 765
-		}
-		return out
-	}
-	smooth := func(p []float32) []float32 {
-		const k = 4
-		o := make([]float32, len(p))
-		for i := range p {
-			sum, n := float32(0), 0
-			for j := i - k; j <= i+k; j++ {
-				if j >= 0 && j < len(p) {
-					sum += p[j]
-					n++
+	ref := render(func(p *ui.Painter, r ui.Rect) { paintPlayerRimConic(p, r, radius, 1) })
+	got := render(func(p *ui.Painter, r ui.Rect) { paintPlayerRimDirectional(p, r, radius, 1) })
+	band := render(func(p *ui.Painter, r ui.Rect) { playerRimBandApprox(p, r, radius, 1) })
+
+	diff := func(a, b *image.RGBA) (worst, atX, atY int) {
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				if d := absInt(lumaSum(rgbAt(a, x, y)) - lumaSum(rgbAt(b, x, y))); d > worst {
+					worst, atX, atY = d, x, y
 				}
 			}
-			o[i] = sum / float32(n)
 		}
-		return o
+		return
 	}
-	peakAt := func(p []float32) int {
-		best, at := float32(0), 0
-		for x := 24; x < w-24; x++ {
-			if p[x] > best {
-				best, at = p[x], x
-			}
-		}
-		return at
-	}
-	pb, pr := smooth(profile(band)), smooth(profile(ref))
-	worst, worstAt := float32(0), 0
-	for x := 24; x < w-24; x++ {
-		d := pb[x] - pr[x]
-		if d < 0 {
-			d = -d
-		}
-		if d > worst {
-			worst, worstAt = d, x
-		}
-	}
-	t.Logf("平滑后（9px）顶边最大 alpha 偏差 %.4f @x=%d；峰值 x：本实现=%d 真 conic=%d",
-		worst, worstAt, peakAt(pb), peakAt(pr))
-	if worst > 0.08 {
-		t.Errorf("平滑后定向带与真 conic 的顶边偏差 %.4f > 0.08 @x=%d", worst, worstAt)
-	}
-	if d := peakAt(pb) - peakAt(pr); d < -8 || d > 8 {
-		t.Errorf("定向带的亮度峰值在 x=%d，真 conic 在 x=%d（差 %dpx > 8）：亮斑位置没描对",
-			peakAt(pb), peakAt(pr), d)
+	worst, ax, ay := diff(got, ref)
+	t.Logf("拆块画法 vs 整幅环：整幅最大差 %d 灰阶 @(%d,%d)", worst, ax, ay)
+	if worst != 0 {
+		t.Errorf("拆块画法应与整幅 conic 环逐像素一致，最大差 %d 灰阶 @(%d,%d)", worst, ax, ay)
 	}
 
-	// 反证：旧的 3 停靠点实现把最亮点放在带子的**左端**（x=24），峰值位置差
-	// 224px，两条判据都当场红。
-	oldImg := ui.Render(func(c *ui.Context) {
-		c.Root().Background(ui.RGB(0, 0, 0))
-		ui.Box(c).Width(w).Height(h).Background(ui.RGB(0, 0, 0)).Draw(func(p *ui.Painter, rr ui.Rect) {
-			const bw = 1
-			p.Clip(rr, 18, func() {
-				p.FillGradient(ui.Rect{X: rr.X + bw, Y: rr.Y, W: rr.W - 2*bw, H: bw}, ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-					{Color: playerRimConicColorAt(rr, rr.X+rr.W*0.03, rr.Y, 1), At: 0},
-					{Color: playerRimConicColorAt(rr, rr.X+rr.W*0.50, rr.Y, 1), At: 0.5},
-					{Color: playerRimConicColorAt(rr, rr.X+rr.W*0.97, rr.Y, 1), At: 1},
-				}}, 0)
+	// 反证 1：圆角 45°。r=18 的左上圆角，环带的 45° 中点在 (5.5, 5.5)
+	// （离角心 (18,18) 17.68px，落在 [17,18] 的环里）；两条直带都够不着它。
+	corner := func(img *image.RGBA) int { return lumaSum(rgbAt(img, 5, 5)) }
+	cl, bl, kl := corner(ref), corner(band), corner(got)
+	t.Logf("左上圆角 45°：整幅环=%d 拆块=%d 旧直带=%d", cl, kl, bl)
+	if cl <= 0 {
+		t.Fatal("整幅环在圆角 45° 处没画（判据自身失效）")
+	}
+	if kl != cl {
+		t.Errorf("拆块画法在圆角 45° 处 %d，整幅环 %d（圆角扇区没接上）", kl, cl)
+	}
+	if bl >= cl {
+		t.Errorf("反证失败：旧直带在圆角 45° 处画出了 %d（真环 %d）—— 应完全没画", bl, cl)
+	}
+
+	// 反证 2：顶边的亮斑/尖谷区（圆心 x≈0.30W 附近）。
+	bw, _, _ := diff(band, ref)
+	t.Logf("旧 12px 采样带 vs 整幅环：整幅最大差 %d 灰阶", bw)
+	if bw <= 20 {
+		t.Errorf("反证失败：旧采样带的最大差只有 %d 灰阶（应 ≫20，否则判法分不开两种画法）", bw)
+	}
+}
+
+// TestPlayerRimRingPartsGeometry 钉住拆块的**几何**：块的种类与数量、切点位置、
+// 超宽表面的切块，以及「每块只覆盖自己在环上的那一段」。
+func TestPlayerRimRingPartsGeometry(t *testing.T) {
+	r := ui.Rect{X: 10, Y: 20, W: 900, H: 600}
+	parts := playerRimRingParts(r, 18, 1)
+	// 4 条直边（本轮各 1 段）+ 4 个圆角 = 8 块。
+	if len(parts) != 8 {
+		t.Fatalf("900×600 r18 拆出 %d 块，应为 8 块（4 直边 + 4 圆角）", len(parts))
+	}
+	// 圆角扇区的包围盒必须**恰好**是 18×18 的角块（4 个），直边的包围盒必须
+	// 恰好 1px 高、起止于外弧切点（x0+rad … x1-rad）—— 拼缝就在这里：内半径
+	// = rad-1 时内圈切点与外圈切点共线，直边与扇区才无缝。
+	corners, strips := 0, 0
+	for i := range parts {
+		b := parts[i].Bounds()
+		switch {
+		case b.W == 18 && b.H == 18:
+			corners++
+		case b.H == 1 && b.W == r.W-2*18:
+			strips++
+			if b.X != r.X+18 {
+				t.Errorf("上/下直边的起点在 x=%.0f，应为切点 x=%.0f（与圆角扇区之间有缝）", b.X, r.X+18)
+			}
+		case b.W == 1 && b.H == r.H-2*18:
+			strips++
+			if b.Y != r.Y+18 {
+				t.Errorf("左/右直边的起点在 y=%.0f，应为切点 y=%.0f（与圆角扇区之间有缝）", b.Y, r.Y+18)
+			}
+		default:
+			t.Errorf("第 %d 块的包围盒 %.0f×%.0f 既不是 18×18 的角块也不是 1px 直边",
+				i, b.W, b.H)
+		}
+	}
+	if corners != 4 || strips != 4 {
+		t.Errorf("角块 %d 个、直边 %d 条，应为 4 / 4", corners, strips)
+	}
+	// 半径 0：环退化成直角方框，仍能拆（4 条直边，无圆角）。
+	if got := len(playerRimRingParts(r, 0, 1)); got != 4 {
+		t.Errorf("半径 0 拆出 %d 块，应为 4 条直边", got)
+	}
+	// 半径 < 1：退回整幅环（不拆）。
+	if got := len(playerRimRingParts(r, 0.5, 1)); got != 0 {
+		t.Errorf("半径 0.5px 应退回整幅环（拆块返回 nil），得到 %d 块", got)
+	}
+
+	// 超宽/超高：框架掩码 > 4096 会静默丢弃，所以直边必须再切块。
+	segs := playerRimSplits(0, 5000)
+	if len(segs) < 3 {
+		t.Fatalf("5000 长的边只切了 %d 段（每段上限 %d）", len(segs), playerRimRingSplitMax)
+	}
+	if segs[0][0] != 0 || segs[len(segs)-1][1] != 5000 {
+		t.Errorf("切块没覆盖 [0,5000]：%.0f…%.0f", segs[0][0], segs[len(segs)-1][1])
+	}
+	for i, s := range segs {
+		if s[1]-s[0] > playerRimRingSplitMax {
+			t.Errorf("第 %d 段长 %.0f > 上限 %d（掩码会被框架丢掉）", i, s[1]-s[0], playerRimRingSplitMax)
+		}
+		if i > 0 && s[0] != segs[i-1][1] {
+			t.Errorf("第 %d 段与前一段没接上：%.0f vs %.0f", i, s[0], segs[i-1][1])
+		}
+	}
+	// 反证：整条边一次填就会超过掩码上限（这正是此前 4K 宽表面描边整圈消失的原因）。
+	if wide := playerRimRingParts(ui.Rect{W: 5000, H: 600}, 18, 1); len(wide) <= 8 {
+		t.Errorf("5000 宽的盒仍只拆 %d 块（横边没切块，掩码会超 4096 被丢弃）", len(wide))
+	}
+}
+
+// TestPlayerRimPathConicCost 量三条画法的成本：拆块画法必须明显便宜于
+// 「整幅环」（后者的掩码是 W×H），量出来的数字写进 playerRimConicMaxArea 的注释。
+func TestPlayerRimPathConicCost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("计时测试跳过 -short")
+	}
+	for _, size := range []struct{ w, h int }{{1200, 800}, {2560, 1400}} {
+		bench := func(paint func(*ui.Painter, ui.Rect)) time.Duration {
+			best := time.Duration(1 << 62)
+			for i := 0; i < 3; i++ {
+				// 每帧换 0.25px 偏移 ⇒ 掩码 key 变、缓存不命中（动画时的最坏情况）。
+				off := float32(i) * 0.25
+				start := time.Now()
+				ui.Render(func(c *ui.Context) {
+					c.Root().Background(ui.RGB(0, 0, 0))
+					ui.Box(c).Width(float32(size.w) + off).Height(float32(size.h)).
+						Background(ui.RGB(0, 0, 0)).
+						Draw(func(p *ui.Painter, r ui.Rect) {
+							if paint != nil {
+								paint(p, r)
+							}
+						})
+				}, size.w, size.h, 1)
+				if d := time.Since(start); d < best {
+					best = d
+				}
+			}
+			return best
+		}
+		none := bench(nil)
+		parts := bench(func(p *ui.Painter, r ui.Rect) { paintPlayerRimDirectional(p, r, 18, 1) })
+		ring := bench(func(p *ui.Painter, r ui.Rect) { paintPlayerRimConic(p, r, 18, 1) })
+		t.Logf("%d×%d 整帧：none=%v 拆块=%v(-%v) 整幅环=%v(-%v)",
+			size.w, size.h, none, parts, parts-none, ring, ring-none)
+		if parts >= ring {
+			t.Errorf("%d×%d 拆块画法 %v 不比整幅环 %v 便宜（掩码应只占周长×1px）",
+				size.w, size.h, parts, ring)
+		}
+	}
+}
+
+// playerRimBandApprox 复刻 2026-10-23…10-29 那版大表面画法（四条 1px 线性渐变
+// 带、端点色按 12px 步长从 conic 采样、整组裁在圆角内），**只**用于反证：
+// 直带的并集只覆盖横/竖两条 1px 条带，圆角弧在 45° 方向离两条直带都有 ≈0.29R，
+// 那一整段根本没画。
+func playerRimBandApprox(p *ui.Painter, r ui.Rect, radius, opacity float32) {
+	const width, pitch = 1, 12
+	band := func(rect ui.Rect, angle float32, at func(u float32) ui.Color) {
+		length := rect.W
+		if angle != 90 {
+			length = rect.H
+		}
+		n := int(length/pitch) + 1
+		if n < 2 {
+			n = 2
+		}
+		gaps := n - 1
+		stops := make([]ui.GradientStop, min(gaps+1, 32))
+		for i := range stops {
+			u := float32(i) / float32(gaps)
+			stops[i] = ui.GradientStop{Color: at(u), At: float32(i) / float32(len(stops)-1)}
+		}
+		p.FillGradient(rect, ui.LinearGradient{Angle: angle, Stops: stops}, 0)
+	}
+	p.Clip(r, radius, func() {
+		cx := func(x float32) ui.Color { return playerRimConicColorAt(r, x, r.Y, opacity) }
+		band(ui.Rect{X: r.X + width, Y: r.Y, W: r.W - 2*width, H: width}, 90,
+			func(u float32) ui.Color { return cx(r.X + width + u*(r.W-2*width)) })
+		band(ui.Rect{X: r.X + width, Y: r.Y + r.H - width, W: r.W - 2*width, H: width}, 90,
+			func(u float32) ui.Color {
+				return playerRimConicColorAt(r, r.X+width+u*(r.W-2*width), r.Y+r.H, opacity)
 			})
-		})
-	}, w, h, 1)
-	po := smooth(profile(oldImg))
-	oldWorst := float32(0)
-	for x := 24; x < w-24; x++ {
-		d := po[x] - pr[x]
-		if d < 0 {
-			d = -d
-		}
-		if d > oldWorst {
-			oldWorst = d
-		}
-	}
-	t.Logf("反证：旧的 3 停靠点平滑后偏差 %.4f（应 >0.08），峰值 x=%d（应与真 conic 差 >8px）",
-		oldWorst, peakAt(po))
-	if oldWorst <= 0.08 {
-		t.Errorf("反证失败：旧的 3 停靠点平滑后偏差只有 %.4f（应 >0.08）", oldWorst)
-	}
-	if d := peakAt(po) - peakAt(pr); d >= -8 && d <= 8 {
-		t.Errorf("反证失败：旧的 3 停靠点的峰值也在真 conic 附近（差 %dpx）", d)
-	}
+		band(ui.Rect{X: r.X, Y: r.Y, W: width, H: r.H}, 180,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X, r.Y+u*r.H, opacity) })
+		band(ui.Rect{X: r.X + r.W - width, Y: r.Y, W: width, H: r.H}, 180,
+			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+r.W, r.Y+u*r.H, opacity) })
+	})
 }
 
 // TestPlayerRimDisabledFlattens 反证：把 playerRimOpacityFn 换成恒 0（等于

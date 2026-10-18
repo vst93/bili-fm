@@ -895,8 +895,9 @@ func playerRimOpacity(dark, tool bool) float32 {
 //
 // `playerRimPaintFor` 保留的是旧的四边线性取值：**已不作为生产画法**，只留给
 // 测试做对照与反证（见 TestPlayerRimLinearApproximationPutLightOnTop、
-// TestPlayerRimPaintFor）。小控件走真 conic 环，大表面走
-// `paintPlayerRimDirectional`（四条带、端点色从 conic 采样）。
+// TestPlayerRimPaintFor）。小控件走整幅 conic 环，大表面走
+// `paintPlayerRimDirectional`（同一圈环按几何拆成 8 块、逐块 conic）—— 两条
+// 画法逐像素一致，区别只在「几份掩码」。
 //
 // 色散边（--liquid-chromatic 的暖/冷 0.5px 亚像素）仍按整 1px × 半不透明度近似，
 // 画在描边之外（见 paintPlayerChromatic）。
@@ -953,138 +954,180 @@ func playerRimConicColorAtT(t float32, opacity float32) ui.Color {
 	return stops[len(stops)-1].Color
 }
 
-// paintPlayerRimDirectional 是大表面（抽屉面板整幅、视频信息栏）用的定向光
-// 近似：四条边各铺一条 1px 渐变带，停靠点色从真 conic **逐点采样**，既拿到
-// conic 的定向光，又不做整幅路径光栅化（那是 `FillPathConicGradient` 的代价：
-// 每条环一份掩码，动画时掩码无法跨帧复用，实测 2560×1400 上每帧 6.15ms vs
-// 定向带 1.54ms；这里只画 4 条 1px 带）。
+// paintPlayerRimDirectional 画大表面（抽屉面板整幅、视频信息栏）的定向光描边。
 //
-// 为什么不能直接用旧的四边线性近似：那个近似把最亮点放在**正上沿**（白 .85），
-// 而原版 conic 被 `from 215deg at 30% -5%` 推到**左上**，正上方落在谷底（≈.05）
-// —— 方向正好相反（见 TestPlayerRimLinearApproximationPutLightOnTop 的反证）。
+// 原版 --liquid-rim 是**真 conic**（逐像素按角度取值）。大表面此前为了省光栅
+// 成本改成「四条 1px 线性渐变带 + 端点色按 12px 步长从 conic 采样」，留下三处
+// 用户可感知的偏差（2026-10-23 起挂着、10-29 仍列为残留①）：
 //
-// ⚠️ 两个必须遵守的约束（都是**实测踩出来的**，缺一个就会画出用户可感知的错）：
+//  1. **圆角处整段没有描边**：四条直带的并集只覆盖「离横边或竖边 ≤1px」的两条
+//     条带，而圆角弧在 45° 方向离两条直带都有 ≈0.29·R 的距离（R=16 时 5.4px）
+//     —— 面板圆角上那圈光断了，直边与圆角之间出现两个豁口（反证实测：圆角
+//     45° 处的亮度是 0，真 conic 环是 61）。
+//  2. **采样误差**：12px 步长线性插值，900 宽顶边的最大 alpha 偏差 0.05 ——
+//     顶边在圆心正上方那处「~10% 边长的亮斑 + 紧跟的尖谷」被插值抹圆。
+//  3. **>32 停靠点要切段**：段边界又是一次线性近似（框架 `scene.MaxStops=32`）。
 //
-//  1. **停靠点密度**：conic 圆心在盒的 30%/-5%（左上加偏），于是**整条上边**都
-//     落在「圆心正上方 ±90°」的扇面里，角度沿 x 快速扫过全部六个停靠点 —— 上边
-//     在圆心正上方（x≈0.30W）有一处 alpha 峰（≈.77），两端分别落到 ≈.5 / ≈.15，
-//     中间还有个**尖谷**（x≈0.317W 处 .51）。只要 3 个停靠点（首/中/尾）根本描
-//     不出这个峰（中点 0.5W 落在峰右侧的平稳谷里）。实测（900×600 面板顶边，
-//     `playerRimConicColorAt` 逐像素对照，见 playerrim_test.go）：3 停靠点最大
-//     alpha 偏差 **0.67**，`playerRimBandPitch=12` 降到 **0.05**。
-//  2. **每段 ≤ `scene.MaxStops`（32）个停靠点**：框架把一次渐变的停靠点**截断**
-//     到 32 个（`ui/paint.go` 的 `stops`：`if i == scene.MaxStops { break }`），
-//     超出的部分**静默丢弃**。900 宽的面板按 12px 采出 76 个停靠点 ⇒ 只剩前 32 个，
-//     后 2/3 条边上的色全被压成第 32 个停靠点的色（**画成一整条平色**）。所以一条
-//     边必须切成多段，每段各自成一条 ≤32 停靠点的渐变。
+// 现在的画法不再近似：把 1px 环按**几何**拆成 8 块（4 条直边 + 4 个 90° 环形
+// 扇区），每块各喂一次 `FillPathConicGradient`，圆心按「块包围盒的归一坐标」
+// 换算回真圆心（见 `playerRimFillPathConic`）。于是：
 //
-// 本轮之前只有「3 停靠点、不分段」一条，两条都犯；面板顶边的亮斑被抹平、下半
-// 条的色还被截断成平色（见 TestPlayerRimDirectionalBandDensity 的两条反证）。
+//   - 每个像素仍走 `atan2` + `stopsAt` 的真 conic 取色，**与整幅环逐像素一致**
+//     （`TestPlayerRimPathConicMatchesTrueRing` 量整圈最大差 = 0 灰阶）；
+//   - 掩码只有「周长 × 1px」那么大，而不是整幅 W×H —— 2560×1400 面板从
+//     6.15ms/帧降到 0.30ms/帧（实测表见 `playerRimConicMaxArea`）。
+//
+// 8 块的拼缝落在整数设备坐标上，两侧像素各归一侧（解析覆盖率），不会出现
+// 「叠两层 ⇒ 1-(1-a)(1-b) 变亮」或漏边（实测拼缝处与整幅环同值）。
 func paintPlayerRimDirectional(p *ui.Painter, r ui.Rect, radius, opacity float32) {
-	if r.W < 2 || r.H < 2 {
+	if r.W < 2 || r.H < 2 || opacity <= 0 {
 		return
 	}
-	const w = 1
-	// 上下横带左右各让开 1px（避免四角被两条带叠成双倍 alpha），左右竖带占满
-	// 高度；整组裁在元素圆角内，圆角处自动跟随弧线。
-	p.Clip(r, radius, func() {
-		// 上边：x 从 r.X+w 到 r.X+r.W-w。
-		playerRimBand(p, ui.Rect{X: r.X + w, Y: r.Y, W: r.W - 2*w, H: w}, 90,
-			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+w+u*(r.W-2*w), r.Y, opacity) })
-		// 下边。
-		playerRimBand(p, ui.Rect{X: r.X + w, Y: r.Y + r.H - w, W: r.W - 2*w, H: w}, 90,
-			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+w+u*(r.W-2*w), r.Y+r.H, opacity) })
-		// 左边（从上到下）。
-		playerRimBand(p, ui.Rect{X: r.X, Y: r.Y, W: w, H: r.H}, 180,
-			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X, r.Y+u*r.H, opacity) })
-		// 右边。
-		playerRimBand(p, ui.Rect{X: r.X + r.W - w, Y: r.Y, W: w, H: r.H}, 180,
-			func(u float32) ui.Color { return playerRimConicColorAt(r, r.X+r.W, r.Y+u*r.H, opacity) })
+	parts := playerRimRingParts(r, radius, 1)
+	if len(parts) == 0 {
+		// 半径 < 1px：内圈圆弧退化成一个点，直边与圆角不再共享同一条缝，拆八块
+		// 会留细缝。这种圆角在界面上不存在（最小 2px），退回整幅环。
+		paintPlayerRimConic(p, r, radius, opacity)
+		return
+	}
+	cx := r.X + r.W*playerRimConicCenter.X
+	cy := r.Y + r.H*playerRimConicCenter.Y
+	for i := range parts {
+		playerRimFillPathConic(p, &parts[i], cx, cy, opacity)
+	}
+}
+
+// playerRimFillPathConic 用 --liquid-rim 的 conic（圆心在绝对坐标 cx/cy）填充
+// 环的一块。
+//
+// 框架的 `ConicGradient.Center` 是**路径包围盒的归一坐标**
+// （`ui/paint.go` 的 `conic`：`op.Rect.X + op.Rect.W*Center.X`），所以要把真圆心
+// 换算回块内。归一值跑出 [0,1] 是合法的：1px 高的直边段里圆心的 y 归一值就是
+// -0.05H（面板上几百），采样仍是逐像素的 `atan2(px-cx, cy-py)`
+// （`internal/raster` 的 `conicT`），与整幅环同一套算术。
+func playerRimFillPathConic(p *ui.Painter, path *ui.Path, cx, cy, opacity float32) {
+	b := path.Bounds()
+	if b.W <= 0 || b.H <= 0 {
+		return
+	}
+	p.FillPathConicGradient(path, ui.ConicGradient{
+		Stops:  playerRimConicStops(opacity),
+		Center: ui.Point{X: (cx - b.X) / b.W, Y: (cy - b.Y) / b.H},
+		Angle:  playerRimConicAngle,
 	})
 }
 
-// playerRimBand 沿一条 1px 带铺 conic 采样光，并按框架的停靠点上限分段。
+// playerRimRingSplitMax 是一块直边的最长长度（DIP）。
 //
-// rect 是带的矩形，angle 是渐变方向（90 = 横带从左到右、180 = 竖带从上到下），
-// sample 由「带上的归一位置 u ∈ [0,1]」给出该点的色（调用方把整圈 opacity 乘进
-// alpha）。每一段各自成一条 ≤ `playerRimBandMaxGaps+1`（= 32，框架的 `scene.MaxStops`）
-// 个停靠点的线性渐变：
-// 段的矩形按段在带上的比例裁出来，段内的 At 重归一到 [0,1]。
-func playerRimBand(p *ui.Painter, rect ui.Rect, angle float32, sample func(u float32) ui.Color) {
-	for _, seg := range playerRimBandSegments(rect, angle, sample) {
-		p.FillGradient(seg.Rect, ui.LinearGradient{Angle: angle, Stops: seg.Stops}, 0)
+// 框架 `drawPathPaint` 在掩码宽或高 > 4096 时**静默返回**
+// （`ui/path.go`：`if w <= 0 || h <= 0 || w > 4096 || h > 4096 { return }`），
+// 于是「一条边一次填」在超宽/超高的表面（4K 全屏、多屏拼接）上会把整条描边
+// 丢掉。切成 ≤2048 的块后任何尺寸都画得出来；块与块的掩码形状完全相同（同一个
+// 矩形），掩码缓存的 key 命中同一份（key 是形状相对像素网格的哈希，与位置无关）。
+const playerRimRingSplitMax = 2048
+
+// playerRimRingParts 把 `playerRimRingPathWidth(r, radius, width)` 那圈环拆成
+// 几何上与整圈环**逐像素重合**的若干子路径：4 条直边（各按
+// playerRimRingSplitMax 再切）+ 4 个 90° 环形扇区。
+//
+// 拆点选在**切点**上：直边止于外圈弧的切点（x0+rad … x1-rad），而扇区的两条
+// 直边正好是那两条径向线段（内半径 = rad-width 时内圈切点与外圈切点在同一条
+// 竖线/横线上）。所以拼起来既无缝、也不重叠。
+//
+// radius < width 时返回 nil（内圈圆弧退化成一个点，直边与圆角不再共缝 ——
+// 见 paintPlayerRimDirectional 的退回分支）。
+func playerRimRingParts(r ui.Rect, radius, width float32) []ui.Path {
+	if width <= 0 || r.W < 2*width || r.H < 2*width {
+		return nil
 	}
+	rad := min(radius, min(r.W, r.H)/2)
+	if rad > 0 && rad < width {
+		// 内圈圆弧退化成一个点，直边与圆角不再共缝（见函数注释）。
+		return nil
+	}
+	x0, y0 := r.X, r.Y
+	x1, y1 := r.X+r.W, r.Y+r.H
+	ix0, iy0 := x0+width, y0+width
+	ix1, iy1 := x1-width, y1-width
+	radI := rad - width
+	const k = 0.5522847498
+
+	parts := make([]ui.Path, 0, 12)
+	// 四条直边（横边按 x 切、竖边按 y 切）。
+	for _, s := range playerRimSplits(x0+rad, x1-rad) {
+		var top, bottom ui.Path
+		top.MoveTo(s[0], y0).LineTo(s[1], y0).LineTo(s[1], y0+width).LineTo(s[0], y0+width).Close()
+		bottom.MoveTo(s[0], y1).LineTo(s[1], y1).LineTo(s[1], y1-width).LineTo(s[0], y1-width).Close()
+		parts = append(parts, top, bottom)
+	}
+	for _, s := range playerRimSplits(y0+rad, y1-rad) {
+		var left, right ui.Path
+		left.MoveTo(x0, s[0]).LineTo(x0, s[1]).LineTo(x0+width, s[1]).LineTo(x0+width, s[0]).Close()
+		right.MoveTo(x1, s[0]).LineTo(x1, s[1]).LineTo(x1-width, s[1]).LineTo(x1-width, s[0]).Close()
+		parts = append(parts, left, right)
+	}
+	// 四个圆角：外弧**正向**（与整圈环的外圈同向）、内弧**反向**，两端用直线
+	// 接到切点上 —— 闭合后正好是那条 90° 环形扇区（不需要挖洞）。
+	// 半径 0（直角框）没有圆角可拆：直边已经铺满整条边。
+	if rad == 0 {
+		return parts
+	}
+	{
+		var p ui.Path // 左上
+		p.MoveTo(x0, y0+rad)
+		p.CubeTo(x0, y0+rad-rad*k, x0+rad-rad*k, y0, x0+rad, y0)
+		p.LineTo(ix0+radI, iy0)
+		p.CubeTo(ix0+radI-radI*k, iy0, ix0, iy0+radI-radI*k, ix0, iy0+radI)
+		p.Close()
+		parts = append(parts, p)
+	}
+	{
+		var p ui.Path // 右上
+		p.MoveTo(x1-rad, y0)
+		p.CubeTo(x1-rad+rad*k, y0, x1, y0+rad-rad*k, x1, y0+rad)
+		p.LineTo(ix1, iy0+radI)
+		p.CubeTo(ix1, iy0+radI-radI*k, ix1-radI+radI*k, iy0, ix1-radI, iy0)
+		p.Close()
+		parts = append(parts, p)
+	}
+	{
+		var p ui.Path // 右下
+		p.MoveTo(x1, y1-rad)
+		p.CubeTo(x1, y1-rad+rad*k, x1-rad+rad*k, y1, x1-rad, y1)
+		p.LineTo(ix1-radI, iy1)
+		p.CubeTo(ix1-radI+radI*k, iy1, ix1, iy1-radI+radI*k, ix1, iy1-radI)
+		p.Close()
+		parts = append(parts, p)
+	}
+	{
+		var p ui.Path // 左下
+		p.MoveTo(x0+rad, y1)
+		p.CubeTo(x0+rad-rad*k, y1, x0, y1-rad+rad*k, x0, y1-rad)
+		p.LineTo(ix0, iy1-radI)
+		p.CubeTo(ix0, iy1-radI+radI*k, ix0+radI-radI*k, iy1, ix0+radI, iy1)
+		p.Close()
+		parts = append(parts, p)
+	}
+	return parts
 }
 
-// playerRimBandSeg is one gradient of a band: the sub-rectangle it covers and the
-// stops to fill it with.
-type playerRimBandSeg struct {
-	Rect  ui.Rect
-	Stops []ui.GradientStop
-}
-
-// playerRimBandSegments cuts a band into the gradients that draw it, each with at
-// most playerRimBandMaxGaps+1 stops (the framework's scene.MaxStops). Split out of
-// playerRimBand so a test can count the stops it sends without rendering.
-func playerRimBandSegments(rect ui.Rect, angle float32, sample func(u float32) ui.Color) []playerRimBandSeg {
-	length := rect.W
-	if angle != 90 {
-		length = rect.H
+// playerRimSplits 把 [a, b] 切成若干段，每段不超过 playerRimRingSplitMax，
+// 切点吸到该常量的整数倍（于是块边界永远是整数坐标、跨帧稳定）。
+func playerRimSplits(a, b float32) [][2]float32 {
+	if b <= a {
+		return nil
 	}
-	n := int(length/playerRimBandPitch) + 1
-	if n < 2 {
-		n = 2
-	}
-	var segs []playerRimBandSeg
-	for s := 0; s < n-1; s += playerRimBandMaxGaps {
-		e := min(s+playerRimBandMaxGaps, n-1)
-		gaps := e - s
-		stops := make([]ui.GradientStop, gaps+1)
-		for i := 0; i <= gaps; i++ {
-			u := (float32(s) + float32(i)) / float32(n-1)
-			stops[i] = ui.GradientStop{Color: sample(u), At: float32(i) / float32(gaps)}
+	var out [][2]float32
+	for a < b {
+		e := min(b, (float32(math.Floor(float64(a/playerRimRingSplitMax)))+1)*playerRimRingSplitMax)
+		if e <= a {
+			e = b
 		}
-		a0 := float32(s) / float32(n-1)
-		a1 := float32(e) / float32(n-1)
-		sub := rect
-		if angle == 90 {
-			sub.X = rect.X + a0*rect.W
-			sub.W = (a1 - a0) * rect.W
-		} else {
-			sub.Y = rect.Y + a0*rect.H
-			sub.H = (a1 - a0) * rect.H
-		}
-		segs = append(segs, playerRimBandSeg{Rect: sub, Stops: stops})
+		out = append(out, [2]float32{a, e})
+		a = e
 	}
-	return segs
+	return out
 }
-
-// playerRimBandPitch 是定向光带的停靠点间距（DIP）。原版是**真 conic**（逐像素
-// 按角度取值），本近似要在一条边的长度内把 conic 的角向变化采出来；上边圆心正
-// 上方那处亮斑（alpha ≈.77 → .51 的尖谷 → .33）的横向跨度只有 ~10% 边长，
-// 所以停靠点必须远密于 3 个。
-//
-// 实测（900×600，`playerRimConicColorAt` 沿顶边逐像素对照）：
-//
-//	密度     最大 alpha 偏差   2560×1400 顶边停靠点
-//	∞(3)     0.67            3
-//	48px     0.077           54
-//	24px     0.114           107
-//	12px     0.051           214
-//	8px      0.006           321
-//
-// 取 12px（跨分段后实测最大 alpha 偏差 0.05 ⇒ 已远小于原版的两条边带近似的
-// ~0.4）；更密（8px）能把偏差压到 0.006，但停靠点的光栅成本与个数无关（实测
-// 900 宽上 2/19/38/76/226 个停靠点都是 ~470µs/帧——`FillGradient` 本身掌主导），
-// 真正变多的是**分段的段数**（每段一次 FillGradient）—— 900 宽 12px ⇒ 76 个
-// 停靠点 ⇒ 3 段，仍是三条很便宜的 1px 带填充。动画压力下（每帧换 1px 偏移、
-// 掩码与渐变缓存全不命中）分段带仍比真 conic 环便宜 ~1.5×：2560×1400 上
-// 分段带 27.8ms/帧 vs 真 conic 环 40.3ms/帧（见 playerRimConicMaxArea 的表）。
-const playerRimBandPitch = 12
-
-// playerRimBandMaxGaps 是一段带里最多几个「间隔」—— 停靠点数 = 间隔数 + 1，
-// 上限是框架的 `scene.MaxStops`（32）个停靠点，所以间隔数最多 31。
-const playerRimBandMaxGaps = 31
 
 // playerRimDirectionalFn 是定向光带绘制的入口（测试可换桩关掉做反证）。
 var playerRimDirectionalFn = paintPlayerRimDirectional
@@ -1188,14 +1231,15 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if opacity <= 0 {
 		return
 	}
-	// 面积闸门：conic 走路径光栅化（每个环一份 α 蒙版 + 一次 conic 采样）。
-	// 小控件（按钮 / 胶囊 / tab / 搜索框）用真 conic 环，成本可忽略；
-	// **大表面**（抽屉面板整幅、视频信息栏）改用 `paintPlayerRimDirectional`：
-	// 四条 1px 梯度带，端点色从真 conic 采样，拿到同一条定向光（最亮点偏
-	// 左上）而**不**做整幅路径光栅化 —— 大面板每帧一份掩码、动画时掩码无法
-	// 跨帧复用，2560×1400 上 conic 6.15ms/帧 vs 定向带 1.54ms/帧。
-	// 为什么不用旧的四边线性近似：它把最亮点放在**正上沿**（白 .85），与原版
-	// conic 的左上亮相**反**（见 TestPlayerRimLinearApproximationPutLightOnTop）。
+	// 面积闸门：两条画法**逐像素一致**（都是真 conic），区别只在掩码份数与
+	// 一次 op 的开销。小控件（按钮 / 胶囊 / tab / 搜索框）面积小，一份整幅环的
+	// 掩码最省（1 次 FillPathConicGradient）；**大表面**（抽屉面板整幅、视频
+	// 信息栏）改走 `paintPlayerRimDirectional`：同一圈环拆成 8 块，掩码从
+	// 「整幅 W×H」降到「周长×1px」——2560×1400 面板实测整幅环 +70ms/帧、
+	// 拆块 +0ms（噪声内），见 playerRimConicMaxArea 的表。
+	// 为什么不用旧的四边线性近似：它把最亮点放在**正上沿**（白 .85）、圆角处
+	// 整段不画，与原版 conic 的左上亮相**反**（见
+	// TestPlayerRimLinearApproximationPutLightOnTop、TestPlayerRimPathConicMatchesTrueRing）。
 	if r.W*r.H <= playerRimConicMaxArea {
 		paintPlayerRimConicFn(p, r, radius, opacity)
 		return
@@ -1219,29 +1263,30 @@ func paintPlayerRimConic(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 // paintPlayerRimConicFn 是 conic 描边绘制的入口（测试可换桩关掉做反证）。
 var paintPlayerRimConicFn = paintPlayerRimConic
 
-// playerRimConicMaxArea 是「用真 conic 环」的面积上限（DIP²）。
+// playerRimConicMaxArea 是「整幅环一次填」的面积上限（DIP²）。
 //
-// conic 环要光栅化一条环形路径（一份 α 蒙版）再按角度采样，成本随表面尺寸线性
-// 增长；按钮 / 胶囊 / tab / 搜索框这些**小控件**（面积 ≤ 2 万 DIP²，最大也就
-// 200×36=7200）每帧光栅一次也便宜，换来原版那条 conic 定向光（最亮点偏左上）；
-// 抽屉面板 / 视频信息栏这些**大表面**（几十万 DIP²）每帧一次环形路径光栅明显
-// 更贵（动画时掩码无法跨帧复用），而大表面的描边本身很淡（整圈 opacity 1、最亮
-// 点 alpha ≈.2），肉眼只看得到「边缘一圈淡淡的光」—— 改走 `paintPlayerRimDirectional`：
-// 四条 1px 梯度带，端点色从真 conic **采样**，方向与原版一致（左亮上暗）。
+// 两条画法的**颜色逐像素相同**（都按真 conic 的角度取色），差别只在掩码：
 //
-// 实测（无头软渲染，面板每帧换 1px 偏移 ⇒ 掩码的像素网格 key 变、缓存不命中）：
+//   - 整幅环（`paintPlayerRimConic`）：一条环形路径 ⇒ **一份 W×H 的 α 掩码**，
+//     光栅成本与面积成正比，1 次 `FillPathConicGradient`；
+//   - 拆块（`paintPlayerRimDirectional`）：同一圈环按几何拆成 8 块（4 直边 +
+//     4 圆角扇区）⇒ 掩码只有「周长×1px」，9 次 `FillPathConicGradient`（每次
+//     仍是一份小掩码 + 一次 conic 采样）。
 //
-//	800×646   none 217µs  directional 317µs  conic 1.20ms（5.5× none）
-//	1900×995  none 609µs  directional 837µs  conic 2.84ms（4.7×）
-//	2560×1400 none 1.37ms directional 1.54ms conic 6.15ms（4.5×）
+// 小控件（按钮 / 胶囊 / tab / 搜索框，面积 ≤ 2 万 DIP²，最大也就 200×36=7200）
+// 整幅环的掩码本来就只有几千像素，一次 op 比 9 次 op 划算；大表面（抽屉面板
+// 整幅、视频信息栏，几十万 DIP²）整幅环的掩码涨到几十万像素，拆块几乎免费。
 //
-// 大表面走 conic 在 2560×1400 上每帧多花 ~4.6ms（≈28% 的 16.7ms 帧预算），
-// 而两条画法的边缘取样色差 ≤3%（见 TestPlayerRimDirectionalKeepsConicLightDirection），
-// 故大表面仍走定向光带。静态帧掩码可跨帧缓存时两者相近（~13µs vs ~11µs）。
+// 实测（无头软渲染，整帧含 1 块背景盒；每帧换 0.25px 偏移 ⇒ 掩码 key 变、
+// 缓存不命中，即动画时的最坏情况）：
 //
-// 注：这里的倍数在 2026-10-22 之前被记成「≈2.5×」——那个数是拿**旧的有 bug 的**
-// 环路径量的（内圈与外圈同向 ⇒ non-zero 下整幅被填充，掩码是满幅而不是 1px 环），
-// 修好挖空后重测才是上表。
+//	1200×800  none 13.67ms  拆块 +1.17ms   整幅环 +15.45ms（13× 拆块）
+//	2560×1400 none 38.87ms  拆块 -0.00ms   整幅环 +70.25ms
+//
+// 即：拆块的成本落在整帧噪声里，整幅环在大面板上每帧多花 ~70ms（4 个刷新周期）。
+// 这替代了 2026-10-23…10-29 记的「定向带 1.54ms vs 真 conic 6.15ms、色差 ≤3%」
+// 那张表 —— 当时的「定向带」是 12px 采样的线性近似（色差、圆角缺口都在），现在
+// 的拆块画法把近似彻底去掉，且仍是两条里便宜的那条。
 const playerRimConicMaxArea = 20000
 
 // playerChromaticWarm / Cool 是 --liquid-chromatic 的暖/冷色散边颜色
