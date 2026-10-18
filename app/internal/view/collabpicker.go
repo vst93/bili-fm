@@ -221,6 +221,13 @@ func (a *App) collabMenu(c *ui.Context, anchor ui.Element) {
 			Padding(collabMenuPad).Radius(collabMenuRadius).
 			Margin(collabMenuGap, 0, 0, 0).
 			Material(glassLayer(glass.Glass{})).
+			// 原版 `.video-owner-picker-menu { background-image:
+			// var(--glass-sheen-static) }`（globals.css:2136）：玻璃底之上、条目
+			// 之下那层「左上径向热点 + 170° 斜向洗光」。此前漏画，面板顶左
+			// 比原版平一档（同一族：设置菜单本轮一并补上）。
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				paintBakedSheen(p, r, collabMenuRadius, sheenGlassBaked)
+			}).
 			InsetShadow(0, 1, 1, 0, t.Highlight).
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
 			Shadow(0, 8, 24, 0, ui.Hex("#0f172a").Alpha(0.07)).

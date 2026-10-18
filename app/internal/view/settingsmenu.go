@@ -8,6 +8,9 @@ import (
 )
 
 // ---------------------------------------------------------------- 设置菜单
+//
+// 面板材质 = 玻璃 + `--glass-sheen-static` 洗光（见 settingsMenu 的 Draw），
+// 与条目自己的三态底色一起构成原版 #settings-menu 的那块液态玻璃。
 
 // 设置菜单是非 macOS 标题栏里「设置」按钮的下拉（原版 titleBar.tsx 的
 // #settings-menu）。原版是一块**手写的液态玻璃面板**，不是系统菜单：
@@ -71,6 +74,14 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 		panel.MinWidth(settingsMenuMinW).Padding(settingsMenuPadY, 0).
 			Radius(settingsMenuRadius).Margin(settingsMenuGap, 0, 0, 0).
 			Material(glassLayer(glass.Glass{})).
+			// 原版 `#settings-menu { background-image: var(--glass-sheen-static)
+			// !important }`（globals.css:1928）：在玻璃底之上、条目之下再铺一层
+			// 「左上径向热点 + 170° 斜向洗光」。此前只画了玻璃材质，面板顶左比
+			// 原版平一档（同为玻璃浮层的抽屉 tab / 搜索框 / 播放栏都已铺这条洗光，
+			// 只有设置菜单与合作 UP 主下拉漏着）。
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				paintBakedSheen(p, r, settingsMenuRadius, sheenGlassBaked)
+			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
 			Shadow(0, 18, 44, 0, ui.Hex("#0f172a").Alpha(0.10))
