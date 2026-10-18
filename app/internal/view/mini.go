@@ -25,6 +25,7 @@ const (
 	miniWinCtrlSize = 20
 	miniWinCtrlIcon = 12
 	miniWinCtrlPadX = 3
+	miniWinCtrlPadY = 1
 	miniInfoH       = 88
 	miniPlayerH     = 43
 	miniCover       = 64
@@ -97,7 +98,16 @@ func (a *App) MiniShell(c *ui.Context) {
 			// 命中（只有两颗键参与），空白处仍能拖窗。
 			if viewGOOS != "darwin" {
 				wc := ui.Row(c).Grow(1).Justify(ui.End).Gap(tbWinCtrlGap).
-					Padding(1, miniWinCtrlPadX).AlignItems(ui.Center)
+					Padding(miniWinCtrlPadY, miniWinCtrlPadX).AlignItems(ui.Center)
+				// 同一层内凹玻璃托盘（原版 #wds-handle-group 在 mini 下只改 padding /
+				// 键尺寸，背景与 inset 阴影不变）。高度 = 20 + 2×1 = 22，加上下边框
+				// 1px 合计 23（原版内容撑高后同值，在 24px 的迷你标题栏里居中）。
+				//
+				// 圆角取 0（而原版 mini 是 12）：原生版迷你窗的内容层**没有**圆角
+				//（窗口圆角交给系统，见 miniwindowradius_test.go），托盘下沿再画
+				// 12px 圆角就与窗口方角错位。
+				wc.Height(miniWinCtrlSize + 2*miniWinCtrlPadY)
+				titleBarCtrlTray(wc, 0)
 				wc.Children(func() {
 					a.windowControlButtonSized(c, "mini-min", "最小化", iconMinus, false, miniWinCtrlSize, miniWinCtrlIcon, func() {
 						if a.Act.Minimize != nil {

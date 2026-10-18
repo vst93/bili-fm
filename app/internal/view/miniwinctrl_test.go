@@ -299,8 +299,10 @@ func TestMiniTitleBarWindowControls(t *testing.T) {
 		if gap := cl.X - (min.X + min.W); gap != 4 {
 			t.Errorf("%s：两颗键间距 %v，应为 4（gap-1）", goos, gap)
 		}
-		if right := float32(miniWidth) - (cl.X + cl.W); right != 13 {
-			t.Errorf("%s：关闭键右缘距窗口右边 %v，应为 13（栏 10 + 组 3）", goos, right)
+		// 原版 `#wds-handle-group` 有一条 1px 边框（上边 0），box-sizing:
+		// border-box 把它算在组宽之内，所以关闭键右缘 = 栏 10 + 边框 1 + px-1 3 = 14。
+		if right := float32(miniWidth) - (cl.X + cl.W); right != 14 {
+			t.Errorf("%s：关闭键右缘距窗口右边 %v，应为 14（栏 10 + 组边框 1 + 组 3）", goos, right)
 		}
 		minClicks, hideClicks := 0, 0
 		a.Act.Minimize = func() { minClicks++ }

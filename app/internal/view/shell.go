@@ -183,9 +183,13 @@ func (a *App) titleBar(c *ui.Context) {
 		if !mac && tb.Right <= 0 {
 			// 间距/内边距逐值对齐原版 #wds-handle-group（titleBar.tsx:411）：
 			// `flex items-center gap-1 px-1 py-0.5` —— Tailwind gap-1 = 4px、
-			// px-1 = 左右各 4px。此前写的是 Gap(1)（1px）且没有 px-1，两颗键
-			// 几乎贴在一起、右侧也比原版少 4px（栏 16 + 组 4 = 20）。
-			wc := ui.Row(c).Gap(tbWinCtrlGap).Padding(0, tbWinCtrlPadX).Shrink(0).AlignItems(ui.Center)
+			// px-1 = 左右各 4px、py-0.5 = 上下各 2px。此前写的是 Gap(1)（1px）
+			// 且没有 px-1，两颗键几乎贴在一起、右侧也比原版少 4px。
+			wc := ui.Row(c).Gap(tbWinCtrlGap).Padding(tbWinCtrlPadY, tbWinCtrlPadX).Shrink(0).AlignItems(ui.Center)
+			// 组高 = 键 30 + py-0.5 4 = 34（下边框 1px 由框架画在高度之外，
+			// 合计 35 —— 与原版内容撑高同值）。36px 的栏里居中后上下各留 0.5。
+			wc.Height(tbWinCtrlSize + 2*tbWinCtrlPadY)
+			titleBarCtrlTray(wc, tbTrayRadius())
 			// 与 actions 行同一层探用 titleBarFade 走 0.32 ↔ 0.82 的
 			// hover-to-reveal（原版 `.app-title-bar > *`）；按钮自身那层
 			// 0.72 ↔ 1 由 titleBarButtonStyle 给（`.app-title-bar-btn`）。
@@ -287,7 +291,27 @@ func (a *App) settingsButton(c *ui.Context) {
 // close 为真时悬停图标转暖红（原版 `.app-title-bar button.app-title-bar-close:hover`
 // 的 #e11d48 + 玫红底）。
 func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, close bool, fn func()) {
-	a.windowControlButtonSized(c, key, label, ic, close, 30, 14, fn)
+	a.windowControlButtonSized(c, key, label, ic, close, tbWinCtrlSize, 14, fn)
+}
+
+// titleBarCtrlTray 给窗口控制键组铺上原版 `#wds-handle-group` 的**内凹玻璃托盘**
+// （globals.css:1913-1922，值见 theme.go 的 tbTrayBg / tbTrayBorder / tbTrayInk /
+// tbTrayRim）：
+//
+//	background: rgba(255,255,255,.06);
+//	border: 1px solid rgba(255,255,255,.18); border-top: 0;
+//	border-radius: 0 0 var(--app-window-radius) var(--app-window-radius);
+//	box-shadow: inset 0 2px 4px rgba(15,23,42,.08), inset 0 -1px 0 rgba(255,255,255,.12);
+//
+// 上边**没有**边框、上面两个角**不**圆：托盘是从窗顶挂下来的凹槽，不是一颗
+// 浮起的键。radius 由调用点给（主窗 tbTrayRadius()，迷你窗 0 —— 原生版迷你窗
+// 的内容层没有圆角，见 miniwindowradius_test.go）。
+func titleBarCtrlTray(el ui.Element, radius float32) {
+	el.Background(tbTrayBg).
+		BorderWidth(0, 1, 1, 1).BorderColor(tbTrayBorder).
+		Radius(0, 0, radius, radius).
+		InsetShadow(0, 2, 4, 0, tbTrayInk).
+		InsetShadow(0, -1, 0, 0, tbTrayRim)
 }
 
 // windowControlButtonSized 是 windowControlButton 的可调尺寸版：迷你模式的

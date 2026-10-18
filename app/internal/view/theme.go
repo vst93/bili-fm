@@ -99,6 +99,38 @@ var darkPeriods = map[string]bool{
 // shadowInk 是 CSS 里所有投影用的墨色（rgba(15, 23, 42, ...)）。
 var shadowInk = ui.Hex("#0f172a")
 
+// 标题栏窗口控制键组的「内凹玻璃托盘」（原版 #wds-handle-group，
+// globals.css:1913-1922）：
+//
+//	background: rgba(255, 255, 255, 0.06);
+//	border: 1px solid rgba(255, 255, 255, 0.18); border-top: 0;
+//	box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.08),
+//	            inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+//
+// 注释写明「no top highlight line」：托盘是从窗顶挂下来的一个凹槽（上边无边框、
+// 只有下面两个角跟着窗口圆角），不是一颗浮起的玻璃键。此前原生版只对齐了
+// 组内几何（gap / px-1），**这层托盘整个没画** —— Windows / Linux 上两颗窗口键
+// 就是直接压在标题栏白玻璃上，比原版少一层「压进表面」的深度。
+var (
+	tbTrayBg     = ui.Hex("#ffffff").Alpha(0.06)
+	tbTrayBorder = ui.Hex("#ffffff").Alpha(0.18)
+	tbTrayInk    = shadowInk.Alpha(0.08)
+	tbTrayRim    = ui.Hex("#ffffff").Alpha(0.12)
+)
+
+// tbTrayRadius 返回托盘下沿的圆角：原版是 `border-radius: 0 0
+// var(--app-window-radius) var(--app-window-radius)`，而 --app-window-radius
+// 跟着平台走 —— Windows 对齐 DWM 的 8px，Linux 由 `body.platform-linux #root`
+// 置 0（窗口管理器画不出外层圆角）。macOS 走原生红绿灯，不画这个托盘。
+//
+// 它是变量是为了让测试能换桩（测试进程的 runtime.GOOS 改不了）。
+var tbTrayRadius = func() float32 {
+	if viewGOOS == "windows" {
+		return 8
+	}
+	return 0
+}
+
 // ThemeAt 返回某个时刻的视觉令牌。
 func ThemeAt(t time.Time) Theme {
 	return ThemeFor(PeriodAt(t.Hour()))
@@ -346,12 +378,20 @@ const (
 	// 1~1.5px（CJK 字形对字重更敏感），看上去就是「设置钮往下沉了」。
 	// 见 shell.go 的 titleBar / settingsButton。
 	titleBarFontWeight = 500
-	// tbWinCtrlGap / tbWinCtrlPadX 是标题栏窗口控制键组（原版 #wds-handle-group）
-	// 的间距与左右内边距：`flex items-center gap-1 px-1 py-0.5`
-	// （main:src/components/titleBar.tsx:411）——gap-1 = 4px、px-1 = 4px。
-	// 组右侧那 4px 叠在标题栏自身的 16px 内边距上，关闭键右缘离窗口右边 20px。
+	// tbWinCtrlGap / tbWinCtrlPadX / tbWinCtrlPadY 是标题栏窗口控制键组（原版
+	// #wds-handle-group）的间距与内边距：`flex items-center gap-1 px-1 py-0.5`
+	// （main:src/components/titleBar.tsx:411）——gap-1 = 4px、px-1 = 4px、
+	// py-0.5 = 2px（globals.css:1913 的 `padding: 2px 4px !important` 同值）。
+	//
+	// 托盘还有一条 1px 边框（上边为 0，见 tbTrayBorder），所以关闭键右缘离窗口
+	// 右边 = 栏内边距 16 + 组边框 1 + px-1 4 = **21**（box-sizing: border-box：
+	// 边框在组宽之内，把内容整体往左推 1px）。此前只算了 padding，写的是 20。
 	tbWinCtrlGap  = 4
 	tbWinCtrlPadX = 4
+	tbWinCtrlPadY = 2
+	// tbWinCtrlSize 是主窗窗口键的边长（原版 `.app-title-bar-btn` 30×30，
+	// globals.css:1493；迷你模式收到 20，见 mini.go 的 miniWinCtrlSize）。
+	tbWinCtrlSize = 30
 	// titleBarSettingsNudge 是「设置」钮文字的**光学**上移量（DIP）。
 	//
 	// 2026-10-18 追诉：「上一轮按字重对齐了盒中心，但用户实测文字底部仍未对齐

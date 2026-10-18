@@ -742,7 +742,8 @@ func TestTitleBarMiniEntryRestored(t *testing.T) {
 // 用户 2026-10-18 晚间 ①：「浮窗应用不应有放大按钮，只留缩小 + 关闭，
 // 样式也要对齐原版」。放大键在窗口选项里已经关掉（DisableMaximize），
 // 这里量的是**样式**：两颗键 30×30（`.app-title-bar-btn`）、间距 gap-1 = 4px、
-// 组左右各 4px（px-1）——关闭键右缘离窗口右边 = 栏内边距 16 + 组 4 = 20。
+// 组左右各 4px（px-1）、上下各 2px（py-0.5）——关闭键右缘离窗口右边 = 栏内边距
+// 16 + 托盘边框 1 + 组 4 = 21。
 //
 // 反证：把 Gap 退回 1px、去掉 Padding(0, 4) → 两条断言分别红（间距 1、
 // 右缘 16）。
@@ -770,7 +771,10 @@ func TestTitleBarWindowControlsGeometry(t *testing.T) {
 	if gap := cl.X - (min.X + min.W); gap != 4 {
 		t.Errorf("两颗键间距 %v，应为 4（原版 gap-1 = 4px）", gap)
 	}
-	if right := 1000 - (cl.X + cl.W); right != 20 {
-		t.Errorf("关闭键右缘距窗口右边 %v，应为 20（栏 padding 16 + 组 px-1 4）", right)
+	// 21 而不是 20：组上那条 1px 托盘边框（globals.css:1913，border-top 0）在
+	// box-sizing: border-box 下算在组宽之内，把内容整体往左推 1px —— 栏 16 +
+	// 边框 1 + px-1 4 = 21。
+	if right := 1000 - (cl.X + cl.W); right != 21 {
+		t.Errorf("关闭键右缘距窗口右边 %v，应为 21（栏 padding 16 + 托盘边框 1 + 组 px-1 4）", right)
 	}
 }
