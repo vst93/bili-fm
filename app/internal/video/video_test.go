@@ -601,3 +601,99 @@ func TestManagerCloseClearsMinimize(t *testing.T) {
 		t.Error("Close 后仍持有最小化函数")
 	}
 }
+
+// TestSwitchScriptCarriesPlaybackState 钉住「原地换集」的 JS 载荷：复用同一个
+// 弹窗窗口时，位置 / 倍速 / 静音 / 源 全靠这一段传过去，漏一个就是「换集后
+// 从头播 / 倍速回 1x / 静音状态反了」。
+func TestSwitchScriptCarriesPlaybackState(t *testing.T) {
+	got := switchScript(Options{
+		Src:     "http://127.0.0.1:4654/b?u=y",
+		Title:   "第二集",
+		Poster:  "http://127.0.0.1:4654/p2.png",
+		StartAt: 83.25,
+		Speed:   1.5,
+		Muted:   true,
+	})
+	if !strings.HasPrefix(got, "window.biliSwitch(") {
+		t.Fatalf("换集脚本没有调用 window.biliSwitch：%s", got)
+	}
+	for _, want := range []string{
+		`"src":"http://127.0.0.1:4654/b?u=y"`,
+		`"title":"第二集"`,
+		`"poster":"http://127.0.0.1:4654/p2.png"`,
+		`"t":83.25`,
+		`"speed":1.5`,
+		`"muted":true`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("换集脚本缺少 %s：%s", want, got)
+		}
+	}
+
+	// 倍速下限同 pageURL：0 / 负值会让页面 playbackRate=0 卡住。
+	if low := switchScript(Options{Speed: 0}); !strings.Contains(low, `"speed":0.5`) {
+		t.Errorf("换集倍速未夹到下限：%s", low)
+	}
+}
+
+// TestOpenReusesLiveWindow 钉住内存优化的核心：弹窗还活着时 Open **不能**先
+// Close 再重建，必须原地换集。反证：把复用分支删掉（回到「先关后建」），
+// 这里立刻红——那正是用户「切几个视频后内存 315MB」的路径。
+func TestOpenReusesLiveWindow(t *testing.T) {
+	src, err := os.ReadFile("video.go")
+	if err != nil {
+		t.Fatalf("读不到 video.go：%v", err)
+	}
+	code := string(src)
+
+	body := code[strings.Index(code, "func (m *Manager) Open("):]
+	reuse := strings.Index(body, "w != nil && !w.IsDestroyed()")
+	if reuse < 0 {
+		t.Fatal("Open 里没有「弹窗还活着就复用」的分支")
+	}
+	closeAt := strings.Index(body, "m.Close()")
+	if closeAt < 0 {
+		t.Fatal("Open 里找不到新建前的 m.Close()")
+	}
+	if reuse > closeAt {
+		t.Error("复用分支排在 m.Close() 之后：换集仍会关窗重建（内存叠加的来源）")
+	}
+	if !strings.Contains(body, "m.switchTo(w, o)") {
+		t.Error("复用分支没有走 switchTo（原地换集）")
+	}
+}
+
+// TestVideoPageSwitchHook 钉住弹窗页面侧的换集钩子：window.biliSwitch 必须真的
+// 改源 / 起播位置 / 倍速，且 loadedmetadata 监听不能再是一次性的
+// （一次性监听换集后就不在了，第二次换集的位置同步会失效）。
+func TestVideoPageSwitchHook(t *testing.T) {
+	data, err := os.ReadFile("../../frontend/video.html")
+	if err != nil {
+		t.Fatalf("读不到 video.html：%v", err)
+	}
+	html := string(data)
+
+	if !strings.Contains(html, "window.biliSwitch = (o) => {") {
+		t.Fatal("video.html 缺少 window.biliSwitch 换集钩子")
+	}
+	for _, want := range []string{
+		"initialSeekPending = startAt > 0;",
+		"v.playbackRate = speed;",
+		"v.muted = muted;",
+		"if (src) { v.src = src; }",
+		"autoplay();",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("biliSwitch 缺少 %q", want)
+		}
+	}
+	// 起播位置与倍速必须可写（原来是 const，换集改不动）。
+	for _, want := range []string{"let startAt =", "let speed =", "let muted =", "let src ="} {
+		if !strings.Contains(html, want) {
+			t.Errorf("换集参数仍是只读：缺少 %q", want)
+		}
+	}
+	if strings.Contains(html, "}, { once: true });\n\nv.addEventListener('canplay'") {
+		t.Error("loadedmetadata 仍是一次性监听：换集后不再同步起播位置")
+	}
+}

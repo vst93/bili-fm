@@ -13,6 +13,7 @@
 package video
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"sync"
@@ -114,7 +115,25 @@ func pageURL(o Options) string {
 	return "/video.html?" + q.Encode()
 }
 
-// Open 打开（或复用）弹窗。已有弹窗时先关掉再开，保证换集时是新地址。
+// switchScript 生成「原地换集」的 JS：复用同一个弹窗窗口，只换 <video> 的
+// 源与起播参数（页面里的 window.biliSwitch，见 frontend/video.html）。
+// 抽成纯函数便于测试：换集漏掉任何一个参数都会「换集后位置/倍速/静音不对」。
+func switchScript(o Options) string {
+	payload, err := json.Marshal(map[string]any{
+		"src":    o.Src,
+		"title":  o.Title,
+		"poster": o.Poster,
+		"t":      o.StartAt,
+		"speed":  max(o.Speed, 0.5),
+		"muted":  o.Muted,
+	})
+	if err != nil { // map[string]any 里的值全是可序列化的，这里不会失败
+		return "window.biliSwitch({})"
+	}
+	return "window.biliSwitch(" + string(payload) + ")"
+}
+
+// Open 打开（或复用）弹窗。已开着的弹窗**原地换集**，不再关掉重建。
 // 有一次 Open 还在创建中时，后续的 Open 拒绝：快速连点不会开出多个。
 func (m *Manager) Open(o Options) error {
 	m.mu.Lock()
@@ -123,6 +142,7 @@ func (m *Manager) Open(o Options) error {
 		return nil
 	}
 	m.opening = true
+	w := m.win
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
@@ -130,11 +150,17 @@ func (m *Manager) Open(o Options) error {
 		m.mu.Unlock()
 	}()
 
+	// 复用路径：弹窗还在，只换源。这是内存上最关键的一条 —— 见 switchTo。
+	if w != nil && !w.IsDestroyed() {
+		m.switchTo(w, o)
+		return nil
+	}
+
 	m.Close()
 
 	page := pageURL(o)
 
-	w := mygo.NewWindow(mygo.WindowOptions{
+	w = mygo.NewWindow(mygo.WindowOptions{
 		Title:     o.Title,
 		URL:       page,
 		Width:     960,
@@ -165,6 +191,27 @@ func (m *Manager) Open(o Options) error {
 		}
 	})
 	return nil
+}
+
+// switchTo 在已开着的弹窗里原地换集（不新建 webview 窗口）。
+//
+// 为什么必须复用：每新建一个弹窗就要起一套 WebView2 渲染进程，换集时
+// 「旧窗口正在拆、新窗口正在建」会同时驻留两份，用户实测「切几个视频 +
+// 翻几个抽屉后内存 315MB」里有一份就是这种叠加。原地换集只改 <video> 的
+// src，进程、页面、解码器初始化都留着，切集的内存曲线是平的。
+func (m *Manager) switchTo(w *mygo.Window, o Options) {
+	w.SetTitle(o.Title)
+	if p := w.Page(); p != nil {
+		_, _ = p.Eval(switchScript(o))
+	}
+	if w.IsMinimized() {
+		w.Restore()
+	}
+	w.Show()
+	w.Focus()
+	m.mu.Lock()
+	m.st = State{Speed: o.Speed}
+	m.mu.Unlock()
 }
 
 // Close 关闭弹窗（若开着）。

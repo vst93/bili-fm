@@ -123,12 +123,12 @@
 </div>
 <script>
 const q = new URLSearchParams(location.search);
-const src = q.get('src') || '';
-const title = q.get('title') || '';
-const poster = q.get('poster') || '';
-const startAt = parseFloat(q.get('t') || '0');
-const speed = parseFloat(q.get('speed') || '1');
-const muted = q.get('muted') === '1';
+let src = q.get('src') || '';
+let title = q.get('title') || '';
+let poster = q.get('poster') || '';
+let startAt = parseFloat(q.get('t') || '0');
+let speed = parseFloat(q.get('speed') || '1');
+let muted = q.get('muted') === '1';
 
 const v = document.getElementById('v');
 const state = document.getElementById('state');
@@ -203,7 +203,7 @@ const syncInitialTime = () => {
 v.addEventListener('loadedmetadata', () => {
   syncInitialTime();
   call('Video.Log', `metadata dur=${v.duration.toFixed(1)} size=${v.videoWidth}x${v.videoHeight}`);
-}, { once: true });
+});
 
 v.addEventListener('canplay', () => {
   if (syncInitialTime()) call('Video.Log', 'initial-seek synced');
@@ -239,6 +239,38 @@ const autoplay = async () => {
   call('Video.Log', `autoplay=${how}`);
 };
 autoplay();
+
+// 原地换集：主窗切集时复用**同一个**弹窗窗口，由 Go 侧调 window.biliSwitch(...)，
+// 只换 <video> 的源与起播参数（位置 / 倍速 / 静音）。
+//
+// 为什么不在 Go 侧关掉窗口再新建：每新建一个弹窗就要起一套 WebView2 渲染进程，
+// 换集瞬间「旧的正在拆、新的正在建」两份同时驻留（用户实测切几个视频后内存
+// 从 200MB 涨到 315MB）。复用只换 src，进程与页面都留着。
+// 起播仍走上面的 autoplay()（未静音 → 被拦则静音起播），与首次打开同一套策略。
+window.biliSwitch = (o) => {
+  o = o || {};
+  lastErr = '';
+  startAt = +o.t > 0 && isFinite(+o.t) ? +o.t : 0;
+  initialSeekPending = startAt > 0;
+  speed = +o.speed > 0 ? +o.speed : 1;
+  muted = !!o.muted;
+  wantSound = !muted;
+  title = o.title || '';
+  document.getElementById('title').textContent = title;
+  poster = o.poster || '';
+  state.style.display = 'none';
+  v.poster = poster;
+  v.playbackRate = speed;
+  v.muted = muted;
+  src = o.src || '';
+  // 换集立刻重新登记第一次手势的取消静音（上一集的监听已一次性移除）。
+  document.addEventListener('pointerdown', onGesture, true);
+  document.addEventListener('keydown', onGesture, true);
+  if (src) { v.src = src; }
+  try { if (startAt > 0) { v.currentTime = startAt; } } catch (_) {}
+  autoplay();
+  return true;
+};
 
 // 第一次真实手势：取消静音（若主窗本来有声音）并确保还在播。
 const onGesture = () => {
