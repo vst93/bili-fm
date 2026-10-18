@@ -556,10 +556,16 @@ func TestDrawerBackdropLayers(t *testing.T) {
 // TestDrawerAnimOffset 钉住；为什么用布局而不是 transform（软件渲染器对带
 // transform 的 op 逐像素重绘，退场一帧 3.8s vs 65ms）见 drawerAnimOffset 注释。
 //
-// 这里不能靠「真等一下再拍一帧」观察中途：stock 的 ui.Tester 用真实时钟，
-// `Frame()` 内部的 settle() 会连跑最多 20 帧，320×220 下 20 帧 ≈ 260ms，
-// 足以把 220ms 的动画跑完，起手/中途都会被 settle 吃掉。改为把入/退场时间戳
-// 钉在动画两端：未来 → 进度恒为 0（起手），过去一整个时长 → 动画已结束。
+// 这里不能靠「真等一下再拍一帧」观察中途：`Frame()` 内部的 settle() 会连跑
+// 最多 20 帧，320×220 下 20 帧 ≈ 260ms，足以把 220ms 的动画跑完，起手/中途
+// 都会被 settle 吃掉。改为把入/退场时间戳钉在动画两端：未来 → 进度恒为 0
+// （起手），过去一整个时长 → 动画已结束。
+//
+// 时间戳必须取自 **Tester 的时钟**（tst.Now()），不是 time.Now()：v0.5.5 起
+// Tester 的时钟是冻结的（只在 Advance 时前进），生产代码里的 c.Now() 读到的是
+// 它；用真实 time.Now() 写「过去一整个时长」时，冻结时钟其实还停在测试起手那
+// 一刻，`now - exitAt` 仍小于 drawerIn，退场被判成「还在动」而不收尾 —— 正是
+// 这条测试在 v0.5.5 升级后一直红的根因（反证：改成 time.Now() 立刻红）。
 func TestDrawerAnimatesByLayout(t *testing.T) {
 	a := NewApp(func() {})
 	a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题"}}
@@ -569,7 +575,7 @@ func TestDrawerAnimatesByLayout(t *testing.T) {
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 320, 220)
 
 	// 入场起手：时间戳在未来，面板停在窗口下方（偏移 h），标题应远低于就位位。
-	a.drawerEnterAt = time.Now().Add(time.Second)
+	a.drawerEnterAt = tst.Now().Add(time.Second)
 	tst.Frame()
 	start, ok := tst.Find("标题")
 	if !ok {
@@ -577,7 +583,7 @@ func TestDrawerAnimatesByLayout(t *testing.T) {
 	}
 
 	// 入场走完：时间戳在过去一整个时长，面板贴底就位，标题上移。
-	a.drawerEnterAt = time.Now().Add(-2 * drawerIn)
+	a.drawerEnterAt = tst.Now().Add(-2 * drawerIn)
 	tst.Frame()
 	end, _ := tst.Find("标题")
 	if !(end.Y < start.Y) {
@@ -589,14 +595,14 @@ func TestDrawerAnimatesByLayout(t *testing.T) {
 	a.drawerShown = "feed"
 	a.drawerClosing = true
 	a.drawerOpenKey = ""
-	a.drawerExitAt = time.Now().Add(time.Second)
+	a.drawerExitAt = tst.Now().Add(time.Second)
 	tst.Frame()
 	if _, ok := tst.Find("标题"); !ok {
 		t.Fatal("退场起手面板就不见了（应在贴底继续渲染）")
 	}
 
 	// 退场走完：时间戳在过去一整个时长，面板移出视图。
-	a.drawerExitAt = time.Now().Add(-2 * drawerIn)
+	a.drawerExitAt = tst.Now().Add(-2 * drawerIn)
 	tst.Frame()
 	if _, ok := tst.Find("标题"); ok {
 		t.Fatal("退场走完后面板应移出视图")
@@ -614,22 +620,22 @@ func TestDrawerExitKeepsPanel(t *testing.T) {
 	}
 	a.Drawer = "feed"
 
-	// 小窗口让每帧足够快：退场动画按真实时钟走，settle 的 20 帧远达不到
-	// 动效时长，所以帧末面板仍在过渡中。
+	// 小窗口让每帧足够快：settle 的 20 帧远达不到动效时长，所以帧末面板仍在
+	// 过渡中。
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 320, 220)
 	tst.Frame()
 	if !tst.HasText("标题0") {
 		t.Fatal("抽屉打开时应有卡片")
 	}
 	a.Drawer = ""
-	// 退场是按真实时钟动画的，而 Tester.Frame() 的 settle 会连跑到动画结束
-	// （最多 20 帧）；机器负载高、单帧 >11ms 时，一帧就跨过 drawerIn(220ms)
-	// 把面板收掉，断言偶发假失败。这里在触发构建前把退场时钟钉在「刚起步」
-	// 那一刻（起始时间放到未来 ⇒ 进度恒为 0、永远不算走完），断言就只关乎
-	// 「退场期间面板仍被渲染」这一件事。退场状态的收尾由 TestDrawerExitState
-	// 覆盖。
+	// Tester.Frame() 的 settle 会连跑到动画结束（最多 20 帧）；机器负载高时
+	// 一帧就可能跨过 drawerIn(220ms) 把面板收掉，断言偶发假失败。这里在触发
+	// 构建前把退场时钟钉在「刚起步」那一刻（起始时间放到未来 ⇒ 进度恒为 0、
+	// 永远不算走完），断言就只关乎「退场期间面板仍被渲染」这一件事。时间戳取
+	// Tester 的冻结时钟（同 TestDrawerAnimatesByLayout）。退场状态的收尾由
+	// TestDrawerExitState 覆盖。
 	a.drawerClosing = true
-	a.drawerExitAt = time.Now().Add(2 * drawerIn)
+	a.drawerExitAt = tst.Now().Add(2 * drawerIn)
 	tst.Frame()
 	if !tst.HasText("标题0") {
 		t.Fatal("关抽屉后第一帧面板就消失（退场过渡丢失）")

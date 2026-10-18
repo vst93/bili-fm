@@ -131,7 +131,43 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 	if t.ReducedTransparency {
 		return b.Background(t.PlayerSurface)
 	}
-	return b.Material(glassLayer(glass.Glass{Tint: playerBarTint(t)}))
+	g := glassLayer(glass.Glass{Tint: playerBarTint(t)})
+	if s := playerBarSheen(t); s != nil {
+		return b.Material(sheenMaterial{glass: g, sheen: s})
+	}
+	return b.Material(g)
+}
+
+// sheenMaterial 把播放栏的 `background-image` 洗光并进**材质层**，让它的层序与
+// CSS 逐层一致。
+//
+// 原版层叠顺序（CSS Backgrounds 的绘制序）：background-color → background-image
+// → inset box-shadow → border → 内容。框架的绘制顺序是：材质/底色 → inset 内影
+// → Draw(paintFn) → 子元素。洗光此前走 Draw，落在 inset 内影**之后**：顶缘内
+// 高光被又提亮一点、下缘内暗线被淡化一点（深色栏体实测 Δ 3~7/通道）。并进
+// 材质后，PaintMaterial 在 p.background 里、inset 内影之前跑，层序与 CSS 相同。
+//
+// 自己实现 MaterialBuilder（而不是在 Element.Material 外面再包一层）是因为
+// Element.Material 只对材质调一次 BuildMaterial：glass 的 BuildMaterial 得先
+// 跑（交互玻璃要按元素按压态取值），这里把它的结果接过来再补画洗光。
+type sheenMaterial struct {
+	glass ui.Material
+	sheen *sheenBaked
+}
+
+func (m sheenMaterial) BuildMaterial(e ui.Element) ui.Material {
+	base := m.glass
+	if b, ok := base.(ui.MaterialBuilder); ok {
+		base = b.BuildMaterial(e)
+	}
+	return sheenMaterial{glass: base, sheen: m.sheen}
+}
+
+func (m sheenMaterial) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
+	m.glass.PaintMaterial(p, box, radii)
+	// 播放栏无圆角（铺满整条栏），与 Draw 时代一样传 0；位图按栏的宽高比烘，
+	// 线性层角度不被拉偏。
+	paintBakedSheen(p, box, 0, m.sheen)
 }
 
 // playerBarSheen 是播放栏**本体**这一帧该铺的 `background-image`（原版
@@ -164,32 +200,24 @@ var playerBarSheen = func(t Theme) *sheenBaked {
 	return sheenGlassBaked
 }
 
-// playerBarPaint 把原版 `#player .player-controls` 的两层“画在背景之后、子元素
-// 之前”的东西一次挂上：`background-image` 的整面洗光，以及（主窗）那条
-// `border-top: 1px` 顶边。
+// playerBarPaint 画原版 `#player .player-controls` 那条 `border-top: 1px` 顶边。
 //
-// 必须合成**一个** Draw：mygo 的 `Element.Draw` 只存一个 paintFn，先后调两次是
-// 互相覆盖（不是一个叠加）。两者的绘制时机也与原版一致 —— Draw 在元素自身的
-// 背景 / 材质之后、**所有子元素之前**，而 CSS 里 `background-image` 也排在
-// `background-color` 之上、子元素之下；顶边那次 Draw 同时兼顾上一轮的修复
-// （用 Draw 而不是 Absolute 子盒，才不会被进度条时间胶囊向上伸出栏顶的那 10px
-// 压在胶囊腰部，见 TestPlayerBarTopBorderUnderChildren）。
+// 洗光（`background-image`）已挪进 playerBarMaterial 的材质层（见 sheenMaterial）：
+// CSS 里 background-image 排在 background-color 之上、inset box-shadow 之下，而
+// 材质正是画在 inset 内影之前的。
+//
+// 顶边留在 Draw 里是有原因的（见 TestPlayerBarTopBorderUnderChildren）：Draw 在
+// 元素自身的背景 / 材质之后、**所有子元素之前**，而 Absolute 子盒在本元素的
+// 流式子元素之后绘制 —— 进度条的时间胶囊（Absolute）向上伸出栏顶 10px，会被
+// Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
 //
 // topBorder 为透明时不画顶边（mini 的 1px 顶边是单独的子盒，见 miniPlayerBar）。
 var playerBarPaint = func(t Theme, b ui.Element, topBorder ui.Color) ui.Element {
-	sheen := playerBarSheen(t)
-	if sheen == nil && topBorder.A == 0 {
+	if topBorder.A == 0 {
 		return b
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		if sheen != nil {
-			// radius 0 = 播放栏无圆角（铺满整条栏）；位图按栏的宽高比烘，
-			// 线性层角度不被拉偏。
-			paintBakedSheen(p, r, 0, sheen)
-		}
-		if topBorder.A > 0 {
-			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, topBorder, 0)
-		}
+		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, topBorder, 0)
 	})
 }
 

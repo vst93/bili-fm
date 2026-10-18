@@ -272,3 +272,46 @@ func TestSheenBakeCacheCapped(t *testing.T) {
 		t.Errorf("位图缓存没有封顶：%d 项 > %d", n, sheenBakeCacheMax)
 	}
 }
+
+// TestPlayerBarSheenUnderInsetShadow 钉住播放栏洗光的**层序**：原版 CSS 里
+// `background-image` 排在 `background-color` 之上、`inset box-shadow` **之下**
+// （`#player .player-controls { background-color; background-image: var(--player-sheen);
+// box-shadow: inset 0 1px 1px rgba(255,255,255,.88), inset 0 -1px 1px … }`），所以
+// 洗光不能盖住顶缘那条内高光。
+//
+// 判法（直接因果）：把 sheen 的绘制换成一个**不透明黑**的桩（整条栏被它铺满），
+// 再量栏顶两行：
+//
+//	y=栏顶    inset 白 .88 盖在黑上 → 再加 border-top 白 .72 → 亮（实测 235）
+//	y=栏顶+1  inset 白 .88 的模糊尾 → 半亮（实测 38~40）
+//
+// 若洗光退回 `playerBarPaint` 的 Draw（画在 inset 内影之后），这两行就只剩
+// 「黑 + border-top 白 .72」（实测 184）与「纯黑」（实测 7~8）—— 两条断言同时红。
+// 反证已实测（临时把洗光挪回 Draw）：235→184、40→8。
+func TestPlayerBarSheenUnderInsetShadow(t *testing.T) {
+	orig := playerSheenPaint
+	defer func() { playerSheenPaint = orig }()
+	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {
+		p.Fill(r, ui.Hex("#000000"), radius)
+	}
+
+	_, tst := playerBarProbe(t, nil) // 浅色时段：顶缘内高光是白 .88
+	tst.Move(-1, -1)
+	tst.Frame()
+	img := tst.Image()
+	const barTop = 700 - PlayerBarHeight
+	luma := func(x, y int) float64 {
+		c := rgbAt(img, x, y)
+		return (float64(c[0])*299 + float64(c[1])*587 + float64(c[2])*114) / 1000
+	}
+
+	// 栏顶那一行整条都是栏面（工具行垂直居中在 56 里，够不到 y=barTop）。
+	rim, tail := luma(500, barTop), luma(500, barTop+1)
+	t.Logf("不透明黑 sheen 下：栏顶行=%v 下一行=%v", rim, tail)
+	if rim <= 210 {
+		t.Errorf("栏顶行 luma=%v ≤210：顶缘内高光被洗光盖住了（层序退回 Draw 时实测 184）", rim)
+	}
+	if tail <= 20 {
+		t.Errorf("栏顶下一行 luma=%v ≤20：内高光的模糊尾被洗光盖住了（层序退回 Draw 时实测 8）", tail)
+	}
+}
