@@ -1,6 +1,7 @@
 package view
 
 import (
+	"image"
 	"strings"
 	"testing"
 	"time"
@@ -447,5 +448,109 @@ func TestPlaylistCurrentRowNotFlush(t *testing.T) {
 	if delta < 15.5 || delta > 16.5 {
 		t.Errorf("当前项分集名 x 比普通项大 %v，应为 16（播放图标 12 + gap 4）；"+
 			"偏小说明当前项左内边距没收回、缩略图又贴边了", delta)
+	}
+}
+
+// playlistCurrentProbe 起一个抽屉停在播放列表 tab 的 800×600 无头窗口，
+// 当前项是第 0 条（a.Index=0 + a.PlayingPlaylist=ListUser → 该行 isCurrent）。
+func playlistCurrentProbe(t *testing.T) (*App, *ui.Tester) {
+	t.Helper()
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerPlaylist
+	a.PlaylistTab = ListUser
+	a.PlayingPlaylist = ListUser
+	a.Index = 0
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "第一集", Title: "T0"},
+		{ID: "b", Part: "第二集", Title: "T1"},
+	}
+	return a, shellTester(t, a)
+}
+
+// TestPlaylistPartEmbossValues 钉住当前项分集名那条白色压印的参数，逐值对应
+// 原版 globals.css:3948 的
+//
+//	[data-slot="wrapper"] .playlist-current .text-blue-600,
+//	[data-slot="wrapper"] .playlist-current p:first-of-type {
+//	    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+//	}
+//
+// 说明为什么不是 :3942 的 `.52`：那条 `.text-blue-600` 规则只被 playlist.tsx
+// 的当前项首行用到，而它一定同时带 `.playlist-current`，后者特异度更高且更靠后，
+// 所以生效值恒为 .65（见 playlist.go 的注释）。
+func TestPlaylistPartEmbossValues(t *testing.T) {
+	if playlistPartShadowY != 1 {
+		t.Errorf("压印下移 = %v，应为 1（text-shadow 的 y 偏移）", playlistPartShadowY)
+	}
+	if playlistPartShadowInk != 0.65 {
+		t.Errorf("压印白 = %v，应为 .65（.playlist-current 覆写后的值）", playlistPartShadowInk)
+	}
+}
+
+// TestPlaylistPartEmbossOnlyCurrent 无头反证：压印只挂在**当前项首行**，
+// 且用的是首行的字体与色值；常态行、次行都不该出现压印。
+func TestPlaylistPartEmbossOnlyCurrent(t *testing.T) {
+	orig := playlistPartEmboss
+	defer func() { playlistPartEmboss = orig }()
+	var calls []string
+	playlistPartEmboss = func(b ui.Element, s string, font ui.Font, ink ui.Color) ui.Element {
+		calls = append(calls, s)
+		if font.Size != 14 || font.Weight != 800 {
+			t.Errorf("压印字体 = %v/%d，应为 14/800（当前项首行 text-sm + 覆写 800）",
+				font.Size, font.Weight)
+		}
+		if want := ui.Hex("#ffffff").Alpha(playlistPartShadowInk); ink != want {
+			t.Errorf("压印色 = %v，应为 %v", ink, want)
+		}
+		return orig(b, s, font, ink)
+	}
+	_, tst := playlistCurrentProbe(t)
+	tst.Frame()
+	if len(calls) == 0 {
+		t.Fatal("当前项首行没挂压印（playlistPartEmboss 没被调用）")
+	}
+	for _, s := range calls {
+		if s != "第一集" {
+			t.Errorf("压印挂到了 %q 上；只有当前项首行（第一集）该有压印", s)
+		}
+	}
+}
+
+// TestPlaylistPartEmbossAddsWhite 无头实测：当前项首行区域的亮度在挂了压印后
+// 变高（下移 1px 的白色字形副本从深色字形的下缘露出），反证：把
+// playlistPartEmboss 换成直通桩，亮度应回落。这与 CSS 的 text-shadow 同义，
+// 不是被用户否掉的「方形白底」——量的是字形轮廓里的像素，整块底色的亮度不变。
+func TestPlaylistPartEmbossAddsWhite(t *testing.T) {
+	boxLuma := func(img *image.RGBA, r ui.Rect) int {
+		sum := 0
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				sum += lumaSum(rgbAt(img, x, y))
+			}
+		}
+		return sum
+	}
+
+	_, on := playlistCurrentProbe(t)
+	r, ok := on.Find("第一集")
+	if !ok {
+		t.Fatal("找不到当前项分集名「第一集」")
+	}
+	with := boxLuma(on.Image(), r)
+
+	orig := playlistPartEmboss
+	defer func() { playlistPartEmboss = orig }()
+	playlistPartEmboss = func(b ui.Element, s string, font ui.Font, ink ui.Color) ui.Element { return b }
+	_, off := playlistCurrentProbe(t)
+	if _, ok := off.Find("第一集"); !ok {
+		t.Fatal("反证组找不到分集名")
+	}
+	without := boxLuma(off.Image(), r)
+
+	t.Logf("首行区域亮度：有压印 %d / 无压印 %d（+%.2f%%）",
+		with, without, 100*float64(with-without)/float64(without))
+	if with <= without {
+		t.Errorf("压印没有让首行更亮：有压印 %d / 无压印 %d（反证应更暗）", with, without)
 	}
 }

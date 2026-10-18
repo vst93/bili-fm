@@ -248,6 +248,57 @@ var playlistCurrentHoverStops = func() []ui.GradientStop {
 	}
 }
 
+// ---------------------------------------------------------------- 分集名的白色压印
+//
+// 原版给播放列表当前项的分集名还压了一条**文字阴影**（既不是盒子阴影，也不是
+// 底色——这个元素此前 mygo 一层阴影都没画）：
+//
+//	[data-slot="wrapper"] .text-blue-600 {                    globals.css:3942
+//	    color:#075985; font-weight:800;
+//	    text-shadow: 0 1px 0 rgba(255,255,255,.52);
+//	}
+//	[data-slot="wrapper"] .playlist-current .text-blue-600,   globals.css:3948
+//	[data-slot="wrapper"] .playlist-current p:first-of-type {
+//	    color:#064e7a; font-weight:800;
+//	    text-shadow: 0 1px 0 rgba(255,255,255,.65);
+//	}
+//
+// 后两条特异度更高（(0,3,0) / (0,2,0) 对 (0,2,0) 且更靠后），而原版全文只有
+// playlist.tsx:114 一处用 `text-blue-600`（正是当前项的首行 `<p>`），所以**实际
+// 生效的永远是 .65 那一档**：首行 = #064e7a / 800 + 白 .65 压印，次行只有
+// #334155 / 600（无压印）。这个压印是「当前项标题看着发亮、有厚度」的来源，
+// 少了它就比原版平、比常态行更沉。
+const (
+	// playlistPartShadowY 是压印的下移量（text-shadow 的 y 偏移 1px；
+	// blur 为 0，所以是硬边副本，不做高斯）。
+	playlistPartShadowY = 1
+	// playlistPartShadowInk 是压印的白不透明度（.playlist-current 的 .65；
+	// 见上面两条规则的层叠说明）。
+	playlistPartShadowInk = 0.65
+)
+
+// playlistPartEmboss 给分集名补原版那条 `text-shadow: 0 1px 0 rgba(255,255,255,.65)`。
+//
+// 画法同播放栏图标的白色压印：框架的 paint 顺序是「背景 → Draw → 字形」，
+// 所以在元素自己的 Draw 里先用**同字体、同文本、同折行宽度**画一份下移 1px 的
+// 白字，元素自己的深色字形随后盖上去——只有字形轮廓下缘露出 1px 白，与 CSS 的
+// text-shadow 同义（不是被用户否掉的那种方形白底）。
+//
+// 两处细节：
+//   - `ShapeText` 只按宽度折行、没有 MaxLines=1，长文案会多出一行；用 p.Clip
+//     裁到元素盒，只留第一行（元素自己 SingleLine 时本来也只显示一行）。
+//   - 字体只给 Size/Weight（与原版一样同字体同字号同字重，CJK 与拉丁都用
+//     系统默认族），不重复主题里的族名。
+//
+// 声明成 var 便于测试换桩做「有/没有压印」的因果对照（同 playerIconShadowFn）。
+var playlistPartEmboss = func(b ui.Element, s string, font ui.Font, ink ui.Color) ui.Element {
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.Clip(r, 0, func() {
+			p.TextLayout(ui.ShapeText(s, font, r.W), r.X, r.Y+playlistPartShadowY, ink)
+		})
+	})
+}
+
 // playlistRowPaint 返回播放列表一行的配色。状态优先级与原版 CSS 一致：
 // 拖拽悬停 > 当前项 > 悬停；按下态只改底色（:active 比 :hover 更靠后）。
 func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
@@ -463,10 +514,17 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 					ui.Image(c, iconPlayFilled).Size(12, 12).TextColor(ui.Hex("#3b82f6"))
 				}
 				// 原版首行：常态 .text-gray-800（#1e293b/600），当前项
-				// .playlist-current p:first-of-type（#064e7a/800）。
-				ui.Text(c, item.Part).FontSize(14).SingleLine().
+				// .playlist-current p:first-of-type（#064e7a/800 + 白 .65 压印）。
+				part := ui.Text(c, item.Part).FontSize(14).SingleLine().
 					TextColor(p.PartInk).FontWeight(p.PartWeight).
 					Height(th).Translate(0, tsh)
+				if current {
+					// 压印只属于当前项（CSS 里那条规则挂在 .playlist-current 下）；
+					// 常态行没有任何 text-shadow。Draw 是就地挂 paintFn，返回值不用接。
+					playlistPartEmboss(part, item.Part,
+						ui.Font{Size: 14, Weight: p.PartWeight},
+						ui.Hex("#ffffff").Alpha(playlistPartShadowInk))
+				}
 			})
 			// 原版次行：常态 .text-gray-400（#64748b），当前项
 			// .playlist-current p:last-of-type（#334155/600）。
