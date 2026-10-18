@@ -337,6 +337,11 @@ func TestRangeSkinForTokens(t *testing.T) {
 	check("亮色滑块描边", light.ThumbBorder, white.Alpha(0.90))
 	check("亮色滑块底色", light.ThumbFill, ui.Hex("#e0f2fe").Alpha(0.62))
 	check("亮色滑块高光", light.ThumbGlint, white.Alpha(0.98))
+	// 同一条径向渐变的 34% 停靠点与平台止点（globals.css:3236）。
+	check("亮色滑块高光 34%", light.ThumbGlintMid, white.Alpha(0.42))
+	if light.ThumbGlintPlateau != 0.15 {
+		t.Errorf("亮色滑块高光平台止点 = %v，应为 .15（15%%）", light.ThumbGlintPlateau)
+	}
 	check("亮色滑块顶内高光", light.ThumbTop, white.Alpha(0.92))
 	check("亮色滑块底内影", light.ThumbBottom, blue.Alpha(0.10))
 	check("亮色滑块外影", light.ThumbGlow, blue.Alpha(0.24))
@@ -347,6 +352,11 @@ func TestRangeSkinForTokens(t *testing.T) {
 	check("深色滑块描边", dark.ThumbBorder, white.Alpha(0.68))
 	check("深色滑块底色", dark.ThumbFill, ui.Hex("#e0f2fe").Alpha(0.48))
 	check("深色滑块高光", dark.ThumbGlint, white.Alpha(0.90))
+	// 深色块是 0→14% 白 .9 / 34% 白 .28 / 58% 透明（globals.css:5221）。
+	check("深色滑块高光 34%", dark.ThumbGlintMid, white.Alpha(0.28))
+	if dark.ThumbGlintPlateau != 0.14 {
+		t.Errorf("深色滑块高光平台止点 = %v，应为 .14（14%%）", dark.ThumbGlintPlateau)
+	}
 	check("深色滑块顶内高光", dark.ThumbTop, white.Alpha(0.58))
 	check("深色滑块底内影", dark.ThumbBottom, ui.Transparent)
 	check("深色滑块外影", dark.ThumbGlow, blue.Alpha(0.20))
@@ -455,5 +465,75 @@ func TestPlayerBarVolumeDarkWired(t *testing.T) {
 	t.Logf("深色时段音量条顶内高光 深色材质=%v 强制亮色材质=%v", dark, light)
 	if light[0]-dark[0] < 40 {
 		t.Errorf("深色时段音量条没有换用深色轨道材质：%v vs %v", dark, light)
+	}
+}
+
+// paintThumbGlintLinear 是**旧**写法（135° 白→透明线性渐变，本轮已换掉）：
+// 只给反证用，证明 TestRangeThumbGlintIsRadial 量到的就是「线性 vs 径向」。
+func paintThumbGlintLinear(p *ui.Painter, k ui.Rect, d float32, s rangeSkin) {
+	p.FillGradient(k, ui.LinearGradient{
+		From:  s.ThumbGlint,
+		To:    ui.Hex("#ffffff").Alpha(0),
+		Angle: 135,
+	}, d/2)
+}
+
+// TestRangeThumbGlintIsRadial 钉住滑块玻璃高光是**径向**的：原版
+// `radial-gradient(circle at 34% 24%, 白 .98 0 15%, 白 .42 34%, transparent 58%)`
+// 在圆心周围是各向同性的 —— 圆心左右等距的两点亮度必须相同。
+//
+// 本轮之前用 135° 线性近似：左上→右下的**整条带**都亮，于是圆心左侧（离渐变
+// 起点近）比右侧亮一大截。实测（28px 滑块、离圆心 5px 的左右两点）：
+//
+//	径向（本轮）  左 229 / 右 229  差 0
+//	线性（旧写法）左 201 / 右 156  差 45   ← 反证
+//
+// 断言差 ≤4（径向）；反证时换成 paintThumbGlintLinear，差 ≥20。
+func TestRangeThumbGlintIsRadial(t *testing.T) {
+	skin := rangeSkinForTheme(false, false)
+	const d = 28
+	// 只画高光层（黑底）：滑块底色/描边/内影都在同一像素上，但它们是均匀的，
+	// 不影响「左右两点是否等亮」这个判据。
+	probe := func(paint func(p *ui.Painter, k ui.Rect, d float32, s rangeSkin)) (float32, float32) {
+		img := ui.Render(func(c *ui.Context) {
+			c.Root().Background(ui.RGB(0, 0, 0))
+			ui.Box(c).Absolute().Left(0).Top(0).Size(d, d).
+				Draw(func(p *ui.Painter, r ui.Rect) { paint(p, r, d, skin) })
+		}, int(d), int(d), 1)
+		// 圆心 (34%,24%) = (9.52, 6.72)；取左右各 5px 的像素中心 (4.5,6.5)/(14.5,6.5)。
+		return float32(grayAt(img, 4, 6)), float32(grayAt(img, 14, 6))
+	}
+	left, right := probe(paintThumbGlintRadial)
+	t.Logf("径向高光：左=%.0f 右=%.0f 差=%.0f", left, right, abs32(left-right))
+	if abs32(left-right) > 4 {
+		t.Errorf("径向高光左右差 %.0f > 4 —— 滑块高光不是各向同性的（又退回线性近似了）",
+			abs32(left-right))
+	}
+	if left < 180 {
+		t.Errorf("高光太弱：左点 %.0f（应接近白 .98 × 5px 处的 ~.9）", left)
+	}
+
+	// 反证：换回旧的 135° 线性写法，左右差必须明显变大。
+	old := thumbGlintPaint
+	thumbGlintPaint = paintThumbGlintLinear
+	defer func() { thumbGlintPaint = old }()
+	l2, r2 := probe(paintThumbGlintLinear)
+	t.Logf("线性旧写法：左=%.0f 右=%.0f 差=%.0f", l2, r2, abs32(l2-r2))
+	if abs32(l2-r2) < 20 {
+		t.Fatalf("反证失败：线性旧写法的左右差只有 %.0f，本测试量不出径向/线性之别",
+			abs32(l2-r2))
+	}
+}
+
+// TestThumbGlintBakeCached 钉住高光位图按皮肤缓存（亮/深各一张，之后每帧
+// 复用），且深色用的是自己那套停靠点。
+func TestThumbGlintBakeCached(t *testing.T) {
+	light := rangeSkinForTheme(false, false)
+	dark := rangeSkinForTheme(true, false)
+	if a, b := thumbGlintBitmap(light), thumbGlintBitmap(light); a == nil || a != b {
+		t.Fatalf("亮色高光位图没有缓存：%p vs %p", a, b)
+	}
+	if thumbGlintBitmap(dark) == thumbGlintBitmap(light) {
+		t.Fatal("深色与亮色共用了同一张高光位图（停靠点不同，必须分开烘）")
 	}
 }

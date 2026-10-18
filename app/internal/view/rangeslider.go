@@ -1,6 +1,10 @@
 package view
 
-import "github.com/egoist/mygo/ui"
+import (
+	"sync"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // 进度条与音量条共用同一套外观。原版 CSS 里 `.player-timeline-track` 与
 // `input.player-volume-slider::-webkit-slider-runnable-track` 的声明逐字相同
@@ -76,10 +80,16 @@ type rangeSkin struct {
 	TrackGlow   ui.Color // 轨道外投影（蓝，非悬停态）
 	ThumbBorder ui.Color // 滑块 1px 描边
 	ThumbFill   ui.Color // 滑块底色 #e0f2fe
-	ThumbGlint  ui.Color // 滑块左上玻璃高光（径向的线性近似起点）
-	ThumbTop    ui.Color // 滑块顶内高光
-	ThumbBottom ui.Color // 滑块底内影（深色规则里没有这条 → Transparent）
-	ThumbGlow   ui.Color // 滑块外投影（蓝，非悬停态）
+	ThumbGlint  ui.Color // 滑块玻璃高光的**核心色**（径向渐变 0 → 平台止点）
+	// ThumbGlintMid / ThumbGlintPlateau 是同一个径向渐变的 34% 停靠点与
+	// 平台止点：原版 `radial-gradient(circle at 34% 24%, 白 <core> 0
+	// <plateau>%, 白 <mid> 34%, transparent 58%)`，亮色是 .98/15%/.42，
+	// 深色是 .90/14%/.28（globals.css:3236 / 5221）。
+	ThumbGlintMid     ui.Color
+	ThumbGlintPlateau float32
+	ThumbTop          ui.Color // 滑块顶内高光
+	ThumbBottom       ui.Color // 滑块底内影（深色规则里没有这条 → Transparent）
+	ThumbGlow         ui.Color // 滑块外投影（蓝，非悬停态）
 }
 
 // rangeSkinFor 取这一帧的材质（var 便于测试换桩反证接线，生产恒为 rangeSkinForTheme）。
@@ -97,15 +107,17 @@ var rangeSkinFor = rangeSkinForTheme
 func rangeSkinForTheme(dark, hovered bool) rangeSkin {
 	// 亮色一套（:root 的字面量）。
 	s := rangeSkin{
-		TrackTop:    ui.Hex("#ffffff").Alpha(0.88),  // inset 0 1px 1px 白 .88
-		TrackBottom: shadowInk.Alpha(0.08),          // inset 0 -1px 1px 墨 .08
-		TrackGlow:   ui.Hex("#0ea5e9").Alpha(0.10),  // 0 2px 7px 蓝 .1
+		TrackTop:    ui.Hex("#ffffff").Alpha(0.88), // inset 0 1px 1px 白 .88
+		TrackBottom: shadowInk.Alpha(0.08),         // inset 0 -1px 1px 墨 .08
+		TrackGlow:   ui.Hex("#0ea5e9").Alpha(0.10), // 0 2px 7px 蓝 .1
 		ThumbBorder: ui.Hex("#ffffff").Alpha(0.90),
 		ThumbFill:   ui.Hex("#e0f2fe").Alpha(0.62),
-		// 原版滑块高光是 `radial-gradient(circle at 34% 24%, 白 .98 …)`，
-		// 用 135° 线性近似时起点取 .98（见 paintRangeThumb）。
-		ThumbGlint: ui.Hex("#ffffff").Alpha(0.98),
-		ThumbTop:   ui.Hex("#ffffff").Alpha(0.92), // inset 0 1px 1px 白 .92
+		// 原版滑块高光是 `radial-gradient(circle at 34% 24%, 白 .98 0 15%,
+		// 白 .42 34%, transparent 58%)`（见 paintThumbGlintRadial）。
+		ThumbGlint:        ui.Hex("#ffffff").Alpha(0.98),
+		ThumbGlintMid:     ui.Hex("#ffffff").Alpha(0.42),
+		ThumbGlintPlateau: 0.15,
+		ThumbTop:          ui.Hex("#ffffff").Alpha(0.92), // inset 0 1px 1px 白 .92
 		// 亮色独有的底内影 `inset 0 -1px 2px rgba(2,132,199,.1)`。
 		ThumbBottom: ui.Hex("#0284c7").Alpha(0.10),
 		ThumbGlow:   ui.Hex("#0284c7").Alpha(0.24), // 0 2px 7px 蓝 .24
@@ -117,9 +129,11 @@ func rangeSkinForTheme(dark, hovered bool) rangeSkin {
 		s.ThumbBorder = ui.Hex("#ffffff").Alpha(0.68)
 		s.ThumbFill = ui.Hex("#e0f2fe").Alpha(0.48)
 		s.ThumbGlint = ui.Hex("#ffffff").Alpha(0.90) // 深色径向白 .9
-		s.ThumbTop = ui.Hex("#ffffff").Alpha(0.58)   // inset 0 1px 1px 白 .58
-		s.ThumbBottom = ui.Transparent               // 深色规则没有底内影
-		s.ThumbGlow = ui.Hex("#0284c7").Alpha(0.20)  // 0 2px 7px 蓝 .2
+		s.ThumbGlintMid = ui.Hex("#ffffff").Alpha(0.28)
+		s.ThumbGlintPlateau = 0.14
+		s.ThumbTop = ui.Hex("#ffffff").Alpha(0.58)  // inset 0 1px 1px 白 .58
+		s.ThumbBottom = ui.Transparent              // 深色规则没有底内影
+		s.ThumbGlow = ui.Hex("#0284c7").Alpha(0.20) // 0 2px 7px 蓝 .2
 	}
 	if hovered {
 		s.TrackTop = ui.Hex("#ffffff").Alpha(0.94)  // inset 0 1px 1px 白 .94
@@ -224,6 +238,54 @@ func paintRangeInsets(p *ui.Painter, track ui.Rect, s rangeSkin) {
 		s.TrackBottom, 0.5)
 }
 
+// thumbGlintPaint 是滑块玻璃高光的接线点（测试换桩成旧的 135° 线性近似
+// 做反证，见 rangeslider_test.go 的 paintThumbGlintLinear）。
+var thumbGlintPaint = paintThumbGlintRadial
+
+// paintThumbGlintRadial 把原版 thumb 的第一层径向高光铺到滑块上：
+//
+//	radial-gradient(circle at 34% 24%, 白 <core> 0 <plateau>%, 白 <mid> 34%,
+//	                transparent 58%)
+//
+// 圆心在盒内 (34%,24%)，默认尺寸 farthest-corner = 到四角最远那个的距离。
+// 裁剪到滑块圆内（位图铺的是圆外接正方形）。
+func paintThumbGlintRadial(p *ui.Painter, k ui.Rect, d float32, s rangeSkin) {
+	cx, cy, r := cardRadialAt(k, 0.34, 0.24)
+	p.Clip(k, d/2, func() {
+		paintRadialGradient(p, thumbGlintBitmap(s), cx, cy, r, 1)
+	})
+}
+
+// thumbGlintKey 是缓存键：亮/深两套高光的 (核心色, 34% 色, 平台止点)。
+type thumbGlintKey struct {
+	Core, Mid ui.Color
+	Plateau   float32
+}
+
+var (
+	thumbGlintMu    sync.Mutex
+	thumbGlintCache = map[thumbGlintKey]*ui.Bitmap{}
+)
+
+// thumbGlintBitmap 按皮肤取（或烘）滑块高光的位图。同一套皮肤只烘一次，
+// 之后每帧只多一个图元。
+func thumbGlintBitmap(s rangeSkin) *ui.Bitmap {
+	key := thumbGlintKey{s.ThumbGlint, s.ThumbGlintMid, s.ThumbGlintPlateau}
+	thumbGlintMu.Lock()
+	defer thumbGlintMu.Unlock()
+	if b, ok := thumbGlintCache[key]; ok {
+		return b
+	}
+	b := radialGradientBitmap([]gradStop{
+		{0, s.ThumbGlint},
+		{s.ThumbGlintPlateau, s.ThumbGlint},
+		{0.34, s.ThumbGlintMid},
+		{0.58, ui.Transparent},
+	})
+	thumbGlintCache[key] = b
+	return b
+}
+
 // paintRangeThumb 画滑块：淡蓝底 + 左上玻璃高光 + 两条 inset + 1px 白描边 +
 // 蓝色投影；悬停放大到 1.1 并多一圈 3px 蓝晕，按下放大到 1.12（原版 thumb 的
 // 三态）。描边 / 底色 / 高光 / 内影 / 外影都取自 rangeSkin，深色时段整体压暗一档。
@@ -240,14 +302,10 @@ func paintRangeThumb(p *ui.Painter, cx, cy float32, hovered, held bool, scale fl
 	// 0 2px 7px rgba(2,132,199,.24)，悬停 .28；深色时段压到 .2。
 	p.Shadow(k, d/2, 0, 2, 7, 0, s.ThumbGlow)
 	p.Fill(k, s.ThumbFill, d/2)
-	// 玻璃高光：原版 thumb 的第一层是 `circle at 34% 24%` 的径向白高光，
-	// 这里用 135°（左上→右下）的白→透明线性渐变近似：14px 的圆上，
-	// 径向与线性在肉眼看来都是「左上角一点亮、右下角没有」。
-	p.FillGradient(k, ui.LinearGradient{
-		From:  s.ThumbGlint,
-		To:    ui.Hex("#ffffff").Alpha(0),
-		Angle: 135,
-	}, d/2)
+	// 玻璃高光：原版 thumb 的第一层是 `circle at 34% 24%` 的径向白高光
+	// （0→15% 白 .98 / 34% 白 .42 / 58% 透明）。此前用 135° 线性近似，
+	// 14px 圆上会把「左上一个小亮点」铺成半圆白洗；本轮改成逐像素位图。
+	thumbGlintPaint(p, k, d, s)
 	// 原版 thumb 的两条 inset 内影（`inset 0 1px 1px 白 .92` +
 	// `inset 0 -1px 2px rgba(2,132,199,.1)`；深色只留顶内高光白 .58，
 	// 底内影那条深色规则里没有）。圆上画不出 inset，用两条 1px 线近似，

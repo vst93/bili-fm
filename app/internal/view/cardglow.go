@@ -1,7 +1,9 @@
 package view
 
 import (
+	"image"
 	"math"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -17,9 +19,11 @@ import (
 // 写进 `--hover-x/--hover-y`，于是卡上有一团跟着鼠标走的高光。原生版此前只
 // 对齐了 `.is-pointer-hovered` 的边框/投影/上浮，这团光晕从来没画过。
 //
-// mygo 没有径向渐变，这里用「一串同心实心圆」叠出来：由外向内画，每一层只补
-// 该半径处还差的那点不透明度（相对已铺外层做 alpha 补偿），叠完每一点的累计
-// 不透明度就落在原版渐变曲线上（见 glowLayerAlpha）。
+// mygo 没有 radial-gradient 接口，此前用「一串同心实心圆」叠出来（由外向内，
+// 每层只补该半径处还差的那点 alpha）。那是**阶梯近似**：环内 alpha 恒定，200px
+// 半径上每环宽 13.3px、相邻环差 ≈17/255，浅色卡面上就是一圈圈可见的台阶。
+// 本轮改为**逐像素烘一张位图**（radialGradientBitmap）：渐变径向对称，烘一张
+// 单位圆、画的时候按目标半径拉伸，与 CSS 的 radial-gradient 逐像素等价。
 var cardGlowStops = []gradStop{
 	{0, ui.RGBA(255, 255, 255, 0.6)},
 	{0.4, ui.RGBA(125, 211, 252, 0.2)},
@@ -29,56 +33,66 @@ var cardGlowStops = []gradStop{
 const (
 	// cardGlowRadius 是渐变圆的半径（原版 radial-gradient 的 200px）。
 	cardGlowRadius = float32(200)
-	// cardGlowSteps 是同心圆层数：层数越多越接近连续渐变，也越贵。16 层在
-	// 200px 半径上约 12.5px 一环，肉眼看不出台阶。
-	cardGlowSteps = 16
 	// cardGlowOpacity 是整层不透明度（原版 .is-pointer-hovered::before 的 .9）。
 	cardGlowOpacity = float32(0.9)
 )
 
-// cardGlowLayerAlpha 返回在外层累计不透明度为 prev 时，要把该点补到 want
-// 这一环需要的额外不透明度（普通 alpha 叠加：a ∘ b = a + b(1-a)）。
-func cardGlowLayerAlpha(prev, want float32) float32 {
-	if want <= prev {
-		return 0
+// ---------------------------------------------------------------- 真径向渐变
+
+// radialBakeSize 是径向渐变位图的烘焙边长（384² = 576KB/张，懒烘：按下态
+// 那两张只在第一次按下时才烘）。渐变径向对称，画的时候按目标半径拉伸即可，
+// 所以一张小图能铺任意大小的圆：384² 的图在半径 192px 上跨 192 个像素，
+// 最陡那段 alpha 每像素只差 1~2/255，双线性拉伸后与解析曲线差 ≤2 灰阶
+// （实测 1.9，其中大部分是 8 位合成取整；换成 256² 或 512² 都无改善）。
+const radialBakeSize = 384
+
+// radialGradientBitmap 把一条「圆心居中、半径 = 边长/2」的径向渐变烘成位图。
+// stops 的 At 是到半径的比例（与 CSS 的 `<color> <pct>` 同义）；边角处 t>1，
+// gradAt 夹到最后一个停靠点（也就是 CSS 的 transparent 收尾）。
+func radialGradientBitmap(stops []gradStop) *ui.Bitmap {
+	n := radialBakeSize
+	img := image.NewNRGBA(image.Rect(0, 0, n, n))
+	c := float32(n) / 2
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			dx := float32(x) + 0.5 - c
+			dy := float32(y) + 0.5 - c
+			col := gradAt(stops, float32(math.Sqrt(float64(dx*dx+dy*dy)))/c)
+			i := img.PixOffset(x, y)
+			img.Pix[i+0], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = col.R, col.G, col.B, col.A
+		}
 	}
-	if d := 1 - prev; d > 0 {
-		return (want - prev) / d
-	}
-	return 0
+	return ui.NewBitmap(img)
 }
 
-// paintRadialStops 用一串同心圆叠出一条径向渐变（mygo 没有径向渐变接口）。
-// stops 的 At 是「到 radius 的比例」，opacity 是整层不透明度；每圈只补该半径
-// 处还差的 alpha（相对已铺外层做补偿），叠完每点的累计不透明度落在曲线上。
-func paintRadialStops(p *ui.Painter, cx, cy, radius float32, stops []gradStop, steps int, opacity float32) {
-	if steps < 2 || radius <= 0 {
+// 三条径向渐变各烘一张（包级变量，进程内只烘一次）。
+var (
+	cardGlowBmp        = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardGlowStops) })
+	cardPressTopBmp    = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardPressTopStops) })
+	cardPressBottomBmp = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardPressBottomStops) })
+)
+
+// paintRadialGradient 把烘好的单位圆渐变铺成圆心 (cx,cy)、半径 radius 的圆，
+// 整层再乘 opacity（对应原版 `opacity: calc(var(--hover-strength) * .85)`）。
+func paintRadialGradient(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {
+	if bmp == nil || radius <= 0 || opacity <= 0 {
 		return
 	}
-	prev := float32(0)
-	for i := 0; i < steps; i++ {
-		// i=0 是最外层，最后一个是圆心。
-		rr := radius * float32(steps-1-i) / float32(steps-1)
-		stop := gradAt(stops, rr/radius)
-		want := opacity * float32(stop.A) / 255
-		inc := cardGlowLayerAlpha(prev, want)
-		if inc <= 0 {
-			continue
-		}
-		var ring ui.Path
-		ring.Circle(cx, cy, max(rr, 0.5))
-		p.FillPath(&ring, ui.RGB(stop.R, stop.G, stop.B).Alpha(inc))
-		prev += inc * (1 - prev)
-	}
+	dst := ui.Rect{X: cx - radius, Y: cy - radius, W: 2 * radius, H: 2 * radius}
+	// Tint 乘颜色与 alpha —— 白 + alpha=opacity 就是「整层不透明度」。
+	p.ImageRegion(bmp, ui.Rect{}, dst, ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, opacity)})
 }
+
+// radialPaint 是「画一条径向渐变」的接线点：生产走位图；测试把它换成旧的
+// 同心圆写法做反证（见 cardglow_test.go 的 radialGradientBitmapStepped）。
+var radialPaint = paintRadialGradient
 
 // paintCardGlow 把指针跟随的径向光晕画进卡片，裁到圆角矩形（原版的 ::before
 // 是 overflow:hidden 卡片里的绝对定位层）。px/py 是指针相对卡片左上角的坐标，
 // box 是卡片矩形。
 func paintCardGlow(p *ui.Painter, box ui.Rect, px, py float32) {
 	p.Clip(box, 12, func() {
-		paintRadialStops(p, box.X+px, box.Y+py, cardGlowRadius,
-			cardGlowStops, cardGlowSteps, cardGlowOpacity)
+		radialPaint(p, cardGlowBmp(), box.X+px, box.Y+py, cardGlowRadius, cardGlowOpacity)
 	})
 }
 
@@ -152,16 +166,10 @@ func cardRadialAt(box ui.Rect, fx, fy float32) (cx, cy, r float32) {
 func paintCardPressGlow(p *ui.Painter, box ui.Rect) {
 	p.Clip(box, 12, func() {
 		cx, cy, r := cardRadialAt(box, 0.86, 0.88)
-		paintRadialStops(p, cx, cy, r, cardPressBottomStops, cardRadialSteps(r), 1)
+		radialPaint(p, cardPressBottomBmp(), cx, cy, r, 1)
 		cx, cy, r = cardRadialAt(box, 0.18, 0.10)
-		paintRadialStops(p, cx, cy, r, cardPressTopStops, cardRadialSteps(r), 1)
+		radialPaint(p, cardPressTopBmp(), cx, cy, r, 1)
 	})
-}
-
-// cardRadialSteps 按半径给同心圆层数（约 4px 一环）：按下态的渐变在中心处
-// 亮度陡（白 .7 → 0），16 层在 ~230px 半径上会留下可见的台阶。
-func cardRadialSteps(radius float32) int {
-	return max(cardGlowSteps, int(radius/4)+1)
 }
 
 // cardSurface 在卡片背景之上、子元素之前画它的「背景图」层：按下态的两个

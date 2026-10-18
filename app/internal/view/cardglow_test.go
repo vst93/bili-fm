@@ -12,7 +12,7 @@ import (
 // 背景取中灰：卡片玻璃叠上去仍是浅灰，白色光晕叠上来能看出亮度差。
 //
 // 测量期间把占位图摘掉：本轮起「封面未就绪」的卡片会铺 /cover.png 占位图
-//（原版 RetryImg 行为），它盖住整个封面盒，会把光晕区域的读数压成一片占位
+// （原版 RetryImg 行为），它盖住整个封面盒，会把光晕区域的读数压成一片占位
 // 色 —— 光晕本身仍照常画。
 func cardGlowProbe(t *testing.T) (*ui.Tester, ui.Rect) {
 	t.Helper()
@@ -237,5 +237,137 @@ func TestCardPressRendered(t *testing.T) {
 	}
 	if released-hover > 6 || hover-released > 6 {
 		t.Errorf("松开后亮度 %.1f 没回到悬停态 %.1f —— 按下态没撤销", released, hover)
+	}
+}
+
+// ------------------------------------------------------------ 旧写法（反证用）
+
+// cardGlowSteps 是**旧**写法（同心圆近似，本轮已换掉）的层数：200px 半径上
+// 16 层 ≈ 13.3px 一环。保留常量是为了让反证能按同样的环数重建旧画法。
+const cardGlowSteps = 16
+
+// cardGlowLayerAlpha 返回在外层累计不透明度为 prev 时，要把该点补到 want
+// 这一环需要的额外不透明度（普通 alpha 叠加：a ∘ b = a + b(1-a)）。
+//
+// 这是旧写法（paintRadialStops 的同心圆）的补偿公式，现已不在生产路径上；
+// 留着是为了让 TestCardGlowLayerAlpha 继续钉住「阶梯近似为什么会长这样」。
+func cardGlowLayerAlpha(prev, want float32) float32 {
+	if want <= prev {
+		return 0
+	}
+	if d := 1 - prev; d > 0 {
+		return (want - prev) / d
+	}
+	return 0
+}
+
+// cardRadialSteps 是旧写法按半径给的环数（约 4px 一环）。
+func cardRadialSteps(radius float32) int {
+	return max(cardGlowSteps, int(radius/4)+1)
+}
+
+// radialGradientBitmapStepped 是旧写法（paintRadialStops）的逐像素等价物：
+// 把同一条渐变按 steps 个同心环量化，环内取**环外缘**的值 —— 那正是
+// 「一串同心实心圆、每圈补一次 alpha」叠出来的结果（每点累计 alpha 等于该
+// 半径处外缘环的 want 值）。用来做反证：它和解析曲线的误差就是本轮修掉的台阶。
+func radialGradientBitmapStepped(stops []gradStop, steps int) *ui.Bitmap {
+	n := radialBakeSize
+	img := image.NewNRGBA(image.Rect(0, 0, n, n))
+	c := float32(n) / 2
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			dx := float32(x) + 0.5 - c
+			dy := float32(y) + 0.5 - c
+			t := float32(math.Sqrt(float64(dx*dx+dy*dy))) / c
+			// 落在第几个环里，取该环外缘的 t。
+			ring := math.Ceil(float64(t) * float64(steps))
+			col := gradAt(stops, float32(ring)/float32(steps))
+			i := img.PixOffset(x, y)
+			img.Pix[i+0], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = col.R, col.G, col.B, col.A
+		}
+	}
+	return ui.NewBitmap(img)
+}
+
+// TestCardGlowRadialMatchesCSS 是逐半径的因果测试：光晕在半径 r 处的合成
+// 灰阶必须等于 CSS 的解析值（`radial-gradient(200px circle at …, 白 .6,
+// 天蓝 .2 40%, transparent 70%)` × 整层 opacity .9，叠在中灰底上）。
+//
+// 本轮之前用「一串同心实心圆」近似，环内 alpha 恒定 ⇒ 半径方向是**阶梯**：
+// 实测最大误差 4~5 灰阶（200px 半径 / 16 环，每环 13.3px 差 ≈17/255 alpha），
+// 浅色卡面上能看出同心台阶。换成烘好的位图后误差 ≤1 灰阶。
+//
+// 反证：把 radialPaint 换成 stepped（按 16 环量化，等价旧写法）→ 误差回到 4+。
+func TestCardGlowRadialMatchesCSS(t *testing.T) {
+	const bg = 120
+	// 解析值：白 .6 → 天蓝 .2@40% → 透明@70%，整层 .9。
+	// 灰阶按三通道均值算（grayAt 量的就是它）。
+	analytic := func(r float32) float32 {
+		col := gradAt(cardGlowStops, r/cardGlowRadius)
+		a := cardGlowOpacity * float32(col.A) / 255
+		mean := (float32(col.R) + float32(col.G) + float32(col.B)) / 3
+		return a*mean + (1-a)*bg
+	}
+	measure := func() float32 {
+		img := ui.Render(func(c *ui.Context) {
+			c.Root().Background(ui.RGB(bg, bg, bg))
+			ui.Box(c).Absolute().Left(0).Top(0).Size(360, 280).
+				Draw(func(p *ui.Painter, r ui.Rect) { paintCardGlow(p, r, 180, 140) })
+		}, 400, 300, 1)
+		var worst float32
+		for r := float32(0); r <= 150; r += 3 {
+			if d := abs32(float32(grayAt(img, int(180+r), 140)) - analytic(r)); d > worst {
+				worst = d
+			}
+		}
+		return worst
+	}
+
+	got := measure()
+	t.Logf("位图渐变：与 CSS 解析值的最大误差 = %.2f 灰阶", got)
+	// 阈值 3：位图逐像素烘好后残差只剩 8 位合成/取整（实测 1.9）；
+	// 旧的分环写法实测 12.9，两者之间有 6 倍余量。
+	if got > 3 {
+		t.Fatalf("光晕与 CSS 解析值最大差 %.2f 灰阶 > 3 —— 径向渐变不是逐像素的", got)
+	}
+
+	// 反证：换回旧的分环写法，误差必须明显变大（证明本测试量的就是「台阶」）。
+	ringBmp := radialGradientBitmapStepped(cardGlowStops, cardGlowSteps)
+	img := ui.Render(func(c *ui.Context) {
+		c.Root().Background(ui.RGB(bg, bg, bg))
+		ui.Box(c).Absolute().Left(0).Top(0).Size(360, 280).
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				p.Clip(r, 12, func() {
+					paintRadialGradient(p, ringBmp, 180, 140, cardGlowRadius, cardGlowOpacity)
+				})
+			})
+	}, 400, 300, 1)
+	var worst float32
+	for r := float32(0); r <= 150; r += 3 {
+		got := float32(grayAt(img, int(180+r), 140))
+		if d := abs32(got - analytic(r)); d > worst {
+			worst = d
+		}
+	}
+	t.Logf("同心圆旧写法（%d 环）：最大误差 = %.2f 灰阶", cardGlowSteps, worst)
+	if worst < 3 {
+		t.Fatalf("反证失败：分环写法的误差只有 %.2f 灰阶，本测试量不出台阶", worst)
+	}
+}
+
+// TestRadialBakeCached 钉住位图只烘一次（三条渐变各一张，进程内复用）：
+// 每次悬停都重烘 512² 会白烧 0.3ms/帧。
+func TestRadialBakeCached(t *testing.T) {
+	a, b := cardGlowBmp(), cardGlowBmp()
+	if a == nil || a != b {
+		t.Fatalf("cardGlowBmp 没有缓存：%p vs %p", a, b)
+	}
+	if cardPressTopBmp() == nil || cardPressBottomBmp() == nil {
+		t.Fatal("按下态的两条径向渐变没有烘成位图")
+	}
+	// 烘焙边长两头都要卡：太小拉伸后能看出插值台阶，太大白占显存
+	// （每张 边长² × 4 字节）。
+	if radialBakeSize < 128 || radialBakeSize > 512 {
+		t.Fatalf("烘焙边长 %d 超出 [128,512]：小了有台阶、大了白占显存", radialBakeSize)
 	}
 }
