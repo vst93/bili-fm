@@ -125,9 +125,14 @@ func (a *App) modal(c *ui.Context) {
 		// 亮背景上、没有任何压暗。alpha 乘入场进度，跟面板一起淡入。
 		backdrop.Background(modalScrimInk(m.Kind).Alpha(prog))
 		sc := panel.AnimateTo("modal-in", 0.96+0.04*prog, ui.Snappy)
-		panel.Scale(sc, sc).
-			Opacity(panel.AnimateTo("modal-fade", prog,
-				ui.Animation{Duration: modalIn}))
+		// 入场弹簧收敛后是 1±1e-3 而不是精确 1：判零带容差，稳态不挂 Scale。
+		// 恒等变换同样会让 mygo 把面板的圆角 clip 升级成 GPU 遮罩（见
+		// drawer.go 的卡片 lift），一张 460×? 的面板遮罩会一直留到 32MB 预算里。
+		if math.Abs(float64(sc)-1) > 0.002 {
+			panel.Scale(sc, sc)
+		}
+		panel.Opacity(panel.AnimateTo("modal-fade", prog,
+			ui.Animation{Duration: modalIn}))
 		panel.Children(func() {
 			switch m.Kind {
 			case "login":

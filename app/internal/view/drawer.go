@@ -1,6 +1,7 @@
 package view
 
 import (
+	"math"
 	"fmt"
 	"strings"
 	"time"
@@ -2149,9 +2150,15 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		// 按下缩放与上浮走同一条 160ms ease（原版基础规则的 transform 过渡）。
 		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
 		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
-		// 稳态（0 / 1）不挂 transform：单位变换也会让 mygo 把这张卡的圆角 clip
-		// 改走「预烘焙遮罩」路径（见 linebox.go），一屏十几张卡就是十几张遮罩。
-		if liftV != 0 || sc != 1 {
+		// 稳态不挂 transform：**单位变换（含恒等矩阵）同样会让 mygo 把这张卡的
+		// 圆角 clip 改走「预烘焙遮罩」路径**（internal/gpu 的 moved 只看
+		// Transform.Set，不看矩阵是不是恒等），一屏十几张卡就是几十 MB 遮罩。
+		//
+		// 判零必须带容差：AnimateTo 的通道是渐近收敛的，稳态返回的是
+		// 1e-3 级的小数而不是精确的 0 / 1 —— 用 `!= 0` 判断几乎永远为真，
+		// 实测因此仍会挂上恒等变换、遮罩一个不少。0.01 DIP / 0.2% 缩放
+		// 远低于一个像素，肉眼无差。
+		if math.Abs(float64(liftV)) > 0.01 || math.Abs(float64(sc)-1) > 0.002 {
 			box.Translate(0, liftV).Scale(sc, sc)
 		}
 	}

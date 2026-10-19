@@ -25,7 +25,6 @@ import (
 	"os"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -147,25 +146,7 @@ func main() {
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
 
-	// 内存：给 Go 堆一个软上限。
-	//
-	// 2026-10 去掉 transform 触发的 GPU 遮罩之后，本应用的活堆只有 15–19MB；
-	// 这里留 256MiB 是给**峰值**兜底（启动时解码封面、建字体图集、编译 Metal
-	// 管线，以及视频弹窗关闭后的回落），接近上限时运行时提前回收，**不会**拒绝
-	// 分配、也不会 OOM，正常播放离它很远。
-	// BILIFM_MEMLIMIT / BILIFM_GC 供实机调参（单位 MiB / 百分比）。
-	limit := 256
-	if v, err := strconv.Atoi(os.Getenv("BILIFM_MEMLIMIT")); err == nil && v > 0 {
-		limit = v
-	}
-	debug.SetMemoryLimit(int64(limit) << 20)
-	// GOGC 只在显式给出时改：2026-10 的遮罩优化之后活堆只剩 15–19MB，
-	// 调低 GOGC 只会多跑 GC、换不来footprint（实测 96/128/256MiB 三个上限
-	// 的 footprint 都在 136–139MB，差别在噪声内）。
-	if v, err := strconv.Atoi(os.Getenv("BILIFM_GC")); err == nil && v >= 0 {
-		debug.SetGCPercent(v)
-	}
-	log.Printf("内存：堆软上限 %dMiB，GOGC=%d", limit, debug.SetGCPercent(-1))
+	startHeapDump()
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
 	// 与旧版（Tauri 的 single-instance 插件）一致。
