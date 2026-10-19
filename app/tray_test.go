@@ -242,45 +242,124 @@ func TestTrayLeftClickShowsWindow(t *testing.T) {
 	}
 }
 
-// TestTrayColoredIconFillsCanvas 钉住 Windows/Linux 托盘图标的「logo 不再
-// 缩在小白块里」：用户报 Windows 托盘 logo 偏小。彩色图现在以青色圆角方块
-// 铺满画布、白色台标也放大到 28×23（之前台标只有 14×12，缩到 16px 托盘后
-// 只剩 7×6）。这里量非白像素的包围盒，要求接近整张画布。
+// TestTrayColoredIconFillsCanvas 钉住 Windows/Linux 托盘图标的尺寸与底色：
+// 用户先报「logo 偏小」，改成青色底后报「背景色不对、还是小一圈」。现在与
+// Tauri 版一致：白色圆角底（不是青/透明块）+ 放大的蓝色台标（宽约 26/32），
+// 不再缩在小白块里。
 func TestTrayColoredIconFillsCanvas(t *testing.T) {
 	img := decodePNG(t, "tray.png", trayIconColored)
 	b := img.Bounds()
-	minX, minY, maxX, maxY := b.Max.X, b.Max.Y, b.Min.X-1, b.Min.Y-1
+	if b.Dx() != 32 || b.Dy() != 32 {
+		t.Fatalf("彩色 tray.png = %dx%d，应为 32x32", b.Dx(), b.Dy())
+	}
+	clear, _, _, bw, bh := alphaStats(img)
+	if clear > b.Dx()*b.Dy()/10 {
+		t.Fatalf("托盘图标透明像素 %d 太多（圆角只该占少量）", clear)
+	}
+	if bw < 0.9 || bh < 0.9 {
+		t.Fatalf("非透明内容包围盒 %.0f%%×%.0f%%，应铺满画布（≥90%%）", bw*100, bh*100)
+	}
+	// 台标本体（蓝色）要够大：旧图只有 14×12，缩到 16px 后约 7×6。
+	blueMinX, blueMinY, blueMaxX, blueMaxY := -1, -1, -1, -1
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
-			r, g, bl, a := img.At(x, y).RGBA()
-			if a < 0x8000 {
+			r, _, bl, a := img.At(x, y).RGBA()
+			if a < 0x8000 || !(bl>>8 > (r>>8)+30 && bl>>8 > 150) {
 				continue
 			}
-			// 白色台标算「内容」，只跳过接近白的背景是不可能的；新图背景是
-			// 青色，非白 = 青色块。旧图背景白、青台标小 —— 包围盒直接暴露。
-			if r > 0xf000 && g > 0xf000 && bl > 0xf000 {
-				continue
+			if blueMinX < 0 || x < blueMinX {
+				blueMinX = x
 			}
-			if x < minX {
-				minX = x
+			if blueMinY < 0 || y < blueMinY {
+				blueMinY = y
 			}
-			if y < minY {
-				minY = y
+			if x > blueMaxX {
+				blueMaxX = x
 			}
-			if x > maxX {
-				maxX = x
-			}
-			if y > maxY {
-				maxY = y
+			if y > blueMaxY {
+				blueMaxY = y
 			}
 		}
 	}
-	if maxX < minX || maxY < minY {
-		t.Fatal("彩色托盘图没有彩色像素")
+	if blueMaxX < 0 {
+		t.Fatal("托盘图标没有蓝色台标像素")
 	}
-	bw := float64(maxX-minX+1) / float64(b.Dx())
-	bh := float64(maxY-minY+1) / float64(b.Dy())
-	if bw < 0.85 || bh < 0.85 {
-		t.Fatalf("彩色托盘图内容包围盒 %.0f%%×%.0f%%，太小（应铺满画布 ≥85%%）", bw*100, bh*100)
+	bw = float64(blueMaxX-blueMinX+1) / float64(b.Dx())
+	bh = float64(blueMaxY-blueMinY+1) / float64(b.Dy())
+	if bw < 0.75 || bh < 0.6 {
+		t.Fatalf("蓝色台标包围盒 %.0f%%×%.0f%%，太小（应 ≥75%%×60%%）", bw*100, bh*100)
+	}
+	// 底色必须是白色（用户报「背景色不对」）：取圆角方块内、台标上方的一点。
+	r, g, bl, a := img.At(28, 3).RGBA()
+	if a < 0x8000 || r>>8 < 240 || g>>8 < 240 || bl>>8 < 240 {
+		t.Fatalf("托盘底色 = rgba(%d,%d,%d,%d)，应为白色", r>>8, g>>8, bl>>8, a>>8)
+	}
+}
+
+// TestAppIconFillsCanvas 钉住任务栏 / 应用图标：旧 icon.png 的白底只有 84%
+// 画布、蓝台标只有 44%，任务栏上显得比别的应用小一圈。新图白底铺满 512，
+// 蓝台标放到约 76% 宽。
+func TestAppIconFillsCanvas(t *testing.T) {
+	data, err := os.ReadFile("resources/icon.png")
+	if err != nil {
+		t.Fatalf("读 resources/icon.png 失败：%v", err)
+	}
+	img := decodePNG(t, "icon.png", data)
+	b := img.Bounds()
+	if b.Dx() != 512 || b.Dy() != 512 {
+		t.Fatalf("应用图标 = %dx%d，应为 512x512", b.Dx(), b.Dy())
+	}
+	blueMinX, blueMinY, blueMaxX, blueMaxY := -1, -1, -1, -1
+	alphaMinX, alphaMinY, alphaMaxX, alphaMaxY := -1, -1, -1, -1
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, _, bl, a := img.At(x, y).RGBA()
+			if a >= 0x8000 {
+				if alphaMinX < 0 || x < alphaMinX {
+					alphaMinX = x
+				}
+				if alphaMinY < 0 || y < alphaMinY {
+					alphaMinY = y
+				}
+				if x > alphaMaxX {
+					alphaMaxX = x
+				}
+				if y > alphaMaxY {
+					alphaMaxY = y
+				}
+			}
+			if a < 0x8000 || !(bl>>8 > (r>>8)+30 && bl>>8 > 150) {
+				continue
+			}
+			if blueMinX < 0 || x < blueMinX {
+				blueMinX = x
+			}
+			if blueMinY < 0 || y < blueMinY {
+				blueMinY = y
+			}
+			if x > blueMaxX {
+				blueMaxX = x
+			}
+			if y > blueMaxY {
+				blueMaxY = y
+			}
+		}
+	}
+	if blueMaxX < 0 {
+		t.Fatal("应用图标没有蓝色台标像素")
+	}
+	abw := float64(alphaMaxX-alphaMinX+1) / float64(b.Dx())
+	abh := float64(alphaMaxY-alphaMinY+1) / float64(b.Dy())
+	if abw < 0.9 || abh < 0.9 {
+		t.Fatalf("应用图标非透明包围盒 %.0f%%×%.0f%%，应铺满画布（≥90%%）", abw*100, abh*100)
+	}
+	bw := float64(blueMaxX-blueMinX+1) / float64(b.Dx())
+	bh := float64(blueMaxY-blueMinY+1) / float64(b.Dy())
+	if bw < 0.7 || bh < 0.6 {
+		t.Fatalf("应用图标蓝台标包围盒 %.0f%%×%.0f%%，太小（应 ≥70%%×60%%）", bw*100, bh*100)
+	}
+	r, g, bl, a := img.At(256, 20).RGBA()
+	if a < 0x8000 || r>>8 < 240 || g>>8 < 240 || bl>>8 < 240 {
+		t.Fatalf("任务栏图标底色 = rgba(%d,%d,%d,%d)，应为白色", r>>8, g>>8, bl>>8, a>>8)
 	}
 }

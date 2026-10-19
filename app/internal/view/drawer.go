@@ -261,8 +261,12 @@ func (a *App) drawer(c *ui.Context) {
 		// v0.4.5 的 Draggable：按住面板空白处（表头、边距——正文的滚动区是
 		// 更内层的交互元素，不会抢走手势）往下拖，松手弹回或被甩到底关闭。
 		// 偏移叠在布局位移之上。
+		// Rigid：向上拖到 0 就停住，不能再被橡胶带拉出负偏移（用户报
+		// 「表头可以按住往上拖」）。向下仍然可拖到 h 关闭；Bounds 的
+		// 0..h 与原版「只往下滑」一致。
 		panel.Draggable(&a.drawerOffset, ui.DraggableOptions{
 			Axis:   ui.Vertical,
+			Rigid:  true,
 			Bounds: &ui.Rect{Y: 0, H: h},
 			Snap:   drawerSnap(h),
 		})

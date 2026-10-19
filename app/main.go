@@ -1989,6 +1989,12 @@ func (c *controller) reload() {
 	// 顺手记住表头的 tab（原版把这两个 tab 存在 localStorage）。
 	_ = c.kv.SetString("recommendTab", a.RecTab)
 	_ = c.kv.SetString("historyTab", a.HistTab)
+	// 手动刷新 / 切 tab / 切收藏夹都回到第一页顶部：先复位滚动，再拉第一页。
+	// 只清 Cards 不够——虚拟列表的 GridScroll / RowsScroll 会把新内容按旧偏移
+	// 拽回去（用户报「点刷新后还停在原来的位置」）。
+	if a.Drawer != "" {
+		a.ListFor(a.Drawer).ResetScroll()
+	}
 	switch a.Drawer {
 	case view.DrawerSearch:
 		c.search(a.Query)
@@ -2018,6 +2024,8 @@ func (c *controller) reload() {
 		c.loadSeriesVideos(a.SeriesID, 1)
 	case view.DrawerDanmaku:
 		// 弹幕/评论抽屉的刷新：清掉再拉一次。
+		// 弹幕/评论用的是 App 上的独立虚拟列表状态，不在 List.Grid/Rows 里。
+		a.ResetDanmakuScroll()
 		if a.DanmakuTab == view.TabReply {
 			a.Comments = nil
 			a.ReplyPage = 0
@@ -2242,6 +2250,7 @@ func (c *controller) search(query string) {
 	reqID := a.SearchRequestID
 
 	list := a.ListFor(view.DrawerSearch)
+	list.ResetScroll()
 	list.Loading = true
 	list.LoadErr = false
 	// 新搜索/换排序期间先关掉翻页闸门：旧的 HasMore 属于上一批结果，

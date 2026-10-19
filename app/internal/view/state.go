@@ -174,6 +174,28 @@ func (g *prefetchGate) stable(first, last int) bool {
 // 避免沿用上一批内容的行锚点。追加翻页不动它。
 func (l *List) ResetGrid() { l.Grid = ui.ListState{} }
 
+// ResetScroll 把抽屉的所有滚动状态复位到顶部（手动刷新 / 换 tab / 换关键词）。
+// 只 ResetGrid 不够：GridScroll 里还留着旧的 Y，下一帧 TrackScroll 可能把
+// 新列表又拽回旧位置；播放列表 / 评论等还有独立的 Rows/Scroll 状态。
+// ResetDanmakuScroll 复位弹幕 / 评论抽屉的独立虚拟列表（它们不在 List.Grid
+// 里，刷新时要单独清，否则新数据沿用旧行锚点，看起来还停在原位置）。
+func (a *App) ResetDanmakuScroll() {
+	a.danmakuList = ui.ListState{}
+	a.repliesList = ui.ListState{}
+	a.danmakuScrollIdx = -1
+}
+
+func (l *List) ResetScroll() {
+	l.Scroll = ui.ScrollState{}
+	l.Grid = ui.ListState{}
+	l.GridScroll = ui.ScrollState{}
+	l.Rows = ui.ListState{}
+	l.RowsScroll = ui.ScrollState{}
+	l.liftHold = scrollHold{}
+	l.prefetch = prefetchGate{}
+	l.rowsPrefetch = prefetchGate{}
+}
+
 // Section 是搜索栏右侧一个入口对应的抽屉。
 //
 // 注意：旧版的「热门与推荐」「历史」是两个抽屉内各自带 tab，

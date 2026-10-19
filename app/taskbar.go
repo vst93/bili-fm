@@ -46,7 +46,11 @@ func (c *controller) setupTaskbar() {
 	// Explorer 正在重启」时 ThumbBarAddButtons 失败的情况（taskbarInit 幂等）。
 	initTaskbar := func() {
 		if c.app.Win != nil {
-			taskbarInit(c.app.Win.NativeHandle())
+			hwnd := c.app.Win.NativeHandle()
+			// 先装消息钩子，再尝试立刻挂；TaskbarButtonCreated 到达时还会
+			// 再挂一次（官方要求的时机）。
+			taskbarWatch(hwnd)
+			taskbarInit(hwnd)
 		}
 	}
 	initTaskbar()

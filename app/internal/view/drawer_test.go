@@ -1033,3 +1033,91 @@ func TestPrefetchGateWaitsForStableWindow(t *testing.T) {
 		t.Fatal("窗口稳定后仍没有请求封面")
 	}
 }
+
+// TestDrawerHeaderCannotDragUp 钉住「抽屉表头只能往下拖关闭，不能往上拖」：
+//
+// 以前 Draggable 的 Bounds 只是橡胶带边界，往上拖仍会把面板拉出负偏移（用户
+// 报「header 可以被鼠标按住向上拖动」）。现在 Rigid=true，到 0 就硬停住；
+// 向下 0..h 仍可拖、松手仍会被 drawerSnap 甩到关闭。
+func TestDrawerHeaderCannotDragUp(t *testing.T) {
+	a := feedApp(30)
+	tt := shellTester(t, a)
+
+	// 抽屉面板顶在 54（800×600 下 h=546），表头在其中 54..102。取右侧空白处。
+	tt.Press(600, 70)
+	for i := 1; i <= 5; i++ {
+		tt.Advance(10 * time.Millisecond)
+		tt.Move(600, 70-float32(i)*14)
+	}
+	tt.Advance(10 * time.Millisecond)
+	tt.Release(600, 0)
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+
+	if a.drawerOffset.Y < -0.01 {
+		t.Fatalf("抽屉向上拖后 offset.Y = %.2f（应被 Rigid 钳在 0）", a.drawerOffset.Y)
+	}
+	if a.Drawer != "feed" {
+		t.Fatalf("向上拖不应关闭抽屉，Drawer=%q", a.Drawer)
+	}
+}
+
+// TestDrawerHeaderDragDownStillCloses 是上一条的反证：Rigid 只挡住向上，
+// 向下拖到底仍应按 drawerSnap 关闭（用户确认「向下拖动关闭倒是还可以」）。
+func TestDrawerHeaderDragDownStillCloses(t *testing.T) {
+	a := feedApp(30)
+	tt := shellTester(t, a)
+
+	tt.Press(600, 70)
+	for i := 1; i <= 8; i++ {
+		tt.Advance(10 * time.Millisecond)
+		tt.Move(600, 70+float32(i)*60)
+	}
+	tt.Advance(10 * time.Millisecond)
+	tt.Release(600, 550)
+	tt.Advance(2 * time.Second)
+	tt.Frame()
+
+	if a.Drawer != "" {
+		t.Fatalf("向下拖到底应关闭抽屉，Drawer=%q offset=%v", a.Drawer, a.drawerOffset)
+	}
+}
+
+// TestListResetScroll 钉住刷新时把所有滚动状态一起复位：只清 Cards 或只
+// ResetGrid，GridScroll 里的旧 Y 会让下一帧 TrackScroll 把新列表拽回原位置；
+// 播放列表 / 评论还有独立的 Rows / Scroll 状态。
+func TestListResetScroll(t *testing.T) {
+	l := &List{}
+	l.Scroll.Y = 120
+	l.Grid.Key = func(int) any { return 1 }
+	l.GridScroll.Y = 120
+	l.Rows.Key = func(int) any { return 1 }
+	l.RowsScroll.Y = 120
+	l.liftHold.held = true
+	l.prefetch.set = true
+	l.rowsPrefetch.set = true
+
+	l.ResetScroll()
+	if l.Scroll.Y != 0 || l.GridScroll.Y != 0 || l.RowsScroll.Y != 0 {
+		t.Fatalf("滚动偏移没复位：Scroll=%.0f Grid=%.0f Rows=%.0f", l.Scroll.Y, l.GridScroll.Y, l.RowsScroll.Y)
+	}
+	if l.Grid.Key != nil || l.Rows.Key != nil {
+		t.Error("虚拟列表行锚点没复位（Grid/Rows）")
+	}
+	if l.liftHold.held || l.prefetch.set || l.rowsPrefetch.set {
+		t.Error("滚动锁 / 预取闸门没复位")
+	}
+}
+
+// TestResetDanmakuScroll 钉住弹幕 / 评论抽屉的独立虚拟列表也会随刷新复位
+// （它们不在 List.Grid/Rows 里）。
+func TestResetDanmakuScroll(t *testing.T) {
+	a := NewApp(func() {})
+	a.danmakuList.Key = func(int) any { return 1 }
+	a.repliesList.Key = func(int) any { return 1 }
+	a.danmakuScrollIdx = 7
+	a.ResetDanmakuScroll()
+	if a.danmakuList.Key != nil || a.repliesList.Key != nil || a.danmakuScrollIdx != -1 {
+		t.Error("ResetDanmakuScroll 没有复位弹幕/评论列表与跟随下标")
+	}
+}

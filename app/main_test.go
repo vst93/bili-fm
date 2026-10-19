@@ -1826,3 +1826,19 @@ func TestUpLoadMoreStopsOnDuplicatePage(t *testing.T) {
 		}
 	}
 }
+
+// TestReloadResetsScrollToTop 钉住「点抽屉刷新后回到第一页顶部」：reload 在
+// 拉第一页之前必须复位当前抽屉的虚拟列表滚动，搜索/弹幕评论还要复位各自的
+// 独立列表状态。否则用户会看到刷新后仍停在原来的滚动位置。
+func TestReloadResetsScrollToTop(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"a.ListFor(a.Drawer).ResetScroll()",
+		"a.ResetDanmakuScroll()",
+		"list.ResetScroll()",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("reload/search 缺少滚动复位：%s", want)
+		}
+	}
+}

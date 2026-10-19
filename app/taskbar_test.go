@@ -179,12 +179,11 @@ func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 	if !strings.Contains(flat, "c.app.Win.OnShow(initTaskbar)") {
 		t.Error("OnShow 重试没有接上 initTaskbar")
 	}
-	if !strings.Contains(flat, "taskbarInit(c.app.Win.NativeHandle())") {
+	if !strings.Contains(flat, "hwnd:=c.app.Win.NativeHandle()") {
 		t.Error("initTaskbar 没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
 	}
-	// 初始化那一次也应现取，避免"先捕获、后复用"的同一个坑。
-	if strings.Contains(flat, "taskbarInit(hwnd)") {
-		t.Error("taskbarInit 用了捕获的 hwnd 变量，应每次现取 NativeHandle()")
+	if !strings.Contains(flat, "taskbarInit(hwnd)") {
+		t.Error("initTaskbar 没有用现取的 hwnd 调 taskbarInit")
 	}
 }
 
@@ -196,7 +195,7 @@ func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 // 反证：删掉 setupTaskbar 里的立即 taskbarInit 调用 → 本测试红。
 func TestTaskbarInitializesImmediately(t *testing.T) {
 	flat := flattenSrc(t, "taskbar.go")
-	if got := strings.Count(flat, "taskbarInit(c.app.Win.NativeHandle())"); got < 1 {
+	if !strings.Contains(flat, "taskbarInit(hwnd)") {
 		t.Fatalf("setupTaskbar 没有立即 taskbarInit（窗口已显示，OnShow 不会再触发）")
 	}
 	if !strings.Contains(flat, "initTaskbar()") {
@@ -205,5 +204,32 @@ func TestTaskbarInitializesImmediately(t *testing.T) {
 	// 任务栏按钮可能比窗口晚建好 / Explorer 重启：要有短延迟重试。
 	if !strings.Contains(flat, "600*time.Millisecond") || !strings.Contains(flat, "2500*time.Millisecond") {
 		t.Error("setupTaskbar 缺少任务栏按钮晚建好的重试")
+	}
+}
+
+// TestTaskbarWatchesButtonCreated 钉住「在 Explorer 的 TaskbarButtonCreated
+// 到达时再挂缩略图工具栏」这条官方时序：只靠启动后 0.6s/2.5s/6s 的盲重试，
+// Windows 11 上可能 ThumbBarAddButtons 一直没挂上（用户报「悬停任务栏还是
+// 没有播放快捷控制」）。子类化必须在 AddButtons 之前装好，消息到达时才能
+// 及时重挂；Explorer 重启还要清掉旧的 added 状态。
+func TestTaskbarWatchesButtonCreated(t *testing.T) {
+	win := flattenSrc(t, "taskbar_windows.go")
+	for _, want := range []string{
+		"TaskbarButtonCreated",
+		"TaskbarCreated",
+		"taskbarWatch(hwnd)",
+		"taskbarInit(hwnd)",
+		"taskbarWatchedHwnd",
+	} {
+		if !strings.Contains(win, want) {
+			t.Errorf("任务栏消息钩子缺少：%s", want)
+		}
+	}
+	setup := flattenSrc(t, "taskbar.go")
+	if !strings.Contains(setup, "taskbarWatch(hwnd)") {
+		t.Error("setupTaskbar 没有在 initTaskbar 里先装 TaskbarButtonCreated 钩子")
+	}
+	if strings.Contains(win, "procSetWindowSubclass.Call(hwnd,taskbarSubcl,taskbarSubclassID,0);r==0{log.Printf(\"任务栏缩略图工具栏：SetWindowSubclass 失败，按钮点击不会生效\")") {
+		t.Error("子类化仍只在 AddButtons 成功后安装（会错过 TaskbarButtonCreated）")
 	}
 }

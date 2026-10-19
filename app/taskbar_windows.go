@@ -39,6 +39,7 @@ var (
 	procDefSubclassProc    = taskbarComctl32.NewProc("DefSubclassProc")
 	procRegGetValueW       = taskbarAdvapi32.NewProc("RegGetValueW")
 	procGetDpiForWindow    = taskbarUser32.NewProc("GetDpiForWindow")
+	procRegisterWindowMsgW = taskbarUser32.NewProc("RegisterWindowMessageW")
 )
 
 // CLSID_TaskbarList / IID_ITaskbarList3。
@@ -107,7 +108,59 @@ var (
 	taskbarMu    sync.Mutex
 	taskbarCur   *taskbarThumbState
 	taskbarSubcl uintptr
+	// taskbarWatchedHwnd 是已经装过子类化过程的窗口。同一个 HWND 只装一次：
+	// SetWindowSubclass 用同一个 id 重复装会失败。
+	taskbarWatchedHwnd uintptr
+	// Explorer 的窗口消息。TaskbarButtonCreated 才是 ThumbBarAddButtons 的
+	// 正确调用时机；首次显示前/Explorer 重启后它都会重新发一次。
+	taskbarBtnCreatedMsg     uint32
+	taskbarTaskbarCreatedMsg uint32
 )
+
+// taskbarRegisterMessages 注册 Explorer 的广播消息（进程内只做一次）。
+func taskbarRegisterMessages() {
+	if taskbarBtnCreatedMsg != 0 {
+		return
+	}
+	reg := func(name string) uint32 {
+		p, err := syscall.UTF16PtrFromString(name)
+		if err != nil {
+			return 0
+		}
+		r, _, _ := procRegisterWindowMsgW.Call(uintptr(unsafe.Pointer(p)))
+		return uint32(r)
+	}
+	taskbarBtnCreatedMsg = reg("TaskbarButtonCreated")
+	taskbarTaskbarCreatedMsg = reg("TaskbarCreated")
+}
+
+// taskbarWatch 给窗口装子类化过程，接管 TaskbarButtonCreated / TaskbarCreated。
+// 必须在 AddButtons 之前调用：Explorer 发来 TaskbarButtonCreated 时我们才能
+// 在正确时机挂缩略图工具栏（只靠启动后的定时重试，Windows 11 上可能一直被
+// 当成「任务栏按钮还没建好」而静默失败）。
+func taskbarWatch(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	taskbarRegisterMessages()
+	taskbarMu.Lock()
+	if taskbarSubcl == 0 {
+		taskbarSubcl = syscall.NewCallback(taskbarSubclassProc)
+	}
+	cb := taskbarSubcl
+	watched := taskbarWatchedHwnd == hwnd
+	taskbarMu.Unlock()
+	if watched {
+		return
+	}
+	if r, _, _ := procSetWindowSubclass.Call(hwnd, cb, taskbarSubclassID, 0); r == 0 {
+		log.Printf("任务栏缩略图工具栏：SetWindowSubclass 失败，TaskbarButtonCreated 不会触发")
+		return
+	}
+	taskbarMu.Lock()
+	taskbarWatchedHwnd = hwnd
+	taskbarMu.Unlock()
+}
 
 // taskbarInit 装缩略图工具栏。幂等：同一窗口已挂上就跳过；失败（窗口还没
 // 显示、没有 comctl32 v6 等）保留重试机会（下一次 OnShow 再来）。
@@ -115,6 +168,7 @@ func taskbarInit(hwnd uintptr) {
 	if hwnd == 0 {
 		return
 	}
+	taskbarWatch(hwnd)
 	taskbarMu.Lock()
 	defer taskbarMu.Unlock()
 	if st := taskbarCur; st != nil && st.hwnd == hwnd && st.added {
@@ -140,9 +194,6 @@ func taskbarInit(hwnd uintptr) {
 	if taskbarFailedHR(hr) {
 		log.Printf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x）", uint32(hr))
 		return
-	}
-	if r, _, _ := procSetWindowSubclass.Call(hwnd, taskbarSubcl, taskbarSubclassID, 0); r == 0 {
-		log.Printf("任务栏缩略图工具栏：SetWindowSubclass 失败，按钮点击不会生效")
 	}
 	taskbarCur = &taskbarThumbState{
 		hwnd: hwnd, taskbar: taskbar, icons: icons, size: size, dark: dark,
@@ -201,6 +252,31 @@ func taskbarCreate() (uintptr, bool) {
 // taskbarSubclassProc 只接管缩略图工具栏按钮的 THBN_CLICKED（WM_COMMAND
 // 高位是通知码、低位是按钮 id），其余消息透传给窗口原来的过程。
 func taskbarSubclassProc(hwnd, msg, wparam, lparam, subclassID, refData uintptr) uintptr {
+	// Explorer 建好任务栏按钮（首次显示 / Explorer 重启后）会发这个消息。
+	// 这是 ThumbBarAddButtons 的官方调用时机；处理完仍透传给 mygo 的窗口过程，
+	// 让它自己的进度条状态也能应用。
+	if taskbarBtnCreatedMsg != 0 && msg == uintptr(taskbarBtnCreatedMsg) {
+		// 关键：即使启动时那次 ThumbBarAddButtons 返回了 S_OK，也强制在
+		// 官方时机重挂一次。Windows 在任务栏按钮还没建好时可能「接受」调用
+		// 但不显示按钮；只按 added 判据会永远跳过，用户就看不到快捷控制。
+		taskbarMu.Lock()
+		if st := taskbarCur; st != nil && st.hwnd == hwnd {
+			st.added = false
+		}
+		taskbarMu.Unlock()
+		taskbarInit(hwnd)
+		r, _, _ := procDefSubclassProc.Call(hwnd, msg, wparam, lparam)
+		return r
+	}
+	// Explorer 重启：旧的缩略图工具栏已经没了，清掉状态等下一次
+	// TaskbarButtonCreated 重挂。
+	if taskbarTaskbarCreatedMsg != 0 && msg == uintptr(taskbarTaskbarCreatedMsg) {
+		taskbarMu.Lock()
+		if st := taskbarCur; st != nil {
+			st.added = false
+		}
+		taskbarMu.Unlock()
+	}
 	if msg == taskbarWmCommand && (wparam>>16)&0xffff == taskbarThbnClicked {
 		switch wparam & 0xffff {
 		case taskbarBtnPrev:
