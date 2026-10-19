@@ -2,6 +2,7 @@ package view
 
 import (
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -468,6 +469,14 @@ var (
 	ambientAfterSheenUI  = ambientSheenGradient(ambientAfterSheenStops, 1)
 )
 
+// ambientFadeAnim 是 `.app-shell::before { transition: opacity 0.45s ease }`：
+// 「封面背景」/「高级质感」两个开关切换时，整层 ::before 的不透明度渐变到新值。
+// CSS 的 `ease` = cubic-bezier(.25,.1,.25,1)。
+var ambientFadeAnim = ui.Animation{
+	Duration: 450 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // 两条径向暗角各烘一张（进程内只烘一次；见 ambientVignetteBake 的尺寸说明）。
 var (
 	ambientBeforeVignetteBmp = sync.OnceValue(func() *ui.Bitmap {
@@ -505,40 +514,64 @@ func ambientSheenGradient(stops []gradStop, k float32) ui.LinearGradient {
 //
 // 封面没加载好就什么都不画（imagecache 未命中返回 nil），所以切歌时不会先闪
 // 一下空白 —— 旧版为此专门做了「先预载、后换源」。
+//
+// 两个开关的过渡（此前漏了）：原版 `.app-shell::before` 带
+// `transition: opacity 0.45s ease`，所以「封面背景」关掉时那层是 0.45s 淡出、
+// 「高级质感」关掉时 .31→.35 也是渐变的；原生版此前是 `if !a.Ambient { return }`
+// 直接当帧消失，用户点开关会看到整片背景「啪」地跳一下。
+//
+// 还有一层更隐蔽的差异：`.app-shell.ambient-off::before { opacity: 0 }` 只关
+// **::before**，`.app-shell::after`（那一层整窗白洗光 + 径向暗角）在任何开关
+// 组合下都照常铺 —— 原生版把 ::after 也一起关掉了，所以「封面背景」关闭后
+// 整窗比原版干净一档（少了 ::after 的 .22→.16 白洗光）。现在 ::after 无条件画。
 func (a *App) ambient(c *ui.Context) {
-	if !a.Ambient {
-		return
-	}
-	// 氛围光要用**调过色**的那份（原版这一层带 saturate/brightness/contrast
-	// 滤镜，见 imagecache.Ambient），拿不到就退回原图。
-	bmp := a.Images.Ambient(a.coverURL(), imagecache.WidthAmbient, a.Premium)
-	if bmp == nil {
-		bmp = a.coverBitmap()
-	}
-	if bmp == nil {
-		return
-	}
-	// 「高级质感」关闭（.app-shell.texture-basic）时滤镜去掉、opacity 抬到 .35。
-	opacity, sheen := ambientOpacity, ambientBeforeSheen31
+	// 目标不透明度就是 ::before 这一层的 opacity：常态 .31、texture-basic .35、
+	// ambient-off 0（globals.css:1605 的组合选择器只为压过 texture-basic 的
+	// 特异性，取值仍是 0）。
+	target, sheen := ambientOpacity, ambientBeforeSheen31
 	if !a.Premium {
-		opacity, sheen = ambientOpacityBasic, ambientBeforeSheen35
+		target, sheen = ambientOpacityBasic, ambientBeforeSheen35
 	}
-	ui.Box(c).Absolute().Fill().PassThrough().
-		DrawOver(func(p *ui.Painter, box ui.Rect) {
-			ambientPaint(p, box, bmp, opacity, sheen)
-		})
+	if !a.Ambient {
+		target = 0
+	}
+	box := ui.Box(c).Absolute().Fill().PassThrough()
+	opacity := box.AnimateTo("ambient", target, ambientFadeAnim)
+	// 关闭且已淡到 0：::before 什么都不画，也不必为它去拉封面。
+	var bmp *ui.Bitmap
+	if opacity > ambientVisible {
+		// 氛围光要用**调过色**的那份（原版这一层带 saturate/brightness/contrast
+		// 滤镜，见 imagecache.Ambient），拿不到就退回原图。
+		bmp = a.Images.Ambient(a.coverURL(), imagecache.WidthAmbient, a.Premium)
+		if bmp == nil {
+			bmp = a.coverBitmap()
+		}
+		// 过渡途中不透明度不是 .31/.35 这两个定值，洗光要按当前值重新预乘
+		// （ambientSheenGradient 就是干这个的）；稳态仍用缓存好的那两份，
+		// 每帧不新增分配。
+		if opacity != ambientOpacity && opacity != ambientOpacityBasic {
+			sheen = ambientSheenGradient(ambientBeforeSheenStops, opacity)
+		}
+	}
+	box.DrawOver(func(p *ui.Painter, box ui.Rect) {
+		if bmp != nil && opacity > ambientVisible {
+			ambientBefore(p, box, bmp, opacity, sheen)
+		}
+		ambientAfter(p, box)
+	})
 }
 
-// ambientPaint 把两层氛围光画进 box（整窗）。绘制顺序＝原版的层序（background
-// 列表里靠前的在上，所以自下而上画）：
-//
-//	::before  inset:-8% + scale(1.03)，三层：封面图 → 径向暗角 → 白洗光
-//	::after   inset:0，两层：径向暗角 → 白洗光
+// ambientVisible 是「这一层还画不画」的阈值：淡出到 1/255 以下时像素差已经
+// 归零，继续画只是白付一次全窗合成。
+const ambientVisible = float32(0.002)
+
+// ambientBefore 画 ::before：inset:-8% + scale(1.03) 的盒里三层（自下而上）：
+// 封面图 → 径向暗角 → 白洗光，整组乘 opacity。
 //
 // 此前原生版只画了「封面图（Fill + Cover 裁切）+ 一层 .22→.14 的两停靠点线性
 // 渐变」：::before 的两层与 ::after 的径向暗角**整层缺失**，::after 的线性渐变
 // 又少了 34% / 72% 两个停靠点（中间本该更透，实际被压白一档，中段约差 20 灰阶）。
-func ambientPaint(p *ui.Painter, box ui.Rect, bmp *ui.Bitmap, opacity float32, sheen ui.LinearGradient) {
+func ambientBefore(p *ui.Painter, box ui.Rect, bmp *ui.Bitmap, opacity float32, sheen ui.LinearGradient) {
 	w, h := box.W, box.H
 	// ::before 的盒：inset -8% 之后整体绕中心 scale(1.03)。
 	hw := (w/2 + ambientInset*w) * ambientScale
@@ -558,6 +591,11 @@ func ambientPaint(p *ui.Painter, box ui.Rect, bmp *ui.Bitmap, opacity float32, s
 		paintAmbientVignette(p, pre, ambientBeforeVignetteBmp(), 0.72, 0.62, opacity)
 		p.FillGradient(pre, sheen, 0)
 	})
+}
+
+// ambientAfter 画 ::after：inset:0 的整窗两层（径向暗角 → 白洗光）。
+// 原版这一层**没有** ambient-off 规则也没有过渡，任何开关组合下都照常铺。
+func ambientAfter(p *ui.Painter, box ui.Rect) {
 	paintAmbientVignette(p, box, ambientAfterVignetteBmp(), 0.70, 0.64, 1)
 	p.FillGradient(box, ambientAfterSheenUI, 0)
 }

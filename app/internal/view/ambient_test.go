@@ -4,6 +4,7 @@ import (
 	"image"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -157,10 +158,17 @@ func ambientSolidBitmap(r, g, b uint8) *ui.Bitmap {
 // ambientSample 渲染一层氛围光（base 打底），返回位图与尺寸。
 func ambientSample(t *testing.T, w, h int, premium bool) *image.RGBA {
 	t.Helper()
+	return ambientSampleAmbient(t, w, h, premium, true)
+}
+
+// ambientSampleAmbient 是 ambientSample 的「封面背景开关」可调版本。
+func ambientSampleAmbient(t *testing.T, w, h int, premium, ambient bool) *image.RGBA {
+	t.Helper()
 	tst := ui.NewTester(func(c *ui.Context) {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
 		a.Premium = premium
+		a.Ambient = ambient
 		a.Images = solidAmbientCache{bmp: ambientSolidBitmap(51, 102, 153)}
 		ui.Box(c).Fill().Background(ui.Hex("#808080")).Children(func() { a.ambient(c) })
 	}, w, h)
@@ -254,6 +262,95 @@ func TestAmbientSheenAlphaPremultiplied(t *testing.T) {
 	}
 	if prem.Angle != 180 {
 		t.Fatalf("洗光角度 %v，原版是 180deg", prem.Angle)
+	}
+}
+
+// TestAmbientOffKeepsAfterLayer 钉住 `.app-shell.ambient-off` 只关 **::before**：
+// 原版 `.app-shell::after`（整窗径向暗角 + 白洗光）没有 ambient-off 规则，任何
+// 开关组合下都照常铺。原生版此前在 `!a.Ambient` 时整层 return，把 ::after 也
+// 一起关掉了，所以「封面背景」关闭后整窗比原版干净一档。
+func TestAmbientOffKeepsAfterLayer(t *testing.T) {
+	const w, h = 400, 300
+	img := ambientSampleAmbient(t, w, h, true, false)
+	base := [3]float32{128, 128, 128}
+	cover := [3]float32{51, 102, 153}
+	points := [][2]float32{
+		{w / 2, h / 2}, {1, 1}, {w - 2, h - 2}, {w * 0.2, h * 0.35}, {w * 0.8, h * 0.62},
+	}
+	worst := 0
+	for _, pt := range points {
+		x, y := pt[0], pt[1]
+		// opacity=0 ⇒ 封面 / ::before 暗角 / ::before 洗光全不贡献，只剩 ::after 两层。
+		want := ambientModel(x, y, w, h, base, cover, 0)
+		o := img.PixOffset(int(x), int(y))
+		for i := 0; i < 3; i++ {
+			if d := int(abs32(float32(img.Pix[o+i]) - want[i])); d > worst {
+				worst = d
+			}
+		}
+	}
+	if worst > 3 {
+		t.Fatalf("关闭封面背景后与原版（只留 ::after）的最大通道差 %d 灰阶，超过容差 3", worst)
+	}
+	// 反证：整层 return 的旧写法（连 ::after 一起关）会让角落几乎等于打底色。
+	o := img.PixOffset(1, h-2)
+	if got := float32(img.Pix[o]); abs32(got-base[0]) < 5 {
+		t.Fatalf("左下角实测 %.0f 与打底色 %.0f 几乎相同 —— ::after 没画（退回旧写法？）", got, base[0])
+	}
+}
+
+// TestAmbientFadeAnimTokens 钉住 `.app-shell::before { transition: opacity .45s ease }`。
+func TestAmbientFadeAnimTokens(t *testing.T) {
+	if ambientFadeAnim.Duration != 450*time.Millisecond {
+		t.Fatalf("氛围光过渡时长 %v，原版是 450ms", ambientFadeAnim.Duration)
+	}
+	if ambientFadeAnim.Spring != (ui.SpringOptions{}) {
+		t.Fatalf("应为曲线动画而不是弹簧：%+v", ambientFadeAnim.Spring)
+	}
+	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
+	for _, x := range []float32{0.1, 0.3, 0.5, 0.8, 0.95} {
+		if d := math.Abs(float64(ambientFadeAnim.Ease(x) - want(x))); d > 1e-6 {
+			t.Fatalf("缓动在 %.2f 处 = %v，应为 CSS ease %v", x, ambientFadeAnim.Ease(x), want(x))
+		}
+	}
+}
+
+// TestAmbientFadeToOffIsAnimated 是行为反证：关掉「封面背景」的那一帧不许
+// 「啪」地跳到 0（旧写法当帧消失），而 450ms 后必须到 0。
+func TestAmbientFadeToOffIsAnimated(t *testing.T) {
+	const w, h = 400, 300
+	base := [3]float32{128, 128, 128}
+	cover := [3]float32{51, 102, 153}
+	on := true
+	tst := ui.NewTester(func(c *ui.Context) {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.Premium = true
+		a.Ambient = on
+		a.Images = solidAmbientCache{bmp: ambientSolidBitmap(51, 102, 153)}
+		ui.Box(c).Fill().Background(ui.Hex("#808080")).Children(func() { a.ambient(c) })
+	}, w, h)
+	tst.Frame()
+	x, y := float32(w/2), float32(h/2)
+	sample := func() float32 {
+		img := tst.Image()
+		return float32(img.Pix[img.PixOffset(int(x), int(y))])
+	}
+	onWant := ambientModel(x, y, w, h, base, cover, ambientOpacity)[0]
+	offWant := ambientModel(x, y, w, h, base, cover, 0)[0]
+	if got := sample(); abs32(got-onWant) > 3 {
+		t.Fatalf("首帧中心通道 %.0f，稳态应为 %.1f", got, onWant)
+	}
+
+	on = false
+	tst.Frame() // 时间未推进：过渡应还停在起点
+	if got := sample(); abs32(got-offWant) <= 3 {
+		t.Fatalf("关掉的那一帧就跳到关闭态 %.1f —— 没走 450ms 过渡", got)
+	}
+
+	tst.Advance(450 * time.Millisecond)
+	if got := sample(); abs32(got-offWant) > 3 {
+		t.Fatalf("450ms 后中心通道 %.0f，应为关闭态 %.1f", got, offWant)
 	}
 }
 
