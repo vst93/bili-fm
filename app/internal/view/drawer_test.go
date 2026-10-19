@@ -519,7 +519,10 @@ func TestCardTitleBadge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("读 drawer.go 失败：%v", err)
 	}
-	if !bytes.Contains(src, []byte("Padding(cardTitleBadgePadY, 4)")) {
+	// 2026-10 内存排查后，胶囊的「负 half-leading」由**负的上内边距**实现
+	// （不再是 Translate，见 linebox.go 文件头），所以上内边距是
+	// cardTitleBadgePadY+tsh、下内边距仍是常量 cardTitleBadgePadY。
+	if !bytes.Contains(src, []byte("Padding(cardTitleBadgePadY+tsh, 4, cardTitleBadgePadY, 4)")) {
 		t.Error("标题前胶囊没接上 cardTitleBadgePadY（上下内边距）")
 	}
 }

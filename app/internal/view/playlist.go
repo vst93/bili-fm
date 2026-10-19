@@ -135,9 +135,9 @@ func (a *App) playlistBody(c *ui.Context) {
 			mh, msh := textLineBox(12, textXsLH)
 			ui.Column(c).Gap(4).Center().Children(func() {
 				ui.Text(c, "播放列表为空").FontSize(14).TextColor(t.Faint).
-					Height(th).Translate(0, tsh)
+					Height(th).Padding(tsh, 0, 0, 0)
 				ui.Text(c, "从选集列表中点击 + 添加选集到播放列表").FontSize(12).
-					TextColor(t.Faint).Height(mh).Translate(0, msh)
+					TextColor(t.Faint).Height(mh).Padding(msh, 0, 0, 0)
 			})
 		})
 		return
@@ -605,7 +605,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 				// .playlist-current p:first-of-type（#064e7a/800 + 白 .65 压印）。
 				part := ui.Text(c, item.Part).FontSize(14).SingleLine().
 					TextColor(p.PartInk).FontWeight(p.PartWeight).
-					Height(th).Translate(0, tsh)
+					Height(th).Padding(tsh, 0, 0, 0)
 				if current {
 					// 压印只属于当前项（CSS 里那条规则挂在 .playlist-current 下）；
 					// 常态行没有任何 text-shadow。Draw 是就地挂 paintFn，返回值不用接。
@@ -618,7 +618,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			// .playlist-current p:last-of-type（#334155/600）。
 			ui.Text(c, item.Title).FontSize(12).SingleLine().
 				TextColor(p.TitleInk).FontWeight(p.TitleWeight).
-				Height(mh).Translate(0, msh)
+				Height(mh).Padding(msh, 0, 0, 0)
 		})
 
 		// 我的列表才允许删除（排序靠拖拽）。原版那颗键**始终渲染**，靠

@@ -275,7 +275,10 @@ func TestDrawerTabGlassWired(t *testing.T) {
 		}
 	}
 	t.Logf("关掉 tab 玻璃层后「综合」内变化 %d 像素", changed)
-	if changed < 100 {
+	// 阈值 60：2026-10 抽屉表头底色从 `#f1f5f9 .92` 换成白 .78（与面板同一套
+	// 玻璃、只多 8% 白），tab 的洗光/描边与底色的对比因此小了一档，实测
+	// 88 像素（改前 ~130）。no-op 桩下是 0，仍能反证接线。
+	if changed < 60 {
 		t.Errorf("tab 的 ::before/::after 没画上：只变了 %d 个像素", changed)
 	}
 }

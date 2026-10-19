@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/imagecache"
@@ -71,10 +70,9 @@ func homeLayoutFor(width float32) homeLayout {
 // 内容依次是「输入内腔 + 四个内容入口 + 头像」。
 func (a *App) searchBar(c *ui.Context, l homeLayout) {
 	ui.Row(c).FillWidth().Height(SearchBarHeight).Shrink(0).Justify(ui.Center).Children(func() {
-		// 原版 .home-searchbar 自己有 backdrop-filter（blur(20px) saturate(1.45)），
-		// 是真玻璃，所以这里用 glass.Glass 而不是半透明填充。
-		// 但框架 Regular 玻璃比原版亮一档，叠上 glassSurfaceTint() 把它压到与
-		// 抽屉面板一致的亮度（见 theme.go 的说明）。
+		// 原版 .home-searchbar 自己有 backdrop-filter（blur(20px) saturate(1.45)）
+		// + 半透明白底（--liquid-bg 白 .22）。这里用 cssGlass 按这个顺序铺：
+		// 只模糊、不染色，再把白底和洗光铺上去（见 cssglass.go）。
 		// 原版 .home-searchbar：1px 玻璃边、::before 是 blur(20px)+白 22%、
 		// ::after 是 1px 内圈描光（上缘亮、下缘暗），外面两层淡投影；
 		// 悬停时描边转亮、投影抬起。
@@ -82,7 +80,13 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
 		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			Material(glassLayer(glass.Glass{Tint: glassSurfaceTint()}))
+			// 原版 .home-searchbar::before：blur(20px) + 白 22% + 静态洗光。
+			// 不再用 glass.Glass（Regular 会把背景的黑抬到 54%，整块发白、不透）。
+			Material(cssGlassLayer(liquidBlurRadius, searchPillVeil(), sheenGlassBaked)).
+			// 原版 ::after 的 conic 描光 + 色散边（玻璃材质只管 ::before 那层）。
+			Draw(func(p *ui.Painter, r ui.Rect) {
+				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.Dark, false))
+			})
 		// 原版 box-shadow 走 --liquid-shadow / --liquid-shadow-lifted 二选一（
 		// mygo 的 Shadow 累加，见 searchPillShadows）。
 		applyShadows(pill, searchPillShadows(pill.Hovered()))
@@ -885,7 +889,7 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				// 用显式盒高 + 字形上移复现（见 linebox.go）。
 				kh, ksh := textLineBox(10, 1)
 				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6")).
-					Height(kh).Margin(0, 0, 1, 0).Translate(0, ksh)
+					Height(kh).Margin(0, 0, 1, 0).Padding(ksh, 0, 0, 0)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
 					name.Background(ui.Transparent)
@@ -899,7 +903,7 @@ func (a *App) videoInfoHead(c *ui.Context) {
 						nh, nsh := textLineBox(15, 1.25)
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
 							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
-							SingleLine().MaxWidth(240).Height(nh).Translate(0, nsh)
+							SingleLine().MaxWidth(240).Height(nh).Padding(nsh, 0, 0, 0)
 					})
 					if name.Clicked() {
 						a.openUp()

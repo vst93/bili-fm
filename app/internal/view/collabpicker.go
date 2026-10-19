@@ -278,10 +278,10 @@ func (a *App) collabItem(c *ui.Context, st Collaborator, checked bool) {
 				rh, rsh := pxLineBox(collabRoleSize, collabRoleBoxH)
 				ui.Text(c, st.Name).FontSize(collabNameSize).
 					FontWeight(collabNameWeight).TextColor(stl.Ink).SingleLine().
-					Height(nh).Translate(0, nsh)
+					Height(nh).Padding(nsh, 0, 0, 0)
 				if st.Title != "" {
 					ui.Text(c, st.Title).FontSize(collabRoleSize).
-						TextColor(t.Muted).SingleLine().Height(rh).Translate(0, rsh)
+						TextColor(t.Muted).SingleLine().Height(rh).Padding(rsh, 0, 0, 0)
 				}
 			})
 			// 选中项右侧一个对勾（原版 HeroUI single-select 的选中指示），

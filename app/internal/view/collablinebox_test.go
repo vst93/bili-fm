@@ -50,12 +50,14 @@ func TestCollabItemLineBoxes(t *testing.T) {
 		t.Fatal("找不到角色行「联合投稿」")
 	}
 	nameH, _ := pxLineBox(collabNameSize, collabNameBoxH)
-	_, roleShift := pxLineBox(collabRoleSize, collabRoleBoxH)
-	want := collabItemPadY + nameH + roleShift // 7 + 20 − 0.25
+	// 角色行的「负 half-leading」自 2026-10 起由**负的上内边距**实现（不再是
+	// Translate，见 linebox.go 文件头）：元素的盒顶就是 name 盒的下沿，字形在
+	// 盒内搬了 roleShift。所以这里量到的是 7 + 20，而字形落点比它多 roleShift。
+	want := collabItemPadY + nameH // 7 + 20
 	got := roleText.Y - roleItem.Y
 	t.Logf("角色行相对条目顶 %.2f，want %.2f（条目 %+v / 角色 %+v）", got, want, roleItem, roleText)
 	if math.Abs(float64(got-want)) > 0.5 {
-		t.Errorf("角色行偏移 %v，want %v（name 盒 20 + padding 7 + 半个负 half-leading）", got, want)
+		t.Errorf("角色行偏移 %v，want %v（name 盒 20 + padding 7）", got, want)
 	}
 	// 条目上缘相对触发键：面板贴着键下 8px、面板 padding 4（沿用既有的
 	// TestCollabMenuGeometry，这里只确认本轮没把面板整体推走）。

@@ -177,7 +177,7 @@ func (a *App) MiniShell(c *ui.Context) {
 					// 复现（见 linebox.go）。
 					mh, msh := textLineBox(12, 1.2)
 					ui.Text(c, a.partTitle()).FontSize(12).FontWeight(650).
-						TextColor(ui.Hex("#526174")).SingleLine().Height(mh).Translate(0, msh)
+						TextColor(ui.Hex("#526174")).SingleLine().Height(mh).Padding(msh, 0, 0, 0)
 				})
 			})
 

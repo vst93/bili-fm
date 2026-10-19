@@ -296,6 +296,10 @@ func (a *App) drawer(c *ui.Context) {
 	}
 }
 
+// drawerHeaderFillAlpha 是抽屉表头的底色 alpha：面板是白 .70（drawerPanelFill），
+// 表头比它再实 8%，用来区分层次而不脱离同一套玻璃。
+const drawerHeaderFillAlpha = 0.78
+
 // drawerHeader 是抽屉头部（`[data-slot="wrapper"] > section > header`）：
 // 高 48、右侧留 44 给绝对定位的关闭键、下边框 1px rgba(100,116,139,0.14)。
 // 表头里放：抽屉自己的 tab（或标题）+ 刷新键。
@@ -304,14 +308,14 @@ func (a *App) drawerHeader(c *ui.Context) {
 	// HeroUI 的 DrawerHeader/DrawerBody 都是 px-6（24），所以表头左边距
 	// 与正文一致；右侧 44 给绝对定位的关闭键让位。
 	//
-	// 表头层次：原版 drawer header 是实底（不透底层内容），此前 mygo
-	// 的 header Row 没有铺材质，直接透了主页搜索栏的液态玻璃，看着古怪。
-	// 这里给 header 铺一层近实底背景，与面板主体形成层次区分。
-	// 不用 Material(glassLayer(...))：那会多一个 backdrop 层（每帧多一次
-	// 渲染通道打断 + 回读 + 模糊），而实底背景已经足够遮住底层。
+	// 表头底色：比面板（白 .70）再实一点点（白 .78），与正文拉开一档层次。
+	// 原版 header 是 transparent（浮在面板玻璃上），但原生版的面板是**无模糊**
+	// 的半透明填充，header 完全透明时两者会糊成一片；此前用的 `#f1f5f9 .92`
+	// 又太实、发灰，像贴了一条横带（用户 2026-10 报「抽屉 header 要优化」）。
+	// 这里取 0.78：比面板多 8% 的白，能看出分区，又不脱离同一套玻璃。
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 24).
 		Gap(8).AlignItems(ui.Center).
-		Background(ui.Hex("#f1f5f9").Alpha(0.92)).
+		Background(ui.Hex("#ffffff").Alpha(drawerHeaderFillAlpha)).
 		Children(func() {
 		a.drawerTabs(c)
 		// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
@@ -2144,7 +2148,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		a.liftChannels.Add(1)
 		// 按下缩放与上浮走同一条 160ms ease（原版基础规则的 transform 过渡）。
 		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
-		box.Translate(0, box.AnimateTo("lift", lift, cardLiftAnim)).Scale(sc, sc)
+		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
+		// 稳态（0 / 1）不挂 transform：单位变换也会让 mygo 把这张卡的圆角 clip
+		// 改走「预烘焙遮罩」路径（见 linebox.go），一屏十几张卡就是十几张遮罩。
+		if liftV != 0 || sc != 1 {
+			box.Translate(0, liftV).Scale(sc, sc)
+		}
 	}
 
 	// 指针跟随光晕（原版卡片 ::before 的径向高光，跟着鼠标走）。只给被悬停
@@ -2158,7 +2167,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 
 	box.Children(func() {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
-		ui.Box(c).FillWidth().Height(100).Shrink(0).
+		// 封面自己带一圈与卡片一致的圆角：mygo 只让**最内层** clip 在着色器里画
+		// 圆角，外层圆角 clip 只按方形 scissor 裁。卡片不再挂 transform 之后，
+		// 卡片的圆角 clip 不再走遮罩路径，若这里仍是方 clip，封面四角就会溢出
+		// 卡片圆边（用户 2026-10 报的回归）。改成圆角 clip 后，封面由自己的
+		// （最内层）clip 圆掉，与卡片 12px 圆角逐像素重合。
+		ui.Box(c).FillWidth().Height(100).Shrink(0).Radius(12, 12, 0, 0).
 			Background(t.CoverPlaceholder()).Clip().Children(func() {
 			bmp := a.Images.Get(spec.Cover, imagecache.WidthCard)
 			if !spec.Lazy {
@@ -2182,8 +2196,8 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 				dh, dsh := textLineBox(11, 1.2)
 				numericText(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
-					Height(dh + 4).Translate(0, dsh).
-					Padding(2, 5).Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
+					Height(dh + 4).Padding(2+dsh, 5, 2, 5).
+					Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
 			if spec.Playing {
 				a.playingBadge(c)
@@ -2212,16 +2226,16 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 						// 行盒，见 cardfooter_test.go 的 TestCardTitleBadgeLineBox），
 						// 所以只在盒内补 2px 上下内边距，盒高保持 th。
 						ui.Text(c, spec.Badge).FontSize(14).FontWeight(700).
-							TextColor(ui.Hex("#ffffff")).Height(th).Translate(0, tsh).
-							Padding(cardTitleBadgePadY, 4).Radius(8).
+							TextColor(ui.Hex("#ffffff")).Height(th).
+							Padding(cardTitleBadgePadY+tsh, 4, cardTitleBadgePadY, 4).Radius(8).
 							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
 						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-							TextColor(t.Ink).SingleLine().Height(th).Translate(0, tsh).
+							TextColor(t.Ink).SingleLine().Height(th).Padding(tsh, 0, 0, 0).
 							Grow(1).MinWidth(0).Tooltip(spec.Title)
 					})
 				} else {
 					ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
-						TextColor(t.Ink).SingleLine().Height(th).Translate(0, tsh).Tooltip(spec.Title)
+						TextColor(t.Ink).SingleLine().Height(th).Padding(tsh, 0, 0, 0).Tooltip(spec.Title)
 				}
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
 					a.cardMeta(c, spec.Key, spec.Fields)
@@ -2286,25 +2300,25 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 						// 原版 .card-meta-field svg { opacity: .72 }。
 						ui.Icon(c, icon).Size(12, 12).TextColor(ink.Alpha(0.72))
 						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
-							Height(mh).Translate(0, msh)
+							Height(mh).Padding(msh, 0, 0, 0)
 					})
 				case fieldPubdate:
 					text := pubdateFit(c, f.Text, avail, now)
 					// 原版 CardMeta 给发布时间加了 title tooltip（轮 28）：
 					// 日期若被截，悬浮仍可看完整值。
 					ui.Text(c, text).FontSize(12).TextColor(ink).SingleLine().
-						Height(mh).Translate(0, msh).
+						Height(mh).Padding(msh, 0, 0, 0).
 						FillWidth().TextAlign(align).Tooltip(f.Text)
 				default:
 					// 原版 CardMeta 给作者名加了 title tooltip（轮 22）：
 					// 窄卡片截断时悬浮显示完整名字。
 					if f.Kind == fieldAuthor {
 						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
-							Height(mh).Translate(0, msh).
+							Height(mh).Padding(msh, 0, 0, 0).
 							FillWidth().TextAlign(align).Tooltip(f.Text)
 					} else {
 						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
-							Height(mh).Translate(0, msh).
+							Height(mh).Padding(msh, 0, 0, 0).
 							FillWidth().TextAlign(align)
 					}
 				}
@@ -3174,7 +3188,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 			// 否则框架的自然行盒（约 17）会把左列撑高约 4px。
 			tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
 				TextColor(ui.Hex("#64748b")).
-				Height(danmakuTotalHeight).Translate(0, danmakuTotalShift)
+				Height(danmakuTotalHeight).Padding(danmakuTotalShift, 0, 0, 0)
 			if isCur {
 				tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
 			}
@@ -3220,8 +3234,8 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 							// 显式 Height + Translate 压回原版高度。
 							numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
 								FontWeight(700).TextColor(ui.Hex("#0369a1")).
-								Height(danmakuRepeatCountHeight).Translate(0, danmakuRepeatCountShift).
-								Padding(0, 5).Radius(7).MinWidth(24).
+								Height(danmakuRepeatCountHeight).Padding(danmakuRepeatCountShift, 5, 0, 5).
+								Radius(7).MinWidth(24).
 								Background(ui.Hex("#e0f2fe").Alpha(0.70)).
 								Border(1, t.Blue.Alpha(0.20))
 						}
@@ -3435,7 +3449,7 @@ func (a *App) repliesBody(c *ui.Context) {
 			loadingH, loadingShift := textLineBox(12, textXsLH)
 			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
 				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted)).
-					Height(loadingH).Translate(0, loadingShift)
+					Height(loadingH).Padding(loadingShift, 0, 0, 0)
 			})
 			return
 		}
@@ -3537,11 +3551,11 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 			ui.Column(c).Children(func() {
 				ui.Text(c, cm.User).FontSize(14).FontWeight(600).
 					TextColor(ui.Hex(replyInkName)).SingleLine().
-					Height(nameH).Translate(0, nameShift)
+					Height(nameH).Padding(nameShift, 0, 0, 0)
 				// text-xs text-default-400 → #64748b（见 replyInkMeta）。
 				ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
 					TextColor(ui.Hex(replyInkMeta)).SingleLine().
-					Height(metaH).Translate(0, metaShift)
+					Height(metaH).Padding(metaShift, 0, 0, 0)
 			})
 		})
 		// 正文区左缩进 40（原版 pl-10，与头像同宽）。
@@ -3557,7 +3571,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 				// .mt-1.text-xs → 12/16。
 				ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
 					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta)).
-					Height(metaH).Translate(0, metaShift)
+					Height(metaH).Padding(metaShift, 0, 0, 0)
 			}
 			// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
 			if len(cm.Replies) > 0 {
@@ -3571,7 +3585,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 							// 行距由框架逐行决定、压不下去，改自绘逐行落点（见 replyBody）。
 							ui.Text(c, rp.User+":").FontSize(12).
 								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0).
-								Height(metaH).Translate(0, metaShift)
+								Height(metaH).Padding(metaShift, 0, 0, 0)
 							a.replyBody(c, rp)
 						})
 					}
@@ -3579,7 +3593,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 						// .text-xs.text-default-400，悬停转 .text-primary-500。
 						more := ui.Text(c, "查看更多回复...").FontSize(12).
 							TextColor(ui.Hex(replyInkMeta)).
-							Height(metaH).Translate(0, metaShift)
+							Height(metaH).Padding(metaShift, 0, 0, 0)
 						if more.Hovered() {
 							more.TextColor(ui.Hex(replyInkPrim))
 						}

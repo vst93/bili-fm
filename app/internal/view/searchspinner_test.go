@@ -67,7 +67,10 @@ func TestSearchSubmitSpinnerRing(t *testing.T) {
 	}
 	coverage := float64(hit) / 72
 	t.Logf("半径 %v 上 72 方向的泛蓝覆盖率 = %.2f", rad, coverage)
-	if coverage < 0.9 {
+	// 0.75：搜索药丸改用 cssGlass（只模糊 + 白 .22）后，环背后的底色比原来的
+	// Regular 玻璃暗一档，环上最淡的顶弧有两三个采样点差 1~2 个色阶不再被判成
+	// 泛蓝；辐条 spinner 在这个半径上只有 ≈0.35，仍能区分。
+	if coverage < 0.75 {
 		t.Errorf("搜索 spinner 不是连续圆环：覆盖率 %.2f（辐条 spinner ≈ 0.35）", coverage)
 	}
 }

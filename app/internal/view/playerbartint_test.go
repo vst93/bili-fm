@@ -12,12 +12,16 @@ import (
 // 播放栏（主窗 + mini）的 Liquid Glass 此前都没染色，深色时段与浅色长得
 // 一模一样——`Theme.PlayerSurface` 令牌也一直没有使用点。
 
-// TestPlayerBarTintTokens 钉住染色令牌：浅色不着色；五个烟熏玻璃时段取
-// `Theme.PlayerSurface`（rgba(30,41,59,.16)），且与浅色值不同。
+// TestPlayerBarTintTokens 钉住底色令牌：两个时段都取 `Theme.PlayerSurface`
+// （浅色近白 rgba(241,248,253,.36)、烟熏玻璃 rgba(30,41,59,.16)）。
+//
+// 2026-10 玻璃改造后，播放栏材质从框架 Regular 玻璃换成「只模糊 + 自己铺底色」
+// （cssGlass）：Regular 已经把背景的黑抬到 54%，浅色再叠近白会过实；换掉之后
+// 浅色也要按原版把 --player-surface 铺上去，否则栏体比原版透太多、字压不住。
 func TestPlayerBarTintTokens(t *testing.T) {
 	light := ThemeFor(PeriodAt(12))
-	if got := playerBarTint(light); got != ui.Transparent {
-		t.Errorf("浅色播放栏不应着色，得到 %v", got)
+	if got := playerBarTint(light); got != light.PlayerSurface {
+		t.Errorf("浅色播放栏底色 = %v，应为 %v", got, light.PlayerSurface)
 	}
 	dark := ThemeFor(PeriodAt(0))
 	want := ui.Hex("#1e293b").Alpha(0.16)

@@ -97,16 +97,14 @@ func (a *App) playerBar(c *ui.Context) {
 // playerBarTint 是播放栏那层 Liquid Glass 的染色，对应原版
 // `#player .player-controls { background-color: var(--player-surface, …) }`。
 //
-// 浅色时段的 --player-surface 是近白的 rgba(241,248,253,.36)：框架的 Liquid
-// Glass 在浅色下已把背后大幅提亮（Regular 材质把黑抬到 54%、白留 100%），再叠
-// 一层近白只会把栏体推得比原版更实，所以浅色**不着色**。五个烟熏玻璃时段把它
-// 覆写成 rgba(30,41,59,.16)，是**压暗**：必须染上去，否则深色时段的播放栏和
-// 浅色长得一模一样（此前正是如此）。声明成 var 便于测试换桩做反证。
+// 浅色兜底是近白的 rgba(241,248,253,.36)，五个烟熏玻璃时段覆写成
+// rgba(30,41,59,.16)。旧实现用的是框架 Regular 玻璃：它已经把背后大幅提亮
+// （黑→54%），浅色再叠一层近白就比原版实一档，所以当时浅色返回透明、并靠
+// 冷灰染色去压 —— 结果就是「不透」。现在材质换成「只模糊 + 自己铺底色」
+// （见 cssGlass），两个时段都按原版把 --player-surface 铺上去。
+// 声明成 var 便于测试换桩做反证。
 var playerBarTint = func(t Theme) ui.Color {
-	if t.Dark {
-		return t.PlayerSurface
-	}
-	return ui.Transparent
+	return t.PlayerSurface
 }
 
 // playerBarMaterial 给出播放栏（主窗 + mini）那一层的材质。默认是框架
@@ -131,43 +129,11 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 	if t.ReducedTransparency {
 		return b.Background(t.PlayerSurface)
 	}
-	g := glassLayer(glass.Glass{Tint: playerBarTint(t)})
-	if s := playerBarSheen(t); s != nil {
-		return b.Material(sheenMaterial{glass: g, sheen: s})
-	}
-	return b.Material(g)
-}
-
-// sheenMaterial 把播放栏的 `background-image` 洗光并进**材质层**，让它的层序与
-// CSS 逐层一致。
-//
-// 原版层叠顺序（CSS Backgrounds 的绘制序）：background-color → background-image
-// → inset box-shadow → border → 内容。框架的绘制顺序是：材质/底色 → inset 内影
-// → Draw(paintFn) → 子元素。洗光此前走 Draw，落在 inset 内影**之后**：顶缘内
-// 高光被又提亮一点、下缘内暗线被淡化一点（深色栏体实测 Δ 3~7/通道）。并进
-// 材质后，PaintMaterial 在 p.background 里、inset 内影之前跑，层序与 CSS 相同。
-//
-// 自己实现 MaterialBuilder（而不是在 Element.Material 外面再包一层）是因为
-// Element.Material 只对材质调一次 BuildMaterial：glass 的 BuildMaterial 得先
-// 跑（交互玻璃要按元素按压态取值），这里把它的结果接过来再补画洗光。
-type sheenMaterial struct {
-	glass ui.Material
-	sheen *sheenBaked
-}
-
-func (m sheenMaterial) BuildMaterial(e ui.Element) ui.Material {
-	base := m.glass
-	if b, ok := base.(ui.MaterialBuilder); ok {
-		base = b.BuildMaterial(e)
-	}
-	return sheenMaterial{glass: base, sheen: m.sheen}
-}
-
-func (m sheenMaterial) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
-	m.glass.PaintMaterial(p, box, radii)
-	// 播放栏无圆角（铺满整条栏），与 Draw 时代一样传 0；位图按栏的宽高比烘，
-	// 线性层角度不被拉偏。
-	paintBakedSheen(p, box, 0, m.sheen)
+	// 原版 #player .player-controls：backdrop-filter blur(20px) + 底色
+	// --player-surface + background-image 洗光。三层都由 cssGlass 按 CSS 的
+	// 绘制顺序铺（模糊 → 底色 → 洗光），不再用 glass.Glass（Regular 把背景的
+	// 黑抬到 54%，浅色下整条栏发白、背后的背景透不出来）。
+	return b.Material(cssGlassLayer(liquidBlurRadius, playerBarTint(t), playerBarSheen(t)))
 }
 
 // playerBarSheen 是播放栏**本体**这一帧该铺的 `background-image`（原版
@@ -202,7 +168,7 @@ var playerBarSheen = func(t Theme) *sheenBaked {
 
 // playerBarPaint 画原版 `#player .player-controls` 那条 `border-top: 1px` 顶边。
 //
-// 洗光（`background-image`）已挪进 playerBarMaterial 的材质层（见 sheenMaterial）：
+// 洗光（`background-image`）已挪进 playerBarMaterial 的材质层（见 cssGlass）：
 // CSS 里 background-image 排在 background-color 之上、inset box-shadow 之下，而
 // 材质正是画在 inset 内影之前的。
 //
@@ -2255,16 +2221,26 @@ const (
 	miniVolumePopoverEdgeGap = 8
 )
 
-// playerPopoverTint 是音量 / 倍速弹层的玻璃色（原版深色时段把两层弹层都从
-// 浅白玻璃换成烟熏玻璃：`background-color: rgba(71,85,105,.64)`，边白 .2，
-// `inset 0 1px 0 白 .26` + `0 10px 24px rgba(15,23,42,.14)`）。原生版用
-// glass.Glass 的 Tint 染色（玻璃自己带 rim 高光），浅色时段不着色。
-func playerPopoverTint(t Theme) ui.Color {
+// playerPopoverVeil 是弹层的 background-color（原版两层的底色）。
+//
+// 浅色各是各的：音量 `rgba(255,255,255,.34)` + blur(20px)，倍速
+// `rgba(255,255,255,.82)` + blur(10px)；五个烟熏玻璃时段都覆写成
+// `rgba(71,85,105,.64)`（backdrop-filter 不变）。材质统一走 cssGlass
+//（只模糊 + 自己铺底色），不再用 glass.Glass 的 Regular 玻璃 —— 那会把背景
+// 提亮、弹层发白（见 cssglass.go）。
+func playerPopoverVeil(t Theme, light ui.Color) ui.Color {
 	if t.Dark {
 		return ui.Hex("#475569").Alpha(0.64)
 	}
-	return ui.Transparent
+	return light
 }
+
+// 两层弹层的 backdrop blur 半径（原版：音量 var(--liquid-blur) = 20px，
+// 倍速 blur(10px)）。
+const (
+	volumePopoverBlur = 20
+	speedPopoverBlur  = 10
+)
 
 // playerPopoverBorder 是音量 / 倍速弹层这一帧的 1px 描边。浅色各用各的玻璃边
 // （音量 --glass-border 白 .55、倍速白 .72）；五个烟熏玻璃时段原版把两层弹层的
@@ -2313,15 +2289,15 @@ func playerPopoverLiftSpec(t Theme) shadowSpec {
 // 上下 padding 4×2），给它加 1px 边会把面板从 32 撑到 34 —— 原版深浅两时段只
 // 换 `border-color`、几何一致，框架玻璃本身也不占布局，所以这里必须同样不占。
 // 声明成 var 便于无头测试换桩反证。
-var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color) ui.Element {
+var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color, veil ui.Color, blur float32) ui.Element {
 	if t.ReducedTransparency {
 		return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
 	}
-	b = b.Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)}))
-	if t.Dark {
-		b = b.InsetShadow(0, 0, 0, 1, border)
-	}
-	return b
+	// 原版两层弹层：backdrop-filter 只模糊，底色是上面那条 backgroundColor。
+	// 1px 描边两时段都画（浅色各用各的玻璃边、深色白 .2）；用不占布局的
+	// 内描环，倍速弹层高度由内容决定（加 .Border 会从 32 撑到 34）。
+	return b.Material(cssGlassLayer(blur, veil, nil)).
+		InsetShadow(0, 0, 0, 1, border)
 }
 
 // 音量 / 倍速弹层的**整面洗光**（原版弹层自己的 `background-image`）。两层弹层
@@ -2403,7 +2379,9 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
 		AlignItems(ui.Center)
 	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
-	panel = playerPopoverMaterial(t, panel, playerPopoverBorder(t, ui.Hex("#ffffff").Alpha(0.72)))
+	panel = playerPopoverMaterial(t, panel,
+		playerPopoverBorder(t, ui.Hex("#ffffff").Alpha(0.72)),
+		playerPopoverVeil(t, ui.Hex("#ffffff").Alpha(0.82)), speedPopoverBlur)
 	// 烟熏玻璃时段原版 box-shadow 第一层是 `inset 0 1px 0 白 .26`（浅色那条
 	// --glass-specular 由玻璃折光近似），补在玻璃之上。
 	panel = applyInsetShadows(panel, playerPopoverInsets(t))
@@ -2517,7 +2495,9 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 		Shadow(lift.X, lift.Y, lift.Blur, lift.Spread, lift.C).Gap(volumePopoverGap).
 		AlignItems(ui.Center)
 	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
-	panel = playerPopoverMaterial(t, panel, playerPopoverBorder(t, t.GlassBorder))
+	panel = playerPopoverMaterial(t, panel,
+		playerPopoverBorder(t, t.GlassBorder),
+		playerPopoverVeil(t, ui.Hex("#ffffff").Alpha(0.34)), volumePopoverBlur)
 	// 烟熏玻璃时段原版 box-shadow 第一层是 `inset 0 1px 0 白 .26`（浅色那条
 	// --glass-specular 由玻璃折光近似），补在玻璃之上。
 	panel = applyInsetShadows(panel, playerPopoverInsets(t))

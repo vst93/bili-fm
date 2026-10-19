@@ -326,16 +326,6 @@ func (t Theme) liquidGlassHover(e ui.Element) ui.Element {
 		Shadow(0, 2, 8, 0, shadowInk.Alpha(0.04))
 }
 
-// glassSurfaceTint 是给框架 Liquid Glass 表面统一压一档冷灰的染色。
-//
-// 框架的 Regular 玻璃会把背后的东西大幅提亮（本机无头实测：同一条浅色渐变
-// 背景下，框架玻璃把 ~215 抬到 ~248，而原版 `.home-searchbar::before` 的
-// `--liquid-bg` 白 .22 叠同背景只有 ~220）。一层看着还行，但搜索药丸和抽屉
-// 面板并排时，药丸明显更白。抽屉面板已按用户反馈调到 0.70 白（见
-// drawerPanelFill），这里给药丸叠同一支 slate 染色，把它压低到与抽屉一致
-// （无头实测见 glasstint_test.go）。
-func glassSurfaceTint() ui.Color { return ui.Hex("#94a3b8").Alpha(0.22) }
-
 // uiTheme 把我们的令牌装进 mygo 的控件主题，让输入框、滚动条、tooltip
 // 这些现成控件也用同一套颜色。原版没有暗色主题（正文永远是深色），所以
 // 这里固定 Dark = false。

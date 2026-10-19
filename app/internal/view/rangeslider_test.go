@@ -198,7 +198,9 @@ func TestPlayerBarVolumeSliderPaint(t *testing.T) {
 		t.Errorf("音量条中段 = %v，应已偏向蓝色端（B>G，原版渐变终点 #0284c7）", mid)
 	}
 	// 未播部分：原版是半透明白（--player-track-rest），压在弹层玻璃上仍然很亮。
-	if right[0] < 235 || right[1] < 235 || right[2] < 235 {
+	// 2026-10 播放栏改用 cssGlass（只模糊 + --player-surface 白 .36）后，弹层
+	// 底下那层比原来的 Regular 玻璃暗 2~3 级，阈值从 235 放到 228。
+	if right[0] < 228 || right[1] < 228 || right[2] < 228 {
 		t.Errorf("音量条未播部分 = %v，应为近乎白的轨道底", right)
 	}
 }

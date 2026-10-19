@@ -3,7 +3,6 @@ package view
 import (
 	"testing"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -39,12 +38,14 @@ func TestPlayerPopoverDarkTokenOverrides(t *testing.T) {
 		t.Fatal("时段基态不对：midnight 应为深色、noon 应为浅色")
 	}
 
-	// 底色 Tint：浅色不着色，深色染 rgba(71,85,105,.64)。
-	if got := playerPopoverTint(light); got != ui.Transparent {
-		t.Errorf("浅色弹层 Tint = %v，应为 Transparent", got)
+	// 底色：浅色各是各的（这里拿音量那条 rgba(255,255,255,.34) 验），
+	// 五个烟熏玻璃时段统一覆写成 rgba(71,85,105,.64)。
+	lightVeil := ui.Hex("#ffffff").Alpha(0.34)
+	if got := playerPopoverVeil(light, lightVeil); got != lightVeil {
+		t.Errorf("浅色弹层底色 = %v，应原样返回 %v", got, lightVeil)
 	}
-	if got := playerPopoverTint(dark); got != ui.Hex("#475569").Alpha(0.64) {
-		t.Errorf("深色弹层 Tint = %v，应为 #475569 .64", got)
+	if got := playerPopoverVeil(dark, lightVeil); got != ui.Hex("#475569").Alpha(0.64) {
+		t.Errorf("深色弹层底色 = %v，应为 #475569 .64", got)
 	}
 
 	// 描边：浅色沿用各弹层自己的玻璃边；深色统一覆写成白 .2。
@@ -105,11 +106,11 @@ func TestPlayerPopoverDarkBorderWired(t *testing.T) {
 	// 换成「深色也不铺描环」的桩（保留 Tint），其余材质不变。
 	orig := playerPopoverMaterial
 	defer func() { playerPopoverMaterial = orig }()
-	playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color) ui.Element {
+	playerPopoverMaterial = func(t Theme, b ui.Element, border, veil ui.Color, blur float32) ui.Element {
 		if t.ReducedTransparency {
 			return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
 		}
-		return b.Material(glassLayer(glass.Glass{Tint: playerPopoverTint(t)}))
+		return b.Material(cssGlassLayer(blur, veil, nil))
 	}
 	without := edgeLuma()
 

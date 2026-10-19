@@ -25,6 +25,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -146,6 +147,26 @@ func main() {
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
 
+	// 内存：给 Go 堆一个软上限。
+	//
+	// 2026-10 去掉 transform 触发的 GPU 遮罩之后，本应用的活堆只有 15–19MB；
+	// 这里留 256MiB 是给**峰值**兜底（启动时解码封面、建字体图集、编译 Metal
+	// 管线，以及视频弹窗关闭后的回落），接近上限时运行时提前回收，**不会**拒绝
+	// 分配、也不会 OOM，正常播放离它很远。
+	// BILIFM_MEMLIMIT / BILIFM_GC 供实机调参（单位 MiB / 百分比）。
+	limit := 256
+	if v, err := strconv.Atoi(os.Getenv("BILIFM_MEMLIMIT")); err == nil && v > 0 {
+		limit = v
+	}
+	debug.SetMemoryLimit(int64(limit) << 20)
+	// GOGC 只在显式给出时改：2026-10 的遮罩优化之后活堆只剩 15–19MB，
+	// 调低 GOGC 只会多跑 GC、换不来footprint（实测 96/128/256MiB 三个上限
+	// 的 footprint 都在 136–139MB，差别在噪声内）。
+	if v, err := strconv.Atoi(os.Getenv("BILIFM_GC")); err == nil && v >= 0 {
+		debug.SetGCPercent(v)
+	}
+	log.Printf("内存：堆软上限 %dMiB，GOGC=%d", limit, debug.SetGCPercent(-1))
+
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
 	// 与旧版（Tauri 的 single-instance 插件）一致。
 	if !mygo.App.RequestSingleInstanceLock() {
@@ -247,6 +268,11 @@ func main() {
 			// 本来也放不大，Windows 的标题栏按钮里就不该出现「最大化/还原」
 			// —— 只剩缩小 + 关闭，与原版 Tauri 版一致（macOS 仍走系统红绿灯）。
 			DisableMaximize: true,
+			// macOS 的绿灯键就是全屏：真实的全屏会让固定尺寸的浮窗铺满
+			// 整个 Space，与原版（resizable(false)、无全屏入口）不一致。
+			// Windows / Linux 是 Frameless 自绘（只有缩小 + 隐藏两颗键），
+			// 这条在那边没有可见影响，一并关掉避免后端差异。
+			DisableFullScreen: true,
 			// 窗口控件：macOS 走系统红绿灯（TitleBarHidden = 旧版的 Overlay），
 			// Windows / Linux 走**自绘**（Frameless），与原版 Tauri 版一致。
 			//
@@ -276,6 +302,14 @@ func main() {
 		}
 		app.Win = mygo.NewWindow(opts)
 
+		// 首屏之后把堆还给系统一次：启动时解码封面、建字体图集、编译 Metal
+		// 管线都会把堆顶到一个远高于稳态的峰值，而 macOS/Windows 只记得峰值。
+		// 这时列表与首屏已经画完，丢掉的是纯垃圾。
+		go func() {
+			time.Sleep(8 * time.Second)
+			trimMemory()
+		}()
+
 		// 桌面的「减少透明度」偏好（原版 CSS 的
 		// `@media (prefers-reduced-transparency: reduce)`）。mygo 的
 		// ui.Preferences 没有这一项，只在根包的 mygo.Theme.Preferences()
@@ -292,6 +326,24 @@ func main() {
 			app.Win.Show()
 			app.Win.Focus()
 		})
+
+		// 关窗 = 隐藏到后台（见下面 OnClose），所以必须有路回来：
+		// 点 Dock 图标 / 从别的 app 切回来时，只要一个可见窗口都没有，就把
+		// 主窗显示并聚焦。没有这条时窗口关掉后 app 仍在跑、Dock 图标也在，
+		// 但点它什么都不发生 —— 看起来就像「真的退出了」。
+		mygo.App.OnActivate(func(hasVisibleWindows bool) {
+			if hasVisibleWindows || app.Win == nil {
+				return
+			}
+			app.Win.Show()
+			app.Win.Focus()
+		})
+
+		// 托盘应用：**窗口被真正关掉**（而不是隐藏）时也不退出。mygo 在没有
+		// OnWindowAllClosed 监听时会直接 Quit（app.go 的 lastWindowClosed），
+		// 那会让「关窗」在个别路径上变成真退出。注册一个空监听把这条兜住；
+		// 真正的退出只走菜单 / 托盘 / ⌘Q 的 c.quit()（它自己调 App.Quit）。
+		mygo.App.OnWindowAllClosed(func() {})
 
 		// 默认进「热门与推荐」的热门 tab：未登录时推荐/动态/收藏/历史都是空的。
 		// 旧版的「推荐」「稍后再看」现在是抽屉里的 tab，这里保留旧写法做兼容。
