@@ -2723,7 +2723,18 @@ func (c *controller) togglePlay() {
 	// 视频弹窗开着时，空格控制的是弹窗里的视频（音频引擎此刻是暂停的，
 	// 否则会双声）。
 	if c.app.VideoOpen {
-		if c.vid.State().Paused {
+		st := c.vid.State()
+		// 自然播完后页面处于 ended（它不再每秒回传状态，Paused 可能是旧值）。
+		// 这时再点播放必须从 0 开始，而不是对已结束的 <video> 调 pause/play。
+		if c.vid.Ended() || (st.Duration > 0 && st.Time >= st.Duration-0.5) {
+			c.vid.Replay()
+			c.rewindProgress()
+			c.app.Pos, c.app.SeekValue = 0, 0
+			c.app.Playing = true
+			c.app.Win.Update(func() {})
+			return
+		}
+		if st.Paused {
 			c.vid.Resume()
 		} else {
 			c.vid.Pause()
@@ -2731,6 +2742,22 @@ func (c *controller) togglePlay() {
 		return
 	}
 	if c.app.Current() == nil {
+		return
+	}
+	// 主音频引擎自然播完后 oto 已经 EOF：直接 Resume 会被 oto 的 mux 拒绝
+	//（eof 且缓冲为空），进度条卡在末尾、状态却显示在播放。此时重建解码位置
+	//并换一个新的 oto player，从头播。
+	if c.mp.Ended() || (c.app.Dur > 0 && c.app.Pos >= c.app.Dur-0.5 && !c.mp.Playing()) {
+		if err := c.mp.Replay(); err != nil {
+			c.app.NotifyType("error", audioErrorMessage(err))
+			c.app.Win.Update(func() {})
+			return
+		}
+		c.rewindProgress()
+		c.app.Pos, c.app.SeekValue = 0, 0
+		c.app.Playing = true
+		c.syncMediaTrack()
+		c.app.Win.Update(func() {})
 		return
 	}
 	if c.mp.Playing() {

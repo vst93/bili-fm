@@ -206,6 +206,55 @@ func (p *Player) Stop() {
 // Close 停止播放。oto 的 context 不能关闭，随进程结束回收。
 func (p *Player) Close() { p.Stop() }
 
+// Ended 报告当前流水线是否已经读到流末尾（自然播完后 oto 的取数回调拿到
+// EOF）。用于「播完后点播放」时判断应从头重播，而不是对已 EOF 的 oto player
+// 调 Play（oto 的 mux 在 eof 且缓冲为空时会直接拒绝，进度就卡在末尾）。
+func (p *Player) Ended() bool {
+	p.mu.Lock()
+	cur := p.cur
+	p.mu.Unlock()
+	if cur == nil {
+		return false
+	}
+	return cur.ended()
+}
+
+// Replay 从当前曲目的开头重新播放。用于自然播完后用户再点播放：
+// 先重建解码位置（pipeline.seek(0) 会清掉 eof/done 与旧队列），再换一个新的
+// oto player —— 旧 player 已经处于 eof 状态，直接 Play 会被 oto 拒绝。
+func (p *Player) Replay() error {
+	p.mu.Lock()
+	cur, ctx := p.cur, p.ctx
+	p.mu.Unlock()
+	if cur == nil || ctx == nil {
+		return errors.New("media: 当前没有在播放")
+	}
+	if err := cur.seek(0); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	if p.cur != cur || p.ctx != ctx {
+		p.mu.Unlock()
+		return ErrSuperseded
+	}
+	old := p.op
+	p.op = p.ctx.NewPlayer(cur)
+	p.op.SetVolume(p.vol)
+	p.op.Play()
+	if p.stopProgress != nil {
+		close(p.stopProgress)
+	}
+	stop := make(chan struct{})
+	p.stopProgress = stop
+	p.mu.Unlock()
+	if old != nil {
+		old.Close() // oto v3 里是 no-op；保留调用表达「旧播放器不再使用」
+	}
+	go p.reportLoop(stop)
+	return nil
+}
+
 // SetSpeed 设置播放速度（0.5 ~ 3.0），变速不变调。
 func (p *Player) SetSpeed(v float64) {
 	if v <= 0 {
@@ -758,6 +807,13 @@ func (p *pipeline) state() (ended bool, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.done, p.err
+}
+
+// ended 报告这条流水线是否已经读到末尾（Read 已经返回过 io.EOF）。
+func (p *pipeline) ended() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done
 }
 
 // seek 跳到指定秒数：重建解封装器，用 ReadFrame 跳过前面若干帧

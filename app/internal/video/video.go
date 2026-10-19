@@ -65,6 +65,10 @@ type Manager struct {
 	onEnded func()
 	onQuit  func()
 
+	// ended 记录页面是否已经自然播完。页面在 ended 后不再每秒回传状态，
+	// 单看 Paused/Time 会误判；主窗再点播放时用它决定先 seek(0)。
+	ended bool
+
 	// minimize 是最小化弹窗自身的函数：Open 时绑定到窗口的 Minimize，
 	// Close / 窗口关闭时清空。抽成字段便于单测验证 Service.Minimize 的接线
 	// （测试里没有真实窗口，注入一个计数函数即可）。
@@ -98,6 +102,24 @@ func (m *Manager) State() State {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.st
+}
+
+// Ended 报告弹窗是否已经自然播完。
+func (m *Manager) Ended() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ended
+}
+
+// Replay 让弹窗从开头重新播放（播完后主窗再点播放）。
+func (m *Manager) Replay() {
+	m.mu.Lock()
+	m.ended = false
+	w := m.win
+	m.mu.Unlock()
+	if w != nil {
+		w.Page().Eval("(()=>{const v=document.getElementById('v');if(v){try{v.currentTime=0}catch(_){ }const p=v.play();if(p&&p.catch)p.catch(()=>{});}})()")
+	}
 }
 
 // pageURL 把打开选项编成弹窗页面的地址（/video.html?src=…&muted=…）。
@@ -224,6 +246,7 @@ func (m *Manager) switchTo(w *mygo.Window, o Options) error {
 	w.Focus()
 	m.mu.Lock()
 	m.st = State{Speed: o.Speed}
+	m.ended = false
 	m.mu.Unlock()
 	return nil
 }
@@ -233,6 +256,7 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	w := m.win
 	m.win, m.minimize = nil, nil
+	m.ended = false
 	m.mu.Unlock()
 	if w != nil {
 		w.Close()
@@ -320,6 +344,7 @@ func (s *Service) Close() {
 // Ended 页面报告播放结束。
 func (s *Service) Ended() {
 	s.m.mu.Lock()
+	s.m.ended = true
 	cb := s.m.onEnded
 	s.m.mu.Unlock()
 	if cb != nil {

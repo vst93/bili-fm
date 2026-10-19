@@ -92,3 +92,18 @@ func TestPipelineTakeCompacts(t *testing.T) {
 		t.Fatalf("压缩后容量应回落，得到 cap=%d", cap(p.ready))
 	}
 }
+
+// TestPipelineEnded 钉住「自然播完」的判据：Read 已经收到 EOF 后 done=true，
+// 主窗据此在用户再点播放时走 Replay（而不是对已 EOF 的 oto player 调 Play）。
+func TestPipelineEnded(t *testing.T) {
+	p := newTestPipeline(48000)
+	if p.ended() {
+		t.Fatal("新流水线不应是已结束")
+	}
+	p.mu.Lock()
+	p.done = true
+	p.mu.Unlock()
+	if !p.ended() {
+		t.Fatal("done=true 后 ended 应为真")
+	}
+}

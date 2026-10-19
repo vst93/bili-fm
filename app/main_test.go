@@ -1842,3 +1842,22 @@ func TestReloadResetsScrollToTop(t *testing.T) {
 		}
 	}
 }
+
+// TestTogglePlayReplaysEndedMedia 钉住「播完后再点播放从头播」：主音频引擎
+// 自然播完后 oto 处于 EOF，直接 Resume 会被拒绝（进度卡末尾、状态显示播放）；
+// 视频弹窗也要用 ended 标志判断，而不是旧的 Paused 值。
+func TestTogglePlayReplaysEndedMedia(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"c.mp.Ended()",
+		"c.mp.Replay()",
+		"c.vid.Ended()",
+		"c.vid.Replay()",
+		"c.rewindProgress()",
+		"c.app.Pos,c.app.SeekValue=0,0",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("播完重播缺少接线：%s", want)
+		}
+	}
+}
