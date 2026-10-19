@@ -172,31 +172,53 @@ func TestCardGlowFollowsPointer(t *testing.T) {
 // 反证：把 cardGlowFadeAnim.Duration 改成 0（瞬时切换，改动前的行为）→
 // 「移出当帧应仍有光」与「中点应介于两者之间」两条报红。
 func TestCardGlowFadesOut(t *testing.T) {
-	tst, box := cardGlowProbe(t)
-	cx, cy := int(box.X+box.W/2), int(box.Y+box.H/2)
-	tst.Move(float32(cx), float32(cy))
-	tst.Advance(200 * time.Millisecond)
-	hover := grayAt(tst.Image(), cx, cy)
+	oldRadial := radialPaint
+	t.Cleanup(func() { radialPaint = oldRadial })
 
-	tst.Move(box.X+box.W+60, box.Y+box.H+60) // 移出卡片
-	first := grayAt(tst.Image(), cx, cy)
-	tst.Advance(60 * time.Millisecond)
-	mid := grayAt(tst.Image(), cx, cy)
-	tst.Advance(140 * time.Millisecond)
-	end := grayAt(tst.Image(), cx, cy)
-	t.Logf("圆心亮度 悬停=%d 移出当帧=%d 60ms=%d 200ms=%d", hover, first, mid, end)
+	// 两遍同一时间轴采样：一遍真实光晕，一遍把光晕那层换成空实现；两者相减
+	// 只剩光晕自身的贡献。必须这么量 —— 卡片底色/描边/投影自本轮起也走
+	// 160ms 过渡（原版 `transition: background-color/border-color/box-shadow
+	// .16s`），直接读绝对亮度会把「底色从 hover 渐隐回常态」误当成光晕。
+	run := func(withGlow bool) [4]float32 {
+		if withGlow {
+			radialPaint = oldRadial
+		} else {
+			radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {}
+		}
+		tst, box := cardGlowProbe(t)
+		cx, cy := int(box.X+box.W/2), int(box.Y+box.H/2)
+		var out [4]float32
+		tst.Move(float32(cx), float32(cy))
+		tst.Advance(200 * time.Millisecond)
+		out[0] = float32(grayAt(tst.Image(), cx, cy))
+		tst.Move(box.X+box.W+60, box.Y+box.H+60) // 移出卡片
+		out[1] = float32(grayAt(tst.Image(), cx, cy))
+		tst.Advance(60 * time.Millisecond)
+		out[2] = float32(grayAt(tst.Image(), cx, cy))
+		tst.Advance(140 * time.Millisecond)
+		out[3] = float32(grayAt(tst.Image(), cx, cy))
+		return out
+	}
+	with, without := run(true), run(false)
+	glow := func(i int) float32 { return with[i] - without[i] }
+	hover, first, mid, end := glow(0), glow(1), glow(2), glow(3)
+	t.Logf("光晕贡献 悬停=%.1f 移出当帧=%.1f 60ms=%.1f 200ms=%.1f（绝对亮度 %.0f→%.0f→%.0f→%.0f）",
+		hover, first, mid, end, with[0], with[1], with[2], with[3])
 
-	if hover-first < 2 {
-		t.Fatalf("移出当帧光晕就没了（悬停 %d → %d）—— 没有渐隐", hover, first)
+	if hover < 5 {
+		t.Fatalf("悬停时光晕贡献只有 %.1f —— 采样点或光晕没画", hover)
+	}
+	if hover-first > 2 {
+		t.Fatalf("移出当帧光晕就没了（%.1f → %.1f）—— 没有渐隐", hover, first)
 	}
 	if !(first > mid && mid > end) {
-		t.Errorf("光晕没有单调渐隐：当帧 %d → 60ms %d → 200ms %d", first, mid, end)
+		t.Errorf("光晕没有单调渐隐：当帧 %.1f → 60ms %.1f → 200ms %.1f", first, mid, end)
 	}
 	if first-mid < 1 || mid-end < 1 {
-		t.Errorf("渐隐太快/太慢，60ms 中点看不出过渡：%d → %d → %d", first, mid, end)
+		t.Errorf("渐隐太快/太慢，60ms 中点看不出过渡：%.1f → %.1f → %.1f", first, mid, end)
 	}
-	if end != grayAt(tst.Image(), cx, cy) {
-		t.Errorf("200ms 后光晕应已完全消失")
+	if end > 1 {
+		t.Errorf("200ms 后光晕应已完全消失，仍剩 %.1f", end)
 	}
 }
 

@@ -272,3 +272,67 @@ func TestPlaylistCoverPrefetchVisibleOnly(t *testing.T) {
 		t.Fatal("最后一条在屏外，不该被请求")
 	}
 }
+
+// TestDrawerCardHoverTransition 钉住原版卡片悬停的
+// `transition: background-color .16s ease, border-color .16s ease,
+// box-shadow .16s ease`（globals.css:3657，与 translateY 的上浮同一时长）。
+//
+// 改前：底色/蓝边/投影是**当帧硬切**，只有上浮在动 —— 指针一进卡片，
+// 影子先跳到位、卡片本体再浮起来。判据用「左边缘的蓝度」(B-R)：常态描边是
+// 白 55%（蓝度≈0），悬停描边是 #0369a1 60%（蓝度≈90+），插值期间必须严格
+// 落在两者之间；移入**当帧**（elapsed=0）仍是常态值（旧写法在这里就跳满）。
+//
+// 量的时候把光晕那层换成空实现（radialPaint 计数的那条通道），否则 120ms 的
+// 白色径向光晕会跟着一起变亮，蓝度读数混进第二个人为因素。
+func TestDrawerCardHoverTransition(t *testing.T) {
+	oldRadial := radialPaint
+	t.Cleanup(func() { radialPaint = oldRadial })
+	radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {}
+
+	tst, box := cardGlowProbe(t)
+	// 左边缘描边的蓝度：只取竖直中段，避开四角圆弧与页脚分隔线。
+	blueness := func() float32 {
+		img := tst.Image()
+		var sum float32
+		var n int
+		for y := int(box.Y) + 24; y < int(box.Y+box.H)-24; y++ {
+			for x := int(box.X); x <= int(box.X)+1; x++ {
+				i := img.PixOffset(x, y)
+				sum += float32(int(img.Pix[i+2]) - int(img.Pix[i]))
+				n++
+			}
+		}
+		return sum / float32(n)
+	}
+
+	rest := blueness()
+	tst.Move(box.X+box.W/2, box.Y+box.H/2)
+	enter := blueness() // 移入当帧（elapsed = 0）
+	tst.Advance(60 * time.Millisecond)
+	mid := blueness()
+	tst.Advance(200 * time.Millisecond)
+	hover := blueness()
+	t.Logf("左边缘蓝度 常态=%.1f 移入当帧=%.1f 60ms=%.1f 200ms=%.1f", rest, enter, mid, hover)
+
+	if hover-rest < 20 {
+		t.Fatalf("悬停后描边没有变蓝（常态 %.1f → 悬停 %.1f），采样点或取值有问题", rest, hover)
+	}
+	if diff := enter - rest; diff > 1 || diff < -1 {
+		t.Errorf("移入当帧描边就跳到了 %.1f（常态 %.1f）—— 没有 160ms 过渡", enter, rest)
+	}
+	if !(mid > rest+2 && mid < hover-2) {
+		t.Errorf("60ms 中点 %.1f 不在常态 %.1f 与悬停 %.1f 之间 —— 过渡没走完一半", mid, rest, hover)
+	}
+	// 回落同样走过渡：移出当帧不能立刻褪成常态。
+	tst.Move(box.X-80, box.Y+box.H/2)
+	leave := blueness()
+	tst.Advance(300 * time.Millisecond)
+	back := blueness()
+	t.Logf("移出当帧=%.1f 300ms 后=%.1f", leave, back)
+	if d := math.Abs(float64(leave - hover)); d > 2 {
+		t.Errorf("移出当帧 %.1f 应仍接近悬停 %.1f（渐隐），差 %.1f", leave, hover, d)
+	}
+	if d := back - rest; d > 1 || d < -1 {
+		t.Errorf("移出 300ms 后应回到常态 %.1f，得到 %.1f", rest, back)
+	}
+}

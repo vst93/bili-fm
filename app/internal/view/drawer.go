@@ -2098,18 +2098,31 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		box.Background(t.Blue.Alpha(0.22)).
 			Border(2, ui.Hex("#0284c7")).
 			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
-	case hovered:
-		box.Background(t.GlassHover).
-			Border(1, ui.Hex("#0369a1").Alpha(0.60)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.80)).
-			Shadow(0, 0, 0, 2, t.Blue.Alpha(0.20)).
-			Shadow(0, 10, 28, 0, ui.Hex("#0f172a").Alpha(0.12))
 	default:
-		box.Background(t.Glass).
-			Border(1, t.GlassBorder).
-			InsetShadow(0, 1, 1, 0, t.Highlight).
-			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
-			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.04))
+		// 常态与悬停态用**同一条**规则按 hoverK 插值：原版
+		// `transition: border-color .16s ease, box-shadow .16s ease`
+		// （globals.css:3657）与上浮的 transform 同一时长，此前底色/蓝边/投影
+		// 是当帧硬切、只有上浮在动，指针进出时「影子先跳、卡片后浮」。
+		//
+		// 只挂**一条** float 通道（不是每张卡 5 条 AnimateColor）：整组取值都由
+		// 它算出来，k=0 时逐值与旧常态完全相等（blur 1、暗内影 .04、无环影），
+		// k=1 时逐值与旧悬停态完全相等。
+		// 按下态不参与插值（k 的目标只看 hovered）：`:active` 整组替换悬停的
+		// 底/影，松开后要立刻回到「已悬停」的样子，不能让 k 先被按下拽回 0。
+		k := float32(0)
+		if !locked {
+			k = box.AnimateTo("card-hover", pick(hovered, float32(1), float32(0)), cardLiftAnim)
+		}
+		box.Background(t.Glass.Mix(t.GlassHover, k)).
+			Border(1, t.GlassBorder.Mix(ui.Hex("#0369a1").Alpha(0.60), k)).
+			InsetShadow(0, 1, 1-k, 0, t.Highlight.Mix(ui.Hex("#ffffff").Alpha(0.80), k)).
+			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04*(1-k))).
+			Shadow(0, 4+6*k, 12+16*k, 0, ui.Hex("#0f172a").Alpha(0.04+0.08*k))
+		if k > 0.002 {
+			// 环影只在悬停侧存在（常态没有这一道），k=0 时不挂，省掉一次
+			// 零 alpha 的阴影绘制（一屏 12 张卡）。
+			box.Shadow(0, 0, 0, 2*k, t.Blue.Alpha(0.20*k))
+		}
 	}
 	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
 	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。

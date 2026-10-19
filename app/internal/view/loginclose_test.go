@@ -78,6 +78,11 @@ func loginProbe(t *testing.T) *ui.Tester {
 	t.Helper()
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
+	// 背景不走真实图片缓存：封面是异步解码的，加载时机不同则模态面板背后的
+	// backdrop 模糊结果不同 —— TestLoginPanelSheenWired 量「面板顶部比底部亮
+	// 多少」时，一张刚好解码完的亮封面能把差值从 0 抬到 3，全量跑偶发假红
+	// （基线 HEAD 同样复现）。换成不发图的桩后，面板背后的底纹恒定。
+	a.Images = newRecordingCache()
 	a.Modal = &Modal{Kind: "login", Title: "使用 B站 App 扫码登录"}
 	a.modalOpenedAt = time.Now().Add(-time.Second)
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)

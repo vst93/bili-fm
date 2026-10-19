@@ -1,6 +1,7 @@
 package view
 
 import (
+	"image"
 	"testing"
 	"time"
 
@@ -21,6 +22,9 @@ func ownerProbeOn(t *testing.T, back ui.Color) (*App, *ui.Tester) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Info = &Info{Bvid: "BV1owner", OwnerMid: 1, OwnerName: "示例 UP", OwnerFace: ""}
+	// 头像恒为一张深色纯色图（见 solidImageStore 的注释）：玻璃罩白 .22 压在
+	// 深色上才量得出 opacity 1 → .7 的差，且与「默认头像有没有解码好」无关。
+	a.Images = solidImageStore{bmp: solidBitmap(ui.RGB(24, 32, 44))}
 	tst := ui.NewTester(func(c *ui.Context) {
 		bg := ui.Column(c).Fill().Padding(20)
 		if back.A != 0 {
@@ -31,6 +35,32 @@ func ownerProbeOn(t *testing.T, back ui.Color) (*App, *ui.Tester) {
 	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	return a, tst
+}
+
+// solidImageStore 让所有图片请求都命中同一张纯色位图：头像/封面这类探针要的
+// 是确定的底色，而不是「网络图解码好没好」。
+//
+// 背景：OwnerFace 为空时 ownerFace() 退 noFaceAvatar（真实 URL），默认缓存会在
+// 后台把它抓下来 —— 头像上缘那块取样点的读数于是随解码时机在「浅底 255」与
+// 「默认头像的灰」之间跳，TestOwnerGlassDimsOnHover 全量跑偶发假红（基线 HEAD
+// 同样复现）。
+type solidImageStore struct{ bmp *ui.Bitmap }
+
+func (s solidImageStore) Bitmap(string, int) *ui.Bitmap        { return s.bmp }
+func (s solidImageStore) Get(string, int) *ui.Bitmap           { return s.bmp }
+func (s solidImageStore) Touch(string, int)                    {}
+func (s solidImageStore) Retain(string, int)                   {}
+func (s solidImageStore) Cancel(string, int)                   {}
+func (s solidImageStore) Ambient(string, int, bool) *ui.Bitmap { return nil }
+func (s solidImageStore) Pending() int                         { return 0 }
+
+// solidBitmap 造一张 8×8 纯色位图（铺成 Fill/Cover 后整块都是这个色）。
+func solidBitmap(col ui.Color) *ui.Bitmap {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = col.R, col.G, col.B, 255
+	}
+	return ui.NewBitmap(img)
 }
 
 // TestOwnerFacePaintFor 钉住 UP 主头像的尺寸常量与两态样式。原版
@@ -162,6 +192,11 @@ func TestOwnerGlassDimsOnHover(t *testing.T) {
 	}
 	// 取头像上缘下方 3px（越过 1.5px 描边）、水平居中：这里玻璃罩的白色最强
 	// （渐变 0% 处的白 .22），悬停时透明度降到 .7，应当变暗。
+	//
+	// 取样点必须落在**头像图**上：头像本体的 `CoverPlaceholder()` 是浅底，
+	// 白 .22 叠上去直接饱和到 255（两态读数都是 [255 255 255]，此前只有默认
+	// 头像图恰好解码完成时才偶发通过）。所以 ownerProbeOn 用 solidImageStore
+	// 给头像喂一张确定的深色图，不依赖网络/解码时机。
 	px, py := int(r.X+r.W/2), int(r.Y+3)
 	rest := rgbAt(tst.Image(), px, py)
 	tst.Move(r.X+r.W/2, r.Y+r.H/2)

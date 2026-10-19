@@ -110,8 +110,9 @@ func TestLoginPanelSheenWired(t *testing.T) {
 	bot := lum(pixelAt(t, img, col, botY))
 	t.Logf("面板 left=%d top=%d bottom=%d；顶部(%d) 亮度 %d vs 底部(%d) 亮度 %d，差 %d",
 		pl, pt, bottom, topY, top, botY, bot, top-bot)
-	if top-bot < 3 {
-		t.Errorf("登录面板顶部不比底部亮：差 %d（应叠上 .login-glass::before 光泽）", top-bot)
+	withSheen := top - bot
+	if withSheen < 3 {
+		t.Errorf("登录面板顶部不比底部亮：差 %d（应叠上 .login-glass::before 光泽）", withSheen)
 	}
 
 	// 反证：把光泽停靠点全设成透明，同一对取样点的差值应消失 —— 证明上面那点
@@ -124,9 +125,13 @@ func TestLoginPanelSheenWired(t *testing.T) {
 	img2 := loginProbe(t).Image()
 	top2 := lum(pixelAt(t, img2, col, topY))
 	bot2 := lum(pixelAt(t, img2, col, botY))
+	noSheen := top2 - bot2
 	t.Logf("停靠点全透明后：顶部 %d vs 底部 %d，差 %d", top2, bot2, top2-bot2)
-	if top2-bot2 >= 3 {
-		t.Errorf("光泽已置透明，顶部仍比底部亮 %d（面板玻璃自带渐变？断言前提不成立）", top2-bot2)
+	// 判据用**差值的变化量**，不是「透明后差必须为 0」：面板背后的首页内容
+	// （顶栏 / 内容区）本身在 y 方向有梯度，backdrop 模糊后残留 1~3 级 ——
+	// 此前按绝对值断言 <3，全量跑偶发假红（基线 HEAD 同样复现）。
+	if withSheen-noSheen < 3 {
+		t.Errorf("光泽置透明后差值只从 %d 掉到 %d —— 顶部那点亮度不是 loginSheen 给的", withSheen, noSheen)
 	}
 }
 
