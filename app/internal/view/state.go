@@ -746,6 +746,10 @@ type App struct {
 	bloomBmp    *ui.Bitmap
 	bloomSize   [2]int
 	bloomPeriod string
+	// bloomPrev / bloomPrevSize 是时段切换时留下来做 1.5s 交叉淡入的旧光场
+	// （原版 #root::after 的 transition，见 bloom.go 的 lightField）；淡完即置 nil。
+	bloomPrev     *ui.Bitmap
+	bloomPrevSize [2]int
 
 	// rt 是桌面「减少透明度」偏好（原版 CSS 的
 	// `@media (prefers-reduced-transparency: reduce)`）。mygo 的

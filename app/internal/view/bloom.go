@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"math"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -248,16 +249,59 @@ func bloomImageSize(w, h float32) (int, int) {
 	return max(1, int(w*s+0.5)), max(1, int(h*s+0.5))
 }
 
+// lightFadeKey 是时段光罩交叉淡入的动画通道（同一条通道跨时段复用）。
+const lightFadeKey = "light-fade"
+
+// lightFieldFadeAnim 是原版 `#root::after { transition: opacity 1.5s ease,
+// background 1.5s ease }`（main globals.css:1139）：时段一变，旧光罩淡出、
+// 新光罩淡入，而不是当帧硬切。CSS 的 `ease` = cubic-bezier(.25,.1,.25,1)。
+var lightFieldFadeAnim = ui.Animation{
+	Duration: 1500 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // lightField 画 #root::before + #root::after。整块算成一张位图，每帧只多一个
 // 全窗图元；尺寸或时段变了才重算（时段一天只变几次）。
+//
+// 时段切换时按原版 `transition: opacity 1.5s ease, background 1.5s ease` 做
+// 交叉淡入：旧图留在 bloomPrev 里按 1-k、新图按 k 叠（两张都是低 alpha 柔光，
+// 交叉淡出与 CSS 颜色插值肉眼无差），k 到 1 就把旧图放掉 —— 只在过渡的 1.5s
+// 内多占一张位图。
 func (a *App) lightField(c *ui.Context) {
 	period := a.Theme.Period.Name
-	ui.Box(c).Absolute().Fill().PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
+	box := ui.Box(c).Absolute().Fill().PassThrough()
+	// 时段变了：把当前这张挪成旧图，并从 0 起一条新通道。bloomPeriod 为空是
+	// 首次烘焙，没有旧图可淡出。
+	if a.bloomPeriod != "" && a.bloomPeriod != period {
+		a.bloomPrev, a.bloomPrevSize = a.bloomBmp, a.bloomSize
+		a.bloomBmp = nil
+		box.Jump(lightFadeKey, 0)
+	}
+	k := box.AnimateTo(lightFadeKey, 1, lightFieldFadeAnim)
+	if a.bloomPrev == nil {
+		k = 1
+	}
+	box.DrawOver(func(p *ui.Painter, r ui.Rect) {
 		iw, ih := bloomImageSize(r.W, r.H)
-		if a.bloomBmp == nil || a.bloomSize != [2]int{iw, ih} || a.bloomPeriod != period {
+		if a.bloomBmp == nil || a.bloomSize != [2]int{iw, ih} {
 			a.bloomBmp = ui.NewBitmap(lightFieldPixels(iw, ih, period))
 			a.bloomSize = [2]int{iw, ih}
 			a.bloomPeriod = period
+		}
+		if a.bloomPrev != nil {
+			// 窗口尺寸同时变了：旧图尺寸对不上，直接换新的（拉伸一张旧光场
+			// 没有意义，而且会多留一张不同尺寸的位图）。
+			if a.bloomPrevSize != a.bloomSize || k >= 1 {
+				a.bloomPrev = nil
+			} else {
+				p.ImageRegion(a.bloomPrev, ui.Rect{}, r,
+					ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, 1-k)})
+			}
+		}
+		if a.bloomPrev != nil {
+			p.ImageRegion(a.bloomBmp, ui.Rect{}, r,
+				ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, k)})
+			return
 		}
 		p.Image(a.bloomBmp, r, ui.FillBox)
 	})

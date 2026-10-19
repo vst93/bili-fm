@@ -3,6 +3,7 @@ package view
 import (
 	"image"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -177,4 +178,89 @@ func TestShellHasDirectionalLight(t *testing.T) {
 	if a.bloomBmp == nil || a.bloomPeriod != "noon" {
 		t.Errorf("光场没有烘焙：bmp=%v period=%q", a.bloomBmp != nil, a.bloomPeriod)
 	}
+}
+
+// TestLightFieldFadeAnimTokens 钉住时段光罩过渡的令牌：原版
+// `#root::after { transition: opacity 1.5s ease, background 1.5s ease }`
+// （main globals.css:1139）。
+func TestLightFieldFadeAnimTokens(t *testing.T) {
+	if lightFieldFadeAnim.Duration != 1500*time.Millisecond {
+		t.Errorf("时长 = %v，应为 1.5s", lightFieldFadeAnim.Duration)
+	}
+	if lightFieldFadeAnim.Spring != (ui.SpringOptions{}) {
+		t.Errorf("不该是弹簧过渡：%+v", lightFieldFadeAnim)
+	}
+	// CSS 的 ease 逐点等于 cubic-bezier(.25,.1,.25,1)。
+	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
+	for _, x := range []float32{0.1, 0.3, 0.5, 0.7, 0.9} {
+		if d := lightFieldFadeAnim.Ease(x) - want(x); d > 1e-6 || d < -1e-6 {
+			t.Errorf("缓动在 %.1f = %v，CSS ease 应为 %v", x, lightFieldFadeAnim.Ease(x), want(x))
+		}
+	}
+}
+
+// TestLightFieldPeriodFade 是行为测试：时段切换不许当帧硬切（旧写法
+// `a.bloomBmp = ui.NewBitmap(...)` 直接换图），而要走原版 1.5s 交叉淡入。
+func TestLightFieldPeriodFade(t *testing.T) {
+	const w, h = 400, 300
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(periodByName("noon"))
+	tst := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.Hex("#808080")).Children(func() { a.lightField(c) })
+	}, w, h)
+	tst.Frame()
+	x, y := 60, 60
+	oldPx := pxAt(t, tst.Image(), x, y)
+
+	// noon → midnight：光晕整层不透明度 1 → .22，左上暖光差异足够大。
+	a.Theme = ThemeFor(periodByName("midnight"))
+	tst.Frame()
+	if a.bloomPrev == nil {
+		t.Fatal("时段切换那一帧没有留下旧光场 —— 当帧硬切了")
+	}
+	if got := pxAt(t, tst.Image(), x, y); !nearPx(got, oldPx, 2) {
+		t.Errorf("切换那一帧 = %v，应仍是旧光场 %v（k=0）", got, oldPx)
+	}
+
+	tst.Advance(750 * time.Millisecond)
+	midPx := pxAt(t, tst.Image(), x, y)
+	if a.bloomPrev == nil {
+		t.Fatal("750ms 处过渡已经结束，应走满 1.5s")
+	}
+
+	tst.Advance(750 * time.Millisecond)
+	newPx := pxAt(t, tst.Image(), x, y)
+	if a.bloomPrev != nil {
+		t.Errorf("1.5s 后旧光场没释放：prev=%v", a.bloomPrev != nil)
+	}
+	if nearPx(oldPx, newPx, 2) {
+		t.Fatalf("两个时段的光场几乎一样（%v vs %v），测试点选错了", oldPx, newPx)
+	}
+	// 中点必须真的落在两端之间：既离开了旧值、也还没到新值。
+	if nearPx(midPx, oldPx, 2) {
+		t.Errorf("750ms 处还停在旧光场 %v —— 没在淡出", midPx)
+	}
+	if nearPx(midPx, newPx, 2) {
+		t.Errorf("750ms 处已到新光场 %v —— 过渡太短", midPx)
+	}
+	// 交叉淡入是按 k 线性插值的：中点应大体落在 old+(new-old)*k 上（k≈.8）。
+	for i := 0; i < 3; i++ {
+		lo, hi := oldPx[i], newPx[i]
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		if midPx[i] < lo-1 || midPx[i] > hi+1 {
+			t.Errorf("通道 %d 中点 %d 不在 [%d,%d] 之间", i, midPx[i], lo, hi)
+		}
+	}
+}
+
+// nearPx 报告两组颜色每个通道的差都不超过 tol。
+func nearPx(a, b [4]int, tol int) bool {
+	for i := 0; i < 4; i++ {
+		if d := a[i] - b[i]; d > tol || d < -tol {
+			return false
+		}
+	}
+	return true
 }
