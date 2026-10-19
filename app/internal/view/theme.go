@@ -359,8 +359,17 @@ func (t Theme) uiTheme() *ui.Theme {
 	th.Focus = t.Blue.Alpha(0.55)
 	th.Inverse = t.Ink
 	th.InverseText = ui.Hex("#ffffff")
-	// 原版滚动条：6px、rgba(100,116,139,0.35)。
-	th.Scrollbar = ui.Hex("#64748b").Alpha(0.35)
+	// 原版滚动条：6px 宽、拇指 rgba(100,116,139,.3)。
+	//
+	// 原版 globals.css 里有**两条**声明：
+	//
+	//	* { scrollbar-color: rgba(100,116,139,.35) transparent }   ← Firefox 专用
+	//	*::-webkit-scrollbar-thumb { background: rgba(100,116,139,.3) }  ← 真正生效
+	//
+	// Tauri 两端都是 WebView（Windows = WebView2/Chromium，Linux = WebKitGTK），
+	// 都走 ::-webkit-scrollbar，所以用户看到的拇指是 .3。此前抄的是 Firefox 那条
+	// .35，比原版实际渲染深 5% alpha。
+	th.Scrollbar = ui.Hex("#64748b").Alpha(0.30)
 	th.ScrollbarWidth = 6
 	th.Radius = RadiusSmall
 	return th
