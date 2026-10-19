@@ -114,6 +114,10 @@ type List struct {
 	Loading bool
 	Page    int
 	HasMore bool
+	// Dropped 为真表示这个列表的卡片曾因上限（maxRetainedCards）从**头部**
+	// 释放过：此时 Cards 只是尾部窗口，最早的条目已经不在了，不能当作
+	// 「已加载的全集」用（合集「播放全部」据此决定是否从第 1 页重拉）。
+	Dropped bool
 	// LoadErr 为真表示上一次「翻页」加载失败。失败后不再每帧自动重试
 	//（mygo 的翻页触发在渲染里，而渲染每帧都跑；不加这个闸门就会在滚到底时
 	// 每次请求失败都立刻重发，形成请求/提示风暴），而是画一行

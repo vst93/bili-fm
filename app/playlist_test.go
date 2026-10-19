@@ -2,8 +2,11 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // TestSeriesSkipMessage 钉住「合集播放全部」里单条拉详情失败的 warning 文案。
@@ -83,5 +86,93 @@ func TestSeriesPlayAllBrowsesFirstItem(t *testing.T) {
 	if strings.Contains(code, "BrowseInfo = browseInfoFromPlayItem(it)") &&
 		!strings.Contains(code, "if keepDrawer {\n\t\tit := items[index]") {
 		t.Fatal("playPlaylist 的 BrowseInfo 写入丢了 keepDrawer 守卫")
+	}
+}
+
+// TestSeriesSeedArchives 钉住「播放全部」的起点：用抽屉里**已加载**的合集卡片，
+// 只从「已加载到的下一页」往后翻（原版 index.tsx:1675 的
+// `let nextPage = seriesVideosPage + 1`）。
+//
+// 此前原生版无条件 `for page := 1; page <= 50` 从第 1 页重拉：滚过 5 页的合集
+// 白拉 5 次分页，而且不认抽屉里已有的内容。
+func TestSeriesSeedArchives(t *testing.T) {
+	list := &view.List{
+		Page: 3,
+		Cards: []view.Card{
+			{Bvid: "BV1", Cover: "c1.jpg", Title: "第一集"},
+			{Bvid: "BV2", Cover: "c2.jpg", Title: "第二集"},
+			{Bvid: "BV2", Cover: "dup.jpg", Title: "重复"},
+			{Bvid: "BV3", Cover: "c3.jpg", Title: "第三集"},
+		},
+	}
+	archives, seen, nextPage := seriesSeedArchives(list)
+	if nextPage != 4 {
+		t.Errorf("起始页 = %d, want 4（seriesVideosPage+1，不许从第 1 页重拉）", nextPage)
+	}
+	if len(archives) != 3 {
+		t.Fatalf("种子条目 = %d, want 3（BV2 重复要去重）", len(archives))
+	}
+	if archives[0].bvid != "BV1" || archives[0].pic != "c1.jpg" || archives[0].title != "第一集" {
+		t.Errorf("首条 = %+v，want BV1/c1.jpg/第一集（封面与标题要一起带上）", archives[0])
+	}
+	if !seen["BV2"] || seen["BV9"] {
+		t.Errorf("seen = %v，want 只含种子里的 bvid", seen)
+	}
+
+	// 头部曾被释放（Dropped）：手里只剩尾部窗口，不能当全集用，退回第 1 页。
+	dropped := &view.List{Page: 9, Dropped: true, Cards: []view.Card{{Bvid: "BV9"}}}
+	if _, _, np := seriesSeedArchives(dropped); np != 1 {
+		t.Errorf("Dropped 列表的起始页 = %d, want 1", np)
+	}
+	// 还没加载过 / 空列表：同样从第 1 页起。
+	if _, _, np := seriesSeedArchives(&view.List{}); np != 1 {
+		t.Errorf("空列表的起始页 = %d, want 1", np)
+	}
+	if _, _, np := seriesSeedArchives(nil); np != 1 {
+		t.Errorf("nil 列表的起始页 = %d, want 1", np)
+	}
+
+	// 接线上：seriesPlayAll 必须走 seriesSeedArchives，且不再有「1..50」硬循环。
+	src, err := os.ReadFile("playlist.go")
+	if err != nil {
+		t.Fatalf("读 playlist.go 失败: %v", err)
+	}
+	code := string(src)
+	if !strings.Contains(code, "seriesSeedArchives(drawerList)") {
+		t.Fatal("seriesPlayAll 没有接上 seriesSeedArchives（仍从第 1 页重拉）")
+	}
+	if strings.Contains(code, "page <= 50") {
+		t.Fatal("「播放全部」还留着 50 页硬上限（原版是翻到空页为止）")
+	}
+}
+
+// TestSetCardsMarksDropped 钉住「头部被释放」的记账：`setCards` 超过上限从头部
+// 裁掉卡片时必须把 List.Dropped 置真，否则「播放全部」会把只剩尾部窗口的列表
+// 当成「已加载的全集」，从 Page+1 接着翻 —— 前面那几页的剧集就永远进不了队列。
+func TestSetCardsMarksDropped(t *testing.T) {
+	small := &view.List{}
+	cards := make([]view.Card, 10)
+	for i := range cards {
+		cards[i] = view.Card{Bvid: "BV" + strconv.Itoa(i)}
+	}
+	setCards(small, cards, true)
+	if small.Dropped {
+		t.Error("10 条没超上限，Dropped 不该为真")
+	}
+
+	big := &view.List{}
+	cards = make([]view.Card, maxRetainedCards+5)
+	for i := range cards {
+		cards[i] = view.Card{Bvid: "BV" + strconv.Itoa(i)}
+	}
+	setCards(big, cards, true)
+	if !big.Dropped {
+		t.Fatal("超上限裁掉头部后 Dropped 仍为假（播放全部会漏掉最早的几页）")
+	}
+	if len(big.Cards) != maxRetainedCards {
+		t.Errorf("保留 %d 条, want %d", len(big.Cards), maxRetainedCards)
+	}
+	if got := big.Cards[0].Bvid; got != "BV5" {
+		t.Errorf("首条 = %q, want BV5（从头部释放 5 条）", got)
 	}
 }

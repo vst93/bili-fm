@@ -1713,3 +1713,38 @@ func TestFailReasonHidesRawEnglish(t *testing.T) {
 		}
 	}
 }
+
+// TestUrlJumpEmptyPrompt 钉住 urlJump 的空串分支。
+//
+// 原版 index.tsx:1291 对空 url 弹「请输入 B 站视频链接」，只有「认不出 bvid」
+// 才弹「未识别出有效的 B 站视频地址」。此前原生版只保留了后者，空串会被答成
+// 「未识别出有效的地址」（用户明明什么都没输入）。
+func TestUrlJumpEmptyPrompt(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	code := string(src)
+	i := strings.Index(code, "func (c *controller) urlJump(")
+	if i < 0 {
+		t.Fatal("找不到 urlJump")
+	}
+	body := code[i:]
+	if end := strings.Index(body, "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	empty := strings.Index(body, `if url == "" {`)
+	if empty < 0 {
+		t.Fatal("urlJump 缺空串分支")
+	}
+	if !strings.Contains(body[empty:], `"请输入 B 站视频链接"`) {
+		t.Fatal("空串分支的文案不是原版的「请输入 B 站视频链接」")
+	}
+	// 反证：空串判断必须在解析 bvid 之前（否则空串仍会落到「未识别出…」）。
+	if call := strings.Index(body, "bvidFromURL(url)"); call >= 0 && call < empty {
+		t.Fatal("空串判断被放在 bvidFromURL 之后，等于没加")
+	}
+	if !strings.Contains(body, `"未识别出有效的 B 站视频地址"`) {
+		t.Fatal("「认不出 bvid」的文案被误删了")
+	}
+}

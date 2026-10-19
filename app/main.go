@@ -1727,6 +1727,9 @@ func setCards(list *view.List, cards []view.Card, replace bool) {
 	}
 	if len(list.Cards) > maxRetainedCards {
 		list.Cards = list.Cards[len(list.Cards)-maxRetainedCards:]
+		// 记下「头部被释放过」：合集「播放全部」会据此判断能不能拿这份
+		// 卡片当「已加载的全集」用（丢了头部就只能从第 1 页重拉）。
+		list.Dropped = true
 	}
 }
 
@@ -2052,6 +2055,13 @@ func (c *controller) copyLink() {
 // （原版 handleUrlJump：不自动播放，让用户自己在选集里选。）
 func (c *controller) urlJump(url string) {
 	a := c.app
+	// 原版 index.tsx:1291 对空串单独弹「请输入 B 站视频链接」（和「认不出 bvid」
+	// 分开）：原生版的调用点虽然都会先拼好链接，但空串分支不能缺，否则用户
+	// 看到的是「未识别出有效的 B 站视频地址」这种答非所问的提示。
+	if url == "" {
+		a.NotifyType("error", "请输入 B 站视频链接")
+		return
+	}
 	bvid := bvidFromURL(url)
 	if bvid == "" {
 		a.NotifyType("error", "未识别出有效的 B 站视频地址")

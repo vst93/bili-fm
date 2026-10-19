@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -337,31 +338,37 @@ func (c *controller) seriesPlayAll() {
 		defer func() {
 			a.Win.Update(func() { a.SeriesPlayAllPending = false })
 		}()
-		// 1. 拉全部分页的合集视频。
-		var archives []struct {
-			bvid  string
-			pic   string
-			title string
-		}
-		seen := map[string]bool{}
-		for page := 1; page <= 50; page++ {
-			list, err := c.bl.GetSeriesVideos(int(mid), int(seriesID), page)
-			if err != nil || len(list) == 0 {
+		// 1. 起点是合集抽屉里**已经加载**的那些视频（原版 handleSeriesPlayAll
+		//    的 loadedVideos 参数），只从「已加载到的下一页」往后翻——此前无条件
+		//    从第 1 页重拉，滚过 5 页的合集就白拉 5 次分页。
+		drawerList := a.ListFor(view.DrawerSeries)
+		archives, seen, nextPage := seriesSeedArchives(drawerList)
+		// 2. 往后翻页补齐（原版不设页数上限：靠「这一页没带回新条目」兜住
+		//    接口重复返回同一页的死循环）。
+		var fetched []bilibili.SeriesVideosResponse_Archive
+		lastPage := nextPage - 1
+		for page := nextPage; ; page++ {
+			pageVideos, err := c.bl.GetSeriesVideos(int(mid), int(seriesID), page)
+			if err != nil {
+				// 原版这段分页请求抛异常时整段 catch 掉并弹 error toast
+				// （index.tsx:1758 的「加载合集失败」）。
+				a.NotifyType("error", actionFailText("加载合集", err))
+				return
+			}
+			if len(pageVideos) == 0 {
 				break
 			}
 			added := 0
-			for _, ar := range list {
+			for _, ar := range pageVideos {
 				if seen[ar.Bvid] {
 					continue
 				}
 				seen[ar.Bvid] = true
-				archives = append(archives, struct {
-					bvid  string
-					pic   string
-					title string
-				}{ar.Bvid, ar.Pic, ar.Title})
+				archives = append(archives, seriesArchive{bvid: ar.Bvid, pic: ar.Pic, title: ar.Title})
+				fetched = append(fetched, ar)
 				added++
 			}
+			lastPage = page
 			if added == 0 {
 				break
 			}
@@ -370,7 +377,7 @@ func (c *controller) seriesPlayAll() {
 			a.NotifyType("error", "合集里没有可播放的视频")
 			return
 		}
-		// 2. 并发拉详情取第一集 cid（最多 6 个并发）。
+		// 3. 并发拉详情取第一集 cid（最多 6 个并发）。
 		items := make([]view.PlayItem, len(archives))
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, 6)
@@ -418,6 +425,23 @@ func (c *controller) seriesPlayAll() {
 			a.PlaylistTab = view.ListSeries
 			a.PlayMode = view.PlayModeSequence
 			a.SeriesName = name
+			// 原版末尾的 setSeriesVideos(allVideos) + setSeriesVideosPage(
+			// max(seriesVideosPage, nextPage-1))：把这次补拉的分页并进合集
+			// 抽屉，抽屉里也就有了全集（不用再逐页翻到底）。
+			if len(fetched) > 0 {
+				cards := make([]view.Card, 0, len(fetched))
+				for _, ar := range fetched {
+					cards = append(cards, seriesCard(ar, a.UpName))
+				}
+				setCards(drawerList, cards, false)
+			}
+			if lastPage > drawerList.Page {
+				drawerList.Page = lastPage
+			}
+			// 上面那两个 break 都意味着「已经到底了」（空页 / 整页都是
+			// 已见过的条目），所以抽屉不必再逐页翻。
+			drawerList.HasMore = false
+			drawerList.LoadErr = false
 			// 「浏览中」跟着换到第一集：原版 handleSeriesPlayAll 走
 			// handlePlaylistVideoSelect(0, …, "series") 且 preserveUi=false，
 			// 那条路径会 setVideoInfo(第一集)。少了这一笔，弹幕/评论与选集抽屉
@@ -430,6 +454,39 @@ func (c *controller) seriesPlayAll() {
 			c.playPlaylist(view.ListSeries, 0, false)
 		})
 	}()
+}
+
+// seriesArchive 是「播放全部」拼队列时用的一条合集视频：列表接口只给
+// bvid / 封面 / 标题，cid 要逐条拉详情（GetCList）取第一集。
+type seriesArchive struct {
+	bvid  string
+	pic   string
+	title string
+}
+
+// seriesSeedArchives 决定「播放全部」从哪儿起步：原版 handleSeriesPlayAll 接的
+// 是合集抽屉**当前已加载**的 seriesVideos（`loadedVideos` 参数），只从
+// seriesVideosPage+1 往后翻页，不重拉第 1 页。
+//
+// 只有抽屉里确实装着这个合集的前缀时才敢用：`Page <= 0`（还没加载过）或
+// `Dropped`（卡片曾因上限从头部释放，手里只剩尾部窗口）都退回第 1 页重拉。
+func seriesSeedArchives(list *view.List) ([]seriesArchive, map[string]bool, int) {
+	if list == nil || list.Page <= 0 || list.Dropped || len(list.Cards) == 0 {
+		return nil, map[string]bool{}, 1
+	}
+	archives := make([]seriesArchive, 0, len(list.Cards))
+	seen := make(map[string]bool, len(list.Cards))
+	for _, cd := range list.Cards {
+		if cd.Bvid == "" || seen[cd.Bvid] {
+			continue
+		}
+		seen[cd.Bvid] = true
+		archives = append(archives, seriesArchive{bvid: cd.Bvid, pic: cd.Cover, title: cd.Title})
+	}
+	if len(archives) == 0 {
+		return nil, map[string]bool{}, 1
+	}
+	return archives, seen, list.Page + 1
 }
 
 // seriesSkipMessage 是「合集播放全部」里单条拉详情失败时的 warning 文案。
