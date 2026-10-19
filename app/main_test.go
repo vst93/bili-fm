@@ -1657,3 +1657,59 @@ func TestMainWindowChromeSelfDrawn(t *testing.T) {
 		t.Error("主窗没关掉放大键（浮窗应用不该有最大化）")
 	}
 }
+
+// TestFailReasonHidesRawEnglish 钉住「用户可见的失败提示里不出现原始英文报错」。
+//
+// 原版（Tauri）前端只把 error 打进 console.error，toast / 对话框永远是固定中文；
+// 用户 2026-10-18 晚间③ 也明确要求「不要把英文类型的提示直接放出来」。原生版
+// 此前把 `err.Error()` 拼进 toast，网络一抖就是
+// `加载失败：Get "https://api.bilibili.com/...": dial tcp: ...`。
+func TestFailReasonHidesRawEnglish(t *testing.T) {
+	netErr := errors.New(`Get "https://api.bilibili.com/x/web-interface/view?bvid=BV1xx": dial tcp: lookup api.bilibili.com: no such host`)
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"网络（URL + DNS）", netErr, "网络连接异常，请检查网络后重试"},
+		{"网络（EOF）", errors.New("unexpected EOF"), "网络连接异常，请检查网络后重试"},
+		{"网络（超时）", errors.New("context deadline exceeded"), "网络连接异常，请检查网络后重试"},
+		{"网络（5xx）", errors.New("unexpected status 503"), "网络连接异常，请检查网络后重试"},
+		{"登录（英文）", errors.New("unauthorized"), "请先登录后再试"},
+		{"其它（JSON）", errors.New(`invalid character '<' looking for beginning of value`), "请稍后重试"},
+		{"自己的中文原因照用", errors.New("未登录"), "未登录"},
+		{"中文 + 数字也算自己的", errors.New("上游返回 403"), "上游返回 403"},
+		{"空错误", nil, ""},
+	}
+	for _, c := range cases {
+		if got := failReason(c.err); got != c.want {
+			t.Errorf("%s：failReason = %q，应为 %q", c.name, got, c.want)
+		}
+	}
+
+	// 端到端：拼出来的 toast 一个 ASCII 字母都不许有（中文 + 全角标点之外全无），
+	// 反证：直接用 err.Error() 拼，必然带 "Get" / "dial tcp" / "https://"。
+	got := actionFailText("加载", netErr)
+	if strings.Contains(got, "https://") || strings.Contains(got, "dial") || strings.Contains(got, "Get ") {
+		t.Fatalf("加载失败提示里漏出了原始报错：%q", got)
+	}
+	for _, r := range got {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			t.Fatalf("加载失败提示里出现了英文字母 %q（%q）", r, got)
+		}
+	}
+	if raw := "加载失败：" + netErr.Error(); !strings.Contains(raw, "dial tcp") {
+		t.Fatal("反证失败：原始错误里本该有 dial tcp")
+	}
+
+	// 接线上：NotifyType 的实参里不许再出现 err.Error()（提示必须过 failReason）。
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	for i, line := range strings.Split(string(src), "\n") {
+		if strings.Contains(line, "NotifyType(") && strings.Contains(line, "err.Error()") {
+			t.Errorf("main.go:%d 把原始错误拼进了 toast：%s", i+1, strings.TrimSpace(line))
+		}
+	}
+}

@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -1047,8 +1048,77 @@ func followToastText(followed bool, name string) string {
 
 // actionFailText 拼「X失败：原因」的失败提示。mygo 的用户可见失败提示统一用
 // 全角冒号（原版是半角 + 空格），这里保持与本工程其余提示一致。
+//
+// 原因一律过 failReason：原始错误串只进日志，不进 toast（见那里的说明）。
 func actionFailText(action string, err error) string {
-	return action + "失败：" + err.Error()
+	log.Printf("%s失败（原始错误：%v）", action, err)
+	if r := failReason(err); r != "" {
+		return action + "失败：" + r
+	}
+	return action + "失败"
+}
+
+// failReason 把一次请求失败翻成给用户看的一小段中文原因。
+//
+// 为什么需要它：原版（Tauri 版）前端只把 error 打进 console.error，toast 与
+// 对话框里永远是固定中文文案（`src/pages/index.tsx` 里所有 `toast({content})`
+// 都是常量）。原生版此前把 `err.Error()` 直接拼进 toast，于是网络一抖，用户
+// 看到的是 `加载失败：Get "https://api.bilibili.com/x/...": dial tcp: lookup
+// api.bilibili.com: no such host` 这种英文原始报错 —— 用户 2026-10-18 晚间③
+// 明确要求「不要直接把英文类型的提示放出来」，这条现在统一在这里收口。
+//
+// 规矩（按顺序）：
+//
+//	1. 错误串本身已经是中文（我们自己的 API 层文案，如「未登录」「未找到相关视频」）
+//	   → 原样用：它本来就是写给用户看的，比任何归类都准；
+//	2. 网络类特征（dial / timeout / EOF / TLS / 5xx …）→ 网络提示；
+//	3. 登录类特征（unauthorized / 401 / 403）→ 登录提示；
+//	4. 其余（JSON 解析、HTTP 状态、框架英文串）→ 通用「请稍后重试」。
+//
+// 返回值不带「失败」二字，由调用方拼；空错误返回空串。
+func failReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	raw := err.Error()
+	if isUserFacingReason(raw) {
+		return raw
+	}
+	lower := strings.ToLower(raw)
+	for _, s := range []string{
+		"dial ", "no such host", "timeout", "deadline", "connection", "connect",
+		"eof", "tls", "network", "proxy", "unreachable", "reset by peer",
+		"502", "503", "504", "i/o",
+	} {
+		if strings.Contains(lower, s) {
+			return "网络连接异常，请检查网络后重试"
+		}
+	}
+	for _, s := range []string{"unauthorized", "forbidden", "401", "403", "-101", "not login"} {
+		if strings.Contains(lower, s) {
+			return "请先登录后再试"
+		}
+	}
+	return "请稍后重试"
+}
+
+// isUserFacingReason 判断一段错误文案是不是「我们自己的中文原因」：含 CJK 字符
+// 且不含 ASCII 字母（数字/标点无所谓，如「上游返回 403」这种混排仍算我们自己的）。
+// 含 "://" 的一律不算 —— 那是 URL，属于要藏起来的原始错误。
+func isUserFacingReason(msg string) bool {
+	if msg == "" || strings.Contains(msg, "://") {
+		return false
+	}
+	hasCJK := false
+	for _, r := range msg {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			return false
+		case unicode.Is(unicode.Han, r):
+			hasCJK = true
+		}
+	}
+	return hasCJK
 }
 
 func (c *controller) like() {
@@ -1295,7 +1365,7 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 			list.Loading = false
 			if err != nil {
 				list.LoadErr = offset != ""
-				c.app.NotifyType("error", "加载失败："+err.Error())
+				c.app.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			cards := toUpCards(l.Items)
@@ -1351,7 +1421,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			list.Loading = false
 			if err != nil {
 				list.LoadErr = page > 1
-				c.app.NotifyType("error", "加载失败："+err.Error())
+				c.app.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			cards := make([]view.Card, 0, len(archives))
@@ -1415,7 +1485,7 @@ func (c *controller) removeWatchLater(aid int64) {
 		c.app.Win.Update(func() {
 			delete(c.app.WLRemovePending, aid)
 			if err != nil {
-				c.app.NotifyType("error", "移除失败："+err.Error())
+				c.app.NotifyType("error", actionFailText("移除", err))
 				return
 			}
 			c.app.Notify("已从稍后再看移除")
@@ -1681,7 +1751,7 @@ func (c *controller) loadSection(section string, page int) {
 				if err != nil {
 					// 只有「翻页」失败才进入可重试的错误态；首屏失败仍走空态。
 					list.LoadErr = page > 1
-					a.NotifyType("error", "加载失败："+err.Error())
+					a.NotifyType("error", actionFailText("加载", err))
 					return
 				}
 				setCards(list, toFeedCards(l.Items), page <= 1)
@@ -1709,7 +1779,7 @@ func (c *controller) loadSection(section string, page int) {
 				list.Loading = false
 				if err != nil {
 					list.LoadErr = page > 1
-					a.NotifyType("error", "加载失败："+err.Error())
+					a.NotifyType("error", actionFailText("加载", err))
 					return
 				}
 				setCards(list, toCards(jsonToAny(l.List), false), page <= 1)
@@ -1733,7 +1803,7 @@ func (c *controller) loadSection(section string, page int) {
 			list.Loading = false
 			if err != nil {
 				list.LoadErr = page > 1
-				a.NotifyType("error", "加载失败："+err.Error())
+				a.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			setCards(list, cards, page <= 1)
@@ -1883,7 +1953,7 @@ func (c *controller) loadFolders() {
 		if err != nil {
 			c.app.Win.Update(func() {
 				c.app.ListFor("favorite").Loading = false
-				c.app.NotifyType("error", "收藏夹加载失败："+err.Error())
+				c.app.NotifyType("error", actionFailText("收藏夹加载", err))
 			})
 			return
 		}
@@ -1924,7 +1994,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
-				c.app.NotifyType("error", "加载失败："+err.Error())
+				c.app.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			setCards(list, toCardsFromRaw(items), page <= 1)
@@ -2862,7 +2932,7 @@ func (c *controller) openVideo() {
 			Parent: c.app.Win,
 		}
 		if err := c.vid.Open(opts); err != nil {
-			c.app.NotifyType("error", "打开视频窗口失败："+err.Error())
+			c.app.NotifyType("error", actionFailText("打开视频窗口", err))
 			c.restoreAudioAfterVideo(wasPlaying)
 			return
 		}

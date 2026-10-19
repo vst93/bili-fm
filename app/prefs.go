@@ -508,8 +508,11 @@ func (c *controller) login() {
 	go func() {
 		url, err := c.bl.GetLoginQRCode()
 		if err != nil {
+			log.Printf("取二维码失败（原始错误：%v）", err)
 			a.Win.Update(func() {
-				a.Modal = &view.Modal{Kind: "message", Type: "error", Title: "登录失败", Message: "取二维码失败：" + err.Error()}
+				// 原始错误只进日志：对话框里给中文原因（同 toast 的策略，见 main.go
+				// 的 failReason）。
+				a.Modal = &view.Modal{Kind: "message", Type: "error", Title: "登录失败", Message: "取二维码失败：" + failReason(err)}
 			})
 			return
 		}
