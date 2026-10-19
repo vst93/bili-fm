@@ -64,20 +64,30 @@ jobs:
 
       - name: 计算版本号
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#mygo-v}"
           else
-            VERSION="${{ inputs.version }}"
+            VERSION="$INPUT_VERSION"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "版本号 $VERSION（来自 $GITHUB_REF_TYPE $GITHUB_REF_NAME）"
 
       - name: 判断是否预览版
         id: prerelease
+        env:
+          # 版本号/输入一律走 env 传进来，**不要**在 run 里写 "${{ ... }}"。
+          # Actions 的 "${{ }}" 是纯文本拼接：内容被拼进双引号字符串后再交给
+          # bash 解析一遍，值里的反引号 / $(…) / $VAR 会被当成代码执行（见下面
+          # 「建 release」的注释）。env 是直接放进进程环境变量的，不经过 bash
+          # 解析，任何字符都原样到达。
+          INPUT_VERSION: ${{ steps.version.outputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          PRE="${{ inputs.prerelease }}"
-          VERSION="${{ steps.version.outputs.version }}"
+          PRE="$INPUT_PRERELEASE"
+          VERSION="$INPUT_VERSION"
           # tag 触发时没有 inputs.prerelease，所以按版本号自动判断；
           # 带 -preview/-rc/-beta/-alpha 的算预览版。
           if echo "$VERSION" | grep -qiE '-(alpha|beta|preview|rc)'; then
@@ -92,8 +102,9 @@ jobs:
         id: notes
         env:
           INPUT_NOTES: ${{ inputs.notes }}
+          INPUT_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$INPUT_VERSION"
           if [ -n "$INPUT_NOTES" ]; then
             NOTES="$INPUT_NOTES"
           else
@@ -141,9 +152,17 @@ jobs:
       - name: 建 release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 更新说明（表格里的文件名、commit 标题）只能这样传。以前写成
+          #   gh release create ... --notes-file - <<< "${{ steps.notes.outputs.notes }}"
+          # Actions 先把 notes 文本拼进这个双引号字符串，bash 再解析一遍，
+          # 表格模板里的反引号就成了命令替换：
+          #   bili-FM-3.0.1-macos-apple-silicon.dmg: command not found
+          # 文件名被替换成空串，release 正文第一列全空。换成环境变量后 bash
+          # 只看到变量展开，不再二次解析，反引号 / $(…) / $VAR 都能原样落地。
+          VERSION: ${{ steps.version.outputs.version }}
+          PRE: ${{ steps.prerelease.outputs.prerelease }}
+          NOTES: ${{ steps.notes.outputs.notes }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          PRE="${{ steps.prerelease.outputs.prerelease }}"
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then
             git tag -f "mygo-v$VERSION" && git push -f origin "mygo-v$VERSION"
           fi
@@ -153,7 +172,7 @@ jobs:
             gh release create "mygo-v$VERSION" \
               --title "bili-FM (原生版) $VERSION" \
               --notes-file - \
-              $([ "$PRE" = "true" ] && echo "--prerelease") <<< "${{ steps.notes.outputs.notes }}"
+              $([ "$PRE" = "true" ] && echo "--prerelease") <<< "$NOTES"
           fi
 
   # ── 各平台构建 ──────────────────────────────────────────────────────
@@ -201,10 +220,10 @@ jobs:
           # 应用内置的是对应公钥（mygo.json 的 updates.publicKey）。
           # 没配这个 secret 时构建照常，只是不产出更新文件（应用内更新不可用）。
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           # 版本号只写进这次构建的工作区，不提交回分支。
           # 用 -i.bak 是为了同时兼容 GNU sed（Linux）和 BSD sed（macOS）。
-          VERSION="${{ needs.prepare.outputs.version }}"
           sed -i.bak -E 's/("version"[[:space:]]*:[[:space:]]*")[^"]*/\1'"$VERSION"'/' mygo.json
           rm -f mygo.json.bak
           grep '"version"' mygo.json
@@ -214,9 +233,10 @@ jobs:
       - name: 生成 rpm 与 pacman 包
         if: matrix.label == 'linux'
         working-directory: ${{ env.APP_DIR }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -e
-          VERSION="${{ needs.prepare.outputs.version }}"
           # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 .MTREE
           sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
@@ -284,9 +304,10 @@ jobs:
       - name: 收集产物
         shell: bash
         working-directory: ${{ env.APP_DIR }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -e
-          VERSION="${{ needs.prepare.outputs.version }}"
           mkdir -p ../out
           case "${{ matrix.label }}" in
             macos)
@@ -358,8 +379,8 @@ jobs:
       - name: 上传到 release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
           ls -la artifacts
           gh release upload "mygo-v$VERSION" artifacts/* --clobber --repo "${{ github.repository }}"
 
@@ -369,8 +390,8 @@ jobs:
       - name: 校验更新清单指向的文件都在
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
           REPO="${{ github.repository }}"
           gh release view "mygo-v$VERSION" --repo "$REPO" --json assets \
             -q '.assets[].name' > /tmp/published.txt
@@ -389,5 +410,7 @@ jobs:
           echo "更新清单校验通过"
 
       - name: 完成
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v${{ needs.prepare.outputs.version }}"
+          echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v$VERSION"
