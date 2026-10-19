@@ -512,6 +512,14 @@ func main() {
 			app.Win.Hide()
 			trimMemory()
 		})
+		// 窗口失焦（用户切到别的程序 / 最小化）：界面这一屏的封面位图、抽屉里
+		// 那几页列表在用户回来之前都不会再被看，正是「已经没人引用、但还没还给
+		// 系统」的那份页 —— 用户 2026-10-19 ① 明确要求的关键清理时刻之一
+		// （关闭视频 / 切换视频 / 翻页 / 抽屉开关 / **窗口失焦**）。
+		//
+		// 与其它回收点同一条路：异步 + 400ms 冷却（memory.go 的 trimMemory），
+		// 反复 alt-tab 不会把界面线程拖住；OnBlur 在 mygo 里跑在主线程上。
+		app.Win.OnBlur(trimMemory)
 
 		if !*noTray {
 			c.setupTray()

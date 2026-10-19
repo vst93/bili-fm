@@ -113,3 +113,29 @@ func TestMemoryTuningAppliesGCPercent(t *testing.T) {
 		t.Fatalf("GOGC 没收到 %d，实际 %d（改前 %d）", gcPercent, got, before)
 	}
 }
+
+// TestTrimMemoryOnBlurWired 钉住「窗口失焦」这个回收时刻真的接上了。
+//
+// 用户 2026-10-19 ① 要求的关键清理路径是：关闭视频、切换视频、翻页、抽屉开关、
+// **窗口失焦**。此前 memory.go 里只接了四个时刻（关视频 / 收托盘 / 开视频 /
+// 换抽屉），失焦那条没接 —— 用户 alt-tab 走开、最小化之后，那一屏封面位图和
+// 抽屉里那几页列表留下的空页仍然挂在进程里，Windows 的私有工作集照算。
+func TestTrimMemoryOnBlurWired(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go：%v", err)
+	}
+	s := string(src)
+	if !strings.Contains(s, "OnBlur(trimMemory)") {
+		t.Fatal("窗口失焦没有接 trimMemory（用户 10-19 ① 的关键路径之一）")
+	}
+	// 反证一：失焦回收必须走**同一个** trimMemory（冷却 + 单飞都在它里面），
+	// 不许另起一份同步 FreeOSMemory —— 那会在 alt-tab 时把界面线程卡住。
+	if strings.Contains(s, "debug.FreeOSMemory") {
+		t.Error("main.go 里出现了第二份 FreeOSMemory，应统一走 trimMemory 的异步 + 冷却")
+	}
+	// 反证二：收托盘那条回收点仍在（失焦是新增，不是替换）。
+	if !strings.Contains(s, "app.Win.Hide()\n\t\t\ttrimMemory()") {
+		t.Error("收托盘时的 trimMemory 被删了")
+	}
+}
