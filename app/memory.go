@@ -139,6 +139,9 @@ func trimMemory() {
 func (c *controller) memReport() string {
 	s := meminfo.Now()
 	parts := []string{s.String()}
+	if c.mp != nil {
+		parts = append(parts, fmt.Sprintf("欠载 %d", c.mp.Underruns()))
+	}
 	if c.app != nil && c.app.Images != nil {
 		if cache, ok := c.app.Images.(*imagecache.Cache); ok {
 			parts = append(parts, fmt.Sprintf("位图缓存 %d 张 / %s（在途 %d）",

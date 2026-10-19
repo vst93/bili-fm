@@ -291,6 +291,18 @@ func (p *Player) Buffered() float64 {
 	return cur.buffered()
 }
 
+// Underruns 返回当前曲目的欠载次数：就绪队列被声卡吃空、只能补静音的
+// 次数。诊断「播着播着停一下」用（-memstats 会打出来）。
+func (p *Player) Underruns() int {
+	p.mu.Lock()
+	cur := p.cur
+	p.mu.Unlock()
+	if cur == nil {
+		return 0
+	}
+	return cur.Underruns()
+}
+
 // Seek 跳到指定秒数。
 func (p *Player) Seek(seconds float64) error {
 	p.mu.Lock()
@@ -427,10 +439,14 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	return p, nil
 }
 
-// readAheadBytes 是就绪队列维持的水位：约 1.5 秒的 s16le 数据。
-// 太小挡不住网络抖动，太大则 seek/暂停的响应变钝。
+// readAheadBytes 是就绪队列维持的水位：约 5 秒的 s16le 数据。
+//
+// 原来是 1.5 秒，用户报「这一段播完了、下一段还没加载」的停顿：跨 512KB
+// 块边界时要等一次 HTTP 往返，CDN 抖一下（几百 ms 到几秒）就够把 1.5 秒
+// 的队列吃空，oto 只好补静音。5 秒 × 48kHz × 2ch × 2B ≈ 960KB，代价可以
+// 忽略；seek/切歌会重建流水线，不会因此变钝。
 func (p *pipeline) readAheadBytes() int {
-	return p.info.SampleRate * p.channels * 2 * 3 / 2
+	return p.info.SampleRate * p.channels * 2 * 5
 }
 
 // pump 是后台生产者：把就绪队列填到水位，锁外做耗时的解码与网络读。
