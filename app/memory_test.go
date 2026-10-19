@@ -139,3 +139,24 @@ func TestTrimMemoryOnBlurWired(t *testing.T) {
 		t.Error("收托盘时的 trimMemory 被删了")
 	}
 }
+
+// TestBackgroundMemoryHooksWired 钉住「隐藏到托盘 / 最小化」这两个真正的后台
+// 时刻：停掉界面构建、清图片缓存、FreeOSMemory。只在失焦时 trim 不够 ——
+// 用户收托盘后仍看到内存不降，而且旋转封面会继续推进动画。
+func TestBackgroundMemoryHooksWired(t *testing.T) {
+	mainSrc := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"app.Win.OnHide(func(){c.setBackground(true)})",
+		"app.Win.OnMinimize(func(){c.setBackground(true)})",
+		"app.Win.OnShow(func(){c.setBackground(false)})",
+		"app.Win.OnRestore(func(){c.setBackground(false)})",
+	} {
+		if !strings.Contains(mainSrc, want) {
+			t.Errorf("后台生命周期没接上：%s", want)
+		}
+	}
+	memSrc := flattenCode(t, "memory.go")
+	if !strings.Contains(memSrc, "c.app.SetBackground(on)") {
+		t.Error("setBackground 没有把状态交给 view（Shell 不会停构建）")
+	}
+}

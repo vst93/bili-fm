@@ -1861,3 +1861,20 @@ func TestTogglePlayReplaysEndedMedia(t *testing.T) {
 		}
 	}
 }
+
+// TestVideoProgressOwnedByPopup 钉住「视频弹窗打开时进度只跟视频走」：
+// 音频引擎暂停后 reportLoop 仍会报旧位置，若继续写 app.Pos 会与弹窗每秒
+// 回传的视频时间来回跳；主窗进度条 seek 也应控制视频而不是暂停的音频。
+func TestVideoProgressOwnedByPopup(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"ifc.app.VideoOpen{return}",
+		"c.syncMediaPosition(st.Time)",
+		"ifc.app.VideoOpen{c.vid.Seek(seconds)",
+		"c.vid.Seek(seconds)",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("视频/主窗进度同步缺少接线：%s", want)
+		}
+	}
+}

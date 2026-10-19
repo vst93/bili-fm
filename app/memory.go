@@ -135,6 +135,24 @@ func trimMemory() {
 	}()
 }
 
+// setBackground 处理「窗口隐藏到托盘 / 最小化」：停止界面构建、清掉界面持有
+// 的封面位图与图片缓存（包括 480w 唱片封面和旋转动画的纹理），再把 Go 堆还给
+// 系统。用户实测后台内存不降、且怀疑旋转封面时，这条就是主动收口点。
+func (c *controller) setBackground(on bool) {
+	if c.app == nil {
+		return
+	}
+	c.app.SetBackground(on)
+	if c.app.Win != nil {
+		// 隐藏时用空界面重建一次，释放上一帧留下的位图/纹理引用；显示时也
+		// 补一帧，避免第一帧是空白。
+		c.app.Win.Update(func() {})
+	}
+	if on {
+		trimMemory()
+	}
+}
+
 // memReport 拼一行内存构成：Go 侧 + 进程侧 + 位图缓存。
 func (c *controller) memReport() string {
 	s := meminfo.Now()

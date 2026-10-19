@@ -141,6 +141,8 @@ func (c *controller) trayAction(name string, fn func()) {
 // 的状态：只 Show 不会把最小化的窗口恢复出来。
 func (c *controller) showWindow() {
 	log.Printf("托盘菜单：显示主窗口")
+	// 先把「后台」关掉再 Show，避免首帧还走 Shell 的 early-return 而闪一下空白。
+	c.setBackground(false)
 	w := c.app.Win
 	w.Show()
 	if w.IsMinimized() {

@@ -18,6 +18,12 @@ import (
 //	播放栏 56px     #player（单行）
 //	抽屉   覆盖层   [data-slot="wrapper"] > section（底部滑入）
 func (a *App) Shell(c *ui.Context) {
+	// 隐藏到托盘 / 最小化：不再构建界面。这样唱片旋转、氛围光、卡片动画与
+	// 悬停层都停住，既省 CPU，也让上一帧的 GPU 纹理/遮罩有机会释放；OnShow/
+	// OnRestore 会把 Background 置回 false 并触发重绘。
+	if a.Background {
+		return
+	}
 	// 桌面的两个无障碍偏好叠在时段令牌之上，源序是 reduced-transparency 在前、
 	// contrast 在后（见 withPreferences）。只在状态真的变了的那一帧重推整份主题
 	//（withPreferences 幂等），避免每帧无谓地写共享状态。

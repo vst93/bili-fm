@@ -272,6 +272,11 @@ func main() {
 			Frameless:     runtime.GOOS != "darwin",
 			TitleBarStyle: mygo.TitleBarHidden,
 			Content:       ui.View(app.Shell),
+			// 先 Hidden 创建，等 setupTaskbar 装好 TaskbarButtonCreated 消息钩子后
+			// 再 Show。任务栏按钮是在首次显示时由 Explorer 创建的；如果窗口先 Show、
+			// 后装钩子，这条消息早已错过，ThumbBarAddButtons 只能靠盲重试——这正是
+			// Windows 上悬停任务栏一直看不到播放快捷控制的根因。
+			Hidden: true,
 		}
 		// 调试用：把窗口摆到指定位置，避免它刚好落在鼠标下面（截图时
 		// 会偶发误触，让抽屉自己开合）。
@@ -304,6 +309,7 @@ func main() {
 
 		// 第二个实例启动时把主窗显示并聚焦。
 		mygo.App.OnSecondInstance(func(args []string, workingDir string) {
+			c.setBackground(false)
 			app.Win.Show()
 			app.Win.Focus()
 		})
@@ -316,6 +322,7 @@ func main() {
 			if hasVisibleWindows || app.Win == nil {
 				return
 			}
+			c.setBackground(false)
 			app.Win.Show()
 			app.Win.Focus()
 		})
@@ -554,12 +561,23 @@ func main() {
 		// 反复 alt-tab 不会把界面线程拖住；OnBlur 在 mygo 里跑在主线程上。
 		app.Win.OnBlur(trimMemory)
 
+		// 隐藏到托盘 / 最小化 = 真正没人看界面：停掉整棵视图的构建（唱片旋转、
+		// 氛围光、卡片动画都不再跑），清掉界面持有的封面位图与图片缓存，再
+		// FreeOSMemory。用户报「后台内存不降、旋转封面也有影响」就是这里收口。
+		app.Win.OnHide(func() { c.setBackground(true) })
+		app.Win.OnMinimize(func() { c.setBackground(true) })
+		app.Win.OnShow(func() { c.setBackground(false) })
+		app.Win.OnRestore(func() { c.setBackground(false) })
+
 		if !*noTray {
 			c.setupTray()
 		}
 		// Windows 任务栏缩略图工具栏（悬停任务栏图标时的 上一首/播放暂停/下一首）；
-		// 其它平台 no-op。
+		// 其它平台 no-op。必须在 Show 之前装好消息钩子（见 WindowOptions.Hidden）。
 		c.setupTaskbar()
+		// 现在才真正显示窗口：Explorer 会创建任务栏按钮并发送
+		// TaskbarButtonCreated，taskbarInit 在该消息里挂上缩略图工具栏。
+		app.Win.Show()
 		// 换抽屉 / -memstats 的内存观察（见 memory.go）。
 		c.memoryWatch()
 		if !*noKeys {
@@ -716,6 +734,12 @@ func (c *controller) wirePlayer() {
 	// 所以统一丢到 Win.Update（主线程）里执行，避免数据竞争。
 	c.mp.OnProgress(func(pos, dur float64) {
 		c.app.Win.Update(func() {
+			// 视频弹窗打开时进度由 video.OnState 回传；音频引擎虽然暂停，
+			// 它的 reportLoop 仍每 500ms 报一次旧位置，会把进度条拽回去，
+			// 与视频时间来回跳。这里直接跳过。
+			if c.app.VideoOpen {
+				return
+			}
 			// 拖动中：跳过全部进度副作用（原版 handleTimeUpdate 里
 			// isSeekingRef 直接 return 的语义）——只记 Pos，
 			// 不让 DBus/KV 写和 sponsor 判定挤占拖动的帧。
@@ -1343,8 +1367,10 @@ func (c *controller) openUp(mid int64, name string) {
 	a.UpMid, a.UpName = mid, name
 	a.Drawer = view.DrawerUp
 	a.UpOffset = ""
-	a.ListFor(view.DrawerUp).Cards = nil
-	a.ListFor(view.DrawerUp).Loading = true
+	upList := a.ListFor(view.DrawerUp)
+	upList.ResetScroll()
+	upList.Cards = nil
+	upList.Loading = true
 	a.SeriesList = nil
 	upTab := a.UpTab
 	// 关注状态查回来之前，表头关注键转圈且禁用（原版 isCheckingFollow）。
@@ -1469,7 +1495,9 @@ func (c *controller) loadUpSeries(mid int64) {
 // selectSeries 选一个合集：拉它的视频列表（旧版 selectSeries 走的就是这个）。
 func (c *controller) selectSeries(id int64) {
 	c.app.SeriesID = id
-	c.app.ListFor(view.DrawerSeries).Cards = nil
+	list := c.app.ListFor(view.DrawerSeries)
+	list.ResetScroll()
+	list.Cards = nil
 	c.loadSeriesVideos(id, 1)
 }
 
@@ -2848,6 +2876,16 @@ func (c *controller) runSeek(seconds float64) {
 	}
 	c.flushProgress(seconds)
 	c.syncMediaPosition(seconds)
+	// 视频弹窗打开时，主窗进度条控制的是视频，不是已暂停的音频引擎；
+	// 否则 seek 只改了音频位置，画面不动，关窗后还会把音频拽到别处。
+	if c.app.VideoOpen {
+		c.vid.Seek(seconds)
+		c.app.Pos, c.app.SeekValue = seconds, seconds
+		c.app.SeekBusy = false
+		c.app.SeekStableAt = time.Now()
+		c.app.Win.Update(func() {})
+		return
+	}
 	go func() {
 		err := c.mp.Seek(seconds)
 		c.app.Win.Update(func() {
@@ -3076,7 +3114,16 @@ func (c *controller) wireVideo() {
 				if st.Duration > 0 {
 					c.app.Dur = st.Duration
 				}
-				c.app.Pos = st.Time
+				// 拖动进度条期间不要用回传的旧时间覆盖滑块绑定值；恢复后
+				// 跟随视频时间，并同步系统媒体中心的 Position。
+				if !c.app.Seeking() {
+					c.app.Pos = st.Time
+					c.syncMediaPosition(st.Time)
+					c.trackResume(st.Time)
+				} else {
+					c.app.Pos = st.Time
+				}
+				return
 			}
 			c.trackResume(st.Time)
 		})

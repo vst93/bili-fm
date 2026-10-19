@@ -233,3 +233,21 @@ func TestTaskbarWatchesButtonCreated(t *testing.T) {
 		t.Error("子类化仍只在 AddButtons 成功后安装（会错过 TaskbarButtonCreated）")
 	}
 }
+
+// TestTaskbarWindowShownAfterHook 钉住主窗「先 Hidden 创建、装好 TaskbarButtonCreated
+// 钩子后再 Show」的时序。只要窗口还按默认在 NewWindow 时显示，Explorer 的建按钮
+// 消息就会早于 setupTaskbar 的 SetWindowSubclass 到达，ThumbBarAddButtons 只能靠
+// 盲重试 —— 这正是用户多次反馈「悬停任务栏仍没有快捷控制」的根因。
+func TestTaskbarWindowShownAfterHook(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	if !strings.Contains(flat, "Hidden:true") {
+		t.Fatal("主窗没有改成 Hidden 创建，TaskbarButtonCreated 仍可能早于消息钩子")
+	}
+	setup := strings.Index(flat, "c.setupTaskbar()")
+	if setup < 0 {
+		t.Fatal("main.go 里找不到 setupTaskbar()")
+	}
+	if show := strings.Index(flat[setup:], "app.Win.Show()"); show < 0 {
+		t.Fatal("setupTaskbar 之后没有 Show 主窗（TaskbarButtonCreated 不会到来）")
+	}
+}

@@ -1329,10 +1329,18 @@ func (a *App) drawerBody(c *ui.Context) {
 	if a.usesCardGrid() {
 		// 退场时不再翻页（内容马上就看不见了）。
 		if a.listBody(c) && !a.drawerClosing && a.Act.LoadMore != nil {
-			// 内容超过一屏且滚到底（first>0）才翻页：与旧逻辑的 MaxY>0 一致，
-			// 避免首屏不满却反复请求空页。canAutoLoadMore 还会拦住「上一次翻页
-			// 失败」的情况，否则会每帧重发。
-			if first, last := l.Grid.Visible(); canAutoLoadMore(l, first, last, a.gridRows(c)) {
+			first, last := l.Grid.Visible()
+			rows := a.gridRows(c)
+			// 离开底部（用户向上滚，last 不再覆盖末行）就重新武装。不能用
+			// ScrollState.Scrolling：它只表示 ScrollTo 动画，滚轮/惯性期间
+			// 一直是 false。封顶滑窗下总行数不变、last 始终等于 rows-1，
+			// 所以闩锁会一直按住，直到用户真的把视口移开底部。
+			if last < rows-1 {
+				l.autoLoadLatched = false
+			}
+			// canAutoLoadMore 还会拦住「上一次翻页失败 / 在加载中」的情况。
+			if canAutoLoadMore(l, first, last, rows) && !l.autoLoadLatched {
+				l.autoLoadLatched = true
 				a.Act.LoadMore()
 			}
 		}
@@ -1626,6 +1634,9 @@ func (a *App) loadMoreRetry(c *ui.Context, l *List) {
 	// 加载中不重复触发；点一次清掉错误态再重试（同原版按钮）。
 	if b.Clicked() && !l.Loading {
 		l.LoadErr = false
+		// 用户明确点了重试：把「一次到底只翻一页」的闩锁也松开，这一页
+		// 成功后仍停在底部时按正常规则重新判断（否则重试成功也会被闩锁挡住）。
+		l.autoLoadLatched = false
 		if a.Act.LoadMore != nil {
 			a.Act.LoadMore()
 		}
@@ -1872,12 +1883,24 @@ func (a *App) needsLogin() bool {
 	return a.CurrentSection().NeedLogin
 }
 
+// cardElementKey 是卡片的稳定身份：只用 Bvid，绝不带 index。列表超过
+// maxRetainedCards 后每次翻页都会从头部裁掉一页，同一个视频的 index 会变；
+// 带 index 的 key 会让整屏卡片在每页加载时被判定为「新元素」重新挂载，
+// 用户看到的就是快速滚动到八九页后卡片闪烁/重排。没有 Bvid 的占位项才退回
+// index。
+func cardElementKey(index int, bvid string) string {
+	if bvid != "" {
+		return "card-" + bvid
+	}
+	return fmt.Sprintf("card-%d", index)
+}
+
 // card 是一张列表卡片：封面 + 时长角标 + 标题 + meta 行（原版 ListCard）。
 func (a *App) card(c *ui.Context, index int) {
 	card := a.list().Cards[index]
 	playing := a.Current() != nil && card.Bvid != "" && a.Current().Bvid == card.Bvid
 	spec := cardSpec{
-		Key:      fmt.Sprintf("card-%d-%s", index, card.Bvid),
+		Key:      cardElementKey(index, card.Bvid),
 		Cover:    card.Cover,
 		Title:    card.Title,
 		Badge:    card.Badge,

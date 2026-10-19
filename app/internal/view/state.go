@@ -152,6 +152,11 @@ type List struct {
 	prefetch prefetchGate
 	// rowsPrefetch 同 prefetch，给播放列表记录行的缩略图用。
 	rowsPrefetch prefetchGate
+	// autoLoadLatched 表示「这次到底已经自动翻过一页」：要等列表离开底部
+	// （用户向上滚）才重新武装。原因是 maxRetainedCards 封顶后，追加下一页会
+	// 从头部裁掉同样多——总行数不变，列表仍停在底部，canAutoLoadMore 每帧都
+	// 为真，于是会连续翻页、内容在脚下快速替换（用户报的「八九页后卡片闪烁」）。
+	autoLoadLatched bool
 }
 
 // prefetchGate 记录上一帧的预取窗口，用来判断滚动是否还在快速移动。
@@ -194,6 +199,7 @@ func (l *List) ResetScroll() {
 	l.liftHold = scrollHold{}
 	l.prefetch = prefetchGate{}
 	l.rowsPrefetch = prefetchGate{}
+	l.autoLoadLatched = false
 }
 
 // Section 是搜索栏右侧一个入口对应的抽屉。
@@ -679,6 +685,9 @@ type App struct {
 	// （原版是 #video-cover.record-disc 的 22s CSS 动画）。
 	discDeg float32
 	discAt  time.Time
+	// Background 为真表示窗口已隐藏到托盘 / 最小化：Shell 不再构建界面，
+	// 旋转封面、氛围光与悬停动画也随之停住，直到 OnShow/OnRestore 恢复。
+	Background bool
 	// shownCoverBmp 是当前正在显示的封面位图。新封面未加载完时先沿用旧的
 	// （原版「先预载、后换源」），避免切歌闪一下空白。
 	shownCoverBmp *ui.Bitmap
@@ -859,6 +868,22 @@ func NewApp(repaint func()) *App {
 	}
 	a.discAt = time.Now()
 	return a
+}
+
+// SetBackground 切换「窗口在后台」：进入后台时清掉界面持有的封面位图，
+// 并清空图片缓存（隐藏时的位图没人看，留着只会占 Go 堆 + GPU 纹理）；
+// 回到前台时复位唱片旋转基准，避免把后台停转的时间当成一次 seek。
+func (a *App) SetBackground(on bool) {
+	a.Background = on
+	if on {
+		a.shownCoverBmp = nil
+		// 真实缓存有 Purge；测试桩不需要实现它（ImageStore 不强制）。
+		if p, ok := a.Images.(interface{ Purge() }); ok {
+			p.Purge()
+		}
+		return
+	}
+	a.resetDisc(time.Now())
 }
 
 // Notify 弹一个 toast（等价原版的 toast({ content })，由视图下一帧显示）。

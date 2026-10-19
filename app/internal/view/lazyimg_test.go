@@ -170,6 +170,8 @@ type recordingCache struct {
 	// retains 记录被 Retain（常驻不淘汰）的 URL：头像这类一直挂在界面上的
 	// 小图每帧重申，验证它们真的接上了 Retain。
 	retains []string
+	// purged 记录 Purge（窗口隐藏到后台）次数。
+	purged int
 }
 
 type imgCall struct {
@@ -210,6 +212,12 @@ func (r *recordingCache) Get(url string, width int) *ui.Bitmap {
 }
 
 func (r *recordingCache) Pending() int { return 0 }
+
+func (r *recordingCache) Purge() {
+	r.mu.Lock()
+	r.purged++
+	r.mu.Unlock()
+}
 
 func (r *recordingCache) Touch(url string, width int) {
 	if url == "" {

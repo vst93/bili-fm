@@ -380,6 +380,43 @@ func (c *Cache) Bitmap(rawURL string, width int) *ui.Bitmap {
 	return nil
 }
 
+// Purge 清空整个缓存（窗口隐藏/最小化到后台时调用）：释放所有已解码位图、
+// 氛围光小图和抓取中的请求，让 Go 堆与 GPU 纹理有机会还给系统。被取消的在途
+// 请求不会写失败冷却；窗口恢复后按需重新抓取。
+func (c *Cache) Purge() {
+	c.mu.Lock()
+	var cancels []context.CancelFunc
+	for _, e := range c.items {
+		if e.waiting {
+			if e.high {
+				c.waitHi--
+			} else {
+				c.waitLo--
+			}
+			e.high, e.waiting = false, false
+		}
+		e.cancelled = true
+		if e.cancel != nil {
+			cancels = append(cancels, e.cancel)
+			e.cancel = nil
+		}
+		if e.pending {
+			e.pending = false
+		}
+	}
+	c.items = map[key]*entry{}
+	c.order = nil
+	c.bytes = 0
+	c.loading = 0
+	c.priority = map[key]struct{}{}
+	c.retained = map[key]struct{}{}
+	c.slotCond.Broadcast()
+	c.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
 // Pending 返回还在抓取的张数，供界面显示占位状态。
 func (c *Cache) Pending() int {
 	c.mu.Lock()
@@ -597,13 +634,13 @@ func (c *Cache) fetch(rawURL string, width int) {
 		return
 	}
 	if err != nil {
-		c.fail(rawURL, width, err.Error(), errKind(err))
+		c.fail(rawURL, width, e, err.Error(), errKind(err))
 		return
 	}
 	c.mu.Lock()
 	c.stats.Fetches++
 	c.mu.Unlock()
-	c.finish(rawURL, width, bmp, small, false)
+	c.finish(rawURL, width, e, bmp, small, false)
 }
 
 // download 抓一个图片地址并解码成位图 + 氛围光小图。errKind(err) 给出失败
@@ -732,7 +769,7 @@ func isAnimatedWebPData(data []byte) bool {
 }
 
 // fail 记下失败原因（分类计数 + 最近一条）再走 finish。
-func (c *Cache) fail(rawURL string, width int, reason string, kind int) {
+func (c *Cache) fail(rawURL string, width int, e *entry, reason string, kind int) {
 	c.mu.Lock()
 	c.stats.Fetches++
 	c.stats.Failed++
@@ -748,13 +785,19 @@ func (c *Cache) fail(rawURL string, width int, reason string, kind int) {
 	}
 	c.stats.LastError = reason
 	c.mu.Unlock()
-	c.finish(rawURL, width, nil, nil, true)
+	c.finish(rawURL, width, e, nil, nil, true)
 }
 
-func (c *Cache) finish(rawURL string, width int, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
+func (c *Cache) finish(rawURL string, width int, e *entry, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
 	k := key{rawURL, width}
 	c.mu.Lock()
-	if e := c.items[k]; e != nil && e.cancelled {
+	// 身份校验：Purge / 取消之后同 key 可能已经有一个新的 entry，旧请求的
+	// 结果绝不能覆盖它（否则新请求的 pending/loading 账目会被旧结果打乱）。
+	if cur := c.items[k]; cur != e {
+		c.mu.Unlock()
+		return
+	}
+	if e != nil && e.cancelled {
 		// 下载完成与 Cancel 赛跑：以 Cancel 为准，不入库、不计成败。条目可能
 		// 已经被 dropPending 删掉了（此时 e 为 nil），这里只处理还留着的情况。
 		delete(c.items, k)
@@ -775,20 +818,18 @@ func (c *Cache) finish(rawURL string, width int, bmp *ui.Bitmap, small *image.RG
 	if !failed {
 		c.stats.Ready++
 	}
-	if e := c.items[k]; e != nil {
-		c.bytes -= e.bytes // 旧的一条（重抓时）先退账
-		if e.pending {
-			c.loading--
-		}
-		e.bitmap, e.small, e.failed, e.pending = bmp, small, failed, false
-		e.bytes = bitmapBytes(bmp, small)
-		c.bytes += e.bytes
-		if failed {
-			e.failedAt = time.Now()
-			e.tries++
-		} else {
-			e.tries = 0
-		}
+	c.bytes -= e.bytes // 旧的一条（重抓时）先退账
+	if e.pending {
+		c.loading--
+	}
+	e.bitmap, e.small, e.failed, e.pending = bmp, small, failed, false
+	e.bytes = bitmapBytes(bmp, small)
+	c.bytes += e.bytes
+	if failed {
+		e.failedAt = time.Now()
+		e.tries++
+	} else {
+		e.tries = 0
 	}
 	c.evictLocked()
 	notify := c.notify

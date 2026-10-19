@@ -70,3 +70,42 @@ func waitPending(t *testing.T, c *Cache) {
 		t.Fatalf("抓取没完成：pending=%d", c.Pending())
 	}
 }
+
+// TestPurgeReleasesBitmaps 钉住「隐藏到后台时清空缓存」：已解码位图、氛围光
+// 小图、Retain 头像与在途请求都要释放；滚动/窗口恢复后同一 URL 能重新抓取。
+func TestPurgeReleasesBitmaps(t *testing.T) {
+	data := coverPNG()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(data)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(nil)
+	c.Client = srv.Client()
+	u := srv.URL + "/cover.png"
+	c.Bitmap(u, WidthCard)
+	waitPending(t, c)
+	if c.Get(u, WidthCard) == nil {
+		t.Fatal("封面没抓到")
+	}
+	c.Retain(u, WidthCard)
+	if c.Len() == 0 || c.Bytes() == 0 {
+		t.Fatal("Purge 前缓存应有内容")
+	}
+
+	c.Purge()
+	if c.Len() != 0 || c.Bytes() != 0 || c.Pending() != 0 {
+		t.Fatalf("Purge 后仍有缓存：len=%d bytes=%d pending=%d", c.Len(), c.Bytes(), c.Pending())
+	}
+	if c.Get(u, WidthCard) != nil {
+		t.Fatal("Purge 后 Get 不应命中旧位图")
+	}
+
+	// 恢复后重新发起抓取（Purge 不是永久禁用）。
+	c.Bitmap(u, WidthCard)
+	waitPending(t, c)
+	if c.Get(u, WidthCard) == nil {
+		t.Fatal("Purge 后同一 URL 无法重新抓取")
+	}
+}

@@ -1121,3 +1121,80 @@ func TestResetDanmakuScroll(t *testing.T) {
 		t.Error("ResetDanmakuScroll 没有复位弹幕/评论列表与跟随下标")
 	}
 }
+
+// TestSetBackgroundPurgesBitmaps 钉住「隐藏/最小化时释放界面位图」：
+// Background=true 后清空 shownCoverBmp 并调用 Images.Purge；恢复时复位唱片
+// 旋转基准，避免把后台停转的时间当成一次 seek。
+func TestSetBackgroundPurgesBitmaps(t *testing.T) {
+	a := NewApp(func() {})
+	rec := newRecordingCache()
+	a.Images = rec
+	a.shownCoverBmp = &ui.Bitmap{}
+
+	a.SetBackground(true)
+	if !a.Background || a.shownCoverBmp != nil {
+		t.Fatal("进入后台应清掉 shownCoverBmp 并置 Background")
+	}
+	rec.mu.Lock()
+	purged := rec.purged
+	rec.mu.Unlock()
+	if purged != 1 {
+		t.Fatalf("进入后台应调用 Images.Purge 一次，实际 %d", purged)
+	}
+
+	a.SetBackground(false)
+	if a.Background {
+		t.Fatal("SetBackground(false) 没恢复 Background")
+	}
+}
+
+// TestAutoLoadLatchedUntilNextScroll 钉住「一次到底只翻一页」的闩锁：
+//
+// maxRetainedCards 封顶后，追加下一页会从头部裁掉同样多，总行数不变，列表
+// 仍停在底部——没有闩锁的话 canAutoLoadMore 每帧都为真，会连续翻页、内容在
+// 用户脚下快速替换（八九页后的「闪烁」）。只有用户重新开始一次滚动手势
+// （Scrolling false→true）才清闩锁。
+func TestAutoLoadLatchedUntilNextScroll(t *testing.T) {
+	a := feedApp(300)
+	l := a.ListFor("feed")
+	l.HasMore = true
+	calls := 0
+	a.Act.LoadMore = func() { calls++ }
+	tst := shellTester(t, a)
+
+	tst.Scroll(400, 300, 0, 100000)
+	tst.Frame()
+	if calls != 1 {
+		t.Fatalf("滚到底第一次应翻一页，calls=%d", calls)
+	}
+	// 不追加内容、不置 Loading：没有闩锁的话这里会每帧重调。
+	for i := 0; i < 6; i++ {
+		tst.Frame()
+	}
+	if calls != 1 {
+		t.Fatalf("到底后未重新滚动却连续翻页：calls=%d，应为 1", calls)
+	}
+
+	// 新的一次滚动手势：先离开底部再回来。
+	tst.Scroll(400, 300, 0, -200)
+	tst.Frame()
+	tst.Scroll(400, 300, 0, 100000)
+	tst.Frame()
+	if calls != 2 {
+		t.Fatalf("重新滚动到底应再翻一页，calls=%d，应为 2", calls)
+	}
+}
+
+// TestCardElementKeyStableAcrossIndexShift 钉住卡片 key 不随 index 变化：
+// 封顶滑窗每翻一页都会从头部裁掉一页，同一个 Bvid 的 index 变了；key 带
+// index 会让整屏卡片被当成新元素重新挂载（闪烁/重排）。
+func TestCardElementKeyStableAcrossIndexShift(t *testing.T) {
+	a := cardElementKey(5, "BV1xx")
+	b := cardElementKey(125, "BV1xx")
+	if a != b {
+		t.Fatalf("同一 Bvid 在不同 index 的 key 不同：%q vs %q", a, b)
+	}
+	if cardElementKey(7, "") == cardElementKey(8, "") {
+		t.Fatal("没有 Bvid 的占位卡片应退回 index 作 key")
+	}
+}

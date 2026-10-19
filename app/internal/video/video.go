@@ -277,6 +277,15 @@ func (m *Manager) SetSpeed(v float64) {
 func (m *Manager) Pause()  { m.eval("document.getElementById('v')?.pause()") }
 func (m *Manager) Resume() { m.eval("document.getElementById('v')?.play()") }
 
+// Seek 让弹窗跳到指定秒数。主窗底部进度条在视频弹窗打开时也要控制视频，
+// 而不是去 seek 已经暂停的音频引擎。
+func (m *Manager) Seek(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	m.eval(fmt.Sprintf("(()=>{const v=document.getElementById('v');if(v){v.currentTime=%f;}})()", seconds))
+}
+
 func (m *Manager) eval(js string) {
 	m.mu.Lock()
 	w := m.win
