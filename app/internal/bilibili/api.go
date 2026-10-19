@@ -216,7 +216,20 @@ type SearchResult struct {
 	Aid  int64  `json:"aid"`
 }
 
-func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
+// searchPageSize 是搜索接口单页条数。B 站对 page_size 的上限是 50；
+// 保留原实现的值，避免改变首屏数量与接口行为。
+const searchPageSize = 50
+
+// SearchVideoPage 拉搜索结果的第 page 页（从 1 起），并返回是否还有下一页。
+//
+// 原版 Tauri 前端只拉第 1 页（searchList 没有无限滚动），原生版要补上
+// 「滚到底继续加载」，所以把页码作为参数透传给同一个接口。接口在 data 里
+// 返回 numPages（总页数），优先用它判断；老响应没有这个字段时，退回
+// 「本页满 50 条就认为还有下一页」，下一页真的为空时调用方会自然停住。
+func (bl *BL) SearchVideoPage(keyword, order string, page int) ([]SearchResult, bool, error) {
+	if page < 1 {
+		page = 1
+	}
 	var orderType string
 	switch order {
 	case "click":
@@ -229,15 +242,16 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 
 	ticket, err := bl.GetBiliTicket("")
 	if err != nil {
-		return
+		return nil, false, err
 	}
 
 	encodedKeyword := url.QueryEscape(keyword)
-	url := fmt.Sprintf("https://api.bilibili.com/x/web-interface/wbi/search/type?search_type=video&page=1&page_size=50&order=%s&keyword=%s", orderType, encodedKeyword)
+	apiURL := fmt.Sprintf("https://api.bilibili.com/x/web-interface/wbi/search/type?search_type=video&page=%d&page_size=%d&order=%s&keyword=%s",
+		page, searchPageSize, orderType, encodedKeyword)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return
+		return nil, false, err
 	}
 
 	req.Header.Set("authority", "api.bilibili.com")
@@ -248,19 +262,23 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 	req.Header.Set("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36 Edg/116.0.1938.62")
 	req.Header.Set("Cookie", "bili_ticket="+ticket)
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return nil, false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("搜索接口返回 %d", resp.StatusCode)
+	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
-		return
+		return nil, false, err
 	}
 
 	var apiResponse struct {
+		Code int `json:"code"`
 		Data struct {
 			Result []struct {
 				Pic   string `json:"pic"`
@@ -276,12 +294,16 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 				Author      string `json:"author"`
 				Pubdate     int64  `json:"pubdate"`
 			} `json:"result"`
+			NumPages   int `json:"numPages"`
+			NumResults int `json:"numResults"`
 		} `json:"data"`
 	}
 
-	err = json.Unmarshal(body, &apiResponse)
-	if err != nil {
-		return
+	if err := json.Unmarshal(body, &apiResponse); err != nil {
+		return nil, false, err
+	}
+	if apiResponse.Code != 0 {
+		return nil, false, fmt.Errorf("搜索接口返回 code=%d", apiResponse.Code)
 	}
 
 	var results []SearchResult
@@ -312,7 +334,19 @@ func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
 		})
 	}
 
-	return results
+	hasMore := false
+	if apiResponse.Data.NumPages > 0 {
+		hasMore = page < apiResponse.Data.NumPages
+	} else if len(results) >= searchPageSize {
+		hasMore = true
+	}
+	return results, hasMore, nil
+}
+
+// SearchVideo 保留旧调用点的单页接口（第 1 页），失败时返回空结果。
+func (bl *BL) SearchVideo(keyword, order string) (res []SearchResult) {
+	res, _, _ = bl.SearchVideoPage(keyword, order, 1)
+	return res
 }
 
 // ----------- begin - getCList -----------

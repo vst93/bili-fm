@@ -1,5 +1,10 @@
 package main
 
+import (
+	"runtime"
+	"time"
+)
+
 // Windows 任务栏缩略图工具栏（悬停任务栏图标时预览浮层里的 上一首 /
 // 播放暂停 / 下一首）。三个按钮的动作与状态同步在这里接线，具体 Win32
 // 调用在 taskbar_windows.go（其它平台 taskbar_other.go 是 no-op）。
@@ -28,26 +33,47 @@ func (c *controller) setupTaskbar() {
 	taskbarMediaActions.PlayPause = c.togglePlay
 	taskbarMediaActions.Prev = func() { c.step(-1) }
 	taskbarMediaActions.Next = func() { c.step(1) }
-	if c.app.Win == nil {
+	if runtime.GOOS != "windows" || c.app.Win == nil {
 		return
 	}
-	// 窗口句柄在每次回调里重新取，而不是在闭包里存第一次的 hwnd：
-	// mygo 的 OnShow 回调注册在窗口生命期内只挂一次，但窗口重建（进/出迷你
-	// 模式会 resize，某些平台/后端下会重新创建原生窗口）后 NativeHandle()
-	// 会变。存旧句柄会让重挂打到已销毁的 HWND 上（ThumbBarAddButtons 失败且
-	// 静默），而 taskbarInit 内部的 `st.hwnd == hwnd && st.added` 判据正好
-	// 按句柄判断是否需要重挂 —— 所以这里每次现取。
+	// 窗口在 WhenReady 里 NewWindow 时就已 Show（WindowOptions.Hidden 为假），
+	// 而 setupTaskbar 是在那之后才调用的 —— 只注册 OnShow 的话，这次显示
+	// 事件早就过去了，taskbarInit 永远不会跑。用户看到的「悬停任务栏图标
+	// 没有上一首/播放暂停/下一首」根因就在这里（Tauri 版是在 setup 里直接
+	// 调 init 的）。
 	//
-	// 原版（main:src-tauri/src/taskbar.rs 的 init）只有一次 setup 调用、没有
-	// OnShow 重试；原生版多这一步是为了兜住「Explorer 重启后缩略图工具栏丢失」
-	//（window 首次显示前 ThumbBarAddButtons 也会失败）。
-	c.app.Win.OnShow(func() { taskbarInit(c.app.Win.NativeHandle()) })
+	// 所以这里先立刻挂一次；再留两次短延迟重试，兜住「任务栏按钮还没建好 /
+	// Explorer 正在重启」时 ThumbBarAddButtons 失败的情况（taskbarInit 幂等）。
+	initTaskbar := func() {
+		if c.app.Win != nil {
+			taskbarInit(c.app.Win.NativeHandle())
+		}
+	}
+	initTaskbar()
+	for _, delay := range []time.Duration{600 * time.Millisecond, 2500 * time.Millisecond, 6000 * time.Millisecond} {
+		go func(d time.Duration) {
+			time.Sleep(d)
+			if c.app.Win != nil {
+				c.app.Win.Update(initTaskbar)
+			}
+		}(delay)
+	}
+	// 窗口再次显示（关闭到托盘后恢复 / 迷你模式切换）时再挂一次：句柄可能
+	// 因为窗口重建而变化，Explorer 重启后缩略图工具栏也需要重挂。窗口句柄
+	// 在每次回调里重新取，而不是在闭包里存第一次的 hwnd。
+	c.app.Win.OnShow(initTaskbar)
 }
 
 // syncTaskbar 把播放状态与可上一首/下一首推给任务栏按钮（换图标 / 禁用态）。
 // Windows 之外是空实现。与系统媒体中心同一触发点（syncMediaTrack）。
 func (c *controller) syncTaskbar() {
 	a := c.app
+	// 播放状态每次变化都顺带幂等重挂一次：Explorer 重启/窗口句柄变化后，
+	// 不必等下一次 OnShow 才把缩略图工具栏找回来。已经在位时 taskbarInit
+	// 第一行就返回，不产生 COM 调用。
+	if a.Win != nil {
+		taskbarInit(a.Win.NativeHandle())
+	}
 	nav := a.CanNavigate()
 	taskbarSetState(a.Playing, nav, nav)
 }

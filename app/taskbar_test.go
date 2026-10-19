@@ -176,11 +176,34 @@ func TestTaskbarThemeIsDark(t *testing.T) {
 // 反证：把 OnShow 回调改回捕获 `hwnd` 变量 → 源码链断言变红。
 func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 	flat := flattenSrc(t, "taskbar.go")
-	if !strings.Contains(flat, "c.app.Win.OnShow(func(){taskbarInit(c.app.Win.NativeHandle())})") {
-		t.Error("OnShow 重试没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
+	if !strings.Contains(flat, "c.app.Win.OnShow(initTaskbar)") {
+		t.Error("OnShow 重试没有接上 initTaskbar")
+	}
+	if !strings.Contains(flat, "taskbarInit(c.app.Win.NativeHandle())") {
+		t.Error("initTaskbar 没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
 	}
 	// 初始化那一次也应现取，避免"先捕获、后复用"的同一个坑。
 	if strings.Contains(flat, "taskbarInit(hwnd)") {
 		t.Error("taskbarInit 用了捕获的 hwnd 变量，应每次现取 NativeHandle()")
+	}
+}
+
+// TestTaskbarInitializesImmediately 钉住「窗口已经 Show 之后才 setupTaskbar」：
+// mygo 的 NewWindow 默认立即 Show，而 setupTaskbar 在 WhenReady 里稍后才调用，
+// 只注册 OnShow 的话这次显示事件永远不会再来 —— ThumbBarAddButtons 一次都
+// 没跑过，用户悬停任务栏图标自然看不到上一首/播放暂停/下一首。
+//
+// 反证：删掉 setupTaskbar 里的立即 taskbarInit 调用 → 本测试红。
+func TestTaskbarInitializesImmediately(t *testing.T) {
+	flat := flattenSrc(t, "taskbar.go")
+	if got := strings.Count(flat, "taskbarInit(c.app.Win.NativeHandle())"); got < 1 {
+		t.Fatalf("setupTaskbar 没有立即 taskbarInit（窗口已显示，OnShow 不会再触发）")
+	}
+	if !strings.Contains(flat, "initTaskbar()") {
+		t.Error("setupTaskbar 没有立即调用 initTaskbar()")
+	}
+	// 任务栏按钮可能比窗口晚建好 / Explorer 重启：要有短延迟重试。
+	if !strings.Contains(flat, "600*time.Millisecond") || !strings.Contains(flat, "2500*time.Millisecond") {
+		t.Error("setupTaskbar 缺少任务栏按钮晚建好的重试")
 	}
 }

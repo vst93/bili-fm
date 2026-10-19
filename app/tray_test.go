@@ -214,3 +214,73 @@ func TestTrayItemsAllRouteThroughTrayAction(t *testing.T) {
 		}
 	}
 }
+
+// TestTrayLeftClickShowsWindow 钉住「左键点托盘 logo 显示主窗口」这条路径。
+//
+// 之前 setupTray 只传了 Menu、从没注册 OnClick：Windows 左键回调 Clicked
+// 有来，但没有任何监听者，用户点logo完全没反应（右键才能开菜单）。
+// macOS 更糟：常驻菜单会把左键直接吃掉。现在菜单按平台分流：
+// Windows/macOS 左键 OnClick → showWindow，右键临时挂菜单；Linux 只能
+// 常驻菜单（AppIndicator 不给点击事件），第一项仍是「显示主窗口」。
+//
+// 反证：删掉 tray.OnClick 的接线 → 本测试红。
+func TestTrayLeftClickShowsWindow(t *testing.T) {
+	flat := flattenSrc(t, "tray.go")
+	if !strings.Contains(flat, "tray.OnClick(func(){c.trayAction(\"show\",c.showWindow)})") {
+		t.Error("托盘左键没有接到 showWindow（Windows/macOS 点 logo 不会显示窗口）")
+	}
+	if !strings.Contains(flat, "tray.OnRightClick") {
+		t.Error("托盘右键没有接弹出菜单")
+	}
+	if !strings.Contains(flat, `runtime.GOOS=="linux"`) || !strings.Contains(flat, "tray.SetMenu(menu)") {
+		t.Error("Linux 没有常驻菜单（AppIndicator 只能通过菜单恢复窗口）")
+	}
+	// 窗口已显示时再 Show 是幂等的：双击两次不能把窗口又藏起来。
+	if strings.Contains(flat, "func(c*controller)showWindow(){") &&
+		strings.Contains(flat, "w.Hide()") {
+		t.Error("showWindow 里不应有 Hide（双击第二次会把窗口藏掉）")
+	}
+}
+
+// TestTrayColoredIconFillsCanvas 钉住 Windows/Linux 托盘图标的「logo 不再
+// 缩在小白块里」：用户报 Windows 托盘 logo 偏小。彩色图现在以青色圆角方块
+// 铺满画布、白色台标也放大到 28×23（之前台标只有 14×12，缩到 16px 托盘后
+// 只剩 7×6）。这里量非白像素的包围盒，要求接近整张画布。
+func TestTrayColoredIconFillsCanvas(t *testing.T) {
+	img := decodePNG(t, "tray.png", trayIconColored)
+	b := img.Bounds()
+	minX, minY, maxX, maxY := b.Max.X, b.Max.Y, b.Min.X-1, b.Min.Y-1
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			r, g, bl, a := img.At(x, y).RGBA()
+			if a < 0x8000 {
+				continue
+			}
+			// 白色台标算「内容」，只跳过接近白的背景是不可能的；新图背景是
+			// 青色，非白 = 青色块。旧图背景白、青台标小 —— 包围盒直接暴露。
+			if r > 0xf000 && g > 0xf000 && bl > 0xf000 {
+				continue
+			}
+			if x < minX {
+				minX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+	}
+	if maxX < minX || maxY < minY {
+		t.Fatal("彩色托盘图没有彩色像素")
+	}
+	bw := float64(maxX-minX+1) / float64(b.Dx())
+	bh := float64(maxY-minY+1) / float64(b.Dy())
+	if bw < 0.85 || bh < 0.85 {
+		t.Fatalf("彩色托盘图内容包围盒 %.0f%%×%.0f%%，太小（应铺满画布 ≥85%%）", bw*100, bh*100)
+	}
+}

@@ -1748,3 +1748,81 @@ func TestUrlJumpEmptyPrompt(t *testing.T) {
 		t.Fatal("「认不出 bvid」的文案被误删了")
 	}
 }
+
+// TestSetCardsDedupesAppend 钉住翻页追加的按 Bvid 去重：接口重复返回同一页
+// 时不能把卡片塞两份，调用方也据此把 HasMore 关掉（见 setCards 的返回值）。
+func TestSetCardsDedupesAppend(t *testing.T) {
+	l := &view.List{}
+	if n := setCards(l, []view.Card{{Bvid: "BVA"}, {Bvid: "BVB"}}, true); n != 2 {
+		t.Fatalf("首次 replace added=%d, want 2", n)
+	}
+	if n := setCards(l, []view.Card{{Bvid: "BVB"}, {Bvid: "BVC"}}, false); n != 1 {
+		t.Fatalf("追加重复页 added=%d, want 1（BVB 已存在）", n)
+	}
+	if len(l.Cards) != 3 {
+		t.Fatalf("去重后应有 3 条，得到 %d", len(l.Cards))
+	}
+	if n := setCards(l, []view.Card{{Bvid: "BVC"}}, false); n != 0 {
+		t.Fatalf("整页都是重复项时 added=%d, want 0", n)
+	}
+}
+
+// TestSearchPaginationWired 钉住搜索的无限滚动：首屏要把接口返回的
+// hasMore 写进列表（之前写死 false），loadMore 要把搜索页路由到 searchMore，
+// 而不是 default 分支去加载当前分区。
+func TestSearchPaginationWired(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"SearchVideoPage(q,order,1)",
+		"list.HasMore=hasMore&&len(results)>0",
+		"func(c*controller)searchMore(pageint)",
+		"caseview.DrawerSearch:c.searchMore(a.ListFor(view.DrawerSearch).Page+1)",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("搜索翻页缺少接线：%s", want)
+		}
+	}
+	// 反证：首屏响应里必须出现 hasMore 的接线（不是恒 false）。
+	if strings.Contains(flat, "list.HasMore=false}") {
+		t.Error("搜索首屏响应仍把 HasMore 写死为 false（滚到底不会翻页）")
+	}
+}
+
+// TestUpPageReplaces 钉住 UP 翻页的「替换 vs 追加」判据：只有首屏（列表为空
+// 且 offset 为空）才整批替换；后续即使 offset 为空也必须追加，否则重复页会
+// 被当成新首屏、added 永远满页、HasMore 永远真（滚到底无限请求）。
+func TestUpPageReplaces(t *testing.T) {
+	cases := []struct {
+		offset   string
+		existing int
+		want     bool
+	}{
+		{"", 0, true},       // 首屏
+		{"", 20, false},     // 游标为空但已有卡片：追加（去重会停住）
+		{"off1", 0, false},  // 非空游标永远是追加
+		{"off1", 20, false}, // 正常翻页
+	}
+	for _, c := range cases {
+		if got := upPageReplaces(c.offset, c.existing); got != c.want {
+			t.Errorf("upPageReplaces(%q,%d) = %v, want %v", c.offset, c.existing, got, c.want)
+		}
+	}
+}
+
+// TestUpLoadMoreStopsOnDuplicatePage 钉住 UP 空间翻页不会因接口重复返回
+// 同一页而无限追加：added==0 时必须把 HasMore 关掉。
+func TestUpLoadMoreStopsOnDuplicatePage(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	for _, want := range []string{
+		"replace:=upPageReplaces(offset,len(list.Cards))",
+		"added:=setCards(list,cards,replace)",
+		"more:=upHasMore(l.HasMore,l.Offset,offset)",
+		"ifoffset==\"\"&&added>0{more=true}",
+		"ifadded==0||len(cards)==0{more=false}",
+		"list.HasMore=more",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("UP 空间翻页缺少去重/停止条件：%s", want)
+		}
+	}
+}

@@ -1,8 +1,8 @@
 package view
 
 import (
-	"math"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -318,34 +318,34 @@ func (a *App) drawerHeader(c *ui.Context) {
 		Gap(8).AlignItems(ui.Center).
 		Background(ui.Hex("#ffffff").Alpha(drawerHeaderFillAlpha)).
 		Children(func() {
-		a.drawerTabs(c)
-		// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
-		// 组件又不加 spacer，所以表头内容全部靠左排（刷新键紧跟在 tab 后面，
-		// 不是被推到右边）。收藏抽屉例外：横向滚动的收藏夹 tab 自己 flex:1，
-		// 把右侧的滚动键与刷新键顶到右边。
-		if a.refreshable() {
-			// 原版刷新键：20px #333（弹幕抽屉是 18px，见下）。
-			refreshSize := float32(20)
-			if a.Drawer == DrawerDanmaku {
-				refreshSize = 18
-			}
-			// 刷新键的形态按抽屉分流（原版两种不同的按钮实现，见
-			// refreshKeyStateFor）：历史抽屉「图标自转」、弹幕/评论抽屉
-			// 「Spinner 替掉图标」，两者的加载期都必须禁用。
-			histLoading := a.Drawer == "history" && a.list().Loading
-			st := refreshKeyStateFor(a.Drawer, a.HistTab,
-				histLoading, a.DanmakuLoading, a.RepliesLoading)
-			a.headerButtonOff(c, "drawer-refresh", st.Label, iconRefresh, refreshSize, ui.Hex("#333333"), st.Spin, st.Spinner, func() {
-				if a.Act.Reload != nil {
-					a.Act.Reload()
+			a.drawerTabs(c)
+			// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
+			// 组件又不加 spacer，所以表头内容全部靠左排（刷新键紧跟在 tab 后面，
+			// 不是被推到右边）。收藏抽屉例外：横向滚动的收藏夹 tab 自己 flex:1，
+			// 把右侧的滚动键与刷新键顶到右边。
+			if a.refreshable() {
+				// 原版刷新键：20px #333（弹幕抽屉是 18px，见下）。
+				refreshSize := float32(20)
+				if a.Drawer == DrawerDanmaku {
+					refreshSize = 18
 				}
-			})
-		}
-		// 原版历史抽屉的顺序是「tab」「刷新」「隐身」，隐身开关在刷新键右边。
-		if a.Drawer == "history" && a.HistTab == HistHistory {
-			a.incognitoSwitch(c)
-		}
-	})
+				// 刷新键的形态按抽屉分流（原版两种不同的按钮实现，见
+				// refreshKeyStateFor）：历史抽屉「图标自转」、弹幕/评论抽屉
+				// 「Spinner 替掉图标」，两者的加载期都必须禁用。
+				histLoading := a.Drawer == "history" && a.list().Loading
+				st := refreshKeyStateFor(a.Drawer, a.HistTab,
+					histLoading, a.DanmakuLoading, a.RepliesLoading)
+				a.headerButtonOff(c, "drawer-refresh", st.Label, iconRefresh, refreshSize, ui.Hex("#333333"), st.Spin, st.Spinner, func() {
+					if a.Act.Reload != nil {
+						a.Act.Reload()
+					}
+				})
+			}
+			// 原版历史抽屉的顺序是「tab」「刷新」「隐身」，隐身开关在刷新键右边。
+			if a.Drawer == "history" && a.HistTab == HistHistory {
+				a.incognitoSwitch(c)
+			}
+		})
 	// 分割线：灰蓝暗线 + 下方 1px 白高光，模拟玻璃截面（原版 header 的
 	// border-bottom + box-shadow 两层）。
 	ui.Box(c).FillWidth().Height(2).Shrink(0).Children(func() {
@@ -650,7 +650,6 @@ func incognitoTrack(c *ui.Context, on bool) {
 				Margin(0, 0, 0, pick(on, float32(11), float32(0)))
 		})
 }
-
 
 // 32 高、图标 + 文字 + 一个小轨道。打开后不读也不写云端进度。
 func (a *App) incognitoSwitch(c *ui.Context) {
@@ -1568,7 +1567,7 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 		}
 		return r
 	}
-	a.prefetchCardCovers(st, cards, cols)
+	a.prefetchCardCovers(c, st, &l.prefetch, cards, cols)
 	a.holdListScroll(c, &l.liftHold, st, &l.GridScroll, true)
 	ui.List(c, st, rows+extra, func(r int) {
 		if r == rows {
@@ -1589,15 +1588,20 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 }
 
 // canAutoLoadMore 报告卡片网格这一帧该不该自动翻页：有更多、不在加载中、
-// 上一次翻页没失败，且已经滚到底（首行不在顶部）。抽成纯函数便于单测。
+// 上一次翻页没失败，且已经看到列表末尾（最后一行进了视野）。抽成纯函数便于单测。
+//
+// 不再要求 `first > 0`：高窗口下 UP 空间第一页 20 条（7 排）可能整屏放得下，
+// 列表根本滚不动；此时最后一行已在视野里，正该继续拉下一页把屏幕填满。
+// 短列表不会因此无限请求——装配层在「本页没有新卡片」时会把 HasMore 关掉
+// （见 main.go 的 setCards/added 与各 load 函数）。
 //
 // `LoadErr` 是这里的核心闸门：mygo 的翻页是在渲染里触发的，而渲染每帧都跑，
 // 所以一次失败若不记下来，下一帧就会立刻重发，变成请求/提示风暴。
 func canAutoLoadMore(l *List, first, last, rows int) bool {
-	if !l.HasMore || l.Loading || l.LoadErr {
+	if !l.HasMore || l.Loading || l.LoadErr || rows <= 0 {
 		return false
 	}
-	return first > 0 && last >= rows-1
+	return last >= rows-1
 }
 
 // loadMoreRetry 是网格末尾的「加载失败，点击重试」行（原版
@@ -1642,14 +1646,14 @@ const initialCardRows = 6
 //
 // 可见行先 Touch 再 Bitmap：抓取队列优先服务当前可见的图，滚动时新可见的
 // 卡片不会被先到的屏外预取插队（原版浏览器 loading=lazy 的可见优先语义）。
-func (a *App) prefetchCardCovers(st *ui.ListState, cards []Card, cols int) {
-	a.prefetchWindowCovers(st, len(cards), cols,
+func (a *App) prefetchCardCovers(c *ui.Context, st *ui.ListState, gate *prefetchGate, cards []Card, cols int) {
+	a.prefetchWindowCovers(c, st, gate, len(cards), cols,
 		func(i int) string { return cards[i].Cover })
 }
 
 // prefetchPartCovers 是选集网格版的封面预取（同一套窗口，封面地址走 partCover）。
-func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part, cols int) {
-	a.prefetchWindowCovers(st, len(parts), cols,
+func (a *App) prefetchPartCovers(c *ui.Context, st *ui.ListState, gate *prefetchGate, parts []Part, cols int) {
+	a.prefetchWindowCovers(c, st, gate, len(parts), cols,
 		func(i int) string { return a.partCover(parts[i]) })
 }
 
@@ -1657,15 +1661,30 @@ func (a *App) prefetchPartCovers(st *ui.ListState, parts []Part, cols int) {
 // 行）+ Bitmap（发起/命中），上一帧在窗口内、本帧已滚出的 Cancel 退队。
 // cols 是这一帧的网格列数（见 gridColsFor）——行→卡片下标的换算必须与
 // cardGrid / partsGrid 的构建用同一个值，否则窄窗下预取窗口会错位。
-func (a *App) prefetchWindowCovers(st *ui.ListState, n, cols int, cover func(int) string) {
+//
+// gate 非 nil 时只在窗口连续两帧一致后发请求：快速滚动期间只 Touch/Cancel，
+// 不把途经的每一屏都排进抓取队列（慢网下这些请求会把可见图堵在 16 个并发
+// 名额后面，滚停后才一张张回来，表现为「图片疯狂闪动加载」）。gate 为 nil
+// 是给单测直接调用预取算法的路径（不做节流）。
+func (a *App) prefetchWindowCovers(c *ui.Context, st *ui.ListState, gate *prefetchGate, n, cols int, cover func(int) string) {
 	first, last := prefetchWindow(st, n, cols)
 	visFirst, visLast := visibleCards(st, n, cols)
-	for i := first; i < last; i++ {
-		if i >= visFirst && i < visLast {
-			a.Images.Touch(cover(i), imagecache.WidthCard)
-		}
-		a.Images.Bitmap(cover(i), imagecache.WidthCard)
+	for i := visFirst; i < visLast; i++ {
+		a.Images.Touch(cover(i), imagecache.WidthCard)
 	}
+	stable := gate == nil || gate.stable(first, last)
+	if stable {
+		for i := first; i < last; i++ {
+			a.Images.Bitmap(cover(i), imagecache.WidthCard)
+		}
+	} else if c != nil {
+		// 窗口刚变化：主动再求一帧，让「变化 → 稳定」的第二帧一定到来。
+		// 否则抽屉首帧的预估窗口与布局后的真实窗口差一次时，列表布局本身
+		// 不会再求帧（Visible 没变），预取就永远等不到 stable。
+		c.AnimationFrame()
+	}
+	// 滚出窗口的请求始终取消（包括滚动中）：只退还在排队的，已拿到名额的
+	// 下载完成时仍入库；在途请求由 imagecache.Cancel 直接 abort（见那里）。
 	a.cancelOffscreen(n, first, last, cover)
 }
 
@@ -2203,7 +2222,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 				dh, dsh := textLineBox(11, 1.2)
 				numericText(c, spec.Duration).FontSize(11).TextColor(ui.Hex("#f8fafc")).
 					Absolute().Right(0).Bottom(0).
-					Height(dh + 4).Padding(2+dsh, 5, 2, 5).
+					Height(dh+4).Padding(2+dsh, 5, 2, 5).
 					Radius(5, 0, 0, 0).Background(ui.Hex("#0f172a").Alpha(0.68))
 			}
 			if spec.Playing {
@@ -2687,7 +2706,7 @@ func (a *App) partsGrid(c *ui.Context) {
 		}
 	}
 	rows := (len(parts) + cols - 1) / cols
-	a.prefetchPartCovers(st, parts, cols)
+	a.prefetchPartCovers(c, st, &l.prefetch, parts, cols)
 	a.holdListScroll(c, &a.partsHold, st, &l.GridScroll, true)
 	ui.List(c, st, rows, func(r int) {
 		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Start).Children(func() {
@@ -2990,6 +3009,7 @@ func (a *App) sortedComments() []Comment {
 //	160 < brightness < 200 且 < 170 → #333333
 //	其他                           → 原色 hex
 //	color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
+//
 // danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle）。
 // dark 为真表示系统深色模式（原版 document.documentElement.classList.contains("dark")）：
 // 亮度 >200 的弹幕在深色底上直接用白字，浅色底上换深灰 #1a1a1a；

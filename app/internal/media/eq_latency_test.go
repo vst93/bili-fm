@@ -16,6 +16,9 @@ func eqTestPipeline(t *testing.T) *pipeline {
 	}
 	p.info.SampleRate = 48000
 	p.eq = NewCompressor(2, 48000)
+	// WSOLA 现在也在 finish 段（贴近声卡）推进，测试流水线要补上它；
+	// 否则 finish 会因为 ws 为 nil 一直不产出。
+	p.ws = NewWSOLA(2, 1, 0)
 	go p.finish()
 	t.Cleanup(func() { close(p.stop) })
 	return p

@@ -145,6 +145,29 @@ type List struct {
 	// renderCard 不重建 lift 动画 / 悬停光晕，停下后再恢复（见 drawer.go
 	// renderCard 与 scrollHold）。
 	liftHold scrollHold
+	// prefetch 是卡片/选集网格的封面预取闸门：滚动期间可见窗口每帧都在变，
+	// 若每帧都按新窗口发起 Bitmap，会不断取消/重发请求（慢网下尤其明显，
+	// 用户报「滚停后图片疯狂闪动加载」）。窗口连续两帧一致才真正发请求；
+	// 变化中的帧只 Touch 可见图 + Cancel 滚出窗口的请求，不制造新请求。
+	prefetch prefetchGate
+	// rowsPrefetch 同 prefetch，给播放列表记录行的缩略图用。
+	rowsPrefetch prefetchGate
+}
+
+// prefetchGate 记录上一帧的预取窗口，用来判断滚动是否还在快速移动。
+// 只有同一窗口连续出现（第一次观测不算）才放行网络请求；窗口一变就先按住。
+// 这样快速滚动时不会为途经的每一屏都排一堆请求，滚停后的第一帧（滚动锁
+// 会主动再求一帧）就按最终窗口一次性预取。
+type prefetchGate struct {
+	first, last int
+	set         bool
+}
+
+// stable 报告当前窗口是否与上一帧相同（第一个观测帧返回 false）。
+func (g *prefetchGate) stable(first, last int) bool {
+	same := g.set && g.first == first && g.last == last
+	g.first, g.last, g.set = first, last, true
+	return same
 }
 
 // ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，
@@ -367,8 +390,8 @@ type Actions struct {
 	Quit          func()
 	Minimize      func()
 	// HideWindow 把主窗隐藏到托盘（原版标题栏「隐藏窗口」键的 hide_window）。
-	HideWindow func()
-	SetMini    func(on bool)
+	HideWindow    func()
+	SetMini       func(on bool)
 	TogglePin     func()
 	SetCoverMode  func(mode string)
 	ToggleAmbient func()
@@ -455,10 +478,10 @@ type App struct {
 	cardGlowKey string
 	cardGlowX   float32
 	cardGlowY   float32
-	Status        string
-	LoggedIn      bool
-	UName         string
-	Face          string // 登录用户头像 URL，未登录为空
+	Status      string
+	LoggedIn    bool
+	UName       string
+	Face        string // 登录用户头像 URL，未登录为空
 
 	// 抽屉表头（tab / 排序 / 收藏夹）
 	SortOrder string // 搜索排序：SortTotal / SortClick / SortUpdate

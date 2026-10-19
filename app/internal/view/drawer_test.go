@@ -709,13 +709,14 @@ func TestCanAutoLoadMore(t *testing.T) {
 	loading := List{HasMore: true, Loading: true}
 	noMore := List{}
 	cases := []struct {
-		name       string
-		l          List
+		name              string
+		l                 List
 		first, last, rows int
-		want       bool
+		want              bool
 	}{
 		{"滚到底且有更多", base, 5, 9, 10, true},
 		{"未滚到底", base, 0, 4, 10, false},
+		{"高窗首屏已到底", base, 0, 9, 10, true},
 		{"没有更多", noMore, 5, 9, 10, false},
 		{"加载中", loading, 5, 9, 10, false},
 		{"上次失败", loadErr, 5, 9, 10, false},
@@ -952,5 +953,83 @@ func TestCollectScrollBtnPaintTokens(t *testing.T) {
 	pressedNoHover := collectScrollBtnPaintFor(false, true)
 	if pressedNoHover != ui.Hex("#0f172a").Alpha(0.12) {
 		t.Errorf("仅按下底 = %v，应为深灰蓝 .12", pressedNoHover)
+	}
+}
+
+// TestCardGridAutoLoadsAtBottom 钉住「搜索 / UP 空间滚到底会触发 LoadMore」。
+// 这两个页面用户报不自动加载：搜索层是控制器的分页没接（见 main_test 的
+// TestSearchPaginationWired），UP 层则依赖这份视图触发。这里用同一套卡片网格
+// 把两种抽屉都跑到真正的列表底部，断言 Act.LoadMore 至少被调一次。
+func TestCardGridAutoLoadsAtBottom(t *testing.T) {
+	for _, drawer := range []string{DrawerSearch, DrawerUp} {
+		t.Run(drawer, func(t *testing.T) {
+			a := NewApp(func() {})
+			a.Theme = ThemeFor(PeriodAt(12))
+			l := a.ListFor(drawer)
+			for i := 0; i < 30; i++ {
+				l.Cards = append(l.Cards, Card{
+					Bvid:  fmt.Sprintf("BV%04d", i),
+					Title: fmt.Sprintf("视频%d", i),
+					Up:    "UP主",
+				})
+			}
+			l.HasMore = true
+			a.Drawer = drawer
+			if drawer == DrawerUp {
+				a.UpTab = UpTabVideos
+			}
+			calls := 0
+			a.Act.LoadMore = func() {
+				calls++
+				// 模拟控制器已发出请求：后续帧不应继续重复触发。
+				l.Loading = true
+			}
+			tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
+			tst.Scroll(490, 400, 0, 100000)
+			tst.Frame()
+			if calls == 0 {
+				first, last := l.Grid.Visible()
+				t.Fatalf("%s 滚到底没有触发自动翻页（visible=%d,%d rows=%d）",
+					drawer, first, last, (len(l.Cards)+2)/3)
+			}
+		})
+	}
+}
+
+// TestPrefetchGateWaitsForStableWindow 钉住滚动中的封面预取节流：窗口第一帧
+// 只登记、不发请求；同一窗口连续出现才真正 Bitmap；窗口一动又重新按住。
+// 这是「快速滚动时不要为途经的每一屏都排请求，滚停后再按最终窗口加载」的
+// 核心判据（配合 imagecache.Cancel 的在途 abort）。
+func TestPrefetchGateWaitsForStableWindow(t *testing.T) {
+	var g prefetchGate
+	if g.stable(0, 10) {
+		t.Fatal("第一次观测就放行：滚动的第一帧会立刻发请求")
+	}
+	if !g.stable(0, 10) {
+		t.Fatal("同一窗口第二帧应放行")
+	}
+	if g.stable(2, 12) {
+		t.Fatal("窗口变化后仍放行：快速滚动会为途经的每一屏发请求")
+	}
+	if !g.stable(2, 12) {
+		t.Fatal("新窗口稳定后应放行")
+	}
+
+	a := NewApp(func() {})
+	asked := newRecordingCache()
+	a.Images = asked
+	cards := make([]Card, 60)
+	for i := range cards {
+		cards[i] = Card{Bvid: fmt.Sprintf("BV%04d", i), Cover: fmt.Sprintf("cover%d", i)}
+	}
+	l := a.ListFor("feed")
+	var st ui.ListState
+	a.prefetchCardCovers(nil, &st, &l.prefetch, cards, 3)
+	if got := asked.unique(); got != 0 {
+		t.Fatalf("第一帧预取 %d 张，want 0（窗口还没稳定）", got)
+	}
+	a.prefetchCardCovers(nil, &st, &l.prefetch, cards, 3)
+	if got := asked.unique(); got == 0 {
+		t.Fatal("窗口稳定后仍没有请求封面")
 	}
 }

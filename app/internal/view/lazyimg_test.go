@@ -142,7 +142,7 @@ func TestCardGridPrefetchWindow(t *testing.T) {
 
 	// 未布局（Visible 返回 0,-1）：只预取初始行（含 overscan 余量）。
 	const cols = 3
-	a.prefetchCardCovers(&st, cards, cols)
+	a.prefetchCardCovers(nil, &st, nil, cards, cols)
 	got := asked.unique()
 	want := (initialCardRows + 1) * cols
 	if got != want {

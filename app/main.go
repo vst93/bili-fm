@@ -1110,11 +1110,11 @@ func actionFailText(action string, err error) string {
 //
 // 规矩（按顺序）：
 //
-//	1. 错误串本身已经是中文（我们自己的 API 层文案，如「未登录」「未找到相关视频」）
-//	   → 原样用：它本来就是写给用户看的，比任何归类都准；
-//	2. 网络类特征（dial / timeout / EOF / TLS / 5xx …）→ 网络提示；
-//	3. 登录类特征（unauthorized / 401 / 403）→ 登录提示；
-//	4. 其余（JSON 解析、HTTP 状态、框架英文串）→ 通用「请稍后重试」。
+//  1. 错误串本身已经是中文（我们自己的 API 层文案，如「未登录」「未找到相关视频」）
+//     → 原样用：它本来就是写给用户看的，比任何归类都准；
+//  2. 网络类特征（dial / timeout / EOF / TLS / 5xx …）→ 网络提示；
+//  3. 登录类特征（unauthorized / 401 / 403）→ 登录提示；
+//  4. 其余（JSON 解析、HTTP 状态、框架英文串）→ 通用「请稍后重试」。
 //
 // 返回值不带「失败」二字，由调用方拼；空错误返回空串。
 func failReason(err error) string {
@@ -1394,6 +1394,17 @@ func upHasMore(apiHasMore bool, nextOffset, askedOffset string) bool {
 	return nextOffset != "" && nextOffset != askedOffset
 }
 
+// upPageReplaces 报告这一批 UP 视频卡片是「首屏整批替换」还是「翻页追加」。
+//
+// 不能只看 offset 是否为空：游标为空时接口仍可能报 has_more（或我们为首屏
+// 兜底再试一页），第二次请求的 offset 同样是空 —— 若继续按首屏替换，旧的
+// 卡片会被换掉、added 重新变成满页，HasMore 永远真，滚到底就会无限请求。
+// 列表已经有卡片时一律追加，重复项由 setCards 的 Bvid 去重挡掉，added=0
+// 自然把 HasMore 关掉。
+func upPageReplaces(offset string, existing int) bool {
+	return offset == "" && existing == 0
+}
+
 // loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
 // mid 由调用方在主线程取好传进来，不在网络 goroutine 里读界面状态。
 func (c *controller) loadUpVideos(mid int64, offset string) {
@@ -1410,8 +1421,21 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 				return
 			}
 			cards := toUpCards(l.Items)
-			setCards(list, cards, offset == "")
-			list.HasMore = upHasMore(l.HasMore, l.Offset, offset)
+			replace := upPageReplaces(offset, len(list.Cards))
+			added := setCards(list, cards, replace)
+			// 原版 upVideoList 的续页判据只看「还有没有 offset」，我们的
+			// upHasMore 已覆盖 has_more=false 但游标前进的情况。这里再加一条
+			// 首屏兜底：第一页确实带来了新卡就先允许再试一页 —— 用户报的
+			// 「UP 空间不自动加载」可能是首屏 has_more/offset 恰好都为空；
+			// 下一次仍取到同一页时 added=0 会立刻停住，不会无限循环。
+			more := upHasMore(l.HasMore, l.Offset, offset)
+			if offset == "" && added > 0 {
+				more = true
+			}
+			if added == 0 || len(cards) == 0 {
+				more = false
+			}
+			list.HasMore = more
 			c.app.UpOffset = l.Offset
 			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -1757,14 +1781,20 @@ func (c *controller) finishWinControl() {
 const maxRetainedCards = 128
 
 // setCards 写入列表卡片：replace 为真时替换，否则追加；无论哪种都保持上限。
-func setCards(list *view.List, cards []view.Card, replace bool) {
+// 返回**实际新增**的卡片数（append 时按 Bvid 去重；重复页/接口同一页返回
+// 两次时调用方据此停住翻页，避免「滚到底 → 追加重复项 → 永远还有更多」）。
+func setCards(list *view.List, cards []view.Card, replace bool) int {
+	added := 0
 	if replace {
-		list.Cards = cards
+		list.Cards = dedupeCards(nil, cards)
+		added = len(list.Cards)
 		// 整批替换（换关键词 / 刷新 / 换抽屉）时把虚拟网格的滚动复位到顶；
 		// 追加翻页不动它，锚点跟着旧内容。
 		list.ResetGrid()
 	} else {
-		list.Cards = append(list.Cards, cards...)
+		before := len(list.Cards)
+		list.Cards = dedupeCards(list.Cards, cards)
+		added = len(list.Cards) - before
 	}
 	if len(list.Cards) > maxRetainedCards {
 		list.Cards = list.Cards[len(list.Cards)-maxRetainedCards:]
@@ -1772,6 +1802,31 @@ func setCards(list *view.List, cards []view.Card, replace bool) {
 		// 卡片当「已加载的全集」用（丢了头部就只能从第 1 页重拉）。
 		list.Dropped = true
 	}
+	return added
+}
+
+// dedupeCards 把 extra 追加到 base，跳过 Bvid 已存在的卡片（Bvid 为空时
+// 无法判重，照常追加）。替换与追加走同一条去重规则，避免接口重试/翻页把
+// 同一张卡塞两次。
+func dedupeCards(base, extra []view.Card) []view.Card {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, c := range base {
+		if c.Bvid != "" {
+			seen[c.Bvid] = struct{}{}
+		}
+	}
+	out := make([]view.Card, 0, len(base)+len(extra))
+	out = append(out, base...)
+	for _, c := range extra {
+		if c.Bvid != "" {
+			if _, ok := seen[c.Bvid]; ok {
+				continue
+			}
+			seen[c.Bvid] = struct{}{}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func (c *controller) loadSection(section string, page int) {
@@ -2058,6 +2113,10 @@ func (c *controller) selectFolder(id int64) {
 func (c *controller) loadMore() {
 	a := c.app
 	switch a.Drawer {
+	case view.DrawerSearch:
+		// 搜索是页码翻页，不能落到 default 的分区加载（那会把抽屉内容
+		// 换成当前分区的列表）。
+		c.searchMore(a.ListFor(view.DrawerSearch).Page + 1)
 	case view.DrawerUp:
 		if a.UpTab == view.UpTabSeries {
 			return
@@ -2165,8 +2224,9 @@ var bvRe = regexp.MustCompile(`BV[a-zA-Z0-9]+`)
 
 func (c *controller) search(query string) {
 	a := c.app
+	q := strings.TrimSpace(query)
 	// 空关键词：清结果并关抽屉（原版 handleSearch 的空值分支）。
-	if q := strings.TrimSpace(query); q == "" {
+	if q == "" {
 		a.Query = ""
 		list := a.ListFor(view.DrawerSearch)
 		list.Cards, list.HasMore, list.Loading = nil, false, false
@@ -2175,12 +2235,18 @@ func (c *controller) search(query string) {
 		a.Win.Update(func() {})
 		return
 	}
-	// 请求代号：慢的旧响应不得覆盖新的（原版 searchRequestIdRef）。
+	a.Query = q
+	// 请求代号：慢的旧响应不得覆盖新的（原版 searchRequestIdRef）。翻页请求
+	// 也带着同一个代号，换关键词后旧的第 N 页响应会被丢掉。
 	a.SearchRequestID++
 	reqID := a.SearchRequestID
 
 	list := a.ListFor(view.DrawerSearch)
 	list.Loading = true
+	list.LoadErr = false
+	// 新搜索/换排序期间先关掉翻页闸门：旧的 HasMore 属于上一批结果，
+	// 若用户在响应回来前滚到底，会带着旧页码去请求新关键词。
+	list.HasMore = false
 	a.Drawer = view.DrawerSearch
 	a.Win.Update(func() {})
 
@@ -2191,36 +2257,97 @@ func (c *controller) search(query string) {
 	}
 
 	go func() {
-		results := c.bl.SearchVideo(query, order)
-		items := make([]any, 0, len(results))
-		for _, r := range results {
-			items = append(items, map[string]any{
-				"bvid":     r.Bvid,
-				"aid":      float64(r.Aid),
-				"pic":      r.PictureURL,
-				"title":    r.Title,
-				"duration": parseDurText(r.Length),
-				"owner":    map[string]any{"name": r.Author},
-				"stat":     map[string]any{"view": parseCountText(r.Views)},
-				// 原版搜索卡片的 meta 三列：作者/播放量/发布时间。
-				"pubdate": metaDateText(r.Date),
-			})
-		}
+		results, hasMore, err := c.bl.SearchVideoPage(q, order, 1)
 		a.Win.Update(func() {
 			if a.SearchRequestID != reqID {
 				return // 已经发起了更新的搜索
 			}
 			list.Loading = false
-			// 运行态上限（原版 MAX_RETAINED_LIST_ITEMS）。
-			// 搜索结果的播放量原版直出 String(views)，不做万/亿缩写。
-			cards := toCards(items, true)
-			if len(cards) > maxRetainedCards {
-				cards = cards[:maxRetainedCards]
+			if err != nil {
+				list.LoadErr = false // 首屏失败仍走空态，不显示翻页重试行
+				list.HasMore = false
+				a.NotifyType("error", actionFailText("搜索", err))
+				return
 			}
-			list.Cards = cards
-			list.HasMore = false
+			// 搜到一半换了排序 / 又搜了一次时，reqID 已挡住旧响应；这里只
+			// 处理当前这一次。整批替换会顺带把虚拟网格的滚动复位到顶部。
+			setCards(list, searchResultCards(results), true)
+			list.Page = 1
+			list.HasMore = hasMore && len(results) > 0
 			list.LoadErr = false
-			a.Status = fmt.Sprintf("搜索「%s」：%d 条", query, len(list.Cards))
+			a.Status = fmt.Sprintf("搜索「%s」：%d 条", q, len(list.Cards))
+		})
+	}()
+}
+
+// searchResultCards 把搜索接口结果转成卡片（搜索卡片的播放量原版直出
+// String(views)，不做万/亿缩写，所以 toCards 的 rawViews 参数为 true）。
+func searchResultCards(results []bilibili.SearchResult) []view.Card {
+	items := make([]any, 0, len(results))
+	for _, r := range results {
+		items = append(items, map[string]any{
+			"bvid":     r.Bvid,
+			"aid":      float64(r.Aid),
+			"pic":      r.PictureURL,
+			"title":    r.Title,
+			"duration": parseDurText(r.Length),
+			"owner":    map[string]any{"name": r.Author},
+			"stat":     map[string]any{"view": parseCountText(r.Views)},
+			// 原版搜索卡片的 meta 三列：作者/播放量/发布时间。
+			"pubdate": metaDateText(r.Date),
+		})
+	}
+	return toCards(items, true)
+}
+
+// searchMore 拉搜索结果的下一页（滚到底自动翻页）。
+//
+// 之前搜索固定只请求第 1 页、并把 HasMore 写死为 false —— 用户报
+// 「搜索页面滚到底没有自动加载」的直接原因。这里与其它列表同一个
+// canvas：追加、失败可重试、换关键词/排序后旧响应作废。
+func (c *controller) searchMore(page int) {
+	a := c.app
+	if page < 2 || a.Drawer != view.DrawerSearch {
+		return
+	}
+	q := a.Query
+	if q == "" {
+		return
+	}
+	list := a.ListFor(view.DrawerSearch)
+	if list.Loading || !list.HasMore {
+		return
+	}
+	reqID := a.SearchRequestID
+	order := a.SortOrder
+	if order == "" {
+		order = view.SortTotal
+	}
+	// loadMore 由渲染帧调用，已经在主线程：直接置 Loading，下一帧的自动
+	// 翻页判定就会停住，不会一帧内重复发请求。
+	list.Loading = true
+	list.LoadErr = false
+
+	go func() {
+		results, hasMore, err := c.bl.SearchVideoPage(q, order, page)
+		a.Win.Update(func() {
+			// 期间换了关键词 / 排序，或关掉了搜索抽屉：这一页作废。
+			if a.SearchRequestID != reqID || a.Drawer != view.DrawerSearch {
+				return
+			}
+			list.Loading = false
+			if err != nil {
+				list.LoadErr = true
+				a.NotifyType("error", actionFailText("加载", err))
+				return
+			}
+			added := setCards(list, searchResultCards(results), false)
+			list.Page = page
+			// 接口重复返回同一页（或最后一页只剩重复项）时 added=0，
+			// 立刻停住，避免「滚到底每帧再请求一次」的风暴。
+			list.HasMore = hasMore && added > 0
+			list.LoadErr = false
+			a.Status = fmt.Sprintf("搜索「%s」：%d 条", q, len(list.Cards))
 		})
 	}()
 }

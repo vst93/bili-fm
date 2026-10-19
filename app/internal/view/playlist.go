@@ -150,7 +150,7 @@ func (a *App) playlistBody(c *ui.Context) {
 	if a.locateNow && a.Index >= 0 && a.Index < len(items) {
 		st.ScrollTo(a.Index, ui.Start)
 	}
-	a.prefetchPlaylistCovers(st, items)
+	a.prefetchPlaylistCovers(c, st, &l.rowsPrefetch, items)
 	a.holdListScroll(c, &a.playlistHold, st, &l.RowsScroll, true)
 	ui.List(c, st, len(items), func(i int) { a.playlistRow(c, i, items[i]) }).
 		FillWidth().Grow(1).Gap(4).Padding(8, 24).TrackScroll(&l.RowsScroll)
@@ -181,7 +181,7 @@ const playlistInitialRows = 8
 // `<img loading="lazy">` 对滚出视口的图会取消加载；main 轮 31 也给播放列表
 // 行补了位图卸载）。Cancel 只退还在排队的请求，在途的照常入库，滚回来
 // 仍能直接命中。
-func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
+func (a *App) prefetchPlaylistCovers(c *ui.Context, st *ui.ListState, gate *prefetchGate, items []PlayItem) {
 	n := len(items)
 	first, last := st.Visible()
 	if last < first {
@@ -190,11 +190,16 @@ func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
 	visFirst, visLast := first, last+1
 	first = max(0, first-2)
 	last = min(n, last+3)
-	for i := first; i < last; i++ {
-		if i >= visFirst && i < visLast {
-			a.Images.Touch(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+	for i := visFirst; i < visLast && i < n; i++ {
+		a.Images.Touch(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+	}
+	// 与卡片网格同一条滚动节流：窗口稳定后才真正发请求（见 prefetchGate）。
+	if gate == nil || gate.stable(first, last) {
+		for i := first; i < last; i++ {
+			a.Images.Bitmap(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
 		}
-		a.Images.Bitmap(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+	} else if c != nil {
+		c.AnimationFrame() // 让稳定窗口的下一帧一定到来（同 prefetchWindowCovers）
 	}
 	// 窗口为空（n==0）时视为「没有请求过」，不取消 —— 与 cancelOffscreen
 	// 同一条约定，避免空列表把上一帧的请求全退掉。

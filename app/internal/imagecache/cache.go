@@ -7,6 +7,7 @@ package imagecache
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"io"
 	"net/http"
@@ -120,9 +121,11 @@ type entry struct {
 	tries int
 
 	// 抓取并发门的排队状态（mu 保护）：high 是优先级（Touch 可升级）；
-	// waiting 是在 fetch 的等名额循环里；cancelled 是被 Cancel 退队。
-	// 只约束「还在排队」的请求：已拿到名额在下载的不打断（见 Cancel）。
+	// waiting 是在 fetch 的等名额循环里；cancelled 是被 Cancel 退队/中止。
 	high, waiting, cancelled bool
+	// cancel 中止已经在下载的 HTTP 请求（拿到名额之后设置）。它让滚出窗口
+	// 的封面立刻让出并发名额，而不是占着 16 个名额等 15 秒超时。
+	cancel context.CancelFunc
 }
 
 // State 是一张图在缓存里的状态，供测试与诊断区分「没请求 / 在途 / 已就绪 /
@@ -475,7 +478,7 @@ func (c *Cache) Touch(rawURL string, width int) {
 	c.priority[k] = struct{}{}
 	// 新滚到的可见图如果在普通队里排队，当场升级：否则它要等所有先到的
 	// 屏外预取拿完名额（原版浏览器对滚到的图立即加载，不等前面的）。
-	if e := c.items[k]; e != nil && e.waiting && !e.high {
+	if e := c.items[k]; e != nil && e.waiting && !e.high && !e.cancelled {
 		e.high = true
 		c.waitLo--
 		c.waitHi++
@@ -485,10 +488,10 @@ func (c *Cache) Touch(rawURL string, width int) {
 	c.mu.Unlock()
 }
 
-// Cancel 把一张图的抓取请求退出队列（原版浏览器对滚出视口的图取消加载）：
-// 滚动后不再可见的屏外预取不应再占用并发名额。只退**还在排队**的：已拿到
-// 名额在途的下载照常完成（结果入库，将来滚回来直接命中；名额在完成时释放）。
-// 失败冷却不受影响：cancelled 不是失败，不记 tries / failedAt。
+// Cancel 取消一张图的抓取（原版浏览器对滚出视口的图取消加载）：滚动后
+// 不再可见的屏外预取不应再占用并发名额。排队中的退队，**已拿到名额在途的
+// 直接 abort HTTP 请求**（慢网下这是滚停后可见图立即开抓的关键）。取消不算
+// 失败，不记 tries / failedAt；滚回来会重新发起。
 func (c *Cache) Cancel(rawURL string, width int) {
 	if rawURL == "" {
 		return
@@ -497,67 +500,101 @@ func (c *Cache) Cancel(rawURL string, width int) {
 	c.mu.Lock()
 	delete(c.priority, k)
 	e := c.items[k]
-	if e == nil || !e.waiting || e.cancelled {
-		// 还没进队列（fetch 未启动）或已拿到名额 / 已退过：不做。前者由
-		// fetch 启动时再查一次 priority（见 fetch），滚出后不会被拉优先级。
+	if e == nil || !e.pending || e.cancelled {
 		c.mu.Unlock()
 		return
 	}
 	e.cancelled = true
-	if e.high {
-		e.high = false
-		c.waitHi--
-	} else {
-		c.waitLo--
+	cancel := e.cancel
+	if e.waiting {
+		if e.high {
+			e.high = false
+			c.waitHi--
+		} else {
+			c.waitLo--
+		}
+		c.slotCond.Broadcast()
 	}
-	c.slotCond.Broadcast()
+	c.mu.Unlock()
+	// 已经在下载的请求直接 abort：慢网下滚出视口的旧封面不应继续占着
+	// 抓取名额，否则滚停后可见图要排队等它们超时/下载完（用户看到的
+	// 「图片疯狂闪动加载」）。排队中的请求没有 cancel 可用，acquire 会
+	// 看到 cancelled 后退队。
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// dropPending 把一条还没产出结果的抓取从缓存里删掉（取消 / 被新请求取代）。
+// 只删仍是同一个 entry 的条目，避免误删滚回来之后重新发起的新请求。
+func (c *Cache) dropPending(k key, e *entry) {
+	c.mu.Lock()
+	if cur := c.items[k]; cur == e {
+		delete(c.items, k)
+		for i, u := range c.order {
+			if u == k {
+				c.order = append(c.order[:i], c.order[i+1:]...)
+				break
+			}
+		}
+		if e.pending {
+			e.pending = false
+			c.loading--
+		}
+		e.cancel = nil
+	}
 	c.mu.Unlock()
 }
 
 func (c *Cache) fetch(rawURL string, width int) {
 	k := key{rawURL, width}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// 可见优先：Bitmap 发起时预取方已用 Touch 把可见窗口登记在 priority 里；
 	// 在这里查它决定排优先队（本轮可见）还是普通队（先到的屏外预取）。
 	c.mu.Lock()
 	e := c.items[k]
+	if e == nil || !e.pending {
+		c.mu.Unlock()
+		return
+	}
+	if e.cancelled {
+		c.mu.Unlock()
+		c.dropPending(k, e)
+		return
+	}
+	e.cancel = cancel
 	_, high := c.priority[k]
 	if high {
 		delete(c.priority, k)
 	}
 	c.mu.Unlock()
+
 	release := c.acquire(e, high)
 	if release == nil {
-		// 排队期间被 Cancel 退队（滚出窗口）：请求作废。条目还没产出位图、
-		// 也没进失败冷却，直接从缓存删掉 —— 等效于从未请求过，滚回来时
-		// Bitmap 会重新发起。不清的话它永远停在 pending：不可淘汰、不被
-		// 重试、Pending() 永不清零（实测挂死 TestCancelQueuedFetch 的根因）。
-		// 重新 Bitmap 不会产生新条目（pending 时代它是空操作），所以这里
-		// 删除不会孤儿化任何新请求。
-		c.mu.Lock()
-		if cur := c.items[k]; cur == e {
-			delete(c.items, k)
-			for i, u := range c.order {
-				if u == k {
-					c.order = append(c.order[:i], c.order[i+1:]...)
-					break
-				}
-			}
-			if e.pending {
-				e.pending = false
-				c.loading--
-			}
-		}
-		c.mu.Unlock()
+		// 排队期间被 Cancel 退队（滚出窗口）：请求作废。
+		c.dropPending(k, e)
 		return
 	}
 	defer release()
-	bmp, small, err := c.download(ThumbURL(rawURL, width))
-	if err != nil && isAnimatedWebPError(err) {
+	if ctx.Err() != nil {
+		c.dropPending(k, e)
+		return
+	}
+
+	bmp, small, err := c.download(ctx, ThumbURL(rawURL, width))
+	if err != nil && isAnimatedWebPError(err) && ctx.Err() == nil {
 		// 动图 webp 解不出来（x/image/webp 不支持 ANIM/ANMF，见 decodeWebP）。
 		// 换 @<w>w.jpg 让服务端转码成 JPEG 再抓一次 —— B 站图床对任意后缀
 		// 都会重新编码。只重试一次；头像这类动图从此就绪，不再反复失败。
 		c.statsFail("动图转码")
-		bmp, small, err = c.download(c.transcodeURL(rawURL, width))
+		bmp, small, err = c.download(ctx, c.transcodeURL(rawURL, width))
+	}
+	if ctx.Err() != nil {
+		// Cancel 在下载中把请求 abort 了：这不是失败，不记冷却，也不入库。
+		c.dropPending(k, e)
+		return
 	}
 	if err != nil {
 		c.fail(rawURL, width, err.Error(), errKind(err))
@@ -571,8 +608,8 @@ func (c *Cache) fetch(rawURL string, width int) {
 
 // download 抓一个图片地址并解码成位图 + 氛围光小图。errKind(err) 给出失败
 // 分类（与 Stats 的字段一一对应）。
-func (c *Cache) download(src string) (*ui.Bitmap, *image.RGBA, error) {
-	req, err := http.NewRequest("GET", src, nil)
+func (c *Cache) download(ctx context.Context, src string) (*ui.Bitmap, *image.RGBA, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", src, nil)
 	if err != nil {
 		return nil, nil, kindErr(errReason("请求构造", err), statReqErr)
 	}
@@ -717,6 +754,24 @@ func (c *Cache) fail(rawURL string, width int, reason string, kind int) {
 func (c *Cache) finish(rawURL string, width int, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
 	k := key{rawURL, width}
 	c.mu.Lock()
+	if e := c.items[k]; e != nil && e.cancelled {
+		// 下载完成与 Cancel 赛跑：以 Cancel 为准，不入库、不计成败。条目可能
+		// 已经被 dropPending 删掉了（此时 e 为 nil），这里只处理还留着的情况。
+		delete(c.items, k)
+		for i, u := range c.order {
+			if u == k {
+				c.order = append(c.order[:i], c.order[i+1:]...)
+				break
+			}
+		}
+		if e.pending {
+			e.pending = false
+			c.loading--
+		}
+		e.cancel = nil
+		c.mu.Unlock()
+		return
+	}
 	if !failed {
 		c.stats.Ready++
 	}

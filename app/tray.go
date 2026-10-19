@@ -43,32 +43,57 @@ func trayIconFor(goos string) (data []byte, template bool) {
 // 所以托盘是唯一的恢复入口，必须装成功。
 func (c *controller) setupTray() {
 	icon, template := trayIcon()
+	// 菜单先在手里建好，怎么显示按平台分流：mygo 的 Tray 一旦 SetMenu，
+	// macOS 的左键就会被 NSStatusItem 的菜单吃掉；AppIndicator（Linux）
+	// 更是只能显示菜单、拿不到点击事件。所以：
+	//   Windows —— 左键 OnClick 显示主窗口，右键弹菜单（THBN 左键不拦菜单）；
+	//   macOS   —— 不常驻菜单，左键 OnClick 显示主窗口，右键临时挂菜单再弹；
+	//   Linux   —— 只能常驻菜单（点击即菜单），第一项就是「显示主窗口」。
+	// 这样三个平台点 logo 都能回到窗口（Linux 多一步菜单项）。
+	menu := mygo.NewMenu([]*mygo.MenuItem{
+		{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("show", c.showWindow) }},
+		mygo.Separator(),
+		{Label: "播放 / 暂停", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("togglePlay", c.togglePlay) }},
+		{Label: "上一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("prev", func() { c.step(-1) }) }},
+		{Label: "下一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("next", func() { c.step(1) }) }},
+		mygo.Separator(),
+		// 「检查更新」：与设置菜单 / 原生菜单栏走同一条应用内流程
+		//（弹液态玻璃对话框，而不是 updater 插件的原生窗口）。
+		// 所有菜单项一律经 trayAction 派发（线程 + 日志一条路），
+		// 不要有「这一项直接调」的例外——那正是 Linux 上时好时坏的来源。
+		{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("checkUpdate", c.menuCheckUpdate) }},
+		mygo.Separator(),
+		// 用自己的退出项而不是 RoleQuit：RoleQuit 走 App.Quit()，
+		// 而「关窗=隐藏到托盘」的 OnClose 会把它拦掉（Role 那条路
+		// 不经过我们的 quit，看不到 quitting 标志）。这里统一走 c.quit。
+		{Label: "退出 bili-FM", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("quit", c.quit) }},
+	})
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		Icon:           icon,
 		IconIsTemplate: template, // macOS 会按菜单栏明暗着色
 		ToolTip:        "bili-FM",
-		Menu: mygo.NewMenu([]*mygo.MenuItem{
-			{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("show", c.showWindow) }},
-			mygo.Separator(),
-			{Label: "播放 / 暂停", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("togglePlay", c.togglePlay) }},
-			{Label: "上一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("prev", func() { c.step(-1) }) }},
-			{Label: "下一集", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("next", func() { c.step(1) }) }},
-			mygo.Separator(),
-			// 「检查更新」：与设置菜单 / 原生菜单栏走同一条应用内流程
-			//（弹液态玻璃对话框，而不是 updater 插件的原生窗口）。
-			// 所有菜单项一律经 trayAction 派发（线程 + 日志一条路），
-			// 不要有「这一项直接调」的例外——那正是 Linux 上时好时坏的来源。
-			{Label: "检查更新…", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("checkUpdate", c.menuCheckUpdate) }},
-			mygo.Separator(),
-			// 用自己的退出项而不是 RoleQuit：RoleQuit 走 App.Quit()，
-			// 而「关窗=隐藏到托盘」的 OnClose 会把它拦掉（Role 那条路
-			// 不经过我们的 quit，看不到 quitting 标志）。这里统一走 c.quit。
-			{Label: "退出 bili-FM", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("quit", c.quit) }},
-		}),
+		// 刻意不在这里传 Menu：Windows/macOS 要留出左键（见上）。
 	})
 	if err != nil {
 		log.Printf("托盘创建失败（关窗后将无法恢复窗口）: %v", err)
 		return
+	}
+	// Windows/macOS：左键（单击或双击）都显示主窗口。双击会回调两次，
+	// showWindow 幂等，不会把窗口又藏起来。
+	tray.OnClick(func() { c.trayAction("show", c.showWindow) })
+	// 右键弹菜单。Windows 原生托盘只在菜单常驻时才自动弹（这里没设），
+	// 所以三个平台统一由这条回调临时挂菜单再弹；Linux 没有点击事件，
+	// 走下面的常驻菜单。
+	tray.OnRightClick(func() {
+		c.trayAction("menu", func() {
+			tray.SetMenu(menu)
+			defer tray.SetMenu(nil)
+			tray.PopUpMenu()
+		})
+	})
+	if runtime.GOOS == "linux" {
+		// AppIndicator 的点击只能弹菜单：保持常驻，第一项是「显示主窗口」。
+		tray.SetMenu(menu)
 	}
 	// 必须留住托盘本身：Linux（AppIndicator）的原生托盘不持有 mygo 的
 	// TrayHandler，而 mygo 的菜单派发（menuItems）只对 MenuItem 持弱引用，
