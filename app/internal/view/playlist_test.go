@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"image"
 	"strings"
 	"testing"
@@ -661,5 +662,42 @@ func TestPlaylistRowHoverAnimTokens(t *testing.T) {
 	}
 	if got := playlistRowPaintAt(rest, hover, 1); got.From != hover.From || !got.Ring {
 		t.Errorf("k=1 应逐值等于悬停，得到 %v（ring=%v）", got.From, got.Ring)
+	}
+}
+
+// TestPlaylistPrefetchTouchesVisibleAndCancelsOffscreen 钉住播放列表的缩略图
+// 预取窗口：可见行先 Touch（可见优先），滚出窗口的行要 Cancel。
+//
+// 回归点：播放列表是唯一漏掉 Cancel 的长列表 —— 快速拖动时途经的每一屏
+// 缩略图都排进抓取队列，滚停后仍会继续下载/解码屏外位图（瞬时内存尖峰，
+// 也会把当前可见的缩略图挤出 LRU）。原版浏览器 `<img loading="lazy">` 对
+// 滚出视口的图会取消加载；main 轮 31 也给播放列表行补了位图卸载。
+func TestPlaylistPrefetchTouchesVisibleAndCancelsOffscreen(t *testing.T) {
+	a := NewApp(func() {})
+	asked := newRecordingCache()
+	a.Images = asked
+	a.Drawer = DrawerPlaylist
+	a.PlaylistTab = ListUser
+	a.PlayingPlaylist = ListSeries // 不让第 0 行进「当前项」分支，只测预取
+	items := make([]PlayItem, 120)
+	for i := range items {
+		items[i] = PlayItem{ID: fmt.Sprintf("id-%d", i), Part: "P", Title: "T",
+			Pic: fmt.Sprintf("cover%d", i)}
+	}
+	a.Playlist = items
+
+	tt := shellTesterSize(t, a, 800, 600)
+	if !asked.touchedURL("cover0") {
+		t.Fatal("首屏可见的 cover0 应被 Touch（可见优先）")
+	}
+	if asked.canceledURL("cover0") {
+		t.Fatal("首屏可见的 cover0 不该被 Cancel")
+	}
+
+	// 滚到列表远处：首屏缩略图已滚出预取窗口，排队中的请求应被取消。
+	tt.Scroll(490, 400, 0, 100000)
+	tt.Frame()
+	if !asked.canceledURL("cover0") {
+		t.Fatal("滚出预取窗口后 cover0 应被 Cancel（否则屏外缩略图仍会下载/解码）")
 	}
 }

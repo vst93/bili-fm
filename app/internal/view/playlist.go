@@ -172,15 +172,39 @@ const playlistInitialRows = 8
 
 // prefetchPlaylistCovers 只给可见行（外加上下几行 overscan）预取缩略图。
 // 与 prefetchCardCovers 同一思路：构建只 Get，请求只按上一帧的可见窗口发。
+//
+// 可见行先 Touch 再 Bitmap：与卡片网格同一条可见优先语义（原版浏览器
+// loading=lazy 的可见图先于屏外预取）。滚出预取窗口的行还要 Cancel ——
+// 此前播放列表是唯一漏掉这一步的长列表：快速拖动时，途经的每一屏缩略图
+// 都排进抓取队列，滚停后仍会一张张下载、解码，把 192w 的位图塞进 LRU，
+// 既是瞬时内存尖峰，也会把当前可见的缩略图挤出缓存（原版 Tauri 的
+// `<img loading="lazy">` 对滚出视口的图会取消加载；main 轮 31 也给播放列表
+// 行补了位图卸载）。Cancel 只退还在排队的请求，在途的照常入库，滚回来
+// 仍能直接命中。
 func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
+	n := len(items)
 	first, last := st.Visible()
 	if last < first {
-		first, last = 0, min(len(items), playlistInitialRows)
+		first, last = 0, min(n, playlistInitialRows)
 	}
+	visFirst, visLast := first, last+1
 	first = max(0, first-2)
-	last = min(len(items), last+3)
+	last = min(n, last+3)
 	for i := first; i < last; i++ {
+		if i >= visFirst && i < visLast {
+			a.Images.Touch(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+		}
 		a.Images.Bitmap(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+	}
+	// 窗口为空（n==0）时视为「没有请求过」，不取消 —— 与 cancelOffscreen
+	// 同一条约定，避免空列表把上一帧的请求全退掉。
+	if n == 0 || last <= first {
+		return
+	}
+	for i := 0; i < n; i++ {
+		if i < first || i >= last {
+			a.Images.Cancel(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+		}
 	}
 }
 

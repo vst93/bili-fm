@@ -160,6 +160,8 @@ type recordingCache struct {
 	order []string
 	// cancels 记录被 Cancel 退队的 URL（验证滚出窗口取消预取）。
 	cancels []string
+	// touches 记录被 Touch（本轮可见）的 URL。
+	touches []string
 	// widths 记录每个 URL 最后一次请求用的宽度；calls 记录全部调用
 	//（同一 URL 可能被不同调用点用不同宽度请求，如播放器封面 480 +
 	// 氛围光 320）。
@@ -209,7 +211,26 @@ func (r *recordingCache) Get(url string, width int) *ui.Bitmap {
 
 func (r *recordingCache) Pending() int { return 0 }
 
-func (r *recordingCache) Touch(url string, width int) {}
+func (r *recordingCache) Touch(url string, width int) {
+	if url == "" {
+		return
+	}
+	r.mu.Lock()
+	r.touches = append(r.touches, url)
+	r.mu.Unlock()
+}
+
+// touchedURL 报告某 URL 是否被 Touch（可见优先）过。
+func (r *recordingCache) touchedURL(url string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, u := range r.touches {
+		if u == url {
+			return true
+		}
+	}
+	return false
+}
 
 func (r *recordingCache) Retain(url string, width int) {
 	if url == "" {
