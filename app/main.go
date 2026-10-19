@@ -2637,6 +2637,11 @@ func (c *controller) seek(seconds float64) {
 // runSeek 真正执行一次 seek；完成后若有排队的/期间新来的目标，补一次。
 func (c *controller) runSeek(seconds float64) {
 	// 跳转等于改了断点，立刻补写 + 补报（原版把 seek 当关键事件）。
+	// 拖回开头（≤ 0.5 秒）是另一回事：断点要**归零**（本地 + 云端），否则
+	// 下次打开这条视频又从中间续播（原版 onSeeked 的 allowZero 分支）。
+	if seconds <= rewindThresholdSeconds {
+		c.rewindProgress()
+	}
 	c.flushProgress(seconds)
 	c.syncMediaPosition(seconds)
 	go func() {

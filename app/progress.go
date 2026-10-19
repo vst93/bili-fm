@@ -255,6 +255,44 @@ func (c *controller) finishProgress() {
 	c.reportProgress(t.Aid, t.Cid, -1)
 }
 
+// rewindThresholdSeconds 是「拖回开头」的判定阈值（秒）。原版 player.tsx 的
+// onSeeked 用 `event.currentTarget.currentTime <= 0.5` 决定要不要把云端断点
+// 归零（reportCloudProgress(currentTime, true, allowZero=true)）。
+const rewindThresholdSeconds = 0.5
+
+// rewindProgress 在用户把进度条拖回**开头**时把断点归零。
+//
+// 原版 `<audio>` 的 onSeeked 在 currentTime ≤ 0.5 时调
+// `reportCloudProgress(t, true, true)`（main:src/components/player.tsx:1171
+// 附近的 onSeeked）：第三参 allowZero 就是为了让这一笔 0 **不被**
+// 「startup/pause 的 0 不许覆盖已有断点」那条守卫吞掉，从而把服务端的断点
+// 真正重置到 0。原生版此前没有对应分支：flushProgress/trackResume 都在
+// `pos <= 0` 处直接 return，于是「拖回开头」只改了当前播放位置，本地断点与
+// 云端断点仍停在旧值 —— 下次打开这条视频又从中间续播。
+//
+// 本地断点一并清掉：原版只发云端 0（本地 >0 才写），但 `applyResumeProgress`
+// 取 `max(cloud, local)`，本地旧值会把云端的 0 盖回去，等于白重置；原生版的
+// resolveResume 同样取较大者，所以这里必须两边一起清。
+//
+// 隐身模式下不发云端请求（cloudProgressOn），本地断点照清。
+func (c *controller) rewindProgress() {
+	t := c.app.Current()
+	if t == nil || t.Cid == 0 {
+		return
+	}
+	c.clearResume(t.Aid, t.Cid)
+	if c.finishedKey == mediaKey(t.Aid, t.Cid) {
+		// 已经发过「已看完」的那条：现在从头重听，不再拦后续进度写入。
+		c.finishedKey = ""
+	}
+	if !c.cloudProgressOn() {
+		return
+	}
+	// 这一笔 0 是独立事件，别被 30 秒节流窗口挡住。
+	c.reportedKey, c.reportedAt = "", time.Time{}
+	c.reportProgress(t.Aid, t.Cid, 0)
+}
+
 // clearResume 把这一集的断点清掉（听完 / 手动从头播）。
 func (c *controller) clearResume(aid, cid int64) {
 	points := c.resumePoints()

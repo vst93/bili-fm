@@ -172,6 +172,50 @@ func TestOnEndedWiringIncludesFinishProgress(t *testing.T) {
 	}
 }
 
+// TestRewindProgressResetsResume 钉住「把进度条拖回开头 → 断点归零」：
+// 原版 `<audio>` 的 onSeeked 在 currentTime ≤ 0.5 时用 allowZero 发一笔 0，
+// 把服务端断点真正重置；原生版此前 `pos <= 0` 直接 return，拖回开头只改了
+// 当前位置，本地/云端断点仍停在旧值 —— 下次打开又从中间续播。
+func TestRewindProgressResetsResume(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{Incognito: true} // 隐身：不发网络，本地断点照清
+	a.Queue = []view.Track{{Aid: 11, Cid: 12}}
+	a.Index, a.Dur = 0, 300
+	c := &controller{app: a, kv: kv}
+
+	c.saveResumePoint(mediaKey(11, 12), 120)
+	c.finishedKey = mediaKey(11, 12) // 已发过「已看完」的那条也要能重听
+	c.rewindProgress()
+
+	if got := c.localResumePoint(mediaKey(11, 12)); got != 0 {
+		t.Errorf("拖回开头后本地断点 = %v，应为 0", got)
+	}
+	if c.finishedKey != "" {
+		t.Errorf("拖回开头后 finishedKey = %q，应清空（否则后续进度全被拦）", c.finishedKey)
+	}
+	// 反证：中间位置的一次 seek 不该清断点。
+	c.saveResumePoint(mediaKey(11, 12), 120)
+	c.flushProgress(120)
+	if got := c.localResumePoint(mediaKey(11, 12)); got != 120 {
+		t.Errorf("中间位置 seek 后本地断点 = %v，应为 120（不能被归零逻辑误伤）", got)
+	}
+}
+
+// TestRunSeekRewindThreshold 源码级断言：runSeek 在 0.5 秒阈值内调
+// rewindProgress，且阈值与原版 onSeeked 的 `<= 0.5` 一致。
+func TestRunSeekRewindThreshold(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	if !srcContains(flat, "ifseconds<=rewindThresholdSeconds{c.rewindProgress()}") {
+		t.Error("runSeek 没有在拖回开头（≤ 0.5s）时调 rewindProgress")
+	}
+	if rewindThresholdSeconds != 0.5 {
+		t.Errorf("rewindThresholdSeconds = %v，原版 onSeeked 是 <= 0.5", rewindThresholdSeconds)
+	}
+}
+
 // TestFinishedKeyBlocksOverwrite 钉住「播完发出的 -1 不会被紧随其后的断点补报
 // 盖回去」：handleEnded → step(1) 会先 flushProgress（末尾位置），若没有这道
 // 闸门，服务端看到的最后一笔又变成「已看 99%」而不是「已看完」。
