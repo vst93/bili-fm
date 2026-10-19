@@ -25,7 +25,6 @@ import (
 	"os"
 	"regexp"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -141,6 +140,7 @@ func main() {
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
 	repliesOnStart := flag.Int("replies", 0, "注入 N 条假评论并打开评论 tab（调试用）")
+	memStats = flag.Bool("memstats", false, "每 15 秒打一行内存构成（Go 堆 / 进程 RSS / 位图缓存），排查内存问题用")
 	sponsorOnStart := flag.Int("sponsor", 0, "注入 N 段假广告段标记（调试用）")
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
@@ -228,6 +228,10 @@ func main() {
 	mygo.BindAs("Video", video.NewService(c.vid))
 
 	mygo.App.WhenReady(func() {
+		// 内存策略：收紧 GC 目标 + 给视频弹窗的 WebView2 加内存向浏览器参数。
+		// 都必须赶在第一个窗口 / 第一个 webview 之前（见 memory.go）。
+		applyMemoryTuning()
+		applyWebViewArgs()
 		opts := mygo.WindowOptions{
 			Title: "bili-FM",
 			// 旧版默认窗口就是 800×600（src-tauri/src/lib.rs 的 inner_size）。
@@ -514,6 +518,8 @@ func main() {
 		// Windows 任务栏缩略图工具栏（悬停任务栏图标时的 上一首/播放暂停/下一首）；
 		// 其它平台 no-op。
 		c.setupTaskbar()
+		// 换抽屉 / -memstats 的内存观察（见 memory.go）。
+		c.memoryWatch()
 		if !*noKeys {
 			c.setupMediaKeys()
 		}
@@ -2828,6 +2834,8 @@ func (c *controller) openVideo() {
 		c.app.Win.Update(func() {})
 		return
 	}
+	// 马上要多背一整套 WebView2：先把原生侧的闲页还给系统（见 memory.go）。
+	trimMemory()
 	// 弹窗自带声音：先把音频引擎停下来，避免双声。失败时再恢复。
 	wasPlaying := c.app.Playing
 	c.mp.Pause()
@@ -2876,19 +2884,6 @@ func (c *controller) closeVideo() {
 	c.app.Win.Update(func() {})
 	trimMemory()
 }
-
-// trimMemory 把 Go 的堆立刻还给操作系统。
-//
-// 为什么需要它：Go 的堆只涨到「下次 GC 的目标」才回收，而被丢弃的位图/列表
-// 数据留下的空页在 Windows 上仍然算进进程的私有工作集（任务管理器看到的数字
-// 就是它）。用户实测「多切几个视频、多翻几个抽屉后 315MB」里，有一份是这种
-// 「已经没人引用、但还没还给系统」的页。两个时刻值得主动还：
-//
-//   - 视频弹窗关闭：刚丢掉整窗的渲染缓存与视频调度的临时缓冲；
-//   - 窗口隐藏到托盘：用户已经不看界面了，早还晚还都一样。
-//
-// 异步跑（FreeOSMemory 会同步做一次完整 GC），不挡界面线程。
-func trimMemory() { go debug.FreeOSMemory() }
 
 // ---------------------------------------------------------------- 小工具
 
