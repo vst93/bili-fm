@@ -391,9 +391,19 @@ type pipeline struct {
 	// procEOF 表示输入已到末端（生产者在 procMu 内读写）。
 	procEOF bool
 
-	mu      sync.Mutex
-	ready   []byte
+	mu    sync.Mutex
+	ready []byte
 	readyAt int
+
+	// raw 是「解码 → 变速 → 重采样」之后、**还没过均衡**的 float32 队列（大缓冲，
+	// 5 秒）。均衡放在紧挨声卡的一小段（eqTargetBytes ≈ 200ms）上做 —— 开关切换
+	// 只影响这 200ms，才会「立刻听见」；如果连 5 秒的大缓冲一起过均衡，切换要等
+	// 缓冲播完才生效（用户报的「切均衡有几秒延迟」正是这个）。
+	raw    []float32
+	rawAt  int
+	rawEOF bool
+	eqWake chan struct{}
+
 	started bool
 	eof     bool
 	err     error
@@ -426,7 +436,9 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 		rf: rf, rd: rd, dec: dec, info: info,
 		channels: info.Channels,
 		ws:       NewWSOLA(info.Channels, speed, 0),
-		eq:       NewCompressor(info.Channels, info.SampleRate),
+		// 均衡在重采样之后跑，采样率用**输出**采样率。
+		eq:     NewCompressor(info.Channels, rate),
+		eqWake: make(chan struct{}, 1),
 	}
 	if info.SampleRate != rate {
 		p.rs = newResampler(info.Channels, info.SampleRate, rate)
@@ -436,26 +448,43 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	}
 	p.stop, p.wake = make(chan struct{}), make(chan struct{}, 1)
 	go p.pump()
+	go p.finish()
 	return p, nil
 }
 
-// readAheadBytes 是就绪队列维持的水位：约 5 秒的 s16le 数据。
+// readAheadFrames 是 raw 队列（未过均衡）维持的水位：约 5 秒的采样帧。
 //
 // 原来是 1.5 秒，用户报「这一段播完了、下一段还没加载」的停顿：跨 512KB
-// 块边界时要等一次 HTTP 往返，CDN 抖一下（几百 ms 到几秒）就够把 1.5 秒
-// 的队列吃空，oto 只好补静音。5 秒 × 48kHz × 2ch × 2B ≈ 960KB，代价可以
-// 忽略；seek/切歌会重建流水线，不会因此变钝。
-func (p *pipeline) readAheadBytes() int {
-	return p.info.SampleRate * p.channels * 2 * 5
+// 块边界时要等一次 HTTP 往返，CDN 抖一下（几百 ms 到几秒）就够把缓冲吃空，
+// oto 只好补静音。5 秒 × 48kHz × 2ch × 4B ≈ 1.9MB，代价可以忽略；
+// seek/切歌会重建流水线，不会因此变钝。
+func (p *pipeline) readAheadFrames() int {
+	return p.eqRate() * 5
 }
 
-// pump 是后台生产者：把就绪队列填到水位，锁外做耗时的解码与网络读。
+// eqRate 是输出采样率（均衡/重采样之后的采样率）。
+func (p *pipeline) eqRate() int {
+	if p.rs != nil {
+		return p.rs.outRate
+	}
+	return p.info.SampleRate
+}
+
+// eqTargetBytes 是「已过均衡、等着被声卡搬走」的 s16le 字节数：约 200ms。
+// 均衡开关只对这段生效，所以切换延迟 ≈ 200ms（原版 Web Audio 是实时图，
+// 0 延迟；200ms 以内听感上就是「立刻」）。
+func (p *pipeline) eqTargetBytes() int {
+	return p.eqRate() * p.channels * 2 / 5
+}
+
+// pump 是后台生产者：把 raw 队列（未过均衡的 float32）填到水位，锁外做
+// 耗时的解码与网络读。均衡由 finish 在输出前的小段上做（见 eqTargetBytes）。
 func (p *pipeline) pump() {
-	water := p.readAheadBytes()
+	water := p.readAheadFrames()
 	for {
 		p.mu.Lock()
-		pending := len(p.ready) - p.readyAt
-		idle := pending >= water || p.eof
+		pending := (len(p.raw) - p.rawAt) / p.channels
+		idle := pending >= water || p.rawEOF
 		p.mu.Unlock()
 		if p.stopped() {
 			return
@@ -474,23 +503,89 @@ func (p *pipeline) pump() {
 			p.mu.Lock()
 			// 没带类别的都当解码失败：网络类的错误在 remote.go 里已带
 			// KindNetwork（WrapKind 会保留根因，不会被这里盖掉）。
-			p.err, p.eof = WrapKind(KindDecode, err), true
+			p.err, p.rawEOF = WrapKind(KindDecode, err), true
 			p.mu.Unlock()
+			p.nudgeEQ()
 			return
 		}
 		if len(chunk) > 0 {
 			p.mu.Lock()
-			p.ready = append(p.ready, chunk...)
-			p.started = true
+			p.raw = append(p.raw, chunk...)
 			p.mu.Unlock()
+			p.nudgeEQ()
 		}
 		if ended {
 			// 流真的到头了（不是"这块还没攒够"——那种情况 chunk 也是空的，
 			// 但后面还有数据）。之后进 idle 分支等 seek 唤醒。
 			p.mu.Lock()
-			p.eof = true
+			p.rawEOF = true
 			p.mu.Unlock()
+			p.nudgeEQ()
 		}
+	}
+}
+
+// finish 是「均衡 → s16le」这一段：从 raw 队列取一小段，过均衡后放进 ready。
+// 它保持 ready 只有 eqTargetBytes 那么多，所以均衡开关只影响这 200ms。
+func (p *pipeline) finish() {
+	const maxFrames = 1024
+	for {
+		p.mu.Lock()
+		pending := (len(p.raw) - p.rawAt) / p.channels
+		readyBytes := len(p.ready) - p.readyAt
+		if pending == 0 || readyBytes >= p.eqTargetBytes() {
+			if pending == 0 && p.rawEOF {
+				p.eof = true
+			}
+			p.mu.Unlock()
+			if p.stopped() {
+				return
+			}
+			select {
+			case <-p.stop:
+				return
+			case <-p.eqWake:
+			case <-time.After(10 * time.Millisecond):
+			}
+			continue
+		}
+		// 只取到「补满 ready 目标」为止，绝不把大缓冲一次全过完。
+		wantFrames := (p.eqTargetBytes() - readyBytes) / (p.channels * 2)
+		if wantFrames < 1 {
+			wantFrames = 1
+		}
+		if wantFrames > pending {
+			wantFrames = pending
+		}
+		if wantFrames > maxFrames {
+			wantFrames = maxFrames
+		}
+		n := wantFrames * p.channels
+		chunk := make([]float32, n)
+		copy(chunk, p.raw[p.rawAt:p.rawAt+n])
+		p.rawAt += n
+		if p.rawAt >= len(p.raw) {
+			p.raw, p.rawAt = p.raw[:0], 0
+		} else if p.rawAt > 1<<19 {
+			p.raw = append(p.raw[:0], p.raw[p.rawAt:]...)
+			p.rawAt = 0
+		}
+		p.mu.Unlock()
+
+		p.eq.Process(chunk)
+
+		p.mu.Lock()
+		p.ready = append(p.ready, appendS16(nil, chunk)...)
+		p.started = true
+		p.mu.Unlock()
+	}
+}
+
+// nudgeEQ 把 finish 从等待里叫醒。
+func (p *pipeline) nudgeEQ() {
+	select {
+	case p.eqWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -512,10 +607,10 @@ func (p *pipeline) nudge() {
 	}
 }
 
-// produce 解码一块、变速、均衡、重采样，返回 s16le 字节。
+// produce 解码一块、变速、重采样，返回 float32 采样（**还没过均衡**）。
 // 返回空切片**不代表结束** —— WSOLA 还没攒够一帧时就是空的（倍速越高、
 // 流式源每次给的越少，这种情况越多）。是否到头由 ended 单独报告。
-func (p *pipeline) produce() ([]byte, bool, error) {
+func (p *pipeline) produce() ([]float32, bool, error) {
 	p.procMu.Lock()
 	defer p.procMu.Unlock()
 	return p.produceLocked()
@@ -684,12 +779,14 @@ func (p *pipeline) seek(seconds float64) error {
 	if p.eq.Enabled() {
 		p.eq.SetEnabled(true)
 	}
-	// 丢掉跳转前解码好的数据：不清的话会先把旧位置的声音放出来。
+	// 丢掉跳转前解码/均衡好的数据：不清的话会先把旧位置的声音放出来。
 	p.mu.Lock()
 	p.ready, p.readyAt = p.ready[:0], 0
-	p.eof, p.done, p.err = false, false, nil
+	p.raw, p.rawAt = p.raw[:0], 0
+	p.eof, p.done, p.err, p.rawEOF = false, false, nil, false
 	p.mu.Unlock()
 	p.nudge()
+	p.nudgeEQ()
 	return nil
 }
 
@@ -769,7 +866,7 @@ func (p *pipeline) Underruns() int {
 
 // produceLocked 解码一块、变速、均衡、重采样，产出 s16le 字节。
 // 调用方必须持有 procMu。ended 表示输入已到末端。
-func (p *pipeline) produceLocked() ([]byte, bool, error) {
+func (p *pipeline) produceLocked() ([]float32, bool, error) {
 	const want = 4096 // 每次解码的采样帧数
 	if p.procEOF {
 		return nil, true, nil
@@ -781,15 +878,12 @@ func (p *pipeline) produceLocked() ([]byte, bool, error) {
 	if n == 0 && err != nil {
 		// 输入结束：让 WSOLA 把尾巴吐出来（只做一次）。
 		p.procEOF = true
-		if len(p.flt) > 0 {
-			p.flt = nil
-		}
+		p.flt = nil
 		tail := p.wsNow().Flush()
-		p.eq.Process(tail)
 		if p.rs != nil {
 			tail = p.rs.Push(tail)
 		}
-		return appendS16(nil, tail), true, nil
+		return tail, true, nil
 	}
 	frames := n / (p.channels * 2)
 	if frames == 0 {
@@ -805,11 +899,10 @@ func (p *pipeline) produceLocked() ([]byte, bool, error) {
 	}
 
 	scaled := p.wsNow().Push(p.flt)
-	p.eq.Process(scaled)
 	if p.rs != nil {
 		scaled = p.rs.Push(scaled)
 	}
-	return appendS16(p.enc[:0], scaled), false, nil
+	return scaled, false, nil
 }
 
 // appendS16 把交错 float32 转成 s16le 字节。
