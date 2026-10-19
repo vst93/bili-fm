@@ -12,3 +12,12 @@ app/.mygo/
 app/blprobe
 
 .pi-lock
+
+# Tauri 版遗留（mygo 分支已删掉 Tauri 源码，但工作区里可能还留着旧依赖/构建产物：
+# /node_modules、/frontend、/dist、/pnpm-lock.yaml、/src-tauri/target（14GB）等）。
+# 这些都不属于 mygo 分支，永远不要提交。
+/dist/
+/frontend/
+/node_modules/
+/pnpm-lock.yaml
+/src-tauri/
