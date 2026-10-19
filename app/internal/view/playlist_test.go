@@ -554,3 +554,112 @@ func TestPlaylistPartEmbossAddsWhite(t *testing.T) {
 		t.Errorf("压印没有让首行更亮：有压印 %d / 无压印 %d（反证应更暗）", with, without)
 	}
 }
+
+// TestPlaylistRowHoverTransition 钉住原版记录行悬停的
+// `transition: background 0.16s ease, border-color 0.16s ease,
+// box-shadow 0.16s ease`（globals.css:3902）。
+//
+// 改前：底色 / 蓝边 / 投影都是**当帧硬切**，只有按压缩放在动 —— 鼠标沿播放
+// 列表上下滑时每行都在闪，与上一轮修掉的抽屉卡片悬停是同一族问题。
+//
+// 判据取行左缘那 1px 描边的蓝度（B−R）：常态是白 28%（蓝度≈0），悬停是
+// #0ea5e9 34%（蓝度≈60+），插值期间必须严格落在两者之间；移入**当帧**
+// （elapsed = 0）仍是常态值（旧写法在这里就跳满）。
+func TestPlaylistRowHoverTransition(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerPlaylist
+	a.PlaylistTab = ListUser
+	a.PlayingPlaylist = ListUser
+	a.Index = 0 // 第一行是当前项，测第二行（纯色底 → 纯色底，可插值）
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "第一集", Title: "T0"},
+		{ID: "b", Part: "第二集", Title: "T1"},
+	}
+	tst := shellTester(t, a)
+	part, ok := tst.Find("第二集")
+	if !ok {
+		t.Fatal("找不到分集名「第二集」")
+	}
+	// 行盒左缘 = 文字列左缘 −（1px 边框 + p-2 8 + 封面 64 + gap-2 8）。
+	rowX := int(part.X) - 81
+	blueness := func() float32 {
+		img := tst.Image()
+		var sum float32
+		var n int
+		for y := int(part.Y) + 2; y < int(part.Y+part.H)-2; y++ {
+			for x := rowX; x <= rowX+1; x++ {
+				i := img.PixOffset(x, y)
+				sum += float32(int(img.Pix[i+2]) - int(img.Pix[i]))
+				n++
+			}
+		}
+		return sum / float32(n)
+	}
+
+	rest := blueness()
+	tst.Move(part.X+part.W/2, part.Y+part.H/2)
+	enter := blueness() // 移入当帧（elapsed = 0）
+	tst.Advance(60 * time.Millisecond)
+	mid := blueness()
+	tst.Advance(200 * time.Millisecond)
+	hover := blueness()
+	t.Logf("左缘描边蓝度 常态=%.1f 移入当帧=%.1f 60ms=%.1f 200ms=%.1f",
+		rest, enter, mid, hover)
+
+	if rest > 12 {
+		t.Fatalf("常态描边不够中性（蓝度=%.1f）—— 采样列 %d 可能没落在行左缘", rest, rowX)
+	}
+	if hover-rest < 20 {
+		t.Fatalf("悬停后描边没变蓝（常态 %.1f → 悬停 %.1f）", rest, hover)
+	}
+	if diff := enter - rest; diff > 1 || diff < -1 {
+		t.Errorf("移入当帧描边就跳到了 %.1f（常态 %.1f）—— 没有 160ms 过渡", enter, rest)
+	}
+	if !(mid > rest+2 && mid < hover-2) {
+		t.Errorf("60ms 中点 %.1f 不在常态 %.1f 与悬停 %.1f 之间 —— 过渡没走完一半", mid, rest, hover)
+	}
+	// 回落同样走过渡。
+	tst.Move(part.X+part.W/2, part.Y-120)
+	leave := blueness()
+	tst.Advance(300 * time.Millisecond)
+	back := blueness()
+	t.Logf("移出当帧=%.1f 300ms 后=%.1f", leave, back)
+	if d := leave - hover; d > 2 || d < -2 {
+		t.Errorf("移出当帧 %.1f 应仍接近悬停 %.1f（渐隐），差 %.1f", leave, hover, d)
+	}
+	if d := back - rest; d > 1 || d < -1 {
+		t.Errorf("移出 300ms 后应回到常态 %.1f，得到 %.1f", rest, back)
+	}
+}
+
+// TestPlaylistRowHoverAnimTokens 钉住过渡参数本身：原版 `.group` 的
+// `transition: … 0.16s ease`（ease = cubic-bezier(.25,.1,.25,1)）。
+func TestPlaylistRowHoverAnimTokens(t *testing.T) {
+	if playlistRowHoverAnim.Duration != 160*time.Millisecond {
+		t.Errorf("悬停过渡时长 = %v，应为 160ms（原版 .group 的 transition）",
+			playlistRowHoverAnim.Duration)
+	}
+	if playlistRowHoverAnim.Ease == nil {
+		t.Error("悬停过渡没有缓动曲线（原版是 ease）")
+	}
+	rest := playlistRowPaint(false, false, false, false)
+	hover := playlistRowPaint(false, true, false, false)
+	mid := playlistRowPaintAt(rest, hover, 0.5)
+	if mid.From != rest.From.Mix(hover.From, 0.5) {
+		t.Errorf("k=0.5 的底色 = %v，应为两态中点 %v", mid.From, rest.From.Mix(hover.From, 0.5))
+	}
+	if mid.Border != rest.Border.Mix(hover.Border, 0.5) {
+		t.Errorf("k=0.5 的描边 = %v，应为两态中点 %v", mid.Border, rest.Border.Mix(hover.Border, 0.5))
+	}
+	if mid.ShadowY != 5 || mid.ShadowBlur != 15 {
+		t.Errorf("k=0.5 的投影 y/blur = %v/%v，应为 5/15（2→8、8→22 的中点）",
+			mid.ShadowY, mid.ShadowBlur)
+	}
+	if got := playlistRowPaintAt(rest, hover, 0); got.From != rest.From || got.Ring {
+		t.Errorf("k=0 应逐值等于常态，得到 %v（ring=%v）", got.From, got.Ring)
+	}
+	if got := playlistRowPaintAt(rest, hover, 1); got.From != hover.From || !got.Ring {
+		t.Errorf("k=1 应逐值等于悬停，得到 %v（ring=%v）", got.From, got.Ring)
+	}
+}

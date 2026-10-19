@@ -215,10 +215,10 @@ func (a *App) prefetchPlaylistCovers(st *ui.ListState, items []PlayItem) {
 // （压在暗面板上时两段近似会明显偏白）。见 playlistCurrentHoverStops。
 // 拖拽态原版本身就是两段（.24→白 .56），不动。
 type playlistPaint struct {
-	From, To    ui.Color // 渐变/纯色底；Gradient 为假时只用 From
-	Gradient    bool
+	From, To ui.Color // 渐变/纯色底；Gradient 为假时只用 From
+	Gradient bool
 	// Stops 非空时替代 From/To（多停靠点渐变，逐值对应原版 CSS）。
-	Stops []ui.GradientStop
+	Stops       []ui.GradientStop
 	Border      ui.Color
 	Accent      ui.Color // 左缘强调条；AccentWidth 为 0 表示不画
 	AccentW     float32
@@ -363,6 +363,54 @@ func playlistRowPaint(current, hovered, dragging, pressed bool) playlistPaint {
 	return p
 }
 
+// playlistRowHoverAnim 是记录行悬停的过渡参数。原版 `[data-slot="wrapper"] .group`
+// （globals.css:3902）声明：
+//
+//	transition: background 0.16s ease, border-color 0.16s ease,
+//	            box-shadow 0.16s ease, transform 0.12s ease;
+//
+// 底色 / 描边 / 投影都走 160ms 的 `ease`（= cubic-bezier(.25,.1,.25,1)）；
+// 按压缩放单独走 120ms（行内已有，见 playlistRow 的 AnimatePose）。
+var playlistRowHoverAnim = ui.Animation{
+	Duration: 160 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
+// playlistRowPaintAt 把「静息」与「悬停」两套取值按 k（0 = 静息，1 = 悬停）
+// 混成这一帧的取值。
+//
+// 为什么要混：原版 `.group` 的底色 / 描边 / 两道投影都在 `transition` 名单里，
+// 指针进出时是 160ms 渐变。原生版此前直接把 playlistRowPaint 的结果铺上去，
+// 只有按压缩放在动，底色与蓝边当帧硬切 —— 鼠标沿列表上下滑时每行都在「闪」，
+// 与上一轮修掉的抽屉卡片悬停（drawer.go 的 card-hover）是同一族问题。
+//
+// 形态（纯色 ↔ 渐变、停靠点、天蓝环）跟**目标态**走：CSS 的 background-image
+// 在两个 gradient 之间不可插值（离散切换），所以当前项 / 拖拽态的渐变在悬停时
+// 本来就是一跳；能插值的只有纯色底、描边、内影与投影 —— 与这里逐项插值的
+// 范围一致。文字色也不参与（原版 transition 名单里没有 color，换集时本来就是
+// 当帧切换）。
+func playlistRowPaintAt(rest, hover playlistPaint, k float32) playlistPaint {
+	if k <= 0 {
+		return rest
+	}
+	if k >= 1 {
+		return hover
+	}
+	out := hover
+	lerp := func(a, b float32) float32 { return a + (b-a)*k }
+	// 底色：两侧都是纯色时才插值（渐变形态见上，跟目标态走）。
+	if !rest.Gradient && len(rest.Stops) == 0 && !hover.Gradient && len(hover.Stops) == 0 {
+		out.From = rest.From.Mix(hover.From, k)
+	}
+	out.Border = rest.Border.Mix(hover.Border, k)
+	out.InsetTop = rest.InsetTop.Mix(hover.InsetTop, k)
+	out.InsetBot = rest.InsetBot.Mix(hover.InsetBot, k)
+	out.Shadow = rest.Shadow.Mix(hover.Shadow, k)
+	out.ShadowY = lerp(rest.ShadowY, hover.ShadowY)
+	out.ShadowBlur = lerp(rest.ShadowBlur, hover.ShadowBlur)
+	return out
+}
+
 // playlistDeleteFadeAnim 是记录行删除键的淡入淡出：原版那颗键是
 // `opacity-0 group-hover:opacity-100 transition-opacity`，Tailwind 的
 // `transition-opacity` 默认 150ms + cubic-bezier(.4, 0, .2, 1)。声明成 var
@@ -443,7 +491,21 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		a.hoverChannels.Add(1)
 	}
 
-	p := playlistRowPaint(current, rowHovered, dragOver, row.Pressed())
+	// 悬停过渡：k 由单条 float 通道插值（原版 `.group` 的 160ms transition）。
+	// 通道首次建立时以**第一个目标**为初值，所以先按静息态把 k 种到 0 —— 否则
+	// 第一次悬停会瞬亮（见 cardglow.go 里同一处坑）。渐隐结束后把通道钉回 0，
+	// 下一次悬停才是从 0 起跳。
+	rest := playlistRowPaint(current, false, dragOver, row.Pressed())
+	hover := playlistRowPaint(current, true, dragOver, row.Pressed())
+	target := float32(0)
+	if rowHovered {
+		target = 1
+	}
+	k := row.AnimateTo("pl-row-hover", target, playlistRowHoverAnim)
+	if target == 0 && k < 0.01 {
+		k = row.Jump("pl-row-hover", 0)
+	}
+	p := playlistRowPaintAt(rest, hover, k)
 	switch {
 	case len(p.Stops) > 0:
 		// 原版 .playlist-current:hover 的三段蓝→白渐变（逐值见停靠点函数）。
@@ -459,9 +521,11 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		row.InsetShadow(0, -1, 0, 0, p.InsetBot)
 	}
 	row.Shadow(0, p.ShadowY, p.ShadowBlur, 0, p.Shadow)
-	if p.Ring {
-		// 原版 hover 的第二层投影：0 0 0 1px rgba(14,165,233,.12)。
-		row.Shadow(0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.12))
+	if p.Ring && k > 0.002 {
+		// 原版 hover 的第二层投影：0 0 0 1px rgba(14,165,233,.12)。环本身也在
+		// `box-shadow` 的 transition 里，所以它的 alpha 跟着 k 渐显（k=1 时与原值
+		// 逐值相等）。
+		row.Shadow(0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.12*k))
 	}
 	// 原版 .group:active / .playlist-current:active 的按压缩放（松开回位）。
 	pose := ui.Pose{}
