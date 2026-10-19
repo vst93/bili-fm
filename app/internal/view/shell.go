@@ -1,6 +1,8 @@
 package view
 
 import (
+	"sync"
+
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/imagecache"
@@ -397,9 +399,104 @@ func titleBarIconButton(c *ui.Context, key, label string) ui.Element {
 		Label(label).Tooltip(label)
 }
 
-// ambient 是「氛围光」：把当前封面铺满整窗、压到 31% 不透明度，再叠一层
-// 白渐变 —— 原版 .app-shell::before / ::after。这是 bili-FM 的视觉签名，所有
-// 玻璃都浮在它上面。
+// 氛围光的几何与取值（逐值抄 .app-shell::before / ::after）。
+const (
+	// `.app-shell::before { inset: -8%; transform: scale(1.03); opacity: .31 }`
+	ambientInset   = float32(0.08)
+	ambientScale   = float32(1.03)
+	ambientOpacity = float32(0.31)
+	// `.app-shell.texture-basic::before { filter: none; opacity: .35 }`
+	// —— 「高级质感」关闭时去掉全窗滤镜，抬一点不透明度补偿观感。
+	ambientOpacityBasic = float32(0.35)
+	// 封面那层的 `background-size: 178% 156%; background-position: 50% 44%`。
+	ambientCoverScaleW = float32(1.78)
+	ambientCoverScaleH = float32(1.56)
+	ambientCoverPosX   = float32(0.5)
+	ambientCoverPosY   = float32(0.44)
+	// 两条径向暗角的 `at 50% 46%`（形状尺寸由调用点给：::before 是
+	// `ellipse 72% 62%`、::after 是 `ellipse 70% 64%`）。
+	ambientVignetteCX = float32(0.5)
+	ambientVignetteCY = float32(0.46)
+	// ambientVignetteBake 是径向暗角位图的烘焙边长。暗角只有 3 个停靠点、
+	// alpha 从 0 缓升到 .14，铺满整窗后每像素差不到 1/255 —— 256²（256KB/张）
+	// 已经远超需要，不必用 cardglow 的 384²。
+	ambientVignetteBake = 256
+)
+
+// 原版 .app-shell::before / ::after 的 background-image 各层，逐值抄录。
+//
+// 两个 `transparent 0%` 的起点写成**同色零 alpha**而不是 ui.Transparent：CSS 的
+// 渐变插值走 premultiplied alpha，`transparent`（= rgba(0,0,0,0)）到
+// rgba(241,245,249,.08) 之间颜色保持不变；框架的 Color.Mix 是直通 RGBA，用
+// 黑色起点会在中段混出一层灰。
+var (
+	// ::before 第一层：`linear-gradient(180deg, rgba(255,255,255,.14),
+	// rgba(255,255,255,.03) 58%, rgba(255,255,255,.12))`
+	ambientBeforeSheenStops = []gradStop{
+		{0, ui.RGBA(255, 255, 255, 0.14)},
+		{0.58, ui.RGBA(255, 255, 255, 0.03)},
+		{1, ui.RGBA(255, 255, 255, 0.12)},
+	}
+	// ::before 第二层：`radial-gradient(ellipse 72% 62% at 50% 46%,
+	// transparent, rgba(241,245,249,.08) 58%, rgba(241,245,249,.24))`
+	ambientBeforeVignetteStops = []gradStop{
+		{0, ui.RGBA(241, 245, 249, 0)},
+		{0.58, ui.RGBA(241, 245, 249, 0.08)},
+		{1, ui.RGBA(241, 245, 249, 0.24)},
+	}
+	// ::after 第一层：`linear-gradient(180deg, rgba(248,251,255,.22),
+	// rgba(248,251,255,.07) 34%, rgba(248,251,255,.09) 72%, rgba(248,251,255,.16))`
+	ambientAfterSheenStops = []gradStop{
+		{0, ui.RGBA(248, 251, 255, 0.22)},
+		{0.34, ui.RGBA(248, 251, 255, 0.07)},
+		{0.72, ui.RGBA(248, 251, 255, 0.09)},
+		{1, ui.RGBA(248, 251, 255, 0.16)},
+	}
+	// ::after 第二层：`radial-gradient(ellipse 70% 64% at 50% 46%,
+	// transparent, rgba(248,251,255,.05) 66%, rgba(248,251,255,.14))`
+	ambientAfterVignetteStops = []gradStop{
+		{0, ui.RGBA(248, 251, 255, 0)},
+		{0.66, ui.RGBA(248, 251, 255, 0.05)},
+		{1, ui.RGBA(248, 251, 255, 0.14)},
+	}
+)
+
+// 两条白洗光按整层不透明度预乘好（每帧只换一份现成取值，不再逐停靠点算）。
+var (
+	ambientBeforeSheen31 = ambientSheenGradient(ambientBeforeSheenStops, ambientOpacity)
+	ambientBeforeSheen35 = ambientSheenGradient(ambientBeforeSheenStops, ambientOpacityBasic)
+	ambientAfterSheenUI  = ambientSheenGradient(ambientAfterSheenStops, 1)
+)
+
+// 两条径向暗角各烘一张（进程内只烘一次；见 ambientVignetteBake 的尺寸说明）。
+var (
+	ambientBeforeVignetteBmp = sync.OnceValue(func() *ui.Bitmap {
+		return radialGradientBitmapSized(ambientBeforeVignetteStops, ambientVignetteBake)
+	})
+	ambientAfterVignetteBmp = sync.OnceValue(func() *ui.Bitmap {
+		return radialGradientBitmapSized(ambientAfterVignetteStops, ambientVignetteBake)
+	})
+)
+
+// ambientSheenGradient 把停靠点的 alpha 乘 k（原版 `opacity` 是整层不透明度）。
+//
+// 逐层乘 alpha 与「整组先合成再乘」在数学上并不完全等价：两层白叠在一起时，
+// 底色被多衰减了 (k-k²)·a1·a2（k=.31 时最大约 1.6 灰阶 / 255）。原版两层 alpha
+// 都 ≤.24，这个差在实机上不可见，而换取的是「不加离屏合成层」——全窗离屏层
+// 正是内存/带宽上最贵的一种画法。
+func ambientSheenGradient(stops []gradStop, k float32) ui.LinearGradient {
+	out := make([]ui.GradientStop, len(stops))
+	for i, s := range stops {
+		c := s.C
+		c.A = uint8(float32(c.A)*k + 0.5)
+		out[i] = ui.GradientStop{Color: c, At: s.At}
+	}
+	return ui.LinearGradient{Angle: 180, Stops: out}
+}
+
+// ambient 是「氛围光」：把当前封面铺满整窗、压到 31% 不透明度，再叠上原版
+// .app-shell::before / ::after 的四层白 —— 这是 bili-FM 的视觉签名，所有玻璃
+// 都浮在它上面。
 //
 // 原版还有 saturate(0.78) brightness(1.14) contrast(0.76) 与 filter: blur(20px)。
 // 注意原版用的是 **filter**（作用于元素自身）而不是 backdrop-filter，所以原生版
@@ -421,17 +518,62 @@ func (a *App) ambient(c *ui.Context) {
 	if bmp == nil {
 		return
 	}
-	ui.Box(c).Absolute().Fill().PassThrough().Children(func() {
-		// 调色 + 模糊已经烤进位图（imagecache.gradeAmbient），所以这里直接铺图：
-		// 不再为氛围光每帧算一个全窗 backdrop（那是面积最大的一层）。
-		ui.Image(c, bmp).Fill().Fit(ui.Cover).Opacity(0.31)
-		// ::after：一层白渐变，把氛围光压得更淡更匀。
-		ui.Box(c).Absolute().Fill().PassThrough().LinearGradient(ui.LinearGradient{
-			From:  ui.Hex("#f8fbff").Alpha(0.22),
-			To:    ui.Hex("#f8fbff").Alpha(0.14),
-			Angle: 180,
+	// 「高级质感」关闭（.app-shell.texture-basic）时滤镜去掉、opacity 抬到 .35。
+	opacity, sheen := ambientOpacity, ambientBeforeSheen31
+	if !a.Premium {
+		opacity, sheen = ambientOpacityBasic, ambientBeforeSheen35
+	}
+	ui.Box(c).Absolute().Fill().PassThrough().
+		DrawOver(func(p *ui.Painter, box ui.Rect) {
+			ambientPaint(p, box, bmp, opacity, sheen)
 		})
+}
+
+// ambientPaint 把两层氛围光画进 box（整窗）。绘制顺序＝原版的层序（background
+// 列表里靠前的在上，所以自下而上画）：
+//
+//	::before  inset:-8% + scale(1.03)，三层：封面图 → 径向暗角 → 白洗光
+//	::after   inset:0，两层：径向暗角 → 白洗光
+//
+// 此前原生版只画了「封面图（Fill + Cover 裁切）+ 一层 .22→.14 的两停靠点线性
+// 渐变」：::before 的两层与 ::after 的径向暗角**整层缺失**，::after 的线性渐变
+// 又少了 34% / 72% 两个停靠点（中间本该更透，实际被压白一档，中段约差 20 灰阶）。
+func ambientPaint(p *ui.Painter, box ui.Rect, bmp *ui.Bitmap, opacity float32, sheen ui.LinearGradient) {
+	w, h := box.W, box.H
+	// ::before 的盒：inset -8% 之后整体绕中心 scale(1.03)。
+	hw := (w/2 + ambientInset*w) * ambientScale
+	hh := (h/2 + ambientInset*h) * ambientScale
+	pre := ui.Rect{X: box.X + w/2 - hw, Y: box.Y + h/2 - hh, W: 2 * hw, H: 2 * hh}
+	p.Clip(pre, 0, func() {
+		// 封面：`background-size: 178% 156%` + `background-position: 50% 44%`
+		// （CSS 的定位公式是 offset = (盒 - 图) × 百分比，两轴都是负偏移）。
+		// 旧版用 Fill + Fit(Cover) 是「等比放大后裁切」，纵向尺度与横向不同源，
+		// 和原版的拉伸不一致（色块落点会偏）。
+		iw, ih := pre.W*ambientCoverScaleW, pre.H*ambientCoverScaleH
+		p.ImageRegion(bmp, ui.Rect{}, ui.Rect{
+			X: pre.X + (pre.W-iw)*ambientCoverPosX,
+			Y: pre.Y + (pre.H-ih)*ambientCoverPosY,
+			W: iw, H: ih,
+		}, ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, opacity)})
+		paintAmbientVignette(p, pre, ambientBeforeVignetteBmp(), 0.72, 0.62, opacity)
+		p.FillGradient(pre, sheen, 0)
 	})
+	paintAmbientVignette(p, box, ambientAfterVignetteBmp(), 0.70, 0.64, 1)
+	p.FillGradient(box, ambientAfterSheenUI, 0)
+}
+
+// paintAmbientVignette 铺一条 `radial-gradient(ellipse <rx>% <ry>% at 50% 46%, …)`：
+// 烘好的单位圆位图按椭圆的包围盒拉伸（ImageRegion 会逐像素双线性插值）。
+// CSS 的百分比尺寸就是**半径**相对盒宽 / 盒高，所以半轴直接乘比例。
+func paintAmbientVignette(p *ui.Painter, box ui.Rect, bmp *ui.Bitmap, rxPct, ryPct, opacity float32) {
+	if bmp == nil || opacity <= 0 {
+		return
+	}
+	cx := box.X + box.W*ambientVignetteCX
+	cy := box.Y + box.H*ambientVignetteCY
+	rx, ry := box.W*rxPct, box.H*ryPct
+	p.ImageRegion(bmp, ui.Rect{}, ui.Rect{X: cx - rx, Y: cy - ry, W: 2 * rx, H: 2 * ry},
+		ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, opacity)})
 }
 
 // homeStage 是标题栏与播放栏之间的主区（.home-stage）：

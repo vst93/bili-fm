@@ -51,7 +51,13 @@ const radialBakeSize = 384
 // stops 的 At 是到半径的比例（与 CSS 的 `<color> <pct>` 同义）；边角处 t>1，
 // gradAt 夹到最后一个停靠点（也就是 CSS 的 transparent 收尾）。
 func radialGradientBitmap(stops []gradStop) *ui.Bitmap {
-	n := radialBakeSize
+	return radialGradientBitmapSized(stops, radialBakeSize)
+}
+
+// radialGradientBitmapSized 同 radialGradientBitmap，但烘焙边长由调用方给：
+// 面积大而频率低的渐变（如氛围光的径向暗角，见 shell.go 的
+// ambientVignetteBake）用不着 384² 的精度，小图能省下几百 KB 常驻内存。
+func radialGradientBitmapSized(stops []gradStop, n int) *ui.Bitmap {
 	img := image.NewNRGBA(image.Rect(0, 0, n, n))
 	c := float32(n) / 2
 	for y := 0; y < n; y++ {
