@@ -311,11 +311,13 @@ func seriesPlayAllBlocked(pending bool) bool { return pending }
 // seriesPlayAll 把当前合集里的视频全部加载进「合集列表」并从第一条开始播放。
 //
 // 合集的列表接口只给 bvid/aid，没有 cid，所以要逐个拉详情（GetCList）取第一
-// 集的 cid。分页 + 并发受控，失败的单条跳过。
+// 集的 cid。分页 + 并发受控，失败的单条**跳过并各弹一条 warning**（原版
+// index.tsx:1733 的 `视频 ${video.title} 加载失败，已跳过`，此前是静默丢）。
 func (c *controller) seriesPlayAll() {
 	a := c.app
 	if a.SeriesID == 0 {
-		a.NotifyType("warning", "请先到 UP 空间选择一个合集")
+		// 原版 index.tsx:2383 的文案（提示用户去哪里选合集，而不是只说「没选」）。
+		a.NotifyType("warning", "请先点击UP主头像或昵称，选择一个合集")
 		return
 	}
 	// 已经有一次全量拉取在途：连点忽略（原版 seriesList 的 isPlayingAll 让
@@ -324,7 +326,8 @@ func (c *controller) seriesPlayAll() {
 		return
 	}
 	a.SeriesPlayAllPending = true
-	a.Notify("正在加载合集…")
+	// 原版是 info toast「正在加载合集...」（三个 ASCII 点，不是省略号）。
+	a.Notify("正在加载合集...")
 	a.Win.Update(func() {})
 
 	mid, seriesID := a.UpMid, a.SeriesID
@@ -380,6 +383,9 @@ func (c *controller) seriesPlayAll() {
 				ar := archives[i]
 				vi := c.bl.GetCList(ar.bvid)
 				if len(vi.Pages) == 0 {
+					// 原版这条是 warning toast 而不是 console.error：用户点「播放全部」
+					// 后要能看出「哪一条被跳过了」，否则只会觉得合集少了几集。
+					a.NotifyType("warning", seriesSkipMessage(ar.title, ar.bvid))
 					return
 				}
 				p := vi.Pages[0]
@@ -404,7 +410,7 @@ func (c *controller) seriesPlayAll() {
 			}
 		}
 		if len(out) == 0 {
-			a.NotifyType("error", "合集里的视频暂时都无法播放")
+			a.NotifyType("error", "合集中的视频暂时都无法播放")
 			return
 		}
 		a.Win.Update(func() {
@@ -412,12 +418,26 @@ func (c *controller) seriesPlayAll() {
 			a.PlaylistTab = view.ListSeries
 			a.PlayMode = view.PlayModeSequence
 			a.SeriesName = name
+			// 「浏览中」跟着换到第一集：原版 handleSeriesPlayAll 走
+			// handlePlaylistVideoSelect(0, …, "series") 且 preserveUi=false，
+			// 那条路径会 setVideoInfo(第一集)。少了这一笔，弹幕/评论与选集抽屉
+			// 会继续用**上一次浏览**的那条视频（BrowseInfo 陈旧），显示错内容。
+			// 自动切歌（playPlaylist 的 keepDrawer=false）不该写，所以只能在这里补。
+			a.BrowseInfo = browseInfoFromPlayItem(out[0])
 			c.savePlaylists()
 			a.NotifyType("success", fmt.Sprintf("已加载 %d 集到播放列表", len(out)))
 			// 起播要在主线程做（它会改界面状态）。
 			c.playPlaylist(view.ListSeries, 0, false)
 		})
 	}()
+}
+
+// seriesSkipMessage 是「合集播放全部」里单条拉详情失败时的 warning 文案。
+//
+// 逐字对齐原版 index.tsx:1733 的 `` `视频 ${video.title} 加载失败，已跳过` ``；
+// 标题缺失时退 bvid（原版会渲染出「视频 undefined」，这里给个能定位的串）。
+func seriesSkipMessage(title, bvid string) string {
+	return "视频 " + firstNonEmptyStr(title, bvid) + " 加载失败，已跳过"
 }
 
 func firstNonEmptyStr(a, b string) string {
