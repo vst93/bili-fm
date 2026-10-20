@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/store"
@@ -1876,5 +1877,43 @@ func TestVideoProgressOwnedByPopup(t *testing.T) {
 		if !strings.Contains(flat, want) {
 			t.Errorf("视频/主窗进度同步缺少接线：%s", want)
 		}
+	}
+}
+
+// TestCenteredBounds 钉住「迷你窗退出后在当前显示器居中」的一次性几何：
+// Tauri issue #35 的根因是 SetSize 后再 Center（两次 SetWindowPos），DWM 会
+// 先呈现变大的旧位置。这里把位置+尺寸一次算好，供 SetBounds 单次提交。
+func TestCenteredBounds(t *testing.T) {
+	areas := []screenArea{
+		{X: 0, Y: 0, W: 1920, H: 1080},
+		{X: 1920, Y: 0, W: 1920, H: 1080},
+	}
+	// 迷你窗在副屏：居中到副屏工作区。
+	got, ok := centeredBounds(mygo.Rectangle{X: 2500, Y: 400, Width: 400, Height: 155}, 800, 600, areas)
+	if !ok {
+		t.Fatal("有屏幕信息时应能算出居中位置")
+	}
+	if got != (mygo.Rectangle{X: 2480, Y: 240, Width: 800, Height: 600}) {
+		t.Fatalf("副屏居中 = %+v，want {2480 240 800 600}", got)
+	}
+	// 窗口在屏幕外（副屏被拔）：夹到最近的主屏并居中。
+	got, ok = centeredBounds(mygo.Rectangle{X: -800, Y: 400, Width: 400, Height: 155}, 800, 600, areas)
+	if !ok || got.X != 560 || got.Y != 240 {
+		t.Fatalf("屏幕外窗口救援 = %+v, ok=%v；want 560,240", got, ok)
+	}
+	if _, ok := centeredBounds(mygo.Rectangle{}, 800, 600, nil); ok {
+		t.Fatal("没有屏幕信息时应返回 false，调用方退回 SetSize+Center")
+	}
+}
+
+// TestSetMiniUsesSingleBounds 钉住退出迷你模式走一次 SetBounds（不是先
+// SetSize 再 Center 的两次提交）。
+func TestSetMiniUsesSingleBounds(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	if !strings.Contains(flat, "if!c.setMainWindowCentered(){a.Win.SetSize(mainWidth,mainHeight)a.Win.Center()}") {
+		t.Fatal("setMini 退出路径没有优先使用 setMainWindowCentered 的一次性 SetBounds")
+	}
+	if !strings.Contains(flat, "c.app.Win.SetBounds(b)") {
+		t.Fatal("setMainWindowCentered 没有把位置+尺寸交给 SetBounds")
 	}
 }

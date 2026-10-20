@@ -1595,6 +1595,65 @@ func (c *controller) toggleIncognito() {
 	c.app.Win.Update(func() {})
 }
 
+// setMainWindowCentered 把主窗一次性设为 800×600 并在当前显示器工作区居中。
+// 返回 false 表示拿不到窗口/显示器信息，调用方退回 SetSize + Center。
+func (c *controller) setMainWindowCentered() bool {
+	if c.app == nil || c.app.Win == nil {
+		return false
+	}
+	displays := mygo.Screen.Displays()
+	areas := make([]screenArea, 0, len(displays))
+	for _, d := range displays {
+		areas = append(areas, screenArea{d.WorkArea.X, d.WorkArea.Y, d.WorkArea.Width, d.WorkArea.Height})
+	}
+	b, ok := centeredBounds(c.app.Win.Bounds(), mainWidth, mainHeight, areas)
+	if !ok {
+		return false
+	}
+	c.app.Win.SetBounds(b)
+	return true
+}
+
+// centeredBounds 是 setMainWindowCentered 的纯逻辑：在当前窗口所在显示器
+// （与窗口重叠面积最大；没有重叠就取中心点最近）的工作区里居中 target 尺寸。
+// 输出一次带上位置和尺寸，供 Win.SetBounds 单次提交。
+func centeredBounds(cur mygo.Rectangle, width, height int, areas []screenArea) (mygo.Rectangle, bool) {
+	if len(areas) == 0 {
+		return mygo.Rectangle{}, false
+	}
+	best, bestOverlap := 0, -1
+	cx, cy := cur.X+cur.Width/2, cur.Y+cur.Height/2
+	for i, a := range areas {
+		ox := min(cur.X+cur.Width, a.X+a.W) - max(cur.X, a.X)
+		oy := min(cur.Y+cur.Height, a.Y+a.H) - max(cur.Y, a.Y)
+		overlap := 0
+		if ox > 0 && oy > 0 {
+			overlap = ox * oy
+		}
+		if overlap > bestOverlap {
+			best, bestOverlap = i, overlap
+		}
+	}
+	if bestOverlap <= 0 {
+		// 没有重叠（例如迷你窗在屏幕外）：取中心点最近的可用区。
+		bestDist := int(^uint(0) >> 1)
+		for i, a := range areas {
+			x := min(max(cx, a.X), a.X+a.W)
+			y := min(max(cy, a.Y), a.Y+a.H)
+			d := (cx-x)*(cx-x) + (cy-y)*(cy-y)
+			if d < bestDist {
+				best, bestDist = i, d
+			}
+		}
+	}
+	a := areas[best]
+	return mygo.Rectangle{
+		X:     a.X + max(0, (a.W-width)/2),
+		Y:     a.Y + max(0, (a.H-height)/2),
+		Width: width, Height: height,
+	}, true
+}
+
 // setMini 切换迷你模式：换界面 + 调整窗口尺寸与置顶，并记忆迷你窗位置。
 //
 // 进入时先置在途闸门兼作防重入（原版 `setIsWindowControlPending(true)` +
@@ -1635,9 +1694,14 @@ func (c *controller) setMini(on bool) {
 		c.startMiniPosPoll()
 	} else {
 		c.stopMiniPosPoll()
-		a.Win.SetSize(mainWidth, mainHeight)
-		// 与旧版一致：退出迷你模式先改回尺寸再居中。
-		a.Win.Center()
+		// 退出迷你模式：尺寸和位置必须在**一次** SetBounds 里提交。此前是先
+		// SetSize 再 Center，两次 SetWindowPos 之间 DWM 可能先呈现「变大的旧位置」，
+		// 用户看到的就是「先切换再居中」（Tauri issue #35 同源）。拿不到屏幕
+		// 信息（无头/远程）时才退回两次调用。
+		if !c.setMainWindowCentered() {
+			a.Win.SetSize(mainWidth, mainHeight)
+			a.Win.Center()
+		}
 		a.Win.SetAlwaysOnTop(false)
 		a.Pinned = false
 	}
