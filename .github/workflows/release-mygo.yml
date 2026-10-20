@@ -39,9 +39,9 @@ on:
         required: false
         default: ''
       prerelease:
-        description: '标记为预览版 (true/false)'
+        description: '标记为预览版 (true/false)；版本号含 -preview/-rc/-beta/-alpha 时自动为 true'
         required: false
-        default: 'true'
+        default: 'false'
 
 permissions:
   contents: write
@@ -257,6 +257,12 @@ jobs:
           contents:
             - src: $SRC/bili-fm
               dst: /opt/bili-fm/bili-fm
+            # 旧 Tauri 的 deb/rpm 在 /usr/bin/bili-fm 提供命令；mygo 的 deb
+            # 由 mygo build 自己建这个软链，但 rpm 是 nfpm 手工打的，必须补上，
+            # 否则旧 Tauri updater 重启/旧桌面快捷方式会找不到命令。
+            - src: /opt/bili-fm/bili-fm
+              dst: /usr/bin/bili-fm
+              type: symlink
             - src: $SRC/icon.png
               dst: /usr/share/icons/hicolor/128x128/apps/bili-fm.png
             - src: $SRC/bili-fm.desktop
@@ -273,6 +279,9 @@ jobs:
             install -Dm755 "$SRC/bili-fm" "$ROOT/opt/bili-fm/bili-fm"
             install -Dm644 "$SRC/icon.png" "$ROOT/usr/share/icons/hicolor/128x128/apps/bili-fm.png"
             install -Dm644 "$SRC/bili-fm.desktop" "$ROOT/usr/share/applications/bili-fm.desktop"
+            # 与 deb/rpm 保持同一个 /usr/bin/bili-fm 入口（Tauri 升级兼容）。
+            install -d "$ROOT/usr/bin"
+            ln -s /opt/bili-fm/bili-fm "$ROOT/usr/bin/bili-fm"
             SIZE=$(du -sb "$ROOT" | cut -f1)
             # pacman 的版本格式是 pkgver-pkgrel，**pkgver 里不能有 `-`**；
             # Arch 也没有 Debian/rpm 那种 `~` 预发布约定，惯例是改用 `.`。
@@ -414,3 +423,115 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v$VERSION"
+
+  # ── Tauri 老用户自动迁移（仅稳定版）──────────────────────────────
+  #
+  # 老 Tauri 2.x 只认自己的 minisign 和 latest.json，不认识 mygo 的
+  # Ed25519 update-*.json。这里用旧 Tauri 私钥签一套迁移包：
+  #   - Windows：自定义 NSIS 迁移器（清理旧 Tauri 安装目录/快捷方式，保留
+  #     %APPDATA% 数据，静默安装 mygo，启动新程序）；
+  #   - macOS：mygo .app.tar.gz；
+  #   - Linux：mygo deb/rpm；
+  #   - latest.json：Tauri updater schema，挂到当前稳定版 release。
+  #
+  # 只对非 prerelease 运行。以后每个稳定版都会重新生成最新迁移包，老 Tauri
+  # 用户无论何时升级，都会迁移到当时的稳定版。
+  bridge:
+    needs: [prepare, release]
+    if: needs.prepare.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: mygo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装 NSIS 与 Tauri 签名工具
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nsis
+
+      - name: 下载 stable release 资产
+        run: |
+          rm -rf assets bridge
+          mkdir -p assets bridge
+          gh release download "mygo-v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" --dir assets --clobber
+          ls -la assets
+
+      - name: 生成 macOS .app.tar.gz
+        shell: bash
+        run: |
+          set -e
+          for NAME in apple-silicon intel; do
+            ZIP="assets/bili-FM-$VERSION-macos-$NAME.app.zip"
+            [ -f "$ZIP" ] || { echo "missing $ZIP"; exit 1; }
+            DIR="tmp/mac-$NAME"
+            rm -rf "$DIR"; mkdir -p "$DIR"
+            unzip -q "$ZIP" -d "$DIR"
+            (cd "$DIR" && tar -czf "$GITHUB_WORKSPACE/bridge/bili-FM-$VERSION-macos-$NAME.app.tar.gz" "bili-FM.app")
+          done
+
+      - name: 构建 Windows 迁移器
+        shell: bash
+        run: |
+          set -e
+          for A in amd64 arm64; do
+            SETUP="$PWD/assets/bili-FM-$VERSION-windows-$A-setup.exe"
+            [ -f "$SETUP" ] || { echo "missing $SETUP"; exit 1; }
+            makensis \
+              -DVER="$VERSION" \
+              -DMYGO_SETUP="$SETUP" \
+              -DOUT="$PWD/bridge/bili-FM-$VERSION-windows-$A-migrate.exe" \
+              scripts/bridge/tauri-migrate.nsi
+          done
+
+      - name: 用旧 Tauri 私钥签名
+        shell: bash
+        run: |
+          set -e
+          sign() {
+            echo "signing $1"
+            npx --yes @tauri-apps/cli@2 signer sign "$1"
+            test -f "$1.sig"
+          }
+          for f in bridge/*windows-*-migrate.exe bridge/*macos-*.app.tar.gz; do
+            sign "$f"
+          done
+          for f in assets/bili-FM-$VERSION-linux-*.deb assets/bili-FM-$VERSION-linux-*.rpm; do
+            [ -f "$f" ] || continue
+            sign "$f"
+            cp "$f.sig" bridge/
+          done
+          ls -la bridge
+
+      - name: 生成 Tauri latest.json
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          python3 scripts/bridge/make_tauri_latest.py \
+            --version "$VERSION" \
+            --base-url "https://github.com/$REPO/releases/download/mygo-v$VERSION" \
+            --assets-dir bridge \
+            --out bridge/latest.json
+          # 旧 Tauri 先查 Gitee；同步到 Gitee 时用这份 URL 指向 Gitee 的清单。
+          python3 scripts/bridge/make_tauri_latest.py \
+            --version "$VERSION" \
+            --base-url "https://gitee.com/vst93/bili-fm/releases/download/mygo-v$VERSION" \
+            --assets-dir bridge \
+            --out bridge/latest-gitee.json
+
+      - name: 上传迁移包与 latest.json
+        shell: bash
+        run: |
+          gh release upload "mygo-v$VERSION" bridge/* --clobber --repo "$GITHUB_REPOSITORY"
+          echo "迁移包已上传到 mygo-v$VERSION"

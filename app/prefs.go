@@ -241,6 +241,14 @@ func (c *controller) runUpdateCheck(user bool) {
 	if a == nil || a.Win == nil {
 		return
 	}
+	// Store 版只能由 Microsoft Store 更新；不要再碰 GitHub 更新包。
+	if isStoreInstall() {
+		if user {
+			a.Modal = updateStoreModal()
+			a.Win.Update(func() {})
+		}
+		return
+	}
 	c.updateGen++
 	gen := c.updateGen
 	c.cancelUpdateCtx()
@@ -369,6 +377,18 @@ func updateUpToDateModal() *view.Modal {
 		Type:    "success",
 		Title:   "检查更新",
 		Message: "当前已是最新版本",
+		Buttons: []view.ModalButton{{Label: "好的", Primary: true}},
+	}
+}
+
+// updateStoreModal 是 Microsoft Store 安装版本的「检查更新」结果：商店负责
+// 更新，应用内不提供 GitHub 下载入口（Store 政策也不允许）。
+func updateStoreModal() *view.Modal {
+	return &view.Modal{
+		Kind:    "message",
+		Type:    "info",
+		Title:   "检查更新",
+		Message: "Microsoft Store 版本会随商店自动更新。\n如需立即检查，请打开 Microsoft Store → 库 → 获取更新。",
 		Buttons: []view.ModalButton{{Label: "好的", Primary: true}},
 	}
 }

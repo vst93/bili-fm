@@ -592,7 +592,10 @@ func main() {
 		// 后台自动检查更新（原版每日一次）：启动约 10s 后静默检查，只在
 		// 发现新版本时弹应用内对话框（是最新版 / 检查失败都不打扰）。
 		// 不能自更新的构建（开发构建 / 包管理器安装）直接跳过。
-		if mygo.Updater.Enabled() {
+		// Microsoft Store 版本由商店负责更新：既不能自更新（WindowsApps 不可写），
+		// 也不符合 Store 政策。后台检查直接跳过；用户主动点「检查更新」时由
+		// prefs.go 给出 Store 专用提示。
+		if mygo.Updater.Enabled() && !isStoreInstall() {
 			go func() {
 				time.Sleep(10 * time.Second)
 				// 检查流程读写界面状态，放回主线程跑（与用户点菜单同一条路径）。

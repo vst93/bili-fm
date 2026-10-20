@@ -55,13 +55,17 @@ def create_gitee_release(tag_name, name, body, target_commitish):
 
 def get_gitee_release_assets(release_id):
     """Get existing asset names on a Gitee release."""
+    return {a["name"] for a in get_gitee_release_assets_detail(release_id)}
+
+
+def get_gitee_release_assets_detail(release_id):
+    """Get assets (name/id) on a Gitee release."""
     resp = requests.get(
         f"{GITEE_API}/{GITEE_OWNER}/{GITEE_REPO}/releases/{release_id}",
         params={"access_token": GITEE_TOKEN},
     )
     resp.raise_for_status()
-    data = resp.json()
-    return {a["name"] for a in data.get("assets", [])}
+    return resp.json().get("assets", [])
 
 
 def download_asset(url, filename):
@@ -102,9 +106,13 @@ def sync_release(github_release, gitee_release_info):
     # Get existing assets on Gitee
     existing = get_gitee_release_assets(gitee_release_id)
 
-    # Filter assets that need syncing
+    # latest.json 是给旧 Tauri updater 的清单：GitHub 版里的 URL 指向
+    # GitHub；同步到 Gitee 时要用 latest-gitee.json（URL 指向 Gitee），由
+    # sync_gitee_latest 改名上传。其余资产正常同步。
+    skip = {"latest.json", "latest-gitee.json"}
     to_sync = [
-        a for a in github_release.get("assets", []) if a["name"] not in existing
+        a for a in github_release.get("assets", [])
+        if a["name"] not in existing and a["name"] not in skip
     ]
 
     if not to_sync:
@@ -132,6 +140,36 @@ def sync_release(github_release, gitee_release_info):
             except Exception as e:
                 print(f"    ❌ {name}: {e}", file=sys.stderr)
                 raise
+
+
+def sync_gitee_latest(github_release, gitee_release_info):
+    """把 GitHub 上的 latest-gitee.json 作为 Gitee 的 latest.json 上传.
+
+    旧 Tauri updater 的第一个 endpoint 是 Gitee；如果 Gitee 的 latest.json
+    里还是 GitHub 资产 URL，中国用户会卡在下载。桥接 release 会同时生成
+    latest-gitee.json，这里替换掉普通同步的 latest.json。
+    """
+    source = next((a for a in github_release.get("assets", []) if a["name"] == "latest-gitee.json"), None)
+    if source is None:
+        return
+    print("  Syncing Gitee-specific latest.json...")
+    local_path = download_asset(source["browser_download_url"], "latest-gitee.json")
+    try:
+        release_id = gitee_release_info["id"]
+        for asset in get_gitee_release_assets_detail(release_id):
+            if asset.get("name") != "latest.json":
+                continue
+            # Gitee 的 attach file id；删除失败也不阻断（例如 API 版本差异）。
+            resp = requests.delete(
+                f"{GITEE_API}/{GITEE_OWNER}/{GITEE_REPO}/releases/{release_id}/attach_files/{asset.get('id')}",
+                params={"access_token": GITEE_TOKEN},
+            )
+            if resp.status_code >= 300 and resp.status_code != 404:
+                print(f"    ⚠ 删除旧 latest.json 失败: {resp.status_code} {resp.text}", file=sys.stderr)
+        upload_asset(release_id, local_path, "latest.json")
+        print("    ✅ latest.json (Gitee URLs)")
+    finally:
+        os.remove(local_path)
 
 
 def main():
@@ -197,6 +235,7 @@ def main():
 
     # Sync assets
     sync_release(gh_release, gitee_release_info)
+    sync_gitee_latest(gh_release, gitee_release_info)
 
     print("Done!")
 

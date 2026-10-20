@@ -1917,3 +1917,22 @@ func TestSetMiniUsesSingleBounds(t *testing.T) {
 		t.Fatal("setMainWindowCentered 没有把位置+尺寸交给 SetBounds")
 	}
 }
+
+// TestStoreInstallDetection 钉住 Microsoft Store 构建的识别：Store 版只能由
+// 商店更新，不能走 GitHub 自更新。
+func TestStoreInstallDetection(t *testing.T) {
+	cases := map[string]bool{
+		`C:\Program Files\WindowsApps\vvv.bilifm_1.0.0.0_x64__abc\bili-FM.exe`: true,
+		`C:\Program Files\WindowsApps\vvv.bilifm_1.0.0.0_x64__abc\BILI-FM.EXE`: true,
+		`C:\Users\me\AppData\Local\Programs\bili-FM\bili-FM.exe`:               false,
+		`/opt/bili-fm/bili-fm`: false,
+	}
+	for p, want := range cases {
+		if got := isWindowsAppsPath(p); got != want {
+			t.Errorf("isWindowsAppsPath(%q) = %v, want %v", p, got, want)
+		}
+	}
+	if m := updateStoreModal(); m == nil || !strings.Contains(m.Message, "Microsoft Store") {
+		t.Fatalf("Store 更新提示不对：%+v", m)
+	}
+}

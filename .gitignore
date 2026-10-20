@@ -21,3 +21,7 @@ app/blprobe
 /node_modules/
 /pnpm-lock.yaml
 /src-tauri/
+
+# Python 缓存
+__pycache__/
+*.pyc
