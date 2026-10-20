@@ -8,7 +8,7 @@ import (
 )
 
 // setupMediaCenter 连接系统媒体中心（Linux MPRIS；macOS Now Playing；
-// Windows 暂为 no-op）。
+// Windows SMTC，窗口创建后 AttachWindow 注册）。
 //
 // 系统发过来的播放控制都丢到主线程执行（它们会改界面/播放器状态）。
 func (c *controller) setupMediaCenter() {
