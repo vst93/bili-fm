@@ -176,8 +176,8 @@ func TestTaskbarThemeIsDark(t *testing.T) {
 // 反证：把 OnShow 回调改回捕获 `hwnd` 变量 → 源码链断言变红。
 func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 	flat := flattenSrc(t, "taskbar.go")
-	if !strings.Contains(flat, "c.app.Win.OnShow(initTaskbar)") {
-		t.Error("OnShow 重试没有接上 initTaskbar")
+	if !strings.Contains(flat, "c.app.Win.OnShow(func(){") || !strings.Contains(flat, "initTaskbar(firstShow)") {
+		t.Error("OnShow 重试没有接上 initTaskbar（第一次显示必须强制重挂）")
 	}
 	if !strings.Contains(flat, "hwnd:=c.app.Win.NativeHandle()") {
 		t.Error("initTaskbar 没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
@@ -198,12 +198,39 @@ func TestTaskbarInitializesImmediately(t *testing.T) {
 	if !strings.Contains(flat, "taskbarInit(hwnd)") {
 		t.Fatalf("setupTaskbar 没有立即 taskbarInit（窗口已显示，OnShow 不会再触发）")
 	}
-	if !strings.Contains(flat, "initTaskbar()") {
-		t.Error("setupTaskbar 没有立即调用 initTaskbar()")
+	if !strings.Contains(flat, "initTaskbar(false)") {
+		t.Error("setupTaskbar 没有立即调用 initTaskbar(false)")
 	}
 	// 任务栏按钮可能比窗口晚建好 / Explorer 重启：要有短延迟重试。
 	if !strings.Contains(flat, "600*time.Millisecond") || !strings.Contains(flat, "2500*time.Millisecond") {
 		t.Error("setupTaskbar 缺少任务栏按钮晚建好的重试")
+	}
+}
+
+// TestTaskbarRetriesForceReinit 钉住启动后的重试必须强制重挂：
+//
+// 隐藏窗口上的 ThumbBarAddButtons 可能返回 S_OK 却不显示，added=true 会让
+// 幂等重试全部跳过。定时重试与首次 OnShow 必须走 taskbarReinit（无视 added）。
+func TestTaskbarRetriesForceReinit(t *testing.T) {
+	setup := flattenSrc(t, "taskbar.go")
+	for _, want := range []string{
+		"taskbarReinit(hwnd)",
+		"initTaskbar(true)",
+		"initTaskbar(firstShow)",
+		"600*time.Millisecond",
+		"2500*time.Millisecond",
+		"6000*time.Millisecond",
+	} {
+		if !strings.Contains(setup, want) {
+			t.Errorf("启动后的强制重挂缺少：%s", want)
+		}
+	}
+	win := flattenSrc(t, "taskbar_windows.go")
+	if !strings.Contains(win, "taskbarInitAt(hwnd,true)") {
+		t.Error("taskbarReinit 没有强制路径 taskbarInitAt(hwnd, true)")
+	}
+	if !strings.Contains(win, "sames && st.added && !force") && !strings.Contains(win, "same&&st.added&&!force") {
+		t.Error("taskbarInitAt 的幂等提前返回没有受 force 约束")
 	}
 }
 

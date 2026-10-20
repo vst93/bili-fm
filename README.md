@@ -180,7 +180,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 bili-fm
 3. 发现新版本后点击"立即更新"，应用内下载、校验签名并重启
 4. 从 **3.1.1**（第一个 mygo 正式版）起，稳定版 Release 同时附带 Tauri 迁移包，老 Tauri 用户可通过原有更新入口自动迁移；后续新版本继续由原生版 updater 接手
 
-> Gitee 镜像用于给国内用户提供安装包/迁移包下载；原生版 updater 以 GitHub Release 为主。旧 Tauri 版的更新器会优先检查 Gitee 的 `latest.json`，再回退 GitHub。
+> Gitee 镜像用于给国内用户提供安装包/迁移包下载；原生版 updater 与旧 Tauri 版一样**优先走 Gitee，失败再回退 GitHub**（检查、清单、归档下载都是这个顺序，签名校验不变）。
 >
 > Microsoft Store 版只由商店更新，应用内不会下载 GitHub 更新包。Linux 的 deb/rpm/pacman 安装由系统包管理器更新；tar.gz/一键脚本安装的用户可重新运行安装脚本。更多说明见 [`MIGRATION.md`](MIGRATION.md)。
 
@@ -397,7 +397,7 @@ Native stable builds use mygo's signed update channel:
 3. When an update is found, click "Update Now" to download, verify the signature, and restart
 4. From **3.1.1**, the first stable mygo release, stable releases also contain a Tauri migration package, so old Tauri users can migrate through their existing update UI; later releases are handled by the native updater
 
-> The Gitee mirror provides installers/migration packages for users in China; the native updater primarily uses GitHub Releases. The old Tauri updater checks Gitee's `latest.json` first and falls back to GitHub.
+> The Gitee mirror provides installers/migration packages for users in China; like the old Tauri updater, the native updater tries Gitee first and falls back to GitHub (for the release check, manifest and archive download; signature verification is unchanged).
 >
 > Microsoft Store builds update only through the Store and never download GitHub update packages. Linux deb/rpm/pacman installs are updated by the system package manager; tar.gz/quick-install users can re-run the installer. See [`MIGRATION.md`](MIGRATION.md) for details.
 

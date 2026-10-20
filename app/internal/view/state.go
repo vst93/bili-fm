@@ -157,6 +157,13 @@ type List struct {
 	// 从头部裁掉同样多——总行数不变，列表仍停在底部，canAutoLoadMore 每帧都
 	// 为真，于是会连续翻页、内容在脚下快速替换（用户报的「八九页后卡片闪烁」）。
 	autoLoadLatched bool
+	// Trimmed 是自上一帧以来被 setCards 从**头部**释放的卡片数。卡片网格
+	// 在下一帧构建时据此把视口同时上移同样多的行：封顶后追加 + 裁头总高度
+	// 不变，若不补偿，视口会一直钉在底部，用户表现为「滚到底只加载一页，
+	// 之后每上滚再下滚也只加载一页」（用户 2026-10-21 报的连续加载中断）。
+	// 补偿后视口停在原来的内容上，新翻出来的一页在下方，继续下滑才会触发
+	// 下一页（与原版 listRetention.ts + scrollTop 补偿同一语义）。
+	Trimmed int
 }
 
 // prefetchGate 记录上一帧的预取窗口，用来判断滚动是否还在快速移动。
@@ -200,6 +207,7 @@ func (l *List) ResetScroll() {
 	l.prefetch = prefetchGate{}
 	l.rowsPrefetch = prefetchGate{}
 	l.autoLoadLatched = false
+	l.Trimmed = 0
 }
 
 // Section 是搜索栏右侧一个入口对应的抽屉。

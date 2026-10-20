@@ -44,28 +44,40 @@ func (c *controller) setupTaskbar() {
 	//
 	// 所以这里先立刻挂一次；再留两次短延迟重试，兜住「任务栏按钮还没建好 /
 	// Explorer 正在重启」时 ThumbBarAddButtons 失败的情况（taskbarInit 幂等）。
-	initTaskbar := func() {
+	initTaskbar := func(force bool) {
 		if c.app.Win != nil {
 			hwnd := c.app.Win.NativeHandle()
-			// 先装消息钩子，再尝试立刻挂；TaskbarButtonCreated 到达时还会
-			// 再挂一次（官方要求的时机）。
+			// 先装消息钩子，再尝试挂；TaskbarButtonCreated 到达时还会再挂
+			// 一次（官方要求的时机）。
 			taskbarWatch(hwnd)
-			taskbarInit(hwnd)
+			if force {
+				taskbarReinit(hwnd)
+			} else {
+				taskbarInit(hwnd)
+			}
 		}
 	}
-	initTaskbar()
+	// Show 之前先挂一次（失败也没关系），Show 之后的第一帧/定时重试要
+	// **强制**重挂：隐藏窗口上的 AddButtons 可能返回 S_OK 但不显示，而
+	// added 记录会让普通幂等调用跳过，形成「永远没有按钮」的假成功。
+	initTaskbar(false)
 	for _, delay := range []time.Duration{600 * time.Millisecond, 2500 * time.Millisecond, 6000 * time.Millisecond} {
 		go func(d time.Duration) {
 			time.Sleep(d)
 			if c.app.Win != nil {
-				c.app.Win.Update(initTaskbar)
+				c.app.Win.Update(func() { initTaskbar(true) })
 			}
 		}(delay)
 	}
 	// 窗口再次显示（关闭到托盘后恢复 / 迷你模式切换）时再挂一次：句柄可能
 	// 因为窗口重建而变化，Explorer 重启后缩略图工具栏也需要重挂。窗口句柄
 	// 在每次回调里重新取，而不是在闭包里存第一次的 hwnd。
-	c.app.Win.OnShow(initTaskbar)
+	// 第一次 OnShow 必须强制：它就是「窗口真正显示」的那个时刻。
+	firstShow := true
+	c.app.Win.OnShow(func() {
+		initTaskbar(firstShow)
+		firstShow = false
+	})
 }
 
 // syncTaskbar 把播放状态与可上一首/下一首推给任务栏按钮（换图标 / 禁用态）。

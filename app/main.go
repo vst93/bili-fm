@@ -167,6 +167,10 @@ func main() {
 	log.Printf("%s", kv.Describe())
 	bilibili.UseStore(kv)
 
+	// 更新源兜底：Gitee 优先、GitHub 回落。必须在任何更新检查之前装好
+	// （见 update_source.go；mygo.Updater 走 http.DefaultTransport）。
+	installUpdateSource()
+
 	// 旧版（Wails / Tauri）迁移：键名改了名的配置（sponsor/incognito/播放模式）
 	// 与换了位置的收藏（dkv playlist / Tauri playlist.json）在这里一次性转换。
 	// 幂等，且不会覆盖新版已有的数据。
@@ -1535,18 +1539,17 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			for _, ar := range archives {
 				cards = append(cards, seriesCard(ar, c.app.UpName))
 			}
-			before := len(list.Cards)
-			setCards(list, cards, page <= 1)
+			// setCards 返回的是**裁头前**实际新增数；不能用
+			// len(list.Cards)-before：封顶后每页一边追加一边裁头，总长度
+			// 不变，added 会被算成 0，于是第 7 页左右把 HasMore 永久关掉
+			//（用户报的「加载到一定页码后停止自动加载」）。
+			added := setCards(list, cards, page <= 1)
 			list.Page = page
 			// 合集接口 page_size=30，但**不能**用「不足 30 条就到底」判定：
 			// 接口偶尔忽略 page_size（返回更少）或某页刚好被过滤掉几条，会
 			// 让列表永远停在第 1 页（用户 2026-10-18 报「合集同样检查」）。
 			// 与原版 seriesList 一致：只要这一页还带回视频就允许再翻一页；
 			// 同时用「本页没追加任何新卡片」兜住接口重复返回同一页的死循环。
-			added := len(list.Cards) - before
-			if page <= 1 {
-				added = len(cards)
-			}
 			list.HasMore = added > 0 && len(archives) > 0
 			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -1886,6 +1889,26 @@ func (c *controller) finishWinControl() {
 // 行高整体平移（mygo ui/list.go:sync 的 heights.shift(j-anchor)）。
 const maxRetainedCards = 128
 
+// cardRetentionAlign 是封顶裁头时的对齐粒度。卡片网格按窗口宽度是 2 列
+// （<640）或 3 列（≥640），6 是两者的最小公倍数：一次裁掉 6 的整数倍，
+// 旧的首行卡片在新列表里仍然落在**行首**，虚拟列表按 Bvid 找锚点才能命中，
+// 视口不会因为裁头而钉在底部。只裁 2/3 的非整行会让旧行首落到新行的中间，
+// 行键找不到，autoLoadLatched 就永远松不开（用户报的「加载一页后立即又停」）。
+const cardRetentionAlign = 6
+
+// retentionDrop 返回从头部释放多少条卡片：至少溢出 maxRetainedCards 的部分，
+// 再向上取整到 cardRetentionAlign 的倍数。返回 0 表示不用裁。
+func retentionDrop(n, cap int) int {
+	over := n - cap
+	if over <= 0 {
+		return 0
+	}
+	if r := over % cardRetentionAlign; r != 0 {
+		over += cardRetentionAlign - r
+	}
+	return min(over, n)
+}
+
 // setCards 写入列表卡片：replace 为真时替换，否则追加；无论哪种都保持上限。
 // 返回**实际新增**的卡片数（append 时按 Bvid 去重；重复页/接口同一页返回
 // 两次时调用方据此停住翻页，避免「滚到底 → 追加重复项 → 永远还有更多」）。
@@ -1897,16 +1920,19 @@ func setCards(list *view.List, cards []view.Card, replace bool) int {
 		// 整批替换（换关键词 / 刷新 / 换抽屉）时把虚拟网格的滚动复位到顶；
 		// 追加翻页不动它，锚点跟着旧内容。
 		list.ResetGrid()
+		list.Trimmed = 0
 	} else {
 		before := len(list.Cards)
 		list.Cards = dedupeCards(list.Cards, cards)
 		added = len(list.Cards) - before
 	}
-	if len(list.Cards) > maxRetainedCards {
-		list.Cards = list.Cards[len(list.Cards)-maxRetainedCards:]
+	if drop := retentionDrop(len(list.Cards), maxRetainedCards); drop > 0 {
+		list.Cards = list.Cards[drop:]
 		// 记下「头部被释放过」：合集「播放全部」会据此判断能不能拿这份
 		// 卡片当「已加载的全集」用（丢了头部就只能从第 1 页重拉）。
 		list.Dropped = true
+		// 让视图下一帧把滚动位置同步上移。累计（同一帧内可能连加两次）。
+		list.Trimmed += drop
 	}
 	return added
 }
@@ -1959,9 +1985,11 @@ func (c *controller) loadSection(section string, page int) {
 					a.NotifyType("error", actionFailText("加载", err))
 					return
 				}
-				setCards(list, toFeedCards(l.Items), page <= 1)
+				added := setCards(list, toFeedCards(l.Items), page <= 1)
 				list.Page = page
-				list.HasMore = l.HasMore
+				// 接口重复返回同一 offset 的页时 added=0，必须停住，否则
+				// 滚到底会带着同一个游标反复请求。
+				list.HasMore = l.HasMore && added > 0
 				list.LoadErr = false
 				a.FeedOffset = l.Offset
 				a.Status = fmt.Sprintf("%d 条", len(list.Cards))
@@ -1987,9 +2015,9 @@ func (c *controller) loadSection(section string, page int) {
 					a.NotifyType("error", actionFailText("加载", err))
 					return
 				}
-				setCards(list, toCards(jsonToAny(l.List), false), page <= 1)
+				added := setCards(list, toCards(jsonToAny(l.List), false), page <= 1)
 				list.Page = page
-				list.HasMore = historyHasMore(len(l.List), cur, view.HistCursor{
+				list.HasMore = added > 0 && historyHasMore(len(l.List), cur, view.HistCursor{
 					Max: l.Cursor.Max, ViewAt: l.Cursor.ViewAt, Business: l.Cursor.Business,
 				})
 				list.LoadErr = false
@@ -2011,9 +2039,11 @@ func (c *controller) loadSection(section string, page int) {
 				a.NotifyType("error", actionFailText("加载", err))
 				return
 			}
-			setCards(list, cards, page <= 1)
+			added := setCards(list, cards, page <= 1)
 			list.Page = page
-			list.HasMore = more
+			// 封顶后 setCards 会裁头，必须用它的返回值（裁头前新增数）
+			// 判断有没有新内容；接口重复返回同一页时停住。
+			list.HasMore = more && added > 0
 			list.LoadErr = false
 			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
@@ -2207,12 +2237,15 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 		c.app.Win.Update(func() {
 			list.Loading = false
 			if err != nil {
+				list.LoadErr = page > 1
 				c.app.NotifyType("error", actionFailText("加载", err))
 				return
 			}
-			setCards(list, toCardsFromRaw(items), page <= 1)
+			added := setCards(list, toCardsFromRaw(items), page <= 1)
 			list.Page = page
-			list.HasMore = len(items) >= 21
+			// 不足一页说明到底了；接口重复返回同一页（added=0）也停住。
+			list.HasMore = len(items) >= 21 && added > 0
+			list.LoadErr = false
 			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()

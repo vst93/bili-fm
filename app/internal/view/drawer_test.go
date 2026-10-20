@@ -1198,3 +1198,61 @@ func TestCardElementKeyStableAcrossIndexShift(t *testing.T) {
 		t.Fatal("没有 Bvid 的占位卡片应退回 index 作 key")
 	}
 }
+
+// TestCardGridHeadTrimKeepsScrolling 钉住「封顶裁头后仍能继续向下翻页」：
+//
+// setCards 封顶后会从头部释放卡片；若裁掉的行数与追加的不对齐，旧首行的
+// Bvid 会落到新行的中间，ui.List 按行键找不到锚点，视口继续钉在底部——
+// 用户看到「滚到底只加载一页，必须上滚再下滚才再加载一页」。setCards 现在
+// 把裁头量对齐到 2/3 列的公倍数，并由 List.Trimmed 让网格在下一帧把视口
+// 上移同样的行数。这里的反证：不消费 Trimmed（或裁头不对齐）时视口仍停在
+// 底部，测试红。
+func TestCardGridHeadTrimKeepsScrolling(t *testing.T) {
+	a := feedApp(128)
+	l := a.ListFor("feed")
+	l.HasMore = true
+	calls, pending := 0, false
+	a.Act.LoadMore = func() { calls++; pending = true }
+	tst := shellTester(t, a)
+
+	// 模拟「网络响应在两帧之间到达」：先滚到底触发加载，再追加一页并从
+	// 头部释放 24 条（6 的倍数，保持 2/3 列下行首对齐）。
+	apply := func() {
+		if !pending {
+			return
+		}
+		pending = false
+		start := len(l.Cards)
+		for i := 0; i < 24; i++ {
+			l.Cards = append(l.Cards, Card{Bvid: fmt.Sprintf("NEW%04d", start+i)})
+		}
+		l.Cards = l.Cards[24:]
+		l.Trimmed += 24
+		l.Dropped = true
+	}
+
+	tst.Scroll(400, 300, 0, 100000)
+	tst.Frame()
+	if calls != 1 {
+		t.Fatalf("滚到底应翻一页，calls=%d", calls)
+	}
+	apply()
+	for i := 0; i < 3; i++ {
+		tst.Frame()
+	}
+	first, last := l.Grid.Visible()
+	rows := (len(l.Cards) + 2) / 3
+	if last >= rows-1 {
+		t.Fatalf("裁头后视口仍钉在底部：visible=%d..%d rows=%d（应上移到原内容处）", first, last, rows)
+	}
+	if l.Trimmed != 0 {
+		t.Fatalf("Trimmed 没被消费：%d", l.Trimmed)
+	}
+
+	// 不向上滚，仅继续向下滚到底：应能再翻一页（旧实现闩锁会挡住）。
+	tst.Scroll(400, 300, 0, 100000)
+	tst.Frame()
+	if calls != 2 {
+		t.Fatalf("继续下滑到底应再翻一页，calls=%d（闩锁没有松开）", calls)
+	}
+}

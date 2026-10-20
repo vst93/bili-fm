@@ -46,9 +46,9 @@ func TestSeriesPlayAllToastWording(t *testing.T) {
 	code := string(src)
 	for _, want := range []string{
 		"请先点击UP主头像或昵称，选择一个合集", // index.tsx:2383
-		"正在加载合集...",             // index.tsx:1661（三个 ASCII 点）
-		"合集中的视频暂时都无法播放",        // index.tsx:1745
-		"已加载 %d 集到播放列表",         // index.tsx:1757
+		"正在加载合集...",           // index.tsx:1661（三个 ASCII 点）
+		"合集中的视频暂时都无法播放",       // index.tsx:1745
+		"已加载 %d 集到播放列表",       // index.tsx:1757
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("playlist.go 里缺少原版文案 %q", want)
@@ -169,10 +169,15 @@ func TestSetCardsMarksDropped(t *testing.T) {
 	if !big.Dropped {
 		t.Fatal("超上限裁掉头部后 Dropped 仍为假（播放全部会漏掉最早的几页）")
 	}
-	if len(big.Cards) != maxRetainedCards {
-		t.Errorf("保留 %d 条, want %d", len(big.Cards), maxRetainedCards)
+	// 裁头量向上对齐到 cardRetentionAlign（2/3 列网格的公倍数 6），
+	// 这样旧行首在新列表里仍是行首，虚拟列表的 Bvid 锚点不会丢。
+	if len(big.Cards) != 127 {
+		t.Errorf("保留 %d 条, want 127（溢出 5 条向上对齐到 6）", len(big.Cards))
 	}
-	if got := big.Cards[0].Bvid; got != "BV5" {
-		t.Errorf("首条 = %q, want BV5（从头部释放 5 条）", got)
+	if got := big.Cards[0].Bvid; got != "BV6" {
+		t.Errorf("首条 = %q, want BV6（从头部释放 6 条）", got)
+	}
+	if got := big.Cards[len(big.Cards)-1].Bvid; got != "BV132" {
+		t.Errorf("末条 = %q, want BV132（最新一条必须留着）", got)
 	}
 }

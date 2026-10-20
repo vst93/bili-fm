@@ -7,6 +7,8 @@ package main
 
 func taskbarInit(uintptr) {}
 
+func taskbarReinit(uintptr) {}
+
 func taskbarWatch(uintptr) {}
 
 func taskbarSetState(playing, canPrev, canNext bool) {}

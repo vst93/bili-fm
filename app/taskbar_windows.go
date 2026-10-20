@@ -164,35 +164,72 @@ func taskbarWatch(hwnd uintptr) {
 
 // taskbarInit 装缩略图工具栏。幂等：同一窗口已挂上就跳过；失败（窗口还没
 // 显示、没有 comctl32 v6 等）保留重试机会（下一次 OnShow 再来）。
-func taskbarInit(hwnd uintptr) {
+func taskbarInit(hwnd uintptr) { taskbarInitAt(hwnd, false) }
+
+// taskbarReinit 无视 added 记录强制再走一次 ThumbBarAddButtons。
+//
+// 为什么需要：窗口在 Hidden 状态调用 ThumbBarAddButtons 时，Windows 可能
+// 返回 S_OK 却因为任务栏按钮还没建好而**静默忽略**。此后 added=true 会让
+// 所有定时重试 / OnShow 重挂全部跳过 —— 这正是用户连续四轮反馈「Windows
+// 悬停任务栏没有播放快捷按钮」时盲重试失效的原因。启动后的几次重试改用
+// 本函数强制添加：按钮已经真的存在时 Windows 会拒绝重复添加（保留原有
+// 按钮），不会丢功能。
+func taskbarReinit(hwnd uintptr) { taskbarInitAt(hwnd, true) }
+
+func taskbarInitAt(hwnd uintptr, force bool) {
 	if hwnd == 0 {
 		return
 	}
 	taskbarWatch(hwnd)
 	taskbarMu.Lock()
 	defer taskbarMu.Unlock()
-	if st := taskbarCur; st != nil && st.hwnd == hwnd && st.added {
+	st := taskbarCur
+	same := st != nil && st.hwnd == hwnd
+	if same && st.added && !force {
 		return
 	}
 	if taskbarSubcl == 0 {
 		taskbarSubcl = syscall.NewCallback(taskbarSubclassProc)
 	}
-	taskbar, ok := taskbarCreate()
+	// 强制重挂时复用同一窗口已经建好的 COM 对象 / 图标 / 状态，避免每次
+	// 重试都泄漏一个 ITaskbarList3 与四个 HICON。
+	taskbar, ok := uintptr(0), false
+	if same {
+		taskbar, ok = st.taskbar, st.taskbar != 0
+	} else {
+		taskbar, ok = taskbarCreate()
+	}
 	if !ok {
 		return
 	}
-	size := taskbarIconSize(hwnd)
-	dark := taskbarSystemDark()
-	icons := taskbarBuildIcons(size, dark)
+	size, dark, icons := taskbarIconSize(hwnd), taskbarSystemDark(), taskbarIcons{}
+	playing, canPrev, canNext := false, true, true
+	if same {
+		size, dark, icons = st.size, st.dark, st.icons
+		playing, canPrev, canNext = st.playing, st.canPrev, st.canNext
+	} else {
+		icons = taskbarBuildIcons(size, dark)
+	}
+	playIcon, playTip := icons.play, "播放"
+	if playing {
+		playIcon, playTip = icons.pause, "暂停"
+	}
 	buttons := [3]taskbarThumbButton{
-		taskbarMakeButton(taskbarBtnPrev, icons.prev, "上一首", true),
-		taskbarMakeButton(taskbarBtnPlay, icons.play, "播放", true),
-		taskbarMakeButton(taskbarBtnNext, icons.next, "下一首", true),
+		taskbarMakeButton(taskbarBtnPrev, icons.prev, "上一首", canPrev),
+		taskbarMakeButton(taskbarBtnPlay, playIcon, playTip, true),
+		taskbarMakeButton(taskbarBtnNext, icons.next, "下一首", canNext),
 	}
 	hr := comCallTaskbar(taskbar, taskbarIdxThumbBarAddButtons,
 		hwnd, 3, uintptr(unsafe.Pointer(&buttons[0])))
 	if taskbarFailedHR(hr) {
-		log.Printf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x）", uint32(hr))
+		log.Printf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x，force=%v）", uint32(hr), force)
+		// 已经有一份成功添加过的状态时保留它：重复添加被 Windows 拒绝
+		// 往往说明按钮本来就在，不能让状态反而退回「未添加」，否则后续
+		// 的图标 / 禁用态同步会全部失效。
+		return
+	}
+	if same {
+		st.added = true
 		return
 	}
 	taskbarCur = &taskbarThumbState{
@@ -256,15 +293,10 @@ func taskbarSubclassProc(hwnd, msg, wparam, lparam, subclassID, refData uintptr)
 	// 这是 ThumbBarAddButtons 的官方调用时机；处理完仍透传给 mygo 的窗口过程，
 	// 让它自己的进度条状态也能应用。
 	if taskbarBtnCreatedMsg != 0 && msg == uintptr(taskbarBtnCreatedMsg) {
-		// 关键：即使启动时那次 ThumbBarAddButtons 返回了 S_OK，也强制在
-		// 官方时机重挂一次。Windows 在任务栏按钮还没建好时可能「接受」调用
-		// 但不显示按钮；只按 added 判据会永远跳过，用户就看不到快捷控制。
-		taskbarMu.Lock()
-		if st := taskbarCur; st != nil && st.hwnd == hwnd {
-			st.added = false
-		}
-		taskbarMu.Unlock()
-		taskbarInit(hwnd)
+		// 官方时机：无论启动时那次 AddButtons 返回什么，都在这里强制重挂。
+		// Windows 在任务栏按钮还没建好时可能「接受」调用但不显示按钮；
+		// 只按 added 判据会永远跳过，用户就看不到快捷控制。
+		taskbarReinit(hwnd)
 		r, _, _ := procDefSubclassProc.Call(hwnd, msg, wparam, lparam)
 		return r
 	}

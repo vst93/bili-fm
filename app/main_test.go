@@ -314,8 +314,42 @@ func TestSetCardsRetention(t *testing.T) {
 	if got, want := list2.Cards[0].Bvid, fmt.Sprintf("BV%04d", 30); got != want {
 		t.Fatalf("释放后首条 = %s，应为 %s（头部 30 条被释放）", got, want)
 	}
+	// 裁头量对齐到 6（2/3 列网格的公倍数）：30 已是 6 的倍数，空间不浪费。
+	if got := retentionDrop(maxRetainedCards+5, maxRetainedCards); got != 6 {
+		t.Fatalf("溢出 5 条应裁 6 条（对齐行宽），got %d", got)
+	}
+	if got := retentionDrop(maxRetainedCards+12, maxRetainedCards); got != 12 {
+		t.Fatalf("溢出 12 条应裁 12 条，got %d", got)
+	}
 	if got, want := list2.Cards[len(list2.Cards)-1].Bvid, fmt.Sprintf("BV%04d", len(all)-1); got != want {
 		t.Fatalf("释放后末条 = %s，应为 %s（尾部最新一条必须留着）", got, want)
+	}
+	if list2.Trimmed != 30 {
+		t.Fatalf("Trimmed = %d，应为 30（视图据此上移视口）", list2.Trimmed)
+	}
+
+	// 封顶后翻页：setCards 必须返回「裁头前」实际新增数。合集 loader
+	// 曾用 len(Cards)-before 计算，封顶后总长度不变 → added=0 →
+	// HasMore 被永久关掉（用户报的「加载到一定页码后停止」）。
+	full := &view.List{}
+	base := make([]view.Card, maxRetainedCards)
+	for i := range base {
+		base[i].Bvid = fmt.Sprintf("OLD%04d", i)
+	}
+	setCards(full, base, true)
+	full.Trimmed = 0
+	next := make([]view.Card, 30)
+	for i := range next {
+		next[i].Bvid = fmt.Sprintf("NEW%04d", i)
+	}
+	if added := setCards(full, next, false); added != 30 {
+		t.Fatalf("封顶翻页 added = %d，应为 30（必须在裁头前统计）", added)
+	}
+	if len(full.Cards) > maxRetainedCards {
+		t.Fatalf("封顶翻页后仍超上限：%d", len(full.Cards))
+	}
+	if full.Trimmed == 0 {
+		t.Fatal("封顶翻页没有记录 Trimmed，下一帧视口不会上移")
 	}
 }
 
@@ -1621,8 +1655,12 @@ func TestSeriesPaginationStopsOnDuplicatePage(t *testing.T) {
 		t.Fatal(err)
 	}
 	flat := strings.Join(strings.Fields(string(src)), "")
-	if !strings.Contains(flat, "added:=len(list.Cards)-before") {
-		t.Error("loadSeriesVideos 没有按「本页追加了多少新卡片」判定是否还能续页")
+	if !strings.Contains(flat, "added:=setCards(list,cards,page<=1)") {
+		t.Error("loadSeriesVideos 没有用 setCards 的「裁头前新增数」判定是否还能续页")
+	}
+	// 反证：封顶后 len(Cards)-before 恒为 0，会把 HasMore 永久关掉。
+	if strings.Contains(flat, "added:=len(list.Cards)-before") {
+		t.Error("loadSeriesVideos 仍按裁头后的长度差统计 added（封顶后恒 0，停止翻页）")
 	}
 	if !strings.Contains(flat, "list.HasMore=added>0&&len(archives)>0") {
 		t.Error("loadSeriesVideos 的 HasMore 仍按「本页满 30 条」判定（不足一页就停在第 1 页）")

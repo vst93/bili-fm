@@ -1335,7 +1335,10 @@ func (a *App) drawerBody(c *ui.Context) {
 			// ScrollState.Scrolling：它只表示 ScrollTo 动画，滚轮/惯性期间
 			// 一直是 false。封顶滑窗下总行数不变、last 始终等于 rows-1，
 			// 所以闩锁会一直按住，直到用户真的把视口移开底部。
-			if last < rows-1 {
+			// 离开底部（用户向上滚）就重新武装。另外列表整屏放得下
+			// （first==0 且最后一行已在视野）时也要继续翻页把屏幕填满：
+			// 高窗口下第一页可能只有几排，不能因为「还在底部」就停住。
+			if last < rows-1 || (first == 0 && last >= rows-1) {
 				l.autoLoadLatched = false
 			}
 			// canAutoLoadMore 还会拦住「上一次翻页失败 / 在加载中」的情况。
@@ -1550,6 +1553,37 @@ func (a *App) holdListScroll(c *ui.Context, hold *scrollHold, st *ui.ListState, 
 	a.scrollHoldHeld = a.scrollHoldHeld || locked
 }
 
+// anchorAfterHeadTrim 消费 List.Trimmed：封顶后 setCards 从头部裁掉了
+// 若干卡片，列表总高度可能不变（追加多少裁多少），若不补偿，ui.List 仍以为
+// 视口在底部，用户看到的是「加载一页后立即停住」。这里把列表显式滚回
+// 「原来的首行 − 被裁掉的行数」，让视口停在用户刚才看的内容上，新页留在
+// 下方；用户继续下滑才触发下一页。
+//
+// Trimmed 已由 main.setCards 对齐到 cardRetentionAlign（2/3 列的公倍数），
+// 所以 drop/cols 一定是整行。调用发生在 ui.List 之前，属于本帧的布局请求，
+// 不会被「滚到底」的 end 请求覆盖。
+func (a *App) anchorAfterHeadTrim(st *ui.ListState, l *List, cols int) {
+	dropped := l.Trimmed
+	if dropped <= 0 || cols <= 0 {
+		return
+	}
+	l.Trimmed = 0
+	rows := dropped / cols
+	if rows <= 0 {
+		return
+	}
+	first, _ := st.Visible()
+	target := first - rows
+	if target < 0 {
+		target = 0
+	}
+	st.ScrollTo(target, ui.Start)
+	// 本帧 drawerBody 在 listBody 之后还会读一次 Visible（拿到的是上一帧
+	// 的底部位置）；先按住闩锁，避免在 ScrollTo 生效前又发一页。下一帧
+	// 视口已经上移，last < rows-1 会自动松开。
+	l.autoLoadLatched = true
+}
+
 // cardGrid 用 mygo 的虚拟化 ui.List 画卡片网格（列数按窗口宽度的 sm 断点，见
 // gridColsFor）：每个 List 行是一排最多 cols 张卡，行高由框架量（卡片封面
 // 100 + 单行标题，所以每排等高）。
@@ -1570,15 +1604,24 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 		extra = 1
 	}
 	// 行键取首张卡的 bvid：翻页追加 / 滑动窗口裁掉头部时锚点不跳。
+	//
+	// 必须从 l.Cards 现读，不能闭包捕获本帧的 cards 切片：列表在构建前会先
+	// 用上一帧留下的 Key 对齐锚点（ui.ListState.sync），而翻页/裁头发生在
+	// 两帧之间。捕获旧切片时它仍按旧内容找键，永远停在原来的行号 —— 封顶后
+	// 表现为「滚到底只加载一页，之后必须上滚再下滚才有反应」。现读后 sync
+	// 能按新内容把锚点从被裁掉的头部平移，视口留在原内容上，用户继续下滑
+	// 才会触发下一页。
 	st.Key = func(r int) any {
-		if i := r * cols; i < len(cards) && cards[i].Bvid != "" {
-			return cards[i].Bvid
+		cur := l.Cards
+		if i := r * cols; i < len(cur) && cur[i].Bvid != "" {
+			return cur[i].Bvid
 		}
-		if r == rows && extra == 1 {
+		if l.LoadErr && r == (len(cur)+cols-1)/cols {
 			return "loaderr:" + a.Drawer
 		}
 		return r
 	}
+	a.anchorAfterHeadTrim(st, l, cols)
 	a.prefetchCardCovers(c, st, &l.prefetch, cards, cols)
 	a.holdListScroll(c, &l.liftHold, st, &l.GridScroll, true)
 	ui.List(c, st, rows+extra, func(r int) {
