@@ -5,7 +5,7 @@
 # Examples:
 #   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --pre-release
-#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 2.0.0
+#   curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 3.1.1
 
 set -euo pipefail
 
@@ -50,7 +50,7 @@ bili-FM 安装脚本
   install.sh [选项]
 
 选项:
-  -v, --version <tag>  安装指定版本 (如 2.0.0)
+  -v, --version <tag>  安装指定版本 (如 3.1.1)
   -p, --pre-release    安装最新版本 (包括预览版)
   -y, --yes            不询问确认，适用于自动化环境
   -h, --help           显示帮助
@@ -102,8 +102,14 @@ detect_arch() {
 
 resolve_tag() {
   if [[ -n "$OPT_VERSION" ]]; then
-    info "指定版本: ${OPT_VERSION}"
-    printf '%s\n' "$OPT_VERSION"
+    # mygo 稳定版 tag 是 mygo-v3.1.1；用户输入 3.1.1 时自动补前缀。
+    # 旧 Tauri 的 2.x tag 没有前缀，保持兼容。
+    local tag="$OPT_VERSION"
+    if [[ "$tag" != mygo-v* && "$tag" != 2.* ]]; then
+      tag="mygo-v$tag"
+    fi
+    info "指定版本: ${tag}"
+    printf '%s\n' "$tag"
     return
   fi
 
@@ -165,22 +171,17 @@ as_root() {
 }
 
 install_macos() {
-  local arch="$1" tag="$2" asset_prefix dmg_url dmg mountpoint
+  local arch="$1" tag="$2" version="${2#mygo-v}" asset_prefix dmg_url dmg mountpoint
 
   case "$arch" in
-    arm64) asset_prefix="bili-FM-${tag}-macos-apple-silicon" ;;
-    x86_64) asset_prefix="bili-FM-${tag}-macos-intel" ;;
+    arm64) asset_prefix="bili-FM-${version}-macos-apple-silicon" ;;
+    x86_64) asset_prefix="bili-FM-${version}-macos-intel" ;;
   esac
 
   info "检测到 macOS (${arch})"
-  if [[ -z "$OPT_VERSION" && "$OPT_PRE_RELEASE" == "false" ]] \
-    && command -v brew >/dev/null 2>&1; then
-    info "使用 Homebrew 安装，后续可通过 brew upgrade bili-fm 更新。"
-    brew install vst93/tap/bili-fm
-    info "安装完成。"
-    return
-  fi
-
+  # 不再默认走 Homebrew：tap 可能仍是旧 Tauri 包，会绕过 mygo 的原生迁移。
+  # 默认从 GitHub Release 安装同版本的 .dmg；需要 Homebrew 的用户可自行
+  # brew install vst93/tap/bili-fm（前提是 tap 已更新到原生版）。
   need hdiutil
   make_temp_dir
   dmg_url="https://github.com/${REPO}/releases/download/${tag}/${asset_prefix}.dmg"
@@ -226,8 +227,8 @@ find_legacy_arch_files() {
 }
 
 install_linux_arch() {
-  local arch="$1" tag="$2" package_name package_url package
-  package_name="bili-FM-${tag}-linux-${arch}.pkg.tar.zst"
+  local arch="$1" tag="$2" version="${2#mygo-v}" package_name package_url package
+  package_name="bili-FM-${version}-linux-${arch}.pkg.tar.zst"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 Arch Linux / pacman"
@@ -254,8 +255,8 @@ install_linux_arch() {
 }
 
 install_linux_deb() {
-  local arch="$1" tag="$2" package_name package_url package
-  package_name="bili-FM-${tag}-linux-${arch}.deb"
+  local arch="$1" tag="$2" version="${2#mygo-v}" package_name package_url package
+  package_name="bili-FM-${version}-linux-${arch}.deb"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 Debian / Ubuntu"
@@ -269,8 +270,8 @@ install_linux_deb() {
 }
 
 install_linux_rpm() {
-  local arch="$1" tag="$2" manager="$3" package_name package_url package
-  package_name="bili-FM-${tag}-linux-${arch}.rpm"
+  local arch="$1" tag="$2" manager="$3" version="${2#mygo-v}" package_name package_url package
+  package_name="bili-FM-${version}-linux-${arch}.rpm"
   package_url="https://github.com/${REPO}/releases/download/${tag}/${package_name}"
 
   info "检测到 RPM 系发行版 (${manager})"
