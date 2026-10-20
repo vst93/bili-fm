@@ -154,6 +154,12 @@ func main() {
 		return
 	}
 
+	// 使用统计：启动时向 umami.dev 发一条事件（旧版 Wails / Tauri 版本的行为，
+	// 见 internal/bilibili.SendAppStats）。必须放在单实例锁**之后**：第二个实例
+	// 上面已经 return 了，否则每次「把窗口叫到前台」都会重复计一次。
+	// fire-and-forget，不阻塞启动，失败也不提示用户。
+	go bilibili.SendAppStats()
+
 	kv, err := store.OpenDefault()
 	if err != nil {
 		log.Fatalf("打开本地存储失败: %v", err)

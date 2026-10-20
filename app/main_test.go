@@ -1936,3 +1936,41 @@ func TestStoreInstallDetection(t *testing.T) {
 		t.Fatalf("Store 更新提示不对：%+v", m)
 	}
 }
+
+// TestStartupSendsAppStats 钉住「启动时向 umami 发一次使用统计」。
+//
+// 这是旧版就有的行为（Wails 的 service.SendAppStats、Tauri 的 stats.rs 都在
+// 启动时 fire-and-forget 发一次）。mygo 重构把 src-tauri 整个删掉、Go 侧只
+// 保留了 internal/bilibili.SendAppStats 的函数体，调用点没了 —— 上报静默断了
+// 一整个版本，编译器不会报错（导出函数没人调是合法的）。谁再删掉这行调用，
+// 这条会红。
+func TestStartupSendsAppStats(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	call := bytes.Index(src, []byte("go bilibili.SendAppStats()"))
+	if call < 0 {
+		t.Fatal("main.go 启动路径没有 go bilibili.SendAppStats()（使用统计不再上报）")
+	}
+	// 必须在单实例锁之后：第二个实例只负责把窗口叫到前台，若在锁之前发，
+	// 每次重复启动都会多计一次。
+	lock := bytes.Index(src, []byte("mygo.App.RequestSingleInstanceLock()"))
+	if lock < 0 {
+		t.Fatal("main.go 里找不到 RequestSingleInstanceLock")
+	}
+	if call < lock {
+		t.Error("SendAppStats 应在单实例锁之后触发，否则第二个实例会重复计数")
+	}
+
+	// 函数本体真的打到 umami 网关（防止有人把它改成空实现又留着调用）。
+	statSrc, err := os.ReadFile("internal/bilibili/util.go")
+	if err != nil {
+		t.Fatalf("读 internal/bilibili/util.go 失败：%v", err)
+	}
+	for _, want := range []string{"func SendAppStats()", "https://api-gateway.umami.dev/api/send"} {
+		if !bytes.Contains(statSrc, []byte(want)) {
+			t.Errorf("SendAppStats 里缺少 %q", want)
+		}
+	}
+}

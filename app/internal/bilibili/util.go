@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // NumberToString 任意类型数字转换为字符串(太长的数字会有精度问题)
@@ -41,7 +42,9 @@ func GetUserAgent() string {
 }
 
 func PostJson(url string, msg []byte, headers map[string]string) (string, error) {
-	client := &http.Client{}
+	// 带超时：SendAppStats 是 fire-and-forget 的 goroutine，无超时的 client 在
+	// 连接被中间设备挂住时会永久泄漏一个 goroutine + 一条连接。
+	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("POST", url, strings.NewReader(string(msg)))
 	if err != nil {
 		return "", err
