@@ -33,6 +33,9 @@ type rangePaint struct {
 	Buffered float32
 	Segs     []Segment
 	Dur      float64
+	// Heat / ChapterMarks 只给进度条：弹幕热力和章节分界，画在轨道下面。
+	Heat         []HeatPoint
+	ChapterMarks []float64
 }
 
 // rangeGeom 是一条输入条的几何：TrackInset 是轨道相对外层矩形两端的内缩，

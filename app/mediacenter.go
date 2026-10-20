@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/vst93/bili-fm/app/internal/mediactl"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
@@ -49,6 +51,20 @@ func (c *controller) setupMediaCenter() {
 			c.mediaOnMain(func() { c.setMediaShuffle(on) })
 		},
 	})
+}
+
+// attachMediaCenter 在窗口创建并显示后把媒体中心接到这个 HWND 上。
+// Linux/macOS 的实现不实现 WindowAttacher，调用是 no-op。
+func (c *controller) attachMediaCenter() {
+	if c.media == nil || c.app == nil || c.app.Win == nil {
+		return
+	}
+	if a, ok := c.media.(mediactl.WindowAttacher); ok {
+		if err := a.AttachWindow(c.app.Win.NativeHandle()); err != nil {
+			log.Printf("系统媒体中心初始化失败: %v", err)
+		}
+	}
+	c.syncMediaTrack()
 }
 
 // setMediaLoop 把系统媒体中心发来的 LoopStatus 映射到播放模式。
@@ -156,7 +172,12 @@ func (c *controller) syncMediaTrack() {
 
 // syncMediaPosition 只更新位置（MPRIS 的 Position 不发信号，随便刷）。
 func (c *controller) syncMediaPosition(seconds float64) {
-	if c.media == nil || seconds < 0 {
+	if seconds < 0 {
+		return
+	}
+	// 桌面歌词跟主播放位置走；没有窗口时 syncLyricsAt 立即返回。
+	c.syncLyricsAt(seconds)
+	if c.media == nil {
 		return
 	}
 	c.media.SetPosition(int64(seconds * 1e6))

@@ -1,0 +1,43 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/vst93/bili-fm/app/internal/view"
+)
+
+func TestTrimRadioQueueKeepsCurrent(t *testing.T) {
+	a := &view.App{Queue: make([]view.Track, 60), Index: 50}
+	c := &controller{app: a}
+	c.trimRadioQueue()
+	if len(a.Queue) != 48 {
+		t.Fatalf("queue len = %d, want 48", len(a.Queue))
+	}
+	if a.Index != 38 {
+		t.Fatalf("index = %d, want 38（当前项不能被裁掉）", a.Index)
+	}
+}
+
+func TestTrimRadioQueueNoopWhenSmall(t *testing.T) {
+	a := &view.App{Queue: make([]view.Track, 10), Index: 3}
+	c := &controller{app: a}
+	c.trimRadioQueue()
+	if len(a.Queue) != 10 || a.Index != 3 {
+		t.Fatalf("small queue changed: len=%d index=%d", len(a.Queue), a.Index)
+	}
+}
+
+func TestPickSubtitleTrackPrefersChinese(t *testing.T) {
+	tracks := []view.SubtitleTrack{
+		{Lan: "en-US", Label: "English"},
+		{Lan: "ai-zh", Label: "自动字幕"},
+		{Lan: "zh-CN", Label: "中文"},
+	}
+	got, ok := pickSubtitleTrack(tracks)
+	if !ok || got.Lan != "zh-CN" {
+		t.Fatalf("pick = %+v ok=%v，want zh-CN", got, ok)
+	}
+	if _, ok := pickSubtitleTrack(nil); ok {
+		t.Fatal("空字幕轨应返回 ok=false")
+	}
+}

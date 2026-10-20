@@ -6,7 +6,7 @@
 //	        媒体键、锁屏控件都读它。
 //	macOS   MPNowPlayingInfoCenter + MPRemoteCommandCenter（Now Playing 席位，
 //	        媒体键 / 蓝牙耳机键由系统路由过来）。
-//	Windows 同上（SMTC），暂为 no-op。
+//	Windows SMTC（SystemMediaTransportControls），窗口创建后 AttachWindow 注册。
 //
 // 界面只通过这个接口调用，平台差异都收在实现文件里。
 package mediactl
@@ -49,6 +49,12 @@ type Callbacks struct {
 	SetLoop func(loop string)
 	// SetShuffle 是外部开了随机播放。
 	SetShuffle func(on bool)
+}
+
+// WindowAttacher 是需要在窗口创建后注册的平台实现（Windows SMTC）。
+// 其它平台不实现；主程序用类型断言调用，接口本身保持平台无关。
+type WindowAttacher interface {
+	AttachWindow(hwnd uintptr) error
 }
 
 // Controller 是系统媒体中心连接。方法都应当可以被任意 goroutine 调用。

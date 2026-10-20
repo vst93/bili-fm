@@ -8,6 +8,21 @@
 2. **视频播放走临时 webview 弹窗窗口**（H.264 没有可用的纯 Go 解码器）
 3. **整个重构完成后，用 workflow 发一个新预览版**
 
+## 3.1.3 功能迭代（2026-10-21）
+
+在 3.1.2 稳定版基础上新增 6 项功能，版本号不跨大版本，发版只把 GitHub Release
+标成 prerelease（版本号 / tag 本身不带 `preview`）：
+
+- 章节导航：复用 `x/player/v2` 的 `view_points`，章节页 + 进度条分界。
+- 字幕文稿：复用 `subtitle.subtitles`，按需下载 BCC，字幕页跟随/点击跳转。
+- 桌面歌词：字幕正文就绪后创建无边框置顶小窗，不抢焦点、不依赖 webview。
+- 顺着听：以当前视频为种子拉 `archive/related`，队列尾部自动补相关推荐。
+- 弹幕热力：按时间桶聚合弹幕，进度条热力线 + 右键跳到下一个高能。
+- Windows SMTC：窗口创建后 AttachWindow，补齐 Windows 系统媒体中心
+  （标题/封面/播放状态/媒体键/时间轴），macOS Now Playing / Linux MPRIS 保持原实现。
+
+验证：`./check.sh`（vet + 全包测试 + 六平台编译）全绿。
+
 ## 第 3 条的前置问题
 
 现有的 `release-tauri.yml` 是**构建 Tauri 版**的（tauri-action + Rust 工具链），

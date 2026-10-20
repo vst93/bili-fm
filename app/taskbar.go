@@ -96,12 +96,13 @@ func (c *controller) syncTaskbar() {
 	// 第一行就返回，不产生 COM 调用。
 	if a.Win != nil && a.Win.IsVisible() {
 		hwnd := a.Win.NativeHandle()
-		// 没收到 TaskbarButtonCreated 时普通幂等 init 可能被「假 added」
-		// 挡住；用强制重挂兜底（播放状态变化本身就是一次新的尝试时机）。
+		// 没收到 TaskbarButtonCreated 之前只补钩子，绝不 AddButtons（官方
+		// 时序要求）；Add 由消息处理器或启动后的定时重试完成。启动时
+		// attachMediaCenter -> syncTaskbar 会走到这里，不能又把早期 Add 带回来。
 		if taskbarButtonReady(hwnd) {
 			taskbarInit(hwnd)
 		} else {
-			taskbarReinit(hwnd)
+			taskbarWatch(hwnd)
 		}
 	}
 	nav := a.CanNavigate()

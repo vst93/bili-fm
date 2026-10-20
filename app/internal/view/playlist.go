@@ -52,6 +52,7 @@ func (a *App) playlistTabs(c *ui.Context) {
 	}
 
 	a.playModeButton(c)
+	a.radioButton(c)
 
 	if a.PlaylistTab == ListUser && len(a.Playlist) > 0 {
 		a.headerButton(c, "playlist-clear", "清空播放列表", iconDelete, 18, ui.Hex("#888888"), func() {
@@ -95,6 +96,30 @@ func (a *App) playModeButton(c *ui.Context) {
 	})
 	if b.Clicked() && a.Act.CyclePlayMode != nil {
 		a.Act.CyclePlayMode()
+	}
+}
+
+// radioButton 是「顺着听」开关：以当前曲目为种子补相关推荐。和播放模式
+// 放在同一排，用户找播放行为时能顺手看到；开启态用蓝色图标，不再多占一列。
+func (a *App) radioButton(c *ui.Context) {
+	t := a.Theme
+	label := pick(a.RadioOn, "关闭顺着听", "以当前视频开始顺着听")
+	b := ui.ButtonBase(c.Key("radio-on")).Size(32, 32).Radius(Radius).Center().
+		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.RadioOn)
+	if b.Hovered() {
+		b.Background(t.GlassHover)
+	} else {
+		b.Background(t.GlassActive)
+	}
+	b.Children(func() {
+		ink := ui.Hex("#888888")
+		if a.RadioOn {
+			ink = ui.Hex("#3b82f6")
+		}
+		ui.Icon(c, iconSparkles).Size(18, 18).TextColor(ink)
+	})
+	if b.Clicked() && a.Act.ToggleRadio != nil {
+		a.Act.ToggleRadio()
 	}
 }
 

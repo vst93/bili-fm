@@ -337,8 +337,12 @@ func (a *App) drawerHeader(c *ui.Context) {
 				// refreshKeyStateFor）：历史抽屉「图标自转」、弹幕/评论抽屉
 				// 「Spinner 替掉图标」，两者的加载期都必须禁用。
 				histLoading := a.Drawer == "history" && a.list().Loading
+				extraLoading := a.ExtrasLoading
+				if a.DanmakuTab == TabSubtitle {
+					extraLoading = extraLoading || a.SubtitlesLoading
+				}
 				st := refreshKeyStateFor(a.Drawer, a.HistTab,
-					histLoading, a.DanmakuLoading, a.RepliesLoading)
+					histLoading, a.DanmakuLoading || extraLoading, a.RepliesLoading)
 				a.headerButtonOff(c, "drawer-refresh", st.Label, iconRefresh, refreshSize, ui.Hex("#333333"), st.Spin, st.Spinner, func() {
 					if a.Act.Reload != nil {
 						a.Act.Reload()
@@ -1315,14 +1319,19 @@ func (a *App) drawerBody(c *ui.Context) {
 	// 在滚，就把它按住（滚动停下当帧自动恢复，见 scrollHold）。
 	a.scrollHoldHeld = false
 	if a.Drawer == DrawerDanmaku {
-		if a.DanmakuTab == TabDanmaku {
+		switch a.DanmakuTab {
+		case TabDanmaku:
 			// 弹幕 tab 自己用虚拟化 ui.List 当滚动容器（见 danmakuBody）。
 			a.danmakuBody(c)
-			return
+		case TabChapters:
+			a.chaptersBody(c)
+		case TabSubtitle:
+			a.subtitlesBody(c)
+		default:
+			// 评论文本不多但行高不一：repliesBody 自己用虚拟化 ui.List 当滚动容器
+			//（见 repliesBody）。
+			a.repliesBody(c)
 		}
-		// 评论文本不多但行高不一：repliesBody 自己用虚拟化 ui.List 当滚动容器
-		//（见 repliesBody）。
-		a.repliesBody(c)
 		return
 	}
 	// 卡片网格：虚拟化列表自己滚，顺带负责到底翻页。
@@ -2914,6 +2923,23 @@ func (a *App) danmakuTabs(c *ui.Context) {
 		replyLabel = fmt.Sprintf("评论 (%d)", len(a.Comments))
 	}
 	tabs = append(tabs, tabItem{Key: TabReply, Label: replyLabel, Icon: iconDanmaku})
+	// 章节 / 字幕只在当前视频确实有数据（或在途）时出现，避免绝大多数视频
+	// 的表头多出两个永远空着的 tab。正在看的 tab 若因换集消失，回落到弹幕。
+	showChapters := len(a.Chapters) > 0 || a.ExtrasLoading || a.DanmakuTab == TabChapters
+	showSubtitles := len(a.SubtitleTracks) > 0 || len(a.Subtitles) > 0 ||
+		a.SubtitlesLoading || a.ExtrasLoading || a.DanmakuTab == TabSubtitle
+	if showChapters {
+		tabs = append(tabs, tabItem{Key: TabChapters, Label: fmt.Sprintf("章节 (%d)", len(a.Chapters)), Icon: iconMusicList})
+	}
+	if showSubtitles {
+		tabs = append(tabs, tabItem{Key: TabSubtitle, Label: "字幕", Icon: iconText})
+	}
+	if a.DanmakuTab == TabChapters && !showChapters {
+		a.DanmakuTab = TabDanmaku
+	}
+	if a.DanmakuTab == TabSubtitle && !showSubtitles {
+		a.DanmakuTab = TabDanmaku
+	}
 
 	a.tabs(c, "dm", tabs, a.DanmakuTab, func(k string) {
 		a.DanmakuTab = k
@@ -2929,6 +2955,10 @@ func (a *App) danmakuTabs(c *ui.Context) {
 
 	if a.DanmakuTab == TabDanmaku {
 		a.danmakuFollowButton(c)
+	}
+	if a.DanmakuTab == TabSubtitle {
+		a.subtitleFollowButton(c)
+		a.subtitleLyricsButton(c)
 	}
 }
 
@@ -2974,6 +3004,183 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 		a.DanmakuAutoScroll = !a.DanmakuAutoScroll
 		a.danmakuScrollIdx = -1
 	}
+}
+
+// subtitleFollowButton 是字幕页的「跟随播放」开关。形态与弹幕跟随一致，
+// 但状态独立：看字幕时通常希望自动滚到当前句，而不是沿用弹幕的跟随状态。
+func (a *App) subtitleFollowButton(c *ui.Context) {
+	label := pick(a.SubtitleFollow, "暂停跟随字幕", "跟随字幕")
+	b := ui.ButtonBase(c.Key("sub-follow")).Size(32, 32).Radius(Radius).Center().
+		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.SubtitleFollow)
+	if a.SubtitleFollow {
+		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
+			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	} else {
+		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
+			Border(1, ui.Hex("#64748b").Alpha(0.22)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
+	}
+	pressPose(b)
+	b.Children(func() {
+		ink := pick(a.SubtitleFollow, ui.Hex("#0369a1"), ui.Hex("#64748b"))
+		ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+	})
+	if b.Clicked() {
+		a.SubtitleFollow = !a.SubtitleFollow
+		a.subtitleScrollIdx = -1
+	}
+}
+
+// subtitleLyricsButton 是字幕页的桌面歌词开关。
+func (a *App) subtitleLyricsButton(c *ui.Context) {
+	label := pick(a.LyricsOn, "关闭桌面歌词", "打开桌面歌词")
+	b := ui.ButtonBase(c.Key("sub-lyrics")).Size(32, 32).Radius(Radius).Center().
+		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsOn)
+	if a.LyricsOn {
+		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
+			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	} else {
+		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
+			Border(1, ui.Hex("#64748b").Alpha(0.22)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
+	}
+	pressPose(b)
+	b.Children(func() {
+		ink := pick(a.LyricsOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
+		ui.Icon(c, iconHalo).Size(18, 18).TextColor(ink)
+	})
+	if b.Clicked() && a.Act.ToggleDesktopLyrics != nil {
+		a.Act.ToggleDesktopLyrics()
+	}
+}
+
+// chapterAt 返回当前时间所在的章节下标，-1 表示不在任何章节内。
+func chapterAt(chs []Chapter, pos float64) int {
+	for i, ch := range chs {
+		if ch.To > ch.From && pos >= ch.From && pos < ch.To {
+			return i
+		}
+	}
+	return -1
+}
+
+// subtitleIndexAt 返回当前时间对应的字幕下标（二分查找最后一条 From<=pos）。
+func subtitleIndexAt(cues []SubtitleCue, pos float64) int {
+	lo, hi := 0, len(cues)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if cues[mid].From <= pos {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	i := lo - 1
+	if i < 0 {
+		return -1
+	}
+	// 已经过了这一句的结束时间也保留它：句间空隙继续显示上一句，比突然空白
+	// 更接近演唱/讲座字幕的阅读习惯。
+	return i
+}
+
+// chaptersBody 是章节页：按时间排的章节卡片，当前章节高亮，点击跳转。
+func (a *App) chaptersBody(c *ui.Context) {
+	if len(a.Chapters) == 0 {
+		if a.ExtrasLoading {
+			a.emptyNote(c, "正在加载章节…")
+		} else {
+			a.emptyNote(c, "当前视频没有章节信息")
+		}
+		return
+	}
+	l := a.ListFor(a.Drawer)
+	a.holdScrollBody(c, l)
+	cur := chapterAt(a.Chapters, a.Pos)
+	ui.Scroll(c).FillWidth().Grow(1).Padding(8, 24).TrackScroll(&l.Scroll).Children(func() {
+		ui.Column(c).FillWidth().Gap(6).Children(func() {
+			for i, ch := range a.Chapters {
+				i, ch := i, ch
+				active := i == cur
+				b := ui.ButtonBase(c.Key(fmt.Sprintf("chapter-%d", i))).FillWidth().
+					Padding(10, 8).Radius(8).AlignItems(ui.Start)
+				if active {
+					b.Background(ui.Hex("#0ea5e9").Alpha(0.14)).
+						Border(1, ui.Hex("#0ea5e9").Alpha(0.35))
+				} else if b.Hovered() {
+					b.Background(ui.Hex("#ffffff").Alpha(0.28)).
+						Border(1, ui.Hex("#64748b").Alpha(0.18))
+				}
+				b.Children(func() {
+					ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, fmtTime(ch.From)).FontSize(12).FontWeight(650).
+							TextColor(ui.Hex("#0369a1")).Width(48).Shrink(0)
+						ui.Column(c).Grow(1).Children(func() {
+							ui.Text(c, ch.Title).FontSize(13).MaxLines(2).
+								TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#334155")))
+						})
+					})
+				})
+				if b.Clicked() && a.Act.Seek != nil {
+					a.Act.Seek(ch.From)
+				}
+			}
+		})
+	})
+}
+
+// subtitlesBody 是字幕文稿页：虚拟化列表 + 当前句高亮，点击任意一句跳转。
+func (a *App) subtitlesBody(c *ui.Context) {
+	if len(a.Subtitles) == 0 {
+		switch {
+		case a.SubtitlesLoading || a.ExtrasLoading:
+			a.emptyNote(c, "正在加载字幕…")
+		case len(a.SubtitleTracks) == 0:
+			a.emptyNote(c, "当前视频没有字幕")
+		default:
+			a.emptyNote(c, "字幕加载失败")
+		}
+		return
+	}
+	l := a.ListFor(a.Drawer)
+	st := &a.subtitleList
+	st.Key = func(i int) any {
+		// 下标保证唯一：同一时间点 / 同一句文本可能在 BCC 里重复出现。
+		return fmt.Sprintf("sub-%d-%d", i, int(a.Subtitles[i].From*1000))
+	}
+	cur := subtitleIndexAt(a.Subtitles, a.Pos)
+	if a.SubtitleFollow && cur >= 0 && cur != a.subtitleScrollIdx {
+		st.ScrollTo(cur, ui.Center)
+		a.subtitleScrollIdx = cur
+	}
+	a.holdListScroll(c, &l.liftHold, st, &l.GridScroll, true)
+	ui.List(c, st, len(a.Subtitles), func(i int) {
+		cue := a.Subtitles[i]
+		active := i == cur
+		b := ui.ButtonBase(c.Key(fmt.Sprintf("subtitle-%d", i))).FillWidth().
+			Padding(8, 10).Radius(8).AlignItems(ui.Start)
+		if active {
+			b.Background(ui.Hex("#0ea5e9").Alpha(0.13))
+		} else if b.Hovered() {
+			b.Background(ui.Hex("#ffffff").Alpha(0.26))
+		}
+		b.Children(func() {
+			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Start).Children(func() {
+				ui.Text(c, fmtTime(cue.From)).FontSize(12).FontWeight(650).
+					TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#64748b"))).
+					Width(48).Shrink(0)
+				ui.Text(c, cue.Content).FontSize(13).MaxLines(3).
+					TextColor(pick(active, ui.Hex("#0f172a"), ui.Hex("#475569")))
+			})
+		})
+		if b.Clicked() && a.Act.Seek != nil {
+			a.Act.Seek(cue.From)
+		}
+	}).FillWidth().Grow(1).Gap(2).Padding(8, 24).TrackScroll(&l.GridScroll)
 }
 
 // danmakuGroup 是同一秒的弹幕组（原版 DanmakuTimeGroup）。

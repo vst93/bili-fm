@@ -69,6 +69,33 @@ type Danmaku struct {
 	Color int
 }
 
+// Chapter 是 B 站视频章节（view_points），时间单位为秒。
+type Chapter struct {
+	From  float64
+	To    float64
+	Title string
+}
+
+// SubtitleTrack 是一条字幕轨（player/v2 的 subtitle.subtitles）。
+type SubtitleTrack struct {
+	Lan   string
+	Label string
+	URL   string
+}
+
+// SubtitleCue 是字幕 BCC JSON 里的一条时间轴文本。
+type SubtitleCue struct {
+	From    float64
+	To      float64
+	Content string
+}
+
+// HeatPoint 是弹幕热力时间轴上的一个点（At 秒，Value 0..1）。
+type HeatPoint struct {
+	At    float64
+	Value float32
+}
+
 // Segment 是一个跳过分段（SponsorBlock），用于进度条上的广告段标记。
 type Segment struct {
 	Start, End float64
@@ -194,7 +221,15 @@ func (l *List) ResetGrid() { l.Grid = ui.ListState{} }
 func (a *App) ResetDanmakuScroll() {
 	a.danmakuList = ui.ListState{}
 	a.repliesList = ui.ListState{}
+	a.subtitleList = ui.ListState{}
+	a.subtitleScrollIdx = -1
 	a.danmakuScrollIdx = -1
+}
+
+// ResetSubtitleScroll 复位字幕列表的虚拟滚动与跟随下标（换视频/重新拉字幕）。
+func (a *App) ResetSubtitleScroll() {
+	a.subtitleList = ui.ListState{}
+	a.subtitleScrollIdx = -1
 }
 
 func (l *List) ResetScroll() {
@@ -302,8 +337,10 @@ const (
 
 // 弹幕/评论抽屉的两个 tab。
 const (
-	TabDanmaku = "danmaku"
-	TabReply   = "reply"
+	TabDanmaku  = "danmaku"
+	TabReply    = "reply"
+	TabChapters = "chapters"
+	TabSubtitle = "subtitle"
 )
 
 // UP 空间抽屉的两个 tab（原版 upVideoList.tsx 的「视频 / 合集」）。
@@ -413,6 +450,12 @@ type Actions struct {
 	CloseVideo    func()
 	OpenParts     func(t Track)
 	ToggleDanmaku func()
+	// ToggleRadio 开启 / 关闭「顺着听」相关推荐电台。
+	ToggleRadio func()
+	// ToggleDesktopLyrics 开启 / 关闭桌面歌词悬浮窗。
+	ToggleDesktopLyrics func()
+	// NextHighlight 跳到下一个弹幕高能点。
+	NextHighlight func()
 	LoadMore      func()
 	Login         func()
 	CloseLogin    func()
@@ -622,6 +665,31 @@ type App struct {
 	CollabOpenFor string
 	Danmaku       []Danmaku
 	Comments      []Comment
+	// Chapters / SubtitleTracks / Subtitles 是当前播放视频的播放器附加信息。
+	// ExtrasCid 记录它们属于哪个 cid；字幕正文按需下载（SubtitlesCid）。
+	Chapters         []Chapter
+	SubtitleTracks   []SubtitleTrack
+	Subtitles        []SubtitleCue
+	SubtitleLang     string
+	ExtrasCid        int64
+	ExtrasLoading    bool
+	SubtitlesLoading bool
+	SubtitlesCid     int64
+	SubtitleError    string
+	// SubtitleFollow 是字幕页是否跟随当前时间自动滚动。
+	SubtitleFollow    bool
+	subtitleList      ui.ListState
+	subtitleScrollIdx int
+	// LyricsOn / LyricCurrent / LyricNext 是桌面歌词窗的显示状态。
+	LyricsOn     bool
+	LyricCurrent string
+	LyricNext    string
+	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
+	DanmakuHeat []HeatPoint
+	HeatCid     int64
+	// RadioOn / RadioLoading 是「顺着听」状态。
+	RadioOn      bool
+	RadioLoading bool
 	// DanmakuCid / ReplyOid 记录当前 Danmaku / Comments 属于哪条视频
 	// （原版 danmakuCid / replyOid）。打开弹幕抽屉或切 tab 时用它判断
 	// 「已经是这条视频的数据了吗」，不是就重拉；没有它就只能靠
@@ -880,6 +948,7 @@ func NewApp(repaint func()) *App {
 		PlaylistTab: ListUser,
 		// 弹幕/评论抽屉默认弹幕 tab、自动跟随。
 		DanmakuTab:        TabDanmaku,
+		SubtitleFollow:    true,
 		DanmakuAutoScroll: true,
 	}
 	a.discAt = time.Now()
@@ -1001,6 +1070,10 @@ func (a *App) CurrentSection() Section {
 // canNavigate 报告上一集/下一集是否有意义（原版 canNavigateNext）：
 // 播放列表模式看来源列表长度，否则看当前队列长度。
 func (a *App) canNavigate() bool {
+	if a.RadioOn {
+		// 电台会持续补充相关推荐，即使当前队列只剩一条，下一首仍然有意义。
+		return true
+	}
 	if a.PlayingPlaylist != "" {
 		return len(a.playlistActive(a.PlayingPlaylist)) > 1
 	}

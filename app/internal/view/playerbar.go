@@ -1902,6 +1902,25 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 		p.Fill(ui.Rect{X: track.X + bw - 0.5, Y: track.Y, W: 1, H: track.H},
 			ui.Hex("#7dd3fc").Alpha(0.70), 0)
 	}
+	// 弹幕热力：用极淡的竖条铺在轨道下面，不改变进度条的交互；密集处
+	// 自然形成一条「这里很热闹」的纹理。数据是聚合桶，不持有弹幕文本。
+	if rp.Dur > 0 {
+		for _, h := range rp.Heat {
+			if h.Value <= 0.02 {
+				continue
+			}
+			frac := clampF(float64(h.At)/rp.Dur, 0, 1)
+			x := track.X + track.W*float32(frac)
+			p.Fill(ui.Rect{X: x, Y: track.Y, W: 2, H: track.H},
+				ui.Hex("#38bdf8").Alpha(0.10+h.Value*0.22), 0)
+		}
+		for _, at := range rp.ChapterMarks {
+			frac := clampF(at/rp.Dur, 0, 1)
+			x := track.X + track.W*float32(frac)
+			p.Fill(ui.Rect{X: x, Y: track.Y, W: 1, H: track.H},
+				ui.Hex("#ffffff").Alpha(0.55), 0)
+		}
+	}
 	// 广告段标记：原版这一层是 z-index 0（在轨道 z-index 1 之下，但在缓冲层
 	// 之上），所以红色是透过半透明轨道透出来的淡红，而不是压在轨道上的实红。
 	if rp.Dur > 0 {
@@ -1950,6 +1969,13 @@ func (a *App) progress(c *ui.Context) {
 	// 不设禁用，此前无视频时也能把 SeekValue 拖出一串数字（拖了又弹回）。
 	// 只用 Dur <= 0 判：无视频时 Dur 通常为 0，已覆盖原版的 !src 分支。
 	s.Disabled(a.Dur <= 0)
+	// 高能跳转放在进度条右键菜单：不占播放栏的定宽列，也不改变原版布局。
+	// 热力条只负责“看见”，右键负责“跳过去”。
+	s.ContextMenu(func(m *ui.Menu) {
+		if m.Item("跳到下一个高能").Chosen() && a.Act.NextHighlight != nil {
+			a.Act.NextHighlight()
+		}
+	})
 	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
@@ -2004,17 +2030,25 @@ func bufferedFrac(buffered, dur float64) float32 {
 // 缓冲区比例与广告段数据取自 App。thumbScale 由调用方用 AnimateTo 过渡后
 // 传入（原版 `transition: transform 100ms ease`）。
 func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale float32) rangePaint {
+	var marks []float64
+	for _, ch := range a.Chapters {
+		if ch.From > 0 {
+			marks = append(marks, ch.From)
+		}
+	}
 	return rangePaint{
-		Frac:       frac,
-		Buffered:   bufferedFrac(a.Buffered, a.Dur),
-		Segs:       a.SponsorSegments,
-		Dur:        a.Dur,
-		Hovered:    s.Hovered(),
-		Held:       held,
-		Dark:       a.Theme.Dark,
-		Colors:     rangeColorsFor(a.Theme),
-		Geom:       timelineGeom,
-		ThumbScale: thumbScale,
+		Frac:         frac,
+		Buffered:     bufferedFrac(a.Buffered, a.Dur),
+		Segs:         a.SponsorSegments,
+		Dur:          a.Dur,
+		Heat:         a.DanmakuHeat,
+		ChapterMarks: marks,
+		Hovered:      s.Hovered(),
+		Held:         held,
+		Dark:         a.Theme.Dark,
+		Colors:       rangeColorsFor(a.Theme),
+		Geom:         timelineGeom,
+		ThumbScale:   thumbScale,
 	}
 }
 
@@ -2226,7 +2260,7 @@ const (
 // 浅色各是各的：音量 `rgba(255,255,255,.34)` + blur(20px)，倍速
 // `rgba(255,255,255,.82)` + blur(10px)；五个烟熏玻璃时段都覆写成
 // `rgba(71,85,105,.64)`（backdrop-filter 不变）。材质统一走 cssGlass
-//（只模糊 + 自己铺底色），不再用 glass.Glass 的 Regular 玻璃 —— 那会把背景
+// （只模糊 + 自己铺底色），不再用 glass.Glass 的 Regular 玻璃 —— 那会把背景
 // 提亮、弹层发白（见 cssglass.go）。
 func playerPopoverVeil(t Theme, light ui.Color) ui.Color {
 	if t.Dark {
@@ -2628,6 +2662,11 @@ func (a *App) miniProgress(c *ui.Context) {
 	// 与主窗 progress 同一条原版规则：`disabled={!src || !duration}`。
 	// 只用 Dur <= 0 判，理由同主窗 progress 的注释。
 	s.Disabled(a.Dur <= 0)
+	s.ContextMenu(func(m *ui.Menu) {
+		if m.Item("跳到下一个高能").Chosen() && a.Act.NextHighlight != nil {
+			a.Act.NextHighlight()
+		}
+	})
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)

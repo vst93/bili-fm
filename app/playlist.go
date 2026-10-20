@@ -86,6 +86,13 @@ func (c *controller) playPlaylist(list string, index int, keepDrawer bool) {
 	for _, it := range items {
 		queue = append(queue, trackFromPlayItem(it))
 	}
+	// 从播放列表开始播放时退出「顺着听」：电台和播放列表是两种互斥的
+	// 队列来源，保留 RadioOn 会让界面显示开启但实际走不到电台分支。
+	a.RadioOn = false
+	a.RadioLoading = false
+	c.radioReqID++
+	c.radioWantNext = false
+	c.radioSeen = nil
 	a.Queue = queue
 	a.Index = index
 	a.PlayingPlaylist = list
@@ -491,7 +498,7 @@ func seriesSeedArchives(list *view.List) ([]seriesArchive, map[string]bool, int)
 
 // seriesSkipMessage 是「合集播放全部」里单条拉详情失败时的 warning 文案。
 //
-// 逐字对齐原版 index.tsx:1733 的 `` `视频 ${video.title} 加载失败，已跳过` ``；
+// 逐字对齐原版 index.tsx:1733 的 “ `视频 ${video.title} 加载失败，已跳过` “；
 // 标题缺失时退 bvid（原版会渲染出「视频 undefined」，这里给个能定位的串）。
 func seriesSkipMessage(title, bvid string) string {
 	return "视频 " + firstNonEmptyStr(title, bvid) + " 加载失败，已跳过"

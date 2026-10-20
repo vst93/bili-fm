@@ -102,6 +102,24 @@ type controller struct {
 	danmakuReqID       int
 	danmakuInflightCid int64
 
+	// extrasReqID / subtitleReqID 分别保护章节+字幕轨 / 字幕正文的异步结果：
+	// 换集或重新打开抽屉时，旧响应不得覆盖新视频的数据。
+	extrasReqID   int
+	subtitleReqID int
+	// heatReqID 保护弹幕热力结果（切集后旧结果丢弃）。
+	heatReqID int
+	// radioReqID 保护「顺着听」相关推荐请求。
+	radioReqID int
+	// radioSeen 是电台已经入过队的 bvid；只在当前电台会话里有效。
+	radioSeen map[string]bool
+	// radioWantNext 表示电台在尾部等一批相关推荐，响应回来要立刻续播。
+	radioWantNext bool
+	// extrasInflightCid / subtitleInflightCid 防止同一视频的重复拉取。
+	extrasInflightCid   int64
+	subtitleInflightCid int64
+	// lyricsWin 是桌面歌词悬浮窗（lazy 创建）。
+	lyricsWin *mygo.Window
+
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
 	miniPoll chan struct{}
 	// winGate 是窗口操作（切迷你/切置顶）的在途闸门：兼作原版
@@ -593,6 +611,8 @@ func main() {
 		// 现在才真正显示窗口：Explorer 会创建任务栏按钮并发送
 		// TaskbarButtonCreated，taskbarInit 在该消息里挂上缩略图工具栏。
 		app.Win.Show()
+		// Windows SMTC 需要窗口句柄；Linux/macOS 的媒体中心不实现该接口。
+		c.attachMediaCenter()
 		// 换抽屉 / -memstats 的内存观察（见 memory.go）。
 		c.memoryWatch()
 		if !*noKeys {
@@ -682,40 +702,43 @@ func (c *controller) debugOpenDrawer(kind string, seriesID int64) {
 func (c *controller) wireActions() {
 	a := c.app
 	a.Act = view.Actions{
-		LoadSection:     c.loadSection,
-		Reload:          c.reload,
-		SelectFolder:    c.selectFolder,
-		OpenUp:          c.openUp,
-		SelectSeries:    c.selectSeries,
-		ToggleFollow:    c.follow,
-		ToggleIncognito: c.toggleIncognito,
-		Search:          c.search,
-		UrlJump:         c.urlJump,
-		OpenCard:        c.openCard,
-		OpenBrowser:     c.openBrowser,
-		CopyLink:        c.copyLink,
-		Play:            c.playIndex,
-		TogglePlay:      func() { dbgSlow("togglePlay", c.togglePlay) },
-		Next:            func() { dbgSlow("next", func() { c.step(1) }) },
-		Prev:            func() { dbgSlow("prev", func() { c.step(-1) }) },
-		Seek:            func(v float64) { dbgSlow("seek", func() { c.seek(v) }) },
-		SetSpeed:        c.setSpeed,
-		ToggleEQ:        func() { dbgSlow("toggleEQ", c.toggleEQ) },
-		ToggleSponsor:   c.toggleSponsor,
-		SetVolume:       c.setVolume,
-		PersistVolume:   c.persistVolume,
-		ToggleMute:      c.toggleMute,
-		OpenVideo:       c.openVideo,
-		CloseVideo:      c.closeVideo,
-		OpenParts:       c.openParts,
-		ToggleDanmaku:   c.toggleDanmaku,
-		LoadMore:        c.loadMore,
-		Login:           c.login,
-		CloseLogin:      c.closeLogin,
-		ShowAbout:       c.showAbout,
-		ShowShortcuts:   c.showShortcuts,
-		CheckUpdate:     c.checkUpdate,
-		CloseModal:      c.closeModal,
+		LoadSection:         c.loadSection,
+		Reload:              c.reload,
+		SelectFolder:        c.selectFolder,
+		OpenUp:              c.openUp,
+		SelectSeries:        c.selectSeries,
+		ToggleFollow:        c.follow,
+		ToggleIncognito:     c.toggleIncognito,
+		Search:              c.search,
+		UrlJump:             c.urlJump,
+		OpenCard:            c.openCard,
+		OpenBrowser:         c.openBrowser,
+		CopyLink:            c.copyLink,
+		Play:                c.playIndex,
+		TogglePlay:          func() { dbgSlow("togglePlay", c.togglePlay) },
+		Next:                func() { dbgSlow("next", func() { c.step(1) }) },
+		Prev:                func() { dbgSlow("prev", func() { c.step(-1) }) },
+		Seek:                func(v float64) { dbgSlow("seek", func() { c.seek(v) }) },
+		SetSpeed:            c.setSpeed,
+		ToggleEQ:            func() { dbgSlow("toggleEQ", c.toggleEQ) },
+		ToggleSponsor:       c.toggleSponsor,
+		SetVolume:           c.setVolume,
+		PersistVolume:       c.persistVolume,
+		ToggleMute:          c.toggleMute,
+		OpenVideo:           c.openVideo,
+		CloseVideo:          c.closeVideo,
+		OpenParts:           c.openParts,
+		ToggleDanmaku:       c.toggleDanmaku,
+		ToggleRadio:         c.toggleRadio,
+		ToggleDesktopLyrics: c.toggleDesktopLyrics,
+		NextHighlight:       c.nextHighlight,
+		LoadMore:            c.loadMore,
+		Login:               c.login,
+		CloseLogin:          c.closeLogin,
+		ShowAbout:           c.showAbout,
+		ShowShortcuts:       c.showShortcuts,
+		CheckUpdate:         c.checkUpdate,
+		CloseModal:          c.closeModal,
 		// 主区的点赞 / 投币 / 收藏三个按钮走这里。漏接的话按钮看着能点、
 		// 点了却什么都不发生（Act 为 nil，statButton 会静默跳过）。
 		Like:          c.like,
@@ -826,6 +849,15 @@ func (c *controller) handleEnded() {
 		c.startCurrent()
 		return
 	}
+	// 顺着听：队列里还有下一条就直接走；没有就等一批相关推荐回来再接。
+	if c.app.RadioOn {
+		if c.app.Index+1 < len(c.app.Queue) {
+			c.step(1)
+		} else {
+			c.radioNext()
+		}
+		return
+	}
 	// 播放列表模式：在来源列表里续播。
 	if c.app.PlayingPlaylist != "" {
 		c.step(1)
@@ -844,6 +876,7 @@ func (c *controller) handleEnded() {
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
 func (c *controller) quit() {
 	c.quitting = true
+	c.closeDesktopLyrics()
 	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
 	if c.media != nil {
 		c.media.Close()
@@ -1004,14 +1037,21 @@ func retainComments(prev, page []view.Comment, pageNo, limit int) []view.Comment
 // switchDanmakuTab 切换「弹幕/评论」tab；切到评论时按需拉第一页。
 func (c *controller) switchDanmakuTab(tab string) {
 	a := c.app
-	if tab == view.TabReply && needLoadComments(a) && !a.RepliesLoading {
-		c.loadComments(1)
-	}
-	// 切回弹幕：重新跟随当前时间。
-	if tab == view.TabDanmaku {
+	switch tab {
+	case view.TabReply:
+		if needLoadComments(a) && !a.RepliesLoading {
+			c.loadComments(1)
+		}
+	case view.TabDanmaku:
+		// 切回弹幕：重新跟随当前时间。
 		a.DanmakuAutoScroll = true
-		a.Win.Update(func() {})
+	case view.TabChapters:
+		c.ensureExtras()
+	case view.TabSubtitle:
+		c.ensureExtras()
+		c.ensureSubtitles()
 	}
+	a.Win.Update(func() {})
 }
 
 // danmakuTarget 是弹幕 / 评论抽屉的数据来源：原版 loadDanmakuList /
@@ -2159,15 +2199,20 @@ func (c *controller) reload() {
 		a.ListFor(view.DrawerSeries).Cards = nil
 		c.loadSeriesVideos(a.SeriesID, 1)
 	case view.DrawerDanmaku:
-		// 弹幕/评论抽屉的刷新：清掉再拉一次。
-		// 弹幕/评论用的是 App 上的独立虚拟列表状态，不在 List.Grid/Rows 里。
+		// 弹幕 / 评论 / 章节 / 字幕共用抽屉，但刷新目标不同。
 		a.ResetDanmakuScroll()
-		if a.DanmakuTab == view.TabReply {
+		switch a.DanmakuTab {
+		case view.TabReply:
 			a.Comments = nil
 			a.ReplyPage = 0
 			a.RepliesHasMore = false
 			c.loadComments(1)
-		} else {
+		case view.TabChapters:
+			c.reloadPlaybackExtras()
+		case view.TabSubtitle:
+			c.reloadPlaybackExtras()
+			c.ensureSubtitles()
+		default:
 			a.Danmaku = nil
 			c.toggleDanmaku()
 		}
@@ -2664,6 +2709,10 @@ func (c *controller) startCurrent() {
 	if t == nil {
 		return
 	}
+	// 旧视频的章节 / 字幕 / 热力 / 桌面歌词文本先清空；新视频的数据在 cid
+	// 确定后异步加载，慢响应不会落到新曲目上。
+	c.clearPlaybackExtras()
+	c.ensureLyricsForTrack()
 	// 切歌时静默关掉视频弹窗（不要它再跳回来接音频）。
 	if c.app.VideoOpen {
 		c.videoSilent = true
@@ -2769,6 +2818,15 @@ func (c *controller) startCurrent() {
 			c.app.Track = t
 			c.app.Pos, c.app.Dur = 0, 0
 		})
+		// 章节/字幕轨与弹幕热力都和播放并行拉，不阻塞起播。放到主线程
+		// 里更新 ready 状态，避免网络 goroutine 直接写界面字段。
+		c.app.Win.Update(func() {
+			if stale() {
+				return
+			}
+			c.loadPlaybackExtras(t.Aid, cid)
+			c.startDanmakuHeat(cid)
+		})
 
 		// 真正起播前再校验一次：这期间用户可能已经点了别的。
 		if stale() {
@@ -2806,10 +2864,14 @@ func (c *controller) startCurrent() {
 			c.app.Dur = c.mp.Duration()
 			c.app.Status = ""
 			c.syncMediaTrack()
+			c.normalizeChapterEnds()
 			// 起播期间用户请求过的跳转，现在执行（safeSeek 的排队语义）。
 			if c.app.HasPendingSeek {
 				c.app.HasPendingSeek = false
 				go c.seek(c.app.PendingSeek)
+			}
+			if c.app.RadioOn {
+				c.maybeExtendRadio()
 			}
 		})
 
@@ -2922,7 +2984,7 @@ func (c *controller) step(delta int) {
 		return
 	}
 	// 普通队列只有一条（单集视频）时，上一首/下一首无意义（原版 pages<=1 直接返回）。
-	if c.app.PlayingPlaylist == "" && len(c.app.Queue) <= 1 {
+	if c.app.PlayingPlaylist == "" && len(c.app.Queue) <= 1 && !c.app.RadioOn {
 		return
 	}
 	// 切歌前把当前这条的断点补写 / 补报（原版在切歌时 force 上报）。
@@ -2957,6 +3019,10 @@ func (c *controller) step(delta int) {
 		next = len(c.app.Queue) - 1
 	}
 	if next >= len(c.app.Queue) {
+		if delta > 0 && c.app.RadioOn {
+			c.radioNext()
+			return
+		}
 		next = 0
 	}
 	c.app.Index = next
@@ -3075,10 +3141,18 @@ func (c *controller) toggleDanmaku() {
 	}
 	// 弹幕 / 评论都跟「浏览中」的那条（原版 videoInfo），不是正在播放的曲目。
 	t := danmakuTarget(a)
-	if a.DanmakuTab == view.TabReply {
+	switch a.DanmakuTab {
+	case view.TabReply:
 		if needLoadComments(a) && !a.RepliesLoading {
 			c.loadComments(1)
 		}
+		return
+	case view.TabChapters:
+		c.ensureExtras()
+		return
+	case view.TabSubtitle:
+		c.ensureExtras()
+		c.ensureSubtitles()
 		return
 	}
 	if !needLoadDanmaku(a) {
