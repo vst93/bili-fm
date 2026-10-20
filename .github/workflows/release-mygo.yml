@@ -132,11 +132,11 @@ jobs:
           | \`bili-FM-$VERSION-linux-x86_64.pkg.tar.zst\` | Arch Linux (x86_64) |
           | \`bili-fm-$VERSION-linux-amd64.tar.gz\` | 任意 Linux（配 install.sh） |
 
-          > **这是 mygo 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要
+          > **这是 bili-FM 原生版**：界面用 Go 原生绘制，音频全走纯 Go 引擎（不需要
           > webview），只有打开视频时才临时起一个 webview 窗口。
           >
-          > **应用内更新不跨版本**：原生版与 Tauri 版的更新签名不兼容，从旧版升级
-          > 需要手动安装一次。
+          > **从 Tauri 2.x 升级**：稳定版 Release 附带迁移包，老 Tauri 用户可在
+          > 原应用内自动更新；更早的预览版/手动安装用户也可直接下载安装。
           EOF
           )
           fi
@@ -167,7 +167,7 @@ jobs:
             echo "release 已存在，跳过创建"
           else
             gh release create "mygo-v$VERSION" \
-              --title "bili-FM (原生版) $VERSION" \
+              --title "bili-FM $VERSION" \
               --notes-file - \
               $([ "$PRE" = "true" ] && echo "--prerelease") <<< "$NOTES"
           fi
