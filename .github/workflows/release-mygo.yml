@@ -421,6 +421,21 @@ jobs:
         run: |
           echo "已发布：https://github.com/${{ github.repository }}/releases/tag/mygo-v$VERSION"
 
+  # ── Microsoft Store MSIX（仅稳定版）──────────────────────────────
+  #
+  # 以前这一步要手动触发 release-store.yml，结果 3.1.2 发版时忘了跑，
+  # GitHub Release 比 3.1.1 少了 bili-FM-windows-amd64.msix。现在稳定版
+  # 发布后自动调用同一个 workflow 构建并附加 MSIX；商店提交仍是手动
+  # （手动跑 release-store.yml 时传 submit=true），不改变审核节奏。
+  store:
+    needs: [prepare, release]
+    if: needs.prepare.outputs.prerelease == 'false'
+    uses: ./.github/workflows/release-store.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      submit: 'false'
+    secrets: inherit
+
   # ── Tauri 老用户自动迁移（仅稳定版）──────────────────────────────
   #
   # 老 Tauri 2.x 只认自己的 minisign 和 latest.json，不认识 mygo 的

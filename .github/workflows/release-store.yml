@@ -10,6 +10,11 @@ name: Release Store
 #
 # 只发稳定版本，版本号必须是四段 numeric（3.1.1 -> 3.1.1.0）。当前商店版
 # 2.0.37.0，因此 3.1.1.0 是合法升级。
+#
+# 两种用法：
+#   1) 手动构建 / 提交：workflow_dispatch（submit=true 才会提交商店）；
+#   2) release-mygo.yml 在稳定版发布后自动调用本工作流（submit=false），
+#      只构建 MSIX 并附加到 GitHub Release。商店提交仍保持手动。
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +30,22 @@ on:
         description: '提交备注（可选）'
         required: false
         default: 'mygo native'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Store 版本'
+        required: true
+        type: string
+      submit:
+        description: '是否提交到 Microsoft Store'
+        required: false
+        default: 'false'
+        type: string
+      notes:
+        description: '提交备注'
+        required: false
+        default: 'mygo native'
+        type: string
 
 permissions:
   contents: write
