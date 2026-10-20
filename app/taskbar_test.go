@@ -223,11 +223,11 @@ func TestTaskbarRetriesForceReinit(t *testing.T) {
 		}
 	}
 	win := flattenSrc(t, "taskbar_windows.go")
-	if !strings.Contains(win, "taskbarInitAt(hwnd,true)") {
-		t.Error("taskbarReinit 没有强制路径 taskbarInitAt(hwnd, true)")
+	if !strings.Contains(win, "functaskbarInitAt(hwnduintptr)") {
+		t.Error("taskbarReinit 没有走 taskbarInitAt")
 	}
-	if !strings.Contains(win, "sames && st.added && !force") && !strings.Contains(win, "same&&st.added&&!force") {
-		t.Error("taskbarInitAt 的幂等提前返回没有受 force 约束")
+	if !strings.Contains(win, "same&&st.added{") {
+		t.Error("taskbarInitAt 没有「已成功 Add 就跳过」的幂等闸门（重复 Add 可能产生重复按钮）")
 	}
 }
 

@@ -210,21 +210,15 @@ func taskbarWatch(hwnd uintptr) {
 	taskbarLogf("任务栏缩略图工具栏：已装 TaskbarButtonCreated 钩子 hwnd=%#x", hwnd)
 }
 
-// taskbarInit 装缩略图工具栏。幂等：同一窗口已挂上就跳过；失败（窗口还没
-// 显示、没有 comctl32 v6 等）保留重试机会（下一次 OnShow 再来）。
-func taskbarInit(hwnd uintptr) { taskbarInitAt(hwnd, false) }
+// taskbarInit 装缩略图工具栏。幂等：同一窗口已经成功 Add 过就跳过；失败
+// （还没有 TaskbarButtonCreated / COM 创建失败）保留重试机会。
+func taskbarInit(hwnd uintptr) { taskbarInitAt(hwnd) }
 
-// taskbarReinit 无视 added 记录强制再走一次 ThumbBarAddButtons。
-//
-// 为什么需要：窗口在 Hidden 状态调用 ThumbBarAddButtons 时，Windows 可能
-// 返回 S_OK 却因为任务栏按钮还没建好而**静默忽略**。此后 added=true 会让
-// 所有定时重试 / OnShow 重挂全部跳过 —— 这正是用户连续四轮反馈「Windows
-// 悬停任务栏没有播放快捷按钮」时盲重试失效的原因。启动后的几次重试改用
-// 本函数强制添加：按钮已经真的存在时 Windows 会拒绝重复添加（保留原有
-// 按钮），不会丢功能。
-func taskbarReinit(hwnd uintptr) { taskbarInitAt(hwnd, true) }
+// taskbarReinit 是「重试入口」：成功过就跳过，失败/未装时才真正 Add。
+// 名字保留给启动后的定时重试调用。
+func taskbarReinit(hwnd uintptr) { taskbarInitAt(hwnd) }
 
-func taskbarInitAt(hwnd uintptr, force bool) {
+func taskbarInitAt(hwnd uintptr) {
 	if hwnd == 0 {
 		return
 	}
@@ -233,10 +227,10 @@ func taskbarInitAt(hwnd uintptr, force bool) {
 	defer taskbarMu.Unlock()
 	st := taskbarCur
 	same := st != nil && st.hwnd == hwnd
-	if same && st.added && !force {
+	if same && st.added {
 		return
 	}
-	taskbarLogf("任务栏缩略图工具栏：准备 AddButtons hwnd=%#x force=%v same=%v added=%v", hwnd, force, same, same && st.added)
+	taskbarLogf("任务栏缩略图工具栏：准备 AddButtons hwnd=%#x same=%v added=%v ready=%v", hwnd, same, same && st.added, taskbarReadyHwnd == hwnd)
 	if taskbarSubcl == 0 {
 		taskbarSubcl = syscall.NewCallback(taskbarSubclassProc)
 	}
@@ -275,7 +269,7 @@ func taskbarInitAt(hwnd uintptr, force bool) {
 	hr := comCallTaskbar(taskbar, taskbarIdxThumbBarAddButtons,
 		hwnd, 3, uintptr(unsafe.Pointer(&buttons[0])))
 	if taskbarFailedHR(hr) {
-		taskbarLogf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x，force=%v）", uint32(hr), force)
+		taskbarLogf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x）", uint32(hr))
 		// 已经有一份成功添加过的状态时保留它：重复添加被 Windows 拒绝
 		// 往往说明按钮本来就在，不能让状态反而退回「未添加」，否则后续
 		// 的图标 / 禁用态同步会全部失效。
