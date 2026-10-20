@@ -1,4 +1,4 @@
-name: Release Store (mygo)
+name: Release Store
 
 # 构建 Microsoft Store MSIX，并可选择用 Partner Center API 提交。
 #
@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: mygo
+          ref: main
 
       - uses: actions/setup-go@v5
         with:

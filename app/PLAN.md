@@ -1,6 +1,6 @@
 # mygo 原生重构 · 计划与进度
 
-分支：`mygo`（Tauri 版保留在同一分支，未改动，可随时对照/回退）
+分支：`main` = mygo 原生版；`tauri` = 旧 Tauri 版备份（可随时对照/回退）
 
 ## 最终目标（用户指令）
 
@@ -151,7 +151,7 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 
 ### 第二批：抽屉表头 tab、UP 空间 / 合集
 
-参照系：**main 分支**（不是 wails —— wails 的前端少 17849 行，是旧版）。
+参照系：**tauri 分支**（旧 Tauri 版；不是 wails —— wails 的前端少 17849 行，是更旧版本）。
 工作区的 `src/` 与 main 完全一致。
 
 - **分区模型改成 4 个入口抽屉**（旧版就是 4 个，不是 6 个分区）：
@@ -196,7 +196,7 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 这一轮把界面与交互继续拉齐到旧版（参照 `main` 分支），并修了一批 bug：
 
 - **删除 Tauri 前端**：`src/`、`src-tauri/` 及 Node/Vite/Tailwind/MSIX/aur
-  打包配置全部删掉，mygo 分支从此是纯 Go + mygo 原生应用。
+  打包配置全部删掉，main 分支从此是纯 Go + mygo 原生应用。
 - **通知**：新增 toast（原来 28 处 `Status` 文案没有任何显示），自定义成
   旧版的白玻璃卡片（类型色条 + 关闭键）。
 - **对话框**：扫码登录（真二维码，修了 `GetLoginQRCodeStatus` 永不返回的
@@ -259,7 +259,7 @@ go tool mygo build                     # 出本机安装包到 build/（正式�
 - **稍后再看**：移除按钮请求中置灰防连点（原版 pendingAids）。
 - **UP 空间**：刷新同时重查关注状态与粉丝数（原版 handleRefresh）。
 
-### 细节对齐轮（2026-10 第一批，逐区域比照 main:src）
+### 细节对齐轮（2026-10 第一批，逐区域比照 tauri:src）
 
 - **操作行**：图标+计数横排（原是竖排）、激活色按动作（点赞红 `#e11d48`、
   投币黄 `#ca8a04`、收藏黄 `#eab308`）、无视频时禁用。
@@ -367,7 +367,7 @@ rotate 传给 `drawIcon`，`kindImage`（位图）走 `p.image()` 完全不带�
 
 `release-tauri.yml` 用 tauri-action 构建 Rust 版，mygo 版走不通，所以另建了
 `.github/workflows/release-mygo.yml`（推 `mygo-v*` tag 或
-`gh workflow run release-mygo.yml --ref mygo -f version=...`；**必须带 `--ref mygo`**）。
+`gh workflow run release-mygo.yml -f version=...`）。
 各平台产出对比：
 
 | 平台 | mygo `build` 直接产出 | 现有 Tauri 版产出 | 缺口 |

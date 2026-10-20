@@ -1,15 +1,15 @@
 name: Build check
 
-# 每次 push 到 mygo 分支（以及 PR）都把四个目标平台各编译一遍 + 跑测试，
+# 每次 push 到 main 分支（以及 PR）都把四个目标平台各编译一遍 + 跑测试，
 # 防止「只在 Linux 上能编译」的回归（平台专属代码最容易出这种问题）。
 #
 # 发正式包走 release-mygo.yml（推 mygo-v* tag），这里只做快速门禁。
 
 on:
   push:
-    branches: [mygo]
+    branches: [main]
   pull_request:
-    branches: [mygo]
+    branches: [main]
   workflow_dispatch:
 
 jobs:

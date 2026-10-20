@@ -4,7 +4,7 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
-- **本仓库（`mygo` 分支）已经是纯 Go + mygo 原生应用**，Tauri / React / WebView 前端
+- **本仓库 `main` 分支已经是纯 Go + mygo 原生应用**，Tauri / React / WebView 前端
   已整体删除（`src/`、`src-tauri/`、Node/Vite/Tailwind 配置、`aur/`、MSIX 打包等）。
 - 应用代码全在 **`app/`**（Go module `github.com/vst93/bili-fm/app`）：
   - `app/main.go`：应用组装、事件、调试开关
@@ -12,9 +12,9 @@
   - `app/internal/media`：纯 Go 音频引擎（WSOLA 变速不变调 + 均衡 + oto 输出）
   - `app/internal/view`：原生 UI（mygo `ui` 包）：shell / home / playerbar / drawer / mini
   - `app/internal/proxy`、`app/internal/imagecache`、`app/internal/store`、`app/internal/video`
-- **`main` 分支保留 Tauri 版**，是「功能对齐 / 界面还原」的唯一参照系（`main:src/` 是旧前端，
-  `main:src-tauri/src/bilibili.rs` 是旧接口）。需要对照时用
-  `git show main:src/...` 或另开 worktree，不要把旧代码合回本分支。
+- **`tauri` 分支保留旧 Tauri 版**，只作历史参照 / 紧急维护（`tauri:src/` 是旧前端，
+  `tauri:src-tauri/src/bilibili.rs` 是旧接口）。需要对照时用
+  `git show tauri:src/...`；不要把旧代码合回 `main`。
 - **进度与计划在 `app/PLAN.md`**，接手先读它。
 
 ## 协作分工
@@ -27,7 +27,8 @@
 ## Git / 发版
 
 - 双远端：origin (GitHub vst93/bili-fm) + gitee。**gitee 不用管版本代码对齐**（用户明确），留给 sync_gitee workflow（手动触发）。
-- mygo 版发版走 `release-mygo.yml`（推 `mygo-v*` tag 或 `gh workflow run release-mygo.yml --ref mygo -f version=...`，**必须带 `--ref mygo`**）。
+- 原生版发版走 `release-mygo.yml`（推 `mygo-v*` tag 或 `gh workflow run release-mygo.yml -f version=...`）；稳定版会自动附带 Tauri 迁移包，见 `MIGRATION.md`。
+- Microsoft Store 包走 `release-store.yml`（只构建；Partner Center 手动提交）。
 - 更新签名私钥只在 GitHub secret `MYGO_UPDATER_PRIVATE_KEY`；公钥在 `app/mygo.json`。**不要重新 keygen**。
 - Release notes 惯例：更新内容明细 +「下载安装」表格（按平台列文件）+ xattr 提示 + Gitee 镜像说明。
 
@@ -53,7 +54,7 @@
 
 ## 进度条对齐（2026-10-15）
 
-- 原版 `main:src/styles/globals.css`（3067-3277 区间）/ mygo `app/internal/view/rangeslider.go` + `app/internal/view/playerbar.go` 进度条区域。
+- 原版 `tauri:src/styles/globals.css`（3067-3277 区间）/ mygo `app/internal/view/rangeslider.go` + `app/internal/view/playerbar.go` 进度条区域。
 - 修复 3 项差异：① 禁用态 opacity 从 0.5 对齐到 0.42（`disabledDim` 抵消框架减半）；② 滑块 scale 从瞬时改为 100ms ease 过渡（`AnimateTo`）；③ 滑块高光 alpha 亮色 0.86→0.98、深色 0.78→0.90。
 - 已知未对齐：Seek bubble 在触摸设备（`@media (hover:none), (pointer:coarse)`）原版 `display:none`，mygo 无法检测指针类型。
 - volume thumb 圆心 1px 偏移（原版 `margin-top:-5px`）在 mygo 中已修正为居中，不回退。

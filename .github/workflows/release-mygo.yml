@@ -1,4 +1,4 @@
-name: Release (mygo)
+name: Release
 
 # 构建并发布 mygo 原生版。
 #
@@ -16,16 +16,13 @@ on:
   # 发版方式（两种都行）：
   #
   #   1) 直接触发（推荐，版本号自己给）：
-  #        gh workflow run release-mygo.yml --ref mygo -f version=3.0.0-preview.2
-  #      注意 **必须带 --ref mygo**：不带时 gh 只在默认分支上找这个 workflow，
-  #      而 main 保持 Tauri 版，找不到就会 404。
+  #        gh workflow run release-mygo.yml -f version=3.0.0-preview.2
+  #      默认分支现在是 main（mygo 原生版），直接在工作流页面或 `gh workflow run` 触发即可。
   #
   #   2) 推 tag：
   #        git tag mygo-v3.0.0-preview.2 && git push origin mygo-v3.0.0-preview.2
   #
-  # 为什么保留 tag 触发：GitHub 的 Actions 界面只列默认分支上的 workflow，
-  # 所以这个 workflow 不会出现在网页的「Run workflow」按钮里；tag 推送是
-  # 不需要网页入口也能发起的方式，也顺带把版本号固定在 tag 上。
+  # 保留 tag 触发作为无需网页入口的发版方式，也顺带把版本号固定在 tag 上。
   push:
     tags:
       - 'mygo-v*'
@@ -197,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: mygo
+          ref: main
           fetch-depth: 0
 
       - uses: actions/setup-go@v5
@@ -378,7 +375,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: mygo
+          ref: main
 
       - uses: actions/download-artifact@v4
         with:
@@ -448,7 +445,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: mygo
+          ref: main
 
       - uses: actions/setup-node@v4
         with:

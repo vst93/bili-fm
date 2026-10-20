@@ -40,7 +40,7 @@ Tauri 仅存在 WebView localStorage 的 tab/迷你窗位置/本地断点不迁�
 `latest.json`，里面的 URL 指向 Gitee 资产。手动同步：
 
 ```sh
-gh workflow run sync_gitee.yml --ref mygo
+gh workflow run sync_gitee.yml --ref main
 ```
 
 ## Microsoft Store
@@ -48,13 +48,13 @@ gh workflow run sync_gitee.yml --ref mygo
 构建（不提交）：
 
 ```sh
-gh workflow run release-store.yml --ref mygo -f version=3.1.1 -f submit=false
+gh workflow run release-store.yml --ref main -f version=3.1.1 -f submit=false
 ```
 
 提交到 Partner Center：
 
 ```sh
-gh workflow run release-store.yml --ref mygo -f version=3.1.1 -f submit=true
+gh workflow run release-store.yml --ref main -f version=3.1.1 -f submit=true
 ```
 
 前置 secrets：`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`。
