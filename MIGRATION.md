@@ -5,7 +5,7 @@
 | 渠道 | 版本 | 更新方式 |
 |---|---|---|
 | GitHub / Gitee | `mygo-v3.1.1`（非 prerelease） | mygo updater（Ed25519） |
-| 老 Tauri 2.x | 自动迁移到 `3.1.0` | 旧 Tauri updater 下载双清单里的迁移包 |
+| 老 Tauri 2.x | 自动迁移到当前 stable | 旧 Tauri updater 下载双清单里的迁移包 |
 | Microsoft Store | `3.1.1.0` MSIX | Store 自动更新 |
 
 - GitHub Release：https://github.com/vst93/bili-fm/releases/tag/mygo-v3.1.1

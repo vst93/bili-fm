@@ -8,15 +8,15 @@ name: Release Store
 #   Publisher:     CN=21D233E1-6650-4700-A43E-EDA723C43F96
 #   Store ID:      9N0LNL3JM3GG
 #
-# 只发稳定版本，版本号必须是四段 numeric（3.1.0 -> 3.1.0.0）。当前商店版
-# 2.0.37.0，因此 3.1.0.0 是合法升级。
+# 只发稳定版本，版本号必须是四段 numeric（3.1.1 -> 3.1.1.0）。当前商店版
+# 2.0.37.0，因此 3.1.1.0 是合法升级。
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Store 版本（如 3.1.0，不带 -preview）'
+        description: 'Store 版本（如 3.1.1，不带 -preview）'
         required: true
-        default: '3.1.0'
+        default: '3.1.1'
       submit:
         description: '构建后立即提交到 Microsoft Store（true/false）'
         required: true
