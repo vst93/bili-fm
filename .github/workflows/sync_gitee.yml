@@ -2,6 +2,11 @@ name: sync to gitee
 
 on:
   workflow_dispatch:
+    inputs:
+      core_only:
+        description: '只同步应用内更新必需的文件（清单 + 原生归档，先让 Gitee 更新链路可用）'
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -28,6 +33,7 @@ jobs:
           GITEE_REPO: bili-fm
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           MAX_WORKERS: '4'
+          CORE_ONLY: ${{ inputs.core_only }}
         run: python .github/scripts/sync_gitee.py
 
       - name: Push code to Gitee

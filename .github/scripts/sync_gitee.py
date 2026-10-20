@@ -18,6 +18,11 @@ GITEE_REPO = os.environ["GITEE_REPO"]
 GITEE_TOKEN = os.environ["GITEE_TOKEN"]
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "4"))
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads")
+# CORE_ONLY: 只同步应用内更新必需的资产（各平台 update-*.json + 原生归档/
+# delta）。Gitee 的上传带宽是整套镜像里唯一的慢点：全量约 170MB 要 30-40
+# 分钟；先完成这 ~42MB，Gitee 的检查/下载链路就能用了，安装包/迁移包可以
+# 后补。workflow_dispatch 的 core_only 输入会设置本变量。
+CORE_ONLY = os.environ.get("CORE_ONLY", "").strip().lower() in ("1", "true", "yes", "on")
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -119,27 +124,50 @@ def sync_release(github_release, gitee_release_info):
         print(f"  [{tag}] All assets already synced, skipping")
         return
 
-    print(f"  [{tag}] {len(to_sync)} assets to sync ({MAX_WORKERS} parallel)")
+    def is_core(name):
+        # 应用内更新必需：清单 + 清单指向的原生归档 / delta。注意原生归档是
+        # 小写 bili-fm-*；大写 bili-FM-*.app.tar.gz 是旧 Tauri 迁移包。
+        if name.startswith("update-") and name.endswith(".json"):
+            return True
+        return name.startswith("bili-fm-") and (name.endswith(".tar.gz") or name.endswith(".delta"))
 
-    def process_asset(asset):
-        """Download then upload a single asset."""
-        name = asset["name"]
-        url = asset["browser_download_url"]
-        local_path = download_asset(url, name)
-        upload_asset(gitee_release_id, local_path, name)
-        os.remove(local_path)
-        return name
+    def upload_batch(batch, label):
+        if not batch:
+            return
+        print(f"  [{tag}] {label}: {len(batch)} assets ({MAX_WORKERS} parallel)")
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        futures = {pool.submit(process_asset, a): a["name"] for a in to_sync}
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-                print(f"    ✅ {name}")
-            except Exception as e:
-                print(f"    ❌ {name}: {e}", file=sys.stderr)
-                raise
+        def process_asset(asset):
+            """Download then upload a single asset."""
+            name = asset["name"]
+            url = asset["browser_download_url"]
+            local_path = download_asset(url, name)
+            upload_asset(gitee_release_id, local_path, name)
+            os.remove(local_path)
+            return name
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(process_asset, a): a["name"] for a in batch}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    future.result()
+                    print(f"    ✅ {name}")
+                except Exception as e:
+                    print(f"    ❌ {name}: {e}", file=sys.stderr)
+                    raise
+
+    core_archives = [a for a in to_sync if is_core(a["name"]) and not a["name"].startswith("update-")]
+    manifests = [a for a in to_sync if a["name"].startswith("update-")]
+    rest = [a for a in to_sync if a not in core_archives and a not in manifests]
+
+    # 先归档、后清单：清单一旦在 Gitee 可见，应用会立刻按它去下载归档；
+    # 归档先就位可以避免「刚同步到一半，Gitee 清单已存在但 404」的窗口。
+    upload_batch(core_archives, "core archives")
+    upload_batch(manifests, "core manifests")
+    if CORE_ONLY:
+        print(f"  [{tag}] core_only=true，跳过 {len(rest)} 个安装包/迁移包")
+    else:
+        upload_batch(rest, "installers / migration packages")
 
 
 def sync_gitee_latest(github_release, gitee_release_info):
@@ -235,7 +263,8 @@ def main():
 
     # Sync assets
     sync_release(gh_release, gitee_release_info)
-    sync_gitee_latest(gh_release, gitee_release_info)
+    if not CORE_ONLY:
+        sync_gitee_latest(gh_release, gitee_release_info)
 
     print("Done!")
 
