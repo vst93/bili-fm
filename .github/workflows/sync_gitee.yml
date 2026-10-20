@@ -37,7 +37,10 @@ jobs:
           echo "Pushing code to Gitee..."
           git remote add gitee "https://gitee.com/vst93/bili-fm.git"
           AUTH=$(echo -n "oauth2:${GITEE_TOKEN}" | base64)
+          # 同步当前 ref（手动从 mygo 触发时不要把 Gitee 的 main 覆盖成
+          # mygo；main 的 Tauri 代码保持独立）。
+          BRANCH="${GITHUB_REF_NAME:-mygo}"
           git -c "http.https://gitee.com/.extraheader=Authorization: Basic ${AUTH}" \
-            push gitee main --force 2>&1
+            push gitee "HEAD:${BRANCH}" --force 2>&1
           git remote remove gitee 2>/dev/null || true
           echo "✓ Code pushed to Gitee"

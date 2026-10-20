@@ -40,10 +40,13 @@ if (-not (Test-Path $iconPath)) { throw "Store icon not found: $iconPath" }
 Remove-Item $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $packageRoot, $assetsDir | Out-Null
 
-# mygo build's output directory contains the exe and any resources it needs.
-# Copy the whole directory (not only the exe) so the MSIX stays faithful to the
-# portable build.
-Copy-Item (Join-Path $binDir "*") $packageRoot -Recurse -Force
+# mygo build's output directory contains the exe, its embedded resources, and
+# the NSIS setup produced by the same build. The Store MSIX must **not** contain
+# the NSIS installer (Store policy and size): copy the exe and its non-exe
+# resources only.
+Copy-Item $exePath $packageRoot -Force
+Get-ChildItem $binDir -File | Where-Object { $_.Name -ne $exeName -and $_.Extension -ne ".exe" } |
+  Copy-Item -Destination $packageRoot -Force
 
 function New-SquarePng {
   param([string]$Source, [string]$Destination, [int]$Width, [int]$Height = 0)
