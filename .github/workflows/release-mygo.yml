@@ -100,12 +100,23 @@ jobs:
         env:
           INPUT_NOTES: ${{ inputs.notes }}
           INPUT_VERSION: ${{ steps.version.outputs.version }}
+          INPUT_PRERELEASE: ${{ steps.prerelease.outputs.prerelease }}
         run: |
           VERSION="$INPUT_VERSION"
+          PRE="$INPUT_PRERELEASE"
           if [ -n "$INPUT_NOTES" ]; then
             NOTES="$INPUT_NOTES"
           else
-            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            # 稳定版不能把同一提交上的预览 tag 当成「上一个版本」：3.1.2
+            # 与 3.1.2-preview.1 指向同一个提交时，普通 git describe 会选中
+            # preview tag，导致 $LAST_TAG..HEAD 为空、更新内容整段空白。
+            if [ "$PRE" = "false" ]; then
+              LAST_TAG=$(git describe --tags --abbrev=0 \
+                --exclude='*-preview*' --exclude='*-rc*' \
+                --exclude='*-beta*' --exclude='*-alpha*' 2>/dev/null || echo "")
+            else
+              LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            fi
             if [ -n "$LAST_TAG" ]; then
               COMMITS=$(git log --pretty=format:"- %s" "$LAST_TAG"..HEAD | head -40)
             else
@@ -124,11 +135,13 @@ jobs:
           |------|------|
           | \`bili-FM-$VERSION-macos-apple-silicon.dmg\` | macOS（Apple Silicon） |
           | \`bili-FM-$VERSION-macos-intel.dmg\` | macOS（Intel） |
-          | \`bili-FM-$VERSION-windows-x86_64-setup.exe\` | Windows (x86_64) |
+          | \`bili-FM-$VERSION-windows-amd64-setup.exe\` | Windows (x86_64) |
           | \`bili-FM-$VERSION-windows-arm64-setup.exe\` | Windows (ARM64) |
+          | \`bili-FM-windows-amd64.msix\` | Microsoft Store (x86_64) |
           | \`bili-FM-$VERSION-linux-x86_64.deb\` | Debian/Ubuntu (x86_64) |
           | \`bili-FM-$VERSION-linux-arm64.deb\` | Debian/Ubuntu (ARM64) |
           | \`bili-FM-$VERSION-linux-x86_64.rpm\` | Fedora/RHEL/openSUSE (x86_64) |
+          | \`bili-FM-$VERSION-linux-arm64.rpm\` | Fedora/RHEL/openSUSE (ARM64) |
           | \`bili-FM-$VERSION-linux-x86_64.pkg.tar.zst\` | Arch Linux (x86_64) |
           | \`bili-fm-$VERSION-linux-amd64.tar.gz\` | 任意 Linux（配 install.sh） |
 
