@@ -24,6 +24,13 @@ func (a *App) Shell(c *ui.Context) {
 	if a.Background {
 		return
 	}
+	// 图片缓存的「常驻」标记按帧登记：先清掉上一帧的，再由本帧的 Retain
+	// 重新登记。否则每换一集/换一个 UP 都会永久钉住一张头像 + 一个 key，
+	// 长时间播放后缓存 LRU 失效、内存只涨不落（见 imagecache.BeginFrame）。
+	// 测试桩不实现该方法时跳过。
+	if f, ok := a.Images.(interface{ BeginFrame() }); ok {
+		f.BeginFrame()
+	}
 	// 抽屉换了：上一屏的封面位图已经不在界面上，通知主程序主动回收。
 	// 只在这里比较、不在后台 goroutine 里轮询界面字段（见 OnDrawerChange）。
 	if a.Drawer != a.drawerWatched {

@@ -3,9 +3,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -34,6 +38,7 @@ var (
 	procCreateDIBSection   = taskbarGdi32.NewProc("CreateDIBSection")
 	procCreateBitmap       = taskbarGdi32.NewProc("CreateBitmap")
 	procCreateIconIndirect = taskbarUser32.NewProc("CreateIconIndirect")
+	procDestroyIcon        = taskbarUser32.NewProc("DestroyIcon")
 	procDeleteObject       = taskbarGdi32.NewProc("DeleteObject")
 	procSetWindowSubclass  = taskbarComctl32.NewProc("SetWindowSubclass")
 	procDefSubclassProc    = taskbarComctl32.NewProc("DefSubclassProc")
@@ -42,21 +47,9 @@ var (
 	procRegisterWindowMsgW = taskbarUser32.NewProc("RegisterWindowMessageW")
 )
 
-// CLSID_TaskbarList / IID_ITaskbarList3。
-var (
-	taskbarCLSID    = guid{0x56fdf344, 0xfd6d, 0x11d0, [8]byte{0x95, 0x8a, 0x00, 0x60, 0x97, 0xc9, 0xa0, 0x90}}
-	taskbarIIDList3 = guid{0xea1afb91, 0x9e28, 0x4b86, [8]byte{0x90, 0xe9, 0x9e, 0x9f, 0x8a, 0x5e, 0xee, 0x84}}
-)
-
-type guid struct {
-	Data1 uint32
-	Data2 uint16
-	Data3 uint16
-	Data4 [8]byte
-}
-
 // ITaskbarList3 的 vtable 索引（ShObjIdl_core.h；前 3 个是 IUnknown）。
 const (
+	taskbarIdxRelease                    = 2
 	taskbarIdxHrInit                     = 3
 	taskbarIdxThumbBarAddButtons         = 15
 	taskbarIdxThumbBarUpdButtons         = 16
@@ -88,6 +81,33 @@ func nativePtr(addr uintptr) unsafe.Pointer { return *(*unsafe.Pointer)(unsafe.P
 
 func taskbarFailedHR(hr uintptr) bool { return int32(uint32(hr)) < 0 }
 
+// taskbarReleaseIcons 释放一组 HICON。
+func taskbarReleaseIcons(icons taskbarIcons) {
+	for _, h := range []uintptr{icons.prev, icons.play, icons.pause, icons.next} {
+		if h != 0 {
+			procDestroyIcon.Call(h)
+		}
+	}
+}
+
+// taskbarButtonReady 报告是否已收到该窗口的 TaskbarButtonCreated。
+func taskbarButtonReady(hwnd uintptr) bool {
+	taskbarMu.Lock()
+	defer taskbarMu.Unlock()
+	return taskbarReadyHwnd == hwnd
+}
+
+// taskbarReleaseState 释放一个不再使用的 COM 对象与图标。
+func taskbarReleaseState(st *taskbarThumbState) {
+	if st == nil {
+		return
+	}
+	taskbarReleaseIcons(st.icons)
+	if st.taskbar != 0 {
+		comCallTaskbar(st.taskbar, taskbarIdxRelease)
+	}
+}
+
 type taskbarIcons struct {
 	prev, play, pause, next uintptr
 }
@@ -115,7 +135,34 @@ var (
 	// 正确调用时机；首次显示前/Explorer 重启后它都会重新发一次。
 	taskbarBtnCreatedMsg     uint32
 	taskbarTaskbarCreatedMsg uint32
+	// taskbarReadyHwnd 是已经收到过 TaskbarButtonCreated 的窗口。没收到时
+	// syncTaskbar 用强制重挂，避免「Show 前/消息丢失」留下的假 added。
+	taskbarReadyHwnd uintptr
 )
+
+// taskbarLogf 把任务栏工具栏的关键步骤写到
+// %LOCALAPPDATA%\bili-FM\taskbar.log（同时保留 log.Printf）。
+//
+// 发布版是 windowsgui，没有控制台，任务栏按钮又只能在 Windows 实机验证；
+// 如果用户仍看不到按钮，这个文件能直接说明：钩子装没装上、
+// TaskbarButtonCreated 有没有到、AddButtons 返回了什么 HRESULT。
+func taskbarLogf(format string, args ...any) {
+	log.Printf(format, args...)
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(dir, "bili-FM", "taskbar.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintf(f, time.Now().Format("2006-01-02 15:04:05.000 ")+format+"\n", args...)
+	_ = f.Close()
+}
 
 // taskbarRegisterMessages 注册 Explorer 的广播消息（进程内只做一次）。
 func taskbarRegisterMessages() {
@@ -154,12 +201,13 @@ func taskbarWatch(hwnd uintptr) {
 		return
 	}
 	if r, _, _ := procSetWindowSubclass.Call(hwnd, cb, taskbarSubclassID, 0); r == 0 {
-		log.Printf("任务栏缩略图工具栏：SetWindowSubclass 失败，TaskbarButtonCreated 不会触发")
+		taskbarLogf("任务栏缩略图工具栏：SetWindowSubclass 失败，TaskbarButtonCreated 不会触发 hwnd=%#x", hwnd)
 		return
 	}
 	taskbarMu.Lock()
 	taskbarWatchedHwnd = hwnd
 	taskbarMu.Unlock()
+	taskbarLogf("任务栏缩略图工具栏：已装 TaskbarButtonCreated 钩子 hwnd=%#x", hwnd)
 }
 
 // taskbarInit 装缩略图工具栏。幂等：同一窗口已挂上就跳过；失败（窗口还没
@@ -188,6 +236,7 @@ func taskbarInitAt(hwnd uintptr, force bool) {
 	if same && st.added && !force {
 		return
 	}
+	taskbarLogf("任务栏缩略图工具栏：准备 AddButtons hwnd=%#x force=%v same=%v added=%v", hwnd, force, same, same && st.added)
 	if taskbarSubcl == 0 {
 		taskbarSubcl = syscall.NewCallback(taskbarSubclassProc)
 	}
@@ -210,6 +259,10 @@ func taskbarInitAt(hwnd uintptr, force bool) {
 	} else {
 		icons = taskbarBuildIcons(size, dark)
 	}
+	oldState := (*taskbarThumbState)(nil)
+	if !same {
+		oldState = taskbarCur
+	}
 	playIcon, playTip := icons.play, "播放"
 	if playing {
 		playIcon, playTip = icons.pause, "暂停"
@@ -222,20 +275,31 @@ func taskbarInitAt(hwnd uintptr, force bool) {
 	hr := comCallTaskbar(taskbar, taskbarIdxThumbBarAddButtons,
 		hwnd, 3, uintptr(unsafe.Pointer(&buttons[0])))
 	if taskbarFailedHR(hr) {
-		log.Printf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x，force=%v）", uint32(hr), force)
+		taskbarLogf("任务栏缩略图工具栏：ThumbBarAddButtons 失败（HRESULT %#x，force=%v）", uint32(hr), force)
 		// 已经有一份成功添加过的状态时保留它：重复添加被 Windows 拒绝
 		// 往往说明按钮本来就在，不能让状态反而退回「未添加」，否则后续
 		// 的图标 / 禁用态同步会全部失效。
+		if !same {
+			taskbarReleaseIcons(icons)
+			if taskbar != 0 {
+				comCallTaskbar(taskbar, taskbarIdxRelease)
+			}
+		}
 		return
+	}
+	if oldState != nil {
+		taskbarReleaseState(oldState)
 	}
 	if same {
 		st.added = true
+		taskbarLogf("任务栏缩略图工具栏：AddButtons 成功（复用状态） hwnd=%#x", hwnd)
 		return
 	}
 	taskbarCur = &taskbarThumbState{
 		hwnd: hwnd, taskbar: taskbar, icons: icons, size: size, dark: dark,
 		canPrev: true, canNext: true, added: true,
 	}
+	taskbarLogf("任务栏缩略图工具栏：AddButtons 成功 hwnd=%#x buttons=3", hwnd)
 }
 
 // taskbarSetState 同步任务栏按钮的播放/暂停图标与上一首/下一首可用性。
@@ -248,7 +312,9 @@ func taskbarSetState(playing, canPrev, canNext bool) {
 	}
 	dark := taskbarSystemDark()
 	themeChanged := dark != st.dark
+	oldIcons := taskbarIcons{}
 	if themeChanged {
+		oldIcons = st.icons
 		st.dark = dark
 		st.icons = taskbarBuildIcons(st.size, dark)
 	}
@@ -265,8 +331,13 @@ func taskbarSetState(playing, canPrev, canNext bool) {
 		taskbarMakeButton(taskbarBtnPlay, playIcon, tip, true),
 		taskbarMakeButton(taskbarBtnNext, st.icons.next, "下一首", canNext),
 	}
-	comCallTaskbar(st.taskbar, taskbarIdxThumbBarUpdButtons,
+	hr := comCallTaskbar(st.taskbar, taskbarIdxThumbBarUpdButtons,
 		st.hwnd, 3, uintptr(unsafe.Pointer(&buttons[0])))
+	if themeChanged && !taskbarFailedHR(hr) {
+		// UpdateButtons 已经把新 HICON 交给任务栏；旧图标现在可以释放，
+		// 否则每次系统深浅色切换都会泄漏 4 个 HICON。
+		taskbarReleaseIcons(oldIcons)
+	}
 }
 
 // taskbarCreate 建一个 ITaskbarList3 并 HrInit。失败返回 ok=false。
@@ -276,11 +347,11 @@ func taskbarCreate() (uintptr, bool) {
 		uintptr(unsafe.Pointer(&taskbarCLSID)), 0, taskbarClsctxInprocServer,
 		uintptr(unsafe.Pointer(&taskbarIIDList3)), uintptr(unsafe.Pointer(&tl)))
 	if taskbarFailedHR(hr) || tl == 0 {
-		log.Printf("任务栏缩略图工具栏：CoCreateInstance 失败（HRESULT %#x）", uint32(hr))
+		taskbarLogf("任务栏缩略图工具栏：CoCreateInstance 失败（HRESULT %#x）", uint32(hr))
 		return 0, false
 	}
 	if hr = comCallTaskbar(tl, taskbarIdxHrInit); taskbarFailedHR(hr) {
-		log.Printf("任务栏缩略图工具栏：HrInit 失败（HRESULT %#x）", uint32(hr))
+		taskbarLogf("任务栏缩略图工具栏：HrInit 失败（HRESULT %#x）", uint32(hr))
 		return 0, false
 	}
 	return tl, true
@@ -293,6 +364,10 @@ func taskbarSubclassProc(hwnd, msg, wparam, lparam, subclassID, refData uintptr)
 	// 这是 ThumbBarAddButtons 的官方调用时机；处理完仍透传给 mygo 的窗口过程，
 	// 让它自己的进度条状态也能应用。
 	if taskbarBtnCreatedMsg != 0 && msg == uintptr(taskbarBtnCreatedMsg) {
+		taskbarMu.Lock()
+		taskbarReadyHwnd = hwnd
+		taskbarMu.Unlock()
+		taskbarLogf("任务栏缩略图工具栏：收到 TaskbarButtonCreated hwnd=%#x", hwnd)
 		// 官方时机：无论启动时那次 AddButtons 返回什么，都在这里强制重挂。
 		// Windows 在任务栏按钮还没建好时可能「接受」调用但不显示按钮；
 		// 只按 added 判据会永远跳过，用户就看不到快捷控制。
@@ -303,7 +378,9 @@ func taskbarSubclassProc(hwnd, msg, wparam, lparam, subclassID, refData uintptr)
 	// Explorer 重启：旧的缩略图工具栏已经没了，清掉状态等下一次
 	// TaskbarButtonCreated 重挂。
 	if taskbarTaskbarCreatedMsg != 0 && msg == uintptr(taskbarTaskbarCreatedMsg) {
+		taskbarLogf("任务栏缩略图工具栏：收到 TaskbarCreated（Explorer 重启）")
 		taskbarMu.Lock()
+		taskbarReadyHwnd = 0
 		if st := taskbarCur; st != nil {
 			st.added = false
 		}

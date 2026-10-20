@@ -9,6 +9,8 @@ func taskbarInit(uintptr) {}
 
 func taskbarReinit(uintptr) {}
 
+func taskbarButtonReady(uintptr) bool { return true }
+
 func taskbarWatch(uintptr) {}
 
 func taskbarSetState(playing, canPrev, canNext bool) {}

@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,9 +24,12 @@ import (
 // 还没来」的卡顿。现在每取到一块就顺手把紧随其后的那块在后台抓下来，读到块尾
 // 时直接换上；网络抖动只影响「再下一块」，被 5 秒的解码水位吸收。
 type remoteFile struct {
-	client  *http.Client
-	url     string
-	headers map[string]string
+	client    *http.Client
+	url       string
+	headers   map[string]string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 
 	// noRange 为真表示上游不支持 Range，只能顺序读。
 	noRange bool
@@ -62,10 +66,12 @@ const remoteChunkRetries = 2
 // newRemoteFile 先发一个 Range: bytes=0-0 探出总长度与是否支持 Range。
 func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
-	f := &remoteFile{client: client, url: url, headers: headers, size: -1}
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &remoteFile{client: client, url: url, headers: headers, ctx: ctx, cancel: cancel, size: -1}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	for k, v := range headers {
@@ -74,6 +80,7 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 	req.Header.Set("Range", "bytes=0-0")
 	resp, err := client.Do(req)
 	if err != nil {
+		cancel()
 		return nil, WrapKind(KindNetwork, err)
 	}
 	defer resp.Body.Close()
@@ -88,6 +95,7 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 			}
 		}
 		if f.size < 0 {
+			cancel()
 			return nil, WrapKind(KindNetwork, errors.New("media: 上游 Range 响应缺少总长度"))
 		}
 	case http.StatusOK:
@@ -98,6 +106,7 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 		f.noRange = true
 	default:
 		// 最常见的一类：CDN 给了 403/404（链接过期、需要 Referer）。
+		cancel()
 		return nil, WrapKind(KindNetwork, fmt.Errorf("media: 上游返回 %d", resp.StatusCode))
 	}
 	return f, nil
@@ -105,6 +114,29 @@ func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 
 // Size 返回资源总长度（-1 表示未知）。
 func (f *remoteFile) Size() int64 { return f.size }
+
+// Close 取消这个文件所有在途 / 后续的 HTTP 请求，并清掉当前块与预取块。
+//
+// 切歌时旧 pipeline 会立刻被换掉；如果不取消，上一首的预取请求还会在后台
+// 跑最多 30 秒，并各自押着 512KB 块。连续切歌时这些「已经没人听的数据」
+// 会叠起来，正是用户观察到的「越播内存越高」的一部分（见 player.close）。
+func (f *remoteFile) Close() {
+	f.closeOnce.Do(func() {
+		if f.cancel != nil {
+			f.cancel()
+		}
+		f.mu.Lock()
+		f.buf = nil
+		f.err = context.Canceled
+		f.mu.Unlock()
+		f.pfMu.Lock()
+		f.pfGen++
+		f.pfBuf = nil
+		f.pfStart = -1
+		f.pfBusy = false
+		f.pfMu.Unlock()
+	})
+}
 
 func (f *remoteFile) Seek(offset int64, whence int) (int64, error) {
 	f.mu.Lock()
@@ -178,6 +210,9 @@ func (f *remoteFile) Read(p []byte) (int, error) {
 func (f *remoteFile) fetchChunk(start int64) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt <= remoteChunkRetries; attempt++ {
+		if f.ctx.Err() != nil {
+			return nil, f.ctx.Err()
+		}
 		if attempt > 0 {
 			// 150ms、400ms：给 CDN 一点恢复时间，又不至于把就绪队列拖穿。
 			time.Sleep(time.Duration(150*(1<<uint(attempt-1))) * time.Millisecond)
@@ -197,7 +232,7 @@ func (f *remoteFile) fetchChunk(start int64) ([]byte, error) {
 // fetchChunkOnce 发一次 Range 请求。retry 表示这个错误值得重试
 // （网络错误 / 5xx / 429）；4xx（链接过期 403、404）重试没有意义。
 func (f *remoteFile) fetchChunkOnce(start int64) (data []byte, retry bool, err error) {
-	req, err := http.NewRequest("GET", f.url, nil)
+	req, err := http.NewRequestWithContext(f.ctx, "GET", f.url, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -288,6 +323,9 @@ func (f *remoteFile) prefetchNextLocked() {
 	f.pfMu.Unlock()
 	go func() {
 		data, err := f.fetchChunk(next)
+		if f.ctx.Err() != nil {
+			return
+		}
 		f.pfMu.Lock()
 		if gen == f.pfGen {
 			f.pfBusy = false

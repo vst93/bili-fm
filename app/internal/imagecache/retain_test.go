@@ -109,3 +109,37 @@ func TestPurgeReleasesBitmaps(t *testing.T) {
 		t.Fatal("Purge 后同一 URL 无法重新抓取")
 	}
 }
+
+// TestBeginFrameForgetsStaleRetainAndPriority 钉住「Retain/Touch 只对当前帧
+// 有效」：Retain 以前只增不减，换一集就永久钉住一张头像；priority 也会给
+// 每张看过的图留 key。长时间播放/浏览后这两张 map 只涨不消，retained 还会
+// 让 LRU 失效。BeginFrame 必须清掉上一帧的常驻项与已缓存/失效的优先项，
+// 但保留仍在抓取中的优先项。
+func TestBeginFrameForgetsStaleRetainAndPriority(t *testing.T) {
+	c := New(nil)
+	face := key{url: "face", width: WidthAvatar}
+	c.Retain(face.url, face.width)
+	if len(c.retained) != 1 {
+		t.Fatalf("Retain 后常驻项 = %d", len(c.retained))
+	}
+	cached := key{url: "cached", width: WidthCard}
+	pending := key{url: "pending", width: WidthCard}
+	c.mu.Lock()
+	c.items[cached] = &entry{}
+	c.items[pending] = &entry{pending: true}
+	c.priority[cached] = struct{}{}
+	c.priority[pending] = struct{}{}
+	c.mu.Unlock()
+
+	c.BeginFrame()
+	c.mu.Lock()
+	retained, prio := len(c.retained), len(c.priority)
+	_, keepPending := c.priority[pending]
+	c.mu.Unlock()
+	if retained != 0 {
+		t.Fatalf("BeginFrame 后旧常驻项没清：%d", retained)
+	}
+	if prio != 1 || !keepPending {
+		t.Fatalf("priority 清理不对：len=%d keepPending=%v", prio, keepPending)
+	}
+}

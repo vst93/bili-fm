@@ -2794,6 +2794,11 @@ func (c *controller) startCurrent() {
 		c.mp.SetSpeed(speed)
 		c.mp.SetEQ(eq)
 		c.mp.SetVolume(vol)
+		// 上一首的 pipeline 刚被 Player.Play 换掉：它的解码缓冲、512KB 取块
+		// 与 WSOLA 队列都已在 media.close 里主动清空。这里再把 Go 已经不再
+		// 引用的页还给系统（异步、有 400ms 冷却），避免连续切歌时旧缓冲
+		// 一直算在 Windows 私有工作集里。
+		trimMemory()
 
 		c.app.Win.Update(func() {
 			c.app.Buffering = false

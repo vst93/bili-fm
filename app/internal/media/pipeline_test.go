@@ -107,3 +107,17 @@ func TestPipelineEnded(t *testing.T) {
 		t.Fatal("done=true 后 ended 应为真")
 	}
 }
+
+// TestPipelineCloseReleasesBuffers 钉住切歌时主动释放大缓冲：关闭后 raw /
+// ready 必须清空，不能等整个 pipeline 被 GC 才还（Windows 私有工作集里
+// 这些页会一直算进内存）。
+func TestPipelineCloseReleasesBuffers(t *testing.T) {
+	p := newTestPipeline(48000)
+	p.raw = make([]float32, 1<<16)
+	p.ready = make([]byte, 1<<16)
+	p.src = make([]byte, 1<<16)
+	p.close()
+	if p.raw != nil || p.ready != nil || p.src != nil {
+		t.Fatalf("close 后仍持有缓冲：raw=%d ready=%d src=%d", len(p.raw), len(p.ready), len(p.src))
+	}
+}

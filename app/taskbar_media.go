@@ -9,6 +9,23 @@ package main
 // 悬停任务栏图标时，预览浮层里有 上一首 / 播放暂停 / 下一首 三个按钮；
 // 原生版此前完全没有这块（mygo 只把 ITaskbarList3 用来画进度）。
 
+// guid 对应 Win32 的 GUID（16 字节，无额外对齐）。
+type guid struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
+}
+
+// CLSID_TaskbarList / IID_ITaskbarList3。
+//
+// IID 必须是 ...90E9-9E9F8A5EEFAF；mygo/旧移植曾误写为 ...8A5EEE84，
+// CoCreateInstance 会返回 E_NOINTERFACE，缩略图工具栏永远装不上。
+var (
+	taskbarCLSID    = guid{0x56fdf344, 0xfd6d, 0x11d0, [8]byte{0x95, 0x8a, 0x00, 0x60, 0x97, 0xc9, 0xa0, 0x90}}
+	taskbarIIDList3 = guid{0xea1afb91, 0x9e28, 0x4b86, [8]byte{0x90, 0xe9, 0x9e, 0x9f, 0x8a, 0x5e, 0xef, 0xaf}}
+)
+
 // taskbarGlyph 是四个任务栏图标之一。
 type taskbarGlyph int
 

@@ -92,6 +92,8 @@ type Cache struct {
 	// priority 记录 Bitmap 时被视为「可见」的（URL, 宽度）：预取方每帧把
 	// 可见窗口先交给 Touch 再 Bitmap，fetch 启动时查它决定排优先队还是
 	// 普通队（原版靠浏览器 loading=lazy 天然可见优先，这里显式给出）。
+	// 由 BeginFrame 逐帧清掉已缓存 / 已失效的条目，避免长期播放 / 浏览后
+	// 每张看过的图都留一个 key。
 	priority map[key]struct{}
 
 	// retained 是「常驻」的（URL, 宽度）：evictLocked 永不淘汰它们。
@@ -484,6 +486,26 @@ func (c *Cache) Get(rawURL string, width int) *ui.Bitmap {
 // Retain 把（URL, 宽度）标记为「常驻」：evictLocked 永不淘汰它。头像这类
 // 一直挂在界面上的小图用它在每帧重申，免得被列表封面的一轮抓取挤出 LRU。
 // 幂等，可任意 goroutine 调用；只影响淘汰，不发起抓取。
+// BeginFrame 开始渲染一帧：上一帧的「常驻」标记全部作废，等这一帧的
+// Retain 重新登记；同时清掉 priority 里已经缓存或已失效的旧 key。
+//
+// 为什么需要：Retain 以前只增不减。每换一集 / 换一个 UP 主都会把新的
+// 头像 URL 钉进 retained，旧 key 永远不淘汰；priority 也会把每张看过的
+// 封面留一个 key。长时间播放 / 浏览后这两个 map 只涨不消（而且 retained
+// 还会把对应大图钉在缓存里，使 LRU 失效），是用户报「越播内存越高」的
+// Go 侧来源之一。视图在 Shell 每帧开头调用本方法，开销只有当前帧那几个
+// 常驻项。
+func (c *Cache) BeginFrame() {
+	c.mu.Lock()
+	clear(c.retained)
+	for k := range c.priority {
+		if e := c.items[k]; e == nil || !e.pending {
+			delete(c.priority, k)
+		}
+	}
+	c.mu.Unlock()
+}
+
 func (c *Cache) Retain(rawURL string, width int) {
 	if rawURL == "" {
 		return

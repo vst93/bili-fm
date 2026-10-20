@@ -176,8 +176,8 @@ func TestTaskbarThemeIsDark(t *testing.T) {
 // 反证：把 OnShow 回调改回捕获 `hwnd` 变量 → 源码链断言变红。
 func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 	flat := flattenSrc(t, "taskbar.go")
-	if !strings.Contains(flat, "c.app.Win.OnShow(func(){") || !strings.Contains(flat, "initTaskbar(firstShow)") {
-		t.Error("OnShow 重试没有接上 initTaskbar（第一次显示必须强制重挂）")
+	if !strings.Contains(flat, "c.app.Win.OnShow(func(){") || !strings.Contains(flat, "taskbarWatch(c.app.Win.NativeHandle())") {
+		t.Error("OnShow 没有用现取句柄补装消息钩子")
 	}
 	if !strings.Contains(flat, "hwnd:=c.app.Win.NativeHandle()") {
 		t.Error("initTaskbar 没有重新取 NativeHandle()（会拿旧句柄打到已销毁的窗口）")
@@ -187,19 +187,17 @@ func TestTaskbarInitRetriedWithFreshHandle(t *testing.T) {
 	}
 }
 
-// TestTaskbarInitializesImmediately 钉住「窗口已经 Show 之后才 setupTaskbar」：
-// mygo 的 NewWindow 默认立即 Show，而 setupTaskbar 在 WhenReady 里稍后才调用，
-// 只注册 OnShow 的话这次显示事件永远不会再来 —— ThumbBarAddButtons 一次都
-// 没跑过，用户悬停任务栏图标自然看不到上一首/播放暂停/下一首。
-//
-// 反证：删掉 setupTaskbar 里的立即 taskbarInit 调用 → 本测试红。
-func TestTaskbarInitializesImmediately(t *testing.T) {
+// TestTaskbarWaitsForShowBeforeAddButtons 钉住 Microsoft Taskbar Extensions
+// 文档的顺序：收到 TaskbarButtonCreated 之前不能调用任何 ITaskbarList3 方法。
+// 所以 Show 之前只能装消息钩子，不能 initTaskbar；真正的 Add 要么由消息
+// 子类过程触发，要么由 Show 之后的 600ms/2.5s/6s 强制重试触发。
+func TestTaskbarWaitsForShowBeforeAddButtons(t *testing.T) {
 	flat := flattenSrc(t, "taskbar.go")
-	if !strings.Contains(flat, "taskbarInit(hwnd)") {
-		t.Fatalf("setupTaskbar 没有立即 taskbarInit（窗口已显示，OnShow 不会再触发）")
+	if !strings.Contains(flat, "taskbarWatch(c.app.Win.NativeHandle())") {
+		t.Fatal("setupTaskbar 没有在 Show 之前装 TaskbarButtonCreated 钩子")
 	}
-	if !strings.Contains(flat, "initTaskbar(false)") {
-		t.Error("setupTaskbar 没有立即调用 initTaskbar(false)")
+	if strings.Contains(flat, "initTaskbar(false)") {
+		t.Error("Show 之前仍调用了 initTaskbar(false)（违反 ITaskbarList3 调用时机）")
 	}
 	// 任务栏按钮可能比窗口晚建好 / Explorer 重启：要有短延迟重试。
 	if !strings.Contains(flat, "600*time.Millisecond") || !strings.Contains(flat, "2500*time.Millisecond") {
@@ -216,7 +214,6 @@ func TestTaskbarRetriesForceReinit(t *testing.T) {
 	for _, want := range []string{
 		"taskbarReinit(hwnd)",
 		"initTaskbar(true)",
-		"initTaskbar(firstShow)",
 		"600*time.Millisecond",
 		"2500*time.Millisecond",
 		"6000*time.Millisecond",
@@ -276,5 +273,20 @@ func TestTaskbarWindowShownAfterHook(t *testing.T) {
 	}
 	if show := strings.Index(flat[setup:], "app.Win.Show()"); show < 0 {
 		t.Fatal("setupTaskbar 之后没有 Show 主窗（TaskbarButtonCreated 不会到来）")
+	}
+}
+
+// TestTaskbarIIDs 钉住 COM GUID：IID_ITaskbarList3 的最后 8 字节是
+// 90 E9 9E 9F 8A 5E EF AF。mygo 框架与旧移植把它写成了 ...8A5EEE84，
+// CoCreateInstance 会直接返回 E_NOINTERFACE —— ThumbBarAddButtons 一次都
+// 没跑过，用户看到的自然只有缩略图、没有上一首/播放暂停/下一首。
+// 这个错误在宿主上无法通过运行 Windows API 发现，只能钉字节。
+func TestTaskbarIIDs(t *testing.T) {
+	if taskbarCLSID != (guid{0x56fdf344, 0xfd6d, 0x11d0, [8]byte{0x95, 0x8a, 0x00, 0x60, 0x97, 0xc9, 0xa0, 0x90}}) {
+		t.Errorf("CLSID_TaskbarList 不对：%#v", taskbarCLSID)
+	}
+	want := guid{0xea1afb91, 0x9e28, 0x4b86, [8]byte{0x90, 0xe9, 0x9e, 0x9f, 0x8a, 0x5e, 0xef, 0xaf}}
+	if taskbarIIDList3 != want {
+		t.Fatalf("IID_ITaskbarList3 = %#v，应为 ...8A5EEFAF（写成 ...EE84 会 E_NOINTERFACE）", taskbarIIDList3)
 	}
 }

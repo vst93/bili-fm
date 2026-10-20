@@ -745,6 +745,11 @@ func (p *pipeline) close() {
 	// 先叫停生产者：它可能在网络读里，等它把 procMu 让出来再动解码器；
 	// 输出链也停下来，避免 close 之后 finish 还在推进 WSOLA。
 	p.once.Do(func() { close(p.stop) })
+	// 取消远端在途请求要放在等 procMu 之前：pump 可能正卡在一次 HTTP
+	// 读里，先取消才能让它立即返回，而不是最多等 30 秒超时。
+	if p.rf != nil {
+		p.rf.Close()
+	}
 	p.procMu.Lock()
 	p.outMu.Lock()
 	defer p.outMu.Unlock()
@@ -752,6 +757,16 @@ func (p *pipeline) close() {
 	if p.dec != nil {
 		_ = p.dec.Reset(nil)
 	}
+	// 切歌后旧 pipeline 马上不可达，但大缓冲要等 GC 才还；主动清掉引用，
+	// 让下一次 GC（播放路径上的 trimMemory）能立刻把这几 MB 收回。只有
+	// 在 pump/finish 都已停下、两把处理锁都在手里时才清，避免读到半截。
+	p.mu.Lock()
+	p.raw, p.rawAt = nil, 0
+	p.ready, p.readyAt = nil, 0
+	p.mu.Unlock()
+	p.src, p.flt, p.enc = nil, nil, nil
+	p.setWS(nil)
+	p.eq, p.rs, p.rd = nil, nil, nil
 }
 
 func (p *pipeline) duration() float64 {

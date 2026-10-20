@@ -173,3 +173,30 @@ func TestRemoteFileSeekInvalidatesPrefetch(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoteFileCloseReleasesChunks 钉住切歌时的主动释放：关闭后当前块、
+// 预取块与在途请求都要马上放掉，不能等整首放完 / GC。
+func TestRemoteFileCloseReleasesChunks(t *testing.T) {
+	rs := newRangeServer(t, remoteChunk*4)
+	f, err := newRemoteFile(rs.URL, nil)
+	if err != nil {
+		t.Fatalf("探测失败：%v", err)
+	}
+	if _, err := f.Read(make([]byte, 16)); err != nil {
+		t.Fatalf("首次读失败：%v", err)
+	}
+	waitPrefetch(t, f)
+	f.Close()
+	f.mu.Lock()
+	buf := f.buf
+	f.mu.Unlock()
+	f.pfMu.Lock()
+	pfBuf, busy := f.pfBuf, f.pfBusy
+	f.pfMu.Unlock()
+	if buf != nil || pfBuf != nil || busy {
+		t.Fatalf("Close 后仍持有块：buf=%d prefetch=%d busy=%v", len(buf), len(pfBuf), busy)
+	}
+	if f.ctx.Err() == nil {
+		t.Fatal("Close 没有取消远端请求上下文")
+	}
+}
