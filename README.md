@@ -178,7 +178,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 bili-fm
 1. 点击标题栏设置按钮 → "检查更新"
 2. 从 GitHub Release 的非预览版 `mygo-v*` 中检查新版本
 3. 发现新版本后点击"立即更新"，应用内下载、校验签名并重启
-4. `3.1.0` 起，稳定版 Release 同时附带 Tauri 迁移包，老 Tauri 用户可通过原有更新入口自动迁移；从 **3.1.0** 之后的新版本继续由原生版 updater 接手
+4. 从 **3.1.1**（第一个 mygo 正式版）起，稳定版 Release 同时附带 Tauri 迁移包，老 Tauri 用户可通过原有更新入口自动迁移；后续新版本继续由原生版 updater 接手
 
 > Gitee 镜像用于给国内用户提供安装包/迁移包下载；原生版 updater 以 GitHub Release 为主。旧 Tauri 版的更新器会优先检查 Gitee 的 `latest.json`，再回退 GitHub。
 >
@@ -395,7 +395,7 @@ Native stable builds use mygo's signed update channel:
 1. Click the settings button in the title bar → "Check for Updates"
 2. The app checks non-prerelease `mygo-v*` releases on GitHub
 3. When an update is found, click "Update Now" to download, verify the signature, and restart
-4. From **3.1.0** on, stable releases also contain a Tauri migration package, so old Tauri users can migrate through their existing update UI; later releases are handled by the native updater
+4. From **3.1.1**, the first stable mygo release, stable releases also contain a Tauri migration package, so old Tauri users can migrate through their existing update UI; later releases are handled by the native updater
 
 > The Gitee mirror provides installers/migration packages for users in China; the native updater primarily uses GitHub Releases. The old Tauri updater checks Gitee's `latest.json` first and falls back to GitHub.
 >
