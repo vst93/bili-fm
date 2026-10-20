@@ -680,6 +680,14 @@ type App struct {
 	// DrawerSearch / DrawerParts / DrawerDanmaku。
 	// 原版同一时刻只有一个抽屉（HeroUI Drawer 的 isOpen）。
 	Drawer string
+	// OnDrawerChange 在抽屉 key 变化时调用一次（界面线程）。主程序把它接到
+	// trimMemory：换抽屉后上一屏的封面位图已经不在界面上，正是主动回收的
+	// 时刻。此前这是 memoryWatch 每秒 Win.Update 轮询出来的 —— 轮询本身会
+	// 请求一帧，渲染器因此永远等不到 idle trim（macOS 上那份 GPU 工作集
+	// 有 45MB 级），省内存的手段反而成了涨内存的原因。
+	OnDrawerChange func()
+	// drawerWatched 是上次通知 OnDrawerChange 时的 Drawer 值（界面线程）。
+	drawerWatched string
 
 	// 封面圆盘的旋转角（度）。播放时按真实时间累加，暂停时停住
 	// （原版是 #video-cover.record-disc 的 22s CSS 动画）。

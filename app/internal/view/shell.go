@@ -24,6 +24,14 @@ func (a *App) Shell(c *ui.Context) {
 	if a.Background {
 		return
 	}
+	// 抽屉换了：上一屏的封面位图已经不在界面上，通知主程序主动回收。
+	// 只在这里比较、不在后台 goroutine 里轮询界面字段（见 OnDrawerChange）。
+	if a.Drawer != a.drawerWatched {
+		a.drawerWatched = a.Drawer
+		if a.OnDrawerChange != nil {
+			a.OnDrawerChange()
+		}
+	}
 	// 桌面的两个无障碍偏好叠在时段令牌之上，源序是 reduced-transparency 在前、
 	// contrast 在后（见 withPreferences）。只在状态真的变了的那一帧重推整份主题
 	//（withPreferences 幂等），避免每帧无谓地写共享状态。

@@ -30,6 +30,8 @@ type Snapshot struct {
 	// Sys 是 Go 运行时从系统拿到的总量（堆 + 栈 + 运行时结构 + GC 元数据）。
 	Sys uint64
 	// RSS 是进程常驻物理内存（含与其它进程共享的页），拿不到时为 0。
+	// macOS 上取的是 phys_footprint —— 活动监视器「内存」列的口径，也是
+	// 用户报「200MB」时看的那个数（不是只涨不跌的 Maxrss）。
 	RSS uint64
 	// Private 是进程私有提交字节（Windows 任务管理器「内存」列的口径），
 	// 拿不到时为 0。
@@ -59,7 +61,7 @@ func (s Snapshot) String() string {
 	out := fmt.Sprintf("Go 堆 %s/%s(保留) 栈 %s 运行时 %s",
 		MB(s.HeapAlloc), MB(s.HeapSys), MB(s.StackSys), MB(s.Sys))
 	if s.RSS != 0 {
-		out += " | 进程 RSS " + MB(s.RSS)
+		out += " | 进程足迹 " + MB(s.RSS)
 	}
 	if s.Private != 0 {
 		out += " | 私有提交 " + MB(s.Private)

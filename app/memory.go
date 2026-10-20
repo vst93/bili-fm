@@ -14,6 +14,27 @@
 // —— 收紧 GC 目标（活堆不变、保留页少一倍）、在「刚丢掉一大堆东西」的时刻主动
 // 把页还给 OS、以及给视频弹窗的 WebView2 加内存向的浏览器参数（V8 老生代封顶，
 // 视频页只有一个 <video>，用不到 1GB 的默认老生代）。
+//
+// macOS（2026-10-20 实测，800×600 主窗、Retina 2x）：
+//
+//	Go 活堆           ~8–11MB   ← 应用代码真正持有的部分
+//	位图缓存（封顶）    ≤12MB     ← imagecache，CPU 侧
+//	AppKit / CoreText  ~30MB     ← 每个窗口都有，与内容无关
+//	Metal GPU 渲染器   45MB +    ← 只要帧持续到来就一直押着（见下）
+//	drawable          7.5MB/个   ← 默认 3 个
+//
+// 那 45MB 是 Metal 侧的工作集（命令缓冲 / 管线 / 驱动页），**只在停止绘制
+// 2 秒后被回收**；播放时唱片每秒推进、进度每 500ms 更新一次，帧永远不断，
+// 于是它一直算在进程足迹里。最小窗口（360×260）也同样是这 45MB，与窗口
+// 内容和尺寸无关 —— 应用代码压不动。
+//
+// 框架的 CPU 光栅化（MYGO_GPU=0）没有这份 45MB，连续重绘时 ~100MB；但它的
+// present 是整窗位图上传：实测 2x 800×600 下 p50 15ms / p90 33ms，而 Metal
+// 路径 p50 8.7ms / p90 10ms。也就是说「<100MB」与「60fps 顺滑」在当前
+// mygo 的 macOS 渲染器上不能同时成立，所以 CPU 只作为**显式低内存模式**
+// （BILIFM_LOW_MEMORY=1）提供，默认仍走 GPU。真正的解法是上游降低 Metal
+// 工作集（或让 CPU present 支持脏矩形/更小的位图），不是应用层能改的。
+// Windows / Linux 不受影响，仍走 GPU。
 package main
 
 import (
@@ -95,6 +116,45 @@ func applyWebViewArgs() {
 	_ = os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args)
 }
 
+// renderBackendEnv 是给 mygo 的渲染后端开关：MYGO_GPU=0 表示用 CPU 光栅化。
+// 框架在**第一次画帧**时读它（ui/window.go 的 makeGPU），所以只要在
+// mygo.NewWindow / Show 之前设置就一定生效。
+const renderBackendEnv = "MYGO_GPU"
+
+// applyRenderBackend 处理 macOS 的显式「低内存模式」。
+//
+// 默认仍走 GPU：实测（800×600、2x、播放列表 + 连续唱片自转）
+//
+//	Metal：p50 8.7ms / p90 10.0ms，进程足迹 ~137MB
+//	CPU  ：p50 15.0ms / p90 33.0ms / p99 62ms，进程足迹 ~100MB
+//
+// CPU 少的那 ~45MB 是 Metal 的工作集（只有停止绘制 2 秒才释放，播放时帧
+// 不断，所以一直押着）。换成 CPU 能把内存压到 100MB 以内，但 present 是
+// 整窗位图上传，帧时间明显变差 —— 所以只给显式要求的人用，不能默认开。
+//
+// 开关（仅 macOS）：
+//   - 默认：GPU；
+//   - BILIFM_LOW_MEMORY=1（或 BILIFM_GPU=0）：CPU 光栅化，内存优先；
+//   - 外部已设 MYGO_GPU：完全尊重，不覆盖；
+//   - 其它平台：什么都不做。
+func applyRenderBackend() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	if os.Getenv(renderBackendEnv) != "" {
+		return // 用户 / 宿主已经显式指定后端
+	}
+	lowMemory := strings.ToLower(strings.TrimSpace(os.Getenv("BILIFM_LOW_MEMORY")))
+	gpu := strings.ToLower(strings.TrimSpace(os.Getenv("BILIFM_GPU")))
+	switch {
+	case gpu == "0", gpu == "false", gpu == "off", gpu == "cpu":
+	case lowMemory == "1", lowMemory == "true", lowMemory == "on", lowMemory == "yes":
+	default:
+		return // 默认 GPU
+	}
+	_ = os.Setenv(renderBackendEnv, "0")
+}
+
 // trimCooldown 是两次主动回收之间的最短间隔。切视频 + 翻抽屉会连着触发好几个
 // 回收点，FreeOSMemory 是同步全量 GC，连跑几次会把界面线程拖住。
 const trimCooldown = 400 * time.Millisecond
@@ -169,37 +229,31 @@ func (c *controller) memReport() string {
 	return strings.Join(parts, " | ")
 }
 
-// memoryWatch 每秒看一眼界面状态：换抽屉就主动回收一次；-memstats 打开时
-// 每 15 秒打一行构成。
+// memoryWatch 是 -memstats 的诊断日志：每 15 秒打一行内存构成。
 //
-// 读界面状态必须走 Win.Update（界面线程），不能在这个 goroutine 里直接读
-// app.Drawer —— 那是界面线程写的字段。
+// 它**不再轮询界面状态**：此前每秒一次 Win.Update 读 app.Drawer，而那等于
+// 每秒请求一帧 —— 渲染器的 idle trim 要求连续 2 秒没有帧，于是永远不触发，
+// 45MB 的 Metal 工作集就被一直押着。换抽屉的回收改由视图在 Shell 里通过
+// App.OnDrawerChange 通知（见 state.go / shell.go），只在真的换抽屉时发生。
+//
+// 日志只读 Go 堆 / 进程足迹 / 位图缓存这些线程安全的口径，不碰界面字段，
+// 所以不需要（也不能）走 Win.Update。
 func (c *controller) memoryWatch() {
 	if c.app == nil || c.app.Win == nil {
 		return
 	}
+	if memStats == nil || !*memStats {
+		return
+	}
 	go func() {
-		t := time.NewTicker(time.Second)
+		// 首帧 / 首屏封面与字体图集还没就绪：等 5 秒再打第一行，免得报一个
+		// 「界面还没画」的低值。
+		time.Sleep(5 * time.Second)
+		log.Printf("内存 | %s", c.memReport())
+		t := time.NewTicker(15 * time.Second)
 		defer t.Stop()
-		var lastDrawer string
-		primed := false
-		var lastReport time.Time
 		for range t.C {
-			c.app.Win.Update(func() {
-				d := c.app.Drawer
-				if !primed {
-					lastDrawer, primed = d, true
-					return
-				}
-				if d != lastDrawer {
-					lastDrawer = d
-					trimMemory()
-				}
-			})
-			if memStats != nil && *memStats && time.Since(lastReport) >= 15*time.Second {
-				lastReport = time.Now()
-				log.Printf("内存 | %s", c.memReport())
-			}
+			log.Printf("内存 | %s", c.memReport())
 		}
 	}()
 }

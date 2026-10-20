@@ -141,7 +141,7 @@ func main() {
 	playlistOnStart := flag.Int("playlist", 0, "注入 N 条假播放列表并打开播放列表抽屉（调试用）")
 	danmakuOnStart := flag.Int("danmaku", 0, "注入 N 条假弹幕并打开弹幕抽屉（调试用）")
 	repliesOnStart := flag.Int("replies", 0, "注入 N 条假评论并打开评论 tab（调试用）")
-	memStats = flag.Bool("memstats", false, "每 15 秒打一行内存构成（Go 堆 / 进程 RSS / 位图缓存），排查内存问题用")
+	memStats = flag.Bool("memstats", false, "每 15 秒打一行内存构成（Go 堆 / 进程足迹 / 位图缓存），排查内存问题用")
 	sponsorOnStart := flag.Int("sponsor", 0, "注入 N 段假广告段标记（调试用）")
 	popOnStart := flag.String("pop", "", "启动后弹出播放栏弹层（调试用：speed/volume）")
 	flag.Parse()
@@ -231,9 +231,10 @@ func main() {
 	mygo.BindAs("Video", video.NewService(c.vid))
 
 	mygo.App.WhenReady(func() {
-		// 内存策略：收紧 GC 目标 + 给视频弹窗的 WebView2 加内存向浏览器参数。
-		// 都必须赶在第一个窗口 / 第一个 webview 之前（见 memory.go）。
+		// 内存策略：收紧 GC 目标、选渲染后端、给视频弹窗的 WebView2 加内存向
+		// 浏览器参数。都必须赶在第一个窗口 / 第一个 webview 之前（见 memory.go）。
 		applyMemoryTuning()
+		applyRenderBackend()
 		applyWebViewArgs()
 		opts := mygo.WindowOptions{
 			Title: "bili-FM",
@@ -575,6 +576,10 @@ func main() {
 		// Windows 任务栏缩略图工具栏（悬停任务栏图标时的 上一首/播放暂停/下一首）；
 		// 其它平台 no-op。必须在 Show 之前装好消息钩子（见 WindowOptions.Hidden）。
 		c.setupTaskbar()
+		// 换抽屉时回收上一屏的封面位图：由视图在 Shell 里发现 Drawer 变化后
+		// 回调（不是在后台每秒轮询界面状态，那会不断请求帧、挡住 idle trim）。
+		// 必须在 Show 之前接上，首帧之后的每一次抽屉切换都算数。
+		app.OnDrawerChange = trimMemory
 		// 现在才真正显示窗口：Explorer 会创建任务栏按钮并发送
 		// TaskbarButtonCreated，taskbarInit 在该消息里挂上缩略图工具栏。
 		app.Win.Show()
