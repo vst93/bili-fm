@@ -2,7 +2,7 @@ name: Release
 
 # 构建并发布 mygo 原生版。
 #
-# 与 release-tauri.yml 的分工：那个构建 Tauri 版，这个构建原生版。
+# 与 tauri 分支上的 release-tauri.yml 分工：那个只做旧 Tauri 版紧急维护，这个构建 main 上的原生版。
 # 两个版本的应用内更新**互不兼容**（签名格式不同），所以原生版是独立发布
 # 的，老用户需要手动安装一次。
 #
@@ -10,7 +10,7 @@ name: Release
 #   macOS    bili-FM.app + .dmg
 #   Windows  bili-FM.exe + NSIS 安装包
 #   Linux    .deb + .tar.gz + install.sh
-# mygo 不产出 rpm / pacman / MSIX，这里用 nfpm 和手工打包补上 rpm 与 pacman。
+# mygo 不产出 rpm / pacman，这里用 nfpm 和手工打包补上；MSIX 走 release-store.yml。
 
 on:
   # 发版方式（两种都行）：
