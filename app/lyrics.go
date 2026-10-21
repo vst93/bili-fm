@@ -9,6 +9,7 @@ package main
 // 透明度 / 时间微调），设置存本地 KV，重启后继续生效。
 
 import (
+	"runtime"
 	"strconv"
 
 	"github.com/egoist/mygo"
@@ -85,13 +86,17 @@ func (c *controller) openDesktopLyricsIfReady() {
 	x, y = clampLyricsPos(x, y, w, h)
 	a.LyricsPixelWidth = w
 	opts := mygo.WindowOptions{
-		Title:             "桌面字幕",
-		Width:             w,
-		Height:            h,
-		X:                 x,
-		Y:                 y,
-		Frameless:         true,
-		Transparent:       true,
+		Title:       "桌面字幕",
+		Width:       w,
+		Height:      h,
+		X:           x,
+		Y:           y,
+		Frameless:   true,
+		Transparent: true,
+		// Windows 上普通 native-UI 窗口有重定向位图，根节点透明会被画成
+		// 纯黑；Panel 是无重定向位图的 WS_POPUP，透明像素才能露出桌面。
+		// macOS/Linux 仍用普通窗口，避免 Wayland 的 popup 定位/焦点差异。
+		Panel:             runtime.GOOS == "windows",
 		AlwaysOnTop:       true,
 		SkipTaskbar:       true,
 		DisableResize:     true,

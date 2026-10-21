@@ -360,11 +360,16 @@ func taskbarSubclassProc(hwnd, msg, wparam, lparam, subclassID, refData uintptr)
 	if taskbarBtnCreatedMsg != 0 && msg == uintptr(taskbarBtnCreatedMsg) {
 		taskbarMu.Lock()
 		taskbarReadyHwnd = hwnd
+		// 这条消息是官方 AddButtons 时机。之前如果在 TaskbarButtonCreated
+		// 到达前调用过一次，Windows 可能返回 S_OK 却没有真正建按钮；那时
+		// added 已经为 true，单靠 taskbarReinit 会直接跳过。这里必须先清掉
+		// added，强制在正确时机重新 AddButtons。
+		if st := taskbarCur; st != nil && st.hwnd == hwnd {
+			st.added = false
+		}
 		taskbarMu.Unlock()
 		taskbarLogf("任务栏缩略图工具栏：收到 TaskbarButtonCreated hwnd=%#x", hwnd)
 		// 官方时机：无论启动时那次 AddButtons 返回什么，都在这里强制重挂。
-		// Windows 在任务栏按钮还没建好时可能「接受」调用但不显示按钮；
-		// 只按 added 判据会永远跳过，用户就看不到快捷控制。
 		taskbarReinit(hwnd)
 		r, _, _ := procDefSubclassProc.Call(hwnd, msg, wparam, lparam)
 		return r
