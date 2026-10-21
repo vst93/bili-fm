@@ -454,6 +454,8 @@ type Actions struct {
 	ToggleRadio func()
 	// ToggleDesktopLyrics 开启 / 关闭桌面字幕悬浮窗。
 	ToggleDesktopLyrics func()
+	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
+	SelectSubtitle func(index int)
 	// NextHighlight 跳到下一个弹幕高能点。
 	NextHighlight func()
 	// ToggleLyricsConfig 在桌面字幕显示页 / 设置页之间切换。

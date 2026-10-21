@@ -52,7 +52,7 @@ func currentExtrasTrack(a *view.App) *view.Track {
 
 // loadPlaybackExtras 拉章节和字幕轨。可以先由起播触发，也可以在用户打开
 // 章节 / 字幕页时补拉。
-func (c *controller) loadPlaybackExtras(aid, cid int64) {
+func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 	a := c.app
 	if aid <= 0 || cid <= 0 || a == nil {
 		return
@@ -72,7 +72,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64) {
 	a.ExtrasLoading = true
 	a.Win.Update(func() {})
 	go func() {
-		ex, err := c.bl.GetPlayerExtras(aid, cid)
+		ex, err := c.bl.GetPlayerExtras(aid, cid, bvid)
 		a.Win.Update(func() {
 			if c.extrasReqID != reqID {
 				return
@@ -128,7 +128,7 @@ func (c *controller) ensureExtras() {
 	if c.extrasInflightCid == t.Cid {
 		return
 	}
-	c.loadPlaybackExtras(t.Aid, t.Cid)
+	c.loadPlaybackExtras(t.Aid, t.Cid, t.Bvid)
 }
 
 // normalizeChapterEnds 用视频时长补最后一章的 To（view_points 的末章常常
@@ -156,8 +156,19 @@ func (c *controller) normalizeChapterEnds() {
 // pickSubtitleTrack 选默认字幕：优先中文，其次第一条。用户目前只需要一个
 // 文稿视图，不为了「多语言选择」增加一整套下拉 UI。
 func pickSubtitleTrack(tracks []view.SubtitleTrack) (view.SubtitleTrack, bool) {
+	return pickSubtitleTrackPref(tracks, "")
+}
+
+func pickSubtitleTrackPref(tracks []view.SubtitleTrack, pref string) (view.SubtitleTrack, bool) {
 	if len(tracks) == 0 {
 		return view.SubtitleTrack{}, false
+	}
+	if pref != "" {
+		for _, t := range tracks {
+			if strings.EqualFold(t.Lan, pref) {
+				return t, true
+			}
+		}
 	}
 	for _, want := range []string{"zh-cn", "zh-hans", "zh", "ai-zh"} {
 		for _, t := range tracks {
@@ -182,29 +193,38 @@ func (c *controller) ensureSubtitles() {
 	if t == nil || t.Cid == 0 {
 		return
 	}
-	if a.SubtitlesCid == t.Cid && (len(a.Subtitles) > 0 || a.SubtitleError != "") {
+	if a.ExtrasCid != t.Cid || a.ExtrasLoading {
+		c.ensureExtras()
+		return
+	}
+	track, ok := pickSubtitleTrackPref(a.SubtitleTracks, c.subtitleLangPref)
+	if !ok {
+		c.ensureExtras()
+		return
+	}
+	if a.SubtitlesCid == t.Cid && a.SubtitleLang == track.Lan &&
+		(len(a.Subtitles) > 0 || a.SubtitleError != "") {
 		return
 	}
 	if c.subtitleInflightCid == t.Cid {
 		return
 	}
-	// 字幕轨必须属于当前 cid；快速切集时旧的 SubtitleTracks 还没清掉时，
-	// 直接拿它会去下载上一集的字幕。先等 extras 回来。
-	if a.ExtrasCid != t.Cid || a.ExtrasLoading {
-		c.ensureExtras()
-		return
-	}
-	track, ok := pickSubtitleTrack(a.SubtitleTracks)
-	if !ok {
-		// 字幕轨还没回来：先拉 extras，回来后会再进入这里。
-		c.ensureExtras()
-		return
-	}
+	a.SubtitleLang = track.Lan
+	c.startSubtitleLoad(t, track)
+}
+
+// startSubtitleLoad 下载一条字幕正文。调用方已经校验过当前曲目 / cid；
+// 这里再用 subtitleReqID + 当前 cid 挡住过期响应。
+func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) {
+	a := c.app
 	c.subtitleReqID++
 	reqID := c.subtitleReqID
 	c.subtitleInflightCid = t.Cid
+	a.Subtitles = nil
+	a.SubtitlesCid = 0
 	a.SubtitlesLoading = true
 	a.SubtitleError = ""
+	a.ResetSubtitleScroll()
 	a.Win.Update(func() {})
 	go func() {
 		cues, err := c.bl.GetSubtitleCues(track.URL)
@@ -249,6 +269,24 @@ func (c *controller) ensureSubtitles() {
 	}()
 }
 
+// selectSubtitle 切换字幕版本 / 语言。只接受当前视频的轨道；选择结果作为
+// 跨视频的语言偏好保存，下次有同语言轨时优先用。
+func (c *controller) selectSubtitle(index int) {
+	a := c.app
+	t := currentExtrasTrack(a)
+	if t == nil || t.Cid == 0 || index < 0 || index >= len(a.SubtitleTracks) {
+		return
+	}
+	if a.ExtrasCid != t.Cid {
+		return
+	}
+	track := a.SubtitleTracks[index]
+	c.subtitleLangPref = track.Lan
+	_ = c.kv.SetString(prefSubtitleLang, track.Lan)
+	a.SubtitleLang = track.Lan
+	c.startSubtitleLoad(t, track)
+}
+
 // reloadPlaybackExtras 是章节 / 字幕页刷新键：强迫重拉当前曲目的附加信息。
 func (c *controller) reloadPlaybackExtras() {
 	a := c.app
@@ -264,7 +302,7 @@ func (c *controller) reloadPlaybackExtras() {
 	a.SubtitleError = ""
 	c.extrasInflightCid = 0
 	c.subtitleInflightCid = 0
-	c.loadPlaybackExtras(t.Aid, t.Cid)
+	c.loadPlaybackExtras(t.Aid, t.Cid, t.Bvid)
 	if a.DanmakuTab == view.TabSubtitle || a.LyricsOn {
 		c.ensureSubtitles()
 	}
@@ -345,7 +383,9 @@ func buildDanmakuHeat(items []bilibili.DanmakuItem) []view.HeatPoint {
 	out := make([]view.HeatPoint, 0, n)
 	for i := 0; i < n; i++ {
 		if c := counts[i]; c > 0 {
-			out = append(out, view.HeatPoint{At: float64(i) * bucket, Value: float32(math.Min(1, float64(c)/float64(maxN)))})
+			// sqrt 压缩高峰：一个超级爆点不会把其余时段的热力压成一条线。
+			v := math.Sqrt(float64(c) / float64(maxN))
+			out = append(out, view.HeatPoint{At: float64(i) * bucket, Value: float32(v)})
 		}
 	}
 	return out

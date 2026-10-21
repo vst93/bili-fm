@@ -12,6 +12,10 @@ import (
 var iconLyricsGear = icon(`<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M12.4 3.6l-1 1M4.6 11.4l-1 1"/>`)
 
 func (a *App) LyricsShell(c *ui.Context) {
+	// 原生 UI 的根也要显式透明，否则窗口虽然 Transparent，根节点仍会铺一层
+	// 主题底色 —— 这正是此前“文字周围一圈白色内边距”的来源。
+	c.SetTheme(a.Theme.uiTheme())
+	c.Root().Background(ui.Transparent)
 	if a.LyricsConfig {
 		a.lyricsConfigShell(c)
 		return
@@ -36,21 +40,23 @@ func (a *App) LyricsShell(c *ui.Context) {
 		colorHex = "#ffffff"
 	}
 	color := ui.Hex(colorHex)
-	// 面板保持可拖拽；齿轮是唯一交互元素，叠在右上角。
-	ui.Box(c).Fill().Padding(6, float32(a.LyricsMargin)).DragWindow().Children(func() {
-		ui.Box(c).FillWidth().FillHeight().Radius(16).
-			Background(ui.Hex("#0f172a").Alpha(0.72*opacity)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.14)).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.18)).
+	// 面板保持可拖拽；齿轮是唯一交互元素，叠在右上角。整个窗口由面板铺满，
+	// 不再留一圈会透出白色根底的外边距；边距只作用在文字内层。
+	ui.Box(c).Fill().DragWindow().Children(func() {
+		ui.Box(c).FillWidth().FillHeight().Radius(14).
+			Background(ui.Hex("#0f172a").Alpha(0.55)).
+			Border(1, ui.Hex("#ffffff").Alpha(0.12)).
+			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.16)).
 			Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24)).
-			Padding(10, 16).Center().Children(func() {
+			Padding(10, float32(a.LyricsMargin)).Center().Children(func() {
 			ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
+				curColor := color.Alpha(0.55 + 0.45*opacity)
 				ui.Text(c, cur).FontSize(size).FontWeight(700).
-					TextColor(color).TextAlign(ui.Center).MaxLines(2)
+					TextColor(curColor).TextAlign(ui.Center).MaxLines(2)
 				if next != "" {
 					nextSize := max(float32(11), size*0.65)
 					ui.Text(c, next).FontSize(nextSize).
-						TextColor(color.Alpha(0.56 * opacity)).
+						TextColor(color.Alpha(0.30 + 0.35*opacity)).
 						TextAlign(ui.Center).SingleLine()
 				}
 			})
@@ -75,13 +81,14 @@ func (a *App) LyricsShell(c *ui.Context) {
 
 // lyricsConfigShell 是同一个窗口的设置页。控件全部是原生按钮/滑块。
 func (a *App) lyricsConfigShell(c *ui.Context) {
-	ui.Box(c).Fill().Padding(8).DragWindow().Children(func() {
-		ui.Box(c).FillWidth().FillHeight().Radius(16).
+	// 设置页不能用整页 DragWindow：它会吃掉滑块的拖动。只让标题行可拖。
+	ui.Box(c).Fill().Children(func() {
+		ui.Box(c).FillWidth().FillHeight().Radius(14).
 			Background(ui.Hex("#0f172a").Alpha(0.94)).
 			Border(1, ui.Hex("#ffffff").Alpha(0.16)).
 			Padding(14, 18).Children(func() {
 			ui.Column(c).FillWidth().Gap(8).Children(func() {
-				ui.Row(c).FillWidth().Height(26).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).FillWidth().Height(26).AlignItems(ui.Center).DragWindow().Children(func() {
 					ui.Text(c, "桌面字幕设置").FontSize(14).FontWeight(700).
 						TextColor(ui.Hex("#ffffff"))
 					ui.Box(c).Grow(1)
@@ -136,7 +143,9 @@ func (a *App) lyricsSliderRow(c *ui.Context, label string, value *float64, lo, h
 	ui.Row(c).FillWidth().Height(34).Gap(8).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.62)).
 			Width(46).Shrink(0)
-		s := ui.SliderBase(c, value, lo, hi).FillWidth().Grow(1).Step(step)
+		// SliderBase 没有外观（只有拖动行为），在设置页看起来像不存在；
+		// 用带主题外观的 Slider，用户才能看到轨道/滑块并拖动。
+		s := ui.Slider(c, value, lo, hi).FillWidth().Grow(1).Step(step)
 		if s.Changed() {
 			changed = true
 		}

@@ -63,6 +63,10 @@ func TestChaptersAndSubtitlesRender(t *testing.T) {
 
 	a.DanmakuTab = TabSubtitle
 	a.Subtitles = []SubtitleCue{{From: 0, To: 1, Content: "第一句"}, {From: 1, To: 2, Content: "第二句"}}
+	a.SubtitleTracks = []SubtitleTrack{{Lan: "zh-CN", Label: "中文"}, {Lan: "en-US", Label: "English"}}
+	a.SubtitleLang = "zh-CN"
+	selected := -1
+	a.Act.SelectSubtitle = func(i int) { selected = i }
 	a.Pos = 1.2
 	tt.Frame()
 	if err := tt.Click("第二句"); err != nil {
@@ -70,6 +74,12 @@ func TestChaptersAndSubtitlesRender(t *testing.T) {
 	}
 	if len(seeks) != 2 || seeks[1] != 1 {
 		t.Fatalf("字幕跳转 = %v，want 第二次为 1", seeks)
+	}
+	if err := tt.Click("English"); err != nil {
+		t.Fatalf("字幕版本不可选：%v", err)
+	}
+	if selected != 1 {
+		t.Fatalf("字幕版本选择 index=%d, want 1", selected)
 	}
 }
 

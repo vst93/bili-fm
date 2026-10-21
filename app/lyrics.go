@@ -93,6 +93,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
 	// 316 高会把显示页撑开，所以创建后强制回显示页高度。
 	win.SetSize(desktopLyricsWidth, desktopLyricsHeight)
+	win.SetOpacity(float64(a.LyricsOpacity))
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	win.OnClosed(func() {
 		if c.lyricsWin == win {
@@ -134,6 +135,8 @@ func (c *controller) closeDesktopLyrics() {
 	if a.Win != nil {
 		a.Win.Update(func() {})
 	}
+	// 窗口和字幕文本已经不再被显示；把 Go 里这一屏的页还给系统。
+	trimMemory()
 }
 
 // toggleLyricsConfig 在字幕显示页与设置页之间切换，并调整窗口高度。
@@ -146,6 +149,10 @@ func (c *controller) toggleLyricsConfig() {
 	h := desktopLyricsHeight
 	if a.LyricsConfig {
 		h = desktopLyricsConfigHeight
+		// 设置页保持完全可见，否则低透明度下连字都看不清；回到显示页再恢复。
+		c.lyricsWin.SetOpacity(1)
+	} else {
+		c.lyricsWin.SetOpacity(float64(a.LyricsOpacity))
 	}
 	c.lyricsWin.SetSize(desktopLyricsWidth, h)
 	c.lyricsWin.Update(func() {})
@@ -177,6 +184,11 @@ func (c *controller) updateLyricsConfig() {
 	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
 	_ = c.kv.SetString(prefLyricsOpacity, formatPrefFloat(a.LyricsOpacity))
 	if c.lyricsWin != nil {
+		if a.LyricsConfig {
+			c.lyricsWin.SetOpacity(1)
+		} else {
+			c.lyricsWin.SetOpacity(a.LyricsOpacity)
+		}
 		c.lyricsWin.Update(func() {})
 	}
 }

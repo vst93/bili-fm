@@ -77,12 +77,17 @@ func floatAt(m map[string]any, key string) float64 {
 
 // GetPlayerExtras 读取 view_points（章节）与 subtitle.subtitles（字幕轨）。
 // 未登录也能拿到章节；字幕轨在未登录时可能为空，调用方按空处理即可。
-func (bl *BL) GetPlayerExtras(aid, cid int64) (*PlayerExtras, error) {
+func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, error) {
 	cookie := bl.GetSESSDATA()
 	if aid <= 0 || cid <= 0 {
 		return nil, fmt.Errorf("未选择作品")
 	}
+	// 同时带 bvid：某些稿件只有 bvid 能稳定定位到同一个视频，避免只用
+	// 上游卡片里可能过期的 aid 时拿到别的稿件字幕。
 	playerURL := fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
+	if len(bvid) > 0 && bvid[0] != "" {
+		playerURL += "&bvid=" + url.QueryEscape(bvid[0])
+	}
 	v, err := doJSON("GET", playerURL, cookie)
 	if err != nil {
 		return nil, err

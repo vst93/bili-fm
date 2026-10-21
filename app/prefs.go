@@ -31,6 +31,7 @@ const (
 	prefLyricsSize    = "lyricsFontSize"
 	prefLyricsMargin  = "lyricsMargin"
 	prefLyricsOpacity = "lyricsOpacity"
+	prefSubtitleLang  = "subtitleLanguage"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -77,6 +78,7 @@ func (c *controller) loadPrefs() {
 	if v := parseFloat(c.kv.String(prefLyricsOpacity)); v >= 0.3 && v <= 1 {
 		a.LyricsOpacity = v
 	}
+	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
 }
 
 // validHexColor 接受 #rrggbb（桌面字幕配置只开放这一种格式）。

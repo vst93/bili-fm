@@ -3141,8 +3141,46 @@ func (a *App) chaptersBody(c *ui.Context) {
 	})
 }
 
+// subtitleTrackPicker 是字幕版本 / 语言选择条。B 站同一视频可能有
+// 人工中文字幕、AI 字幕、英文字幕等多条轨；只显示 label，轨数据仍由
+// controller 按 URL 重新下载。
+func (a *App) subtitleTrackPicker(c *ui.Context) {
+	ui.Row(c).FillWidth().Shrink(0).Height(36).Padding(8, 24, 0, 24).
+		Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "字幕版本").FontSize(11).TextColor(ui.Hex("#94a3b8")).Shrink(0)
+		for i, tr := range a.SubtitleTracks {
+			i, tr := i, tr
+			label := tr.Label
+			if label == "" {
+				label = tr.Lan
+			}
+			active := a.SubtitleLang != "" && strings.EqualFold(a.SubtitleLang, tr.Lan)
+			b := ui.ButtonBase(c.Key(fmt.Sprintf("subtitle-track-%d", i))).
+				Height(26).Padding(0, 10).Radius(7).Center().Label(label).Tooltip(label)
+			if active {
+				b.Background(ui.Hex("#0ea5e9").Alpha(0.16)).
+					BorderColor(ui.Hex("#0ea5e9").Alpha(0.45))
+			} else {
+				b.Background(ui.Hex("#ffffff").Alpha(0.22)).
+					BorderColor(ui.Hex("#64748b").Alpha(0.16))
+			}
+			b.BorderWidth(1)
+			b.Children(func() {
+				ui.Text(c, label).FontSize(11).
+					TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569"))).SingleLine()
+			})
+			if b.Clicked() && a.Act.SelectSubtitle != nil {
+				a.Act.SelectSubtitle(i)
+			}
+		}
+	})
+}
+
 // subtitlesBody 是字幕文稿页：虚拟化列表 + 当前句高亮，点击任意一句跳转。
 func (a *App) subtitlesBody(c *ui.Context) {
+	if len(a.SubtitleTracks) > 1 {
+		a.subtitleTrackPicker(c)
+	}
 	if len(a.Subtitles) == 0 {
 		switch {
 		case a.SubtitlesLoading || a.ExtrasLoading:

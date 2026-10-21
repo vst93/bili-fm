@@ -117,6 +117,9 @@ type controller struct {
 	// extrasInflightCid / subtitleInflightCid 防止同一视频的重复拉取。
 	extrasInflightCid   int64
 	subtitleInflightCid int64
+	// subtitleLangPref 是用户选过的字幕语言（如 zh-CN / en-US），下次有同一
+	// 语言轨时优先使用；不属于某个视频，跨集保留。
+	subtitleLangPref string
 	// lyricsWin 是桌面字幕悬浮窗（lazy 创建）。
 	lyricsWin *mygo.Window
 
@@ -733,6 +736,7 @@ func (c *controller) wireActions() {
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		ToggleLyricsConfig:  c.toggleLyricsConfig,
 		UpdateLyricsConfig:  c.updateLyricsConfig,
+		SelectSubtitle:      c.selectSubtitle,
 		NextHighlight:       c.nextHighlight,
 		LoadMore:            c.loadMore,
 		Login:               c.login,
@@ -2826,7 +2830,7 @@ func (c *controller) startCurrent() {
 			if stale() {
 				return
 			}
-			c.loadPlaybackExtras(t.Aid, cid)
+			c.loadPlaybackExtras(t.Aid, cid, t.Bvid)
 			c.startDanmakuHeat(cid)
 		})
 

@@ -1895,9 +1895,12 @@ func paintHeatCurve(p *ui.Painter, r ui.Rect, track ui.Rect, rp rangePaint) {
 	if len(rp.Heat) == 0 || track.W <= 0 {
 		return
 	}
-	base := track.Y + track.H/2
-	top := r.Y + 2
-	if base-top < 10 {
+	// 用满整个进度条外层高度：轨道只占中间的 6px，热力面积从底边铺到顶边，
+	// 轨道覆盖中间一段，上下两侧都能看到曲线/面积。此前只用了轨道上方
+	// 10px，看起来像贴在进度条上的小 bug。
+	base := r.Y + r.H - 1
+	top := r.Y + 1
+	if base-top < 8 {
 		return
 	}
 	height := base - top
@@ -1911,7 +1914,7 @@ func paintHeatCurve(p *ui.Painter, r ui.Rect, track ui.Rect, rp rangePaint) {
 		}
 		h := height * v
 		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
-			ui.Hex("#38bdf8").Alpha(0.045+v*0.16), 0)
+			ui.Hex("#38bdf8").Alpha(0.035+v*0.13), 0)
 	}
 	// 顶部曲线：1px 半透明青蓝线，让轮廓比纯面积更清晰。
 	for i := 1; i < len(rp.Heat); i++ {
@@ -1923,7 +1926,7 @@ func paintHeatCurve(p *ui.Painter, r ui.Rect, track ui.Rect, rp rangePaint) {
 		x1 := track.X + track.W*float32(clampF(b.At/rp.Dur, 0, 1))
 		y0 := base - height*max32(a.Value, 0.02)
 		y1 := base - height*max32(b.Value, 0.02)
-		p.Line(x0, y0, x1, y1, 1, ui.Hex("#38bdf8").Alpha(0.42))
+		p.Line(x0, y0, x1, y1, 1, ui.Hex("#38bdf8").Alpha(0.52))
 	}
 }
 
@@ -2102,6 +2105,11 @@ func bufferedFrac(buffered, dur float64) float32 {
 // 缓冲区比例与广告段数据取自 App。thumbScale 由调用方用 AnimateTo 过渡后
 // 传入（原版 `transition: transform 100ms ease`）。
 func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale float32) rangePaint {
+	heat := a.DanmakuHeat
+	if a.Mini {
+		// 迷你窗只保留播放控制，热力是次要信息，不挤占 24px 的进度条。
+		heat = nil
+	}
 	var marks []float64
 	for _, ch := range a.Chapters {
 		if ch.From > 0 {
@@ -2113,7 +2121,7 @@ func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale fl
 		Buffered:     bufferedFrac(a.Buffered, a.Dur),
 		Segs:         a.SponsorSegments,
 		Dur:          a.Dur,
-		Heat:         a.DanmakuHeat,
+		Heat:         heat,
 		ChapterMarks: marks,
 		Hovered:      s.Hovered(),
 		Held:         held,

@@ -41,3 +41,16 @@ func TestPickSubtitleTrackPrefersChinese(t *testing.T) {
 		t.Fatal("空字幕轨应返回 ok=false")
 	}
 }
+
+func TestPickSubtitleTrackUsesPreference(t *testing.T) {
+	tracks := []view.SubtitleTrack{{Lan: "zh-CN", Label: "中文"}, {Lan: "en-US", Label: "English"}}
+	got, ok := pickSubtitleTrackPref(tracks, "en-US")
+	if !ok || got.Lan != "en-US" {
+		t.Fatalf("preferred track = %+v ok=%v，want en-US", got, ok)
+	}
+	// 新视频没有用户偏好的语言时回落到默认中文。
+	got, ok = pickSubtitleTrackPref(tracks, "ja-JP")
+	if !ok || got.Lan != "zh-CN" {
+		t.Fatalf("fallback = %+v ok=%v，want zh-CN", got, ok)
+	}
+}
