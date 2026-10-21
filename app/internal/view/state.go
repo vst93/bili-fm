@@ -13,6 +13,19 @@ import (
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
+// 桌面字幕配置的默认值。设置页的「默认」参考和一键恢复都读这里，避免
+// 默认值散落在 NewApp / prefs / 设置页三处慢慢漂开。
+const (
+	DefaultLyricsColor          = "#ffffff"
+	DefaultLyricsBgColor        = "#0f172a"
+	DefaultLyricsFontSize       = 20.0
+	DefaultLyricsWidthRatio     = 0.30
+	DefaultLyricsTextOpacity    = 1.0
+	DefaultLyricsBgOpacity      = 0.55
+	DefaultLyricsOffset         = 0.0
+	DefaultLyricsRememberOffset = false
+)
+
 // Card 是列表里的一张卡片要显示的内容。
 type Card struct {
 	// Bvid 用于和正在播放的曲目比对，判断是不是当前这条。
@@ -224,6 +237,9 @@ func (a *App) ResetDanmakuScroll() {
 	a.subtitleList = ui.ListState{}
 	a.subtitleScrollIdx = -1
 	a.danmakuScrollIdx = -1
+	a.danmakuScrollPending = false
+	a.danmakuVisibleFirst, a.danmakuVisibleLast = -1, -1
+	a.danmakuListReady = false
 }
 
 // ResetSubtitleScroll 复位字幕列表的虚拟滚动与跟随下标（换视频/重新拉字幕）。
@@ -302,6 +318,20 @@ type Info struct {
 	View      int64
 	// Staff 是合作视频的参与 UP 主（只有详情页有可靠字段）；单 UP 视频为空。
 	Staff []Collaborator
+}
+
+// HasPartCid 报告 cid 是否是当前视频的某个分 P。Info 来自 bvid 对应的
+// view 接口，调用方用它校验队列卡片里可能过期的 cid。
+func (i *Info) HasPartCid(cid int64) bool {
+	if i == nil || cid == 0 {
+		return false
+	}
+	for _, p := range i.Parts {
+		if p.Cid == cid {
+			return true
+		}
+	}
+	return false
 }
 
 // Collaborator 是合作视频的一位参与 UP 主。
@@ -459,26 +489,30 @@ type Actions struct {
 	ToggleDesktopLyrics func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
+	// PersistFollow 把弹幕/字幕跟随开关落盘（手动滚动自动关闭时也调用）。
+	PersistFollow func()
 	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
 	SelectSubtitle func(index int)
 	// NextHighlight 跳到下一个弹幕高能点。
 	NextHighlight func()
 	// ToggleLyricsConfig 在桌面字幕显示页 / 设置页之间切换。
 	ToggleLyricsConfig func()
-	// UpdateLyricsConfig 把桌面字幕的颜色/字号/边距/透明度落盘。
+	// UpdateLyricsConfig 把桌面字幕的颜色/字号/宽度/透明度落盘。
 	UpdateLyricsConfig func()
-	LoadMore           func()
-	Login              func()
-	CloseLogin         func()
-	ShowAbout          func()
-	ShowShortcuts      func()
-	CheckUpdate        func()
-	CloseModal         func()
-	Like               func()
-	Coin               func()
-	Favorite           func()
-	Quit               func()
-	Minimize           func()
+	// ResetLyricsConfig 一键恢复桌面字幕全部默认值。
+	ResetLyricsConfig func()
+	LoadMore          func()
+	Login             func()
+	CloseLogin        func()
+	ShowAbout         func()
+	ShowShortcuts     func()
+	CheckUpdate       func()
+	CloseModal        func()
+	Like              func()
+	Coin              func()
+	Favorite          func()
+	Quit              func()
+	Minimize          func()
 	// HideWindow 把主窗隐藏到托盘（原版标题栏「隐藏窗口」键的 hide_window）。
 	HideWindow    func()
 	SetMini       func(on bool)
@@ -690,7 +724,8 @@ type App struct {
 	SubtitlesBvid    string
 	SubtitlesURL     string
 	SubtitleError    string
-	// SubtitleFollow 是字幕页是否跟随当前时间自动滚动。
+	// SubtitleFollow / DanmakuAutoScroll 是用户跟随偏好：默认开，手动关掉
+	// 后跨抽屉/视频/重启保留（见 prefs 的 subtitleFollow / danmakuFollow）。
 	SubtitleFollow        bool
 	subtitleList          ui.ListState
 	progressHandle        ui.Handle
@@ -717,9 +752,12 @@ type App struct {
 	// 保留；LyricsOffsetRemember 为真时才随播放配置/重启保留。
 	LyricsOffset         float64
 	LyricsOffsetRemember bool
-	LyricsMargin         float64
-	LyricsBgOpacity      float64
-	LyricsTextOpacity    float64
+	// LyricsWidthRatio 是桌面字幕宽度占当前屏幕工作区的比例（0.2~0.8）；
+	// LyricsPixelWidth 是控制器按比例算出的实际像素宽，供设置页预览使用。
+	LyricsWidthRatio  float64
+	LyricsPixelWidth  int
+	LyricsBgOpacity   float64
+	LyricsTextOpacity float64
 	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
 	// HeatOn 是弹幕页的热力开关（默认开，只在弹幕页显示开关）。
 	DanmakuHeat []HeatPoint
@@ -740,14 +778,18 @@ type App struct {
 	//
 	// DanmakuLoading 是弹幕列表的拉取在途标志（原版 isLoadingDanmaku）。
 	// 起播预取弹幕与抽屉里点刷新都置它；表头刷新键据此画 Spinner + 禁用。
-	DanmakuTab        string
-	DanmakuAutoScroll bool
-	DanmakuLoading    bool
-	RepliesLoading    bool
-	RepliesHasMore    bool
-	ReplyPage         int
-	ReplyTotal        int
-	danmakuScrollIdx  int
+	DanmakuTab           string
+	DanmakuAutoScroll    bool
+	DanmakuLoading       bool
+	RepliesLoading       bool
+	RepliesHasMore       bool
+	ReplyPage            int
+	ReplyTotal           int
+	danmakuScrollIdx     int
+	danmakuScrollPending bool
+	danmakuVisibleFirst  int
+	danmakuVisibleLast   int
+	danmakuListReady     bool
 
 	// 播放列表（原版 playlist / seriesPlaylist）。
 	//
@@ -988,12 +1030,13 @@ func NewApp(repaint func()) *App {
 		DanmakuTab:        TabDanmaku,
 		SubtitleFollow:    true,
 		DanmakuAutoScroll: true,
-		LyricsColor:       "#ffffff",
-		LyricsBgColor:     "#0f172a",
-		LyricsFontSize:    20,
-		LyricsMargin:      16,
-		LyricsBgOpacity:   0.55,
-		LyricsTextOpacity: 1,
+		LyricsColor:       DefaultLyricsColor,
+		LyricsBgColor:     DefaultLyricsBgColor,
+		LyricsFontSize:    DefaultLyricsFontSize,
+		LyricsWidthRatio:  DefaultLyricsWidthRatio,
+		LyricsPixelWidth:  560,
+		LyricsBgOpacity:   DefaultLyricsBgOpacity,
+		LyricsTextOpacity: DefaultLyricsTextOpacity,
 		HeatOn:            true,
 	}
 	a.discAt = time.Now()

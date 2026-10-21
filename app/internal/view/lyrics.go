@@ -10,7 +10,7 @@ import (
 // 整个窗口是原生 mygo UI，不是 WebView。
 //
 // 设置页不是把显示页替换掉：上方固定保留 100px 的实时预览，下方才是
-// 颜色 / 字号 / 边距 / 透明度控件，拖动滑块能立即看到效果。
+// 颜色 / 字号 / 宽度 / 透明度 / 微调控件，拖动滑块能立即看到效果。
 
 var iconLyricsGear = icon(`<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M12.4 3.6l-1 1M4.6 11.4l-1 1"/>`)
 
@@ -72,12 +72,15 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 	// 显示模式的根铺满窗口；设置页的预览固定 100px。根可拖动，面板也
 	// 可拖动（面板铺满窗口时根本身没有剩余命中区）。
 	var root ui.Element
-	// 边距是**面板相对窗口**的内缩，而不是文字内部 padding：短句也能
-	// 看出设置变化。左右各缩 margin，上下留 4。
 	if height > 0 {
-		root = ui.Box(c).FillWidth().Height(height).Padding(4, float32(a.LyricsMargin)).DragWindow()
+		// 设置页窗口至少 560 宽；预览按实际字幕窗宽度居中，所见即所得。
+		w := float32(a.LyricsPixelWidth)
+		if w <= 0 {
+			w = 560
+		}
+		root = ui.Box(c).Width(w).Height(height).AlignSelf(ui.Center).DragWindow()
 	} else {
-		root = ui.Box(c).Fill().Padding(4, float32(a.LyricsMargin)).DragWindow()
+		root = ui.Box(c).Fill().DragWindow()
 	}
 	_, _, over := root.PointerPosition()
 	root.Children(func() {
@@ -139,6 +142,16 @@ func (a *App) lyricsConfigPanel(c *ui.Context) {
 					ui.Text(c, "桌面字幕设置").FontSize(14).FontWeight(700).
 						TextColor(ui.Hex("#ffffff"))
 					ui.Box(c).Grow(1)
+					reset := ui.ButtonBase(c.Key("lyrics-config-reset")).Height(26).Padding(0, 8).
+						Radius(7).Center().Label("恢复默认").Tooltip("恢复桌面字幕全部默认值")
+					reset.Background(ui.Hex("#ffffff").Alpha(0.08))
+					if reset.Hovered() {
+						reset.Background(ui.Hex("#ffffff").Alpha(0.18))
+					}
+					reset.Children(func() { ui.Text(c, "恢复默认").FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.78)) })
+					if reset.Clicked() && a.Act.ResetLyricsConfig != nil {
+						a.Act.ResetLyricsConfig()
+					}
 					done := ui.ButtonBase(c.Key("lyrics-config-done")).Height(26).Padding(0, 10).
 						Radius(7).Center().Label("完成").Tooltip("完成")
 					done.Background(ui.Hex("#ffffff").Alpha(0.12))
@@ -150,16 +163,19 @@ func (a *App) lyricsConfigPanel(c *ui.Context) {
 						a.Act.ToggleLyricsConfig()
 					}
 				})
-				a.lyricsColorRow(c, "文字", &a.LyricsColor, []string{
+				a.lyricsColorRow(c, "文字", DefaultLyricsColor, &a.LyricsColor, []string{
 					"#ffffff", "#e2e8f0", "#38bdf8", "#facc15", "#fb7185", "#a7f3d0", "#0f172a",
 				})
-				a.lyricsColorRow(c, "背景", &a.LyricsBgColor, []string{
+				a.lyricsColorRow(c, "背景", DefaultLyricsBgColor, &a.LyricsBgColor, []string{
 					"#0f172a", "#1e293b", "#111827", "#000000", "#ffffff", "#f8fafc", "#1d4ed8",
 				})
-				a.lyricsSliderRow(c, "字号", &a.LyricsFontSize, 14, 30, 1)
-				a.lyricsSliderRow(c, "边距", &a.LyricsMargin, 0, 40, 1)
-				a.lyricsSliderRow(c, "文字透明度", &a.LyricsTextOpacity, 0, 1, 0.05)
-				a.lyricsSliderRow(c, "背景透明度", &a.LyricsBgOpacity, 0, 1, 0.05)
+				a.lyricsSliderRow(c, "字号", fmt.Sprintf("%.0f", DefaultLyricsFontSize),
+					&a.LyricsFontSize, 14, 30, 1)
+				a.lyricsWidthRow(c)
+				a.lyricsSliderRow(c, "文字透明度", fmt.Sprintf("%.1f", DefaultLyricsTextOpacity),
+					&a.LyricsTextOpacity, 0, 1, 0.05)
+				a.lyricsSliderRow(c, "背景透明度", fmt.Sprintf("%.2f", DefaultLyricsBgOpacity),
+					&a.LyricsBgOpacity, 0, 1, 0.05)
 				a.lyricsOffsetRow(c)
 				a.lyricsRememberRow(c)
 				ui.Text(c, "正数提前、负数延后；上方预览会实时更新。").FontSize(11).
@@ -171,9 +187,9 @@ func (a *App) lyricsConfigPanel(c *ui.Context) {
 
 // lyricsColorRow 是一排颜色预设。选中的色块用蓝色外环 + 勾，白色选中时
 // 也不会看不出来。
-func (a *App) lyricsColorRow(c *ui.Context, label string, current *string, colors []string) {
+func (a *App) lyricsColorRow(c *ui.Context, label, def string, current *string, colors []string) {
 	ui.Row(c).Height(30).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.62)).Width(46).Shrink(0)
+		ui.Text(c, label+" · "+def).FontSize(11).TextColor(ui.Hex("#ffffff").Alpha(0.54)).Width(112).Shrink(0)
 		for _, col := range colors {
 			col := col
 			sw := ui.ButtonBase(c.Key("lyrics-color-"+label+"-"+col)).Size(24, 24).Radius(6).Center().
@@ -205,12 +221,38 @@ func (a *App) lyricsColorRow(c *ui.Context, label string, current *string, color
 	})
 }
 
+// lyricsWidthRow 直接配置字幕窗宽度占屏幕工作区的比例。此前叫「边距」，
+// 实际只是把面板向内缩，用户看起来更像在调宽度；现在改成真正的宽度。
+func (a *App) lyricsWidthRow(c *ui.Context) {
+	percent := a.LyricsWidthRatio * 100
+	changed := false
+	ui.Row(c).FillWidth().Height(30).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "宽度 · "+fmt.Sprintf("%.0f%%", DefaultLyricsWidthRatio*100)).
+			FontSize(11).TextColor(ui.Hex("#ffffff").Alpha(0.54)).
+			Width(112).Shrink(0)
+		s := ui.Slider(c, &percent, 20, 80).FillWidth().Grow(1).Step(1)
+		if s.Changed() {
+			changed = true
+		}
+		ui.Text(c, fmt.Sprintf("%.0f%%", percent)).FontSize(11).
+			TextColor(ui.Hex("#ffffff").Alpha(0.62)).Width(50).Shrink(0).
+			TextAlign(ui.Center)
+	})
+	if changed {
+		a.LyricsWidthRatio = percent / 100
+		if a.Act.UpdateLyricsConfig != nil {
+			a.Act.UpdateLyricsConfig()
+		}
+	}
+}
+
 // lyricsOffsetRow 是桌面字幕整体时间微调：正数让字幕提前，负数延后。
 func (a *App) lyricsOffsetRow(c *ui.Context) {
 	changed := false
 	ui.Row(c).FillWidth().Height(30).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "微调").FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.62)).
-			Width(76).Shrink(0)
+		ui.Text(c, "微调 · "+lyricsOffsetLabel(DefaultLyricsOffset)).
+			FontSize(11).TextColor(ui.Hex("#ffffff").Alpha(0.54)).
+			Width(112).Shrink(0)
 		s := ui.Slider(c, &a.LyricsOffset, -10, 10).FillWidth().Grow(1).Step(0.1)
 		if s.Changed() {
 			changed = true
@@ -246,8 +288,8 @@ func (a *App) lyricsRememberRow(c *ui.Context) {
 	}
 	b.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, "记住微调").FontSize(12).
-				TextColor(ui.Hex("#ffffff").Alpha(0.62)).Width(76).Shrink(0)
+			ui.Text(c, "记住微调 · 默认关").FontSize(11).
+				TextColor(ui.Hex("#ffffff").Alpha(0.54)).Width(112).Shrink(0)
 			ui.Text(c, "跨视频和重启保留").FontSize(11).
 				TextColor(ui.Hex("#ffffff").Alpha(0.38)).Grow(1)
 			incognitoTrack(c, a.LyricsOffsetRemember)
@@ -262,11 +304,11 @@ func (a *App) lyricsRememberRow(c *ui.Context) {
 }
 
 // lyricsSliderRow 是设置页的一行：标签 + 可见的原生 Slider + 当前值。
-func (a *App) lyricsSliderRow(c *ui.Context, label string, value *float64, lo, hi, step float64) {
+func (a *App) lyricsSliderRow(c *ui.Context, label, def string, value *float64, lo, hi, step float64) {
 	changed := false
 	ui.Row(c).FillWidth().Height(30).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.62)).
-			Width(76).Shrink(0)
+		ui.Text(c, label+" · "+def).FontSize(11).TextColor(ui.Hex("#ffffff").Alpha(0.54)).
+			Width(112).Shrink(0)
 		// SliderBase 没有外观（只有拖动行为），设置页看起来像不能配置；
 		// 用带主题外观的原生 Slider。
 		s := ui.Slider(c, value, lo, hi).FillWidth().Grow(1).Step(step)

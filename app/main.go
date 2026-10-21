@@ -742,8 +742,10 @@ func (c *controller) wireActions() {
 		ToggleRadio:         c.toggleRadio,
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		ToggleHeat:          c.toggleHeat,
+		PersistFollow:       c.persistFollowPrefs,
 		ToggleLyricsConfig:  c.toggleLyricsConfig,
 		UpdateLyricsConfig:  c.updateLyricsConfig,
+		ResetLyricsConfig:   c.resetLyricsConfig,
 		SelectSubtitle:      c.selectSubtitle,
 		NextHighlight:       c.nextHighlight,
 		LoadMore:            c.loadMore,
@@ -1058,8 +1060,7 @@ func (c *controller) switchDanmakuTab(tab string) {
 			c.loadComments(1)
 		}
 	case view.TabDanmaku:
-		// 切回弹幕：重新跟随当前时间。
-		a.DanmakuAutoScroll = true
+		// 跟随开关是持久偏好，不在切 tab 时强制打开。
 	case view.TabChapters:
 		c.ensureExtras()
 	case view.TabSubtitle:
@@ -2707,6 +2708,22 @@ func (c *controller) videoInfoOf(bvid string, fallback *view.Track) *view.Info {
 	return info
 }
 
+// resolvePlaybackCid 用 bvid 对应的 Info 校验队列里的 cid：cid 为 0 或
+// 不属于当前视频的任何分 P 时，退回该视频的第一个分 P。切换来源（搜索 →
+// 历史 → 播放列表）时，卡片上的 cid 可能过期；章节/字幕/播放地址都必须用
+// 这一份实时校验后的 cid。
+func resolvePlaybackCid(info *view.Info, cid int64) int64 {
+	if info == nil {
+		return cid
+	}
+	if cid == 0 || !info.HasPartCid(cid) {
+		if info.Cid != 0 {
+			return info.Cid
+		}
+	}
+	return cid
+}
+
 // keepDrawerOnPlay 报告 startCurrent 起播时该保留哪个抽屉。它服务的是
 // **自动/后台起播**路径：播放列表模式下手动/自动切歌不关
 // （handlePlaylistVideoSelect 的 preserveUi），选集自动续播/播完切集也不关
@@ -2782,9 +2799,9 @@ func (c *controller) startCurrent() {
 			return
 		}
 		if info != nil {
-			if cid == 0 {
-				cid = info.Cid
-			}
+			// 队列卡片里的 cid 可能来自旧视频/旧分 P；以 bvid 重新拉到的
+			// Info.Parts 为准。只有确实属于当前视频的分 P 才保留。
+			cid = resolvePlaybackCid(info, cid)
 			c.app.Win.Update(func() {
 				if stale() {
 					return

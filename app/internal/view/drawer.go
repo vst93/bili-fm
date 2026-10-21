@@ -29,15 +29,12 @@ const drawerIn = 220 * time.Millisecond
 // 轮廓再柔一档。只增加抽屉这一层 backdrop，卡片本身仍然不模糊。
 const drawerBlurRadius float32 = 20
 
-// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：原版
-// `[data-slot="wrapper"] [role="button"][class*="bg-content"]` 的
-// `transition: ... transform 0.16s ease`（globals.css:3662），上浮
-// `translateY(-3px)`、移开回落，全程 160ms。之前用 500ms 的 Snappy 弹簧，
-// 用户报「浮动动画太慢、移开回落不利落」。CSS 的 `ease` 即
-// cubic-bezier(0.25, 0.1, 0.25, 1)，用 mygo 的同名曲线逐字对齐。
+// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画。用户明确要求「越快越好、
+// 要干脆」，30ms 在 60Hz 下只有约两帧，视觉上接近瞬时，但不会像完全
+// 无过渡那样出现颜色/阴影硬切。上浮和下沉共用同一条。
 var cardLiftAnim = ui.Animation{
-	Duration: 160 * time.Millisecond,
-	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+	Duration: 30 * time.Millisecond,
+	Ease:     ui.EaseOut,
 }
 
 // 抽屉列表里几处悬停 / 当前态的色值过渡，逐条取自原版 globals.css：
@@ -179,11 +176,13 @@ func (a *App) drawer(c *ui.Context) {
 			// drawerEnterStep 当成「不是新抽屉」而丢掉入场动画。退场进度由
 			// drawerExitAt 独立计时（见 drawerAnimOffset），不依赖 pose 状态。
 			a.drawerOpenKey = ""
-			// 原版 danmakuList 的 handleOpenChange(false)：关抽屉时把自动跟随
-			// 重置为开、滚动锚点清掉，下次打开重新跟随当前播放位置。
+			// 关抽屉只清滚动锚点，不重置跟随开关：用户手动关掉跟随/手动
+			// 滚动后，偏好要跨抽屉保留（见 App.PersistFollow）。
 			if a.drawerShown == DrawerDanmaku {
-				a.DanmakuAutoScroll = true
 				a.danmakuScrollIdx = -1
+				a.danmakuScrollPending = false
+				a.danmakuVisibleFirst, a.danmakuVisibleLast = -1, -1
+				a.danmakuListReady = false
 			}
 		} else if drawerExitDone(a.drawerExitAt, c.Now(), c.Now().Sub(a.drawerExitAt) < drawerIn) {
 			// 退场动画走完：面板已经滑到窗口外，这一帧起真正移出视图。放在构建
@@ -2232,14 +2231,11 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			box.Shadow(0, 0, 0, 2*k, t.Blue.Alpha(0.20*k))
 		}
 	}
-	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
-	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
+	// 悬停「抬起」：原版是 transform: translateY(-3px)；用户要求干脆，
+	// 收到 30ms。在播卡片仍保持常驻上浮，移开/按下都同样快速回落。
 	//
-	// 滚动时锁住：在播卡片的 -3px 是常驻的，ui.List 滚动时可见行重建，
-	// 每帧都把 lift 动画重设目标（rested 动画仍在动画列表里，引擎每帧
-	// 照常 build/layout/paint 整窗）——用户报快速滚动卡顿正是来自这里。
-	// 滚动进行中不挂动画、停下当帧再恢复：
-	// 悬停 / 在播的上浮效果只在静止时渲染，与原版 :hover 观感一致。
+	// 滚动时锁住：可见行重建时每帧重设 lift 目标会拖慢滚动，所以滚动
+	// 进行中不挂动画、停下当帧再恢复。
 	if !locked {
 		lift := float32(0)
 		if box.Hovered() || spec.Active {
@@ -2250,7 +2246,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			lift = 0
 		}
 		a.liftChannels.Add(1)
-		// 按下缩放与上浮走同一条 160ms ease（原版基础规则的 transform 过渡）。
+		// 按下缩放与上浮走同一条 30ms ease-out。
 		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
 		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
 		// 稳态不挂 transform：**单位变换（含恒等矩阵）同样会让 mygo 把这张卡的
@@ -2949,10 +2945,10 @@ func (a *App) danmakuTabs(c *ui.Context) {
 	a.tabs(c, "dm", tabs, a.DanmakuTab, func(k string) {
 		a.DanmakuTab = k
 		a.danmakuScrollIdx = -1
-		// 原版 danmakuList.tsx 的 handleViewModeChange：切 tab 时
-		// setIsAutoScroll(true) + lastScrollIndexRef=-1，即自动跟随重置为开（与
-		// 关抽屉时 handleOpenChange(false) 的行为一致，见 drawer.go 的关抽屉分支）。
-		a.DanmakuAutoScroll = true
+		a.danmakuScrollPending = false
+		a.danmakuVisibleFirst, a.danmakuVisibleLast = -1, -1
+		a.danmakuListReady = false
+		// 跟随开关是用户偏好，不随切 tab 重置。
 		if a.Act.SwitchDanmakuTab != nil {
 			a.Act.SwitchDanmakuTab(k)
 		}
@@ -3034,6 +3030,12 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 	if b.Clicked() {
 		a.DanmakuAutoScroll = !a.DanmakuAutoScroll
 		a.danmakuScrollIdx = -1
+		a.danmakuScrollPending = false
+		a.danmakuVisibleFirst, a.danmakuVisibleLast = -1, -1
+		a.danmakuListReady = false
+		if a.Act.PersistFollow != nil {
+			a.Act.PersistFollow()
+		}
 	}
 }
 
@@ -3064,6 +3066,9 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 		a.subtitleScrollPending = false
 		a.subtitleVisibleFirst, a.subtitleVisibleLast = -1, -1
 		a.subtitleListReady = false
+		if a.Act.PersistFollow != nil {
+			a.Act.PersistFollow()
+		}
 	}
 }
 
@@ -3241,6 +3246,9 @@ func (a *App) subtitlesBody(c *ui.Context) {
 			// 没有我们的 ScrollTo，却看到视口移动 = 用户主动滚动。即使当前句
 			// 还在视口里也尊重用户，先停止跟随；再点跟随键才恢复。
 			a.SubtitleFollow = false
+			if a.Act.PersistFollow != nil {
+				a.Act.PersistFollow()
+			}
 		}
 		if a.SubtitleFollow && cur != a.subtitleScrollIdx {
 			st.ScrollTo(cur, ui.Center)
@@ -3501,6 +3509,35 @@ func (a *App) danmakuBody(c *ui.Context) {
 		a.danmakuList = ui.ListState{}
 		a.danmakuCid = a.DanmakuCid
 		a.danmakuScrollIdx = -1
+		a.danmakuScrollPending = false
+		a.danmakuVisibleFirst, a.danmakuVisibleLast = -1, -1
+		a.danmakuListReady = false
+	}
+
+	// 跟随当前组：在构建 List 前先处理视口变化。和字幕页同一套状态机：
+	// 没有我们的 ScrollTo 却看到 Visible() 变化 = 用户手动滚动，立即关掉
+	// 跟随并落盘；等用户再点跟随键才恢复。
+	if a.DanmakuAutoScroll && cur >= 0 {
+		first, last := a.danmakuList.Visible()
+		if a.danmakuScrollPending {
+			if first <= cur && cur <= last {
+				a.danmakuScrollPending = false
+			}
+		} else if a.danmakuListReady && a.danmakuVisibleFirst >= 0 &&
+			(first != a.danmakuVisibleFirst || last != a.danmakuVisibleLast) {
+			a.DanmakuAutoScroll = false
+			if a.Act.PersistFollow != nil {
+				a.Act.PersistFollow()
+			}
+		}
+		if a.DanmakuAutoScroll && a.danmakuScrollIdx != cur {
+			a.danmakuList.ScrollTo(cur, ui.Center)
+			a.danmakuScrollIdx = cur
+			a.danmakuScrollPending = true
+		}
+		if a.danmakuListReady {
+			a.danmakuVisibleFirst, a.danmakuVisibleLast = first, last
+		}
 	}
 
 	// 虚拟化：这条列表在 bba0c7c 里从 ui.List 改成了 ui.Column，之后每帧都重建
@@ -3519,14 +3556,9 @@ func (a *App) danmakuBody(c *ui.Context) {
 		a.danmakuGroupRow(c, groups[i], i == cur, theme, row, linux, viewportH)
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
-	// 自动跟随：把当前组滚到视口中央，且只在下标变化时滚，不干扰手滑。原版是
-	// `danmakuVirtualizer.scrollToIndex(index, { align: "center" })`，不是
-	// 「最少滚动让它露出来」——此前用 ui.ScrollIntoView（near 对齐）会把当前组
-	// 怼到视口下缘，与原版的位置稳定感不同。
-	if a.DanmakuAutoScroll && cur >= 0 && a.danmakuScrollIdx != cur {
-		a.danmakuList.ScrollTo(cur, ui.Center)
-		a.danmakuScrollIdx = cur
-	}
+	// 第一帧 List 还没有可用的 Visible()；下一帧起才启用「视口变化 =
+	// 用户滚动」的判定。
+	a.danmakuListReady = true
 }
 
 // danmakuGroupRow 画一个弹幕分组行（原版 .danmaku-time-group）：整行 grid

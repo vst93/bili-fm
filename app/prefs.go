@@ -31,7 +31,7 @@ const (
 	prefLyricsSize           = "lyricsFontSize"
 	prefLyricsOffset         = "lyricsOffset"
 	prefLyricsOffsetRemember = "lyricsOffsetRemember"
-	prefLyricsMargin         = "lyricsMargin"
+	prefLyricsWidthRatio     = "lyricsWidthRatio"
 	prefHeatOn               = "danmakuHeat"
 	prefLyricsBgColor        = "lyricsBgColor"
 	prefLyricsBgOpacity      = "lyricsBgOpacity"
@@ -41,6 +41,8 @@ const (
 	prefLyricsY              = "desktopSubtitlesY"
 	prefLyricsOpacityLegacy  = "lyricsOpacity"
 	prefSubtitleLang         = "subtitleLanguage"
+	prefSubtitleFollow       = "subtitleFollow"
+	prefDanmakuFollow        = "danmakuFollow"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -91,8 +93,8 @@ func (c *controller) loadPrefs() {
 	if v := parseFloat(c.kv.String(prefLyricsSize)); v >= 14 && v <= 30 {
 		a.LyricsFontSize = v
 	}
-	if v := parseFloat(c.kv.String(prefLyricsMargin)); v >= 4 && v <= 40 {
-		a.LyricsMargin = v
+	if v := parseFloat(c.kv.String(prefLyricsWidthRatio)); v >= 0.2 && v <= 0.8 {
+		a.LyricsWidthRatio = v
 	}
 	// 旧版只有一个透明度：迁移为背景透明度，文字保持 1。
 	if v := parseFloat(c.kv.String(prefLyricsOpacityLegacy)); v >= 0 && v <= 1 {
@@ -103,6 +105,12 @@ func (c *controller) loadPrefs() {
 	}
 	if v := parseFloat(c.kv.String(prefLyricsTextOpacity)); v >= 0 && v <= 1 {
 		a.LyricsTextOpacity = v
+	}
+	if v := c.kv.String(prefSubtitleFollow); v != "" {
+		a.SubtitleFollow = v != "false"
+	}
+	if v := c.kv.String(prefDanmakuFollow); v != "" {
+		a.DanmakuAutoScroll = v != "false"
 	}
 	if c.kv.String(prefLyricsEnabled) == "true" {
 		a.LyricsEnabled = true

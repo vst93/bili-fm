@@ -5,8 +5,8 @@ package main
 // 它不是常驻窗口：字幕页里打开才创建；没有字幕的视频不创建；关闭视频 /
 // 退出应用时销毁。窗口只画文本，不加载图片，不启动 webview。
 //
-// 窗口右上角的齿轮把同一个窗口切换到设置页（颜色 / 字号 / 边距 / 透明度），
-// 设置存本地 KV，重启后继续生效。
+// 窗口右上角的齿轮把同一个窗口切换到设置页（颜色 / 字号 / 屏幕宽度比例 /
+// 透明度 / 时间微调），设置存本地 KV，重启后继续生效。
 
 import (
 	"strconv"
@@ -18,6 +18,8 @@ import (
 )
 
 const (
+	// desktopLyricsWidth 是设置页的最小宽度 / 拿不到屏幕信息时的兜底；
+	// 显示页宽度按 LyricsWidthRatio 占屏幕工作区比例计算。
 	desktopLyricsWidth        = 560
 	desktopLyricsHeight       = 100
 	desktopLyricsConfigHeight = 500
@@ -58,12 +60,14 @@ func (c *controller) openDesktopLyricsIfReady() {
 	}
 	a.LyricsConfig = false
 	a.LyricsConfigAbove = false
-	w := desktopLyricsWidth
 	h := desktopLyricsHeight
-	x, y, ok := c.savedLyricsPos(w, h)
+	x, y, ok := c.savedLyricsPos(desktopLyricsWidth, h)
 	if !ok {
-		x, y = desktopLyricsDefaultPos(w, h)
+		x, y = desktopLyricsDefaultPos(desktopLyricsWidth, h)
 	}
+	w := c.desktopLyricsWidthFor(x, y)
+	x, y = clampLyricsPos(x, y, w, h)
+	a.LyricsPixelWidth = w
 	opts := mygo.WindowOptions{
 		Title:             "桌面字幕",
 		Width:             w,
@@ -130,6 +134,64 @@ func desktopLyricsDefaultPos(w, h int) (int, int) {
 		y = d.Y
 	}
 	return x, y
+}
+
+// desktopLyricsWidthFor 按当前屏幕工作区和宽度比例算字幕窗宽度。给一个
+// 下限，避免缩得太窄后设置页控件挤在一起；窗口不能超过工作区。
+func (c *controller) desktopLyricsWidthFor(x, y int) int {
+	a := c.app
+	ratio := a.LyricsWidthRatio
+	if ratio < 0.2 {
+		ratio = 0.2
+	}
+	if ratio > 0.8 {
+		ratio = 0.8
+	}
+	d := mygo.Screen.DisplayNearestPoint(mygo.Point{X: x, Y: y})
+	work := d.WorkArea
+	if work.Width <= 0 {
+		return desktopLyricsWidth
+	}
+	return lyricsWidthForWork(work.Width, ratio)
+}
+
+// lyricsWidthForWork 是宽度比例的纯计算：工作区宽 × 比例，夹在 320 与
+// 工作区宽减 16 之间。拆出来便于无头测试。
+func lyricsWidthForWork(workWidth int, ratio float64) int {
+	if workWidth <= 0 {
+		return desktopLyricsWidth
+	}
+	if ratio < 0.2 {
+		ratio = 0.2
+	}
+	if ratio > 0.8 {
+		ratio = 0.8
+	}
+	w := int(float64(workWidth) * ratio)
+	if w < 320 {
+		w = 320
+	}
+	if max := workWidth - 16; w > max {
+		w = max
+	}
+	return w
+}
+
+// resizeDesktopLyricsWidth 在设置宽度比例后同步窗口宽度；设置页至少保留
+// desktopLyricsWidth 宽，避免颜色/滑块行被挤坏。
+func (c *controller) resizeDesktopLyricsWidth() {
+	if c.lyricsWin == nil {
+		return
+	}
+	b := c.lyricsWin.Bounds()
+	w := c.desktopLyricsWidthFor(b.X, b.Y)
+	c.app.LyricsPixelWidth = w
+	targetW := w
+	if c.app.LyricsConfig && targetW < desktopLyricsWidth {
+		targetW = desktopLyricsWidth
+	}
+	x, y := clampLyricsPos(b.X, b.Y, targetW, b.Height)
+	c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: targetW, Height: b.Height})
 }
 
 // savedLyricsPos 读取上次关闭时记住的窗口位置，并夹到当前屏幕工作区内。
@@ -263,10 +325,14 @@ func (c *controller) toggleLyricsConfig() {
 			work = mygo.Screen.PrimaryDisplay().WorkArea
 		}
 		above, y := lyricsConfigPlacement(b, work, desktopLyricsHeight, desktopLyricsConfigHeight, 8)
+		configWidth := a.LyricsPixelWidth
+		if configWidth < desktopLyricsWidth {
+			configWidth = desktopLyricsWidth
+		}
 		a.LyricsConfigAbove = above
 		a.LyricsConfig = true
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: b.X, Y: y, Width: desktopLyricsWidth, Height: desktopLyricsConfigHeight,
+			X: b.X, Y: y, Width: configWidth, Height: desktopLyricsConfigHeight,
 		})
 	} else {
 		y := b.Y
@@ -276,7 +342,7 @@ func (c *controller) toggleLyricsConfig() {
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: b.X, Y: y, Width: desktopLyricsWidth, Height: desktopLyricsHeight,
+			X: b.X, Y: y, Width: a.LyricsPixelWidth, Height: desktopLyricsHeight,
 		})
 	}
 	c.lyricsWin.Update(func() {})
@@ -291,6 +357,24 @@ func (c *controller) resetLyricsOffsetOnTrackChange() {
 	}
 }
 
+// resetLyricsConfig 恢复桌面字幕的全部样式/时间默认值，并立即落盘、调整
+// 窗口宽度和当前句。跟随开关属于播放列表交互偏好，不在「恢复默认」范围。
+func (c *controller) resetLyricsConfig() {
+	a := c.app
+	a.LyricsColor = view.DefaultLyricsColor
+	a.LyricsBgColor = view.DefaultLyricsBgColor
+	a.LyricsFontSize = view.DefaultLyricsFontSize
+	a.LyricsWidthRatio = view.DefaultLyricsWidthRatio
+	a.LyricsTextOpacity = view.DefaultLyricsTextOpacity
+	a.LyricsBgOpacity = view.DefaultLyricsBgOpacity
+	a.LyricsOffset = view.DefaultLyricsOffset
+	a.LyricsOffsetRemember = view.DefaultLyricsRememberOffset
+	c.updateLyricsConfig()
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
+}
+
 // updateLyricsConfig 夹取并持久化桌面字幕设置。
 func (c *controller) updateLyricsConfig() {
 	a := c.app
@@ -299,12 +383,6 @@ func (c *controller) updateLyricsConfig() {
 	}
 	if a.LyricsFontSize > 30 {
 		a.LyricsFontSize = 30
-	}
-	if a.LyricsMargin < 4 {
-		a.LyricsMargin = 4
-	}
-	if a.LyricsMargin > 40 {
-		a.LyricsMargin = 40
 	}
 	if a.LyricsBgOpacity < 0 {
 		a.LyricsBgOpacity = 0
@@ -330,17 +408,24 @@ func (c *controller) updateLyricsConfig() {
 	if a.LyricsOffset > 10 {
 		a.LyricsOffset = 10
 	}
+	if a.LyricsWidthRatio < 0.2 {
+		a.LyricsWidthRatio = 0.2
+	}
+	if a.LyricsWidthRatio > 0.8 {
+		a.LyricsWidthRatio = 0.8
+	}
 	_ = c.kv.SetString(prefLyricsColor, a.LyricsColor)
 	_ = c.kv.SetString(prefLyricsBgColor, a.LyricsBgColor)
 	_ = c.kv.SetString(prefLyricsSize, formatPrefFloat(a.LyricsFontSize))
-	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
+	_ = c.kv.SetString(prefLyricsWidthRatio, formatPrefFloat(a.LyricsWidthRatio))
 	_ = c.kv.SetString(prefLyricsBgOpacity, formatPrefFloat(a.LyricsBgOpacity))
 	_ = c.kv.SetString(prefLyricsTextOpacity, formatPrefFloat(a.LyricsTextOpacity))
 	_ = c.kv.SetString(prefLyricsOffset, formatPrefFloat(a.LyricsOffset))
 	_ = c.kv.SetString(prefLyricsOffsetRemember, strconv.FormatBool(a.LyricsOffsetRemember))
 	if c.lyricsWin != nil {
-		// 改微调时当前句可能马上变化，立即重算；否则要等下一次 500ms
-		// 进度回调才看到效果。
+		// 宽度变化要同步调整窗口；微调变化则立即重算当前句，否则要等
+		// 下一次 500ms 进度回调才看到效果。
+		c.resizeDesktopLyricsWidth()
 		c.syncLyricsAt(a.Pos)
 		c.lyricsWin.Update(func() {})
 	}

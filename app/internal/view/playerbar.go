@@ -1894,7 +1894,7 @@ func (a *App) heatBarLayer(c *ui.Context, b ui.Element) ui.Element {
 		track = rangeTrackRect(b, timelineGeom)
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintHeatBackdrop(p, r, track, a.DanmakuHeat, a.Dur)
+		paintHeatBackdrop(p, r, track, a.DanmakuHeat, a.Dur, a.Theme.Dark)
 	})
 }
 
@@ -1903,9 +1903,19 @@ func (a *App) heatBarLayer(c *ui.Context, b ui.Element) ui.Element {
 // 它是**环境层**，不是进度条装饰：底边是播放栏底、高度是整栏高度，
 // 曲线独立于 6px 轨道，不会和进度条中线挤在一起。透明度压得很低，
 // 保证时间、按钮和进度滑块仍然清楚；顶部留 1px 给栏的描边。
-func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64) {
+func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64, dark bool) {
 	if len(points) == 0 || r.H < 12 || dur <= 0 {
 		return
+	}
+	// 深色播放栏会把青色面积吃掉；暗模式换成更亮的青，并抬高面积/轮廓
+	// 的透明度。浅色仍保持低对比，不抢时间与控件的阅读。
+	fillColor := ui.Hex("#38bdf8")
+	lineColor := ui.Hex("#7dd3fc")
+	fillBase, fillGain, lineAlpha := float32(0.022), float32(0.070), float32(0.34)
+	if dark {
+		fillColor = ui.Hex("#67e8f9")
+		lineColor = ui.Hex("#cffafe")
+		fillBase, fillGain, lineAlpha = 0.045, 0.12, 0.55
 	}
 	// 还没有进度条布局（第一帧）时退回整个播放栏宽度，至少不闪空。
 	if track.W <= 0 {
@@ -1923,7 +1933,7 @@ func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur 
 		h := height * v
 		// 面积只做很淡的底色，热度越高略亮；不会盖住控件。
 		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
-			ui.Hex("#38bdf8").Alpha(0.022+v*0.070), 0)
+			fillColor.Alpha(fillBase+v*fillGain), 0)
 	}
 	// 顶部轮廓线比面积稍微清楚一点，读起来是一条完整的高能曲线。
 	lastX, lastY := float32(-1), float32(0)
@@ -1934,7 +1944,7 @@ func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur 
 		x := track.X + track.W*float32(clampF(float64(pt.At)/dur, 0, 1))
 		y := base - height*max32(pt.Value, 0.02)
 		if lastX >= 0 && x > lastX {
-			p.Line(lastX, lastY, x, y, 1, ui.Hex("#7dd3fc").Alpha(0.34))
+			p.Line(lastX, lastY, x, y, 1, lineColor.Alpha(lineAlpha))
 		}
 		lastX, lastY = x, y
 	}

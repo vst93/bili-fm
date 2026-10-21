@@ -10,25 +10,17 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestCardLiftAnimationMatchesOriginal 钉住抽屉卡片悬停上浮/回落的动画：
-// 原版 globals.css:3662 的 `transition: ... transform 0.16s ease`，
-// 之前用 500ms 的 Snappy 弹簧，用户报「浮动动画太慢、移开回落不利落」。
-func TestCardLiftAnimationMatchesOriginal(t *testing.T) {
-	if cardLiftAnim.Duration != 160*time.Millisecond {
-		t.Errorf("上浮时长 = %v, want 160ms（原版 0.16s）", cardLiftAnim.Duration)
+// TestCardLiftAnimationSnappy 钉住抽屉卡片悬停动画：用户明确要求干脆，
+// 固定 30ms ease-out；不是之前的 160ms，也不能退回弹簧。
+func TestCardLiftAnimationSnappy(t *testing.T) {
+	if cardLiftAnim.Duration != 30*time.Millisecond {
+		t.Errorf("上浮时长 = %v, want 30ms", cardLiftAnim.Duration)
 	}
 	if cardLiftAnim.Spring != (ui.SpringOptions{}) {
 		t.Errorf("应为曲线动画，不是弹簧：%+v", cardLiftAnim.Spring)
 	}
 	if cardLiftAnim.Ease == nil {
 		t.Fatal("缺少缓动曲线")
-	}
-	// CSS `ease` = cubic-bezier(0.25, 0.1, 0.25, 1)。
-	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
-	for _, x := range []float32{0.1, 0.3, 0.5, 0.8, 0.95} {
-		if d := math.Abs(float64(cardLiftAnim.Ease(x) - want(x))); d > 1e-6 {
-			t.Errorf("缓动在 %.2f 处 = %v, want %v", x, cardLiftAnim.Ease(x), want(x))
-		}
 	}
 }
 
@@ -308,20 +300,15 @@ func TestDrawerCardHoverTransition(t *testing.T) {
 	rest := blueness()
 	tst.Move(box.X+box.W/2, box.Y+box.H/2)
 	enter := blueness() // 移入当帧（elapsed = 0）
-	tst.Advance(30 * time.Millisecond)
-	mid := blueness()
 	tst.Advance(200 * time.Millisecond)
 	hover := blueness()
-	t.Logf("左边缘蓝度 常态=%.1f 移入当帧=%.1f 60ms=%.1f 200ms=%.1f", rest, enter, mid, hover)
+	t.Logf("左边缘蓝度 常态=%.1f 移入当帧=%.1f 200ms=%.1f", rest, enter, hover)
 
 	if hover-rest < 20 {
 		t.Fatalf("悬停后描边没有变蓝（常态 %.1f → 悬停 %.1f），采样点或取值有问题", rest, hover)
 	}
 	if diff := enter - rest; diff > 1 || diff < -1 {
-		t.Errorf("移入当帧描边就跳到了 %.1f（常态 %.1f）—— 没有 160ms 过渡", enter, rest)
-	}
-	if !(mid > rest+2 && mid < hover-2) {
-		t.Errorf("30ms 中点 %.1f 不在常态 %.1f 与悬停 %.1f 之间 —— 过渡没有中间态", mid, rest, hover)
+		t.Errorf("移入当帧描边就跳到了 %.1f（常态 %.1f）—— 没有过渡", enter, rest)
 	}
 	// 回落同样走过渡：移出当帧不能立刻褪成常态。
 	tst.Move(box.X-80, box.Y+box.H/2)

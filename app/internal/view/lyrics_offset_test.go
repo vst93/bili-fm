@@ -10,3 +10,13 @@ func TestLyricsOffsetLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestInfoHasPartCid(t *testing.T) {
+	info := &Info{Cid: 10, Parts: []Part{{Cid: 10}, {Cid: 20}}}
+	if !info.HasPartCid(20) {
+		t.Error("应识别属于当前视频的分 P")
+	}
+	if info.HasPartCid(99) || info.HasPartCid(0) {
+		t.Error("不属于当前视频的 cid 不应通过")
+	}
+}

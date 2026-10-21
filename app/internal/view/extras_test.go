@@ -89,7 +89,9 @@ func TestLyricsShellRenders(t *testing.T) {
 	a.LyricCurrent = "第一句"
 	a.LyricNext = "第二句"
 	toggled := 0
+	reset := 0
 	a.Act.ToggleLyricsConfig = func() { toggled++ }
+	a.Act.ResetLyricsConfig = func() { reset++ }
 	lt := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 100)
 	lt.Frame()
 	lt.Move(280, 50)
@@ -106,6 +108,12 @@ func TestLyricsShellRenders(t *testing.T) {
 	cfg.Frame()
 	if _, ok := cfg.Find("记住微调"); !ok {
 		t.Fatal("设置页看不到「记住微调」")
+	}
+	if err := cfg.Click("恢复默认"); err != nil {
+		t.Fatalf("设置页恢复默认按钮不可点：%v", err)
+	}
+	if reset != 1 {
+		t.Fatalf("恢复默认按钮调用 %d 次，应为 1", reset)
 	}
 	if err := cfg.Click("完成"); err != nil {
 		t.Fatalf("设置页完成按钮不可点：%v", err)

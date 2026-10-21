@@ -530,11 +530,9 @@ func TestDanmakuCurrentHighlightWired(t *testing.T) {
 	}
 }
 
-// TestDanmakuAutoScrollResetOnClose 钉住关闭弹幕抽屉会把自动跟随重置为开
-// （原版 danmakuList 的 handleOpenChange(false)：setIsAutoScroll(true) +
-// lastScrollIndexRef.current = -1）。关掉跟随、关抽屉再打开，应重新跟随当前
-// 播放位置。
-func TestDanmakuAutoScrollResetOnClose(t *testing.T) {
+// TestDanmakuAutoScrollKeptOnClose 钉住关闭弹幕抽屉不再重置自动跟随：
+// 跟随开关现在是持久用户偏好，手动关掉后关抽屉/切 tab 都保持关闭。
+func TestDanmakuAutoScrollKeptOnClose(t *testing.T) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Danmaku = []Danmaku{{Time: 0, Text: "a"}, {Time: 30, Text: "b"}}
@@ -543,25 +541,11 @@ func TestDanmakuAutoScrollResetOnClose(t *testing.T) {
 	a.Pos = 30
 
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 720)
-	tst.Frame() // 打开一帧，记下 drawerShown = danmaku
-	if a.DanmakuAutoScroll {
-		t.Fatal("打开期间不应被重置")
-	}
-
-	a.Drawer = "" // 关抽屉
-	tst.Frame()
-	if !a.DanmakuAutoScroll {
-		t.Error("关闭弹幕抽屉后应重置自动跟随为开（原版 handleOpenChange(false)）")
-	}
-
-	// 非弹幕抽屉关闭不受影响。
-	a.Drawer = DrawerPlaylist
-	a.DanmakuAutoScroll = false
 	tst.Frame()
 	a.Drawer = ""
 	tst.Frame()
 	if a.DanmakuAutoScroll {
-		t.Error("关闭其他抽屉不应动弹幕自动跟随开关")
+		t.Error("关闭弹幕抽屉不应重置用户关闭的自动跟随")
 	}
 }
 
@@ -952,7 +936,7 @@ func TestFormatCommentTime(t *testing.T) {
 		in   int64
 		want string
 	}{
-		{"零时刻", 0, "1970/1/1 08:00:00"},                // UTC+8
+		{"零时刻", 0, "1970/1/1 08:00:00"},                   // UTC+8
 		{"2023-11-15", 1700000000, "2023/11/15 06:13:20"}, // UTC+8
 	}
 	for _, c := range cases {
@@ -1062,5 +1046,3 @@ func TestDanmakuAutoScrollCentered(t *testing.T) {
 		t.Errorf("当前组 y = %v，疑似 near 对齐（怼到视口下缘），应 center 对齐在 ≈331", r.Y)
 	}
 }
-
-

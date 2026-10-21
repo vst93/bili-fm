@@ -259,9 +259,12 @@ func (c *controller) retrySubtitles() {
 // 这里再用 subtitleReqID + 当前 cid 挡住过期响应。
 func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) {
 	a := c.app
+	// 请求参数在发请求这一刻快照下来；回调不再读可变的 t（它可能在用户
+	// 切到另一集时被原地改写），只用快照和当前曲目做身份校验。
+	bvid, cid := t.Bvid, t.Cid
 	c.subtitleReqID++
 	reqID := c.subtitleReqID
-	c.subtitleInflightCid = t.Cid
+	c.subtitleInflightCid = cid
 	a.Subtitles = nil
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
@@ -276,20 +279,20 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			if c.subtitleReqID != reqID {
 				return
 			}
-			if c.subtitleInflightCid == t.Cid {
+			if c.subtitleInflightCid == cid {
 				c.subtitleInflightCid = 0
 			}
 			a.SubtitlesLoading = false
 			cur := currentExtrasTrack(a)
-			if cur == nil || cur.Cid != t.Cid || (t.Bvid != "" && cur.Bvid != "" && cur.Bvid != t.Bvid) {
+			if cur == nil || cur.Cid != cid || (bvid != "" && cur.Bvid != "" && cur.Bvid != bvid) {
 				return
 			}
 			// 失败也要记下「这条轨道已经试过」：SubtitlesURL 是 ensureSubtitles
 			// 的缓存键，否则抽屉每帧都会重新发起同一个失败请求。
 			markFailed := func(msg string) {
 				a.SubtitleLang = track.Lan
-				a.SubtitlesCid = t.Cid
-				a.SubtitlesBvid = t.Bvid
+				a.SubtitlesCid = cid
+				a.SubtitlesBvid = bvid
 				a.SubtitlesURL = track.URL
 				a.SubtitleError = msg
 				if a.LyricsEnabled {
@@ -302,8 +305,8 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 				return
 			}
 			a.SubtitleLang = track.Lan
-			a.SubtitlesCid = t.Cid
-			a.SubtitlesBvid = t.Bvid
+			a.SubtitlesCid = cid
+			a.SubtitlesBvid = bvid
 			a.SubtitlesURL = track.URL
 			a.Subtitles = make([]view.SubtitleCue, 0, len(cues))
 			for _, cue := range cues {
@@ -497,6 +500,16 @@ func (c *controller) toggleRadio() {
 	}
 	a.Win.Update(func() {})
 	c.maybeExtendRadio()
+}
+
+// persistFollowPrefs 保存弹幕 / 字幕的跟随开关。用户手动滚动导致自动关闭
+// 时也走这里，所以下次打开抽屉/重启不会被重置回跟随。
+func (c *controller) persistFollowPrefs() {
+	if c.kv == nil || c.app == nil {
+		return
+	}
+	_ = c.kv.SetString(prefSubtitleFollow, strconv.FormatBool(c.app.SubtitleFollow))
+	_ = c.kv.SetString(prefDanmakuFollow, strconv.FormatBool(c.app.DanmakuAutoScroll))
 }
 
 // toggleHeat 切换弹幕热力开关并落盘。菜单和弹幕页表头共用。

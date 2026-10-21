@@ -122,3 +122,79 @@ func TestLoadLyricsOffsetOnlyWhenRemembered(t *testing.T) {
 		t.Fatalf("勾选记住时应恢复微调 1.5，得到 %.1f", c.app.LyricsOffset)
 	}
 }
+
+func TestLyricsWidthForWork(t *testing.T) {
+	if got := lyricsWidthForWork(1920, 0.30); got != 576 {
+		t.Errorf("1920×30%% = %d，应为 576", got)
+	}
+	if got := lyricsWidthForWork(1920, 0.80); got != 1536 {
+		t.Errorf("1920×80%% = %d，应为 1536", got)
+	}
+	if got := lyricsWidthForWork(1024, 0.20); got != 320 {
+		t.Errorf("1024×20%% 应夹到 320，得到 %d", got)
+	}
+}
+
+func TestResetLyricsConfigRestoresAllDefaults(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := view.NewApp(func() {})
+	a.LyricsColor = "#ff0000"
+	a.LyricsBgColor = "#00ff00"
+	a.LyricsFontSize = 27
+	a.LyricsWidthRatio = 0.7
+	a.LyricsTextOpacity = 0.2
+	a.LyricsBgOpacity = 0.1
+	a.LyricsOffset = 3.5
+	a.LyricsOffsetRemember = true
+	c := &controller{app: a, kv: kv}
+	c.resetLyricsConfig()
+	if a.LyricsColor != view.DefaultLyricsColor || a.LyricsBgColor != view.DefaultLyricsBgColor ||
+		a.LyricsFontSize != view.DefaultLyricsFontSize || a.LyricsWidthRatio != view.DefaultLyricsWidthRatio ||
+		a.LyricsTextOpacity != view.DefaultLyricsTextOpacity || a.LyricsBgOpacity != view.DefaultLyricsBgOpacity ||
+		a.LyricsOffset != view.DefaultLyricsOffset || a.LyricsOffsetRemember != view.DefaultLyricsRememberOffset {
+		t.Fatalf("恢复默认后配置未全部还原：%+v", a)
+	}
+	if got := kv.String(prefLyricsWidthRatio); got != "0.3" {
+		t.Errorf("恢复默认后宽度未落盘：%q", got)
+	}
+	if got := kv.String(prefLyricsOffsetRemember); got != "false" {
+		t.Errorf("恢复默认后记住微调未关闭：%q", got)
+	}
+}
+
+func TestPersistFollowPrefs(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := view.NewApp(func() {})
+	a.SubtitleFollow = false
+	a.DanmakuAutoScroll = true
+	c := &controller{app: a, kv: kv}
+	c.persistFollowPrefs()
+	if got := kv.String(prefSubtitleFollow); got != "false" {
+		t.Errorf("字幕跟随落盘 = %q，应为 false", got)
+	}
+	if got := kv.String(prefDanmakuFollow); got != "true" {
+		t.Errorf("弹幕跟随落盘 = %q，应为 true", got)
+	}
+}
+
+func TestResolvePlaybackCid(t *testing.T) {
+	info := &view.Info{Cid: 10, Parts: []view.Part{{Cid: 10}, {Cid: 20}}}
+	if got := resolvePlaybackCid(info, 0); got != 10 {
+		t.Errorf("cid=0 应用首 P 10，得到 %d", got)
+	}
+	if got := resolvePlaybackCid(info, 20); got != 20 {
+		t.Errorf("属于当前视频的分 P 应保留 20，得到 %d", got)
+	}
+	if got := resolvePlaybackCid(info, 99); got != 10 {
+		t.Errorf("不属于当前视频的过期 cid 应回退 10，得到 %d", got)
+	}
+	if got := resolvePlaybackCid(nil, 99); got != 99 {
+		t.Errorf("没有 Info 时应保留原 cid，得到 %d", got)
+	}
+}
