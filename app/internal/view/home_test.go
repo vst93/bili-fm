@@ -29,7 +29,7 @@ func TestVideoActionDisabledWithoutVideo(t *testing.T) {
 	a.Index = 0
 
 	tt := shellTester(t, a)
-	for _, label := range []string{"浏览器打开", "视频播放", "弹幕/评论", "选集"} {
+	for _, label := range []string{"浏览器打开", "视频播放", "弹幕、评论、章节与字幕", "选集"} {
 		_ = tt.Click(label) // 禁用键点不到，忽略返回值
 	}
 	tt.Frame()
@@ -55,7 +55,7 @@ func TestVideoActionEnabledWithVideo(t *testing.T) {
 	}{
 		{"浏览器打开", func(a *App, n *int) { a.Act.OpenBrowser = func() { *n++ } }},
 		{"视频播放", func(a *App, n *int) { a.Act.OpenVideo = func() { *n++ } }},
-		{"弹幕/评论", func(a *App, n *int) { a.Act.ToggleDanmaku = func() { *n++ } }},
+		{"弹幕、评论、章节与字幕", func(a *App, n *int) { a.Act.ToggleDanmaku = func() { *n++ } }},
 		{"选集", func(a *App, n *int) { a.Act.OpenParts = func(Track) { *n++ } }},
 	}
 	for _, tc := range cases {

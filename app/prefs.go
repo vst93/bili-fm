@@ -18,15 +18,19 @@ import (
 
 // 显示偏好的存储键（与原版 localStorage 的同名键对齐，方便用户迁移）。
 const (
-	prefSpeed   = "playbackRate"
-	prefVolume  = "volume"
-	prefEQ      = "loudnessEqEnabled"
-	prefCover   = "coverMode"
-	prefAmbient = "ambientBackgroundEnabled"
-	prefPremium = "premiumTexture"
-	prefRecTab  = "recommendTab"
-	prefHistTab = "historyTab"
-	prefMiniPos = "miniWindowPosition"
+	prefSpeed         = "playbackRate"
+	prefVolume        = "volume"
+	prefEQ            = "loudnessEqEnabled"
+	prefCover         = "coverMode"
+	prefAmbient       = "ambientBackgroundEnabled"
+	prefPremium       = "premiumTexture"
+	prefRecTab        = "recommendTab"
+	prefHistTab       = "historyTab"
+	prefMiniPos       = "miniWindowPosition"
+	prefLyricsColor   = "lyricsColor"
+	prefLyricsSize    = "lyricsFontSize"
+	prefLyricsMargin  = "lyricsMargin"
+	prefLyricsOpacity = "lyricsOpacity"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -59,6 +63,33 @@ func (c *controller) loadPrefs() {
 	if v := c.kv.String(prefHistTab); v == view.HistWatchLater {
 		a.HistTab = v
 	}
+	// 桌面字幕：颜色必须是 #rrggbb；数值做范围夹取，防止旧配置/手改把
+	// 字号或透明度弄成不可读的值。
+	if v := c.kv.String(prefLyricsColor); validHexColor(v) {
+		a.LyricsColor = v
+	}
+	if v := parseFloat(c.kv.String(prefLyricsSize)); v >= 14 && v <= 30 {
+		a.LyricsFontSize = v
+	}
+	if v := parseFloat(c.kv.String(prefLyricsMargin)); v >= 4 && v <= 40 {
+		a.LyricsMargin = v
+	}
+	if v := parseFloat(c.kv.String(prefLyricsOpacity)); v >= 0.3 && v <= 1 {
+		a.LyricsOpacity = v
+	}
+}
+
+// validHexColor 接受 #rrggbb（桌面字幕配置只开放这一种格式）。
+func validHexColor(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for _, r := range s[1:] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func parseFloat(s string) float64 {

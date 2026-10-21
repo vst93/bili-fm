@@ -117,7 +117,7 @@ type controller struct {
 	// extrasInflightCid / subtitleInflightCid 防止同一视频的重复拉取。
 	extrasInflightCid   int64
 	subtitleInflightCid int64
-	// lyricsWin 是桌面歌词悬浮窗（lazy 创建）。
+	// lyricsWin 是桌面字幕悬浮窗（lazy 创建）。
 	lyricsWin *mygo.Window
 
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
@@ -731,6 +731,8 @@ func (c *controller) wireActions() {
 		ToggleDanmaku:       c.toggleDanmaku,
 		ToggleRadio:         c.toggleRadio,
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
+		ToggleLyricsConfig:  c.toggleLyricsConfig,
+		UpdateLyricsConfig:  c.updateLyricsConfig,
 		NextHighlight:       c.nextHighlight,
 		LoadMore:            c.loadMore,
 		Login:               c.login,
@@ -2709,7 +2711,7 @@ func (c *controller) startCurrent() {
 	if t == nil {
 		return
 	}
-	// 旧视频的章节 / 字幕 / 热力 / 桌面歌词文本先清空；新视频的数据在 cid
+	// 旧视频的章节 / 字幕 / 热力 / 桌面字幕文本先清空；新视频的数据在 cid
 	// 确定后异步加载，慢响应不会落到新曲目上。
 	c.clearPlaybackExtras()
 	c.ensureLyricsForTrack()

@@ -204,9 +204,9 @@ func TestPlayerControlIconsNotOldHandDrawn(t *testing.T) {
 		{"恰饭",
 			icon(`<rect x="2" y="4.5" width="12" height="7" rx="1.2"/><path d="M6.4 6.4l3.6 1.6-3.6 1.6z"/>`),
 			iconSponsor, 17},
-		{"弹幕/评论",
+		{"弹幕、评论、章节与字幕",
 			icon(`<path d="M2.8 4.6a1.8 1.8 0 0 1 1.8-1.8h6.8a1.8 1.8 0 0 1 1.8 1.8v4.2a1.8 1.8 0 0 1-1.8 1.8H6.4l-2.6 2.2v-2.2h-.2a1.8 1.8 0 0 1-1.8-1.8z"/><path d="M5.4 6.7h5.2M5.4 8.6h3.2" stroke-width="1.1"/>`),
-			iconDanmaku, int(iconOpticalSize)},
+			iconText, int(iconOpticalSize)},
 		{"卡片播放量",
 			icon(`<path d="M5.5 3.2v9.6a.8.8 0 0 0 1.22.68l7.6-4.8a.8.8 0 0 0 0-1.36l-7.6-4.8A.8.8 0 0 0 5.5 3.2z"/>`), iconViews, 12},
 		{"点赞",
@@ -302,7 +302,7 @@ func TestPlayerControlIconWiring(t *testing.T) {
 		{"home.go", "pick(a.Faved, iconStarFilled, iconStar)", "收藏键的实心星"},
 		{"home.go", "\"浏览器打开\", iconBrowser, iconOpticalSize", "浏览器的光学尺寸 20"},
 		{"home.go", "\"视频播放\", iconVideo, iconOpticalSize", "视频的光学尺寸 20"},
-		{"home.go", "\"弹幕/评论\", iconDanmaku, iconOpticalSize", "弹幕的光学尺寸 20"},
+		{"home.go", "\"弹幕、评论、章节与字幕\", iconText, iconOpticalSize", "弹幕的光学尺寸 20"},
 	}
 	for _, c := range cases {
 		src, err := os.ReadFile(c.file)

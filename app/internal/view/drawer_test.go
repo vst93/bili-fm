@@ -533,9 +533,8 @@ func TestCardTitleBadge(t *testing.T) {
 // 通道 + 回读下采样 + 两次模糊（gpu/gpu.go:412、gpu/metal/metal.go:830），
 // 层数直接乘进每帧——这正是抽屉滚动/入场卡顿的根因（见 .pending-bugs.md）。
 // 原版 CSS 里真有 backdrop-filter 的只剩搜索药丸（.home-searchbar::before）
-// 与播放栏（#player .player-controls）两层，所以上界是 2；抽展面板、
-// 播放键、氛围光都已改成填充/烤进位图的模糊（原版那三层就不是
-// backdrop-filter）。再多就是有人又给卡片/按钮盖了真玻璃。
+// 与播放栏（#player .player-controls）；本轮按用户要求给抽屉面板加回一层
+// 20px 模糊，所以上界是 3。再多就是有人又给卡片/按钮盖了真玻璃。
 //
 // 计数在构建期（view.backdropLayers），不受绘制重试/阴影影响。
 func TestDrawerBackdropLayers(t *testing.T) {
@@ -549,8 +548,8 @@ func TestDrawerBackdropLayers(t *testing.T) {
 	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
 	BackdropLayers() // 丢掉轮询期的计数，只量稳定后的这一帧
 	tst.Frame()
-	if got := BackdropLayers(); got > 2 {
-		t.Fatalf("抽屉打开时 backdrop 层数 = %d, want <= 2（多了会让每帧多出渲染通道打断 + 回读 + 两次模糊）", got)
+	if got := BackdropLayers(); got > 3 {
+		t.Fatalf("抽屉打开时 backdrop 层数 = %d, want <= 3（多了会让每帧多出渲染通道打断 + 回读 + 两次模糊）", got)
 	}
 }
 

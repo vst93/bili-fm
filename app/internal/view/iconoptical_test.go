@@ -58,8 +58,8 @@ func iconForLabel(t *testing.T, label string) *ui.SVG {
 		return iconBrowser
 	case "视频播放":
 		return iconVideo
-	case "弹幕/评论":
-		return iconDanmaku
+	case "弹幕、评论、章节与字幕":
+		return iconText
 	case "搜索结果":
 		return iconSearch
 	case "选集":
@@ -127,7 +127,7 @@ func TestContentActionIconsRenderedAt20(t *testing.T) {
 
 	tt := shellTesterSize(t, statCountApp(), 1000, 700)
 	img := tt.Image()
-	for _, label := range []string{"浏览器打开", "视频播放", "弹幕/评论", "搜索结果", "选集", "合集", "播放列表"} {
+	for _, label := range []string{"浏览器打开", "视频播放", "弹幕、评论、章节与字幕", "搜索结果", "选集", "合集", "播放列表"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("找不到按钮 %q", label)
@@ -156,7 +156,7 @@ func TestContentActionIconsOpticalWired(t *testing.T) {
 		tt := shellTesterSize(t, statCountApp(), 1000, 700)
 		img := tt.Image()
 		out := map[string]int{}
-		for _, label := range []string{"浏览器打开", "视频播放", "弹幕/评论"} {
+		for _, label := range []string{"浏览器打开", "视频播放", "弹幕、评论、章节与字幕"} {
 			r, ok := tt.Find(label)
 			if !ok {
 				t.Fatalf("找不到按钮 %q", label)

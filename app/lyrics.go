@@ -1,11 +1,16 @@
 package main
 
-// 桌面歌词：一个很小的、无边框、置顶的悬浮窗，只显示当前字幕与下一句。
+// 桌面字幕：一个很小的、无边框、置顶的悬浮窗，只显示当前字幕与下一句。
 //
 // 它不是常驻窗口：字幕页里打开才创建；没有字幕的视频不创建；关闭视频 /
 // 退出应用时销毁。窗口只画文本，不加载图片，不启动 webview。
+//
+// 窗口右上角的齿轮把同一个窗口切换到设置页（颜色 / 字号 / 边距 / 透明度），
+// 设置存本地 KV，重启后继续生效。
 
 import (
+	"strconv"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
@@ -13,11 +18,12 @@ import (
 )
 
 const (
-	desktopLyricsWidth  = 560
-	desktopLyricsHeight = 92
+	desktopLyricsWidth        = 560
+	desktopLyricsHeight       = 100
+	desktopLyricsConfigHeight = 316
 )
 
-// toggleDesktopLyrics 切换桌面歌词窗。字幕还没下载时先记下开启意图，等
+// toggleDesktopLyrics 切换桌面字幕窗。字幕还没下载时先记下开启意图，等
 // 字幕正文到达后由 openDesktopLyricsIfReady 创建窗口。
 func (c *controller) toggleDesktopLyrics() {
 	a := c.app
@@ -37,13 +43,13 @@ func (c *controller) toggleDesktopLyrics() {
 		return
 	}
 	if len(a.SubtitleTracks) == 0 && !a.ExtrasLoading {
-		// 没有字幕轨：不创建一个空窗口，也不把状态留成开。
 		a.LyricsOn = false
-		a.Notify("当前视频没有字幕，无法显示桌面歌词")
+		a.Notify("当前视频没有字幕，无法显示桌面字幕")
 		a.Win.Update(func() {})
 		return
 	}
 	a.LyricsOn = true
+	a.LyricsConfig = false
 	a.Win.Update(func() {})
 	c.ensureSubtitles()
 	c.openDesktopLyricsIfReady()
@@ -55,11 +61,12 @@ func (c *controller) openDesktopLyricsIfReady() {
 	if !a.LyricsOn || c.lyricsWin != nil || len(a.Subtitles) == 0 {
 		return
 	}
+	a.LyricsConfig = false
 	w := desktopLyricsWidth
 	h := desktopLyricsHeight
 	x, y := desktopLyricsDefaultPos(w, h)
 	opts := mygo.WindowOptions{
-		Title:             "桌面歌词",
+		Title:             "桌面字幕",
 		Width:             w,
 		Height:            h,
 		X:                 x,
@@ -83,18 +90,22 @@ func (c *controller) openDesktopLyricsIfReady() {
 		return
 	}
 	c.lyricsWin = win
-	win.ShowInactive() // 不抢当前应用焦点，桌面歌词只是被动显示
+	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
+	// 316 高会把显示页撑开，所以创建后强制回显示页高度。
+	win.SetSize(desktopLyricsWidth, desktopLyricsHeight)
+	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	win.OnClosed(func() {
 		if c.lyricsWin == win {
 			c.lyricsWin = nil
 		}
 		a.LyricsOn = false
+		a.LyricsConfig = false
 		a.Win.Update(func() {})
 	})
 	c.syncLyricsAt(a.Pos)
 }
 
-// desktopLyricsDefaultPos 把首次打开的歌词窗放在主屏工作区底部居中；之后
+// desktopLyricsDefaultPos 把首次打开的窗口放在主屏工作区底部居中；之后
 // StateKey 会恢复用户拖到的位置。
 func desktopLyricsDefaultPos(w, h int) (int, int) {
 	d := mygo.Screen.PrimaryDisplay().WorkArea
@@ -113,6 +124,7 @@ func desktopLyricsDefaultPos(w, h int) (int, int) {
 func (c *controller) closeDesktopLyrics() {
 	a := c.app
 	a.LyricsOn = false
+	a.LyricsConfig = false
 	a.LyricCurrent, a.LyricNext = "", ""
 	if c.lyricsWin != nil {
 		w := c.lyricsWin
@@ -124,7 +136,56 @@ func (c *controller) closeDesktopLyrics() {
 	}
 }
 
-// syncLyricsAt 根据播放位置更新歌词窗。只在字幕句变化时重建窗口内容，
+// toggleLyricsConfig 在字幕显示页与设置页之间切换，并调整窗口高度。
+func (c *controller) toggleLyricsConfig() {
+	a := c.app
+	if c.lyricsWin == nil {
+		return
+	}
+	a.LyricsConfig = !a.LyricsConfig
+	h := desktopLyricsHeight
+	if a.LyricsConfig {
+		h = desktopLyricsConfigHeight
+	}
+	c.lyricsWin.SetSize(desktopLyricsWidth, h)
+	c.lyricsWin.Update(func() {})
+}
+
+// updateLyricsConfig 夹取并持久化桌面字幕设置。
+func (c *controller) updateLyricsConfig() {
+	a := c.app
+	if a.LyricsFontSize < 14 {
+		a.LyricsFontSize = 14
+	}
+	if a.LyricsFontSize > 30 {
+		a.LyricsFontSize = 30
+	}
+	if a.LyricsMargin < 4 {
+		a.LyricsMargin = 4
+	}
+	if a.LyricsMargin > 40 {
+		a.LyricsMargin = 40
+	}
+	if a.LyricsOpacity < 0.3 {
+		a.LyricsOpacity = 0.3
+	}
+	if a.LyricsOpacity > 1 {
+		a.LyricsOpacity = 1
+	}
+	_ = c.kv.SetString(prefLyricsColor, a.LyricsColor)
+	_ = c.kv.SetString(prefLyricsSize, formatPrefFloat(a.LyricsFontSize))
+	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
+	_ = c.kv.SetString(prefLyricsOpacity, formatPrefFloat(a.LyricsOpacity))
+	if c.lyricsWin != nil {
+		c.lyricsWin.Update(func() {})
+	}
+}
+
+func formatPrefFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// syncLyricsAt 根据播放位置更新字幕窗。只在字幕句变化时重建窗口内容，
 // 500ms 的进度回调不会造成每帧文本重排。
 func (c *controller) syncLyricsAt(pos float64) {
 	a := c.app

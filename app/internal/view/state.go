@@ -452,22 +452,26 @@ type Actions struct {
 	ToggleDanmaku func()
 	// ToggleRadio 开启 / 关闭「顺着听」相关推荐电台。
 	ToggleRadio func()
-	// ToggleDesktopLyrics 开启 / 关闭桌面歌词悬浮窗。
+	// ToggleDesktopLyrics 开启 / 关闭桌面字幕悬浮窗。
 	ToggleDesktopLyrics func()
 	// NextHighlight 跳到下一个弹幕高能点。
 	NextHighlight func()
-	LoadMore      func()
-	Login         func()
-	CloseLogin    func()
-	ShowAbout     func()
-	ShowShortcuts func()
-	CheckUpdate   func()
-	CloseModal    func()
-	Like          func()
-	Coin          func()
-	Favorite      func()
-	Quit          func()
-	Minimize      func()
+	// ToggleLyricsConfig 在桌面字幕显示页 / 设置页之间切换。
+	ToggleLyricsConfig func()
+	// UpdateLyricsConfig 把桌面字幕的颜色/字号/边距/透明度落盘。
+	UpdateLyricsConfig func()
+	LoadMore           func()
+	Login              func()
+	CloseLogin         func()
+	ShowAbout          func()
+	ShowShortcuts      func()
+	CheckUpdate        func()
+	CloseModal         func()
+	Like               func()
+	Coin               func()
+	Favorite           func()
+	Quit               func()
+	Minimize           func()
 	// HideWindow 把主窗隐藏到托盘（原版标题栏「隐藏窗口」键的 hide_window）。
 	HideWindow    func()
 	SetMini       func(on bool)
@@ -680,10 +684,16 @@ type App struct {
 	SubtitleFollow    bool
 	subtitleList      ui.ListState
 	subtitleScrollIdx int
-	// LyricsOn / LyricCurrent / LyricNext 是桌面歌词窗的显示状态。
-	LyricsOn     bool
-	LyricCurrent string
-	LyricNext    string
+	// LyricsOn / LyricCurrent / LyricNext 是桌面字幕窗的显示状态；LyricsConfig
+	// 为真时同一个窗口切换到设置页。
+	LyricsOn       bool
+	LyricsConfig   bool
+	LyricCurrent   string
+	LyricNext      string
+	LyricsColor    string
+	LyricsFontSize float64
+	LyricsMargin   float64
+	LyricsOpacity  float64
 	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
@@ -950,6 +960,10 @@ func NewApp(repaint func()) *App {
 		DanmakuTab:        TabDanmaku,
 		SubtitleFollow:    true,
 		DanmakuAutoScroll: true,
+		LyricsColor:       "#ffffff",
+		LyricsFontSize:    20,
+		LyricsMargin:      16,
+		LyricsOpacity:     0.72,
 	}
 	a.discAt = time.Now()
 	return a

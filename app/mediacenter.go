@@ -175,7 +175,7 @@ func (c *controller) syncMediaPosition(seconds float64) {
 	if seconds < 0 {
 		return
 	}
-	// 桌面歌词跟主播放位置走；没有窗口时 syncLyricsAt 立即返回。
+	// 桌面字幕跟主播放位置走；没有窗口时 syncLyricsAt 立即返回。
 	c.syncLyricsAt(seconds)
 	if c.media == nil {
 		return

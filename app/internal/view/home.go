@@ -1091,8 +1091,12 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenVideo()
 			}
 		})
-		// 弹幕/评论按 `!cid` 置灰（原版 disabled={!cid}）。
-		a.contentIconButton(c, "danmaku", "弹幕/评论", iconDanmaku, iconOpticalSize, cid == 0, a.openDanmaku)
+		// 这里是弹幕 / 评论 / 章节 / 字幕的统一入口，不再是「弹幕/评论」
+		// 两件套；图标也换成文字稿图标，避免继续暗示只有评论和弹幕。
+		a.contentIconButton(c, "danmaku", "弹幕、评论、章节与字幕", iconText, iconOpticalSize, cid == 0, a.openDanmaku)
+		// 「顺着听」是视频详情的一部分，不属于播放列表；放在内容操作行，
+		// 和弹幕/视频/浏览器入口同一排，不再藏进播放列表抽屉。
+		a.radioContentButton(c, a.Current() == nil)
 	})
 }
 
@@ -1291,7 +1295,7 @@ type statSpec struct {
 	// Count 是按钮下方的计数文案（原版 formatCompactCount，0 也显示）。
 	Count string
 	// Off 为真时整钮禁用（没有视频 / 收藏状态请求中）。
-	Off     bool
+	Off bool
 	// Toggle 为真时这颗键是**保持型开关**，把 Active 作为按压态交给无障碍层
 	//（原版只有收藏键写了 `aria-pressed={isFavorite}`；点赞 / 投币没有 aria-pressed，
 	// 它们只有 title + disabled）。mygo 对应 RoleToggleButton + Checked(Active)。
@@ -1422,6 +1426,41 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 		fn()
 	}
 	return b
+}
+
+// radioContentButton 是主页播放详情里的「顺着听」开关。
+// 它不改变播放列表本身，所以放在内容操作行，而不是播放列表表头。
+func (a *App) radioContentButton(c *ui.Context, off bool) {
+	t := a.Theme
+	label := pick(a.RadioOn, "关闭顺着听", "顺着听")
+	tip := pick(a.RadioOn, "关闭顺着听", "顺着听：以当前视频为种子，自动续播相关推荐")
+	b := ui.ButtonBase(c.Key("icon-radio")).Size(ContentIcon, ContentIcon).
+		Radius(ContentIconR).Center().Label(label).Tooltip(tip).
+		Role(ui.RoleToggleButton).Checked(a.RadioOn)
+	disableNav(b, off)
+	navIconFade(b, off, navIconRestOpacityFor(navIconContent))
+	navIconPose(b)
+	bg := pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive)
+	if a.RadioOn && !b.Hovered() && !b.Pressed() {
+		bg = t.GlassActive
+	}
+	navIconBgTo(b, bg)
+	btnLightNav.draw(b, ContentIconR)
+	if b.Pressed() {
+		navPressShadow(b)
+	} else if b.Hovered() {
+		navHoverHighlight(b)
+	}
+	b.Children(func() {
+		ink := ui.Hex("#475569")
+		if a.RadioOn {
+			ink = ui.Hex("#3b82f6")
+		}
+		ui.Icon(c, iconSparkles).Size(iconOpticalSize, iconOpticalSize).TextColor(ink)
+	})
+	if b.Clicked() && a.Act.ToggleRadio != nil {
+		a.Act.ToggleRadio()
+	}
 }
 
 // inkButton 同 iconButton，ink 非零时用它做图标颜色（原版部分按钮是蓝色）。

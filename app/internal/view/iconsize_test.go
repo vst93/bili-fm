@@ -24,7 +24,7 @@ func TestIconComponentSizes(t *testing.T) {
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
 
 	// 内容操作行（.video-content-actions）：34×34。
-	for _, label := range []string{"浏览器打开", "视频播放", "弹幕/评论", "点赞", "投币(2个)", "取消收藏"} {
+	for _, label := range []string{"浏览器打开", "视频播放", "弹幕、评论、章节与字幕", "点赞", "投币(2个)", "取消收藏"} {
 		r, ok := tst.Find(label)
 		if !ok {
 			t.Fatalf("找不到内容操作按钮 %q", label)

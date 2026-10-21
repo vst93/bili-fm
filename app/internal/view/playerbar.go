@@ -1883,6 +1883,86 @@ const sponsorTolerance = 2.0
 // 层序与原版的 z-index 一致：外投影 → 缓冲（z-index 0）→ 广告段（z-index 0，
 // 在缓冲之上）→ 轨道本体（z-index 1）→ 滑块。缓冲与广告段都**不在**轨道底色
 // 之上，而是透过半透明底色显出来（原版就是这么叠的）。
+// paintHeatCurve 把弹幕热力画成进度条背后的一层低对比面积曲线。
+//
+// 之前的 2px 竖条在 6px 轨道里几乎看不清；这里用 24px 外层盒的上半区
+// （轨道上方约 12px）画面积 + 顶部 1px 曲线。面积透明度随热度变化，轨道
+// 随后覆盖在底部，既保留「弹幕密度」信息，又不影响进度条的描边和滑块。
+//
+// 只做几何绘制，不读取弹幕文本； HeatPoint 数量在 buildDanmakuHeat 里
+// 已被限制（<=480），每帧成本只跟进度条宽度有关。
+func paintHeatCurve(p *ui.Painter, r ui.Rect, track ui.Rect, rp rangePaint) {
+	if len(rp.Heat) == 0 || track.W <= 0 {
+		return
+	}
+	base := track.Y + track.H/2
+	top := r.Y + 2
+	if base-top < 10 {
+		return
+	}
+	height := base - top
+	// 先铺面积。横向按 2px 采样，避免每帧数百个宽 1px 的 Fill。
+	const step = float32(2)
+	for x := track.X; x < track.X+track.W; x += step {
+		frac := clampF(float64((x-track.X)/track.W), 0, 1)
+		v := heatAt(rp.Heat, frac)
+		if v <= 0.02 {
+			continue
+		}
+		h := height * v
+		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
+			ui.Hex("#38bdf8").Alpha(0.045+v*0.16), 0)
+	}
+	// 顶部曲线：1px 半透明青蓝线，让轮廓比纯面积更清晰。
+	for i := 1; i < len(rp.Heat); i++ {
+		a, b := rp.Heat[i-1], rp.Heat[i]
+		if b.At <= a.At {
+			continue
+		}
+		x0 := track.X + track.W*float32(clampF(a.At/rp.Dur, 0, 1))
+		x1 := track.X + track.W*float32(clampF(b.At/rp.Dur, 0, 1))
+		y0 := base - height*max32(a.Value, 0.02)
+		y1 := base - height*max32(b.Value, 0.02)
+		p.Line(x0, y0, x1, y1, 1, ui.Hex("#38bdf8").Alpha(0.42))
+	}
+}
+
+func max32(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// heatAt 在热力桶之间线性插值。
+func heatAt(points []HeatPoint, frac float64) float32 {
+	if len(points) == 0 {
+		return 0
+	}
+	// HeatPoint.At 是秒，调用方给的 frac 是时间比例；拿不到总时长时
+	// 用点索引近似（等价于把最后一个点视为结尾）。
+	t := frac * float64(points[len(points)-1].At)
+	lo, hi := 0, len(points)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if float64(points[mid].At) <= t {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo >= len(points)-1 {
+		return points[len(points)-1].Value
+	}
+	a, b := points[lo], points[lo+1]
+	span := b.At - a.At
+	if span <= 0 {
+		return a.Value
+	}
+	r := float32((t - float64(a.At)) / float64(span))
+	return a.Value + (b.Value-a.Value)*r
+}
+
 func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	track := rangeTrackRect(r, rp.Geom)
 	s := rangeSkinFor(rp.Dark, rp.Hovered)
@@ -1905,15 +1985,7 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	// 弹幕热力：用极淡的竖条铺在轨道下面，不改变进度条的交互；密集处
 	// 自然形成一条「这里很热闹」的纹理。数据是聚合桶，不持有弹幕文本。
 	if rp.Dur > 0 {
-		for _, h := range rp.Heat {
-			if h.Value <= 0.02 {
-				continue
-			}
-			frac := clampF(float64(h.At)/rp.Dur, 0, 1)
-			x := track.X + track.W*float32(frac)
-			p.Fill(ui.Rect{X: x, Y: track.Y, W: 2, H: track.H},
-				ui.Hex("#38bdf8").Alpha(0.10+h.Value*0.22), 0)
-		}
+		paintHeatCurve(p, r, track, rp)
 		for _, at := range rp.ChapterMarks {
 			frac := clampF(at/rp.Dur, 0, 1)
 			x := track.X + track.W*float32(frac)

@@ -15,7 +15,7 @@
 
 - 章节导航：复用 `x/player/v2` 的 `view_points`，章节页 + 进度条分界。
 - 字幕文稿：复用 `subtitle.subtitles`，按需下载 BCC，字幕页跟随/点击跳转。
-- 桌面歌词：字幕正文就绪后创建无边框置顶小窗，不抢焦点、不依赖 webview。
+- 桌面字幕：字幕正文就绪后创建无边框置顶小窗，不抢焦点、不依赖 webview。
 - 顺着听：以当前视频为种子拉 `archive/related`，队列尾部自动补相关推荐。
 - 弹幕热力：按时间桶聚合弹幕，进度条热力线 + 右键跳到下一个高能。
 - Windows SMTC：窗口创建后 AttachWindow，补齐 Windows 系统媒体中心

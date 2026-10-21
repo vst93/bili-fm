@@ -78,6 +78,24 @@ func TestLyricsShellRenders(t *testing.T) {
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.LyricCurrent = "第一句"
 	a.LyricNext = "第二句"
-	lt := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 92)
+	toggled := 0
+	a.Act.ToggleLyricsConfig = func() { toggled++ }
+	lt := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 100)
 	lt.Frame()
+	if err := lt.Click("桌面字幕设置"); err != nil {
+		t.Fatalf("桌面字幕设置按钮不可点：%v", err)
+	}
+	if toggled != 1 {
+		t.Fatalf("设置按钮 toggled=%d, want 1", toggled)
+	}
+
+	a.LyricsConfig = true
+	cfg := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 316)
+	cfg.Frame()
+	if err := cfg.Click("完成"); err != nil {
+		t.Fatalf("设置页完成按钮不可点：%v", err)
+	}
+	if toggled != 2 {
+		t.Fatalf("完成按钮 toggled=%d, want 2", toggled)
+	}
 }

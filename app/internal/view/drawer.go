@@ -24,6 +24,11 @@ import (
 // drawerIn 是抽屉上滑入场 / 遮罩淡入的时长。
 const drawerIn = 220 * time.Millisecond
 
+// drawerBlurRadius 是抽屉面板的模糊半径。原版是 14px；用户反馈当前填充
+// 近似「实色」，阅读时背景边缘仍有点抢眼，这里加到 20px 让背后的卡片
+// 轮廓再柔一档。只增加抽屉这一层 backdrop，卡片本身仍然不模糊。
+const drawerBlurRadius float32 = 20
+
 // cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：原版
 // `[data-slot="wrapper"] [role="button"][class*="bg-content"]` 的
 // `transition: ... transform 0.16s ease`（globals.css:3662），上浮
@@ -248,7 +253,7 @@ func (a *App) drawer(c *ui.Context) {
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
 			Clip().
-			Background(drawerPanelFill()).
+			Material(cssGlassLayer(drawerBlurRadius, drawerPanelFill(), nil)).
 			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
@@ -3033,9 +3038,9 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 	}
 }
 
-// subtitleLyricsButton 是字幕页的桌面歌词开关。
+// subtitleLyricsButton 是字幕页的桌面字幕开关。
 func (a *App) subtitleLyricsButton(c *ui.Context) {
-	label := pick(a.LyricsOn, "关闭桌面歌词", "打开桌面歌词")
+	label := pick(a.LyricsOn, "关闭桌面字幕", "打开桌面字幕")
 	b := ui.ButtonBase(c.Key("sub-lyrics")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsOn)
 	if a.LyricsOn {
@@ -3107,13 +3112,16 @@ func (a *App) chaptersBody(c *ui.Context) {
 				i, ch := i, ch
 				active := i == cur
 				b := ui.ButtonBase(c.Key(fmt.Sprintf("chapter-%d", i))).FillWidth().
-					Padding(10, 8).Radius(8).AlignItems(ui.Start)
+					Padding(10, 8).Radius(8).AlignItems(ui.Start).
+					// 边框宽度恒定，只换颜色：悬停/选中时不能新增 1px 布局边，
+					// 否则章节行会左右收缩、文字抖动。
+					BorderWidth(1).BorderColor(ui.Transparent)
 				if active {
 					b.Background(ui.Hex("#0ea5e9").Alpha(0.14)).
-						Border(1, ui.Hex("#0ea5e9").Alpha(0.35))
+						BorderColor(ui.Hex("#0ea5e9").Alpha(0.35))
 				} else if b.Hovered() {
 					b.Background(ui.Hex("#ffffff").Alpha(0.28)).
-						Border(1, ui.Hex("#64748b").Alpha(0.18))
+						BorderColor(ui.Hex("#64748b").Alpha(0.18))
 				}
 				b.Children(func() {
 					ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {

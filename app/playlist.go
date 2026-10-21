@@ -276,11 +276,15 @@ func (c *controller) reorderPlaylist(list string, from, to int) {
 // clearPlaylist 清空「我的列表」。
 func (c *controller) clearPlaylist(list string) {
 	a := c.app
-	if list != view.ListUser {
+	switch list {
+	case view.ListUser:
+		a.Playlist = nil
+	case view.ListSeries:
+		a.SeriesPlaylist = nil
+	default:
 		return
 	}
-	a.Playlist = nil
-	if a.PlayingPlaylist == view.ListUser {
+	if a.PlayingPlaylist == list {
 		a.PlayingPlaylist = ""
 	}
 	c.savePlaylists()

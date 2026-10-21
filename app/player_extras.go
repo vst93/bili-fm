@@ -17,6 +17,12 @@ import (
 // clearPlaybackExtras 在换集时清空所有播放器附加信息。调用方在主线程。
 func (c *controller) clearPlaybackExtras() {
 	a := c.app
+	// 换代：所有在途的章节 / 字幕 / 热力响应立刻作废。仅清数据不够 ——
+	// 旧请求可能刚好在新的 startCurrent 之后返回，单看 cid 时容易在
+	// 快速切集时落到同一帧。
+	c.extrasReqID++
+	c.subtitleReqID++
+	c.heatReqID++
 	a.Chapters = nil
 	a.SubtitleTracks = nil
 	a.Subtitles = nil
@@ -38,6 +44,9 @@ func (c *controller) clearPlaybackExtras() {
 // 与弹幕 / 评论不同，章节和字幕是播放器时间轴的一部分，浏览另一条视频时
 // 不应该把正在听的章节换掉。
 func currentExtrasTrack(a *view.App) *view.Track {
+	if a.Track != nil && a.Track.Cid != 0 {
+		return a.Track
+	}
 	return a.Current()
 }
 
@@ -51,6 +60,15 @@ func (c *controller) loadPlaybackExtras(aid, cid int64) {
 	c.extrasReqID++
 	reqID := c.extrasReqID
 	c.extrasInflightCid = cid
+	// 新的 extras 请求开始时先清掉旧字幕正文，避免用户在响应回来前继续看到
+	// 上一条视频的文稿；旧响应由 reqID / 当前 cid 双重挡住。
+	a.Chapters = nil
+	a.SubtitleTracks = nil
+	a.Subtitles = nil
+	a.SubtitlesCid = 0
+	a.SubtitlesLoading = false
+	a.SubtitleError = ""
+	a.ResetSubtitleScroll()
 	a.ExtrasLoading = true
 	a.Win.Update(func() {})
 	go func() {
@@ -87,9 +105,9 @@ func (c *controller) loadPlaybackExtras(aid, cid int64) {
 			}
 			if a.LyricsOn && len(a.SubtitleTracks) == 0 {
 				c.closeDesktopLyrics()
-				a.Notify("当前视频没有字幕，无法显示桌面歌词")
+				a.Notify("当前视频没有字幕，无法显示桌面字幕")
 			}
-			// 如果用户正停在字幕页/桌面歌词，数据一到就继续下载正文。
+			// 如果用户正停在字幕页/桌面字幕，数据一到就继续下载正文。
 			if a.DanmakuTab == view.TabSubtitle || a.LyricsOn {
 				c.ensureSubtitles()
 			}
@@ -168,6 +186,12 @@ func (c *controller) ensureSubtitles() {
 		return
 	}
 	if c.subtitleInflightCid == t.Cid {
+		return
+	}
+	// 字幕轨必须属于当前 cid；快速切集时旧的 SubtitleTracks 还没清掉时，
+	// 直接拿它会去下载上一集的字幕。先等 extras 回来。
+	if a.ExtrasCid != t.Cid || a.ExtrasLoading {
+		c.ensureExtras()
 		return
 	}
 	track, ok := pickSubtitleTrack(a.SubtitleTracks)
@@ -291,11 +315,11 @@ func buildDanmakuHeat(items []bilibili.DanmakuItem) []view.HeatPoint {
 	if maxT <= 0 {
 		return nil
 	}
-	// 10 秒一桶；超长视频按比例放大桶宽，保证热力条最多 240 个点，
-	// 每帧的绘制成本不随视频长度增长。
-	bucket := 10.0
-	if maxT/bucket > 240 {
-		bucket = math.Ceil(maxT/240/10) * 10
+	// 5 秒一桶；超长视频按比例放大桶宽，保证热力条最多 480 个点，
+	// 既足够画出峰形，又让每帧绘制成本不随视频长度增长。
+	bucket := 5.0
+	if maxT/bucket > 480 {
+		bucket = math.Ceil(maxT/480/5) * 5
 	}
 	counts := map[int]int{}
 	for _, it := range items {

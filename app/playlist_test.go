@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -179,5 +180,24 @@ func TestSetCardsMarksDropped(t *testing.T) {
 	}
 	if got := big.Cards[len(big.Cards)-1].Bvid; got != "BV132" {
 		t.Errorf("末条 = %q, want BV132（最新一条必须留着）", got)
+	}
+}
+
+func TestClearSeriesPlaylist(t *testing.T) {
+	a := &view.App{
+		SeriesPlaylist:  []view.PlayItem{{ID: "a"}},
+		PlayingPlaylist: view.ListSeries,
+	}
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &controller{app: a, kv: kv}
+	c.clearPlaylist(view.ListSeries)
+	if len(a.SeriesPlaylist) != 0 {
+		t.Fatalf("合集列表未清空：%d", len(a.SeriesPlaylist))
+	}
+	if a.PlayingPlaylist == view.ListSeries {
+		t.Fatal("清空合集列表后 PlayingPlaylist 仍指向合集")
 	}
 }

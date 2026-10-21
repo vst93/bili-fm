@@ -250,7 +250,7 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 		{"登录键", mainProbe, "登录账号", 3, 5, 60, 40},
 		// `#player .player-button:focus-visible`：offset 2 + 2px → 外扩 4。
 		// 用「音量均衡」工具键（标签唯一，不会撞上封面唱片那颗同样叫「播放」的键）。
-		{"均衡键", mainProbe, "音量均衡: 关", 2, 4, 60, 24},
+		{"均衡键", mainProbe, "音量均衡: 关", 2, 4, 60, 32},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tst := c.build(t)
