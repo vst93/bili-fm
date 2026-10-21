@@ -779,10 +779,10 @@ func (c *controller) wireActions() {
 		SetMini:            c.setMini,
 		TogglePin:          c.togglePin,
 		Quit:               c.quit,
-		Minimize:           func() { a.Win.Minimize() },
+		Minimize:           c.minimizeWindow,
 		// 「隐藏窗口」：与关窗的 OnClose（隐藏到托盘）同一条路径。原版标题栏
 		// 的隐藏键调 hide_window，等价于这里 Hide()。
-		HideWindow: func() { a.Win.Hide() },
+		HideWindow: c.hideMainWindow,
 	}
 }
 
@@ -887,6 +887,43 @@ func (c *controller) handleEnded() {
 	c.app.Playing = false
 	c.app.Buffering = false
 	c.syncMediaTrack()
+}
+
+// minimizeWindow 最小化主窗。GTK 的 gtk_window_iconify 在 Wayland 下没有
+// 协议支持（窗口不会响应），此时退化为隐藏到托盘；X11 / Windows / macOS
+// 仍走系统最小化。macOS 不使用自绘窗口键，原生红绿灯不受影响。
+func (c *controller) minimizeWindow() {
+	if c.app == nil || c.app.Win == nil {
+		return
+	}
+	if waylandSession() {
+		c.hideMainWindow()
+		return
+	}
+	c.app.Win.Minimize()
+}
+
+// hideMainWindow 隐藏主窗到托盘，不退出进程。标题栏关闭键与 Wayland 的
+// 最小化兜底都走这里，确保 Linux 不会因为隐藏窗口被当成退出。
+func (c *controller) hideMainWindow() {
+	if c.app == nil || c.app.Win == nil || c.quitting {
+		return
+	}
+	c.app.Win.Hide()
+}
+
+// waylandSession 判断当前 Linux 会话是否 Wayland。只在 Linux 生效；其他
+// 平台的 WAYLAND_DISPLAY 环境变量不应影响窗口行为。
+func waylandSession() bool {
+	return waylandSessionFor(runtime.GOOS, os.Getenv("WAYLAND_DISPLAY"), os.Getenv("XDG_SESSION_TYPE"))
+}
+
+// waylandSessionFor 是 waylandSession 的纯判断，便于测试三平台差异。
+func waylandSessionFor(goos, display, sessionType string) bool {
+	if goos != "linux" {
+		return false
+	}
+	return display != "" || strings.EqualFold(sessionType, "wayland")
 }
 
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
@@ -2853,7 +2890,9 @@ func (c *controller) startCurrent() {
 			return
 		}
 
-		// 回填 cid 与分集标题
+		// 回填 cid / aid / bvid，并在同一个主线程更新里发起章节、字幕和
+		// 热力请求。分成两个 Win.Update 时，请求闭包可能先于 Track 回填
+		// 执行，回调看到旧 cid 就把本次字幕结果丢掉（快速切集时尤其明显）。
 		c.app.Win.Update(func() {
 			if stale() {
 				return
@@ -2863,13 +2902,6 @@ func (c *controller) startCurrent() {
 			t.Cid = cid
 			c.app.Track = t
 			c.app.Pos, c.app.Dur = 0, 0
-		})
-		// 章节/字幕轨与弹幕热力都和播放并行拉，不阻塞起播。放到主线程
-		// 里更新 ready 状态，避免网络 goroutine 直接写界面字段。
-		c.app.Win.Update(func() {
-			if stale() {
-				return
-			}
 			c.loadPlaybackExtras(playAid, cid, playBvid)
 			c.startDanmakuHeat(cid)
 		})

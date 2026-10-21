@@ -62,6 +62,9 @@ type Track struct {
 	Part string
 	// FirstFrame 是这一分集的封面首帧（多 P 时优先于视频封面显示）。
 	FirstFrame string
+	// FromRadio 标记这条是「顺着听」追加的推荐，关闭电台时清掉当前项
+	// 之后的推荐，避免关掉后播完还继续切推荐。
+	FromRadio bool
 }
 
 // Part 是一个分集。
@@ -94,6 +97,8 @@ type SubtitleTrack struct {
 	Lan   string
 	Label string
 	URL   string
+	// AIType 来自 player/v2 的 ai_type；0 是人工字幕，非 0 是 AI 字幕。
+	AIType int
 }
 
 // SubtitleCue 是字幕 BCC JSON 里的一条时间轴文本。

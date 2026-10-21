@@ -78,6 +78,11 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 		if w <= 0 {
 			w = 560
 		}
+		// 设置页宽度固定，预览不能超过当前窗口，否则会被裁掉。
+		winW, _ := c.Size()
+		if winW > 8 && w > winW-8 {
+			w = winW - 8
+		}
 		root = ui.Box(c).Width(w).Height(height).AlignSelf(ui.Center).DragWindow()
 	} else {
 		root = ui.Box(c).Fill().DragWindow()
@@ -89,9 +94,9 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 			DragWindow().
 			Padding(10, 8).Center()
 		if bgOpacity > 0 {
-			panel.Border(1, ui.Hex("#ffffff").Alpha(0.12*min32(1, bgOpacity*2))).
-				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.16*min32(1, bgOpacity*2))).
-				Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
+			// 常态不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈
+			// 灰边，看起来像未选中的默认边框。只在鼠标进入时画选中蓝边。
+			panel.Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
 		}
 		if over {
 			// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出

@@ -121,7 +121,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 			a.SubtitleTracks = make([]view.SubtitleTrack, 0, len(ex.Subtitles))
 			for _, st := range ex.Subtitles {
 				a.SubtitleTracks = append(a.SubtitleTracks, view.SubtitleTrack{
-					Lan: st.Lan, Label: st.Label, URL: st.URL,
+					Lan: st.Lan, Label: st.Label, URL: st.URL, AIType: st.AIType,
 				})
 			}
 			if len(a.SubtitleTracks) == 0 {
@@ -188,18 +188,32 @@ func pickSubtitleTrackPref(tracks []view.SubtitleTrack, pref string) (view.Subti
 	if len(tracks) == 0 {
 		return view.SubtitleTrack{}, false
 	}
-	if pref != "" {
+	// 同一语言优先人工轨（AIType==0），再退回 AI 轨；AI 转写经常有错字/
+	// 断句问题，不能因为 lan 相同就把人工字幕挤掉。
+	pickLang := func(want string) (view.SubtitleTrack, bool) {
+		var ai view.SubtitleTrack
+		foundAI := false
 		for _, t := range tracks {
-			if strings.EqualFold(t.Lan, pref) {
+			if !strings.EqualFold(t.Lan, want) {
+				continue
+			}
+			if t.AIType == 0 {
 				return t, true
 			}
+			if !foundAI {
+				ai, foundAI = t, true
+			}
+		}
+		return ai, foundAI
+	}
+	if pref != "" {
+		if t, ok := pickLang(pref); ok {
+			return t, true
 		}
 	}
 	for _, want := range []string{"zh-cn", "zh-hans", "zh", "ai-zh"} {
-		for _, t := range tracks {
-			if strings.EqualFold(t.Lan, want) {
-				return t, true
-			}
+		if t, ok := pickLang(want); ok {
+			return t, true
 		}
 	}
 	for _, t := range tracks {
@@ -478,6 +492,7 @@ func (c *controller) toggleRadio() {
 		c.radioReqID++
 		c.radioSeen = nil
 		c.radioWantNext = false
+		dropFutureRadio(a)
 		a.Win.Update(func() {})
 		return
 	}
@@ -573,7 +588,7 @@ func (c *controller) maybeExtendRadio() {
 				c.radioSeen[r.Bvid] = true
 				a.Queue = append(a.Queue, view.Track{
 					Aid: r.Aid, Bvid: r.Bvid, Cid: r.Cid, Title: r.Title,
-					Up: r.UP, Cover: r.Pic, Duration: r.Duration,
+					Up: r.UP, Cover: r.Pic, Duration: r.Duration, FromRadio: true,
 				})
 				added++
 				if added >= 12 {
@@ -585,6 +600,7 @@ func (c *controller) maybeExtendRadio() {
 				a.RadioOn = false
 				c.syncMenuToggles()
 				c.radioWantNext = false
+				dropFutureRadio(a)
 				a.Notify("没有更多相关视频，顺着听已停止")
 				return
 			}
@@ -594,6 +610,22 @@ func (c *controller) maybeExtendRadio() {
 			}
 		})
 	}()
+}
+
+// dropFutureRadio 删除当前项之后由「顺着听」追加的推荐；用户关闭电台后，
+// 当前项继续播完就停，不再自动/手动切到下一首推荐。原有的选集/播放列表
+// 条目（FromRadio=false）保留。
+func dropFutureRadio(a *view.App) {
+	if a == nil || a.Index+1 >= len(a.Queue) {
+		return
+	}
+	out := a.Queue[:a.Index+1]
+	for _, t := range a.Queue[a.Index+1:] {
+		if !t.FromRadio {
+			out = append(out, t)
+		}
+	}
+	a.Queue = out
 }
 
 // trimRadioQueue 限制电台队列驻留量，避免长时间电台无限积累。保留当前项

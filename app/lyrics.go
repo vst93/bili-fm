@@ -55,7 +55,23 @@ func (c *controller) toggleDesktopLyrics() {
 // openDesktopLyricsIfReady 在字幕正文就绪后创建窗口（主线程）。
 func (c *controller) openDesktopLyricsIfReady() {
 	a := c.app
-	if !a.LyricsEnabled || c.lyricsWin != nil || len(a.Subtitles) == 0 {
+	if !a.LyricsEnabled || len(a.Subtitles) == 0 {
+		return
+	}
+	// 换集/无字幕时只隐藏窗口，不销毁：Wayland 不允许客户端给顶层窗口
+	// 设置绝对位置，重建窗口会让合成器把位置重置；复用同一个 toplevel
+	// 才能让用户拖动的位置跨视频保留。
+	if c.lyricsWin != nil {
+		a.LyricsConfig = false
+		a.LyricsConfigAbove = false
+		if !a.LyricsOn {
+			a.LyricsOn = true
+			c.lyricsAutoHide = false
+			c.lyricsWin.SetSize(a.LyricsPixelWidth, desktopLyricsHeight)
+			c.lyricsWin.ShowInactive()
+			c.syncLyricsAt(a.Pos)
+			c.lyricsWin.Update(func() {})
+		}
 		return
 	}
 	a.LyricsConfig = false
@@ -94,6 +110,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 	}
 	c.lyricsWin = win
 	a.LyricsOn = true
+	c.lyricsAutoHide = false
 	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
 	// 316 高会把显示页撑开，所以创建后强制回显示页高度。位置也显式写回：
 	// 不依赖 StateKey 是否保存位置，保证切换视频/重启后落在用户拖到的地方。
@@ -186,12 +203,13 @@ func (c *controller) resizeDesktopLyricsWidth() {
 	b := c.lyricsWin.Bounds()
 	w := c.desktopLyricsWidthFor(b.X, b.Y)
 	c.app.LyricsPixelWidth = w
-	targetW := w
-	if c.app.LyricsConfig && targetW < desktopLyricsWidth {
-		targetW = desktopLyricsWidth
+	// 设置页本身保持固定宽度，只更新预览用的实际字幕宽度；等用户点
+	// 「完成」回到显示页时再应用，避免调宽度时设置窗口跟着变、控件乱跳。
+	if c.app.LyricsConfig {
+		return
 	}
-	x, y := clampLyricsPos(b.X, b.Y, targetW, b.Height)
-	c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: targetW, Height: b.Height})
+	x, y := clampLyricsPos(b.X, b.Y, w, b.Height)
+	c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: b.Height})
 }
 
 // savedLyricsPos 读取上次关闭时记住的窗口位置，并夹到当前屏幕工作区内。
@@ -258,7 +276,24 @@ func (c *controller) closeDesktopLyrics() {
 	if c.menuLyrics != nil {
 		c.menuLyrics.SetChecked(false)
 	}
-	c.hideDesktopLyrics()
+	if a.LyricsOn || c.lyricsWin != nil {
+		if c.lyricsWin != nil {
+			c.saveLyricsPos(c.lyricsWin)
+			w := c.lyricsWin
+			c.lyricsWin = nil
+			// 用户主动关闭（不是无字幕自动隐藏）：OnClosed 不能再把开关
+			// 翻一次，这里已经把它关掉了。
+			c.lyricsAutoHide = true
+			w.Close()
+		}
+		a.LyricsOn = false
+		a.LyricsConfig = false
+		a.LyricsConfigAbove = false
+		a.LyricCurrent, a.LyricNext = "", ""
+		if a.Win != nil {
+			a.Win.Update(func() {})
+		}
+	}
 }
 
 // hideDesktopLyrics 只关闭窗口，保留用户开关。用于当前视频没有字幕时
@@ -275,10 +310,10 @@ func (c *controller) hideDesktopLyrics() {
 	a.LyricsConfigAbove = false
 	a.LyricCurrent, a.LyricNext = "", ""
 	if c.lyricsWin != nil {
-		w := c.lyricsWin
-		c.lyricsWin = nil
+		// 不销毁窗口：Linux Wayland 的 toplevel 位置由合成器管理，重建会
+		// 回到默认位置。隐藏后下一次有字幕再 ShowInactive 即可保留位置。
 		c.lyricsAutoHide = true
-		w.Close()
+		c.lyricsWin.Hide()
 	}
 	if a.Win != nil {
 		a.Win.Update(func() {})
@@ -325,14 +360,13 @@ func (c *controller) toggleLyricsConfig() {
 			work = mygo.Screen.PrimaryDisplay().WorkArea
 		}
 		above, y := lyricsConfigPlacement(b, work, desktopLyricsHeight, desktopLyricsConfigHeight, 8)
-		configWidth := a.LyricsPixelWidth
-		if configWidth < desktopLyricsWidth {
-			configWidth = desktopLyricsWidth
-		}
 		a.LyricsConfigAbove = above
 		a.LyricsConfig = true
+		// 设置页固定 desktopLyricsWidth，不被字幕宽度比例改变；预览在
+		// 里面按实际宽度居中。
+		cx, cy := clampLyricsPos(b.X, y, desktopLyricsWidth, desktopLyricsConfigHeight)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: b.X, Y: y, Width: configWidth, Height: desktopLyricsConfigHeight,
+			X: cx, Y: cy, Width: desktopLyricsWidth, Height: desktopLyricsConfigHeight,
 		})
 	} else {
 		y := b.Y
@@ -341,8 +375,13 @@ func (c *controller) toggleLyricsConfig() {
 		}
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
+		w := a.LyricsPixelWidth
+		if w <= 0 {
+			w = desktopLyricsWidth
+		}
+		x, y := clampLyricsPos(b.X, y, w, desktopLyricsHeight)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: b.X, Y: y, Width: a.LyricsPixelWidth, Height: desktopLyricsHeight,
+			X: x, Y: y, Width: w, Height: desktopLyricsHeight,
 		})
 	}
 	c.lyricsWin.Update(func() {})

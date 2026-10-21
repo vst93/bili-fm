@@ -198,3 +198,19 @@ func TestResolvePlaybackCid(t *testing.T) {
 		t.Errorf("没有 Info 时应保留原 cid，得到 %d", got)
 	}
 }
+
+func TestWaylandSessionFor(t *testing.T) {
+	if !waylandSessionFor("linux", "wayland-0", "") {
+		t.Error("Linux + WAYLAND_DISPLAY 应识别为 Wayland")
+	}
+	if !waylandSessionFor("linux", "", "wayland") {
+		t.Error("Linux + XDG_SESSION_TYPE=wayland 应识别为 Wayland")
+	}
+	if waylandSessionFor("linux", "", "x11") {
+		t.Error("X11 不应识别为 Wayland")
+	}
+	if waylandSessionFor("windows", "wayland-0", "wayland") ||
+		waylandSessionFor("darwin", "wayland-0", "wayland") {
+		t.Error("非 Linux 平台不应受 Wayland 环境变量影响")
+	}
+}

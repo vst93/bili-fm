@@ -70,3 +70,30 @@ func TestExtrasAidUsesCurrentInfoOnlyWhenBvidMatches(t *testing.T) {
 		t.Fatalf("bvid 不匹配时不能借用另一条视频的 aid，得到 %d", got)
 	}
 }
+
+func TestDropFutureRadio(t *testing.T) {
+	a := &view.App{
+		Index: 0,
+		Queue: []view.Track{
+			{Bvid: "origin"},
+			{Bvid: "radio1", FromRadio: true},
+			{Bvid: "origin2"},
+			{Bvid: "radio2", FromRadio: true},
+		},
+	}
+	dropFutureRadio(a)
+	if len(a.Queue) != 2 || a.Queue[0].Bvid != "origin" || a.Queue[1].Bvid != "origin2" {
+		t.Fatalf("关闭电台后应只保留原队列，得到 %#v", a.Queue)
+	}
+}
+
+func TestPickSubtitlePrefersHumanTrack(t *testing.T) {
+	tracks := []view.SubtitleTrack{
+		{Lan: "zh-CN", Label: "AI", URL: "ai", AIType: 1},
+		{Lan: "zh-CN", Label: "人工", URL: "human"},
+	}
+	got, ok := pickSubtitleTrackPref(tracks, "")
+	if !ok || got.URL != "human" {
+		t.Fatalf("同语言应优先人工字幕，得到 %#v", got)
+	}
+}
