@@ -141,6 +141,11 @@ type controller struct {
 	// MenuItem 都可能被 GC 回收，菜单项点击静默失效（macOS/Windows 的原生
 	// 托盘持有 handler，所以只有 Linux 中招）。见 setupTray。
 	tray *mygo.Tray
+	// macOS 原生「设置」菜单里的三个播放偏好复选框。保存指针是为了让
+	// 抽屉 / 标题栏 / 快捷键等其它入口切换状态时，菜单勾选状态不会变旧。
+	menuLyrics *mygo.MenuItem
+	menuHeat   *mygo.MenuItem
+	menuRadio  *mygo.MenuItem
 }
 
 func main() {
@@ -2800,14 +2805,26 @@ func (c *controller) startCurrent() {
 			})
 			return
 		}
+		// 以按 bvid 重新拉到的 Info 校正 aid：搜索/动态卡片的 aid 可能缺失
+		// 或过期，而章节/字幕接口必须用「视频 + 分 P」这一组可信参数。
+		playAid := t.Aid
+		playBvid := t.Bvid
+		if info != nil {
+			if info.Aid > 0 {
+				playAid = info.Aid
+			}
+			if info.Bvid != "" {
+				playBvid = info.Bvid
+			}
+		}
 		// 续播点要在起播前定好：media.Player.Seek 会重建解码器，起播后再跳
 		// 会卡一下。云端最多等 800ms，超时用本地断点。
-		resume := c.resolveResume(t.Aid, cid)
+		resume := c.resolveResume(playAid, cid)
 		if stale() {
 			return
 		}
 
-		u := c.bl.GetUrlByCid(int(t.Aid), int(cid))
+		u := c.bl.GetUrlByCid(int(playAid), int(cid))
 		if u.URL == "" {
 			c.app.Win.Update(func() {
 				if stale() {
@@ -2824,6 +2841,8 @@ func (c *controller) startCurrent() {
 			if stale() {
 				return
 			}
+			t.Aid = playAid
+			t.Bvid = playBvid
 			t.Cid = cid
 			c.app.Track = t
 			c.app.Pos, c.app.Dur = 0, 0
@@ -2834,7 +2853,7 @@ func (c *controller) startCurrent() {
 			if stale() {
 				return
 			}
-			c.loadPlaybackExtras(t.Aid, cid, t.Bvid)
+			c.loadPlaybackExtras(playAid, cid, playBvid)
 			c.startDanmakuHeat(cid)
 		})
 

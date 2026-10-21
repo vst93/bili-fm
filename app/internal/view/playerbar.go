@@ -63,7 +63,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 外层：曲线从栏底升起，穿过时间/按钮下方，视觉上是一层环境，不和
 	// 6px 轨道与滑块抢同一条中线。Draw 在所有子元素之前，文字与控件仍然
 	// 清楚；迷你窗不画。
-	bar = a.heatBarLayer(bar)
+	bar = a.heatBarLayer(c, bar)
 	// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
 	// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
 	// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
@@ -1881,12 +1881,20 @@ const sponsorTolerance = 2.0
 
 // heatBarLayer 给整条播放栏加一层弹幕热力背景。只在主窗、开关打开、
 // 有热力数据与时长时生效；迷你窗保持干净。
-func (a *App) heatBarLayer(b ui.Element) ui.Element {
+func (a *App) heatBarLayer(c *ui.Context, b ui.Element) ui.Element {
 	if a.Mini || !a.HeatOn || a.Dur <= 0 || len(a.DanmakuHeat) == 0 {
 		return b
 	}
+	// 热力的横向范围与进度条轨道完全一致：进度条是外层 24px 盒、轨道左右
+	// 各内缩 7px，且起点在第一列传输键/时间之后，不是整条播放栏的 x=0。
+	// 用进度条的 Handle 取上一帧已布局的盒子，再套 rangeTrackRect 得到真正
+	// 的轨道；这样拖动进度、窗口缩放时热力不会比轨道宽出一截。
+	track := ui.Rect{}
+	if b := a.progressHandle.Bounds(c); b.W > 0 {
+		track = rangeTrackRect(b, timelineGeom)
+	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintHeatBackdrop(p, r, a.DanmakuHeat, a.Dur)
+		paintHeatBackdrop(p, r, track, a.DanmakuHeat, a.Dur)
 	})
 }
 
@@ -1895,15 +1903,19 @@ func (a *App) heatBarLayer(b ui.Element) ui.Element {
 // 它是**环境层**，不是进度条装饰：底边是播放栏底、高度是整栏高度，
 // 曲线独立于 6px 轨道，不会和进度条中线挤在一起。透明度压得很低，
 // 保证时间、按钮和进度滑块仍然清楚；顶部留 1px 给栏的描边。
-func paintHeatBackdrop(p *ui.Painter, r ui.Rect, points []HeatPoint, dur float64) {
-	if len(points) == 0 || r.W <= 0 || r.H < 12 || dur <= 0 {
+func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64) {
+	if len(points) == 0 || r.H < 12 || dur <= 0 {
 		return
+	}
+	// 还没有进度条布局（第一帧）时退回整个播放栏宽度，至少不闪空。
+	if track.W <= 0 {
+		track = ui.Rect{X: r.X, Y: r.Y, W: r.W, H: r.H}
 	}
 	base := r.Y + r.H - 1
 	height := r.H - 2
 	const step = float32(2)
-	for x := r.X; x < r.X+r.W; x += step {
-		frac := clampF(float64((x-r.X)/r.W), 0, 1)
+	for x := track.X; x < track.X+track.W; x += step {
+		frac := clampF(float64((x-track.X)/track.W), 0, 1)
 		v := heatAt(points, frac)
 		if v <= 0.02 {
 			continue
@@ -1919,7 +1931,7 @@ func paintHeatBackdrop(p *ui.Painter, r ui.Rect, points []HeatPoint, dur float64
 		if pt.At <= 0 {
 			continue
 		}
-		x := r.X + r.W*float32(clampF(float64(pt.At)/dur, 0, 1))
+		x := track.X + track.W*float32(clampF(float64(pt.At)/dur, 0, 1))
 		y := base - height*max32(pt.Value, 0.02)
 		if lastX >= 0 && x > lastX {
 			p.Line(lastX, lastY, x, y, 1, ui.Hex("#7dd3fc").Alpha(0.34))
@@ -2044,7 +2056,7 @@ func (a *App) progress(c *ui.Context) {
 	// PaddingX(7) 让取值区间两端各缩进一个滑块半径，滑块的圆心才能走到
 	// 轨道的两个端点（原生 range 的行为）。
 	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
-		PaddingX(timelineInset).Label("播放进度").Step(0.1)
+		PaddingX(timelineInset).Label("播放进度").Step(0.1).Bind(&a.progressHandle)
 	// 原版（player.tsx）进度条 `disabled={!src || !duration}`：没有视频或时长
 	// 还没到时，进度条既不能拖也不能用方向键改值。mygo 的 SliderBase 默认
 	// 不设禁用，此前无视频时也能把 SeekValue 拖出一串数字（拖了又弹回）。

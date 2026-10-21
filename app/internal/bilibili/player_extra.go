@@ -82,9 +82,9 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	if aid <= 0 || cid <= 0 {
 		return nil, fmt.Errorf("未选择作品")
 	}
-	// bvid 优先：搜索 / 动态 / 合集卡片上的 aid 偶尔会和 bvid 不是同一条
-	// 稿件，同时传两个参数时上游可能按 aid 取，结果拿到别的稿件字幕。
-	// 有 bvid 时就只用 bvid + cid 定位。
+	// 同时带 aid 和 bvid：多 P 视频的 player/v2 用 cid 定位分 P，缺少 aid
+	// 时上游可能退回收缓存/第一 P 的字幕。调用方会先用 bvid 的 view 信息
+	// 校正 aid（见 controller.extrasAid），所以这里传的是可信 aid。
 	bv := ""
 	if len(bvid) > 0 {
 		bv = bvid[0]
@@ -95,6 +95,9 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 		return nil, err
 	}
 	d := dataOf(v)
+	if err := playerExtrasIdentityError(d, aid, cid, bv); err != nil {
+		return nil, err
+	}
 	out := &PlayerExtras{}
 	for _, it := range arrOf(d, "view_points") {
 		m, ok := it.(map[string]any)
@@ -141,12 +144,28 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	return out, nil
 }
 
+// playerExtrasIdentityError 校验 player/v2 返回的 data 身份。上游/CDN
+// 偶尔会命中另一条稿件的缓存；只要返回的 aid/cid/bvid 和请求对不上，就
+// 直接报错，绝不把这份字幕贴到当前视频上。缺少字段时保持兼容（不强制要求）。
+func playerExtrasIdentityError(d map[string]any, aid, cid int64, bvid string) error {
+	if got := intAt(d, "aid"); got > 0 && aid > 0 && got != aid {
+		return fmt.Errorf("player/v2 返回了另一条稿件（aid %d，请求 %d）", got, aid)
+	}
+	if got := intAt(d, "cid"); got > 0 && cid > 0 && got != cid {
+		return fmt.Errorf("player/v2 返回了另一个分 P（cid %d，请求 %d）", got, cid)
+	}
+	if got := strAt(d, "bvid"); got != "" && bvid != "" && got != bvid {
+		return fmt.Errorf("player/v2 返回了另一条稿件（bvid %s，请求 %s）", got, bvid)
+	}
+	return nil
+}
+
 // playerExtrasURL 生成 player/v2 地址：有 bvid 时只带 bvid + cid，否则退回
 // aid + cid。拆成纯函数便于钉住「有 bvid 时不能再把可能过期的 aid 带上」。
 func playerExtrasURL(aid, cid int64, bvid string) string {
 	if bvid != "" {
-		return fmt.Sprintf("https://api.bilibili.com/x/player/v2?cid=%d&bvid=%s",
-			cid, url.QueryEscape(bvid))
+		return fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d&bvid=%s",
+			aid, cid, url.QueryEscape(bvid))
 	}
 	return fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
 }

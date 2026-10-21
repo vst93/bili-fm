@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"github.com/egoist/mygo"
+
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
@@ -43,5 +45,44 @@ func TestBuildDanmakuHeat(t *testing.T) {
 	}
 	if pts[1].At != 10 || pts[1].Value <= 0 {
 		t.Errorf("第二个桶 = %#v, want At=10 Value>0", pts[1])
+	}
+}
+
+func TestLyricsConfigPlacementNearBottom(t *testing.T) {
+	// 1080 高工作区，预览窗在 y=900（底边 1000，只剩 80px）；配置页要多
+	// 330px，下方放不下、上方够，所以应向上展开，预览停在原来的 y=900。
+	work := mygo.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}
+	bounds := mygo.Rectangle{X: 680, Y: 900, Width: 560, Height: 100}
+	above, y := lyricsConfigPlacement(bounds, work, 100, 430, 8)
+	if !above {
+		t.Fatal("贴近屏幕底部时设置页应向上展开")
+	}
+	if y != 570 {
+		t.Fatalf("向上展开后的窗口上缘 = %d，应为 570", y)
+	}
+}
+
+func TestLyricsConfigPlacementFitsBelow(t *testing.T) {
+	work := mygo.Rectangle{X: 0, Y: 0, Width: 1920, Height: 1080}
+	bounds := mygo.Rectangle{X: 680, Y: 100, Width: 560, Height: 100}
+	above, y := lyricsConfigPlacement(bounds, work, 100, 430, 8)
+	if above {
+		t.Fatal("下方空间足够时不应向上展开")
+	}
+	if y != 100 {
+		t.Fatalf("下方展开不应移动窗口，上缘 = %d", y)
+	}
+}
+
+func TestLyricsConfigPlacementClampsIntoScreen(t *testing.T) {
+	// 上下都不够时仍向下，但窗口上缘要夹回工作区。
+	work := mygo.Rectangle{X: 0, Y: 0, Width: 1920, Height: 500}
+	bounds := mygo.Rectangle{X: 0, Y: 80, Width: 560, Height: 100}
+	above, y := lyricsConfigPlacement(bounds, work, 100, 430, 8)
+	if above {
+		t.Fatal("上下都放不下时不应选择向上（会把顶部切掉）")
+	}
+	if y < 8 || y+430 > 500-8 {
+		t.Fatalf("窗口未夹进工作区：y=%d, bottom=%d", y, y+430)
 	}
 }

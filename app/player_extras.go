@@ -34,6 +34,7 @@ func (c *controller) clearPlaybackExtras() {
 	a.SubtitlesLoading = false
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
+	a.SubtitlesURL = ""
 	a.SubtitleError = ""
 	a.DanmakuHeat = nil
 	a.HeatCid = 0
@@ -53,6 +54,19 @@ func currentExtrasTrack(a *view.App) *view.Track {
 	return a.Current()
 }
 
+// extrasAid 返回可信的 aid：卡片/历史条目里的 aid 可能缺失或过期，而
+// 当前视频的 Info 是按 bvid 重新拉到的。只在 bvid 对得上时采用 Info.Aid，
+// 避免把「浏览中」的另一条视频 aid 套到正在播放的曲目上。
+func extrasAid(a *view.App, t *view.Track) int64 {
+	if t == nil {
+		return 0
+	}
+	if a.Info != nil && a.Info.Aid > 0 && a.Info.Bvid != "" && a.Info.Bvid == t.Bvid {
+		return a.Info.Aid
+	}
+	return t.Aid
+}
+
 // loadPlaybackExtras 拉章节和字幕轨。可以先由起播触发，也可以在用户打开
 // 章节 / 字幕页时补拉。
 func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
@@ -70,6 +84,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 	a.Subtitles = nil
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
+	a.SubtitlesURL = ""
 	a.SubtitlesLoading = false
 	a.SubtitleError = ""
 	a.ResetSubtitleScroll()
@@ -124,7 +139,11 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 func (c *controller) ensureExtras() {
 	a := c.app
 	t := currentExtrasTrack(a)
-	if t == nil || t.Cid == 0 || t.Aid == 0 {
+	if t == nil || t.Cid == 0 {
+		return
+	}
+	aid := extrasAid(a, t)
+	if aid == 0 {
 		return
 	}
 	if a.ExtrasCid == t.Cid && (t.Bvid == "" || a.ExtrasBvid == t.Bvid) {
@@ -133,7 +152,7 @@ func (c *controller) ensureExtras() {
 	if c.extrasInflightCid == t.Cid {
 		return
 	}
-	c.loadPlaybackExtras(t.Aid, t.Cid, t.Bvid)
+	c.loadPlaybackExtras(aid, t.Cid, t.Bvid)
 }
 
 // normalizeChapterEnds 用视频时长补最后一章的 To（view_points 的末章常常
@@ -207,7 +226,8 @@ func (c *controller) ensureSubtitles() {
 		c.ensureExtras()
 		return
 	}
-	if a.SubtitlesCid == t.Cid && a.SubtitlesBvid == t.Bvid && a.SubtitleLang == track.Lan &&
+	if a.SubtitlesCid == t.Cid && a.SubtitlesBvid == t.Bvid &&
+		a.SubtitlesURL == track.URL && a.SubtitleLang == track.Lan &&
 		(len(a.Subtitles) > 0 || a.SubtitleError != "") {
 		return
 	}
@@ -228,6 +248,7 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	a.Subtitles = nil
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
+	a.SubtitlesURL = ""
 	a.SubtitlesLoading = true
 	a.SubtitleError = ""
 	a.ResetSubtitleScroll()
@@ -246,23 +267,33 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			if cur == nil || cur.Cid != t.Cid || (t.Bvid != "" && cur.Bvid != "" && cur.Bvid != t.Bvid) {
 				return
 			}
+			// 失败也要记下「这条轨道已经试过」：SubtitlesURL 是 ensureSubtitles
+			// 的缓存键，否则抽屉每帧都会重新发起同一个失败请求。
+			markFailed := func(msg string) {
+				a.SubtitleLang = track.Lan
+				a.SubtitlesCid = t.Cid
+				a.SubtitlesBvid = t.Bvid
+				a.SubtitlesURL = track.URL
+				a.SubtitleError = msg
+				if a.LyricsEnabled {
+					c.hideDesktopLyrics()
+				}
+			}
 			if err != nil {
-				a.SubtitleError = "字幕加载失败"
+				markFailed("字幕加载失败")
 				log.Printf("字幕加载失败: %v", err)
 				return
 			}
 			if !bilibili.SubtitleCuesFit(cues, a.Dur) {
 				// 上游偶尔会给错稿件的字幕轨；时长对不上时宁可不显示。
-				a.SubtitleError = "字幕与视频不匹配，已跳过"
+				markFailed("字幕与视频不匹配，已跳过")
 				log.Printf("字幕与视频时长不匹配，已跳过: bvid=%s cid=%d", t.Bvid, t.Cid)
-				if a.LyricsEnabled {
-					c.hideDesktopLyrics()
-				}
 				return
 			}
 			a.SubtitleLang = track.Lan
 			a.SubtitlesCid = t.Cid
 			a.SubtitlesBvid = t.Bvid
+			a.SubtitlesURL = track.URL
 			a.Subtitles = make([]view.SubtitleCue, 0, len(cues))
 			for _, cue := range cues {
 				a.Subtitles = append(a.Subtitles, view.SubtitleCue{
@@ -270,10 +301,7 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 				})
 			}
 			if len(a.Subtitles) == 0 {
-				a.SubtitleError = "字幕内容为空"
-				if a.LyricsEnabled {
-					c.hideDesktopLyrics()
-				}
+				markFailed("字幕内容为空")
 			}
 			a.ResetSubtitleScroll()
 			c.syncLyricsAt(a.Pos)
@@ -313,13 +341,14 @@ func (c *controller) reloadPlaybackExtras() {
 	a.ExtrasBvid = ""
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
+	a.SubtitlesURL = ""
 	a.Subtitles = nil
 	a.SubtitleTracks = nil
 	a.Chapters = nil
 	a.SubtitleError = ""
 	c.extrasInflightCid = 0
 	c.subtitleInflightCid = 0
-	c.loadPlaybackExtras(t.Aid, t.Cid, t.Bvid)
+	c.loadPlaybackExtras(extrasAid(a, t), t.Cid, t.Bvid)
 	if a.DanmakuTab == view.TabSubtitle || a.LyricsEnabled {
 		c.ensureSubtitles()
 	}
@@ -431,6 +460,7 @@ func (c *controller) toggleRadio() {
 	if a.RadioOn {
 		a.RadioOn = false
 		a.RadioLoading = false
+		c.syncMenuToggles()
 		c.radioReqID++
 		c.radioSeen = nil
 		c.radioWantNext = false
@@ -447,6 +477,7 @@ func (c *controller) toggleRadio() {
 	a.PlayingPlaylist = ""
 	a.RadioOn = true
 	a.RadioLoading = false
+	c.syncMenuToggles()
 	c.radioSeen = map[string]bool{}
 	for _, q := range a.Queue {
 		if q.Bvid != "" {
@@ -459,9 +490,17 @@ func (c *controller) toggleRadio() {
 
 // toggleHeat 切换弹幕热力开关并落盘。菜单和弹幕页表头共用。
 func (c *controller) toggleHeat() {
+	c.setHeatOn(!c.app.HeatOn)
+}
+
+// setHeatOn 设置热力开关并落盘，供菜单复选框直接设置目标值。
+func (c *controller) setHeatOn(on bool) {
 	a := c.app
-	a.HeatOn = !a.HeatOn
-	_ = c.kv.SetString(prefHeatOn, strconv.FormatBool(a.HeatOn))
+	a.HeatOn = on
+	_ = c.kv.SetString(prefHeatOn, strconv.FormatBool(on))
+	if c.menuHeat != nil {
+		c.menuHeat.SetChecked(on)
+	}
 	a.Win.Update(func() {})
 }
 
@@ -520,6 +559,7 @@ func (c *controller) maybeExtendRadio() {
 			c.trimRadioQueue()
 			if added == 0 {
 				a.RadioOn = false
+				c.syncMenuToggles()
 				c.radioWantNext = false
 				a.Notify("没有更多相关视频，顺着听已停止")
 				return

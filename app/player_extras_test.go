@@ -54,3 +54,19 @@ func TestPickSubtitleTrackUsesPreference(t *testing.T) {
 		t.Fatalf("fallback = %+v ok=%v，want zh-CN", got, ok)
 	}
 }
+
+func TestExtrasAidUsesCurrentInfoOnlyWhenBvidMatches(t *testing.T) {
+	a := &view.App{}
+	track := &view.Track{Aid: 10, Bvid: "BV1", Cid: 100}
+	if got := extrasAid(a, track); got != 10 {
+		t.Fatalf("无 Info 时 extrasAid = %d，应为 track.Aid 10", got)
+	}
+	a.Info = &view.Info{Aid: 20, Bvid: "BV1"}
+	if got := extrasAid(a, track); got != 20 {
+		t.Fatalf("bvid 匹配时应使用 Info.Aid 20，得到 %d", got)
+	}
+	a.Info.Bvid = "BV2"
+	if got := extrasAid(a, track); got != 10 {
+		t.Fatalf("bvid 不匹配时不能借用另一条视频的 aid，得到 %d", got)
+	}
+}

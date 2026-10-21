@@ -10,12 +10,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestCardLiftAnimationMatchesOriginal 钉住抽屉卡片悬停上浮/回落的动画：
-// 原版 globals.css:3662 的 `transition: ... transform 0.16s ease`，
-// 之前用 500ms 的 Snappy 弹簧，用户报「浮动动画太慢、移开回落不利落」。
-func TestCardLiftAnimationMatchesOriginal(t *testing.T) {
-	if cardLiftAnim.Duration != 160*time.Millisecond {
-		t.Errorf("上浮时长 = %v, want 160ms（原版 0.16s）", cardLiftAnim.Duration)
+// TestCardLiftAnimationSnappy 钉住抽屉卡片悬停动画：原版是 160ms ease，
+// 但用户反馈 native 版「不够干脆」；这里固定为 120ms ease-out，按下 90ms。
+func TestCardLiftAnimationSnappy(t *testing.T) {
+	if cardLiftAnim.Duration != 120*time.Millisecond {
+		t.Errorf("上浮时长 = %v, want 120ms", cardLiftAnim.Duration)
 	}
 	if cardLiftAnim.Spring != (ui.SpringOptions{}) {
 		t.Errorf("应为曲线动画，不是弹簧：%+v", cardLiftAnim.Spring)
@@ -23,12 +22,8 @@ func TestCardLiftAnimationMatchesOriginal(t *testing.T) {
 	if cardLiftAnim.Ease == nil {
 		t.Fatal("缺少缓动曲线")
 	}
-	// CSS `ease` = cubic-bezier(0.25, 0.1, 0.25, 1)。
-	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
-	for _, x := range []float32{0.1, 0.3, 0.5, 0.8, 0.95} {
-		if d := math.Abs(float64(cardLiftAnim.Ease(x) - want(x))); d > 1e-6 {
-			t.Errorf("缓动在 %.2f 处 = %v, want %v", x, cardLiftAnim.Ease(x), want(x))
-		}
+	if cardPressAnim.Duration != 90*time.Millisecond {
+		t.Errorf("按下时长 = %v, want 90ms", cardPressAnim.Duration)
 	}
 }
 
@@ -308,7 +303,7 @@ func TestDrawerCardHoverTransition(t *testing.T) {
 	rest := blueness()
 	tst.Move(box.X+box.W/2, box.Y+box.H/2)
 	enter := blueness() // 移入当帧（elapsed = 0）
-	tst.Advance(60 * time.Millisecond)
+	tst.Advance(30 * time.Millisecond)
 	mid := blueness()
 	tst.Advance(200 * time.Millisecond)
 	hover := blueness()
@@ -321,7 +316,7 @@ func TestDrawerCardHoverTransition(t *testing.T) {
 		t.Errorf("移入当帧描边就跳到了 %.1f（常态 %.1f）—— 没有 160ms 过渡", enter, rest)
 	}
 	if !(mid > rest+2 && mid < hover-2) {
-		t.Errorf("60ms 中点 %.1f 不在常态 %.1f 与悬停 %.1f 之间 —— 过渡没走完一半", mid, rest, hover)
+		t.Errorf("30ms 中点 %.1f 不在常态 %.1f 与悬停 %.1f 之间 —— 过渡没有中间态", mid, rest, hover)
 	}
 	// 回落同样走过渡：移出当帧不能立刻褪成常态。
 	tst.Move(box.X-80, box.Y+box.H/2)

@@ -52,21 +52,94 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			{Label: "粘贴", Role: mygo.RolePaste},
 			{Label: "全选", Role: mygo.RoleSelectAll},
 		}},
-		// 原版的「设置」子菜单：四个条目紧排，没有分隔线；「退出应用」带 Cmd+Q。
-		// 末尾补一条「隐身模式」复选框（本 fork 的入口上移，见 
-		// app/internal/view/settingsmenu.go）：它影响所有列表的云端进度同步，
-		// 藏在历史抽屉里太深。历史抽屉里的原版开关保留。
+		// 原版的「设置」子菜单：四个动作条目 + Cmd+Q 退出。macOS 没有
+		// 窗口内自绘设置下拉，所以三个播放偏好必须在这里以原生复选框出现；
+		// Windows / Linux 由 settingsmenu.go 的手绘菜单承担。
 		{Label: "设置", Submenu: []*mygo.MenuItem{
 			{Label: "关于应用", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuAbout() }},
 			{Label: "快捷键", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuShortcuts() }},
 			{Label: "检查更新", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuCheckUpdate() }},
 			mygo.Separator(),
+			c.menuCheckbox("桌面字幕", c.app != nil && c.app.LyricsEnabled, c.menuToggleLyrics),
+			c.menuCheckbox("弹幕热力", c.app != nil && c.app.HeatOn, c.menuToggleHeat),
+			c.menuCheckbox("顺着听", c.app != nil && c.app.RadioOn, c.menuToggleRadio),
+			mygo.Separator(),
+			// 隐身入口上移（见 app/internal/view/settingsmenu.go）：它影响所有
+			// 列表的云端进度同步，藏在历史抽屉里太深；历史抽屉原开关保留。
 			{Label: "隐身模式", Type: mygo.MenuItemCheckbox, Checked: c.app != nil && c.app.Incognito,
 				Click: func(it *mygo.MenuItem, _ *mygo.Window) { c.menuToggleIncognito(it) }},
+			mygo.Separator(),
 			{Label: "退出应用", Accelerator: "CmdOrCtrl+Q",
 				Click: func(*mygo.MenuItem, *mygo.Window) { c.quit() }},
 		}},
 	}
+}
+
+// menuCheckbox 建一个原生复选框并记下指针，供其它入口切换后同步勾选态。
+func (c *controller) menuCheckbox(label string, checked bool, click func(*mygo.MenuItem)) *mygo.MenuItem {
+	it := &mygo.MenuItem{
+		Label: label, Type: mygo.MenuItemCheckbox, Checked: checked,
+		Click: func(mi *mygo.MenuItem, _ *mygo.Window) { click(mi) },
+	}
+	switch label {
+	case "桌面字幕":
+		c.menuLyrics = it
+	case "弹幕热力":
+		c.menuHeat = it
+	case "顺着听":
+		c.menuRadio = it
+	}
+	return it
+}
+
+// syncMenuToggles 把 App 的真实状态同步回 macOS 原生菜单。菜单勾选是
+// 原生控件，不会自己知道用户在抽屉/标题栏里改了什么。
+func (c *controller) syncMenuToggles() {
+	if c.app == nil {
+		return
+	}
+	if c.menuLyrics != nil {
+		c.menuLyrics.SetChecked(c.app.LyricsEnabled)
+	}
+	if c.menuHeat != nil {
+		c.menuHeat.SetChecked(c.app.HeatOn)
+	}
+	if c.menuRadio != nil {
+		c.menuRadio.SetChecked(c.app.RadioOn)
+	}
+}
+
+// menuToggleLyrics / menuToggleHeat / menuToggleRadio 是 macOS 原生菜单
+// 复选框的点击回调。框架在调用 Click 前已翻转 Checked，所以以 want 为准；
+// 动作失败（例如没播放时开电台）再把勾选态拉回真实状态。
+func (c *controller) menuToggleLyrics(it *mygo.MenuItem) {
+	if c.app == nil || it == nil {
+		return
+	}
+	want := it.IsChecked()
+	if c.app.LyricsEnabled != want {
+		c.toggleDesktopLyrics()
+	}
+	it.SetChecked(c.app.LyricsEnabled)
+}
+
+func (c *controller) menuToggleHeat(it *mygo.MenuItem) {
+	if c.app == nil || it == nil {
+		return
+	}
+	c.setHeatOn(it.IsChecked())
+	it.SetChecked(c.app.HeatOn)
+}
+
+func (c *controller) menuToggleRadio(it *mygo.MenuItem) {
+	if c.app == nil || it == nil {
+		return
+	}
+	want := it.IsChecked()
+	if c.app.RadioOn != want {
+		c.toggleRadio()
+	}
+	it.SetChecked(c.app.RadioOn)
 }
 
 // menuToggleIncognito 是 macOS 原生菜单里「隐身模式」复选框的点击回调。

@@ -69,15 +69,20 @@ func TestAppMenuTemplate(t *testing.T) {
 		t.Errorf("第三项 = %q，应为「设置」", settings.Label)
 	}
 	wantLabels := []string{"关于应用", "快捷键", "检查更新", "退出应用"}
-	// 去掉新加的分隔线与隐身项，还原原版的四项再逐项校验。
+	// 去掉新加的分隔线、播放偏好开关与隐身项，还原原版的四项再逐项校验。
 	var plain []*mygo.MenuItem
 	var incognito *mygo.MenuItem
+	toggles := map[string]*mygo.MenuItem{}
 	for _, it := range settings.Submenu {
 		if it.Type == mygo.MenuItemSeparator {
 			continue
 		}
 		if it.Label == "隐身模式" {
 			incognito = it
+			continue
+		}
+		if it.Type == mygo.MenuItemCheckbox {
+			toggles[it.Label] = it
 			continue
 		}
 		plain = append(plain, it)
@@ -96,6 +101,18 @@ func TestAppMenuTemplate(t *testing.T) {
 	}
 	if got := plain[3].Accelerator; got != "CmdOrCtrl+Q" {
 		t.Errorf("退出应用快捷键 = %q，应为 CmdOrCtrl+Q", got)
+	}
+	_ = toggles
+	// macOS 用系统菜单：三个播放偏好必须是原生复选框，且初始状态取自 App。
+	for _, label := range []string{"桌面字幕", "弹幕热力", "顺着听"} {
+		it := toggles[label]
+		if it == nil {
+			t.Errorf("macOS 设置菜单缺 %q 复选框", label)
+			continue
+		}
+		if it.Click == nil {
+			t.Errorf("%q 没有点击回调", label)
+		}
 	}
 	// 隐身模式复选框（本 fork 入口上移）。
 	if incognito == nil {
@@ -173,6 +190,44 @@ func TestAppMenuWiring(t *testing.T) {
 		settings[i].Click(nil, nil)
 		if got != want {
 			t.Errorf("设置[%d]（%s）触发 %q，应为 %q", i, settings[i].Label, got, want)
+		}
+	}
+}
+
+// TestMenuPlaybackTogglesInitialState 钉住 macOS 原生菜单三个播放偏好复选框
+// 的初始勾选态取自 App；syncMenuToggles 负责在其它入口切换后回写。
+func TestMenuPlaybackTogglesInitialState(t *testing.T) {
+	a := &view.App{LyricsEnabled: true, HeatOn: true}
+	c := &controller{app: a}
+	settings := menuTemplate(t, c)[2].Submenu
+	want := map[string]bool{"桌面字幕": true, "弹幕热力": true, "顺着听": false}
+	for _, it := range settings {
+		if it.Type != mygo.MenuItemCheckbox || it.Label == "隐身模式" {
+			continue
+		}
+		if got, ok := want[it.Label]; ok && it.Checked != got {
+			t.Errorf("%s Checked = %v，应为 %v", it.Label, it.Checked, got)
+		}
+	}
+	// 其它入口改状态后，菜单也要跟着变。
+	a.LyricsEnabled = false
+	a.HeatOn = false
+	a.RadioOn = true
+	c.syncMenuToggles()
+	for _, it := range settings {
+		switch it.Label {
+		case "桌面字幕":
+			if it.IsChecked() {
+				t.Error("桌面字幕菜单勾选未同步为 false")
+			}
+		case "弹幕热力":
+			if it.IsChecked() {
+				t.Error("弹幕热力菜单勾选未同步为 false")
+			}
+		case "顺着听":
+			if !it.IsChecked() {
+				t.Error("顺着听菜单勾选未同步为 true")
+			}
 		}
 	}
 }

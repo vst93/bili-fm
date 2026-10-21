@@ -35,6 +35,8 @@ const (
 	prefLyricsBgOpacity     = "lyricsBgOpacity"
 	prefLyricsTextOpacity   = "lyricsTextOpacity"
 	prefLyricsEnabled       = "desktopSubtitles"
+	prefLyricsX             = "desktopSubtitlesX"
+	prefLyricsY             = "desktopSubtitlesY"
 	prefLyricsOpacityLegacy = "lyricsOpacity"
 	prefSubtitleLang        = "subtitleLanguage"
 )

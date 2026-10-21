@@ -21,9 +21,15 @@ func (a *App) LyricsShell(c *ui.Context) {
 	c.Root().Background(ui.Transparent)
 	if a.LyricsConfig {
 		ui.Column(c).Fill().Children(func() {
-			// 上方保留实时预览，下方是设置面板。
-			a.lyricsPreview(c, 100, false)
-			a.lyricsConfigPanel(c)
+			// 设置面板默认在预览下方；窗口贴近屏幕底部时由 controller 向上
+			// 展开，并把面板画到预览上方，保证面板始终在屏幕内。
+			if a.LyricsConfigAbove {
+				a.lyricsConfigPanel(c)
+				a.lyricsPreview(c, 100, false)
+			} else {
+				a.lyricsPreview(c, 100, false)
+				a.lyricsConfigPanel(c)
+			}
 		})
 		return
 	}

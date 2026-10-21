@@ -3,8 +3,6 @@ package main
 import (
 	"log"
 
-	"github.com/egoist/mygo"
-
 	"github.com/vst93/bili-fm/app/internal/mediactl"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
@@ -170,7 +168,6 @@ func (c *controller) syncMediaTrack() {
 		loop = "Playlist"
 	}
 	c.media.SetLoopMode(loop, shuffle)
-	c.syncProgressBar()
 }
 
 // syncMediaPosition 只更新位置（MPRIS 的 Position 不发信号，随便刷）。
@@ -180,40 +177,8 @@ func (c *controller) syncMediaPosition(seconds float64) {
 	}
 	// 桌面字幕跟主播放位置走；没有窗口时 syncLyricsAt 立即返回。
 	c.syncLyricsAt(seconds)
-	c.syncProgressBar()
 	if c.media == nil {
 		return
 	}
 	c.media.SetPosition(int64(seconds * 1e6))
-}
-
-// syncProgressBar 把播放进度同步到系统任务栏 / Dock / 启动器。
-//
-// mygo 0.6 修好了 Windows ITaskbarList3 的 IID，SetProgressBar 才真正可用；
-// 这里只在有曲目时显示进度，缓冲中显示 indeterminate，暂停用 paused 状态。
-// 500ms 一次的调用对平台层只是几次轻量属性写入，不会影响播放。
-func (c *controller) syncProgressBar() {
-	a := c.app
-	if a == nil || a.Win == nil {
-		return
-	}
-	if a.Track == nil || a.Dur <= 0 {
-		a.Win.SetProgressBar(mygo.ProgressBar{})
-		return
-	}
-	if a.Buffering {
-		a.Win.SetProgressBar(mygo.ProgressBar{State: mygo.ProgressIndeterminate})
-		return
-	}
-	state := mygo.ProgressNormal
-	if !a.Playing {
-		state = mygo.ProgressPaused
-	}
-	value := a.Pos / a.Dur
-	if value < 0 {
-		value = 0
-	} else if value > 1 {
-		value = 1
-	}
-	a.Win.SetProgressBar(mygo.ProgressBar{State: state, Value: value})
 }

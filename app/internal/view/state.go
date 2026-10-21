@@ -231,6 +231,8 @@ func (a *App) ResetSubtitleScroll() {
 	a.subtitleList = ui.ListState{}
 	a.subtitleScrollIdx = -1
 	a.subtitleScrollPending = false
+	a.subtitleVisibleFirst, a.subtitleVisibleLast = -1, -1
+	a.subtitleListReady = false
 }
 
 func (l *List) ResetScroll() {
@@ -686,17 +688,25 @@ type App struct {
 	SubtitlesLoading bool
 	SubtitlesCid     int64
 	SubtitlesBvid    string
+	SubtitlesURL     string
 	SubtitleError    string
 	// SubtitleFollow 是字幕页是否跟随当前时间自动滚动。
 	SubtitleFollow        bool
 	subtitleList          ui.ListState
+	progressHandle        ui.Handle
 	subtitleScrollIdx     int
 	subtitleScrollPending bool
+	subtitleVisibleFirst  int
+	subtitleVisibleLast   int
+	subtitleListReady     bool
 	// LyricsEnabled 是用户开关（跨视频保留）；LyricsOn 是窗口当前是否真的
 	// 显示。没有字幕的视频只隐藏窗口，不把 LyricsEnabled 关掉，下一条有字幕
 	// 时再自动显示。LyricsConfig 为真时同一个窗口切换到设置页。
-	LyricsEnabled     bool
-	LyricsOn          bool
+	LyricsEnabled bool
+	LyricsOn      bool
+	// LyricsConfigAbove 为真时设置面板画在预览上方（窗口贴近屏幕底部时
+	// 向上展开），否则画在下方。
+	LyricsConfigAbove bool
 	LyricsConfig      bool
 	LyricCurrent      string
 	LyricNext         string

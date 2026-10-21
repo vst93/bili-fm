@@ -30,6 +30,9 @@ func (c *controller) toggleDesktopLyrics() {
 	a := c.app
 	a.LyricsEnabled = !a.LyricsEnabled
 	_ = c.kv.SetString(prefLyricsEnabled, strconv.FormatBool(a.LyricsEnabled))
+	if c.menuLyrics != nil {
+		c.menuLyrics.SetChecked(a.LyricsEnabled)
+	}
 	if !a.LyricsEnabled {
 		c.closeDesktopLyrics()
 		a.Win.Update(func() {})
@@ -54,9 +57,13 @@ func (c *controller) openDesktopLyricsIfReady() {
 		return
 	}
 	a.LyricsConfig = false
+	a.LyricsConfigAbove = false
 	w := desktopLyricsWidth
 	h := desktopLyricsHeight
-	x, y := desktopLyricsDefaultPos(w, h)
+	x, y, ok := c.savedLyricsPos(w, h)
+	if !ok {
+		x, y = desktopLyricsDefaultPos(w, h)
+	}
 	opts := mygo.WindowOptions{
 		Title:             "桌面字幕",
 		Width:             w,
@@ -84,19 +91,25 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.lyricsWin = win
 	a.LyricsOn = true
 	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
-	// 316 高会把显示页撑开，所以创建后强制回显示页高度。
-	win.SetSize(desktopLyricsWidth, desktopLyricsHeight)
+	// 316 高会把显示页撑开，所以创建后强制回显示页高度。位置也显式写回：
+	// 不依赖 StateKey 是否保存位置，保证切换视频/重启后落在用户拖到的地方。
+	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	win.OnClosed(func() {
+		// Alt+F4 等用户关闭路径也要记住位置；hideDesktopLyrics 里还会先存
+		// 一次（因为那里会提前清 LyricsConfig，需保留设置页展开方向）。
 		if c.lyricsWin == win {
+			c.saveLyricsPos(win)
 			c.lyricsWin = nil
 		}
 		a.LyricsOn = false
 		a.LyricsConfig = false
+		a.LyricsConfigAbove = false
 		// 用户用 Alt+F4 等方式关闭窗口 = 关掉开关；自动隐藏不算。
 		if !c.lyricsAutoHide {
 			a.LyricsEnabled = false
 			_ = c.kv.SetString(prefLyricsEnabled, "false")
+			c.syncMenuToggles()
 		}
 		c.lyricsAutoHide = false
 		a.Win.Update(func() {})
@@ -119,11 +132,70 @@ func desktopLyricsDefaultPos(w, h int) (int, int) {
 	return x, y
 }
 
+// savedLyricsPos 读取上次关闭时记住的窗口位置，并夹到当前屏幕工作区内。
+// 显示器被拔掉/分辨率变化时也不能把窗口留在看不见的地方。
+func (c *controller) savedLyricsPos(w, h int) (int, int, bool) {
+	if c.kv == nil {
+		return 0, 0, false
+	}
+	xs, ys := c.kv.String(prefLyricsX), c.kv.String(prefLyricsY)
+	if xs == "" || ys == "" {
+		return 0, 0, false
+	}
+	x, errX := strconv.Atoi(xs)
+	y, errY := strconv.Atoi(ys)
+	if errX != nil || errY != nil {
+		return 0, 0, false
+	}
+	cx, cy := clampLyricsPos(x, y, w, h)
+	return cx, cy, true
+}
+
+// saveLyricsPos 保存的是**显示页**的左上角。设置页在下方时窗口左上就是
+// 预览左上；设置页在上方时预览在窗口底部，要补回配置页多出来的高度。
+func (c *controller) saveLyricsPos(w *mygo.Window) {
+	if w == nil || c.kv == nil {
+		return
+	}
+	b := w.Bounds()
+	x, y := b.X, b.Y
+	if c.app.LyricsConfig && c.app.LyricsConfigAbove {
+		y += desktopLyricsConfigHeight - desktopLyricsHeight
+	}
+	_ = c.kv.SetString(prefLyricsX, strconv.Itoa(x))
+	_ = c.kv.SetString(prefLyricsY, strconv.Itoa(y))
+}
+
+// clampLyricsPos 把窗口夹进离它最近的显示器工作区。
+func clampLyricsPos(x, y, w, h int) (int, int) {
+	d := mygo.Screen.DisplayNearestPoint(mygo.Point{X: x, Y: y})
+	wa := d.WorkArea
+	if wa.Width <= 0 || wa.Height <= 0 {
+		return x, y
+	}
+	if x < wa.X {
+		x = wa.X
+	}
+	if x+w > wa.X+wa.Width {
+		x = wa.X + wa.Width - w
+	}
+	if y < wa.Y {
+		y = wa.Y
+	}
+	if y+h > wa.Y+wa.Height {
+		y = wa.Y + wa.Height - h
+	}
+	return x, y
+}
+
 // closeDesktopLyrics 是用户主动关闭：窗口和开关一起关。
 func (c *controller) closeDesktopLyrics() {
 	a := c.app
 	a.LyricsEnabled = false
 	_ = c.kv.SetString(prefLyricsEnabled, "false")
+	if c.menuLyrics != nil {
+		c.menuLyrics.SetChecked(false)
+	}
 	c.hideDesktopLyrics()
 }
 
@@ -131,8 +203,14 @@ func (c *controller) closeDesktopLyrics() {
 // 自动隐藏；下一条有字幕的视频会由 openDesktopLyricsIfReady 自动重新显示。
 func (c *controller) hideDesktopLyrics() {
 	a := c.app
+	// 先保存位置，再清 LyricsConfig：saveLyricsPos 需要知道设置页是向上
+	// 还是向下展开，才能把预览的左上角还原出来。
+	if c.lyricsWin != nil {
+		c.saveLyricsPos(c.lyricsWin)
+	}
 	a.LyricsOn = false
 	a.LyricsConfig = false
+	a.LyricsConfigAbove = false
 	a.LyricCurrent, a.LyricNext = "", ""
 	if c.lyricsWin != nil {
 		w := c.lyricsWin
@@ -146,18 +224,61 @@ func (c *controller) hideDesktopLyrics() {
 	trimMemory()
 }
 
+// lyricsConfigPlacement 决定设置页向哪边展开。默认向下；当窗口下方放不下
+// 配置页、而上方放得下时改为向上，并让预览停在原来的位置。两边都放不下时
+// 仍向下，但把窗口上缘往上夹到工作区内。
+func lyricsConfigPlacement(bounds, work mygo.Rectangle, displayH, configH, margin int) (above bool, y int) {
+	extra := configH - displayH
+	if extra < 0 {
+		extra = 0
+	}
+	below := work.Y + work.Height - (bounds.Y + bounds.Height)
+	aboveRoom := bounds.Y - work.Y
+	above = below < extra+margin && aboveRoom >= extra+margin
+	if above {
+		y = bounds.Y - extra
+	} else {
+		y = bounds.Y
+		if y+configH > work.Y+work.Height-margin {
+			y = work.Y + work.Height - margin - configH
+		}
+		if y < work.Y+margin {
+			y = work.Y + margin
+		}
+	}
+	return above, y
+}
+
 // toggleLyricsConfig 在字幕显示页与设置页之间切换，并调整窗口高度。
 func (c *controller) toggleLyricsConfig() {
 	a := c.app
 	if c.lyricsWin == nil {
 		return
 	}
-	a.LyricsConfig = !a.LyricsConfig
-	h := desktopLyricsHeight
-	if a.LyricsConfig {
-		h = desktopLyricsConfigHeight
+	now := !a.LyricsConfig
+	b := c.lyricsWin.Bounds()
+	if now {
+		work := mygo.Screen.DisplayMatching(b).WorkArea
+		if work.Width <= 0 {
+			work = mygo.Screen.PrimaryDisplay().WorkArea
+		}
+		above, y := lyricsConfigPlacement(b, work, desktopLyricsHeight, desktopLyricsConfigHeight, 8)
+		a.LyricsConfigAbove = above
+		a.LyricsConfig = true
+		c.lyricsWin.SetBounds(mygo.Rectangle{
+			X: b.X, Y: y, Width: desktopLyricsWidth, Height: desktopLyricsConfigHeight,
+		})
+	} else {
+		y := b.Y
+		if a.LyricsConfigAbove {
+			y += desktopLyricsConfigHeight - desktopLyricsHeight
+		}
+		a.LyricsConfig = false
+		a.LyricsConfigAbove = false
+		c.lyricsWin.SetBounds(mygo.Rectangle{
+			X: b.X, Y: y, Width: desktopLyricsWidth, Height: desktopLyricsHeight,
+		})
 	}
-	c.lyricsWin.SetSize(desktopLyricsWidth, h)
 	c.lyricsWin.Update(func() {})
 }
 

@@ -102,12 +102,29 @@ func TestLyricsShellRenders(t *testing.T) {
 	}
 
 	a.LyricsConfig = true
-	cfg := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 316)
+	cfg := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 430)
 	cfg.Frame()
 	if err := cfg.Click("完成"); err != nil {
 		t.Fatalf("设置页完成按钮不可点：%v", err)
 	}
 	if toggled != 2 {
 		t.Fatalf("完成按钮 toggled=%d, want 2", toggled)
+	}
+
+	// 贴近屏幕底部时控制器把设置页放到预览上方；视图必须按标志换序。
+	a.LyricsConfig = true
+	a.LyricsConfigAbove = true
+	above := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 430)
+	above.Frame()
+	title, ok := above.Find("桌面字幕设置")
+	if !ok {
+		t.Fatal("上方设置页找不到标题")
+	}
+	preview, ok := above.Find("第一句")
+	if !ok {
+		t.Fatal("上方设置页找不到预览字幕")
+	}
+	if title.Y >= preview.Y {
+		t.Fatalf("设置页在预览上方时标题 Y=%.1f，预览 Y=%.1f", title.Y, preview.Y)
 	}
 }
