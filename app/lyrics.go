@@ -20,7 +20,7 @@ import (
 const (
 	desktopLyricsWidth        = 560
 	desktopLyricsHeight       = 100
-	desktopLyricsConfigHeight = 430
+	desktopLyricsConfigHeight = 500
 )
 
 // toggleDesktopLyrics 切换桌面字幕的**用户开关**。有没有字幕由播放器数据
@@ -45,7 +45,7 @@ func (c *controller) toggleDesktopLyrics() {
 		return
 	}
 	c.ensureExtras()
-	c.ensureSubtitles()
+	c.retrySubtitles()
 	c.openDesktopLyricsIfReady()
 	a.Win.Update(func() {})
 }
@@ -282,6 +282,15 @@ func (c *controller) toggleLyricsConfig() {
 	c.lyricsWin.Update(func() {})
 }
 
+// resetLyricsOffsetOnTrackChange 在切换播放时归零未勾选“记住”的微调。
+// 勾选后 offset 跨视频/重启保留；未勾选时只属于当前播放。
+func (c *controller) resetLyricsOffsetOnTrackChange() {
+	a := c.app
+	if !a.LyricsOffsetRemember && a.LyricsOffset != 0 {
+		a.LyricsOffset = 0
+	}
+}
+
 // updateLyricsConfig 夹取并持久化桌面字幕设置。
 func (c *controller) updateLyricsConfig() {
 	a := c.app
@@ -315,13 +324,24 @@ func (c *controller) updateLyricsConfig() {
 	if !validHexColor(a.LyricsBgColor) {
 		a.LyricsBgColor = "#0f172a"
 	}
+	if a.LyricsOffset < -10 {
+		a.LyricsOffset = -10
+	}
+	if a.LyricsOffset > 10 {
+		a.LyricsOffset = 10
+	}
 	_ = c.kv.SetString(prefLyricsColor, a.LyricsColor)
 	_ = c.kv.SetString(prefLyricsBgColor, a.LyricsBgColor)
 	_ = c.kv.SetString(prefLyricsSize, formatPrefFloat(a.LyricsFontSize))
 	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
 	_ = c.kv.SetString(prefLyricsBgOpacity, formatPrefFloat(a.LyricsBgOpacity))
 	_ = c.kv.SetString(prefLyricsTextOpacity, formatPrefFloat(a.LyricsTextOpacity))
+	_ = c.kv.SetString(prefLyricsOffset, formatPrefFloat(a.LyricsOffset))
+	_ = c.kv.SetString(prefLyricsOffsetRemember, strconv.FormatBool(a.LyricsOffsetRemember))
 	if c.lyricsWin != nil {
+		// 改微调时当前句可能马上变化，立即重算；否则要等下一次 500ms
+		// 进度回调才看到效果。
+		c.syncLyricsAt(a.Pos)
 		c.lyricsWin.Update(func() {})
 	}
 }
@@ -337,7 +357,8 @@ func (c *controller) syncLyricsAt(pos float64) {
 	if c.lyricsWin == nil {
 		return
 	}
-	cur, next := lyricLines(a.Subtitles, pos)
+	// 正数表示字幕提前（整体快进），负数表示延后（整体快退）。
+	cur, next := lyricLines(a.Subtitles, pos+a.LyricsOffset)
 	if cur == a.LyricCurrent && next == a.LyricNext {
 		return
 	}

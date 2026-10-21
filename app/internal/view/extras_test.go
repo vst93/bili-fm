@@ -102,8 +102,11 @@ func TestLyricsShellRenders(t *testing.T) {
 	}
 
 	a.LyricsConfig = true
-	cfg := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 430)
+	cfg := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 500)
 	cfg.Frame()
+	if _, ok := cfg.Find("记住微调"); !ok {
+		t.Fatal("设置页看不到「记住微调」")
+	}
 	if err := cfg.Click("完成"); err != nil {
 		t.Fatalf("设置页完成按钮不可点：%v", err)
 	}
@@ -114,7 +117,7 @@ func TestLyricsShellRenders(t *testing.T) {
 	// 贴近屏幕底部时控制器把设置页放到预览上方；视图必须按标志换序。
 	a.LyricsConfig = true
 	a.LyricsConfigAbove = true
-	above := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 430)
+	above := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 500)
 	above.Frame()
 	title, ok := above.Find("桌面字幕设置")
 	if !ok {

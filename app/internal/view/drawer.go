@@ -29,18 +29,15 @@ const drawerIn = 220 * time.Millisecond
 // 轮廓再柔一档。只增加抽屉这一层 backdrop，卡片本身仍然不模糊。
 const drawerBlurRadius float32 = 20
 
-// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画。原版 CSS 是 0.16s ease，
-// 但 native 版在软件光栅化下 160ms 的 ease 前段太缓，用户反馈「不够干脆」；
-// 收到 120ms + ease-out：起步快、回落不拖尾，仍然是短过渡而不是弹簧。
+// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：原版
+// `[data-slot="wrapper"] [role="button"][class*="bg-content"]` 的
+// `transition: ... transform 0.16s ease`（globals.css:3662），上浮
+// `translateY(-3px)`、移开回落，全程 160ms。之前用 500ms 的 Snappy 弹簧，
+// 用户报「浮动动画太慢、移开回落不利落」。CSS 的 `ease` 即
+// cubic-bezier(0.25, 0.1, 0.25, 1)，用 mygo 的同名曲线逐字对齐。
 var cardLiftAnim = ui.Animation{
-	Duration: 120 * time.Millisecond,
-	Ease:     ui.EaseOut,
-}
-
-// cardPressAnim 是按下缩放的动画，比悬停更短，点下去立刻有反馈。
-var cardPressAnim = ui.Animation{
-	Duration: 90 * time.Millisecond,
-	Ease:     ui.EaseOut,
+	Duration: 160 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
 // 抽屉列表里几处悬停 / 当前态的色值过渡，逐条取自原版 globals.css：
@@ -2236,14 +2233,16 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		}
 	}
 	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
-	// 用 120ms ease-out，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
+	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
 	//
-	// 滚动时锁住：可见行每帧重建，若给在播卡片常驻 -3px，transform 会让
-	// 每个卡片都走预烘焙圆角遮罩路径，滚动/悬停都更重。因此只有**指针真的
-	// 悬停**时才抬起；在播态靠 2px 蓝边表达，静止时不再挂 transform。
+	// 滚动时锁住：在播卡片的 -3px 是常驻的，ui.List 滚动时可见行重建，
+	// 每帧都把 lift 动画重设目标（rested 动画仍在动画列表里，引擎每帧
+	// 照常 build/layout/paint 整窗）——用户报快速滚动卡顿正是来自这里。
+	// 滚动进行中不挂动画、停下当帧再恢复：
+	// 悬停 / 在播的上浮效果只在静止时渲染，与原版 :hover 观感一致。
 	if !locked {
 		lift := float32(0)
-		if box.Hovered() {
+		if box.Hovered() || spec.Active {
 			lift = -3
 		}
 		if pressed {
@@ -2251,8 +2250,8 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			lift = 0
 		}
 		a.liftChannels.Add(1)
-		// 按下缩放用更短的 90ms，上浮仍走 120ms；两者都是 ease-out。
-		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardPressAnim)
+		// 按下缩放与上浮走同一条 160ms ease（原版基础规则的 transform 过渡）。
+		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
 		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
 		// 稳态不挂 transform：**单位变换（含恒等矩阵）同样会让 mygo 把这张卡的
 		// 圆角 clip 改走「预烘焙遮罩」路径**（internal/gpu 的 moved 只看

@@ -713,9 +713,13 @@ type App struct {
 	LyricsColor       string
 	LyricsBgColor     string
 	LyricsFontSize    float64
-	LyricsMargin      float64
-	LyricsBgOpacity   float64
-	LyricsTextOpacity float64
+	// LyricsOffset 是桌面字幕整体时间偏移（秒，正数=提前）。默认不跨视频
+	// 保留；LyricsOffsetRemember 为真时才随播放配置/重启保留。
+	LyricsOffset         float64
+	LyricsOffsetRemember bool
+	LyricsMargin         float64
+	LyricsBgOpacity      float64
+	LyricsTextOpacity    float64
 	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
 	// HeatOn 是弹幕页的热力开关（默认开，只在弹幕页显示开关）。
 	DanmakuHeat []HeatPoint

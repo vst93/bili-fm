@@ -24,6 +24,7 @@ func (c *controller) clearPlaybackExtras() {
 	c.extrasReqID++
 	c.subtitleReqID++
 	c.heatReqID++
+	c.resetLyricsOffsetOnTrackChange()
 	a.Chapters = nil
 	a.SubtitleTracks = nil
 	a.Subtitles = nil
@@ -238,6 +239,22 @@ func (c *controller) ensureSubtitles() {
 	c.startSubtitleLoad(t, track)
 }
 
+// retrySubtitles 在用户重新打开字幕页时重试一次失败的字幕正文。网络抖动
+// 或上游临时返回空轨时，失败被 markFailed 记下来是为了避免抽屉每帧重试；
+// 但用户主动打开页面应当得到一次新的机会。
+func (c *controller) retrySubtitles() {
+	a := c.app
+	if a == nil || a.SubtitlesLoading || len(a.Subtitles) > 0 || a.SubtitleError == "" {
+		c.ensureSubtitles()
+		return
+	}
+	a.SubtitleError = ""
+	a.SubtitlesURL = ""
+	a.SubtitlesCid = 0
+	a.SubtitlesBvid = ""
+	c.ensureSubtitles()
+}
+
 // startSubtitleLoad 下载一条字幕正文。调用方已经校验过当前曲目 / cid；
 // 这里再用 subtitleReqID + 当前 cid 挡住过期响应。
 func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) {
@@ -282,12 +299,6 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			if err != nil {
 				markFailed("字幕加载失败")
 				log.Printf("字幕加载失败: %v", err)
-				return
-			}
-			if !bilibili.SubtitleCuesFit(cues, a.Dur) {
-				// 上游偶尔会给错稿件的字幕轨；时长对不上时宁可不显示。
-				markFailed("字幕与视频不匹配，已跳过")
-				log.Printf("字幕与视频时长不匹配，已跳过: bvid=%s cid=%d", t.Bvid, t.Cid)
 				return
 			}
 			a.SubtitleLang = track.Lan

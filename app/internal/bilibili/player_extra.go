@@ -96,7 +96,20 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	}
 	d := dataOf(v)
 	if err := playerExtrasIdentityError(d, aid, cid, bv); err != nil {
-		return nil, err
+		// 带 bvid 的请求偶尔会命中错误的 CDN 缓存；再退回「aid+cid」重试
+		// 一次。仍然对不上才报错，避免因为一次缓存命中把整条视频的字幕
+		// 判断成「没有字幕」。
+		if bv == "" {
+			return nil, err
+		}
+		v, retryErr := doJSON("GET", playerExtrasURL(aid, cid, ""), cookie)
+		if retryErr != nil {
+			return nil, err
+		}
+		d = dataOf(v)
+		if retryErr = playerExtrasIdentityError(d, aid, cid, ""); retryErr != nil {
+			return nil, err
+		}
 	}
 	out := &PlayerExtras{}
 	for _, it := range arrOf(d, "view_points") {
@@ -154,7 +167,7 @@ func playerExtrasIdentityError(d map[string]any, aid, cid int64, bvid string) er
 	if got := intAt(d, "cid"); got > 0 && cid > 0 && got != cid {
 		return fmt.Errorf("player/v2 返回了另一个分 P（cid %d，请求 %d）", got, cid)
 	}
-	if got := strAt(d, "bvid"); got != "" && bvid != "" && got != bvid {
+	if got := strAt(d, "bvid"); got != "" && bvid != "" && !strings.EqualFold(got, bvid) {
 		return fmt.Errorf("player/v2 返回了另一条稿件（bvid %s，请求 %s）", got, bvid)
 	}
 	return nil
@@ -222,27 +235,6 @@ func (bl *BL) GetSubtitleCues(rawURL string) ([]SubtitleCue, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].From < out[j].From })
 	return out, nil
-}
-
-// SubtitleCuesFit 用视频时长做一次兜底校验：字幕最后一条远超视频时长，
-// 基本可以断定是上游把另一条稿件的字幕轨挂过来了。宁可少显示，也不把
-// 明显对不上的文稿贴到当前视频上。dur<=0（时长还没拿到）时不判断。
-func SubtitleCuesFit(cues []SubtitleCue, dur float64) bool {
-	if dur <= 0 || len(cues) == 0 {
-		return true
-	}
-	first, last := cues[0], cues[len(cues)-1]
-	if first.From < 0 || last.To <= 0 {
-		return false
-	}
-	if first.From > dur+5 {
-		return false
-	}
-	tolerance := dur * 0.1
-	if tolerance < 30 {
-		tolerance = 30
-	}
-	return last.To <= dur+tolerance
 }
 
 // GetRelatedVideos 取一条视频的相关推荐，用作「顺着听」的候选队列。

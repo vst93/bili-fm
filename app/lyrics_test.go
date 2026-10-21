@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -84,5 +85,40 @@ func TestLyricsConfigPlacementClampsIntoScreen(t *testing.T) {
 	}
 	if y < 8 || y+430 > 500-8 {
 		t.Fatalf("窗口未夹进工作区：y=%d, bottom=%d", y, y+430)
+	}
+}
+
+func TestResetLyricsOffsetOnTrackChange(t *testing.T) {
+	a := &view.App{LyricsOffset: 1.5}
+	c := &controller{app: a}
+	c.resetLyricsOffsetOnTrackChange()
+	if a.LyricsOffset != 0 {
+		t.Fatalf("未勾选记住时切歌应归零，得到 %.1f", a.LyricsOffset)
+	}
+	a.LyricsOffset = 1.5
+	a.LyricsOffsetRemember = true
+	c.resetLyricsOffsetOnTrackChange()
+	if a.LyricsOffset != 1.5 {
+		t.Fatalf("勾选记住后切歌不应归零，得到 %.1f", a.LyricsOffset)
+	}
+}
+
+func TestLoadLyricsOffsetOnlyWhenRemembered(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	_ = kv.SetString(prefLyricsOffset, "1.5")
+	_ = kv.SetString(prefLyricsOffsetRemember, "false")
+	c := &controller{app: view.NewApp(func() {}), kv: kv}
+	c.loadPrefs()
+	if c.app.LyricsOffset != 0 {
+		t.Fatalf("未勾选记住时不应恢复微调，得到 %.1f", c.app.LyricsOffset)
+	}
+	_ = kv.SetString(prefLyricsOffsetRemember, "true")
+	c = &controller{app: view.NewApp(func() {}), kv: kv}
+	c.loadPrefs()
+	if c.app.LyricsOffset != 1.5 {
+		t.Fatalf("勾选记住时应恢复微调 1.5，得到 %.1f", c.app.LyricsOffset)
 	}
 }

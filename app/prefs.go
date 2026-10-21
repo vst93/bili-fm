@@ -18,27 +18,29 @@ import (
 
 // 显示偏好的存储键（与原版 localStorage 的同名键对齐，方便用户迁移）。
 const (
-	prefSpeed               = "playbackRate"
-	prefVolume              = "volume"
-	prefEQ                  = "loudnessEqEnabled"
-	prefCover               = "coverMode"
-	prefAmbient             = "ambientBackgroundEnabled"
-	prefPremium             = "premiumTexture"
-	prefRecTab              = "recommendTab"
-	prefHistTab             = "historyTab"
-	prefMiniPos             = "miniWindowPosition"
-	prefLyricsColor         = "lyricsColor"
-	prefLyricsSize          = "lyricsFontSize"
-	prefLyricsMargin        = "lyricsMargin"
-	prefHeatOn              = "danmakuHeat"
-	prefLyricsBgColor       = "lyricsBgColor"
-	prefLyricsBgOpacity     = "lyricsBgOpacity"
-	prefLyricsTextOpacity   = "lyricsTextOpacity"
-	prefLyricsEnabled       = "desktopSubtitles"
-	prefLyricsX             = "desktopSubtitlesX"
-	prefLyricsY             = "desktopSubtitlesY"
-	prefLyricsOpacityLegacy = "lyricsOpacity"
-	prefSubtitleLang        = "subtitleLanguage"
+	prefSpeed                = "playbackRate"
+	prefVolume               = "volume"
+	prefEQ                   = "loudnessEqEnabled"
+	prefCover                = "coverMode"
+	prefAmbient              = "ambientBackgroundEnabled"
+	prefPremium              = "premiumTexture"
+	prefRecTab               = "recommendTab"
+	prefHistTab              = "historyTab"
+	prefMiniPos              = "miniWindowPosition"
+	prefLyricsColor          = "lyricsColor"
+	prefLyricsSize           = "lyricsFontSize"
+	prefLyricsOffset         = "lyricsOffset"
+	prefLyricsOffsetRemember = "lyricsOffsetRemember"
+	prefLyricsMargin         = "lyricsMargin"
+	prefHeatOn               = "danmakuHeat"
+	prefLyricsBgColor        = "lyricsBgColor"
+	prefLyricsBgOpacity      = "lyricsBgOpacity"
+	prefLyricsTextOpacity    = "lyricsTextOpacity"
+	prefLyricsEnabled        = "desktopSubtitles"
+	prefLyricsX              = "desktopSubtitlesX"
+	prefLyricsY              = "desktopSubtitlesY"
+	prefLyricsOpacityLegacy  = "lyricsOpacity"
+	prefSubtitleLang         = "subtitleLanguage"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -78,6 +80,13 @@ func (c *controller) loadPrefs() {
 	}
 	if v := c.kv.String(prefLyricsBgColor); validHexColor(v) {
 		a.LyricsBgColor = v
+	}
+	// 微调默认不记住：只有显式勾选“记住”才读回上次的值，否则从 0 开始。
+	a.LyricsOffsetRemember = c.kv.String(prefLyricsOffsetRemember) == "true"
+	if a.LyricsOffsetRemember {
+		if v := parseFloat(c.kv.String(prefLyricsOffset)); v >= -10 && v <= 10 {
+			a.LyricsOffset = v
+		}
 	}
 	if v := parseFloat(c.kv.String(prefLyricsSize)); v >= 14 && v <= 30 {
 		a.LyricsFontSize = v

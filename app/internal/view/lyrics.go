@@ -160,7 +160,9 @@ func (a *App) lyricsConfigPanel(c *ui.Context) {
 				a.lyricsSliderRow(c, "边距", &a.LyricsMargin, 0, 40, 1)
 				a.lyricsSliderRow(c, "文字透明度", &a.LyricsTextOpacity, 0, 1, 0.05)
 				a.lyricsSliderRow(c, "背景透明度", &a.LyricsBgOpacity, 0, 1, 0.05)
-				ui.Text(c, "设置保存在本机，上方预览会实时更新。").FontSize(11).
+				a.lyricsOffsetRow(c)
+				a.lyricsRememberRow(c)
+				ui.Text(c, "正数提前、负数延后；上方预览会实时更新。").FontSize(11).
 					TextColor(ui.Hex("#ffffff").Alpha(0.45))
 			})
 		})
@@ -201,6 +203,62 @@ func (a *App) lyricsColorRow(c *ui.Context, label string, current *string, color
 			}
 		}
 	})
+}
+
+// lyricsOffsetRow 是桌面字幕整体时间微调：正数让字幕提前，负数延后。
+func (a *App) lyricsOffsetRow(c *ui.Context) {
+	changed := false
+	ui.Row(c).FillWidth().Height(30).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "微调").FontSize(12).TextColor(ui.Hex("#ffffff").Alpha(0.62)).
+			Width(76).Shrink(0)
+		s := ui.Slider(c, &a.LyricsOffset, -10, 10).FillWidth().Grow(1).Step(0.1)
+		if s.Changed() {
+			changed = true
+		}
+		ui.Text(c, lyricsOffsetLabel(a.LyricsOffset)).FontSize(11).
+			TextColor(ui.Hex("#ffffff").Alpha(0.62)).Width(50).Shrink(0).
+			TextAlign(ui.Center)
+	})
+	if changed && a.Act.UpdateLyricsConfig != nil {
+		a.Act.UpdateLyricsConfig()
+	}
+}
+
+// lyricsOffsetLabel 把微调值写成 +1.2s / -1.2s / 0.0s。
+func lyricsOffsetLabel(v float64) string {
+	if v > 0 {
+		return fmt.Sprintf("+%.1fs", v)
+	}
+	if v < 0 {
+		return fmt.Sprintf("-%.1fs", -v)
+	}
+	return "0.0s"
+}
+
+// lyricsRememberRow 是「记住微调」开关。默认不记住：未勾选时切换视频会
+// 归零；勾选后跨视频、重启应用都保留。
+func (a *App) lyricsRememberRow(c *ui.Context) {
+	b := ui.ButtonBase(c.Key("lyrics-offset-remember")).FillWidth().Height(30).
+		Radius(6).Role(ui.RoleSwitch).Label("记住微调").Tooltip("记住微调").
+		Checked(a.LyricsOffsetRemember)
+	if b.Hovered() {
+		b.Background(ui.Hex("#ffffff").Alpha(0.10))
+	}
+	b.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, "记住微调").FontSize(12).
+				TextColor(ui.Hex("#ffffff").Alpha(0.62)).Width(76).Shrink(0)
+			ui.Text(c, "跨视频和重启保留").FontSize(11).
+				TextColor(ui.Hex("#ffffff").Alpha(0.38)).Grow(1)
+			incognitoTrack(c, a.LyricsOffsetRemember)
+		})
+	})
+	if b.Clicked() {
+		a.LyricsOffsetRemember = !a.LyricsOffsetRemember
+		if a.Act.UpdateLyricsConfig != nil {
+			a.Act.UpdateLyricsConfig()
+		}
+	}
 }
 
 // lyricsSliderRow 是设置页的一行：标签 + 可见的原生 Slider + 当前值。

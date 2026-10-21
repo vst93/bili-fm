@@ -1064,7 +1064,7 @@ func (c *controller) switchDanmakuTab(tab string) {
 		c.ensureExtras()
 	case view.TabSubtitle:
 		c.ensureExtras()
-		c.ensureSubtitles()
+		c.retrySubtitles()
 	}
 	a.Win.Update(func() {})
 }
@@ -3181,7 +3181,7 @@ func (c *controller) toggleDanmaku() {
 		return
 	case view.TabSubtitle:
 		c.ensureExtras()
-		c.ensureSubtitles()
+		c.retrySubtitles()
 		return
 	}
 	if !needLoadDanmaku(a) {
