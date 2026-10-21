@@ -2106,8 +2106,9 @@ func bufferedFrac(buffered, dur float64) float32 {
 // 传入（原版 `transition: transform 100ms ease`）。
 func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale float32) rangePaint {
 	heat := a.DanmakuHeat
-	if a.Mini {
-		// 迷你窗只保留播放控制，热力是次要信息，不挤占 24px 的进度条。
+	if a.Mini || !a.HeatOn {
+		// 迷你窗只保留播放控制，热力是次要信息，不挤占 24px 的进度条；
+		// 弹幕页的开关关闭时也不画。
 		heat = nil
 	}
 	var marks []float64

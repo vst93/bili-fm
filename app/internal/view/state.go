@@ -700,8 +700,10 @@ type App struct {
 	LyricsBgOpacity   float64
 	LyricsTextOpacity float64
 	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
+	// HeatOn 是弹幕页的热力开关（默认开，只在弹幕页显示开关）。
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
+	HeatOn      bool
 	// RadioOn / RadioLoading 是「顺着听」状态。
 	RadioOn      bool
 	RadioLoading bool
@@ -970,6 +972,7 @@ func NewApp(repaint func()) *App {
 		LyricsMargin:      16,
 		LyricsBgOpacity:   0.55,
 		LyricsTextOpacity: 1,
+		HeatOn:            true,
 	}
 	a.discAt = time.Now()
 	return a

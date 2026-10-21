@@ -884,7 +884,8 @@ func (c *controller) handleEnded() {
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
 func (c *controller) quit() {
 	c.quitting = true
-	c.closeDesktopLyrics()
+	// 退出应用时只隐藏桌面字幕，保留用户的开关偏好；下次启动/播放时继续。
+	c.hideDesktopLyrics()
 	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
 	if c.media != nil {
 		c.media.Close()

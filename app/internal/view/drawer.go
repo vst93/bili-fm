@@ -2960,10 +2960,36 @@ func (a *App) danmakuTabs(c *ui.Context) {
 
 	if a.DanmakuTab == TabDanmaku {
 		a.danmakuFollowButton(c)
+		a.danmakuHeatButton(c)
 	}
 	if a.DanmakuTab == TabSubtitle {
 		a.subtitleFollowButton(c)
 		a.subtitleLyricsButton(c)
+	}
+}
+
+// danmakuHeatButton 是弹幕页的「弹幕热力」开关，默认开启。
+func (a *App) danmakuHeatButton(c *ui.Context) {
+	label := pick(a.HeatOn, "关闭弹幕热力", "开启弹幕热力")
+	b := ui.ButtonBase(c.Key("dm-heat")).Size(32, 32).Radius(Radius).Center().
+		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.HeatOn)
+	if a.HeatOn {
+		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
+			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
+			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
+	} else {
+		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
+			Border(1, ui.Hex("#64748b").Alpha(0.22)).
+			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
+	}
+	pressPose(b)
+	b.Children(func() {
+		ink := pick(a.HeatOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
+		ui.Icon(c, iconEQ).Size(18, 18).TextColor(ink)
+	})
+	if b.Clicked() {
+		a.HeatOn = !a.HeatOn
 	}
 }
 

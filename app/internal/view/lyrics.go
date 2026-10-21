@@ -61,6 +61,12 @@ func (a *App) LyricsShell(c *ui.Context) {
 				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.16*min32(1, bgOpacity*2))).
 				Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
 		}
+		if over {
+			// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出
+			// 字幕窗的位置和可设置区域。
+			panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62)).
+				InsetShadow(0, 0, 0, 1, ui.Hex("#7dd3fc").Alpha(0.28))
+		}
 		panel.Children(func() {
 			ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
 				curColor := color.Alpha(textOpacity)
