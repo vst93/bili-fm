@@ -18,20 +18,23 @@ import (
 
 // 显示偏好的存储键（与原版 localStorage 的同名键对齐，方便用户迁移）。
 const (
-	prefSpeed         = "playbackRate"
-	prefVolume        = "volume"
-	prefEQ            = "loudnessEqEnabled"
-	prefCover         = "coverMode"
-	prefAmbient       = "ambientBackgroundEnabled"
-	prefPremium       = "premiumTexture"
-	prefRecTab        = "recommendTab"
-	prefHistTab       = "historyTab"
-	prefMiniPos       = "miniWindowPosition"
-	prefLyricsColor   = "lyricsColor"
-	prefLyricsSize    = "lyricsFontSize"
-	prefLyricsMargin  = "lyricsMargin"
-	prefLyricsOpacity = "lyricsOpacity"
-	prefSubtitleLang  = "subtitleLanguage"
+	prefSpeed               = "playbackRate"
+	prefVolume              = "volume"
+	prefEQ                  = "loudnessEqEnabled"
+	prefCover               = "coverMode"
+	prefAmbient             = "ambientBackgroundEnabled"
+	prefPremium             = "premiumTexture"
+	prefRecTab              = "recommendTab"
+	prefHistTab             = "historyTab"
+	prefMiniPos             = "miniWindowPosition"
+	prefLyricsColor         = "lyricsColor"
+	prefLyricsSize          = "lyricsFontSize"
+	prefLyricsMargin        = "lyricsMargin"
+	prefLyricsBgOpacity     = "lyricsBgOpacity"
+	prefLyricsTextOpacity   = "lyricsTextOpacity"
+	prefLyricsEnabled       = "desktopSubtitles"
+	prefLyricsOpacityLegacy = "lyricsOpacity"
+	prefSubtitleLang        = "subtitleLanguage"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -75,8 +78,18 @@ func (c *controller) loadPrefs() {
 	if v := parseFloat(c.kv.String(prefLyricsMargin)); v >= 4 && v <= 40 {
 		a.LyricsMargin = v
 	}
-	if v := parseFloat(c.kv.String(prefLyricsOpacity)); v >= 0.3 && v <= 1 {
-		a.LyricsOpacity = v
+	// 旧版只有一个透明度：迁移为背景透明度，文字保持 1。
+	if v := parseFloat(c.kv.String(prefLyricsOpacityLegacy)); v >= 0 && v <= 1 {
+		a.LyricsBgOpacity = v
+	}
+	if v := parseFloat(c.kv.String(prefLyricsBgOpacity)); v >= 0 && v <= 1 {
+		a.LyricsBgOpacity = v
+	}
+	if v := parseFloat(c.kv.String(prefLyricsTextOpacity)); v >= 0 && v <= 1 {
+		a.LyricsTextOpacity = v
+	}
+	if c.kv.String(prefLyricsEnabled) == "true" {
+		a.LyricsEnabled = true
 	}
 	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
 }

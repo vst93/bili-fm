@@ -92,6 +92,8 @@ func TestLyricsShellRenders(t *testing.T) {
 	a.Act.ToggleLyricsConfig = func() { toggled++ }
 	lt := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, 100)
 	lt.Frame()
+	lt.Move(280, 50)
+	lt.Frame()
 	if err := lt.Click("桌面字幕设置"); err != nil {
 		t.Fatalf("桌面字幕设置按钮不可点：%v", err)
 	}

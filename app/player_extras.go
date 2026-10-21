@@ -103,12 +103,12 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 					Lan: st.Lan, Label: st.Label, URL: st.URL,
 				})
 			}
-			if a.LyricsOn && len(a.SubtitleTracks) == 0 {
-				c.closeDesktopLyrics()
-				a.Notify("当前视频没有字幕，无法显示桌面字幕")
-			}
-			// 如果用户正停在字幕页/桌面字幕，数据一到就继续下载正文。
-			if a.DanmakuTab == view.TabSubtitle || a.LyricsOn {
+			if len(a.SubtitleTracks) == 0 {
+				// 没字幕只隐藏窗口，保留用户开关；下一个有字幕的视频会自动显示。
+				if a.LyricsEnabled {
+					c.hideDesktopLyrics()
+				}
+			} else if a.DanmakuTab == view.TabSubtitle || a.LyricsEnabled {
 				c.ensureSubtitles()
 			}
 		})
@@ -255,14 +255,13 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			}
 			if len(a.Subtitles) == 0 {
 				a.SubtitleError = "字幕内容为空"
-				if a.LyricsOn {
-					c.closeDesktopLyrics()
-					a.Notify("当前视频没有可用字幕")
+				if a.LyricsEnabled {
+					c.hideDesktopLyrics()
 				}
 			}
 			a.ResetSubtitleScroll()
 			c.syncLyricsAt(a.Pos)
-			if a.LyricsOn {
+			if a.LyricsEnabled {
 				c.openDesktopLyricsIfReady()
 			}
 		})
@@ -303,7 +302,7 @@ func (c *controller) reloadPlaybackExtras() {
 	c.extrasInflightCid = 0
 	c.subtitleInflightCid = 0
 	c.loadPlaybackExtras(t.Aid, t.Cid, t.Bvid)
-	if a.DanmakuTab == view.TabSubtitle || a.LyricsOn {
+	if a.DanmakuTab == view.TabSubtitle || a.LyricsEnabled {
 		c.ensureSubtitles()
 	}
 }

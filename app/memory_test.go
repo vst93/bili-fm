@@ -186,14 +186,11 @@ func TestRenderBackendLowMemoryOptIn(t *testing.T) {
 		t.Fatalf("默认不该设 MYGO_GPU，实际 %q", got)
 	}
 
-	// 显式低内存：macOS 上设 MYGO_GPU=0；其它平台不碰。
+	// 显式低内存：所有平台都切到 CPU 光栅化（用户主动选择，默认仍 GPU）。
 	clear()
 	t.Setenv("BILIFM_LOW_MEMORY", "1")
 	applyRenderBackend()
-	want := ""
-	if runtime.GOOS == "darwin" {
-		want = "0"
-	}
+	want := "0"
 	if got := os.Getenv("MYGO_GPU"); got != want {
 		t.Fatalf("BILIFM_LOW_MEMORY=1 时 MYGO_GPU=%q，want %q（%s）", got, want, runtime.GOOS)
 	}

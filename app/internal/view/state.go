@@ -686,16 +686,19 @@ type App struct {
 	SubtitleFollow    bool
 	subtitleList      ui.ListState
 	subtitleScrollIdx int
-	// LyricsOn / LyricCurrent / LyricNext 是桌面字幕窗的显示状态；LyricsConfig
-	// 为真时同一个窗口切换到设置页。
-	LyricsOn       bool
-	LyricsConfig   bool
-	LyricCurrent   string
-	LyricNext      string
-	LyricsColor    string
-	LyricsFontSize float64
-	LyricsMargin   float64
-	LyricsOpacity  float64
+	// LyricsEnabled 是用户开关（跨视频保留）；LyricsOn 是窗口当前是否真的
+	// 显示。没有字幕的视频只隐藏窗口，不把 LyricsEnabled 关掉，下一条有字幕
+	// 时再自动显示。LyricsConfig 为真时同一个窗口切换到设置页。
+	LyricsEnabled     bool
+	LyricsOn          bool
+	LyricsConfig      bool
+	LyricCurrent      string
+	LyricNext         string
+	LyricsColor       string
+	LyricsFontSize    float64
+	LyricsMargin      float64
+	LyricsBgOpacity   float64
+	LyricsTextOpacity float64
 	// DanmakuHeat 是当前播放视频的弹幕热力桶；HeatCid 标记它属于哪个 cid。
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
@@ -965,7 +968,8 @@ func NewApp(repaint func()) *App {
 		LyricsColor:       "#ffffff",
 		LyricsFontSize:    20,
 		LyricsMargin:      16,
-		LyricsOpacity:     0.72,
+		LyricsBgOpacity:   0.55,
+		LyricsTextOpacity: 1,
 	}
 	a.discAt = time.Now()
 	return a

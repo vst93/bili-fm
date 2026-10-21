@@ -23,42 +23,34 @@ const (
 	desktopLyricsConfigHeight = 316
 )
 
-// toggleDesktopLyrics 切换桌面字幕窗。字幕还没下载时先记下开启意图，等
-// 字幕正文到达后由 openDesktopLyricsIfReady 创建窗口。
+// toggleDesktopLyrics 切换桌面字幕的**用户开关**。有没有字幕由播放器数据
+// 决定：开关打开时，遇到无字幕视频自动隐藏窗口（开关保持开），后续遇到有
+// 字幕的视频自动重新显示。
 func (c *controller) toggleDesktopLyrics() {
 	a := c.app
-	if c.lyricsWin != nil {
+	a.LyricsEnabled = !a.LyricsEnabled
+	_ = c.kv.SetString(prefLyricsEnabled, strconv.FormatBool(a.LyricsEnabled))
+	if !a.LyricsEnabled {
 		c.closeDesktopLyrics()
-		return
-	}
-	if a.LyricsOn {
-		// 开头点过一次、还在等字幕下载：再点一次视为取消，不要重复挂起。
-		a.LyricsOn = false
 		a.Win.Update(func() {})
 		return
 	}
 	t := currentExtrasTrack(a)
 	if t == nil || t.Cid == 0 {
-		a.Notify("请先播放一个视频")
-		return
-	}
-	if len(a.SubtitleTracks) == 0 && !a.ExtrasLoading {
-		a.LyricsOn = false
-		a.Notify("当前视频没有字幕，无法显示桌面字幕")
+		// 允许先打开开关；真正有播放内容/字幕后再自动显示。
 		a.Win.Update(func() {})
 		return
 	}
-	a.LyricsOn = true
-	a.LyricsConfig = false
-	a.Win.Update(func() {})
+	c.ensureExtras()
 	c.ensureSubtitles()
 	c.openDesktopLyricsIfReady()
+	a.Win.Update(func() {})
 }
 
 // openDesktopLyricsIfReady 在字幕正文就绪后创建窗口（主线程）。
 func (c *controller) openDesktopLyricsIfReady() {
 	a := c.app
-	if !a.LyricsOn || c.lyricsWin != nil || len(a.Subtitles) == 0 {
+	if !a.LyricsEnabled || c.lyricsWin != nil || len(a.Subtitles) == 0 {
 		return
 	}
 	a.LyricsConfig = false
@@ -90,10 +82,10 @@ func (c *controller) openDesktopLyricsIfReady() {
 		return
 	}
 	c.lyricsWin = win
+	a.LyricsOn = true
 	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
 	// 316 高会把显示页撑开，所以创建后强制回显示页高度。
 	win.SetSize(desktopLyricsWidth, desktopLyricsHeight)
-	win.SetOpacity(float64(a.LyricsOpacity))
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	win.OnClosed(func() {
 		if c.lyricsWin == win {
@@ -101,6 +93,12 @@ func (c *controller) openDesktopLyricsIfReady() {
 		}
 		a.LyricsOn = false
 		a.LyricsConfig = false
+		// 用户用 Alt+F4 等方式关闭窗口 = 关掉开关；自动隐藏不算。
+		if !c.lyricsAutoHide {
+			a.LyricsEnabled = false
+			_ = c.kv.SetString(prefLyricsEnabled, "false")
+		}
+		c.lyricsAutoHide = false
 		a.Win.Update(func() {})
 	})
 	c.syncLyricsAt(a.Pos)
@@ -121,8 +119,17 @@ func desktopLyricsDefaultPos(w, h int) (int, int) {
 	return x, y
 }
 
-// closeDesktopLyrics 关闭悬浮窗并清掉界面状态。
+// closeDesktopLyrics 是用户主动关闭：窗口和开关一起关。
 func (c *controller) closeDesktopLyrics() {
+	a := c.app
+	a.LyricsEnabled = false
+	_ = c.kv.SetString(prefLyricsEnabled, "false")
+	c.hideDesktopLyrics()
+}
+
+// hideDesktopLyrics 只关闭窗口，保留用户开关。用于当前视频没有字幕时
+// 自动隐藏；下一条有字幕的视频会由 openDesktopLyricsIfReady 自动重新显示。
+func (c *controller) hideDesktopLyrics() {
 	a := c.app
 	a.LyricsOn = false
 	a.LyricsConfig = false
@@ -130,12 +137,12 @@ func (c *controller) closeDesktopLyrics() {
 	if c.lyricsWin != nil {
 		w := c.lyricsWin
 		c.lyricsWin = nil
+		c.lyricsAutoHide = true
 		w.Close()
 	}
 	if a.Win != nil {
 		a.Win.Update(func() {})
 	}
-	// 窗口和字幕文本已经不再被显示；把 Go 里这一屏的页还给系统。
 	trimMemory()
 }
 
@@ -149,10 +156,6 @@ func (c *controller) toggleLyricsConfig() {
 	h := desktopLyricsHeight
 	if a.LyricsConfig {
 		h = desktopLyricsConfigHeight
-		// 设置页保持完全可见，否则低透明度下连字都看不清；回到显示页再恢复。
-		c.lyricsWin.SetOpacity(1)
-	} else {
-		c.lyricsWin.SetOpacity(float64(a.LyricsOpacity))
 	}
 	c.lyricsWin.SetSize(desktopLyricsWidth, h)
 	c.lyricsWin.Update(func() {})
@@ -173,22 +176,24 @@ func (c *controller) updateLyricsConfig() {
 	if a.LyricsMargin > 40 {
 		a.LyricsMargin = 40
 	}
-	if a.LyricsOpacity < 0.3 {
-		a.LyricsOpacity = 0.3
+	if a.LyricsBgOpacity < 0 {
+		a.LyricsBgOpacity = 0
 	}
-	if a.LyricsOpacity > 1 {
-		a.LyricsOpacity = 1
+	if a.LyricsBgOpacity > 1 {
+		a.LyricsBgOpacity = 1
+	}
+	if a.LyricsTextOpacity < 0 {
+		a.LyricsTextOpacity = 0
+	}
+	if a.LyricsTextOpacity > 1 {
+		a.LyricsTextOpacity = 1
 	}
 	_ = c.kv.SetString(prefLyricsColor, a.LyricsColor)
 	_ = c.kv.SetString(prefLyricsSize, formatPrefFloat(a.LyricsFontSize))
 	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
-	_ = c.kv.SetString(prefLyricsOpacity, formatPrefFloat(a.LyricsOpacity))
+	_ = c.kv.SetString(prefLyricsBgOpacity, formatPrefFloat(a.LyricsBgOpacity))
+	_ = c.kv.SetString(prefLyricsTextOpacity, formatPrefFloat(a.LyricsTextOpacity))
 	if c.lyricsWin != nil {
-		if a.LyricsConfig {
-			c.lyricsWin.SetOpacity(1)
-		} else {
-			c.lyricsWin.SetOpacity(a.LyricsOpacity)
-		}
 		c.lyricsWin.Update(func() {})
 	}
 }
@@ -241,7 +246,8 @@ func lyricLines(cues []view.SubtitleCue, pos float64) (string, string) {
 // ensureLyricsForTrack 在换集时清空旧文本；窗口保留到新字幕到达。
 func (c *controller) ensureLyricsForTrack() {
 	if c.lyricsWin != nil {
-		c.app.LyricCurrent, c.app.LyricNext = "", ""
-		c.lyricsWin.Update(func() {})
+		// 换集时先隐藏，避免旧字幕继续挂在新视频上；新字幕到达后如果开关
+		// 仍然打开，会自动重新显示。
+		c.hideDesktopLyrics()
 	}
 }

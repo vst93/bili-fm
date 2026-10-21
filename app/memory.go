@@ -132,15 +132,14 @@ const renderBackendEnv = "MYGO_GPU"
 // 不断，所以一直押着）。换成 CPU 能把内存压到 100MB 以内，但 present 是
 // 整窗位图上传，帧时间明显变差 —— 所以只给显式要求的人用，不能默认开。
 //
-// 开关（仅 macOS）：
+// 开关：
 //   - 默认：GPU；
 //   - BILIFM_LOW_MEMORY=1（或 BILIFM_GPU=0）：CPU 光栅化，内存优先；
-//   - 外部已设 MYGO_GPU：完全尊重，不覆盖；
-//   - 其它平台：什么都不做。
+//   - 外部已设 MYGO_GPU：完全尊重，不覆盖。
+//
+// 这条以前只在 macOS 生效；现在 Windows / Linux 也能显式切到 CPU，方便
+// 用户在 GPU 驱动占用过高时排查。默认后端不变，避免牺牲所有用户的帧率。
 func applyRenderBackend() {
-	if runtime.GOOS != "darwin" {
-		return
-	}
 	if os.Getenv(renderBackendEnv) != "" {
 		return // 用户 / 宿主已经显式指定后端
 	}

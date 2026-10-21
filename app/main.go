@@ -120,8 +120,10 @@ type controller struct {
 	// subtitleLangPref 是用户选过的字幕语言（如 zh-CN / en-US），下次有同一
 	// 语言轨时优先使用；不属于某个视频，跨集保留。
 	subtitleLangPref string
-	// lyricsWin 是桌面字幕悬浮窗（lazy 创建）。
-	lyricsWin *mygo.Window
+	// lyricsWin 是桌面字幕悬浮窗（lazy 创建）；lyricsAutoHide 用于区分
+	// 「因为没有字幕自动隐藏」和用户主动关闭，自动隐藏不能改开关状态。
+	lyricsWin      *mygo.Window
+	lyricsAutoHide bool
 
 	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
 	miniPoll chan struct{}

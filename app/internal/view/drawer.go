@@ -3040,10 +3040,10 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 
 // subtitleLyricsButton 是字幕页的桌面字幕开关。
 func (a *App) subtitleLyricsButton(c *ui.Context) {
-	label := pick(a.LyricsOn, "关闭桌面字幕", "打开桌面字幕")
+	label := pick(a.LyricsEnabled, "关闭桌面字幕", "打开桌面字幕")
 	b := ui.ButtonBase(c.Key("sub-lyrics")).Size(32, 32).Radius(Radius).Center().
-		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsOn)
-	if a.LyricsOn {
+		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsEnabled)
+	if a.LyricsEnabled {
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
@@ -3055,7 +3055,7 @@ func (a *App) subtitleLyricsButton(c *ui.Context) {
 	}
 	pressPose(b)
 	b.Children(func() {
-		ink := pick(a.LyricsOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
+		ink := pick(a.LyricsEnabled, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		ui.Icon(c, iconHalo).Size(18, 18).TextColor(ink)
 	})
 	if b.Clicked() && a.Act.ToggleDesktopLyrics != nil {

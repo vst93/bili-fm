@@ -24,12 +24,19 @@ func (a *App) LyricsShell(c *ui.Context) {
 	if cur == "" && next == "" {
 		cur = "♪"
 	}
-	opacity := float32(a.LyricsOpacity)
-	if opacity < 0.3 {
-		opacity = 0.3
+	bgOpacity := float32(a.LyricsBgOpacity)
+	if bgOpacity < 0 {
+		bgOpacity = 0
 	}
-	if opacity > 1 {
-		opacity = 1
+	if bgOpacity > 1 {
+		bgOpacity = 1
+	}
+	textOpacity := float32(a.LyricsTextOpacity)
+	if textOpacity < 0 {
+		textOpacity = 0
+	}
+	if textOpacity > 1 {
+		textOpacity = 1
 	}
 	size := float32(a.LyricsFontSize)
 	if size < 14 {
@@ -40,43 +47,58 @@ func (a *App) LyricsShell(c *ui.Context) {
 		colorHex = "#ffffff"
 	}
 	color := ui.Hex(colorHex)
-	// 面板保持可拖拽；齿轮是唯一交互元素，叠在右上角。整个窗口由面板铺满，
+	// 面板保持可拖拽；齿轮只在鼠标进入窗口时出现。整个窗口由面板铺满，
 	// 不再留一圈会透出白色根底的外边距；边距只作用在文字内层。
-	ui.Box(c).Fill().DragWindow().Children(func() {
-		ui.Box(c).FillWidth().FillHeight().Radius(14).
-			Background(ui.Hex("#0f172a").Alpha(0.55)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.12)).
-			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.16)).
-			Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24)).
-			Padding(10, float32(a.LyricsMargin)).Center().Children(func() {
+	root := ui.Box(c).Fill().DragWindow()
+	_, _, over := root.PointerPosition()
+	root.Children(func() {
+		panelColor := ui.Hex("#0f172a").Alpha(bgOpacity)
+		panel := ui.Box(c).FillWidth().FillHeight().Radius(14).
+			Background(panelColor).
+			Padding(10, float32(a.LyricsMargin)).Center()
+		if bgOpacity > 0 {
+			panel.Border(1, ui.Hex("#ffffff").Alpha(0.12*min32(1, bgOpacity*2))).
+				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.16*min32(1, bgOpacity*2))).
+				Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
+		}
+		panel.Children(func() {
 			ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
-				curColor := color.Alpha(0.55 + 0.45*opacity)
+				curColor := color.Alpha(textOpacity)
 				ui.Text(c, cur).FontSize(size).FontWeight(700).
 					TextColor(curColor).TextAlign(ui.Center).MaxLines(2)
 				if next != "" {
 					nextSize := max(float32(11), size*0.65)
 					ui.Text(c, next).FontSize(nextSize).
-						TextColor(color.Alpha(0.30 + 0.35*opacity)).
+						TextColor(color.Alpha(textOpacity * 0.62)).
 						TextAlign(ui.Center).SingleLine()
 				}
 			})
-			// 绝对定位齿轮：挂在面板内容上，不影响文字居中。
-			ui.Box(c).Absolute().Right(4).Top(4).Children(func() {
-				b := ui.ButtonBase(c.Key("lyrics-config")).Size(26, 26).Radius(7).Center().
-					Label("桌面字幕设置").Tooltip("桌面字幕设置")
-				b.Background(ui.Hex("#ffffff").Alpha(0.12))
-				if b.Hovered() {
-					b.Background(ui.Hex("#ffffff").Alpha(0.24))
-				}
-				b.Children(func() {
-					ui.Icon(c, iconLyricsGear).Size(15, 15).TextColor(ui.Hex("#ffffff").Alpha(0.82))
+			// 绝对定位齿轮：鼠标离开窗口即隐藏，不影响文字居中。
+			if over {
+				ui.Box(c).Absolute().Right(4).Top(4).Children(func() {
+					b := ui.ButtonBase(c.Key("lyrics-config")).Size(26, 26).Radius(7).Center().
+						Label("桌面字幕设置").Tooltip("桌面字幕设置")
+					b.Background(ui.Hex("#ffffff").Alpha(0.18))
+					if b.Hovered() {
+						b.Background(ui.Hex("#ffffff").Alpha(0.30))
+					}
+					b.Children(func() {
+						ui.Icon(c, iconLyricsGear).Size(15, 15).TextColor(ui.Hex("#ffffff").Alpha(0.9))
+					})
+					if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
+						a.Act.ToggleLyricsConfig()
+					}
 				})
-				if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
-					a.Act.ToggleLyricsConfig()
-				}
-			})
+			}
 		})
 	})
+}
+
+func min32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // lyricsConfigShell 是同一个窗口的设置页。控件全部是原生按钮/滑块。
@@ -128,7 +150,8 @@ func (a *App) lyricsConfigShell(c *ui.Context) {
 
 				a.lyricsSliderRow(c, "字号", &a.LyricsFontSize, 14, 30, 1)
 				a.lyricsSliderRow(c, "边距", &a.LyricsMargin, 4, 40, 1)
-				a.lyricsSliderRow(c, "透明度", &a.LyricsOpacity, 0.3, 1, 0.05)
+				a.lyricsSliderRow(c, "文字透明度", &a.LyricsTextOpacity, 0, 1, 0.05)
+				a.lyricsSliderRow(c, "背景透明度", &a.LyricsBgOpacity, 0, 1, 0.05)
 
 				ui.Text(c, "设置保存在本机，只影响桌面字幕窗口。").FontSize(11).
 					TextColor(ui.Hex("#ffffff").Alpha(0.45))
