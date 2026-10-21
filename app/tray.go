@@ -69,6 +69,9 @@ func (c *controller) setupTray() {
 		{Label: "退出 bili-FM", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("quit", c.quit) }},
 	})
 	tray, err := mygo.NewTray(mygo.TrayOptions{
+		// 稳定的 ID：Windows 上保留用户把图标放进溢出区的选择，macOS 上保留
+		// 用户拖动后的菜单栏位置；没有 ID 时每次启动都会被当成新图标。
+		ID:             "bili-fm",
 		Icon:           icon,
 		IconIsTemplate: template, // macOS 会按菜单栏明暗着色
 		ToolTip:        "bili-FM",

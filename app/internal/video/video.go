@@ -196,6 +196,9 @@ func (m *Manager) Open(o Options) error {
 		MinWidth:  320,
 		MinHeight: 200,
 		Frameless: true,
+		// mygo 0.6 的 UserAgentSuffix：让视频页在站点侧带上应用名/版本，
+		// 同时保留 WebView2 自带的浏览器标识。
+		Page: mygo.PageOptions{UserAgentSuffix: "bili-FM/" + mygo.App.Version()},
 	})
 	if w == nil {
 		return fmt.Errorf("video: 创建弹窗失败")
