@@ -77,11 +77,18 @@ func sheenDiff(t *testing.T, tst *ui.Tester, panel ui.Rect) (top, bottom float64
 func TestSettingsMenuSheen(t *testing.T) {
 	_, tst := settingsProbe(t, 21)
 	items := menuRects(t, tst)
+	// 面板底部现在是三个偏好开关；只拿动作条目算高度会把面板当成更矮，
+	// 采样到的是中部而不是真正的底缘。
+	panelBottom := items[len(items)-1].Y + items[len(items)-1].H
+	for _, label := range []string{"设置：桌面字幕", "设置：弹幕热力", "设置：顺着听"} {
+		if r, ok := tst.Find(label); ok && r.Y+r.H > panelBottom {
+			panelBottom = r.Y + r.H
+		}
+	}
 	top0 := items[0].Y - settingsMenuPadY
-	last := items[len(items)-1]
 	panel := ui.Rect{
 		X: items[0].X, Y: top0, W: items[0].W,
-		H: last.Y + last.H + settingsMenuPadY - top0,
+		H: panelBottom + settingsMenuPadY - top0,
 	}
 	top, bottom := sheenDiff(t, tst, panel)
 	t.Logf("设置菜单 面板 %+v 洗光开/关 平均差：左上 %.2f / 左下 %.2f", panel, top, bottom)

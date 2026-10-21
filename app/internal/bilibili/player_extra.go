@@ -82,12 +82,14 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	if aid <= 0 || cid <= 0 {
 		return nil, fmt.Errorf("未选择作品")
 	}
-	// 同时带 bvid：某些稿件只有 bvid 能稳定定位到同一个视频，避免只用
-	// 上游卡片里可能过期的 aid 时拿到别的稿件字幕。
-	playerURL := fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
-	if len(bvid) > 0 && bvid[0] != "" {
-		playerURL += "&bvid=" + url.QueryEscape(bvid[0])
+	// bvid 优先：搜索 / 动态 / 合集卡片上的 aid 偶尔会和 bvid 不是同一条
+	// 稿件，同时传两个参数时上游可能按 aid 取，结果拿到别的稿件字幕。
+	// 有 bvid 时就只用 bvid + cid 定位。
+	bv := ""
+	if len(bvid) > 0 {
+		bv = bvid[0]
 	}
+	playerURL := playerExtrasURL(aid, cid, bv)
 	v, err := doJSON("GET", playerURL, cookie)
 	if err != nil {
 		return nil, err
@@ -137,6 +139,16 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 		})
 	}
 	return out, nil
+}
+
+// playerExtrasURL 生成 player/v2 地址：有 bvid 时只带 bvid + cid，否则退回
+// aid + cid。拆成纯函数便于钉住「有 bvid 时不能再把可能过期的 aid 带上」。
+func playerExtrasURL(aid, cid int64, bvid string) string {
+	if bvid != "" {
+		return fmt.Sprintf("https://api.bilibili.com/x/player/v2?cid=%d&bvid=%s",
+			cid, url.QueryEscape(bvid))
+	}
+	return fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
 }
 
 // GetSubtitleCues 下载并解析 BCC 字幕 JSON。
@@ -191,6 +203,27 @@ func (bl *BL) GetSubtitleCues(rawURL string) ([]SubtitleCue, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].From < out[j].From })
 	return out, nil
+}
+
+// SubtitleCuesFit 用视频时长做一次兜底校验：字幕最后一条远超视频时长，
+// 基本可以断定是上游把另一条稿件的字幕轨挂过来了。宁可少显示，也不把
+// 明显对不上的文稿贴到当前视频上。dur<=0（时长还没拿到）时不判断。
+func SubtitleCuesFit(cues []SubtitleCue, dur float64) bool {
+	if dur <= 0 || len(cues) == 0 {
+		return true
+	}
+	first, last := cues[0], cues[len(cues)-1]
+	if first.From < 0 || last.To <= 0 {
+		return false
+	}
+	if first.From > dur+5 {
+		return false
+	}
+	tolerance := dur * 0.1
+	if tolerance < 30 {
+		tolerance = 30
+	}
+	return last.To <= dur+tolerance
 }
 
 // GetRelatedVideos 取一条视频的相关推荐，用作「顺着听」的候选队列。

@@ -736,6 +736,7 @@ func (c *controller) wireActions() {
 		ToggleDanmaku:       c.toggleDanmaku,
 		ToggleRadio:         c.toggleRadio,
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
+		ToggleHeat:          c.toggleHeat,
 		ToggleLyricsConfig:  c.toggleLyricsConfig,
 		UpdateLyricsConfig:  c.updateLyricsConfig,
 		SelectSubtitle:      c.selectSubtitle,

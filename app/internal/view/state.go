@@ -230,6 +230,7 @@ func (a *App) ResetDanmakuScroll() {
 func (a *App) ResetSubtitleScroll() {
 	a.subtitleList = ui.ListState{}
 	a.subtitleScrollIdx = -1
+	a.subtitleScrollPending = false
 }
 
 func (l *List) ResetScroll() {
@@ -454,6 +455,8 @@ type Actions struct {
 	ToggleRadio func()
 	// ToggleDesktopLyrics 开启 / 关闭桌面字幕悬浮窗。
 	ToggleDesktopLyrics func()
+	// ToggleHeat 开启 / 关闭弹幕热力。
+	ToggleHeat func()
 	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
 	SelectSubtitle func(index int)
 	// NextHighlight 跳到下一个弹幕高能点。
@@ -678,14 +681,17 @@ type App struct {
 	Subtitles        []SubtitleCue
 	SubtitleLang     string
 	ExtrasCid        int64
+	ExtrasBvid       string
 	ExtrasLoading    bool
 	SubtitlesLoading bool
 	SubtitlesCid     int64
+	SubtitlesBvid    string
 	SubtitleError    string
 	// SubtitleFollow 是字幕页是否跟随当前时间自动滚动。
-	SubtitleFollow    bool
-	subtitleList      ui.ListState
-	subtitleScrollIdx int
+	SubtitleFollow        bool
+	subtitleList          ui.ListState
+	subtitleScrollIdx     int
+	subtitleScrollPending bool
 	// LyricsEnabled 是用户开关（跨视频保留）；LyricsOn 是窗口当前是否真的
 	// 显示。没有字幕的视频只隐藏窗口，不把 LyricsEnabled 关掉，下一条有字幕
 	// 时再自动显示。LyricsConfig 为真时同一个窗口切换到设置页。
@@ -695,6 +701,7 @@ type App struct {
 	LyricCurrent      string
 	LyricNext         string
 	LyricsColor       string
+	LyricsBgColor     string
 	LyricsFontSize    float64
 	LyricsMargin      float64
 	LyricsBgOpacity   float64
@@ -968,6 +975,7 @@ func NewApp(repaint func()) *App {
 		SubtitleFollow:    true,
 		DanmakuAutoScroll: true,
 		LyricsColor:       "#ffffff",
+		LyricsBgColor:     "#0f172a",
 		LyricsFontSize:    20,
 		LyricsMargin:      16,
 		LyricsBgOpacity:   0.55,

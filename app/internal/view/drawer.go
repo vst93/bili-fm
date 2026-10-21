@@ -2988,8 +2988,8 @@ func (a *App) danmakuHeatButton(c *ui.Context) {
 		ink := pick(a.HeatOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		ui.Icon(c, iconEQ).Size(18, 18).TextColor(ink)
 	})
-	if b.Clicked() {
-		a.HeatOn = !a.HeatOn
+	if b.Clicked() && a.Act.ToggleHeat != nil {
+		a.Act.ToggleHeat()
 	}
 }
 
@@ -3061,6 +3061,7 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 	if b.Clicked() {
 		a.SubtitleFollow = !a.SubtitleFollow
 		a.subtitleScrollIdx = -1
+		a.subtitleScrollPending = false
 	}
 }
 
@@ -3225,9 +3226,26 @@ func (a *App) subtitlesBody(c *ui.Context) {
 		return fmt.Sprintf("sub-%d-%d", i, int(a.Subtitles[i].From*1000))
 	}
 	cur := subtitleIndexAt(a.Subtitles, a.Pos)
-	if a.SubtitleFollow && cur >= 0 && cur != a.subtitleScrollIdx {
-		st.ScrollTo(cur, ui.Center)
-		a.subtitleScrollIdx = cur
+	if a.SubtitleFollow && cur >= 0 {
+		if cur != a.subtitleScrollIdx {
+			st.ScrollTo(cur, ui.Center)
+			a.subtitleScrollIdx = cur
+			a.subtitleScrollPending = true
+		} else if a.subtitleScrollPending {
+			// ScrollTo 的目标通常下一帧才反映到 Visible()；等它落地那一帧
+			// 再判断，否则刚滚过去就被误判成用户滚走。
+			first, last := st.Visible()
+			if first <= cur && cur <= last {
+				a.subtitleScrollPending = false
+			}
+		} else {
+			// 当前句没有变化，但视口已经不在它附近：这是用户主动滚动。
+			// 关掉跟随，别在下一句到来时把用户拽回去；用户可再点跟随键。
+			first, last := st.Visible()
+			if first >= 0 && (cur < first || cur > last) {
+				a.SubtitleFollow = false
+			}
+		}
 	}
 	a.holdListScroll(c, &l.liftHold, st, &l.GridScroll, true)
 	ui.List(c, st, len(a.Subtitles), func(i int) {

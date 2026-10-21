@@ -8,6 +8,7 @@ package main
 import (
 	"log"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
@@ -28,9 +29,11 @@ func (c *controller) clearPlaybackExtras() {
 	a.Subtitles = nil
 	a.SubtitleLang = ""
 	a.ExtrasCid = 0
+	a.ExtrasBvid = ""
 	a.ExtrasLoading = false
 	a.SubtitlesLoading = false
 	a.SubtitlesCid = 0
+	a.SubtitlesBvid = ""
 	a.SubtitleError = ""
 	a.DanmakuHeat = nil
 	a.HeatCid = 0
@@ -66,6 +69,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 	a.SubtitleTracks = nil
 	a.Subtitles = nil
 	a.SubtitlesCid = 0
+	a.SubtitlesBvid = ""
 	a.SubtitlesLoading = false
 	a.SubtitleError = ""
 	a.ResetSubtitleScroll()
@@ -88,10 +92,11 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 				return
 			}
 			cur := currentExtrasTrack(a)
-			if cur == nil || cur.Cid != cid {
+			if cur == nil || cur.Cid != cid || (bvid != "" && cur.Bvid != "" && cur.Bvid != bvid) {
 				return
 			}
 			a.ExtrasCid = cid
+			a.ExtrasBvid = bvid
 			a.Chapters = make([]view.Chapter, 0, len(ex.Chapters))
 			for _, ch := range ex.Chapters {
 				a.Chapters = append(a.Chapters, view.Chapter{From: ch.From, To: ch.To, Title: ch.Title})
@@ -122,7 +127,7 @@ func (c *controller) ensureExtras() {
 	if t == nil || t.Cid == 0 || t.Aid == 0 {
 		return
 	}
-	if a.ExtrasCid == t.Cid {
+	if a.ExtrasCid == t.Cid && (t.Bvid == "" || a.ExtrasBvid == t.Bvid) {
 		return
 	}
 	if c.extrasInflightCid == t.Cid {
@@ -193,7 +198,7 @@ func (c *controller) ensureSubtitles() {
 	if t == nil || t.Cid == 0 {
 		return
 	}
-	if a.ExtrasCid != t.Cid || a.ExtrasLoading {
+	if a.ExtrasCid != t.Cid || (t.Bvid != "" && a.ExtrasBvid != t.Bvid) || a.ExtrasLoading {
 		c.ensureExtras()
 		return
 	}
@@ -202,7 +207,7 @@ func (c *controller) ensureSubtitles() {
 		c.ensureExtras()
 		return
 	}
-	if a.SubtitlesCid == t.Cid && a.SubtitleLang == track.Lan &&
+	if a.SubtitlesCid == t.Cid && a.SubtitlesBvid == t.Bvid && a.SubtitleLang == track.Lan &&
 		(len(a.Subtitles) > 0 || a.SubtitleError != "") {
 		return
 	}
@@ -222,6 +227,7 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	c.subtitleInflightCid = t.Cid
 	a.Subtitles = nil
 	a.SubtitlesCid = 0
+	a.SubtitlesBvid = ""
 	a.SubtitlesLoading = true
 	a.SubtitleError = ""
 	a.ResetSubtitleScroll()
@@ -237,7 +243,7 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			}
 			a.SubtitlesLoading = false
 			cur := currentExtrasTrack(a)
-			if cur == nil || cur.Cid != t.Cid {
+			if cur == nil || cur.Cid != t.Cid || (t.Bvid != "" && cur.Bvid != "" && cur.Bvid != t.Bvid) {
 				return
 			}
 			if err != nil {
@@ -245,8 +251,18 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 				log.Printf("字幕加载失败: %v", err)
 				return
 			}
+			if !bilibili.SubtitleCuesFit(cues, a.Dur) {
+				// 上游偶尔会给错稿件的字幕轨；时长对不上时宁可不显示。
+				a.SubtitleError = "字幕与视频不匹配，已跳过"
+				log.Printf("字幕与视频时长不匹配，已跳过: bvid=%s cid=%d", t.Bvid, t.Cid)
+				if a.LyricsEnabled {
+					c.hideDesktopLyrics()
+				}
+				return
+			}
 			a.SubtitleLang = track.Lan
 			a.SubtitlesCid = t.Cid
+			a.SubtitlesBvid = t.Bvid
 			a.Subtitles = make([]view.SubtitleCue, 0, len(cues))
 			for _, cue := range cues {
 				a.Subtitles = append(a.Subtitles, view.SubtitleCue{
@@ -276,7 +292,7 @@ func (c *controller) selectSubtitle(index int) {
 	if t == nil || t.Cid == 0 || index < 0 || index >= len(a.SubtitleTracks) {
 		return
 	}
-	if a.ExtrasCid != t.Cid {
+	if a.ExtrasCid != t.Cid || (t.Bvid != "" && a.ExtrasBvid != t.Bvid) {
 		return
 	}
 	track := a.SubtitleTracks[index]
@@ -294,7 +310,9 @@ func (c *controller) reloadPlaybackExtras() {
 		return
 	}
 	a.ExtrasCid = 0
+	a.ExtrasBvid = ""
 	a.SubtitlesCid = 0
+	a.SubtitlesBvid = ""
 	a.Subtitles = nil
 	a.SubtitleTracks = nil
 	a.Chapters = nil
@@ -437,6 +455,14 @@ func (c *controller) toggleRadio() {
 	}
 	a.Win.Update(func() {})
 	c.maybeExtendRadio()
+}
+
+// toggleHeat 切换弹幕热力开关并落盘。菜单和弹幕页表头共用。
+func (c *controller) toggleHeat() {
+	a := c.app
+	a.HeatOn = !a.HeatOn
+	_ = c.kv.SetString(prefHeatOn, strconv.FormatBool(a.HeatOn))
+	a.Win.Update(func() {})
 }
 
 // maybeExtendRadio 在当前队列尾部补充相关推荐。已有 5 条以上余量时不请求。

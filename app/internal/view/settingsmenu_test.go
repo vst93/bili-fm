@@ -250,3 +250,37 @@ func TestIncognitoToggleA11y(t *testing.T) {
 		t.Error("标题栏隐身键没有 Role(ui.RoleSwitch) + Checked(a.Incognito)")
 	}
 }
+
+// TestSettingsMenuPlaybackToggles 钉住设置菜单里的三个播放偏好开关：
+// 默认值来自 App，点击后回调触发、菜单不收起，方便连续调整。
+func TestSettingsMenuPlaybackToggles(t *testing.T) {
+	a, tst := settingsProbe(t, 12)
+	var desktop, heat, radio int
+	a.Act.ToggleDesktopLyrics = func() { desktop++ }
+	a.Act.ToggleHeat = func() { heat++ }
+	a.Act.ToggleRadio = func() { radio++ }
+	if err := tst.Click("设置"); err != nil {
+		t.Fatalf("点设置键失败：%v", err)
+	}
+	tst.Frame()
+	for _, label := range []string{"设置：桌面字幕", "设置：弹幕热力", "设置：顺着听"} {
+		if _, ok := tst.Find(label); !ok {
+			t.Fatalf("设置菜单里找不到开关 %q", label)
+		}
+	}
+	if err := tst.Click("设置：桌面字幕"); err != nil {
+		t.Fatalf("点桌面字幕开关失败：%v", err)
+	}
+	if err := tst.Click("设置：弹幕热力"); err != nil {
+		t.Fatalf("点弹幕热力开关失败：%v", err)
+	}
+	if err := tst.Click("设置：顺着听"); err != nil {
+		t.Fatalf("点顺着听开关失败：%v", err)
+	}
+	if desktop != 1 || heat != 1 || radio != 1 {
+		t.Fatalf("开关回调 desktop=%d heat=%d radio=%d，应各 1 次", desktop, heat, radio)
+	}
+	if !a.ShowSettings {
+		t.Fatal("切换播放偏好后设置菜单不应收起")
+	}
+}

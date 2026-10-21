@@ -29,7 +29,7 @@ import (
 // 原版没有的分隔线（退出应用前）。本轮换成照原版手搓的 PopoverBase 面板：
 // 面板由框架放进 Overlay（画在最上层），并自带「点外部关 / Esc 关 / 焦点归还」。
 const (
-	settingsMenuMinW   = 120 // min-w-[120px]
+	settingsMenuMinW   = 208 // 设置菜单含开关行后的宽度（原版 120 只够纯文字条目）
 	settingsMenuPadY   = 4   // py-1
 	settingsMenuRadius = 8   // rounded-lg
 	settingsMenuGap    = 4   // 面板距设置键 4px（原版 menuPos.top = rect.bottom + 4）
@@ -94,6 +94,8 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
 			Shadow(0, 18, 44, 0, ui.Hex("#0f172a").Alpha(0.10))
 		panel.Children(func() {
+			// 动作条目保持原版顺序；三个播放偏好接在下面，用一条淡线隔开。
+			// 开关行不关闭菜单，方便连续调整。
 			for _, label := range settingsItems() {
 				label := label
 				item := ui.ButtonBase(c.Key("settings-"+label)).
@@ -118,6 +120,23 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.chooseSettingsItem(label)
 				}
 			}
+			ui.Box(c).FillWidth().Height(1).Margin(4, 0).Shrink(0).
+				Background(ui.Hex("#64748b").Alpha(0.16))
+			a.settingsToggle(c, "桌面字幕", a.LyricsEnabled, func() {
+				if a.Act.ToggleDesktopLyrics != nil {
+					a.Act.ToggleDesktopLyrics()
+				}
+			})
+			a.settingsToggle(c, "弹幕热力", a.HeatOn, func() {
+				if a.Act.ToggleHeat != nil {
+					a.Act.ToggleHeat()
+				}
+			})
+			a.settingsToggle(c, "顺着听", a.RadioOn, func() {
+				if a.Act.ToggleRadio != nil {
+					a.Act.ToggleRadio()
+				}
+			})
 		})
 	})
 }
@@ -172,6 +191,35 @@ func (a *App) incognitoToggle(c *ui.Context) {
 	})
 	if b.Clicked() && a.Act.ToggleIncognito != nil {
 		a.Act.ToggleIncognito()
+	}
+}
+
+// settingsToggle 是设置菜单里的开关行：左侧标签，右侧和隐身开关同款的小轨道。
+// 点击整行切换，菜单保持展开，方便连续调三个播放偏好。
+func (a *App) settingsToggle(c *ui.Context, label string, on bool, toggle func()) {
+	item := ui.ButtonBase(c.Key("settings-toggle-"+label)).
+		FillWidth().Height(34).Padding(0, settingsItemPadX).
+		Justify(ui.Start).Radius(0).Label("设置：" + label).
+		Tooltip("设置：" + label).
+		Role(ui.RoleSwitch).Checked(on)
+	bg, inset, scale := settingsItemPaint(a.Theme, item.Hovered(), item.Pressed())
+	item.Background(bg)
+	if inset {
+		item.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+	}
+	p := ui.Pose{}
+	if scale != 1 {
+		p.Scale = scale
+	}
+	item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+	item.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, label).FontSize(13).TextColor(settingsItemInk).Grow(1)
+			incognitoTrack(c, on)
+		})
+	})
+	if item.Clicked() {
+		toggle()
 	}
 }
 

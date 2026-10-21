@@ -33,8 +33,7 @@ type rangePaint struct {
 	Buffered float32
 	Segs     []Segment
 	Dur      float64
-	// Heat / ChapterMarks 只给进度条：弹幕热力和章节分界，画在轨道下面。
-	Heat         []HeatPoint
+	// ChapterMarks 只给进度条：章节分界，画在轨道下面。
 	ChapterMarks []float64
 }
 

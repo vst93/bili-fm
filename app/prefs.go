@@ -30,6 +30,8 @@ const (
 	prefLyricsColor         = "lyricsColor"
 	prefLyricsSize          = "lyricsFontSize"
 	prefLyricsMargin        = "lyricsMargin"
+	prefHeatOn              = "danmakuHeat"
+	prefLyricsBgColor       = "lyricsBgColor"
 	prefLyricsBgOpacity     = "lyricsBgOpacity"
 	prefLyricsTextOpacity   = "lyricsTextOpacity"
 	prefLyricsEnabled       = "desktopSubtitles"
@@ -72,6 +74,9 @@ func (c *controller) loadPrefs() {
 	if v := c.kv.String(prefLyricsColor); validHexColor(v) {
 		a.LyricsColor = v
 	}
+	if v := c.kv.String(prefLyricsBgColor); validHexColor(v) {
+		a.LyricsBgColor = v
+	}
 	if v := parseFloat(c.kv.String(prefLyricsSize)); v >= 14 && v <= 30 {
 		a.LyricsFontSize = v
 	}
@@ -90,6 +95,9 @@ func (c *controller) loadPrefs() {
 	}
 	if c.kv.String(prefLyricsEnabled) == "true" {
 		a.LyricsEnabled = true
+	}
+	if v := c.kv.String(prefHeatOn); v != "" {
+		a.HeatOn = v != "false"
 	}
 	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
 }

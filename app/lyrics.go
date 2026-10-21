@@ -20,7 +20,7 @@ import (
 const (
 	desktopLyricsWidth        = 560
 	desktopLyricsHeight       = 100
-	desktopLyricsConfigHeight = 316
+	desktopLyricsConfigHeight = 430
 )
 
 // toggleDesktopLyrics 切换桌面字幕的**用户开关**。有没有字幕由播放器数据
@@ -188,7 +188,14 @@ func (c *controller) updateLyricsConfig() {
 	if a.LyricsTextOpacity > 1 {
 		a.LyricsTextOpacity = 1
 	}
+	if !validHexColor(a.LyricsColor) {
+		a.LyricsColor = "#ffffff"
+	}
+	if !validHexColor(a.LyricsBgColor) {
+		a.LyricsBgColor = "#0f172a"
+	}
 	_ = c.kv.SetString(prefLyricsColor, a.LyricsColor)
+	_ = c.kv.SetString(prefLyricsBgColor, a.LyricsBgColor)
 	_ = c.kv.SetString(prefLyricsSize, formatPrefFloat(a.LyricsFontSize))
 	_ = c.kv.SetString(prefLyricsMargin, formatPrefFloat(a.LyricsMargin))
 	_ = c.kv.SetString(prefLyricsBgOpacity, formatPrefFloat(a.LyricsBgOpacity))

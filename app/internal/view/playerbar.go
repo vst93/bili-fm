@@ -48,7 +48,7 @@ func (a *App) playerBar(c *ui.Context) {
 	// 高度 56，本身仍是普通流式元素；Shell 把它整条套进一个贴底的 absolute 盒里
 	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
 	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
-	playerBarPaint(t, applyShadows(
+	bar := playerBarPaint(t, applyShadows(
 		applyInsetShadows(
 			playerBarMaterial(t,
 				ui.Column(c).FillWidth().Height(PlayerBarHeight).Shrink(0)),
@@ -58,31 +58,36 @@ func (a *App) playerBar(c *ui.Context) {
 			playerBarShadowInsets(t, false)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
-		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder).
-		// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
-		// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
-		// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
-		// 的时间胶囊（Absolute，挂在进度条滑块下）向上伸出栏顶 10px，正好被
-		// Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
-		// Draw 同样不占布局，内容区保持完整 56px。
-		Children(func() {
-			ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
-				AlignItems(ui.Center).Children(func() {
-				a.transport(c)
-				// 拖动中/seek 未落地时，左侧时间显示预览位置
-				//（原版 updateSeekPreviewUi 会一起更新时间标签）。
-				a.timeText(c, a.shownPos())
-				a.progress(c)
-				a.timeText(c, a.Dur)
-				// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
-				// 音量 / 倍速这两列记下句柄：弹层挂在这两列上（原版
-				// .player-volume / .player-speed 就是弹层的定位上下文）。
-				volumeSlot = playerSlot(c, 34, func() { a.volumeButton(c) })
-				speedSlot = playerSlot(c, 40, func() { a.speedButton(c) })
-				playerSlot(c, 34, func() { a.eqButton(c) })
-				playerSlot(c, 40, func() { a.sponsorButton(c) })
-			})
+		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder)
+	// 弹幕热力单独铺在整个播放栏的底部背景上，不再塞进 24px 的进度条
+	// 外层：曲线从栏底升起，穿过时间/按钮下方，视觉上是一层环境，不和
+	// 6px 轨道与滑块抢同一条中线。Draw 在所有子元素之前，文字与控件仍然
+	// 清楚；迷你窗不画。
+	bar = a.heatBarLayer(bar)
+	// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
+	// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
+	// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
+	// 的时间胶囊（Absolute，挂在进度条滑块下）向上伸出栏顶 10px，正好被
+	// Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
+	// Draw 同样不占布局，内容区保持完整 56px。
+	bar.Children(func() {
+		ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
+			AlignItems(ui.Center).Children(func() {
+			a.transport(c)
+			// 拖动中/seek 未落地时，左侧时间显示预览位置
+			//（原版 updateSeekPreviewUi 会一起更新时间标签）。
+			a.timeText(c, a.shownPos())
+			a.progress(c)
+			a.timeText(c, a.Dur)
+			// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
+			// 音量 / 倍速这两列记下句柄：弹层挂在这两列上（原版
+			// .player-volume / .player-speed 就是弹层的定位上下文）。
+			volumeSlot = playerSlot(c, 34, func() { a.volumeButton(c) })
+			speedSlot = playerSlot(c, 40, func() { a.speedButton(c) })
+			playerSlot(c, 34, func() { a.eqButton(c) })
+			playerSlot(c, 40, func() { a.sponsorButton(c) })
 		})
+	})
 
 	// 倍速 / 音量弹层：从播放栏上方向上弹，锚点是各自的列容器（见
 	// popoverEdgeGap 与 speedPopover / volumePopover 的注释）。
@@ -1874,6 +1879,55 @@ const progressDisabledOpacity = 0.42
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
+// heatBarLayer 给整条播放栏加一层弹幕热力背景。只在主窗、开关打开、
+// 有热力数据与时长时生效；迷你窗保持干净。
+func (a *App) heatBarLayer(b ui.Element) ui.Element {
+	if a.Mini || !a.HeatOn || a.Dur <= 0 || len(a.DanmakuHeat) == 0 {
+		return b
+	}
+	return b.Draw(func(p *ui.Painter, r ui.Rect) {
+		paintHeatBackdrop(p, r, a.DanmakuHeat, a.Dur)
+	})
+}
+
+// paintHeatBackdrop 把热力画成从播放栏底边升起的一整片面积曲线。
+//
+// 它是**环境层**，不是进度条装饰：底边是播放栏底、高度是整栏高度，
+// 曲线独立于 6px 轨道，不会和进度条中线挤在一起。透明度压得很低，
+// 保证时间、按钮和进度滑块仍然清楚；顶部留 1px 给栏的描边。
+func paintHeatBackdrop(p *ui.Painter, r ui.Rect, points []HeatPoint, dur float64) {
+	if len(points) == 0 || r.W <= 0 || r.H < 12 || dur <= 0 {
+		return
+	}
+	base := r.Y + r.H - 1
+	height := r.H - 2
+	const step = float32(2)
+	for x := r.X; x < r.X+r.W; x += step {
+		frac := clampF(float64((x-r.X)/r.W), 0, 1)
+		v := heatAt(points, frac)
+		if v <= 0.02 {
+			continue
+		}
+		h := height * v
+		// 面积只做很淡的底色，热度越高略亮；不会盖住控件。
+		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
+			ui.Hex("#38bdf8").Alpha(0.022+v*0.070), 0)
+	}
+	// 顶部轮廓线比面积稍微清楚一点，读起来是一条完整的高能曲线。
+	lastX, lastY := float32(-1), float32(0)
+	for _, pt := range points {
+		if pt.At <= 0 {
+			continue
+		}
+		x := r.X + r.W*float32(clampF(float64(pt.At)/dur, 0, 1))
+		y := base - height*max32(pt.Value, 0.02)
+		if lastX >= 0 && x > lastX {
+			p.Line(lastX, lastY, x, y, 1, ui.Hex("#7dd3fc").Alpha(0.34))
+		}
+		lastX, lastY = x, y
+	}
+}
+
 // paintTimeline 画进度条的轨道、已播进度与滑块。轨道与滑块的画法在
 // rangeslider.go（与音量条共用），这里只多出缓冲区与广告段两层。
 //
@@ -1883,53 +1937,6 @@ const sponsorTolerance = 2.0
 // 层序与原版的 z-index 一致：外投影 → 缓冲（z-index 0）→ 广告段（z-index 0，
 // 在缓冲之上）→ 轨道本体（z-index 1）→ 滑块。缓冲与广告段都**不在**轨道底色
 // 之上，而是透过半透明底色显出来（原版就是这么叠的）。
-// paintHeatCurve 把弹幕热力画成进度条背后的一层低对比面积曲线。
-//
-// 之前的 2px 竖条在 6px 轨道里几乎看不清；这里用 24px 外层盒的上半区
-// （轨道上方约 12px）画面积 + 顶部 1px 曲线。面积透明度随热度变化，轨道
-// 随后覆盖在底部，既保留「弹幕密度」信息，又不影响进度条的描边和滑块。
-//
-// 只做几何绘制，不读取弹幕文本； HeatPoint 数量在 buildDanmakuHeat 里
-// 已被限制（<=480），每帧成本只跟进度条宽度有关。
-func paintHeatCurve(p *ui.Painter, r ui.Rect, track ui.Rect, rp rangePaint) {
-	if len(rp.Heat) == 0 || track.W <= 0 {
-		return
-	}
-	// 用满整个进度条外层高度：轨道只占中间的 6px，热力面积从底边铺到顶边，
-	// 轨道覆盖中间一段，上下两侧都能看到曲线/面积。此前只用了轨道上方
-	// 10px，看起来像贴在进度条上的小 bug。
-	base := r.Y + r.H - 1
-	top := r.Y + 1
-	if base-top < 8 {
-		return
-	}
-	height := base - top
-	// 先铺面积。横向按 2px 采样，避免每帧数百个宽 1px 的 Fill。
-	const step = float32(2)
-	for x := track.X; x < track.X+track.W; x += step {
-		frac := clampF(float64((x-track.X)/track.W), 0, 1)
-		v := heatAt(rp.Heat, frac)
-		if v <= 0.02 {
-			continue
-		}
-		h := height * v
-		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
-			ui.Hex("#38bdf8").Alpha(0.035+v*0.13), 0)
-	}
-	// 顶部曲线：1px 半透明青蓝线，让轮廓比纯面积更清晰。
-	for i := 1; i < len(rp.Heat); i++ {
-		a, b := rp.Heat[i-1], rp.Heat[i]
-		if b.At <= a.At {
-			continue
-		}
-		x0 := track.X + track.W*float32(clampF(a.At/rp.Dur, 0, 1))
-		x1 := track.X + track.W*float32(clampF(b.At/rp.Dur, 0, 1))
-		y0 := base - height*max32(a.Value, 0.02)
-		y1 := base - height*max32(b.Value, 0.02)
-		p.Line(x0, y0, x1, y1, 1, ui.Hex("#38bdf8").Alpha(0.52))
-	}
-}
-
 func max32(a, b float32) float32 {
 	if a > b {
 		return a
@@ -1988,7 +1995,6 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	// 弹幕热力：用极淡的竖条铺在轨道下面，不改变进度条的交互；密集处
 	// 自然形成一条「这里很热闹」的纹理。数据是聚合桶，不持有弹幕文本。
 	if rp.Dur > 0 {
-		paintHeatCurve(p, r, track, rp)
 		for _, at := range rp.ChapterMarks {
 			frac := clampF(at/rp.Dur, 0, 1)
 			x := track.X + track.W*float32(frac)
@@ -2105,12 +2111,6 @@ func bufferedFrac(buffered, dur float64) float32 {
 // 缓冲区比例与广告段数据取自 App。thumbScale 由调用方用 AnimateTo 过渡后
 // 传入（原版 `transition: transform 100ms ease`）。
 func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale float32) rangePaint {
-	heat := a.DanmakuHeat
-	if a.Mini || !a.HeatOn {
-		// 迷你窗只保留播放控制，热力是次要信息，不挤占 24px 的进度条；
-		// 弹幕页的开关关闭时也不画。
-		heat = nil
-	}
 	var marks []float64
 	for _, ch := range a.Chapters {
 		if ch.From > 0 {
@@ -2122,7 +2122,6 @@ func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale fl
 		Buffered:     bufferedFrac(a.Buffered, a.Dur),
 		Segs:         a.SponsorSegments,
 		Dur:          a.Dur,
-		Heat:         heat,
 		ChapterMarks: marks,
 		Hovered:      s.Hovered(),
 		Held:         held,
