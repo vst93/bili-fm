@@ -357,8 +357,15 @@ func main() {
 		// 点 Dock 图标 / 从别的 app 切回来时，只要一个可见窗口都没有，就把
 		// 主窗显示并聚焦。没有这条时窗口关掉后 app 仍在跑、Dock 图标也在，
 		// 但点它什么都不发生 —— 看起来就像「真的退出了」。
-		mygo.App.OnActivate(func(hasVisibleWindows bool) {
-			if hasVisibleWindows || app.Win == nil {
+		mygo.App.OnActivate(func(_ bool) {
+			if app.Win == nil {
+				return
+			}
+			// 不能只看 hasVisibleWindows：桌面上可能还有桌面字幕 / 视频弹窗
+			// 这类独立窗口，主窗关闭后它仍让系统认为“有可见窗口”，于是
+			// Dock 点击被直接 return，主窗永远回不来。主窗自己的可见性才是
+			// 这里的判断依据。
+			if app.Win.IsVisible() {
 				return
 			}
 			c.setBackground(false)
