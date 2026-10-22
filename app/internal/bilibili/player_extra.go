@@ -25,6 +25,7 @@ type Chapter struct {
 
 // SubtitleTrack 是 player/v2 返回的一条字幕轨。
 type SubtitleTrack struct {
+	ID     string
 	Lan    string
 	Label  string
 	URL    string
@@ -82,35 +83,43 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	if aid <= 0 || cid <= 0 {
 		return nil, fmt.Errorf("未选择作品")
 	}
-	// 同时带 aid 和 bvid：多 P 视频的 player/v2 用 cid 定位分 P，缺少 aid
-	// 时上游可能退回收缓存/第一 P 的字幕。调用方会先用 bvid 的 view 信息
-	// 校正 aid（见 controller.extrasAid），所以这里传的是可信 aid。
 	bv := ""
 	if len(bvid) > 0 {
 		bv = bvid[0]
 	}
-	playerURL := playerExtrasURL(aid, cid, bv)
-	v, err := doJSON("GET", playerURL, cookie)
-	if err != nil {
-		return nil, err
+	// 参考 Bilibili-Obsidian-Clipper：player/wbi/v2 是字幕列表的主来源，
+	// player/v2 作为回退。部分稿件的字幕只在其中一个端点可见；两个端点都
+	// 校验响应身份，绝不接受另一条稿件的数据。
+	var lastErr error
+	for _, playerURL := range playerExtrasURLs(aid, cid, bv) {
+		v, err := doJSON("GET", playerURL, cookie)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		d := dataOf(v)
+		if err := playerExtrasIdentityError(d, aid, cid, bv); err != nil {
+			lastErr = err
+			continue
+		}
+		out, err := parsePlayerExtras(d)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(out.Subtitles) > 0 {
+			return out, nil
+		}
+		lastErr = nil
 	}
-	d := dataOf(v)
-	if err := playerExtrasIdentityError(d, aid, cid, bv); err != nil {
-		// 带 bvid 的请求偶尔会命中错误的 CDN 缓存；再退回「aid+cid」重试
-		// 一次。仍然对不上才报错，避免因为一次缓存命中把整条视频的字幕
-		// 判断成「没有字幕」。
-		if bv == "" {
-			return nil, err
-		}
-		v, retryErr := doJSON("GET", playerExtrasURL(aid, cid, ""), cookie)
-		if retryErr != nil {
-			return nil, err
-		}
-		d = dataOf(v)
-		if retryErr = playerExtrasIdentityError(d, aid, cid, ""); retryErr != nil {
-			return nil, err
-		}
+	if lastErr != nil {
+		return nil, lastErr
 	}
+	return &PlayerExtras{}, nil
+}
+
+// parsePlayerExtras 从已经通过身份校验的 player 响应里解析章节和字幕轨。
+func parsePlayerExtras(d map[string]any) (*PlayerExtras, error) {
 	out := &PlayerExtras{}
 	for _, it := range arrOf(d, "view_points") {
 		m, ok := it.(map[string]any)
@@ -124,7 +133,7 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 			continue
 		}
 		if to <= from {
-			to = from // 末章可能没有 to，调用方会用视频时长补
+			to = from
 		}
 		out.Chapters = append(out.Chapters, Chapter{From: from, To: to, Title: title})
 	}
@@ -147,40 +156,51 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 		if label == "" {
 			label = strAt(m, "lan")
 		}
+		id := ""
+		switch n := m["id"].(type) {
+		case string:
+			id = n
+		case float64:
+			id = fmt.Sprintf("%.0f", n)
+		}
 		out.Subtitles = append(out.Subtitles, SubtitleTrack{
-			Lan:    strAt(m, "lan"),
-			Label:  label,
-			URL:    u,
+			ID: id, Lan: strAt(m, "lan"), Label: label, URL: u,
 			AIType: int(intAt(m, "ai_type")),
 		})
 	}
 	return out, nil
 }
 
-// playerExtrasIdentityError 校验 player/v2 返回的 data 身份。上游/CDN
-// 偶尔会命中另一条稿件的缓存；只要返回的 aid/cid/bvid 和请求对不上，就
-// 直接报错，绝不把这份字幕贴到当前视频上。缺少字段时保持兼容（不强制要求）。
+// playerExtrasIdentityError 校验 player 响应身份，避免 CDN 缓存串到别的稿件。
 func playerExtrasIdentityError(d map[string]any, aid, cid int64, bvid string) error {
 	if got := intAt(d, "aid"); got > 0 && aid > 0 && got != aid {
-		return fmt.Errorf("player/v2 返回了另一条稿件（aid %d，请求 %d）", got, aid)
+		return fmt.Errorf("player 返回了另一条稿件（aid %d，请求 %d）", got, aid)
 	}
 	if got := intAt(d, "cid"); got > 0 && cid > 0 && got != cid {
-		return fmt.Errorf("player/v2 返回了另一个分 P（cid %d，请求 %d）", got, cid)
+		return fmt.Errorf("player 返回了另一个分 P（cid %d，请求 %d）", got, cid)
 	}
 	if got := strAt(d, "bvid"); got != "" && bvid != "" && !strings.EqualFold(got, bvid) {
-		return fmt.Errorf("player/v2 返回了另一条稿件（bvid %s，请求 %s）", got, bvid)
+		return fmt.Errorf("player 返回了另一条稿件（bvid %s，请求 %s）", got, bvid)
 	}
 	return nil
 }
 
-// playerExtrasURL 生成 player/v2 地址：有 bvid 时只带 bvid + cid，否则退回
-// aid + cid。拆成纯函数便于钉住「有 bvid 时不能再把可能过期的 aid 带上」。
+// playerExtrasURL 返回优先来源（WBI）地址；保留给只关心一个 URL 的测试。
 func playerExtrasURL(aid, cid int64, bvid string) string {
+	return playerExtrasURLs(aid, cid, bvid)[0]
+}
+
+// playerExtrasURLs 返回字幕列表的两个来源，按优先级排列。WBI 端点不需要
+// 本地签名也能返回公开字幕列表（参考 Bilibili-Obsidian-Clipper）。
+func playerExtrasURLs(aid, cid int64, bvid string) []string {
+	query := fmt.Sprintf("aid=%d&cid=%d", aid, cid)
 	if bvid != "" {
-		return fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d&bvid=%s",
-			aid, cid, url.QueryEscape(bvid))
+		query += "&bvid=" + url.QueryEscape(bvid)
 	}
-	return fmt.Sprintf("https://api.bilibili.com/x/player/v2?aid=%d&cid=%d", aid, cid)
+	return []string{
+		"https://api.bilibili.com/x/player/wbi/v2?" + query,
+		"https://api.bilibili.com/x/player/v2?" + query,
+	}
 }
 
 // GetSubtitleCues 下载并解析 BCC 字幕 JSON。

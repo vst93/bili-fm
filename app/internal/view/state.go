@@ -94,6 +94,7 @@ type Chapter struct {
 
 // SubtitleTrack 是一条字幕轨（player/v2 的 subtitle.subtitles）。
 type SubtitleTrack struct {
+	ID    string
 	Lan   string
 	Label string
 	URL   string

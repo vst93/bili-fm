@@ -6,6 +6,7 @@ package main
 // 用 reqID + 当前 cid 双重校验，旧视频的数据绝不能落到新视频的界面上。
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"strconv"
@@ -121,7 +122,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 			a.SubtitleTracks = make([]view.SubtitleTrack, 0, len(ex.Subtitles))
 			for _, st := range ex.Subtitles {
 				a.SubtitleTracks = append(a.SubtitleTracks, view.SubtitleTrack{
-					Lan: st.Lan, Label: st.Label, URL: st.URL, AIType: st.AIType,
+					ID: st.ID, Lan: st.Lan, Label: st.Label, URL: st.URL, AIType: st.AIType,
 				})
 			}
 			if len(a.SubtitleTracks) == 0 {
@@ -241,9 +242,14 @@ func (c *controller) ensureSubtitles() {
 		c.ensureExtras()
 		return
 	}
+	// 已经有正文就直接用。自动候选回退时选中的轨可能不是首选轨，不能再
+	// 用 URL/语言严格相等判断，否则每帧都会重新发起请求、把回退结果覆盖掉。
+	if a.SubtitlesCid == t.Cid && a.SubtitlesBvid == t.Bvid && len(a.Subtitles) > 0 {
+		return
+	}
 	if a.SubtitlesCid == t.Cid && a.SubtitlesBvid == t.Bvid &&
 		a.SubtitlesURL == track.URL && a.SubtitleLang == track.Lan &&
-		(len(a.Subtitles) > 0 || a.SubtitleError != "") {
+		a.SubtitleError != "" {
 		return
 	}
 	if c.subtitleInflightCid == t.Cid {
@@ -276,6 +282,8 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	// 请求参数在发请求这一刻快照下来；回调不再读可变的 t（它可能在用户
 	// 切到另一集时被原地改写），只用快照和当前曲目做身份校验。
 	bvid, cid := t.Bvid, t.Cid
+	dur := a.Dur
+	candidates := subtitleCandidates(a, track)
 	c.subtitleReqID++
 	reqID := c.subtitleReqID
 	c.subtitleInflightCid = cid
@@ -288,7 +296,26 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	a.ResetSubtitleScroll()
 	a.Win.Update(func() {})
 	go func() {
-		cues, err := c.bl.GetSubtitleCues(track.URL)
+		var chosen view.SubtitleTrack
+		var cues []bilibili.SubtitleCue
+		var lastErr error
+		for _, cand := range candidates {
+			if c.subtitleReqID != reqID {
+				return
+			}
+			cs, err := c.bl.GetSubtitleCues(cand.URL)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			if !subtitleCuesFit(cs, dur) {
+				lastErr = fmt.Errorf("字幕时长与视频不匹配")
+				log.Printf("字幕与视频时长不匹配，尝试下一条轨: bvid=%s cid=%d url=%s", bvid, cid, cand.URL)
+				continue
+			}
+			chosen, cues = cand, cs
+			break
+		}
 		a.Win.Update(func() {
 			if c.subtitleReqID != reqID {
 				return
@@ -301,8 +328,6 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			if cur == nil || cur.Cid != cid || (bvid != "" && cur.Bvid != "" && cur.Bvid != bvid) {
 				return
 			}
-			// 失败也要记下「这条轨道已经试过」：SubtitlesURL 是 ensureSubtitles
-			// 的缓存键，否则抽屉每帧都会重新发起同一个失败请求。
 			markFailed := func(msg string) {
 				a.SubtitleLang = track.Lan
 				a.SubtitlesCid = cid
@@ -313,15 +338,17 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 					c.hideDesktopLyrics()
 				}
 			}
-			if err != nil {
+			if chosen.URL == "" {
 				markFailed("字幕加载失败")
-				log.Printf("字幕加载失败: %v", err)
+				if lastErr != nil {
+					log.Printf("字幕加载失败: %v", lastErr)
+				}
 				return
 			}
-			a.SubtitleLang = track.Lan
+			a.SubtitleLang = chosen.Lan
 			a.SubtitlesCid = cid
 			a.SubtitlesBvid = bvid
-			a.SubtitlesURL = track.URL
+			a.SubtitlesURL = chosen.URL
 			a.Subtitles = make([]view.SubtitleCue, 0, len(cues))
 			for _, cue := range cues {
 				a.Subtitles = append(a.Subtitles, view.SubtitleCue{
@@ -338,6 +365,59 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 			}
 		})
 	}()
+}
+
+// subtitleCandidates 把用户首选轨放前面，再带当前视频的其余轨；正文下载
+// 失败或时长明显不匹配时依次尝试，避免一条坏轨把整个视频判成无字幕。
+func subtitleCandidates(a *view.App, primary view.SubtitleTrack) []view.SubtitleTrack {
+	out := []view.SubtitleTrack{primary}
+	seen := map[string]bool{primary.URL: true}
+	for _, t := range a.SubtitleTracks {
+		if t.URL == "" || seen[t.URL] {
+			continue
+		}
+		seen[t.URL] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// subtitleCuesFit 用视频时长做保守校验：参考 Bilibili-Obsidian-Clipper 的
+// 上界/覆盖率规则，丢弃明显属于另一条视频的轨。时长还没拿到（0）时不判断，
+// 避免把正常字幕误杀。
+func subtitleCuesFit(cues []bilibili.SubtitleCue, dur float64) bool {
+	if len(cues) == 0 {
+		return false
+	}
+	if dur <= 0 {
+		return true
+	}
+	maxTo := 0.0
+	for _, c := range cues {
+		if c.To > maxTo {
+			maxTo = c.To
+		}
+		if c.From > maxTo {
+			maxTo = c.From
+		}
+	}
+	upper := dur * 0.15
+	if upper < 12 {
+		upper = 12
+	}
+	if maxTo > dur+upper {
+		return false
+	}
+	var minCoverage float64
+	switch {
+	case dur >= 600:
+		minCoverage = 0.18
+	case dur >= 300:
+		minCoverage = 0.22
+	case dur >= 180:
+		minCoverage = 0.25
+	}
+	return minCoverage == 0 || maxTo >= dur*minCoverage
 }
 
 // selectSubtitle 切换字幕版本 / 语言。只接受当前视频的轨道；选择结果作为

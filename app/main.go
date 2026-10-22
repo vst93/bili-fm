@@ -879,8 +879,15 @@ func (c *controller) handleEnded() {
 		c.step(1)
 		return
 	}
-	// 普通队列：还有下一条就继续，否则停。
+	// 普通队列：还有下一条就继续，否则停。若电台已关闭但队列里还残留
+	// 推荐（旧版本队列/在途追加），不能继续切过去。
 	if len(c.app.Queue) > 1 {
+		if next := c.app.Index + 1; next < len(c.app.Queue) && c.app.Queue[next].FromRadio {
+			c.app.Playing = false
+			c.app.Buffering = false
+			c.syncMediaTrack()
+			return
+		}
 		c.step(1)
 		return
 	}
@@ -3095,6 +3102,10 @@ func (c *controller) step(delta int) {
 	next := c.app.Index + delta
 	if next < 0 {
 		next = len(c.app.Queue) - 1
+	}
+	// 关闭电台后，当前项之后残留的推荐不允许再被手动/自动切到。
+	if delta > 0 && !c.app.RadioOn && next < len(c.app.Queue) && c.app.Queue[next].FromRadio {
+		return
 	}
 	if next >= len(c.app.Queue) {
 		if delta > 0 && c.app.RadioOn {

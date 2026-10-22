@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -95,5 +96,23 @@ func TestPickSubtitlePrefersHumanTrack(t *testing.T) {
 	got, ok := pickSubtitleTrackPref(tracks, "")
 	if !ok || got.URL != "human" {
 		t.Fatalf("同语言应优先人工字幕，得到 %#v", got)
+	}
+}
+
+func TestSubtitleCuesFit(t *testing.T) {
+	// 10 分钟视频，字幕只到 2 分钟：明显是别的短轨/截断轨。
+	short := []bilibili.SubtitleCue{{From: 0, To: 5}, {From: 95, To: 100}}
+	if subtitleCuesFit(short, 600) {
+		t.Fatal("覆盖率不足的字幕轨不应通过")
+	}
+	// 正常覆盖，尾句略有超出（片尾字幕）不应误杀。
+	normal := []bilibili.SubtitleCue{{From: 0, To: 5}, {From: 580, To: 610}}
+	if !subtitleCuesFit(normal, 600) {
+		t.Fatal("正常覆盖的字幕轨被误杀")
+	}
+	// 字幕明显跑到另一条更长的视频里。
+	long := []bilibili.SubtitleCue{{From: 0, To: 5}, {From: 1200, To: 1300}}
+	if subtitleCuesFit(long, 600) {
+		t.Fatal("超出时长容差的字幕轨不应通过")
 	}
 }
