@@ -365,6 +365,9 @@ func (c *controller) toggleLyricsConfig() {
 	now := !a.LyricsConfig
 	b := c.lyricsWin.Bounds()
 	if now {
+		// 打开设置页前按当前比例重新算一次实际宽度，避免窗口隐藏期间
+		// 缓存/旧设置页留下的 560 像素宽让预览看起来永远被限制。
+		a.LyricsPixelWidth = c.desktopLyricsWidthFor(b.X, b.Y)
 		work := mygo.Screen.DisplayMatching(b).WorkArea
 		if work.Width <= 0 {
 			work = mygo.Screen.PrimaryDisplay().WorkArea

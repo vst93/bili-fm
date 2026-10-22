@@ -264,14 +264,17 @@ func (c *controller) ensureSubtitles() {
 // 但用户主动打开页面应当得到一次新的机会。
 func (c *controller) retrySubtitles() {
 	a := c.app
-	if a == nil || a.SubtitlesLoading || len(a.Subtitles) > 0 || a.SubtitleError == "" {
+	if a == nil || a.SubtitlesLoading || len(a.Subtitles) > 0 {
 		c.ensureSubtitles()
 		return
 	}
-	a.SubtitleError = ""
-	a.SubtitlesURL = ""
-	a.SubtitlesCid = 0
-	a.SubtitlesBvid = ""
+	// 没有字幕轨、正文失败或 URL 过期时，不能只重试正文：上游可能刚才
+	// 异步生成 AI 字幕、签名 URL 也可能过期。整块重新拉 player 信息，
+	// 拿到新的 subtitle_url / 字幕轨。
+	if a.SubtitleError != "" || len(a.SubtitleTracks) == 0 {
+		c.reloadPlaybackExtras()
+		return
+	}
 	c.ensureSubtitles()
 }
 
@@ -373,6 +376,11 @@ func subtitleCandidates(a *view.App, primary view.SubtitleTrack) []view.Subtitle
 	out := []view.SubtitleTrack{primary}
 	seen := map[string]bool{primary.URL: true}
 	for _, t := range a.SubtitleTracks {
+		// 只回退同语言轨道：中文主轨失败时不能偷偷换成英文字幕，否则
+		// 用户看到的是“错误字幕”，比没有字幕更糟。
+		if !strings.EqualFold(t.Lan, primary.Lan) {
+			continue
+		}
 		if t.URL == "" || seen[t.URL] {
 			continue
 		}
