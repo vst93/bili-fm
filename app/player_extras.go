@@ -572,7 +572,12 @@ func (c *controller) toggleRadio() {
 		c.radioReqID++
 		c.radioSeen = nil
 		c.radioWantNext = false
-		dropFutureRadio(a)
+		// 用户明确关闭电台时截掉当前项之后的全部条目（不只是 FromRadio
+		// 标记的推荐）。旧队列/频繁切换时可能残留未标记的推荐，硬边界才能
+		// 保证关闭后按下一首不会再切走。
+		if a.Index+1 < len(a.Queue) {
+			a.Queue = a.Queue[:a.Index+1]
+		}
 		a.Win.Update(func() {})
 		return
 	}

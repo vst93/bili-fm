@@ -10,11 +10,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestCardLiftAnimationMatchesOriginal 钉住 3.1.2 的卡片悬停动画：
-// `transition: ... transform 0.16s ease`，不是弹簧，也不是 30ms。
-func TestCardLiftAnimationMatchesOriginal(t *testing.T) {
-	if cardLiftAnim.Duration != 160*time.Millisecond {
-		t.Errorf("上浮时长 = %v, want 160ms", cardLiftAnim.Duration)
+// TestCardLiftAnimationSnappy 钉住用户要求的卡片悬停动画：30ms ease，
+// 保留在播卡片常驻上浮和 3.1.2 的其他行为。
+func TestCardLiftAnimationSnappy(t *testing.T) {
+	if cardLiftAnim.Duration != 30*time.Millisecond {
+		t.Errorf("上浮时长 = %v, want 30ms", cardLiftAnim.Duration)
 	}
 	if cardLiftAnim.Spring != (ui.SpringOptions{}) {
 		t.Errorf("应为曲线动画，不是弹簧：%+v", cardLiftAnim.Spring)
@@ -22,7 +22,7 @@ func TestCardLiftAnimationMatchesOriginal(t *testing.T) {
 	if cardLiftAnim.Ease == nil {
 		t.Fatal("缺少缓动曲线")
 	}
-	// CSS ease = cubic-bezier(0.25, 0.1, 0.25, 1)。
+	// CSS ease。
 	want := ui.CubicBezier(0.25, 0.1, 0.25, 1)
 	for _, x := range []float32{0.1, 0.3, 0.5, 0.8, 0.95} {
 		if d := math.Abs(float64(cardLiftAnim.Ease(x) - want(x))); d > 1e-6 {

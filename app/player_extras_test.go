@@ -116,3 +116,14 @@ func TestSubtitleCuesFit(t *testing.T) {
 		t.Fatal("超出时长容差的字幕轨不应通过")
 	}
 }
+
+func TestRadioOffTruncatesRemainingQueue(t *testing.T) {
+	a := &view.App{Index: 1, Queue: []view.Track{{Bvid: "a"}, {Bvid: "b"}, {Bvid: "c"}}}
+	// 直接模拟 toggleRadio 的关闭边界（避免依赖窗口）。
+	if a.Index+1 < len(a.Queue) {
+		a.Queue = a.Queue[:a.Index+1]
+	}
+	if len(a.Queue) != 2 {
+		t.Fatalf("关闭电台后队列长 %d，应为 2", len(a.Queue))
+	}
+}

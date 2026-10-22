@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -91,7 +92,18 @@ func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, er
 	// player/v2 作为回退。部分稿件的字幕只在其中一个端点可见；两个端点都
 	// 校验响应身份，绝不接受另一条稿件的数据。
 	var lastErr error
-	for _, playerURL := range playerExtrasURLs(aid, cid, bv) {
+	urls := make([]string, 0, 2)
+	values := url.Values{"aid": {strconv.FormatInt(aid, 10)}, "cid": {strconv.FormatInt(cid, 10)}}
+	if bv != "" {
+		values.Set("bvid", bv)
+	}
+	if signed, err := bl.signedWBIURL("https://api.bilibili.com/x/player/wbi/v2", values); err == nil {
+		urls = append(urls, signed)
+	} else {
+		lastErr = err
+	}
+	urls = append(urls, playerExtrasURL(aid, cid, bv))
+	for _, playerURL := range urls {
 		v, err := doJSON("GET", playerURL, cookie)
 		if err != nil {
 			lastErr = err
@@ -185,22 +197,14 @@ func playerExtrasIdentityError(d map[string]any, aid, cid int64, bvid string) er
 	return nil
 }
 
-// playerExtrasURL 返回优先来源（WBI）地址；保留给只关心一个 URL 的测试。
+// playerExtrasURL 返回 player/v2 回退地址；WBI 主地址由 signedWBIURL
+// 在请求时动态签名。
 func playerExtrasURL(aid, cid int64, bvid string) string {
-	return playerExtrasURLs(aid, cid, bvid)[0]
-}
-
-// playerExtrasURLs 返回字幕列表的两个来源，按优先级排列。WBI 端点不需要
-// 本地签名也能返回公开字幕列表（参考 Bilibili-Obsidian-Clipper）。
-func playerExtrasURLs(aid, cid int64, bvid string) []string {
 	query := fmt.Sprintf("aid=%d&cid=%d", aid, cid)
 	if bvid != "" {
 		query += "&bvid=" + url.QueryEscape(bvid)
 	}
-	return []string{
-		"https://api.bilibili.com/x/player/wbi/v2?" + query,
-		"https://api.bilibili.com/x/player/v2?" + query,
-	}
+	return "https://api.bilibili.com/x/player/v2?" + query
 }
 
 // GetSubtitleCues 下载并解析 BCC 字幕 JSON。

@@ -68,7 +68,12 @@ func (c *controller) openDesktopLyricsIfReady() {
 		if !a.LyricsOn {
 			a.LyricsOn = true
 			c.lyricsAutoHide = false
-			c.lyricsWin.SetSize(a.LyricsPixelWidth, desktopLyricsHeight)
+			// 比例可能在隐藏期间改过；重新按当前屏幕算宽度，避免沿用
+			// 设置页/旧窗口留下的像素宽度。
+			posX, posY := c.lyricsWin.Position()
+			w := c.desktopLyricsWidthFor(posX, posY)
+			a.LyricsPixelWidth = w
+			c.lyricsWin.SetSize(w, desktopLyricsHeight)
 			c.lyricsWin.ShowInactive()
 			c.syncLyricsAt(a.Pos)
 			c.lyricsWin.Update(func() {})
@@ -367,9 +372,10 @@ func (c *controller) toggleLyricsConfig() {
 		above, y := lyricsConfigPlacement(b, work, desktopLyricsHeight, desktopLyricsConfigHeight, 8)
 		a.LyricsConfigAbove = above
 		a.LyricsConfig = true
-		// 设置页固定 desktopLyricsWidth，不被字幕宽度比例改变；预览在
-		// 里面按实际宽度居中。
-		cx, cy := clampLyricsPos(b.X, y, desktopLyricsWidth, desktopLyricsConfigHeight)
+		// 设置页固定 desktopLyricsWidth，不被字幕宽度比例改变；窗口以
+		// 原来的显示窗为中心展开，避免打开设置时预览横向跳动。
+		configX := b.X + (b.Width-desktopLyricsWidth)/2
+		cx, cy := clampLyricsPos(configX, y, desktopLyricsWidth, desktopLyricsConfigHeight)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
 			X: cx, Y: cy, Width: desktopLyricsWidth, Height: desktopLyricsConfigHeight,
 		})
@@ -380,11 +386,13 @@ func (c *controller) toggleLyricsConfig() {
 		}
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
-		w := a.LyricsPixelWidth
-		if w <= 0 {
-			w = desktopLyricsWidth
-		}
-		x, y := clampLyricsPos(b.X, y, w, desktopLyricsHeight)
+		// 从比例重新算一遍，不能只依赖设置页里缓存的像素宽度；否则某次
+		// 滑块/显示器变化会把显示窗永久限制在设置页的 560 宽。
+		w := c.desktopLyricsWidthFor(b.X, y)
+		a.LyricsPixelWidth = w
+		// 仍然以设置页中心为锚点缩回显示页，位置不会横向偏。
+		centerX := b.X + b.Width/2 - w/2
+		x, y := clampLyricsPos(centerX, y, w, desktopLyricsHeight)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
 			X: x, Y: y, Width: w, Height: desktopLyricsHeight,
 		})

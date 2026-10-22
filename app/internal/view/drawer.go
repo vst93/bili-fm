@@ -29,11 +29,11 @@ const drawerIn = 220 * time.Millisecond
 // 明显拖慢抽屉。这里回到 14px，优先保证滚动手感。
 const drawerBlurRadius float32 = 14
 
-// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：3.1.2 使用的原版曲线。
-// `transition: ... transform 0.16s ease`，上浮 translateY(-3px)、移开回落；
-// 之前改成 30ms 在触摸板快速滚动时反而显得跳/不连贯，这里恢复 160ms ease。
+// cardLiftAnim 是抽屉卡片悬停上浮 / 回落的动画：保留 3.1.2 的 ease 曲线，
+// 但用户要求更干脆，时长收到 30ms。其他悬停行为（在播上浮、模糊、阴影）
+// 不变。
 var cardLiftAnim = ui.Animation{
-	Duration: 160 * time.Millisecond,
+	Duration: 30 * time.Millisecond,
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
@@ -2231,14 +2231,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			box.Shadow(0, 0, 0, 2*k, t.Blue.Alpha(0.20*k))
 		}
 	}
-	// 悬停「抬起」：原版是 transform: translateY(-3px)（0.16s ease）。
-	// 用 160ms 曲线，不用弹簧：用户报 500ms 的弹簧太慢、移开回落不利落。
-	//
-	// 滚动时锁住：在播卡片的 -3px 是常驻的，ui.List 滚动时可见行重建，
-	// 每帧都把 lift 动画重设目标（rested 动画仍在动画列表里，引擎每帧
-	// 照常 build/layout/paint 整窗）——用户报快速滚动卡顿正是来自这里。
-	// 滚动进行中不挂动画、停下当帧再恢复：
-	// 悬停 / 在播的上浮效果只在静止时渲染，与原版 :hover 观感一致。
+	// 悬停「抬起」：原版是 transform: translateY(-3px)，时长收到 30ms。
+	// 在播卡片仍保持常驻上浮；滚动时锁住动画，停下当帧再恢复。
+	// 其他悬停行为不变。
 	if !locked {
 		lift := float32(0)
 		if box.Hovered() || spec.Active {
@@ -2249,7 +2244,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			lift = 0
 		}
 		a.liftChannels.Add(1)
-		// 按下缩放与上浮走同一条 160ms ease（3.1.2 的基础 transform 过渡）。
+		// 按下缩放与上浮走同一条 30ms ease。
 		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
 		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
 		// 稳态不挂 transform：**单位变换（含恒等矩阵）同样会让 mygo 把这张卡的
