@@ -1739,6 +1739,10 @@ func (a *App) prefetchPartCovers(c *ui.Context, st *ui.ListState, gate *prefetch
 // 是给单测直接调用预取算法的路径（不做节流）。
 func (a *App) prefetchWindowCovers(c *ui.Context, st *ui.ListState, gate *prefetchGate, n, cols int, cover func(int) string) {
 	first, last := prefetchWindow(st, n, cols)
+	prevFirst, prevLast := 0, 0
+	if gate != nil {
+		prevFirst, prevLast = gate.previous()
+	}
 	visFirst, visLast := visibleCards(st, n, cols)
 	for i := visFirst; i < visLast; i++ {
 		a.Images.Touch(cover(i), imagecache.WidthCard)
@@ -1754,9 +1758,14 @@ func (a *App) prefetchWindowCovers(c *ui.Context, st *ui.ListState, gate *prefet
 		// 不会再求帧（Visible 没变），预取就永远等不到 stable。
 		c.AnimationFrame()
 	}
-	// 滚出窗口的请求始终取消（包括滚动中）：只退还在排队的，已拿到名额的
-	// 下载完成时仍入库；在途请求由 imagecache.Cancel 直接 abort（见那里）。
-	a.cancelOffscreen(n, first, last, cover)
+	// 滚出窗口的请求始终取消（包括滚动中）：只遍历**上一帧预取窗口**，
+	// 不再每帧扫 N 张卡。选集抽屉可能有上千个分 P，旧写法展开时每帧
+	// 都要对全部 N 做一次 Cancel/封面地址计算，正是展开卡顿的来源之一。
+	if gate == nil {
+		a.cancelOffscreen(n, first, last, cover)
+	} else {
+		a.cancelRange(n, prevFirst, prevLast, first, last, cover)
+	}
 }
 
 // cancelOffscreen 把滚出预取窗口的封面请求退队。窗口为空（len==0）时视为
@@ -1767,6 +1776,15 @@ func (a *App) cancelOffscreen(n, first, last int, cover func(int) string) {
 		return
 	}
 	for i := 0; i < n; i++ {
+		if i < first || i >= last {
+			a.Images.Cancel(cover(i), imagecache.WidthCard)
+		}
+	}
+}
+
+// cancelRange 只取消上一个预取窗口里、已经离开新窗口的请求。
+func (a *App) cancelRange(n, prevFirst, prevLast, first, last int, cover func(int) string) {
+	for i := prevFirst; i < prevLast && i < n; i++ {
 		if i < first || i >= last {
 			a.Images.Cancel(cover(i), imagecache.WidthCard)
 		}

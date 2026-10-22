@@ -217,15 +217,27 @@ type List struct {
 // 这样快速滚动时不会为途经的每一屏都排一堆请求，滚停后的第一帧（滚动锁
 // 会主动再求一帧）就按最终窗口一次性预取。
 type prefetchGate struct {
-	first, last int
-	set         bool
+	first, last         int
+	prevFirst, prevLast int
+	set                 bool
 }
 
-// stable 报告当前窗口是否与上一帧相同（第一个观测帧返回 false）。
+// stable 报告当前窗口是否与上一帧相同（第一个观测帧返回 false）。记录上一
+// 个窗口，取消滚出请求时只遍历这个窗口，而不是每帧遍历全部 N 张卡。
 func (g *prefetchGate) stable(first, last int) bool {
 	same := g.set && g.first == first && g.last == last
+	if g.set {
+		g.prevFirst, g.prevLast = g.first, g.last
+	}
 	g.first, g.last, g.set = first, last, true
 	return same
+}
+
+func (g *prefetchGate) previous() (int, int) {
+	if !g.set {
+		return 0, 0
+	}
+	return g.prevFirst, g.prevLast
 }
 
 // ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，

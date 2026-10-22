@@ -194,6 +194,10 @@ func (a *App) prefetchPlaylistCovers(c *ui.Context, st *ui.ListState, gate *pref
 	if last < first {
 		first, last = 0, min(n, playlistInitialRows)
 	}
+	prevFirst, prevLast := 0, 0
+	if gate != nil {
+		prevFirst, prevLast = gate.previous()
+	}
 	visFirst, visLast := first, last+1
 	first = max(0, first-2)
 	last = min(n, last+3)
@@ -213,7 +217,15 @@ func (a *App) prefetchPlaylistCovers(c *ui.Context, st *ui.ListState, gate *pref
 	if n == 0 || last <= first {
 		return
 	}
-	for i := 0; i < n; i++ {
+	if gate == nil {
+		for i := 0; i < n; i++ {
+			if i < first || i >= last {
+				a.Images.Cancel(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
+			}
+		}
+		return
+	}
+	for i := prevFirst; i < prevLast && i < n; i++ {
 		if i < first || i >= last {
 			a.Images.Cancel(playlistCoverURL(items[i]), imagecache.WidthPlaylist)
 		}

@@ -71,68 +71,79 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 	}
 	// 显示模式的根铺满窗口；设置页的预览固定 100px。根可拖动，面板也
 	// 可拖动（面板铺满窗口时根本身没有剩余命中区）。
-	var root ui.Element
-	if height > 0 {
-		// 设置页窗口至少 560 宽；预览按实际字幕窗宽度居中，所见即所得。
-		w := float32(a.LyricsPixelWidth)
-		if w <= 0 {
-			w = 560
-		}
-		// 设置页宽度固定，预览不能超过当前窗口，否则会被裁掉。
-		winW, _ := c.Size()
-		if winW > 8 && w > winW-8 {
-			w = winW - 8
-		}
-		root = ui.Box(c).Width(w).Height(height).AlignSelf(ui.Center).DragWindow()
-	} else {
-		root = ui.Box(c).Fill().DragWindow()
-	}
-	_, _, over := root.PointerPosition()
-	root.Children(func() {
-		panel := ui.Box(c).FillWidth().FillHeight().Radius(14).
-			Background(bgColor.Alpha(bgOpacity)).
-			DragWindow().
-			Padding(10, 8).Center()
-		if bgOpacity > 0 {
-			// 常态不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈
-			// 灰边，看起来像未选中的默认边框。只在鼠标进入时画选中蓝边。
-			panel.Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
-		}
-		if over {
-			// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出
-			// 字幕窗的位置和可设置区域。
-			panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62)).
-				InsetShadow(0, 0, 0, 1, ui.Hex("#7dd3fc").Alpha(0.28))
-		}
-		panel.Children(func() {
-			ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
-				ui.Text(c, cur).FontSize(size).FontWeight(700).
-					TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(2)
-				if next != "" {
-					nextSize := max(float32(11), size*0.65)
-					ui.Text(c, next).FontSize(nextSize).
-						TextColor(textColor.Alpha(textOpacity * 0.62)).
-						TextAlign(ui.Center).SingleLine()
-				}
-			})
-			if gear && over {
-				ui.Box(c).Absolute().Right(4).Top(4).Children(func() {
-					b := ui.ButtonBase(c.Key("lyrics-config")).Size(26, 26).Radius(7).Center().
-						Label("桌面字幕设置").Tooltip("桌面字幕设置")
-					b.Background(ui.Hex("#ffffff").Alpha(0.18))
-					if b.Hovered() {
-						b.Background(ui.Hex("#ffffff").Alpha(0.30))
-					}
-					b.Children(func() {
-						ui.Icon(c, iconLyricsGear).Size(15, 15).TextColor(ui.Hex("#ffffff").Alpha(0.9))
-					})
-					if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
-						a.Act.ToggleLyricsConfig()
+	draw := func(root ui.Element) {
+		_, _, over := root.PointerPosition()
+		root.Children(func() {
+			panel := ui.Box(c).FillWidth().FillHeight().Radius(14).
+				Background(bgColor.Alpha(bgOpacity)).
+				DragWindow().
+				Padding(10, 8).Center()
+			if bgOpacity > 0 {
+				// 常态不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈
+				// 灰边，看起来像未选中的默认边框。只在鼠标进入时画选中蓝边。
+				panel.Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
+			}
+			if over {
+				// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出
+				// 字幕窗的位置和可设置区域。
+				panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62)).
+					InsetShadow(0, 0, 0, 1, ui.Hex("#7dd3fc").Alpha(0.28))
+			}
+			panel.Children(func() {
+				ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
+					ui.Text(c, cur).FontSize(size).FontWeight(700).
+						TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(2)
+					if next != "" {
+						nextSize := max(float32(11), size*0.65)
+						ui.Text(c, next).FontSize(nextSize).
+							TextColor(textColor.Alpha(textOpacity * 0.62)).
+							TextAlign(ui.Center).SingleLine()
 					}
 				})
-			}
+				if gear && over {
+					ui.Box(c).Absolute().Right(4).Top(4).Children(func() {
+						b := ui.ButtonBase(c.Key("lyrics-config")).Size(26, 26).Radius(7).Center().
+							Label("桌面字幕设置").Tooltip("桌面字幕设置")
+						b.Background(ui.Hex("#ffffff").Alpha(0.18))
+						if b.Hovered() {
+							b.Background(ui.Hex("#ffffff").Alpha(0.30))
+						}
+						b.Children(func() {
+							ui.Icon(c, iconLyricsGear).Size(15, 15).TextColor(ui.Hex("#ffffff").Alpha(0.9))
+						})
+						if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
+							a.Act.ToggleLyricsConfig()
+						}
+					})
+				}
+			})
 		})
-	})
+	}
+	if height > 0 {
+		winW, _ := c.Size()
+		actual := float32(a.LyricsPixelWidth)
+		if actual <= 0 {
+			actual = 560
+		}
+		// 预览必须能表达真实宽度：设置页固定 560 时，按比例缩小整个预览，
+		// 而不是把宽度截到 560。这样配置大宽度也能看到完整字幕框。
+		scale := float32(1)
+		if avail := winW - 8; winW > 8 && actual > avail {
+			scale = avail / actual
+		}
+		outer := ui.Box(c).FillWidth().Height(height).Clip()
+		outer.Children(func() {
+			left := (winW - actual*scale) / 2
+			top := (height - height*scale) / 2
+			root := ui.Box(c).Absolute().Left(left).Top(top).
+				Width(actual).Height(height).Scale(scale, scale).TransformOrigin(0, 0).
+				DragWindow()
+			draw(root)
+		})
+		return
+	}
+	root := ui.Box(c).Fill().DragWindow()
+	draw(root)
 }
 
 // lyricsConfigPanel 是设置页的下半部分，和上方预览同时存在。
