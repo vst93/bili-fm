@@ -235,3 +235,36 @@ func TestPerfScrollHold(t *testing.T) {
 	}
 	scrollHoldEnabled = true
 }
+
+// BenchmarkDrawerFrameAllocs 精确量「一帧」的分配（B/op、allocs/op），不受
+// 堆采样误差影响（是 Go benchmark 的精确计数，不是 -memprofile 的采样估计）：
+//
+//	go test -tags perfmeasure -run XXX -bench BenchmarkDrawerFrameAllocs -benchtime 60x ./internal/view/
+//
+// 场景是稳态的抽屉卡片网格（300 卡、无封面、虚拟化），每轮上下各滚一行 ——
+// 每一步都会真的重绘一帧。墙钟时间在这台机器上噪声大（软件光栅 + 其他负载），
+// **分配数才是可比的**：它直接决定 GC 频率，而 GC 是播放中 60fps 动画
+// （唱片旋转、氛围光过渡）常见的掉帧来源。
+func BenchmarkDrawerFrameAllocs(b *testing.B) {
+	a := NewApp(func() {})
+	cards := make([]Card, 300)
+	for i := range cards {
+		cards[i] = Card{Bvid: fmt.Sprintf("BV%04d", i), Title: fmt.Sprintf("标题%d", i),
+			Up: "UP主", Views: "1万", Pubdate: "09-11"}
+	}
+	a.ListFor("feed").Cards = cards
+	a.Drawer = "feed"
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
+	for i := 0; i < 20; i++ {
+		tst.Frame()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if i%2 == 0 {
+			tst.Scroll(400, 300, 0, 120)
+		} else {
+			tst.Scroll(400, 300, 0, -120)
+		}
+	}
+}

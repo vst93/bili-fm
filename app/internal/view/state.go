@@ -1508,9 +1508,17 @@ func pubdateCandidates(value string, now time.Time) []string {
 	if raw == "" {
 		return nil
 	}
+	// 快路径：卡片里的发布时间绝大多数是短形态（09-11 / 昨天 / 3天前），而
+	// layout "2006-01-02" 只接受**正好 10 位、第 4/7 位是连字符**的串（1 位
+	// 月份/日期它也拒绝）。先挡掉它们，就不会为每张卡每帧白建一个
+	// time.ParseError —— 那是一次 fmt 级别的分配，无头 profile 里曾占全部
+	// 对象的 ~11%（卡片 meta 行每帧都重算）。
+	if len(raw) != 10 || raw[4] != '-' || raw[7] != '-' {
+		return []string{raw}
+	}
 	target, err := time.ParseInLocation("2006-01-02", raw, now.Location())
 	if err != nil {
-		return []string{raw} // 已是相对形态 / 短形态：原样作唯一候选
+		return []string{raw} // 已是别的形态：原样作唯一候选
 	}
 	// 自然月差（当月同日没到就少算一个月），夹到 ≥1。
 	monthDiff := (now.Year()-target.Year())*12 + int(now.Month()-target.Month())

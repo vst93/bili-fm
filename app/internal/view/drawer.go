@@ -1972,9 +1972,13 @@ func cardElementKey(index int, bvid string) string {
 // card 是一张列表卡片：封面 + 时长角标 + 标题 + meta 行（原版 ListCard）。
 func (a *App) card(c *ui.Context, index int) {
 	card := a.list().Cards[index]
-	playing := a.Current() != nil && card.Bvid != "" && a.Current().Bvid == card.Bvid
+	// bvid 单独取出来：下面的 Cover2 闭包只能捕获它，**别捕获 card 本身**。
+	// 捕获整张卡会让 Card（~340 字节，11 个 string + 一个 Track）逃逸到堆上，
+	// 而卡片是每帧每张都重建的（无头 profile 里这一行占总分配量 ~9%）。
+	bvid := card.Bvid
+	playing := a.Current() != nil && bvid != "" && a.Current().Bvid == bvid
 	spec := cardSpec{
-		Key:      cardElementKey(index, card.Bvid),
+		Key:      cardElementKey(index, bvid),
 		Cover:    card.Cover,
 		Title:    card.Title,
 		Badge:    card.Badge,
@@ -1984,12 +1988,13 @@ func (a *App) card(c *ui.Context, index int) {
 		Lazy:     true,
 		// 三列比例：作者 40% / 播放量 30% / 发布时间 30%；卡片窄了从末尾
 		// 依次隐藏（阈值与原版的容器查询一致）。
-		Fields: []cardField{
+		Fields: [cardFieldsMax]cardField{
 			{Kind: fieldAuthor, Text: card.Up},
 			{Kind: fieldViews, Text: card.Views, DanmakuIcon: card.ViewsDanmaku},
 			{Kind: fieldPubdate, Text: card.Pubdate},
 			{Kind: fieldExtra, Text: card.Extra},
 		},
+		NFields: cardFieldsMax,
 		OnClick: func() {
 			// 与原版一致：点卡片只是打开选集面板，不直接起播。
 			if a.Act.OpenCard != nil {
@@ -2003,7 +2008,7 @@ func (a *App) card(c *ui.Context, index int) {
 		spec.Cover2 = func(c *ui.Context) {
 			// 请求中的置灰防连点（原版 pendingAids）。
 			pending := a.WLRemovePending != nil && a.WLRemovePending[aid]
-			b := ui.ButtonBase(c.Key("wl-remove-"+card.Bvid)).
+			b := ui.ButtonBase(c.Key("wl-remove-"+bvid)).
 				Size(wlRemoveSize, wlRemoveSize).Radius(wlRemoveRadius).
 				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
 			// 原版 .watchlater-remove-btn:disabled 是 opacity .55（绝对值）。
@@ -2124,6 +2129,9 @@ func resolveFieldWidths(fields []cardField, rowW float32) []float32 {
 	return widths
 }
 
+// cardFieldsMax 是卡片 meta 行的字段上限（作者 / 播放量 / 发布时间 / 附加）。
+const cardFieldsMax = 4
+
 // cardSpec 是一张列表卡片的内容。
 type cardSpec struct {
 	Key   string
@@ -2133,7 +2141,12 @@ type cardSpec struct {
 	// 空则不画。
 	Badge    string
 	Duration string
-	Fields   []cardField
+	// Fields 是 meta 行的字段（最多 4 个，见 cardFieldsMax），NFields 是实际
+	// 用了几个。用内联数组而不是切片：cardSpec 里存着闭包、必然逃逸到堆上，
+	// 切片字段会为**每张卡每帧**多分配一次底层数组（无头 profile 里占 ~9%），
+	// 而数组是 spec 自己的内存，不额外分配。
+	Fields  [cardFieldsMax]cardField
+	NFields int
 	// Active 表示「正在播放」：蓝 Tint + 2px 蓝边。
 	Active  bool
 	Playing bool
@@ -2360,7 +2373,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 						TextColor(t.Ink).SingleLine().Height(th).Padding(tsh, 0, 0, 0).Tooltip(spec.Title)
 				}
 				ui.Box(c).FillWidth().Margin(4, 0, 0, 0).Children(func() {
-					a.cardMeta(c, spec.Key, spec.Fields)
+					a.cardMeta(c, spec.Key, spec.Fields[:spec.NFields])
 				})
 			})
 	})
@@ -2871,10 +2884,11 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 		Playing:  active,
 		// 封面走「可见窗口预取」（partsGrid 的 prefetchPartCovers），构建只读缓存。
 		Lazy: true,
-		Fields: []cardField{
+		Fields: [cardFieldsMax]cardField{
 			{Kind: fieldViews, Text: statText(a.Browse(), func(i *Info) int64 { return i.View })},
 			{Kind: fieldDuration, Text: dur},
 		},
+		NFields: 2,
 		// 定位由 partsGrid 交给 ListState 滚动（屏外的卡片不构建）。
 		Cover2: func(c *ui.Context) {
 			// 右上角的添加键（原版 pageList 的 className：absolute top-1

@@ -824,3 +824,63 @@ clip 顺序变化时不会整批失效。
 
 升级本身无行为变化（v0.4.7 对 `ui`/`scene`/`raster` 的改动全是新增 API，没有改
 现有语义），`./check.sh` 全绿。
+
+## mygo v0.6.3 升级评估（2026-10）
+
+`app/go.mod` 从 v0.6.2 升到 **v0.6.3**（`go mod tidy` 后 go.sum 只多/换了 mygo 两行，
+顺手把 mygo 自己也要的 `golang.org/x/net` 记成 indirect）。逐条读 release notes
+对应 PR 的源码后：**能用上的都是「升级即生效」的框架侧改动**，业务代码没有新的
+自然用点；额外做了四处应用侧分配优化（见下）。
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #640 | 文本布局缓存给「大段落」留出**与最近几帧共存的预算**（8MB 以上、最多 32MB，只看 8 帧内没被用到的条目来腾地方）+ 绘制一段文本时 `inlineTransforms` 只查一次 | 视频简介、长评论正文是大段落；按旧规则超过 8MB 的布局**永不缓存**，每次重建都要重新断行成型（抽屉翻页/滚动时正好每帧都在重排）。 | **采用（升级即生效）** |
+| #610 | Windows/D3D11：**这一帧画出来和上一帧一样**（动画移动不足一像素）时，不再以主线程能跑多快就多快地重画，而是等显示器下一次刷新 | 唱片旋转、氛围光/洗光过渡里经常出现亚像素位移。此前这些帧在 Windows 上是空转（CPU 拉满、帧率虚高、别的窗口被抢），现在按 60Hz  paced。 | **采用（升级即生效）** |
+| #624 | `ui`：隐藏状态的滚动条**不吞点击**（按上一帧是否真的画了滚动条判断），命中直接穿到下面的内容 | 本项目的列表滚动条只在悬停/拖动时显示；此前贴着右缘点最后一行/卡片时会被那条看不见的轨道吃掉，点了没反应。 | **采用（升级即生效）** |
+| #650 | Metal：字形图集显式按 mip 0 采样 | macOS 上文字更锐（此前图集有 mip 时按级别插值，小字号发糊）。 | **采用（升级即生效）** |
+| #658 | 文本框自己消费按键，Windows 上 Edit › Paste 的 Ctrl+V 不会再粘贴两次 | 主窗搜索框、迷你窗标题都用文本框；修的是「一次粘贴出现两遍」。 | **采用（升级即生效）** |
+| #647 | Windows：WebView2 事件回调的 token 地址**随调用传**，不留在会移动的栈上 | 视频弹窗（`internal/video`）就是 WebView2 窗口，事件回调（导航/关闭/状态回传）正是这条路径。 | **采用（升级即生效）** |
+| #621 | `mygo.CompileContentRules` + `PageOptions.ContentRules`：WebKit 内容拦截规则（拦加载 + `css-display-none` 隐藏元素） | 唯一的页面是视频弹窗，它加载的是**本地 `video.html`**，`src` 走本地代理的 MP4（`internal/proxy`），页面上没有任何第三方广告/追踪请求可拦。为它造规则只会拦到自己。 | **不适用** |
+| #606 / #605 / #658 之外的 diff 视图与 ConPTY | 差异视图折叠、终端清屏 | 本项目不用 `ui/editor` 的 diff 视图、不用终端插件。 | **不适用** |
+| #612 | Windows：隐藏标题栏 + 有窗口材质时，最大化窗口不再冒出 DWM 的 caption 键 | 主窗在 Windows 上是 Frameless + 自绘键、且 `DisableMaximize`，根本不会最大化；视频弹窗 Frameless 但不用材质。 | **无影响** |
+| #627 | `ui.Table` 最后一列不再给一条「拖了也没用」的拉伸边 | 本项目没用 `ui.Table`。 | **不适用** |
+| #641 | `DocumentsOptions.Equal` 在文档锁放下之后再调用（原来会死锁） | 本项目没用 `mygo.Document`。 | **不适用** |
+
+### 应用侧：每一帧都在建的「聚光描边路径」改成缓存（本轮）
+
+升级后顺手用**精确**的分配计数（不是 `-memprofile` 的采样估计）量了一帧的成本：
+
+```sh
+go test -tags perfmeasure -run XXX -bench BenchmarkDrawerFrameAllocs -benchtime 60x ./internal/view/
+```
+
+场景是稳态抽屉卡片网格（300 卡、虚拟化、无封面），每轮上下各滚一行（每次都真的重绘）。
+改前/改后：
+
+| 指标 | v0.6.3 原样 | 本轮改后 |
+|---|---|---|
+| 每帧分配字节 | 911,802 B | **267,530 B**（−71%） |
+| 每帧分配对象 | 12,241 | **7,740**（−37%） |
+
+四处改动（都是纯应用侧，像素结果不变 —— 描边/卡片/日期的既有像素测试全绿）：
+
+1. `playerbar.go` 的聚光环路径缓存（`rimPathCache`）。描边画在 `Draw`/`DrawOver`
+   回调里，**每一帧都跑**（唱片旋转这种只重绘不重建的帧也一样）：一圈环是外圈 +
+   内圈两条闭合路径（20 条 pathCmd），大表面还要拆成 12 块各建一条。改前
+   `ui.(*Path).CubeTo` 一项就占总分配量的 22%、`playerRimRingParts` 再占 14%。
+   现在按 `(rect, radius, width)` 缓存几何（不缓存颜色 —— conic 停靠点随 opacity
+   变），上限 64 条/每种、合计常驻 ≈150KB，超出按 map 随机淘汰。
+2. `playerRimConicStops` 按 opacity 缓存，基色提到包级（不再每次 `ui.Hex` 解析）。
+3. `drawer.go` 的 `(*App).card` 不再让整张 `Card`（≈340 字节）逃逸：闭包只捕获
+   `bvid`。`cardSpec.Fields` 从切片改成内联 `[4]cardField` —— `spec` 里存闭包必然
+   逃逸，切片字段就等于**每张卡每帧**多一次底层数组分配。
+4. `state.go` 的 `pubdateCandidates` 加长度/格式快路径：`time.ParseInLocation` 的
+   layout 只接受正好 10 位的 `YYYY-MM-DD`，而卡片上的时间绝大多数是 `09-11` /
+   `昨天` / `3天前` —— 改前每张卡每帧都白建一个 `time.ParseError`（fmt 级别的
+   分配 + 格式化），占总对象数的 ~11%。
+
+墙钟时间：这台机器上（软件光栅 + 其他负载）逐次波动 ±30%，量不出可信差异；
+分配数才是可比的 —— 它直接决定 GC 频率，而 GC 是「播放中 60fps 动画」这类
+常驻重绘场景里最常见的掉帧来源。新增 `BenchmarkDrawerFrameAllocs`（`perfmeasure`
+tag，不进 `./check.sh`）与 `playerrim_cache_test.go`（`AllocsPerRun` 钉住稳态
+零分配、键包含 rect/radius、缓存封顶）。

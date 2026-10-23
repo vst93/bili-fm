@@ -98,7 +98,7 @@ func TestCoverPlaceholderDrawnWhileLoading(t *testing.T) {
 			spec := cardSpec{
 				Key: "ph-card", Cover: tc.cover, Title: "标题",
 				Lazy:   true, // 只读缓存：拿不到真图 → 走占位图分支
-				Fields: []cardField{{Kind: fieldAuthor, Text: "UP主"}},
+				Fields: [cardFieldsMax]cardField{{Kind: fieldAuthor, Text: "UP主"}}, NFields: 1,
 			}
 			img := ui.Render(func(c *ui.Context) {
 				c.Root().Background(ui.RGB(90, 90, 90))

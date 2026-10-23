@@ -954,7 +954,7 @@ func paintPlayerRimDirectional(p *ui.Painter, r ui.Rect, radius, opacity float32
 	if r.W < 2 || r.H < 2 || opacity <= 0 {
 		return
 	}
-	parts := playerRimRingParts(r, radius, 1)
+	parts := rimRingParts(r, radius, 1)
 	if len(parts) == 0 {
 		// 半径 < 1px：内圈圆弧退化成一个点，直边与圆角不再共享同一条缝，拆八块
 		// 会留细缝。这种圆角在界面上不存在（最小 2px），退回整幅环。
@@ -964,7 +964,9 @@ func paintPlayerRimDirectional(p *ui.Painter, r ui.Rect, radius, opacity float32
 	cx := r.X + r.W*playerRimConicCenter.X
 	cy := r.Y + r.H*playerRimConicCenter.Y
 	for i := range parts {
-		playerRimFillPathConic(p, &parts[i], cx, cy, opacity)
+		// 拷一份再交给 Painter：缓存里的路径只读，不让 flatten 之外的东西碰到。
+		part := parts[i]
+		playerRimFillPathConic(p, &part, cx, cy, opacity)
 	}
 }
 
@@ -1103,6 +1105,10 @@ func playerRimSplits(a, b float32) [][2]float32 {
 // playerRimDirectionalFn 是定向光带绘制的入口（测试可换桩关掉做反证）。
 var playerRimDirectionalFn = paintPlayerRimDirectional
 
+// rimWhite 是 --liquid-rim 的基色（#fff）：描边每帧都要算停靠点，别每次
+// 重新解析一遍十六进制串（ui.Hex 内部还有 strconv）。
+var rimWhite = ui.Hex("#ffffff")
+
 // playerRimConicCenter / playerRimConicAngle 是 --liquid-rim 的圆心与起始角
 // （原版 `conic-gradient(from 215deg at 30% -5%)`）。
 var (
@@ -1112,10 +1118,24 @@ var (
 
 // playerRimConicStops 返回 --liquid-rim 的 conic 停靠点（原版 globals.css:987）。
 // 各点的 alpha 再乘整圈 opacity（原版 ::after 的 `opacity: .52` / 深色时段 `.3`）。
+//
+// 按 opacity 缓存：同一帧里大表面的一圈环要拆成 12 块，每块都得给渐变一份
+// 停靠点切片（gradient 按值持有切片），而 opacity 在同一帧内是同一个值
+// （只在抽屉/悬停动画里逐帧变）。不缓存就是每帧几十次六元素切片分配。
 func playerRimConicStops(opacity float32) []ui.GradientStop {
+	if stops, ok := rimStopsCache.lookup(opacity); ok {
+		return stops
+	}
+	stops := buildPlayerRimConicStops(opacity)
+	rimStopsCache.store(opacity, stops)
+	return stops
+}
+
+// buildPlayerRimConicStops 是停靠点的纯计算（缓存未命中时走它）。
+func buildPlayerRimConicStops(opacity float32) []ui.GradientStop {
 	clamp := func(a float64) float64 { return min(max(a, 0), 1) }
 	a := func(v float64) ui.Color {
-		return ui.Hex("#ffffff").Alpha(float32(clamp(v) * float64(opacity)))
+		return rimWhite.Alpha(float32(clamp(v) * float64(opacity)))
 	}
 	return []ui.GradientStop{
 		{Color: a(1.0), At: 0},
@@ -1191,6 +1211,120 @@ func playerRimRingPathWidth(r ui.Rect, radius, width float32) ui.Path {
 	return p
 }
 
+// rimPathKey 是聚光环路径的几何键：同一元素在同一位置画同一圈环时，路径命令
+// 逐字节相同。
+type rimPathKey struct {
+	r      ui.Rect
+	radius float32
+	width  float32
+}
+
+// rimPathCacheLimit 是每种缓存最多留几圈环。一个界面里同时存在的描边控件是
+// 二十来个（播放栏 8 键 + 抽屉面板 + 表头 tab + 搜索药丸 + 卡片角标…），
+// 64 条足够覆盖稳态；超出时按 map 的随机顺序扔一条 —— 被扔掉的下一帧重建一次
+// 而已，缓存不会无界增长（两条缓存合计常驻上限约 150KB）。
+const rimPathCacheLimit = 64
+
+// rimPathCache 缓存聚光环的几何（整圈环 + 拆块后的 8~12 块）。
+//
+// 为什么值得缓存：`Draw` / `DrawOver` 回调在**每一帧**都跑（唱片旋转这种只
+// 重绘、不重建的帧也一样），而一圈环是外圈 + 内圈两条闭合路径（20 条 pathCmd，
+// 每条 32 字节），大表面还要拆成 12 块、每块一条路径。无头 profile（800×600、
+// 抽屉 300 卡）里 `ui.(*Path).CubeTo` 占总分配量的 22%、`playerRimRingParts`
+// 再占 14% —— 它们都是每帧重新 append 出来的。
+//
+// 只缓存几何、不缓存颜色：conic 停靠点随 opacity 变（抽屉/悬停动画里每帧都
+// 不同），尺寸却不变。路径是只读的（`ui.Path.flatten` 不改命令），所以缓存里
+// 的副本可以反复画；取用方每次按值拷一份再交给 Painter，不给别人改写命令的
+// 机会。
+type rimPathCache[T any] struct {
+	mu sync.Mutex
+	m  map[rimPathKey]T
+}
+
+func (c *rimPathCache[T]) lookup(k rimPathKey) (T, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.m[k]
+	return v, ok
+}
+
+func (c *rimPathCache[T]) store(k rimPathKey, v T) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) >= rimPathCacheLimit {
+		for old := range c.m {
+			delete(c.m, old)
+			break
+		}
+	}
+	c.m[k] = v
+}
+
+func (c *rimPathCache[T]) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.m)
+}
+
+var (
+	rimRingPathCache  = &rimPathCache[ui.Path]{m: map[rimPathKey]ui.Path{}}
+	rimRingPartsCache = &rimPathCache[[]ui.Path]{m: map[rimPathKey][]ui.Path{}}
+)
+
+// rimStopsCache 是 conic 停靠点的小缓存（按整圈 opacity）。上限故意很小：
+// 动画里 opacity 逐帧变，缓存只需要盖住「同一帧的几十次调用」。每条 6 个
+// 停靠点（≈120 字节），32 条 ≈4KB。
+type rimStopsCacheT struct {
+	mu sync.Mutex
+	m  map[float32][]ui.GradientStop
+}
+
+const rimStopsCacheLimit = 32
+
+func (c *rimStopsCacheT) lookup(opacity float32) ([]ui.GradientStop, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	stops, ok := c.m[opacity]
+	return stops, ok
+}
+
+func (c *rimStopsCacheT) store(opacity float32, stops []ui.GradientStop) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) >= rimStopsCacheLimit {
+		for old := range c.m {
+			delete(c.m, old)
+			break
+		}
+	}
+	c.m[opacity] = stops
+}
+
+var rimStopsCache = &rimStopsCacheT{m: map[float32][]ui.GradientStop{}}
+
+// rimRingPath 取（或建）一圈 1px 环路径。
+func rimRingPath(r ui.Rect, radius, width float32) ui.Path {
+	k := rimPathKey{r: r, radius: radius, width: width}
+	if p, ok := rimRingPathCache.lookup(k); ok {
+		return p
+	}
+	p := playerRimRingPathWidth(r, radius, width)
+	rimRingPathCache.store(k, p)
+	return p
+}
+
+// rimRingParts 取（或建）拆块后的环路径。返回的切片与缓存共享，只读。
+func rimRingParts(r ui.Rect, radius, width float32) []ui.Path {
+	k := rimPathKey{r: r, radius: radius, width: width}
+	if ps, ok := rimRingPartsCache.lookup(k); ok {
+		return ps
+	}
+	ps := playerRimRingParts(r, radius, width)
+	rimRingPartsCache.store(k, ps)
+	return ps
+}
+
 // paintPlayerRim 画一圈聚光描边：真正的 --liquid-rim conic 环（1px，圆角与元素
 // 一致），在 1px 边框之上、图标之下；色散边画在描边之外。
 func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
@@ -1220,7 +1354,7 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 
 // paintPlayerRimConic 用路径 + conic 渐变填充画出 1px 聚光环。
 func paintPlayerRimConic(p *ui.Painter, r ui.Rect, radius, opacity float32) {
-	path := playerRimRingPath(r, radius)
+	path := rimRingPath(r, radius, 1)
 	if path.Bounds().W <= 0 || path.Bounds().H <= 0 {
 		return
 	}

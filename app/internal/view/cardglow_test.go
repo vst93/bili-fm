@@ -25,7 +25,7 @@ func cardGlowProbe(t *testing.T) (*ui.Tester, ui.Rect) {
 	spec := cardSpec{
 		Key:    "glow-card",
 		Title:  "标题",
-		Fields: []cardField{{Kind: fieldAuthor, Text: "UP主"}},
+		Fields: [cardFieldsMax]cardField{{Kind: fieldAuthor, Text: "UP主"}}, NFields: 1,
 	}
 	tst := ui.NewTester(func(c *ui.Context) {
 		c.Root().Background(ui.RGB(90, 90, 90))

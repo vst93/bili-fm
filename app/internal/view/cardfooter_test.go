@@ -35,7 +35,7 @@ func TestCardFooterWashPixel(t *testing.T) {
 	spec := cardSpec{
 		Key:    "footer-card",
 		Title:  "标题",
-		Fields: []cardField{{Kind: fieldAuthor, Text: "UP主"}},
+		Fields: [cardFieldsMax]cardField{{Kind: fieldAuthor, Text: "UP主"}}, NFields: 1,
 	}
 	tst := ui.NewTester(func(c *ui.Context) {
 		c.Root().Background(ui.RGB(90, 90, 90))
