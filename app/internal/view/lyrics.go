@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -9,25 +10,88 @@ import (
 // 桌面字幕悬浮窗：显示当前句 + 下一句，右上角齿轮切换到设置页。
 // 整个窗口是原生 mygo UI，不是 WebView。
 //
-// 设置页不是把显示页替换掉：上方固定保留 100px 的实时预览，下方才是
-// 颜色 / 字号 / 宽度 / 透明度 / 微调控件，拖动滑块能立即看到效果。
+// 设置页不是把显示页替换掉：上方保留一块与显示窗等高的实时预览，下方才是
+// 颜色 / 字号 / 宽度 / 透明度 / 微调控件，拖动滑块能立即看到效果。预览高度
+// 随字号自适应（见 LyricsDisplayHeight），不再是固定 100px。
 
 var iconLyricsGear = icon(`<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M12.4 3.6l-1 1M4.6 11.4l-1 1"/>`)
+
+// 桌面字幕的布局常量。显示窗高度和设置页预览高度都由 LyricsDisplayHeight
+// 按字号算出来，这里把内边距 / 行间距 / 字号范围集中在一处，避免窗口尺寸和
+// 实际绘制各写一份而漂移。
+const (
+	lyricsPanelPadY        = float32(10)
+	lyricsPanelPadX        = float32(8)
+	lyricsLineGap          = float32(2)
+	lyricsMaxCurrentLines  = 2
+	lyricsMinFontSize      = float32(14)
+	lyricsMaxFontSize      = float32(30)
+	lyricsFallbackFontSize = float32(20)
+	lyricsNextFontRatio    = float32(0.65)
+	lyricsNextMinFontSize  = float32(11)
+)
+
+// LyricsConfigPanelHeight 是设置面板本身需要的高度（不含预览）。控制器用它
+// 算设置窗高度；面板是固定的 8 行控件 + 标题 + 说明，改布局时要一起改。
+// 400 与原 500−100 的有效高度一致，实测 30px 字号下内容仍有余量。
+const LyricsConfigPanelHeight = 400
+
+// lyricsLayoutFontSize 把配置里的字号夹到实际可用的范围。0 / 未设置时用默认
+// 20，与 lyricsPreview 的兜底一致；设置页与控制器都用它，窗口高度才不会和
+// 绘制用的字号对不上。
+func lyricsLayoutFontSize(v float64) float32 {
+	size := float32(v)
+	if size < lyricsMinFontSize {
+		return lyricsFallbackFontSize
+	}
+	if size > lyricsMaxFontSize {
+		return lyricsMaxFontSize
+	}
+	return size
+}
+
+// lyricsNextFontSize 是下一句的字号：当前句的 65%，但不小于 11。
+func lyricsNextFontSize(size float32) float32 {
+	next := size * lyricsNextFontRatio
+	if next < lyricsNextMinFontSize {
+		return lyricsNextMinFontSize
+	}
+	return next
+}
+
+// LyricsDisplayHeight 返回某个字号下桌面字幕显示页应有的高度。显示页最多
+// 同时画「当前句两行 + 下一句一行」，固定 100px 在大字号时会把第二行裁掉，
+// 小字号时又空得难看，所以窗口高度要跟着字号走。
+//
+// 算式与 lyricsPreview 的布局同源：上下内边距 + 两行当前句 + 行间距 + 一行
+// 下一句。自然行盒取框架的字体度量（不同平台可能不同），向上取整避免裁字。
+func LyricsDisplayHeight(fontSize float64) int {
+	size := lyricsLayoutFontSize(fontSize)
+	next := lyricsNextFontSize(size)
+	h := 2*lyricsPanelPadY + float32(lyricsMaxCurrentLines)*naturalLineBox(size) +
+		lyricsLineGap + naturalLineBox(next)
+	if h < 1 {
+		return 1
+	}
+	return int(math.Ceil(float64(h)))
+}
 
 func (a *App) LyricsShell(c *ui.Context) {
 	// 原生 UI 的根也要显式透明，否则窗口虽然 Transparent，根节点仍会铺一层
 	// 主题底色 —— 这正是此前“文字周围一圈白色内边距”的来源。
 	c.SetTheme(a.Theme.uiTheme())
 	c.Root().Background(ui.Transparent)
+	// 预览高度与真实显示窗高度同源：字号越大，预览和窗口一起长高。
+	displayH := float32(LyricsDisplayHeight(a.LyricsFontSize))
 	if a.LyricsConfig {
 		ui.Column(c).Fill().Children(func() {
 			// 设置面板默认在预览下方；窗口贴近屏幕底部时由 controller 向上
 			// 展开，并把面板画到预览上方，保证面板始终在屏幕内。
 			if a.LyricsConfigAbove {
 				a.lyricsConfigPanel(c)
-				a.lyricsPreview(c, 100, false)
+				a.lyricsPreview(c, displayH, false)
 			} else {
-				a.lyricsPreview(c, 100, false)
+				a.lyricsPreview(c, displayH, false)
 				a.lyricsConfigPanel(c)
 			}
 		})
@@ -57,10 +121,7 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 	if textOpacity > 1 {
 		textOpacity = 1
 	}
-	size := float32(a.LyricsFontSize)
-	if size < 14 {
-		size = 20
-	}
+	size := lyricsLayoutFontSize(a.LyricsFontSize)
 	textColor := ui.Hex("#ffffff")
 	if len(a.LyricsColor) == 7 && a.LyricsColor[0] == '#' {
 		textColor = ui.Hex(a.LyricsColor)
@@ -77,7 +138,7 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 			panel := ui.Box(c).FillWidth().FillHeight().Radius(14).
 				Background(bgColor.Alpha(bgOpacity)).
 				DragWindow().
-				Padding(10, 8).Center()
+				Padding(lyricsPanelPadY, lyricsPanelPadX).Center()
 			if bgOpacity > 0 {
 				// 常态不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈
 				// 灰边，看起来像未选中的默认边框。只在鼠标进入时画选中蓝边。
@@ -90,11 +151,11 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 					InsetShadow(0, 0, 0, 1, ui.Hex("#7dd3fc").Alpha(0.28))
 			}
 			panel.Children(func() {
-				ui.Column(c).FillWidth().Gap(2).Center().Children(func() {
+				ui.Column(c).FillWidth().Gap(lyricsLineGap).Center().Children(func() {
 					ui.Text(c, cur).FontSize(size).FontWeight(700).
-						TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(2)
+						TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(lyricsMaxCurrentLines)
 					if next != "" {
-						nextSize := max(float32(11), size*0.65)
+						nextSize := lyricsNextFontSize(size)
 						ui.Text(c, next).FontSize(nextSize).
 							TextColor(textColor.Alpha(textOpacity * 0.62)).
 							TextAlign(ui.Center).SingleLine()

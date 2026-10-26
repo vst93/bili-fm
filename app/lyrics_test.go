@@ -214,3 +214,74 @@ func TestWaylandSessionFor(t *testing.T) {
 		t.Error("非 Linux 平台不应受 Wayland 环境变量影响")
 	}
 }
+
+// TestLyricsConfigRoundTrip 钉住「配置在本地记住，下次打开自动应用」：
+// updateLyricsConfig 写盘后，新的 controller.loadPrefs 必须逐项读回。
+func TestLyricsConfigRoundTrip(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := view.NewApp(func() {})
+	a.LyricsColor = "#38bdf8"
+	a.LyricsBgColor = "#000000"
+	a.LyricsFontSize = 26
+	a.LyricsWidthRatio = 0.45
+	a.LyricsTextOpacity = 0.8
+	a.LyricsBgOpacity = 0.3
+	a.LyricsOffset = 1.2
+	a.LyricsOffsetRemember = true
+	a.LyricsEnabled = true
+	c := &controller{app: a, kv: kv}
+	c.updateLyricsConfig()
+	_ = kv.SetString(prefLyricsEnabled, "true")
+
+	a2 := view.NewApp(func() {})
+	c2 := &controller{app: a2, kv: kv}
+	c2.loadPrefs()
+	if a2.LyricsColor != "#38bdf8" || a2.LyricsBgColor != "#000000" ||
+		a2.LyricsFontSize != 26 || a2.LyricsWidthRatio != 0.45 ||
+		a2.LyricsTextOpacity != 0.8 || a2.LyricsBgOpacity != 0.3 ||
+		a2.LyricsOffset != 1.2 || !a2.LyricsOffsetRemember || !a2.LyricsEnabled {
+		t.Fatalf("重启后配置未完整恢复：%+v", a2)
+	}
+}
+
+// TestLyricsDisplayRectFrom 钉住位置记忆的坐标系：保存的必须是**显示页**
+// 左上角。设置页比显示页宽时显示页在窗口里居中；设置页在上方时显示页在
+// 窗口底部。直接存设置页窗口坐标会让窄屏上的位置横向/纵向偏掉。
+func TestLyricsDisplayRectFrom(t *testing.T) {
+	b := mygo.Rectangle{X: 100, Y: 200, Width: 560, Height: 540}
+	// 显示页 320 宽、140 高；设置面板 400 高（窗口 540 = 140 + 400）。
+	below := lyricsDisplayRectFrom(b, true, false, 320, 140, 400)
+	if below.X != 220 || below.Y != 200 || below.Width != 320 || below.Height != 140 {
+		t.Errorf("设置页在下方时显示页矩形 = %+v，want {220 200 320 140}", below)
+	}
+	above := lyricsDisplayRectFrom(b, true, true, 320, 140, 400)
+	if above.X != 220 || above.Y != 600 || above.Width != 320 || above.Height != 140 {
+		t.Errorf("设置页在上方时显示页矩形 = %+v，want {220 600 320 140}", above)
+	}
+	plain := lyricsDisplayRectFrom(b, false, false, 320, 140, 400)
+	if plain.X != 100 || plain.Y != 200 || plain.Width != 320 || plain.Height != 140 {
+		t.Errorf("显示模式矩形 = %+v，want {100 200 320 140}", plain)
+	}
+}
+
+// TestLyricsConfigHeightFollowsFontSize 钉住设置窗高度 = 显示页 + 固定面板。
+// 字号变大时设置窗必须跟着变高，否则预览长高会把下面的控件挤掉。
+func TestLyricsConfigHeightFollowsFontSize(t *testing.T) {
+	a := view.NewApp(func() {})
+	c := &controller{app: a}
+	h20 := c.lyricsConfigHeight()
+	if want := view.LyricsDisplayHeight(20) + view.LyricsConfigPanelHeight; h20 != want {
+		t.Errorf("20px 设置窗高度 = %d，want %d", h20, want)
+	}
+	a.LyricsFontSize = 30
+	h30 := c.lyricsConfigHeight()
+	if h30 <= h20 {
+		t.Fatalf("字号变大后设置窗应变高：20→%d, 30→%d", h20, h30)
+	}
+	if want := view.LyricsDisplayHeight(30) + view.LyricsConfigPanelHeight; h30 != want {
+		t.Errorf("30px 设置窗高度 = %d，want %d", h30, want)
+	}
+}

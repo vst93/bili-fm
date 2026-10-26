@@ -19,12 +19,34 @@ import (
 )
 
 const (
-	// desktopLyricsWidth 是设置页的最小宽度 / 拿不到屏幕信息时的兜底；
+	// desktopLyricsWidth 是设置页的固定宽度 / 拿不到屏幕信息时的兜底；
 	// 显示页宽度按 LyricsWidthRatio 占屏幕工作区比例计算。
-	desktopLyricsWidth        = 560
-	desktopLyricsHeight       = 100
-	desktopLyricsConfigHeight = 500
+	desktopLyricsWidth = 560
 )
+
+// lyricsDisplayHeight 返回当前字号下显示页应有的高度。
+func (c *controller) lyricsDisplayHeight() int {
+	return view.LyricsDisplayHeight(c.app.LyricsFontSize)
+}
+
+// lyricsConfigHeight 返回设置页窗口应有的高度：显示页 + 固定面板。
+func (c *controller) lyricsConfigHeight() int {
+	return c.lyricsDisplayHeight() + view.LyricsConfigPanelHeight
+}
+
+// lyricsDisplayRectFrom 从窗口 bounds 还原「显示页」矩形。设置页展开时窗口比
+// 显示页宽 / 高：显示页水平居中；设置页在上方时显示页贴在窗口底部。保存位置
+// 时必须用这个矩形，不能直接存窗口左上角（否则窄屏上会偏掉半个宽度）。
+func lyricsDisplayRectFrom(b mygo.Rectangle, config, above bool, displayW, displayH, panelH int) mygo.Rectangle {
+	x, y := b.X, b.Y
+	if config {
+		x = b.X + (b.Width-displayW)/2
+		if above {
+			y = b.Y + panelH
+		}
+	}
+	return mygo.Rectangle{X: x, Y: y, Width: displayW, Height: displayH}
+}
 
 // toggleDesktopLyrics 切换桌面字幕的**用户开关**。有没有字幕由播放器数据
 // 决定：开关打开时，遇到无字幕视频自动隐藏窗口（开关保持开），后续遇到有
@@ -63,17 +85,19 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// 设置绝对位置，重建窗口会让合成器把位置重置；复用同一个 toplevel
 	// 才能让用户拖动的位置跨视频保留。
 	if c.lyricsWin != nil {
-		a.LyricsConfig = false
-		a.LyricsConfigAbove = false
 		if !a.LyricsOn {
+			a.LyricsConfig = false
+			a.LyricsConfigAbove = false
 			a.LyricsOn = true
 			c.lyricsAutoHide = false
-			// 比例可能在隐藏期间改过；重新按当前屏幕算宽度，避免沿用
-			// 设置页/旧窗口留下的像素宽度。
+			// 比例/字号可能在隐藏期间改过；重新按当前屏幕和字号算尺寸，
+			// 避免沿用设置页/旧窗口留下的像素宽度。
+			h := c.lyricsDisplayHeight()
 			posX, posY := c.lyricsWin.Position()
 			w := c.desktopLyricsWidthFor(posX, posY)
+			x, y := clampLyricsPos(posX, posY, w, h)
 			a.LyricsPixelWidth = w
-			c.lyricsWin.SetSize(w, desktopLyricsHeight)
+			c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 			c.lyricsWin.ShowInactive()
 			c.syncLyricsAt(a.Pos)
 			c.lyricsWin.Update(func() {})
@@ -82,10 +106,14 @@ func (c *controller) openDesktopLyricsIfReady() {
 	}
 	a.LyricsConfig = false
 	a.LyricsConfigAbove = false
-	h := desktopLyricsHeight
+	h := c.lyricsDisplayHeight()
 	x, y, ok := c.savedLyricsPos(desktopLyricsWidth, h)
 	if !ok {
-		x, y = desktopLyricsDefaultPos(desktopLyricsWidth, h)
+		// 首次打开：按主屏比例算出实际宽度后再底部居中，不能拿设置页的
+		// 560 当显示宽度。
+		primary := mygo.Screen.PrimaryDisplay()
+		w := lyricsWidthForWork(primary.WorkArea.Width, a.LyricsWidthRatio)
+		x, y = desktopLyricsDefaultPos(w, h)
 	}
 	w := c.desktopLyricsWidthFor(x, y)
 	x, y = clampLyricsPos(x, y, w, h)
@@ -122,8 +150,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	a.LyricsOn = true
 	c.lyricsAutoHide = false
 	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
-	// 316 高会把显示页撑开，所以创建后强制回显示页高度。位置也显式写回：
-	// 不依赖 StateKey 是否保存位置，保证切换视频/重启后落在用户拖到的地方。
+	// 设置页高度会把显示页撑开，所以创建后强制回当前字号对应的显示页
+	// 高度。位置也显式写回：不依赖 StateKey 是否保存位置，保证切换视频/
+	// 重启后落在用户拖到的地方。
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	win.OnClosed(func() {
@@ -204,22 +233,41 @@ func lyricsWidthForWork(workWidth int, ratio float64) int {
 	return w
 }
 
-// resizeDesktopLyricsWidth 在设置宽度比例后同步窗口宽度；设置页至少保留
-// desktopLyricsWidth 宽，避免颜色/滑块行被挤坏。
-func (c *controller) resizeDesktopLyricsWidth() {
+// resizeDesktopLyrics 在字号 / 宽度变化后同步窗口尺寸。显示页保持底边不动，
+// 设置页保持窗口左上角不动（预览高度变化时面板往下长），避免拖字号时整块
+// 窗口乱跳；超出工作区时再由 clampLyricsPos 夹回来。
+func (c *controller) resizeDesktopLyrics() {
 	if c.lyricsWin == nil {
 		return
 	}
+	a := c.app
 	b := c.lyricsWin.Bounds()
-	w := c.desktopLyricsWidthFor(b.X, b.Y)
-	c.app.LyricsPixelWidth = w
-	// 设置页本身保持固定宽度，只更新预览用的实际字幕宽度；等用户点
-	// 「完成」回到显示页时再应用，避免调宽度时设置窗口跟着变、控件乱跳。
-	if c.app.LyricsConfig {
+	displayH := c.lyricsDisplayHeight()
+	if a.LyricsConfig {
+		// 设置页宽度固定，只更新预览用的实际字幕宽度与窗口高度；
+		// 等用户点「完成」回到显示页时再按比例应用显示宽度。
+		a.LyricsPixelWidth = c.desktopLyricsWidthFor(b.X, b.Y)
+		configH := displayH + view.LyricsConfigPanelHeight
+		// 设置页在下方时窗口顶边就是预览顶边，保持不动；在上方时预览
+		// 贴在窗口底部，改为保持底边不动，预览不会跟着字号上下跳。
+		newY := b.Y
+		if a.LyricsConfigAbove {
+			newY = b.Y + b.Height - configH
+		}
+		x, y := clampLyricsPos(b.X, newY, desktopLyricsWidth, configH)
+		if b.X != x || b.Y != y || b.Width != desktopLyricsWidth || b.Height != configH {
+			c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: desktopLyricsWidth, Height: configH})
+		}
 		return
 	}
-	x, y := clampLyricsPos(b.X, b.Y, w, b.Height)
-	c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: b.Height})
+	w := c.desktopLyricsWidthFor(b.X, b.Y)
+	a.LyricsPixelWidth = w
+	// 显示页保持底边不动：字号变大时向上长，不会突然往屏幕外探。
+	newY := b.Y + b.Height - displayH
+	x, y := clampLyricsPos(b.X, newY, w, displayH)
+	if b.X != x || b.Y != y || b.Width != w || b.Height != displayH {
+		c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: displayH})
+	}
 }
 
 // savedLyricsPos 读取上次关闭时记住的窗口位置，并夹到当前屏幕工作区内。
@@ -241,39 +289,71 @@ func (c *controller) savedLyricsPos(w, h int) (int, int, bool) {
 	return cx, cy, true
 }
 
-// saveLyricsPos 保存的是**显示页**的左上角。设置页在下方时窗口左上就是
-// 预览左上；设置页在上方时预览在窗口底部，要补回配置页多出来的高度。
+// lyricsDisplayRect 返回当前窗口里「显示页」的矩形。设置页展开时窗口比显示页
+// 宽 / 高：显示页水平居中；设置页在上方时显示页贴在窗口底部。
+func (c *controller) lyricsDisplayRect(w *mygo.Window) mygo.Rectangle {
+	if w == nil {
+		return mygo.Rectangle{}
+	}
+	b := w.Bounds()
+	// 宽度始终按当前屏幕 / 比例重算，不信任缓存值：用户可能在设置页
+	// 打开期间把窗口拖到另一块显示器。
+	displayW := c.desktopLyricsWidthFor(b.X, b.Y)
+	return lyricsDisplayRectFrom(b, c.app.LyricsConfig, c.app.LyricsConfigAbove,
+		displayW, c.lyricsDisplayHeight(), view.LyricsConfigPanelHeight)
+}
+
+// restoreDisplayBounds 在隐藏窗口前把窗口收回到显示页尺寸。这样下次
+// ShowInactive 复用同一个 toplevel 时，窗口位置就是字幕位置；Wayland 尤其
+// 需要（合成器不让客户端重新指定位置）。
+func (c *controller) restoreDisplayBounds() {
+	if c.lyricsWin == nil {
+		return
+	}
+	r := c.lyricsDisplayRect(c.lyricsWin)
+	c.app.LyricsPixelWidth = r.Width
+	c.lyricsWin.SetBounds(r)
+}
+
+// saveLyricsPos 保存的是**显示页**的左上角，不是设置页窗口的左上角。设置页
+// 比显示页宽时（窄屏上很常见）窗口 X 会偏出去半个宽度，直接存窗口坐标会让
+// 下次打开的位置横向偏移。
 func (c *controller) saveLyricsPos(w *mygo.Window) {
 	if w == nil || c.kv == nil {
 		return
 	}
-	b := w.Bounds()
-	x, y := b.X, b.Y
-	if c.app.LyricsConfig && c.app.LyricsConfigAbove {
-		y += desktopLyricsConfigHeight - desktopLyricsHeight
-	}
-	_ = c.kv.SetString(prefLyricsX, strconv.Itoa(x))
-	_ = c.kv.SetString(prefLyricsY, strconv.Itoa(y))
+	r := c.lyricsDisplayRect(w)
+	_ = c.kv.SetString(prefLyricsX, strconv.Itoa(r.X))
+	_ = c.kv.SetString(prefLyricsY, strconv.Itoa(r.Y))
 }
 
-// clampLyricsPos 把窗口夹进离它最近的显示器工作区。
+// clampLyricsPos 把窗口夹进离它最近的显示器工作区。窗口比工作区还大时
+// 顶边对齐工作区（接受溢出），不把顶边推到屏幕外。
 func clampLyricsPos(x, y, w, h int) (int, int) {
 	d := mygo.Screen.DisplayNearestPoint(mygo.Point{X: x, Y: y})
 	wa := d.WorkArea
 	if wa.Width <= 0 || wa.Height <= 0 {
 		return x, y
 	}
-	if x < wa.X {
+	if w > wa.Width {
 		x = wa.X
+	} else {
+		if x < wa.X {
+			x = wa.X
+		}
+		if x+w > wa.X+wa.Width {
+			x = wa.X + wa.Width - w
+		}
 	}
-	if x+w > wa.X+wa.Width {
-		x = wa.X + wa.Width - w
-	}
-	if y < wa.Y {
+	if h > wa.Height {
 		y = wa.Y
-	}
-	if y+h > wa.Y+wa.Height {
-		y = wa.Y + wa.Height - h
+	} else {
+		if y < wa.Y {
+			y = wa.Y
+		}
+		if y+h > wa.Y+wa.Height {
+			y = wa.Y + wa.Height - h
+		}
 	}
 	return x, y
 }
@@ -311,9 +391,12 @@ func (c *controller) closeDesktopLyrics() {
 func (c *controller) hideDesktopLyrics() {
 	a := c.app
 	// 先保存位置，再清 LyricsConfig：saveLyricsPos 需要知道设置页是向上
-	// 还是向下展开，才能把预览的左上角还原出来。
+	// 还是向下展开，才能把显示页的左上角还原出来。
 	if c.lyricsWin != nil {
 		c.saveLyricsPos(c.lyricsWin)
+		// 把窗口收回到显示页尺寸再隐藏：下次 ShowInactive 复用同一个
+		// toplevel 时，窗口位置就是字幕位置（Wayland 不能重新定位）。
+		c.restoreDisplayBounds()
 	}
 	a.LyricsOn = false
 	a.LyricsConfig = false
@@ -364,6 +447,8 @@ func (c *controller) toggleLyricsConfig() {
 	}
 	now := !a.LyricsConfig
 	b := c.lyricsWin.Bounds()
+	displayH := c.lyricsDisplayHeight()
+	configH := c.lyricsConfigHeight()
 	if now {
 		// 打开设置页前按当前比例重新算一次实际宽度，避免窗口隐藏期间
 		// 缓存/旧设置页留下的 560 像素宽让预览看起来永远被限制。
@@ -372,20 +457,20 @@ func (c *controller) toggleLyricsConfig() {
 		if work.Width <= 0 {
 			work = mygo.Screen.PrimaryDisplay().WorkArea
 		}
-		above, y := lyricsConfigPlacement(b, work, desktopLyricsHeight, desktopLyricsConfigHeight, 8)
+		above, y := lyricsConfigPlacement(b, work, displayH, configH, 8)
 		a.LyricsConfigAbove = above
 		a.LyricsConfig = true
 		// 设置页固定 desktopLyricsWidth，不被字幕宽度比例改变；窗口以
 		// 原来的显示窗为中心展开，避免打开设置时预览横向跳动。
 		configX := b.X + (b.Width-desktopLyricsWidth)/2
-		cx, cy := clampLyricsPos(configX, y, desktopLyricsWidth, desktopLyricsConfigHeight)
+		cx, cy := clampLyricsPos(configX, y, desktopLyricsWidth, configH)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: cx, Y: cy, Width: desktopLyricsWidth, Height: desktopLyricsConfigHeight,
+			X: cx, Y: cy, Width: desktopLyricsWidth, Height: configH,
 		})
 	} else {
 		y := b.Y
 		if a.LyricsConfigAbove {
-			y += desktopLyricsConfigHeight - desktopLyricsHeight
+			y += configH - displayH
 		}
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
@@ -395,9 +480,9 @@ func (c *controller) toggleLyricsConfig() {
 		a.LyricsPixelWidth = w
 		// 仍然以设置页中心为锚点缩回显示页，位置不会横向偏。
 		centerX := b.X + b.Width/2 - w/2
-		x, y := clampLyricsPos(centerX, y, w, desktopLyricsHeight)
+		x, y := clampLyricsPos(centerX, y, w, displayH)
 		c.lyricsWin.SetBounds(mygo.Rectangle{
-			X: x, Y: y, Width: w, Height: desktopLyricsHeight,
+			X: x, Y: y, Width: w, Height: displayH,
 		})
 	}
 	c.lyricsWin.Update(func() {})
@@ -478,9 +563,9 @@ func (c *controller) updateLyricsConfig() {
 	_ = c.kv.SetString(prefLyricsOffset, formatPrefFloat(a.LyricsOffset))
 	_ = c.kv.SetString(prefLyricsOffsetRemember, strconv.FormatBool(a.LyricsOffsetRemember))
 	if c.lyricsWin != nil {
-		// 宽度变化要同步调整窗口；微调变化则立即重算当前句，否则要等
-		// 下一次 500ms 进度回调才看到效果。
-		c.resizeDesktopLyricsWidth()
+		// 宽度 / 字号变化要同步调整窗口；微调变化则立即重算当前句，
+		// 否则要等下一次 500ms 进度回调才看到效果。
+		c.resizeDesktopLyrics()
 		c.syncLyricsAt(a.Pos)
 		c.lyricsWin.Update(func() {})
 	}
