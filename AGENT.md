@@ -4,6 +4,10 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
+- **依赖 mygo v0.7.0**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
+  评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 各一节），
+  当轮的坑与门槛写进 `.pending-bugs.md`。**先读这两处再动依赖。**
+
 - **本仓库 `main` 分支已经是纯 Go + mygo 原生应用**，Tauri / React / WebView 前端
   已整体删除（`src/`、`src-tauri/`、Node/Vite/Tailwind 配置、`aur/`、MSIX 打包等）。
 - 应用代码全在 **`app/`**（Go module `github.com/vst93/bili-fm/app`）：
@@ -33,6 +37,14 @@
 - Release notes 惯例：更新内容明细 +「下载安装」表格（按平台列文件）+ xattr 提示 + Gitee 镜像说明。
 
 ## 平台坑（已踩实）
+
+- **发布产物命名**：mygo 0.7.0 起磁盘镜像与 Windows 安装器**按 `slug` 命名**
+  （`bili-fm-setup-<ver>-<arch>.exe`），0.6.x 是 `bili-FM Setup <ver> <arch>.exe`。
+  `release-mygo.yml` 收集时要两代都匹配，且**找不到就 exit 1** —— 静默漏传会
+  连带 store / Tauri 迁移 job 硬失败。可执行文件仍按 `name`（`bili-FM.exe`）。
+  `mygo.json` 里的 `slug` 已显式钉成 `bili-fm`，别删。
+- **Linux Wayland 无边框窗**：0.7.0 起框架给 Frameless 主窗加 GTK CSD
+  （投影 + 描边，mygo #727）。透明窗（桌面字幕）、panel、X11 不受影响。
 
 - **CSP 已不存在**（原生版没有 webview 安全策略），旧 Tauri 的 CSP/WebView2 坑只作历史参考。
 - **SponsorBlock（bsbsb.top）**：免费无 key，`GET /api/skipSegments?videoID=BV..&cid=..`。会话缓存只能存真实服务端结论，abort/超时/网络失败不得写入。

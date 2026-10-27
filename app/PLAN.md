@@ -884,3 +884,39 @@ go test -tags perfmeasure -run XXX -bench BenchmarkDrawerFrameAllocs -benchtime 
 常驻重绘场景里最常见的掉帧来源。新增 `BenchmarkDrawerFrameAllocs`（`perfmeasure`
 tag，不进 `./check.sh`）与 `playerrim_cache_test.go`（`AllocsPerRun` 钉住稳态
 零分配、键包含 rect/radius、缓存封顶）。
+
+## mygo v0.7.0 升级评估（2026-10）
+
+`app/go.mod` 从 v0.6.4 升到 **v0.7.0**（go.sum 只换 mygo 两行）。逐条读
+release notes 对应 PR 的源码后：**能用上的仍然是「升级即生效」的框架侧改动**，
+业务代码只有**配置**和**发版脚本**两处必须动，其余读完后确认没有自然用点。
+
+先给结论：`go vet` / `go tool mygo vet` / 全包测试 / 六平台编译全绿；
+`-shot` 截图与升级前一致；每帧分配（`BenchmarkDrawerFrameAllocs`，300 卡稳态
+滚动）**268,533 B / 7,740 objects**，与 v0.6.3 那轮记录（267,530 B / 7,740）
+持平 —— 升级本身没有引入每帧开销。
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #759 | **只重绘「要求重绘」的那几个图元**：一帧如果只有动画在动（`AnimatePose` / `Painter.AnimationFrame`），只跑那几个回调，把结果替换进上一帧的 scene，不再整窗重画 | 本项目到处是「只动不重建」的动画：唱片自转（`home.go` 的 `AnimatePose`）、卡片悬停上浮 / 按压（`theme.go` 的 `pressScale`）、设置菜单条目、合作 UP 主选择器、播放列表行。这些帧此前要把整窗的背景/光罩/氛围光/播放栏重新跑一遍。 | **采用（升级即生效）** |
+| #754 | GPU 上**按多个损伤矩形分别重绘**，不再取它们的并集 | 列表滚动：上下两行的损伤矩形并集是整条横带（含背景、播放栏），分开重绘只碰两行。 | **采用（升级即生效）** |
+| #726 / #795 | **只做平移的 clip 折叠成普通矩形**，不再每帧打遮罩 | 抽屉卡片列表、播放列表行都在一个滚动容器里（clip 只跟着滚动平移）；此前每帧给整块打一次遮罩。 | **采用（升级即生效）** |
+| #758 / #756 | 画在内存里的帧（GDI / CPU 渲染）**按显示器刷新率节流** | 本项目给用户的 CPU 渲染开关（`BILIFM_LOW_MEMORY=1` / `BILIFM_GPU=0`，见 `memory.go`）在 Windows 上就是「画在内存里」：此前动画帧会跑成每秒上千帧，现在跟着刷新率走。 | **采用（升级即生效）** |
+| #757 | 圆环与阴影按圆角分带绘制（band 跟着圆角走） | 播放栏的圆角描边、卡片阴影、玻璃面板投影都是圆角阴影。 | **采用（升级即生效）** |
+| #769 | 磁盘镜像与 Windows 安装器**按 slug 命名**：`mygo build` 产出 `bili-fm-setup-<ver>-<arch>.exe` | `release-mygo.yml` 的收集步骤按 `*Setup*.exe`（大小写敏感）找安装包 —— 0.7.0 之后**匹配不到**，安装包会静默漏传，同 workflow 的 store / Tauri 迁移 job 再硬失败。 | **必须改**（已改：两代名字都收，且找不到就 exit 1） |
+| #768 | 新增 `slug` 配置项（CJK 名转拼音） | 本项目 `name` 是 ASCII（推导值就是 `bili-fm`），但显式钉死它，避免以后改名或改推导规则把已发布文件名换掉。 | **采用**（`mygo.json` 加 `"slug": "bili-fm"`） |
+| #782 | Windows `windows.displayName`（可执行文件名与显示名分离）+ `publisher` | `publisher` 之前是空的（Windows「设置 → 应用」与文件属性里没有发布者）。`displayName` 用不上（名字本来就是 ASCII）。 | **采用 `publisher`** |
+| #727 | Linux Wayland：无边框窗 / 隐藏标题栏窗开始带 GTK 的 CSD（投影 + 描边 + 从边缩放） | 主窗在 Linux 上是 `Frameless`、非透明 → 0.7.0 起会多一圈 GTK 投影/描边（原 Tauri 版 `decorations:false` 没有）。透明窗（桌面字幕）、panel、X11 不受影响。 | **先保持框架默认**；判定与原版不符时给主窗加 `DisableShadow: true` 即可回到 0.6.4 观感 |
+| #765 | macOS：拖拽区**轻按即拖**（不必先等双击判定） | 标题栏、迷你窗标题栏、桌面字幕都是 `DragWindow()`。 | **采用（升级即生效）** |
+| #800 | Linux：原生 UI 支持触摸屏滚动 / 捏合 / 点按 | Linux 平板/触摸本上列表可滚。 | **采用（升级即生效）** |
+| #805 / #806 / #747 | 退出竞态、macOS 更新替换 bundle 后 Dock 图标保留、经 Launch Services 重启 | 应用内更新走 `up.Install` + `App.Relaunch`（`prefs.go`）。 | **采用（升级即生效）** |
+| #654 | **`mygo.NowPlaying`**：一套代码覆盖 MPRIS / SMTC / MPNowPlayingInfoCenter + 媒体键 | 能替掉 `internal/mediactl` 那 ~1300 行平台代码。**不迁**，两个硬理由：① 它只给 Play/Pause/Stop/Next/Previous/Seek，本项目 MPRIS 还实现了 `Volume`/`Rate`/`LoopStatus`/`Shuffle` 四个**可写**属性（`playerctl volume` / `loop` / `shuffle` 能用），迁过去是功能倒退；② 它要 `Artwork []byte`（应用自己抓图），现实现传 `ArtURL` 让系统去取。真要迁，先定「MPRIS 扩展属性」的替代方案。 | **不采用（本轮）** |
+| #761 | `Updater.SetPrereleases`：让选了 beta 的用户收到 prerelease | 本项目预览版发的就是 GitHub **prerelease**，所以预览版用户现在其实收不到更新。但 `update_source.go` 的「Gitee 优先」传输层把 `/repos/.../releases` 列表请求**合成成一条最新正式版**，开了也拿不到预览版。要做先让传输层透出 prerelease 列表。 | **不采用（本轮）** |
+| #739 | `Context.SetZoom`：整窗内容按比例缩放（矢量重排，不是放大的位图） | 可以补一个界面缩放（Ctrl/Cmd +/-/0）。但界面是原版的**逐像素复刻**，缩放会改掉所有断点行为，且原版没有这个入口。 | **不采用（等用户提）** |
+| #760 | `Element.Cache`：把静止子树烘成一张位图 | 本项目最贵的三块（`bloom.go` 的光罩、`shell.go` 的氛围光、播放栏洗光）**已经**是「一张预烘位图 + 一个 `DrawOver`」，再 Cache 一层只多一次拷贝；唱片自转是单张 `ui.Image` 的 `AnimatePose`，同理。 | **不采用（无收益）** |
+| #717 | `Bitmap.ReleasePixels`：`DecodeBitmap` 造的位图在 GPU 上传后可丢 CPU 像素 | 本项目封面走 `ui.NewBitmap(image.Image)`（`imagecache.download` 刻意避免解两遍，见那里的注释），没有原始字节可重解，用不上。 | **不适用** |
+| #748 | `install.ps1` + `SHA256SUMS`：Windows 一行命令安装 | 白送一个安装入口，但它按 `bili-fm-setup-<ver>-<arch>.exe` 这个**原名**去 release 里找包，而本 workflow 会把安装包改名成 `bili-FM-<ver>-windows-<arch>-setup.exe`（release 说明表格与 store job 都按这个名走）。要做需先定改名策略。 | **不采用（本轮）** |
+| #772 | `Element.Hidden`：`display:none` 式隐藏且保留内部状态 | 本项目所有「条件显示」都已经按 mygo 的元素 id 规则处理（`titleBar` 的 `showBrand` 只不填子节点、`shell.go` 的注释写了原因），没有需要「保留滚动位置/编辑中文本」的隐藏点。 | **不适用** |
+| #774 | `Path.Cap/Join/MiterLimit/Dash` | 本项目描边（播放栏聚光环、弹幕热力多边形、章节刻线）都是闭合/实线，默认的圆头圆角正是原版要的；没有虚线需求。 | **不适用** |
+| #753 | `Painter.AnimationFrameRate`：让自绘动画降帧 | 本项目唯一的 `AnimationFrame()` 用法（`playlist.go`）是「保证下一帧一定到来」，不是持续动画循环。 | **不适用** |
+| #724 / #728 / #737 / #781 / #778 / #777 / #787 / #776 / #766 / #764 / #723 / #721 / #722 / #734 / #804 / #719 | UI Automation 零分配、编辑器着色、Markdown 行内公式、`Page.IsAudible`/`ThemeColor`/`ProcessID`、flyout/窗口 FitContent、菜单图标、macOS 托盘标题定宽、子窗跟随父窗、最大化/顶部缩放/无边框材质/DWM caption、Linux 隐藏标题栏菜单栏、Liquid Glass | 视频弹窗已经用频道把 `muted` 推给页面（`video.html`），不需要 `SetAudioMuted`；本项目不用编辑器/Markdown/flyout/系统菜单图标/终端；主窗 `DisableResize` + `DisableMaximize`，不最大化、不从边缩放；不用窗口材质（玻璃是自己画的）。 | **不适用 / 无影响** |

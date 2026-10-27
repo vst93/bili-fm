@@ -6,3 +6,5 @@ blprobe
 
 # mygo dev 的开发构建
 .mygo/
+# 手写 `go build .` 在 app/ 里落下的二进制（正式构建走 mygo build → build/）
+/app

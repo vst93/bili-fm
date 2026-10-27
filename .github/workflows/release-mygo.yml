@@ -365,8 +365,19 @@ jobs:
                 EXE="build/windows-$A/bili-FM.exe"
                 [ -f "$EXE" ] || continue
                 cp "$EXE" "../out/bili-FM-$VERSION-windows-$A.exe"
-                SETUP=$(ls build/windows-$A/*Setup*.exe 2>/dev/null | head -1 || true)
-                [ -n "$SETUP" ] && cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
+                # 安装包文件名随 mygo 版本变过：
+                #   0.6.x  `bili-FM Setup 3.1.2 amd64.exe`（显示名，带空格）
+                #   0.7.0+ `bili-fm-setup-3.1.2-amd64.exe`（slug + 连字符，
+                #           mygo #769「Name disk images and Windows installers
+                #           after the slug」）
+                # 两代都收，免得升级 mygo 后这里静默漏掉安装包（漏了等于这个
+                # release 没有 Windows 安装器，store/迁移 job 会跟着硬失败）。
+                SETUP=$(ls build/windows-$A/*-setup-*.exe build/windows-$A/*Setup*.exe 2>/dev/null | head -1 || true)
+                if [ -z "$SETUP" ]; then
+                  echo "::error::build/windows-$A 里没有安装包（期望 *-setup-*.exe）"
+                  exit 1
+                fi
+                cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
                 cp build/windows-$A/bili-fm-*-windows-$A.tar.gz "../out/" 2>/dev/null || true
                 cp "build/windows-$A/update-windows-$A.json" "../out/" 2>/dev/null || true
                 cp build/windows-$A/*.delta "../out/" 2>/dev/null || true

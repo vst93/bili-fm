@@ -1,6 +1,8 @@
 {
   "name": "bili-FM",
+  "slug": "bili-fm",
   "identifier": "com.bili-fm.app",
+  "publisher": "vst93",
   "version": "3.1.2",
   "copyright": "© 2026 vst93",
   "main": ".",
