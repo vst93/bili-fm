@@ -31,9 +31,11 @@ const playlistRowPadL = 8
 
 // playlistTabs 是播放列表抽屉的表头。
 func (a *App) playlistTabs(c *ui.Context) {
-	tabs := []tabItem{{Key: ListUser, Label: fmt.Sprintf("我的列表(%d)", len(a.Playlist))}}
-	if len(a.SeriesPlaylist) > 0 {
-		tabs = append(tabs, tabItem{Key: ListSeries, Label: fmt.Sprintf("合集列表(%d)", len(a.SeriesPlaylist))})
+	// 两个 tab 始终展示：合集列表为空时正文提示「合集列表为空…」，
+	// 不能因为列表空了就把 tab 藏掉、让表头宽度/位置跳变。
+	tabs := []tabItem{
+		{Key: ListUser, Label: fmt.Sprintf("我的列表(%d)", len(a.Playlist))},
+		{Key: ListSeries, Label: fmt.Sprintf("合集列表(%d)", len(a.SeriesPlaylist))},
 	}
 	a.tabs(c, "playlist", tabs, a.PlaylistTab, func(k string) {
 		a.PlaylistTab = k

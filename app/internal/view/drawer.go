@@ -2976,21 +2976,15 @@ func (a *App) danmakuTabs(c *ui.Context) {
 		replyLabel = fmt.Sprintf("评论 (%d)", len(a.Comments))
 	}
 	tabs = append(tabs, tabItem{Key: TabReply, Label: replyLabel, Icon: iconDanmaku})
-	// 章节 / 字幕只在当前视频确实有数据（或在途）时出现，避免绝大多数视频
-	// 的表头多出两个永远空着的 tab。正在看的 tab 若因换集消失，回落到弹幕。
+	// 章节仍只在当前视频确实有数据（或在途）时出现；字幕 tab 则**始终**
+	// 展示：没有字幕时正文会提示「当前视频没有字幕」，tab 行不会因为换集
+	// 突然少一项/跳位。正在看的章节 tab 若因换集消失，回落到弹幕。
 	showChapters := len(a.Chapters) > 0 || a.ExtrasLoading || a.DanmakuTab == TabChapters
-	showSubtitles := len(a.SubtitleTracks) > 0 || len(a.Subtitles) > 0 ||
-		a.SubtitlesLoading || a.ExtrasLoading || a.DanmakuTab == TabSubtitle
 	if showChapters {
 		tabs = append(tabs, tabItem{Key: TabChapters, Label: fmt.Sprintf("章节 (%d)", len(a.Chapters)), Icon: iconMusicList})
 	}
-	if showSubtitles {
-		tabs = append(tabs, tabItem{Key: TabSubtitle, Label: "字幕", Icon: iconText})
-	}
+	tabs = append(tabs, tabItem{Key: TabSubtitle, Label: "字幕", Icon: iconText})
 	if a.DanmakuTab == TabChapters && !showChapters {
-		a.DanmakuTab = TabDanmaku
-	}
-	if a.DanmakuTab == TabSubtitle && !showSubtitles {
 		a.DanmakuTab = TabDanmaku
 	}
 
