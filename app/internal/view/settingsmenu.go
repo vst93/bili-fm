@@ -132,6 +132,11 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.Act.ToggleHeat()
 				}
 			})
+			// 一句话说明播放栏里的两种图形：底部面积是弹幕密度，进度条
+			// 上的短竖线是章节分界，不是第二组热力数据。
+			ui.Text(c, "面积=弹幕密度；短竖线=章节分界").
+				FontSize(11).TextColor(settingsItemInk.Alpha(0.65)).
+				Padding(0, settingsItemPadX).Margin(0, 0, 6, 0)
 			a.settingsToggle(c, "顺着听", a.RadioOn, func() {
 				if a.Act.ToggleRadio != nil {
 					a.Act.ToggleRadio()

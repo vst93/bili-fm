@@ -6,6 +6,7 @@
   "main": ".",
   "icon": "resources/icon.png",
   "frontendDist": "frontend",
+  "bindings": "frontend/src/mygo.ts",
   "out": "build",
   "linux": {
     "maintainer": "vst93 <vst93@users.noreply.github.com>",

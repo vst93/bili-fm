@@ -1640,17 +1640,24 @@ func pressFeedback(e ui.Element, rest, hover, pressed ui.Color) ui.Color {
 var scrollHoldEnabled = true
 
 // scrollHold 是「滚动进行中锁住选中/悬停上浮」的状态机：滚动期间不渲染
-// 卡片上浮（renderCard 不再重建 lift 动画 / 悬停光晕）。位置一变就按住；
-// 位置连续不变的第一帧就松开，本帧 renderCard 把上浮画回来并结束求帧。
-//
-// 连续滚动（滚轮/触摸板每帧都有位移）时位置每帧都变，锁一直按住；只在
-// 真正停下后的那一帧恢复。不设「落定窗口」是为了不空转帧：停下后既能
-// 立刻恢复上浮，又只需多求一帧。
+// 卡片上浮（renderCard 只让最后悬停的那张卡把已有上浮收回，其余卡不重建
+// lift 动画 / 悬停光晕）。位置一变就按住；最后一次位移后再保持
+// scrollHoldSettle，等触摸板的惯性滚动真正停下，再松开并恢复悬停。
 type scrollHold struct {
-	last float64 // 上一帧的滚动位置（float64：长列表首行 * 2^20 + 偏移不失真）
-	set  bool    // last 是否有效（容器上一帧在不在视图里）
-	held bool    // 当前是否按住（滚动中）
+	last       float64 // 上一帧的滚动位置（float64：长列表首行 * 2^20 + 偏移不失真）
+	set        bool    // last 是否有效（容器上一帧在不在视图里）
+	held       bool    // 当前是否按住（滚动中）
+	lastChange time.Time
 }
+
+// scrollHoldSettle 是最后一次滚动位移之后继续按住悬停的时长。触摸板的
+// 惯性滚动在事件之间常有一两帧没有位移，若第一帧静止就松开，悬停上浮会
+// 在滚动末尾反复亮/灭，看起来就是卡顿。留一个落定窗口，等滚动真正停下
+// 再恢复；窗口内只多求几帧（卡片仍按常态画，不重建光晕/上浮）。
+var scrollHoldSettle = 140 * time.Millisecond
+
+// scrollHoldNow 可在测试里换成虚拟时钟，避免依赖真实时间。
+var scrollHoldNow = time.Now
 
 // observe 上报这一帧容器的滚动位置与可见性，返回 locked（这一帧要不要锁
 // 住上浮）与 needFrame（是否要再求一帧）。
@@ -1663,6 +1670,7 @@ type scrollHold struct {
 // needFrame 为真时调用方必须 c.AnimationFrame()：位移帧要主动求下一帧，
 // 否则滚动停下后没有自然帧来到，锁会挂住不解除。
 func (s *scrollHold) observe(offset float64, shown bool) (locked, needFrame bool) {
+	now := scrollHoldNow()
 	locked = s.held
 	if !shown {
 		// 容器不在视图里（抽屉关着 / 换 tab）：位置观测无效，但保持锁定
@@ -1673,15 +1681,20 @@ func (s *scrollHold) observe(offset float64, shown bool) (locked, needFrame bool
 	switch {
 	case !s.set:
 		// 首次观测只建基线，不算滚动。
-		s.last, s.set = offset, true
+		s.last, s.set, s.lastChange = offset, true, now
 	case offset != s.last:
 		// 位移发生的本帧就锁住，并求下一帧来判定「停下 & 恢复」。
-		s.last, s.held = offset, true
+		s.last, s.held, s.lastChange = offset, true, now
 		locked, needFrame = true, true
 	case s.held:
-		// 位置不再变：滚动停下，本帧就恢复渲染上浮（不再求帧）。
-		s.held = false
-		locked = false
+		if now.Sub(s.lastChange) < scrollHoldSettle {
+			// 落定窗口内：保持锁定并继续求帧，等窗口结束再恢复悬停。
+			locked, needFrame = true, true
+		} else {
+			// 窗口结束：本帧恢复渲染上浮（不再求帧）。
+			s.held = false
+			locked = false
+		}
 	}
 	return locked, needFrame
 }

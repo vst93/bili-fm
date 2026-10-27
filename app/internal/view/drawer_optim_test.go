@@ -29,6 +29,13 @@ func TestCardLiftAnimationSnappy(t *testing.T) {
 			t.Errorf("缓动在 %.2f 处 = %v, want %v", x, cardLiftAnim.Ease(x), want(x))
 		}
 	}
+	// 进入滚动时的落定比悬停慢，且与光晕渐隐同为 120ms。
+	if cardSettleAnim.Duration != 120*time.Millisecond {
+		t.Errorf("落定时长 = %v, want 120ms", cardSettleAnim.Duration)
+	}
+	if cardSettleAnim.Duration <= cardLiftAnim.Duration {
+		t.Error("落定应比悬停上浮慢，避免滚动第一帧硬切")
+	}
 }
 
 // TestDrawerCardCursorIsDefault 钉住「抽屉项悬停不变成手型」：原版

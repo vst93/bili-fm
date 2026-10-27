@@ -24,6 +24,10 @@ func hoverProbe(t *testing.T, a *App) (*ui.Tester, *[]hfRec) {
 		a.Shell(c)
 		recs = append(recs, hfRec{held: a.scrollHoldHeld, hover: a.hoverChannels.Load()})
 	}, 800, 600)
+	// 滚动落定窗口用无头测试的虚拟时钟，避免依赖真实时间。
+	oldNow := scrollHoldNow
+	scrollHoldNow = tt.Now
+	t.Cleanup(func() { scrollHoldNow = oldNow })
 	tt.Advance(400 * time.Millisecond) // 推过抽屉入场（v0.5.5 冻结时钟）
 	tt.Frame()
 	return tt, &recs
@@ -66,7 +70,9 @@ func TestScrollHoldFreezesCardHover(t *testing.T) {
 		t.Fatalf("滚动锁住期间仍铺了 %d 次悬停底色（hover 没被冻结）", lockedHover)
 	}
 
-	// 停下后再跑几帧：悬停底色恢复。
+	// 停下后再走过落定窗口，再跑几帧：悬停底色恢复。
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
 	*recs = (*recs)[:0]
 	for i := 0; i < 3; i++ {
 		tt.Frame()

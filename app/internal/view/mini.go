@@ -253,7 +253,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 			playerBarShadowInsets(t, true)),
 		// 向上投影与主窗同一套令牌，但 mini 浅色的兜底更紧（22px，
 		// 见 playerBarShadowSpec）。
-		[]shadowSpec{playerBarShadowSpec(t, true)}), ui.Transparent).
+		[]shadowSpec{playerBarShadowSpec(t, true)}), ui.Transparent, nil).
 		Children(func() {
 			ui.Box(c).FillWidth().Height(1).Shrink(0).Background(t.PlayerBorder)
 			ui.Row(c).FillWidth().Grow(1).Padding(0, 10).Gap(4).

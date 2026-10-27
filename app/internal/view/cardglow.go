@@ -217,10 +217,15 @@ func cardSurface(box ui.Element, pressed bool, px, py, glow float32) {
 // 原版 pointerEffectsEnabled 还要求 `(prefers-reduced-motion: no-preference)`：
 // 桌面要求减少动态效果时，App.tsx 直接 clearAll()，光晕整层不画 —— 这里同样
 // 在 reduceMotion 下把目标压成 0（悬停的底/边/上浮不受影响，它们是静态状态）。
-func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, pressed bool) {
+func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, pressed, locked bool) {
+	// 滚动锁期间不给新卡挂层：只保留进入滚动前最后悬停的那张，让它按
+	// 120ms 渐隐；否则卡片在指针下滑过时会逐张亮/灭。
+	if locked && a.cardGlowKey != key {
+		return
+	}
 	px, py, over := box.PointerPosition()
-	entered := over && a.cardGlowKey != key
-	if over {
+	entered := over && !locked && a.cardGlowKey != key
+	if over && !locked {
 		a.cardGlowKey, a.cardGlowX, a.cardGlowY = key, px, py
 	}
 	if a.cardGlowKey != key {
@@ -232,7 +237,7 @@ func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, 
 		box.Jump("card-glow", 0)
 	}
 	want := float32(0)
-	if hovered && !reduceMotion(c) {
+	if hovered && !locked && !reduceMotion(c) {
 		want = cardGlowOpacity
 	}
 	glow := box.AnimateTo("card-glow", want, cardGlowFadeAnim)

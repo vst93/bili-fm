@@ -45,11 +45,15 @@ func (c *controller) setupTray() {
 	icon, template := trayIcon()
 	// 菜单先在手里建好，怎么显示按平台分流：mygo 的 Tray 一旦 SetMenu，
 	// macOS 的左键就会被 NSStatusItem 的菜单吃掉；AppIndicator（Linux）
-	// 更是只能显示菜单、拿不到点击事件。所以：
+	// 默认只有菜单。所以：
 	//   Windows —— 左键 OnClick 显示主窗口，右键弹菜单（THBN 左键不拦菜单）；
 	//   macOS   —— 不常驻菜单，左键 OnClick 显示主窗口，右键临时挂菜单再弹；
-	//   Linux   —— 只能常驻菜单（点击即菜单），第一项就是「显示主窗口」。
+	//   Linux   —— 常驻菜单（单击即菜单），第一项就是「显示主窗口」。
 	// 这样三个平台点 logo 都能回到窗口（Linux 多一步菜单项）。
+	//
+	// mygo 0.6.4 起 Linux 的 AppIndicator 也能派发 activate（双击），但注册
+	// OnClick 会让 GNOME 把单击压到双击判定之后再开菜单；恢复入口本来就在
+	// 菜单第一项，所以 Linux 不注册 OnClick，保持单击即菜单。
 	menu := mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { c.trayAction("show", c.showWindow) }},
 		mygo.Separator(),
@@ -82,11 +86,13 @@ func (c *controller) setupTray() {
 		return
 	}
 	// Windows/macOS：左键（单击或双击）都显示主窗口。双击会回调两次，
-	// showWindow 幂等，不会把窗口又藏起来。
-	tray.OnClick(func() { c.trayAction("show", c.showWindow) })
+	// showWindow 幂等，不会把窗口又藏起来。Linux 见上面的说明：不注册，
+	// 避免单击菜单被双击判定拖慢。
+	if runtime.GOOS != "linux" {
+		tray.OnClick(func() { c.trayAction("show", c.showWindow) })
+	}
 	// 右键弹菜单。Windows 原生托盘只在菜单常驻时才自动弹（这里没设），
-	// 所以三个平台统一由这条回调临时挂菜单再弹；Linux 没有点击事件，
-	// 走下面的常驻菜单。
+	// 所以三个平台统一由这条回调临时挂菜单再弹；Linux 走下面的常驻菜单。
 	tray.OnRightClick(func() {
 		c.trayAction("menu", func() {
 			tray.SetMenu(menu)
@@ -98,11 +104,10 @@ func (c *controller) setupTray() {
 		// AppIndicator 的点击只能弹菜单：保持常驻，第一项是「显示主窗口」。
 		tray.SetMenu(menu)
 	}
-	// 必须留住托盘本身：Linux（AppIndicator）的原生托盘不持有 mygo 的
-	// TrayHandler，而 mygo 的菜单派发（menuItems）只对 MenuItem 持弱引用，
+	// 必须留住托盘本身：mygo 的菜单派发（menuItems）只对 MenuItem 持弱引用，
 	// Menu 又只被 *Tray 强引用 —— 不存这一笔，*Tray/Menu/每个 MenuItem 都会被
-	// GC 回收，托盘菜单点上去没有任何反应（macOS/Windows 的原生托盘持有
-	// handler，链子不断，所以只有 Linux 用户报这个）。
+	// GC 回收，托盘菜单点上去没有任何反应（0.6.4 起 Linux tray 也持有
+	// TrayHandler，但保留这条强引用作为跨版本兜底）。
 	c.tray = tray
 }
 

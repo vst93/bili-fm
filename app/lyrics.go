@@ -59,7 +59,7 @@ func (c *controller) toggleDesktopLyrics() {
 		c.menuLyrics.SetChecked(a.LyricsEnabled)
 	}
 	if !a.LyricsEnabled {
-		c.closeDesktopLyrics()
+		c.disableDesktopLyrics()
 		a.Win.Update(func() {})
 		return
 	}
@@ -93,9 +93,19 @@ func (c *controller) openDesktopLyricsIfReady() {
 			// 比例/字号可能在隐藏期间改过；重新按当前屏幕和字号算尺寸，
 			// 避免沿用设置页/旧窗口留下的像素宽度。
 			h := c.lyricsDisplayHeight()
-			posX, posY := c.lyricsWin.Position()
-			w := c.desktopLyricsWidthFor(posX, posY)
-			x, y := clampLyricsPos(posX, posY, w, h)
+			// 优先用隐藏时落盘的位置：Wayland 的 toplevel 位置由合成器
+			// 管理，Position() 不一定是用户最后看到的位置；KV 是本应用
+			// 自己的事实源。取不到时才退回窗口当前位置。
+			var w int
+			x, y, ok := c.savedLyricsPos(desktopLyricsWidth, h)
+			if ok {
+				w = c.desktopLyricsWidthFor(x, y)
+				x, y = clampLyricsPos(x, y, w, h)
+			} else {
+				posX, posY := c.lyricsWin.Position()
+				w = c.desktopLyricsWidthFor(posX, posY)
+				x, y = clampLyricsPos(posX, posY, w, h)
+			}
 			a.LyricsPixelWidth = w
 			c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 			c.lyricsWin.ShowInactive()
@@ -136,9 +146,12 @@ func (c *controller) openDesktopLyricsIfReady() {
 		DisableMinimize:   true,
 		DisableMaximize:   true,
 		DisableFullScreen: true,
-		StateKey:          "desktop-lyrics",
-		Hidden:            true,
-		Content:           ui.View(a.LyricsShell),
+		// 刻意不设 StateKey：mygo 的窗口状态会在 NewWindow 时覆盖显式
+		// 传入的 X/Y/尺寸，而 Linux Wayland 不允许创建后再定位 —— 两者
+		// 叠在一起就是「每次开关位置被重置」。位置/尺寸统一由本文件的
+		// KV + SetBounds 管理。
+		Hidden:  true,
+		Content: ui.View(a.LyricsShell),
 	}
 	win := mygo.NewWindow(opts)
 	if win == nil {
@@ -149,15 +162,23 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.lyricsWin = win
 	a.LyricsOn = true
 	c.lyricsAutoHide = false
-	// StateKey 会连窗口尺寸一起恢复；如果上次是在设置页关掉的，恢复成
-	// 设置页高度会把显示页撑开，所以创建后强制回当前字号对应的显示页
-	// 高度。位置也显式写回：不依赖 StateKey 是否保存位置，保证切换视频/
-	// 重启后落在用户拖到的地方。
+	// 显式写回显示页尺寸：不设 StateKey，窗口状态不会用上次设置页的
+	// 高度把显示页撑开；位置也由本文件的 KV 管理。
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
+	// Alt+F4 等用户关闭路径：不销毁窗口，只隐藏并关掉开关。Wayland 上
+	// 销毁 toplevel 会丢掉合成器记住的位置，复用同一个 toplevel 才能让
+	// 下次开关回到用户拖到的地方。真正退出应用时 c.quitting 为真，放行。
+	win.OnClose(func(e *mygo.CloseEvent) {
+		if c.quitting {
+			return
+		}
+		e.PreventDefault()
+		c.disableDesktopLyrics()
+	})
 	win.OnClosed(func() {
-		// Alt+F4 等用户关闭路径也要记住位置；hideDesktopLyrics 里还会先存
-		// 一次（因为那里会提前清 LyricsConfig，需保留设置页展开方向）。
+		// 只作为「窗口被系统销毁 / 应用退出」的兜底；正常关闭路径已被
+		// OnClose 拦成隐藏。应用退出时不要把用户的桌面字幕开关关掉。
 		if c.lyricsWin == win {
 			c.saveLyricsPos(win)
 			c.lyricsWin = nil
@@ -165,8 +186,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 		a.LyricsOn = false
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
-		// 用户用 Alt+F4 等方式关闭窗口 = 关掉开关；自动隐藏不算。
-		if !c.lyricsAutoHide {
+		if !c.lyricsAutoHide && !c.quitting {
 			a.LyricsEnabled = false
 			_ = c.kv.SetString(prefLyricsEnabled, "false")
 			c.syncMenuToggles()
@@ -177,19 +197,22 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.syncLyricsAt(a.Pos)
 }
 
-// desktopLyricsDefaultPos 把首次打开的窗口放在主屏工作区底部居中；之后
-// StateKey 会恢复用户拖到的位置。
+// desktopLyricsDefaultYRatio 是首次打开时窗口顶边在工作区可用高度中的
+// 位置：2/3，也就是「中间靠下」。字幕/歌词贴着屏幕最底部会离视线太远，
+// 居中又挡住主内容，2/3 更接近播放器歌词条的习惯位置。
+const desktopLyricsDefaultYRatio = 2.0 / 3.0
+
+// desktopLyricsDefaultPos 把首次打开的窗口放在主屏工作区中间靠下。
+// 之后位置由 KV（prefLyricsX/Y）恢复。
 func desktopLyricsDefaultPos(w, h int) (int, int) {
-	d := mygo.Screen.PrimaryDisplay().WorkArea
-	x := d.X + (d.Width-w)/2
-	y := d.Y + d.Height - h - 72
-	if x < d.X {
-		x = d.X
-	}
-	if y < d.Y {
-		y = d.Y
-	}
-	return x, y
+	return desktopLyricsDefaultPosIn(mygo.Screen.PrimaryDisplay().WorkArea, w, h)
+}
+
+// desktopLyricsDefaultPosIn 是默认位置的纯计算版，便于无头测试。
+func desktopLyricsDefaultPosIn(work mygo.Rectangle, w, h int) (int, int) {
+	x := work.X + (work.Width-w)/2
+	y := work.Y + int(float64(work.Height-h)*desktopLyricsDefaultYRatio)
+	return clampToWorkArea(x, y, w, h, work)
 }
 
 // desktopLyricsWidthFor 按当前屏幕工作区和宽度比例算字幕窗宽度。给一个
@@ -331,7 +354,12 @@ func (c *controller) saveLyricsPos(w *mygo.Window) {
 // 顶边对齐工作区（接受溢出），不把顶边推到屏幕外。
 func clampLyricsPos(x, y, w, h int) (int, int) {
 	d := mygo.Screen.DisplayNearestPoint(mygo.Point{X: x, Y: y})
-	wa := d.WorkArea
+	return clampToWorkArea(x, y, w, h, d.WorkArea)
+}
+
+// clampToWorkArea 把窗口夹进给定工作区；窗口比工作区还大时顶边对齐
+// 工作区（接受溢出），不把顶边推到屏幕外。抽成纯函数便于默认位置测试。
+func clampToWorkArea(x, y, w, h int, wa mygo.Rectangle) (int, int) {
 	if wa.Width <= 0 || wa.Height <= 0 {
 		return x, y
 	}
@@ -358,32 +386,35 @@ func clampLyricsPos(x, y, w, h int) (int, int) {
 	return x, y
 }
 
-// closeDesktopLyrics 是用户主动关闭：窗口和开关一起关。
-func (c *controller) closeDesktopLyrics() {
+// disableDesktopLyrics 是用户主动关闭开关：只隐藏窗口，不销毁。
+//
+// 位置记忆不能靠「关掉时销毁、打开时重建」：Linux Wayland 的 toplevel
+// 位置由合成器管理，重建的窗口不会接受客户端给的 X/Y，看起来就是每次
+// 开关都回到默认位置。复用同一个 toplevel，位置就一直是用户拖到的
+// 地方；KV 只负责跨重启的记忆。
+func (c *controller) disableDesktopLyrics() {
 	a := c.app
 	a.LyricsEnabled = false
 	_ = c.kv.SetString(prefLyricsEnabled, "false")
 	if c.menuLyrics != nil {
 		c.menuLyrics.SetChecked(false)
 	}
-	if a.LyricsOn || c.lyricsWin != nil {
-		if c.lyricsWin != nil {
-			c.saveLyricsPos(c.lyricsWin)
-			w := c.lyricsWin
-			c.lyricsWin = nil
-			// 用户主动关闭（不是无字幕自动隐藏）：OnClosed 不能再把开关
-			// 翻一次，这里已经把它关掉了。
-			c.lyricsAutoHide = true
-			w.Close()
-		}
-		a.LyricsOn = false
-		a.LyricsConfig = false
-		a.LyricsConfigAbove = false
-		a.LyricCurrent, a.LyricNext = "", ""
-		if a.Win != nil {
-			a.Win.Update(func() {})
-		}
+	if c.lyricsWin != nil {
+		// 先保存显示页坐标，再收回显示页尺寸；设置页展开时直接存窗口
+		// 左上角会偏掉半个宽度。
+		c.saveLyricsPos(c.lyricsWin)
+		c.restoreDisplayBounds()
+		c.lyricsAutoHide = true
+		c.lyricsWin.Hide()
 	}
+	a.LyricsOn = false
+	a.LyricsConfig = false
+	a.LyricsConfigAbove = false
+	a.LyricCurrent, a.LyricNext = "", ""
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
+	trimMemory()
 }
 
 // hideDesktopLyrics 只关闭窗口，保留用户开关。用于当前视频没有字幕时

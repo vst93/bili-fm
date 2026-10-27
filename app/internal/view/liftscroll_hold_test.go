@@ -17,6 +17,11 @@ func obs(h *scrollHold, offset float64, shown bool) bool {
 }
 
 func TestScrollHoldStateMachine(t *testing.T) {
+	// 这条测状态机的位移/恢复逻辑，用 0 落定窗口保持原来的逐帧断言；
+	// 落定窗口本身由 TestScrollHoldSettleWindow 覆盖。
+	oldSettle := scrollHoldSettle
+	scrollHoldSettle = 0
+	defer func() { scrollHoldSettle = oldSettle }()
 	var h scrollHold
 	// 第一帧建立基线：不算滚动。
 	if obs(&h, 0, true) {
@@ -53,6 +58,33 @@ func TestScrollHoldStateMachine(t *testing.T) {
 	}
 	if !h.holding() {
 		t.Fatal("再次滚动后 holding 应为真")
+	}
+}
+
+// TestScrollHoldSettleWindow 钉住触摸板惯性滚动的落定窗口：位移停止后
+// 不能第一帧就松开，否则滚动末尾悬停上浮会反复亮/灭。
+func TestScrollHoldSettleWindow(t *testing.T) {
+	oldSettle, oldNow := scrollHoldSettle, scrollHoldNow
+	defer func() { scrollHoldSettle, scrollHoldNow = oldSettle, oldNow }()
+	now := time.Unix(0, 0)
+	scrollHoldNow = func() time.Time { return now }
+	scrollHoldSettle = 140 * time.Millisecond
+
+	var h scrollHold
+	h.observe(0, true)
+	if locked, needFrame := h.observe(100, true); !locked || !needFrame {
+		t.Fatalf("滚动位移帧应锁住并求帧：locked=%v needFrame=%v", locked, needFrame)
+	}
+	now = now.Add(50 * time.Millisecond)
+	if locked, needFrame := h.observe(100, true); !locked || !needFrame {
+		t.Fatalf("落定窗口内（50ms）仍应锁住并求帧：locked=%v needFrame=%v", locked, needFrame)
+	}
+	now = now.Add(100 * time.Millisecond) // 距最后一次位移 150ms
+	if locked, needFrame := h.observe(100, true); locked || needFrame {
+		t.Fatalf("落定窗口结束后应恢复且不再求帧：locked=%v needFrame=%v", locked, needFrame)
+	}
+	if h.holding() {
+		t.Fatal("落定窗口结束后 holding 应为假")
 	}
 }
 
@@ -123,6 +155,10 @@ func feedApp(cards int) *App {
 func scrollBurst(t *testing.T, a *App) []passRec {
 	t.Helper()
 	tt, recs := feedTester(t, a)
+	// 用无头测试的虚拟时钟驱动落定窗口，避免依赖真实时间。
+	oldNow := scrollHoldNow
+	scrollHoldNow = tt.Now
+	defer func() { scrollHoldNow = oldNow }()
 	tt.Move(400, 300)
 	for i := 0; i < 10; i++ {
 		tt.Frame()
@@ -132,6 +168,9 @@ func scrollBurst(t *testing.T, a *App) []passRec {
 	for i := 0; i < 4; i++ {
 		tt.Scroll(400, 300, 0, 120)
 	}
+	// 滚完再走过落定窗口：恢复帧应把悬停上浮画回来。
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
 	return *recs
 }
 
@@ -141,11 +180,14 @@ func scrollBurst(t *testing.T, a *App) []passRec {
 func TestScrollHoldLocksLiftWhileScrolling(t *testing.T) {
 	a := feedApp(300)
 	recs := scrollBurst(t, a)
-	var heldPasses, lockedLift, restLift int64
+	var heldPasses, lockedLift, restLift, maxLockedLift int64
 	for _, r := range recs {
 		if r.held {
 			heldPasses++
 			lockedLift += r.lift
+			if r.lift > maxLockedLift {
+				maxLockedLift = r.lift
+			}
 		} else {
 			restLift += r.lift
 		}
@@ -153,13 +195,15 @@ func TestScrollHoldLocksLiftWhileScrolling(t *testing.T) {
 	if heldPasses == 0 {
 		t.Fatal("真实滚动没有触发滚动锁（holdListScroll 没接上 ui.List 的偏移）")
 	}
-	if lockedLift != 0 {
-		t.Fatalf("锁住期间仍新建了 %d 个 lift 动画（锁没拦住渲染）", lockedLift)
+	// 锁住期间只允许「在播卡 + 进入滚动前最后悬停的那张卡」重建 lift，
+	// 不能一屏十几张卡都重建。
+	if maxLockedLift > 2 {
+		t.Fatalf("锁住期间单帧重建了 %d 个 lift 动画（最多允许 2 个）", maxLockedLift)
 	}
 	if restLift == 0 {
 		t.Fatal("滚动停下后悬停卡的 lift 动画没有恢复（选中效果被误删）")
 	}
-	t.Logf("滚动周期内：按住 %d pass（lift 新建 0）→ 恢复帧 lift 新建 %d", heldPasses, restLift)
+	t.Logf("滚动周期内：按住 %d pass（单帧最多 %d 个 lift 重建，合计 %d）→ 恢复帧 lift 新建 %d", heldPasses, maxLockedLift, lockedLift, restLift)
 }
 
 // TestScrollHoldDisabledRebuildsEveryFrame 是改前对照：关掉滚动锁

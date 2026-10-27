@@ -37,6 +37,14 @@ var cardLiftAnim = ui.Animation{
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
 }
 
+// cardSettleAnim 是进入滚动时把最后悬停那张卡的上浮/悬停底色收回常态的
+// 过渡。它比悬停的 30ms 慢，和光晕的 120ms 渐隐同一节奏：滚动第一帧不再
+// 把悬停态硬切掉，用户看到的是卡片平滑落回去，而不是「一顿」。
+var cardSettleAnim = ui.Animation{
+	Duration: 120 * time.Millisecond,
+	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
+}
+
 // 抽屉列表里几处悬停 / 当前态的色值过渡，逐条取自原版 globals.css：
 //
 //	评论行 .py-2.px-8.border-b     transition: background-color/border-color
@@ -2214,6 +2222,10 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	if hovered {
 		a.hoverChannels.Add(1)
 	}
+	// 滚动锁期间只让「进入滚动前最后悬停的那张卡」把悬停色/上浮收回去：
+	// 其它卡不重建通道，一屏十几张卡的开销不变；被锁住的那张不会从
+	// 悬停态硬切回常态。
+	settling := locked && a.cardGlowKey == spec.Key
 	// 按下态：原版 `[data-slot="wrapper"] [role="button"][class*="bg-content"]:active`
 	// （globals.css:4138）排在悬停规则之后、同为 !important，所以**整组替换**
 	// 悬停的底/影；描边不动（保留悬停那条蓝边；在播卡片的 2px 蓝边也保留）。
@@ -2248,8 +2260,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		// 按下态不参与插值（k 的目标只看 hovered）：`:active` 整组替换悬停的
 		// 底/影，松开后要立刻回到「已悬停」的样子，不能让 k 先被按下拽回 0。
 		k := float32(0)
-		if !locked {
-			k = box.AnimateTo("card-hover", pick(hovered, float32(1), float32(0)), cardLiftAnim)
+		if !locked || settling {
+			anim := cardLiftAnim
+			if settling {
+				anim = cardSettleAnim
+			}
+			k = box.AnimateTo("card-hover", pick(hovered, float32(1), float32(0)), anim)
 		}
 		box.Background(t.Glass.Mix(t.GlassHover, k)).
 			Border(1, t.GlassBorder.Mix(ui.Hex("#0369a1").Alpha(0.60), k)).
@@ -2265,7 +2281,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 悬停「抬起」：原版是 transform: translateY(-3px)，时长收到 30ms。
 	// 在播卡片仍保持常驻上浮；滚动时锁住动画，停下当帧再恢复。
 	// 其他悬停行为不变。
-	if !locked {
+	// 滚动锁期间：在播卡片保持常驻上浮；进入滚动前最后悬停的那张卡把
+	// 上浮收回到 0（不是当帧硬切）。其它卡不重建通道。
+	if !locked || settling || spec.Active {
 		lift := float32(0)
 		if box.Hovered() || spec.Active {
 			lift = -3
@@ -2275,9 +2293,13 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			lift = 0
 		}
 		a.liftChannels.Add(1)
-		// 按下缩放与上浮走同一条 30ms ease。
-		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), cardLiftAnim)
-		liftV := box.AnimateTo("lift", lift, cardLiftAnim)
+		// 按下缩放与上浮走同一条 ease；进入滚动的落定用更长的 120ms。
+		anim := cardLiftAnim
+		if settling {
+			anim = cardSettleAnim
+		}
+		sc := box.AnimateTo("card-press", pick(pressed, cardPressScale, float32(1)), anim)
+		liftV := box.AnimateTo("lift", lift, anim)
 		// 稳态不挂 transform：**单位变换（含恒等矩阵）同样会让 mygo 把这张卡的
 		// 圆角 clip 改走「预烘焙遮罩」路径**（internal/gpu 的 moved 只看
 		// Transform.Set，不看矩阵是不是恒等），一屏十几张卡就是几十 MB 遮罩。
@@ -2296,9 +2318,9 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 成了「鼠标一动重建整窗」。按下态还要叠原版 :active 背景的两个固定径向。
 	// 指针离开后不是当帧抹掉：原版那层有 `transition: opacity .12s ease`，由
 	// cardGlowLayer 记住离开时的圆心、渐隐 120ms（ReduceMotion 下直接不画）。
-	if !locked {
-		a.cardGlowLayer(c, box, spec.Key, hovered, pressed)
-	}
+	// 滚动锁期间也调用：只让最后悬停的那张卡把光晕按 120ms 渐隐，不再
+	// 跟随指针、也不给新卡挂层。这样进入滚动时不会瞬间抹掉光晕。
+	a.cardGlowLayer(c, box, spec.Key, hovered, pressed, locked)
 
 	box.Children(func() {
 		// 封面：通栏、固定 100px（原版 .img-container / .c-cover）。
@@ -2997,8 +3019,9 @@ func (a *App) danmakuTabs(c *ui.Context) {
 // danmakuHeatButton 是弹幕页的「弹幕热力」开关，默认开启。
 func (a *App) danmakuHeatButton(c *ui.Context) {
 	label := pick(a.HeatOn, "关闭弹幕热力", "开启弹幕热力")
+	tip := "弹幕热力：播放栏底部面积越高，弹幕越密集；进度条上的短竖线是章节分界"
 	b := ui.ButtonBase(c.Key("dm-heat")).Size(32, 32).Radius(Radius).Center().
-		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.HeatOn)
+		Label(label).Tooltip(tip).Role(ui.RoleToggleButton).Checked(a.HeatOn)
 	if a.HeatOn {
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).

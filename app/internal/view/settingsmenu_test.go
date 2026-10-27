@@ -268,6 +268,9 @@ func TestSettingsMenuPlaybackToggles(t *testing.T) {
 			t.Fatalf("设置菜单里找不到开关 %q", label)
 		}
 	}
+	if !tst.HasText("面积=弹幕密度；短竖线=章节分界") {
+		t.Fatal("设置菜单缺少热力/章节分界的说明")
+	}
 	if err := tst.Click("设置：桌面字幕"); err != nil {
 		t.Fatalf("点桌面字幕开关失败：%v", err)
 	}

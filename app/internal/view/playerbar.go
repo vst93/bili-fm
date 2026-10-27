@@ -48,6 +48,8 @@ func (a *App) playerBar(c *ui.Context) {
 	// 高度 56，本身仍是普通流式元素；Shell 把它整条套进一个贴底的 absolute 盒里
 	// （原版 #player 是 position: fixed，不占文档流 —— 主区因此能探到它背后，
 	// 见 homeStage 的高度说明）。单独渲染时（无头测试）它就从 y=0 开始。
+	// 热力与顶边共用同一个 Draw：Draw 只能存一个 paintFn，先画热力再画
+	// 1px 顶边，顶边才不会被热力层覆盖（覆盖后热力看起来像溢出了播放栏）。
 	bar := playerBarPaint(t, applyShadows(
 		applyInsetShadows(
 			playerBarMaterial(t,
@@ -58,12 +60,7 @@ func (a *App) playerBar(c *ui.Context) {
 			playerBarShadowInsets(t, false)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
-		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder)
-	// 弹幕热力单独铺在整个播放栏的底部背景上，不再塞进 24px 的进度条
-	// 外层：曲线从栏底升起，穿过时间/按钮下方，视觉上是一层环境，不和
-	// 6px 轨道与滑块抢同一条中线。Draw 在所有子元素之前，文字与控件仍然
-	// 清楚；迷你窗不画。
-	bar = a.heatBarLayer(c, bar)
+		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder, a.heatBarPainter(c))
 	// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
 	// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
 	// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
@@ -183,12 +180,18 @@ var playerBarSheen = func(t Theme) *sheenBaked {
 // Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
 //
 // topBorder 为透明时不画顶边（mini 的 1px 顶边是单独的子盒，见 miniPlayerBar）。
-var playerBarPaint = func(t Theme, b ui.Element, topBorder ui.Color) ui.Element {
-	if topBorder.A == 0 {
+// before 在顶边之前画（弹幕热力），与顶边共用同一个 Draw。
+var playerBarPaint = func(t Theme, b ui.Element, topBorder ui.Color, before func(*ui.Painter, ui.Rect)) ui.Element {
+	if topBorder.A == 0 && before == nil {
 		return b
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, topBorder, 0)
+		if before != nil {
+			before(p, r)
+		}
+		if topBorder.A != 0 {
+			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, topBorder, 0)
+		}
 	})
 }
 
@@ -2013,11 +2016,11 @@ const progressDisabledOpacity = 0.42
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
-// heatBarLayer 给整条播放栏加一层弹幕热力背景。只在主窗、开关打开、
-// 有热力数据与时长时生效；迷你窗保持干净。
-func (a *App) heatBarLayer(c *ui.Context, b ui.Element) ui.Element {
+// heatBarPainter 返回弹幕热力的绘制回调，交给 playerBarPaint 与顶边共用
+// 一个 Draw。只在主窗、开关打开、有热力数据与时长时生效；迷你窗保持干净。
+func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
 	if a.Mini || !a.HeatOn || a.Dur <= 0 || len(a.DanmakuHeat) == 0 {
-		return b
+		return nil
 	}
 	// 热力的横向范围与进度条轨道完全一致：进度条是外层 24px 盒、轨道左右
 	// 各内缩 7px，且起点在第一列传输键/时间之后，不是整条播放栏的 x=0。
@@ -2027,61 +2030,82 @@ func (a *App) heatBarLayer(c *ui.Context, b ui.Element) ui.Element {
 	if b := a.progressHandle.Bounds(c); b.W > 0 {
 		track = rangeTrackRect(b, timelineGeom)
 	}
-	return b.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintHeatBackdrop(p, r, track, a.DanmakuHeat, a.Dur, a.Theme.Dark)
-	})
+	points, dur, dark := a.DanmakuHeat, a.Dur, a.Theme.Dark
+	return func(p *ui.Painter, r ui.Rect) {
+		paintHeatBackdrop(p, r, track, points, dur, dark)
+	}
 }
 
-// paintHeatBackdrop 把热力画成从播放栏底边升起的一整片面积曲线。
+// heatBarTopInset 是热力面积距播放栏顶边的最小留白（DIP）。播放栏高
+// 56：留 24 之后，面积最高只到进度条中线附近，不再顶到栏的描边和上方
+// 的时间胶囊；它始终是一条贴底的背景带，而不是一张占满整栏的图表。
+const heatBarTopInset = float32(24)
+
+// heatPathPool 复用热力面积的多边形，避免每帧分配。
+var heatPathPool = sync.Pool{New: func() any { return new(ui.Path) }}
+
+// paintHeatBackdrop 把弹幕热力画成一条贴底的面积带：高度 = 该时刻的
+// 弹幕密度，颜色从顶部的亮青渐变到底部的淡青。
 //
-// 它是**环境层**，不是进度条装饰：底边是播放栏底、高度是整栏高度，
-// 曲线独立于 6px 轨道，不会和进度条中线挤在一起。透明度压得很低，
-// 保证时间、按钮和进度滑块仍然清楚；顶部留 1px 给栏的描边。
+// 只有一个视觉：面积本身。此前面积用 2px 竖条拼、再叠一条独立的折线，
+// 看起来像「柱状图 + 折线图 + 热力图」三张图；现在用一个多边形填充，
+// 顶部用渐变的亮边定义峰形，不再单独画线。章节分界是另一回事，见
+// paintTimeline 的短刻线。
 func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64, dark bool) {
 	if len(points) == 0 || r.H < 12 || dur <= 0 {
 		return
 	}
-	// 深色播放栏会把青色面积吃掉；暗模式换成更亮的青，并抬高面积/轮廓
-	// 的透明度。浅色仍保持低对比，不抢时间与控件的阅读。
+	// 深色播放栏会把青色面积吃掉；暗模式换成更亮的青，并抬高透明度。
 	fillColor := ui.Hex("#38bdf8")
-	lineColor := ui.Hex("#7dd3fc")
-	fillBase, fillGain, lineAlpha := float32(0.022), float32(0.070), float32(0.34)
+	fillBase, fillGain := float32(0.022), float32(0.070)
 	if dark {
 		fillColor = ui.Hex("#67e8f9")
-		lineColor = ui.Hex("#cffafe")
-		fillBase, fillGain, lineAlpha = 0.045, 0.12, 0.55
+		fillBase, fillGain = 0.045, 0.12
 	}
-	// 还没有进度条布局（第一帧）时退回整个播放栏宽度，至少不闪空。
+	// 还没有进度条布局（第一帧）时退回整个播放栏宽度；有布局时把
+	// 轨道夹进播放栏，横向也不会画到栏外。
 	if track.W <= 0 {
-		track = ui.Rect{X: r.X, Y: r.Y, W: r.W, H: r.H}
+		track = r
+	} else {
+		x0 := max32(track.X, r.X)
+		x1 := min32(track.X+track.W, r.X+r.W)
+		if x1 <= x0 {
+			track = r
+		} else {
+			track = ui.Rect{X: x0, Y: r.Y, W: x1 - x0, H: r.H}
+		}
 	}
 	base := r.Y + r.H - 1
-	height := r.H - 2
+	height := r.H - heatBarTopInset - 1
+	if height < 2 {
+		height = r.H - 2
+	}
+	path := heatPathPool.Get().(*ui.Path)
+	defer heatPathPool.Put(path)
+	path.Reset()
+	path.MoveTo(track.X, base)
 	const step = float32(2)
-	for x := track.X; x < track.X+track.W; x += step {
+	last := track.X + track.W
+	for x := track.X; x < last; x += step {
 		frac := clampF(float64((x-track.X)/track.W), 0, 1)
-		v := heatAt(points, frac)
-		if v <= 0.02 {
-			continue
-		}
-		h := height * v
-		// 面积只做很淡的底色，热度越高略亮；不会盖住控件。
-		p.Fill(ui.Rect{X: x, Y: base - h, W: step, H: h},
-			fillColor.Alpha(fillBase+v*fillGain), 0)
+		v := clamp01(heatAt(points, frac))
+		path.LineTo(x, base-height*v)
 	}
-	// 顶部轮廓线比面积稍微清楚一点，读起来是一条完整的高能曲线。
-	lastX, lastY := float32(-1), float32(0)
-	for _, pt := range points {
-		if pt.At <= 0 {
-			continue
-		}
-		x := track.X + track.W*float32(clampF(float64(pt.At)/dur, 0, 1))
-		y := base - height*max32(pt.Value, 0.02)
-		if lastX >= 0 && x > lastX {
-			p.Line(lastX, lastY, x, y, 1, lineColor.Alpha(lineAlpha))
-		}
-		lastX, lastY = x, y
-	}
+	path.LineTo(last, base-height*clamp01(heatAt(points, 1)))
+	path.LineTo(last, base)
+	path.Close()
+	// 面积：顶部亮、底部淡。顶部那 12% 的亮边就是峰形轮廓，不再单独
+	// 画折线，避免读成两张图。
+	p.Clip(r, 0, func() {
+		p.FillPathGradient(path, ui.LinearGradient{
+			Angle: 180,
+			Stops: []ui.GradientStop{
+				{Color: fillColor.Alpha(fillBase + fillGain*1.2), At: 0},
+				{Color: fillColor.Alpha(fillBase + fillGain*0.55), At: 0.12},
+				{Color: fillColor.Alpha(fillBase * 0.35), At: 1},
+			},
+		})
+	})
 }
 
 // paintTimeline 画进度条的轨道、已播进度与滑块。轨道与滑块的画法在
@@ -2148,13 +2172,13 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 		p.Fill(ui.Rect{X: track.X + bw - 0.5, Y: track.Y, W: 1, H: track.H},
 			ui.Hex("#7dd3fc").Alpha(0.70), 0)
 	}
-	// 弹幕热力：用极淡的竖条铺在轨道下面，不改变进度条的交互；密集处
-	// 自然形成一条「这里很热闹」的纹理。数据是聚合桶，不持有弹幕文本。
+	// 章节分界：轨道顶端的 2px 小刻线。它不是弹幕热力（热力是播放栏
+	// 底部那条面积带），画满整个 6px 轨道会被误读成另一组柱状数据。
 	if rp.Dur > 0 {
 		for _, at := range rp.ChapterMarks {
 			frac := clampF(at/rp.Dur, 0, 1)
 			x := track.X + track.W*float32(frac)
-			p.Fill(ui.Rect{X: x, Y: track.Y, W: 1, H: track.H},
+			p.Fill(ui.Rect{X: x, Y: track.Y, W: 1, H: 2},
 				ui.Hex("#ffffff").Alpha(0.55), 0)
 		}
 	}

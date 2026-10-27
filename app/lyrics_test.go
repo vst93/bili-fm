@@ -285,3 +285,34 @@ func TestLyricsConfigHeightFollowsFontSize(t *testing.T) {
 		t.Errorf("30px 设置窗高度 = %d，want %d", h30, want)
 	}
 }
+
+// TestDesktopLyricsDefaultPosLowerMiddle 钉住首次打开的位置：水平居中，
+// 垂直方向在可用高度的 2/3（中间靠下），不是贴底、也不是正中。
+func TestDesktopLyricsDefaultPosLowerMiddle(t *testing.T) {
+	work := mygo.Rectangle{X: 100, Y: 50, Width: 1000, Height: 800}
+	x, y := desktopLyricsDefaultPosIn(work, 400, 100)
+	if wantX := 100 + (1000-400)/2; x != wantX {
+		t.Errorf("默认 x = %d，want %d（水平居中）", x, wantX)
+	}
+	if wantY := work.Y + int(float64(work.Height-100)*2.0/3.0); y != wantY {
+		t.Errorf("默认 y = %d，want %d（可用高度 2/3）", y, wantY)
+	}
+	center := work.Y + work.Height/2
+	bottom := work.Y + work.Height - 100
+	if !(y > center && y < bottom) {
+		t.Errorf("默认 y=%d 应落在中间靠下：center=%d bottom=%d", y, center, bottom)
+	}
+}
+
+// TestDesktopLyricsDefaultPosClamps 钉住小工作区/大窗口时不会把窗口顶边
+// 推到工作区外。
+func TestDesktopLyricsDefaultPosClamps(t *testing.T) {
+	work := mygo.Rectangle{X: 10, Y: 20, Width: 300, Height: 200}
+	x, y := desktopLyricsDefaultPosIn(work, 400, 100)
+	if x != work.X {
+		t.Errorf("窗口比工作区宽时 x = %d，want %d", x, work.X)
+	}
+	if y < work.Y || y+100 > work.Y+work.Height {
+		t.Errorf("窗口顶边/底边越界：y=%d work=%+v", y, work)
+	}
+}
