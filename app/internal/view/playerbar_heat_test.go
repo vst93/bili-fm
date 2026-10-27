@@ -35,6 +35,25 @@ func heatProbe(t *testing.T, heat, chapters bool) *image.RGBA {
 	return tst.Image()
 }
 
+// chapterProbe 只渲染播放栏本身，避免章节 tab / 正文等整窗内容混进
+// 章节刻线的包围盒断言。
+func chapterProbe(t *testing.T, chapters bool) *image.RGBA {
+	t.Helper()
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+	a.Dur = 200
+	a.Pos = 100
+	a.SeekValue = 100
+	if chapters {
+		a.Chapters = []Chapter{{From: 40}, {From: 120}}
+	}
+	tst := ui.NewTester(func(c *ui.Context) { a.playerBar(c) }, 1000, PlayerBarHeight)
+	tst.Advance(400 * time.Millisecond)
+	tst.Frame()
+	return tst.Image()
+}
+
 // diffBounds 返回两张图像不同像素的包围盒与数量。
 func diffBounds(a, b *image.RGBA) (minX, minY, maxX, maxY, n int) {
 	minX, minY, maxX, maxY = 1<<30, 1<<30, -1, -1
@@ -85,8 +104,8 @@ func TestHeatBackdropStaysBelowTopInset(t *testing.T) {
 // TestChapterMarksAreTicks 钉住章节分界是 2px 短刻线，不是画满轨道的
 // 竖条 —— 后者会和弹幕热力混成“柱状图”。
 func TestChapterMarksAreTicks(t *testing.T) {
-	off := heatProbe(t, false, false)
-	on := heatProbe(t, false, true)
+	off := chapterProbe(t, false)
+	on := chapterProbe(t, true)
 	_, minY, _, maxY, n := diffBounds(off, on)
 	if n == 0 {
 		t.Fatal("章节分界没有画出来")

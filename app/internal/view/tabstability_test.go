@@ -7,6 +7,29 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// TestChapterTabAlwaysShown 钉住章节 tab 的稳定性：当前视频没有章节时
+// tab 仍然在表头里，点进去正文提示「当前视频没有章节信息」。
+func TestChapterTabAlwaysShown(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = DrawerDanmaku
+	a.DanmakuTab = TabDanmaku
+	tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+
+	if _, ok := tt.Find("章节 (0)"); !ok {
+		t.Fatal("没有章节时「章节」tab 也不应消失")
+	}
+	if err := tt.Click("章节 (0)"); err != nil {
+		t.Fatalf("点章节 tab 失败：%v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("当前视频没有章节信息") {
+		t.Fatal("章节 tab 的空态应提示「当前视频没有章节信息」")
+	}
+}
+
 // TestSubtitleTabAlwaysShown 钉住字幕 tab 的稳定性：当前视频没有字幕时
 // tab 仍然在表头里，点进去正文提示「当前视频没有字幕」，而不是 tab 消失。
 func TestSubtitleTabAlwaysShown(t *testing.T) {
