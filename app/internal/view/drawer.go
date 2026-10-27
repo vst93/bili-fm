@@ -3237,11 +3237,18 @@ func (a *App) subtitleTrackPicker(c *ui.Context) {
 		ui.Text(c, "字幕版本").FontSize(11).TextColor(ui.Hex("#94a3b8")).Shrink(0)
 		for i, tr := range a.SubtitleTracks {
 			i, tr := i, tr
-			label := tr.Label
-			if label == "" {
-				label = tr.Lan
+			label := SubtitleTrackLabel(tr)
+			// 优先按明确选中的 ID / URL 判定：同语言的人工轨和 AI 轨
+			// 不能同时高亮，否则用户分不清当前到底用的哪一条。
+			active := false
+			switch {
+			case a.SubtitleTrackID != "":
+				active = tr.ID != "" && strings.EqualFold(a.SubtitleTrackID, tr.ID)
+			case a.SubtitleTrackURL != "":
+				active = SubtitleURLKey(a.SubtitleTrackURL) == SubtitleURLKey(tr.URL)
+			default:
+				active = a.SubtitleLang != "" && strings.EqualFold(a.SubtitleLang, tr.Lan)
 			}
-			active := a.SubtitleLang != "" && strings.EqualFold(a.SubtitleLang, tr.Lan)
 			b := ui.ButtonBase(c.Key(fmt.Sprintf("subtitle-track-%d", i))).
 				Height(26).Padding(0, 10).Radius(7).Center().Label(label).Tooltip(label)
 			if active {

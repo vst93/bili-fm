@@ -30,6 +30,8 @@ func (c *controller) clearPlaybackExtras() {
 	a.SubtitleTracks = nil
 	a.Subtitles = nil
 	a.SubtitleLang = ""
+	a.SubtitleTrackID = ""
+	a.SubtitleTrackURL = ""
 	a.ExtrasCid = 0
 	a.ExtrasBvid = ""
 	a.ExtrasLoading = false
@@ -74,7 +76,9 @@ func extrasAid(a *view.App, t *view.Track) int64 {
 // 章节 / 字幕页时补拉。
 func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 	a := c.app
-	if aid <= 0 || cid <= 0 || a == nil {
+	// aid 可以为 0：部分稿件/番剧只给 bvid + cid，player 接口用这两个也能
+	// 定位；只要还有 bvid，就不要在本地提前判死。
+	if cid <= 0 || (aid <= 0 && bvid == "") || a == nil {
 		return
 	}
 	c.extrasReqID++
@@ -128,6 +132,7 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 			}
 			if len(a.SubtitleTracks) == 0 {
 				// 没字幕只隐藏窗口，保留用户开关；下一个有字幕的视频会自动显示。
+				log.Printf("字幕: aid=%d cid=%d 上游没有返回字幕轨", aid, cid)
 				if a.LyricsEnabled {
 					c.hideDesktopLyrics()
 				}
@@ -146,7 +151,7 @@ func (c *controller) ensureExtras() {
 		return
 	}
 	aid := extrasAid(a, t)
-	if aid == 0 {
+	if aid == 0 && t.Bvid == "" {
 		return
 	}
 	if a.ExtrasCid == t.Cid && (t.Bvid == "" || a.ExtrasBvid == t.Bvid) {
@@ -183,12 +188,33 @@ func (c *controller) normalizeChapterEnds() {
 // pickSubtitleTrack 选默认字幕：优先中文，其次第一条。用户目前只需要一个
 // 文稿视图，不为了「多语言选择」增加一整套下拉 UI。
 func pickSubtitleTrack(tracks []view.SubtitleTrack) (view.SubtitleTrack, bool) {
-	return pickSubtitleTrackPref(tracks, "")
+	return pickSubtitleTrackPref(tracks, "", "", "")
 }
 
-func pickSubtitleTrackPref(tracks []view.SubtitleTrack, pref string) (view.SubtitleTrack, bool) {
+// pickSubtitleTrackPref 选一条字幕轨。优先级：
+//  1. 上次明确选中的 ID / URL（同一视频内，能区分同语言的人工轨和 AI 轨）；
+//  2. 语言偏好；
+//  3. 默认中文，同语言优先人工轨。
+//
+// ID/URL 只对当前视频可靠；换视频后找不到就回落到语言，不会卡在旧轨上。
+func pickSubtitleTrackPref(tracks []view.SubtitleTrack, pref, preferID, preferURL string) (view.SubtitleTrack, bool) {
 	if len(tracks) == 0 {
 		return view.SubtitleTrack{}, false
+	}
+	if preferID != "" {
+		for _, t := range tracks {
+			if t.ID != "" && strings.EqualFold(t.ID, preferID) {
+				return t, true
+			}
+		}
+	}
+	if preferURL != "" {
+		want := view.SubtitleURLKey(preferURL)
+		for _, t := range tracks {
+			if t.URL != "" && view.SubtitleURLKey(t.URL) == want {
+				return t, true
+			}
+		}
 	}
 	// 同一语言优先人工轨（AIType==0），再退回 AI 轨；AI 转写经常有错字/
 	// 断句问题，不能因为 lan 相同就把人工字幕挤掉。
@@ -238,7 +264,7 @@ func (c *controller) ensureSubtitles() {
 		c.ensureExtras()
 		return
 	}
-	track, ok := pickSubtitleTrackPref(a.SubtitleTracks, c.subtitleLangPref)
+	track, ok := pickSubtitleTrackPref(a.SubtitleTracks, c.subtitleLangPref, a.SubtitleTrackID, a.SubtitleTrackURL)
 	if !ok {
 		c.ensureExtras()
 		return
@@ -295,6 +321,8 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	a.SubtitlesCid = 0
 	a.SubtitlesBvid = ""
 	a.SubtitlesURL = ""
+	a.SubtitleTrackID = track.ID
+	a.SubtitleTrackURL = track.URL
 	a.SubtitlesLoading = true
 	a.SubtitleError = ""
 	a.ResetSubtitleScroll()
@@ -350,6 +378,10 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 				return
 			}
 			a.SubtitleLang = chosen.Lan
+			// 回退候选真正下载成功时，把「当前轨」也指到它：否则 UI 还
+			// 高亮着失败的首选轨，用户看到的字幕和高亮对不上。
+			a.SubtitleTrackID = chosen.ID
+			a.SubtitleTrackURL = chosen.URL
 			a.SubtitlesCid = cid
 			a.SubtitlesBvid = bvid
 			a.SubtitlesURL = chosen.URL
@@ -371,15 +403,15 @@ func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) 
 	}()
 }
 
-// subtitleCandidates 把用户首选轨放前面，再带当前视频的其余轨；正文下载
-// 失败或时长明显不匹配时依次尝试，避免一条坏轨把整个视频判成无字幕。
+// subtitleCandidates 把用户首选轨放前面，再带当前视频的其余同语言族轨；
+// 正文下载失败或时长明显不匹配时依次尝试，避免一条坏轨把整个视频判成
+// 无字幕。人工轨和 AI 轨算同一语言族（中文主轨坏了可以退到 AI 中文），
+// 但绝不跨到英文字幕，否则用户看到的是“错误字幕”。
 func subtitleCandidates(a *view.App, primary view.SubtitleTrack) []view.SubtitleTrack {
 	out := []view.SubtitleTrack{primary}
 	seen := map[string]bool{primary.URL: true}
 	for _, t := range a.SubtitleTracks {
-		// 只回退同语言轨道：中文主轨失败时不能偷偷换成英文字幕，否则
-		// 用户看到的是“错误字幕”，比没有字幕更糟。
-		if !strings.EqualFold(t.Lan, primary.Lan) {
+		if subtitleFamily(t.Lan) != subtitleFamily(primary.Lan) {
 			continue
 		}
 		if t.URL == "" || seen[t.URL] {
@@ -389,6 +421,22 @@ func subtitleCandidates(a *view.App, primary view.SubtitleTrack) []view.Subtitle
 		out = append(out, t)
 	}
 	return out
+}
+
+// subtitleFamily 把人工轨和 AI 轨归到同一语言族：zh-CN / zh-Hans / ai-zh
+// 都是中文，en-US / ai-en 都是英文。用于正文失败时的同族回退。
+func subtitleFamily(lan string) string {
+	l := strings.ToLower(strings.TrimSpace(lan))
+	switch {
+	case strings.Contains(l, "zh") || strings.Contains(l, "hans") || strings.Contains(l, "hant") || l == "ai-zh":
+		return "zh"
+	case strings.HasPrefix(l, "en") || l == "ai-en":
+		return "en"
+	case strings.HasPrefix(l, "ja") || l == "ai-ja":
+		return "ja"
+	default:
+		return l
+	}
 }
 
 // subtitleCuesFit 用视频时长做保守校验：参考 Bilibili-Obsidian-Clipper 的
@@ -444,6 +492,8 @@ func (c *controller) selectSubtitle(index int) {
 	c.subtitleLangPref = track.Lan
 	_ = c.kv.SetString(prefSubtitleLang, track.Lan)
 	a.SubtitleLang = track.Lan
+	a.SubtitleTrackID = track.ID
+	a.SubtitleTrackURL = track.URL
 	c.startSubtitleLoad(t, track)
 }
 

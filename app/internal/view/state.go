@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -100,6 +101,34 @@ type SubtitleTrack struct {
 	URL   string
 	// AIType 来自 player/v2 的 ai_type；0 是人工字幕，非 0 是 AI 字幕。
 	AIType int
+}
+
+// SubtitleTrackLabel 是字幕版本按钮的显示文案。AI 轨的 lan_doc 不一定
+// 带「AI / 自动」，这里补一个后缀，避免和同语言的人工轨看起来一模一样。
+func SubtitleTrackLabel(t SubtitleTrack) string {
+	label := t.Label
+	if label == "" {
+		label = t.Lan
+	}
+	lowerLan := strings.ToLower(t.Lan)
+	if t.AIType != 0 || strings.HasPrefix(lowerLan, "ai-") {
+		lower := strings.ToLower(label)
+		if !strings.Contains(lower, "ai") && !strings.Contains(label, "自动") {
+			label += "（AI）"
+		}
+	}
+	return label
+}
+
+// SubtitleURLKey 把字幕 URL 归一成 host+path，用于跨刷新匹配：B 站
+// 字幕地址的 query（签名/时间戳）会变，host 和 path 不变。解析失败时
+// 退回原串，至少还能精确匹配。
+func SubtitleURLKey(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return u.Host + u.Path
 }
 
 // SubtitleCue 是字幕 BCC JSON 里的一条时间轴文本。
@@ -730,10 +759,15 @@ type App struct {
 	Comments      []Comment
 	// Chapters / SubtitleTracks / Subtitles 是当前播放视频的播放器附加信息。
 	// ExtrasCid 记录它们属于哪个 cid；字幕正文按需下载（SubtitlesCid）。
-	Chapters         []Chapter
-	SubtitleTracks   []SubtitleTrack
-	Subtitles        []SubtitleCue
-	SubtitleLang     string
+	Chapters       []Chapter
+	SubtitleTracks []SubtitleTrack
+	Subtitles      []SubtitleCue
+	SubtitleLang   string
+	// SubtitleTrackID / SubtitleTrackURL 是当前视频里用户明确选中的轨。
+	// 语言（SubtitleLang）不足以区分同语言的人工轨和 AI 轨；这两项让
+	// 重新打开字幕页 / 刷新时仍回到用户选的那一条。跨视频时回落到语言。
+	SubtitleTrackID  string
+	SubtitleTrackURL string
 	ExtrasCid        int64
 	ExtrasBvid       string
 	ExtrasLoading    bool

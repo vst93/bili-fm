@@ -79,55 +79,79 @@ func floatAt(m map[string]any, key string) float64 {
 
 // GetPlayerExtras 读取 view_points（章节）与 subtitle.subtitles（字幕轨）。
 // 未登录也能拿到章节；字幕轨在未登录时可能为空，调用方按空处理即可。
+//
+// 字幕列表参考 Bilibili-Obsidian-Clipper：
+//   - player/wbi/v2 是主来源，不签名也能用；先签名版，再裸版。
+//   - 两个 WBI 请求都失败才回退 player/v2。
+//   - WBI 成功但没有字幕轨 = 这条视频没有字幕，不再拿 player/v2 的旧缓存
+//     去补 —— 那是「有时没字幕、有时字幕对不上」的来源。
+//
+// 每个响应都校验 aid/cid/bvid 身份，绝不接受另一条稿件的数据。
 func (bl *BL) GetPlayerExtras(aid, cid int64, bvid ...string) (*PlayerExtras, error) {
 	cookie := bl.GetSESSDATA()
-	if aid <= 0 || cid <= 0 {
+	if cid <= 0 {
 		return nil, fmt.Errorf("未选择作品")
 	}
 	bv := ""
 	if len(bvid) > 0 {
 		bv = bvid[0]
 	}
-	// 参考 Bilibili-Obsidian-Clipper：player/wbi/v2 是字幕列表的主来源，
-	// player/v2 作为回退。部分稿件的字幕只在其中一个端点可见；两个端点都
-	// 校验响应身份，绝不接受另一条稿件的数据。
-	var lastErr error
-	urls := make([]string, 0, 2)
-	values := url.Values{"aid": {strconv.FormatInt(aid, 10)}, "cid": {strconv.FormatInt(cid, 10)}}
-	if bv != "" {
-		values.Set("bvid", bv)
-	}
-	if signed, err := bl.signedWBIURL("https://api.bilibili.com/x/player/wbi/v2", values); err == nil {
-		urls = append(urls, signed)
-	} else {
-		lastErr = err
-	}
-	urls = append(urls, playerExtrasURL(aid, cid, bv))
-	for _, playerURL := range urls {
+	fetch := func(playerURL string) (*PlayerExtras, error) {
 		v, err := doJSON("GET", playerURL, cookie)
 		if err != nil {
-			lastErr = err
-			continue
+			return nil, err
 		}
 		d := dataOf(v)
 		if err := playerExtrasIdentityError(d, aid, cid, bv); err != nil {
-			lastErr = err
-			continue
+			return nil, err
 		}
-		out, err := parsePlayerExtras(d)
+		return parsePlayerExtras(d)
+	}
+
+	values := url.Values{"cid": {strconv.FormatInt(cid, 10)}}
+	if aid > 0 {
+		values.Set("aid", strconv.FormatInt(aid, 10))
+	}
+	if bv != "" {
+		values.Set("bvid", bv)
+	}
+	wbiURLs := make([]string, 0, 2)
+	if signed, err := bl.signedWBIURL("https://api.bilibili.com/x/player/wbi/v2", values); err == nil {
+		wbiURLs = append(wbiURLs, signed)
+	}
+	// 不签名版放在签名版之后：签名 key 拿不到（未登录 / nav 风控）时它
+	// 仍可能返回公开数据；签名版成功但没有轨时也再看一眼裸版，AI 字幕
+	// 有时只在其中一个响应里出现。
+	wbiURLs = append(wbiURLs, "https://api.bilibili.com/x/player/wbi/v2?"+values.Encode())
+
+	var lastErr error
+	var first *PlayerExtras
+	for _, u := range wbiURLs {
+		out, err := fetch(u)
 		if err != nil {
 			lastErr = err
 			continue
+		}
+		if first == nil {
+			first = out
 		}
 		if len(out.Subtitles) > 0 {
 			return out, nil
 		}
-		lastErr = nil
 	}
-	if lastErr != nil {
-		return nil, lastErr
+	// 任一 WBI 成功（哪怕没有字幕）就以它为准，不再回退 player/v2。
+	if first != nil {
+		return first, nil
 	}
-	return &PlayerExtras{}, nil
+
+	out, err := fetch(playerExtrasURL(aid, cid, bv))
+	if err != nil {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, err
+	}
+	return out, nil
 }
 
 // parsePlayerExtras 从已经通过身份校验的 player 响应里解析章节和字幕轨。
@@ -157,10 +181,7 @@ func parsePlayerExtras(d map[string]any) (*PlayerExtras, error) {
 		if !ok {
 			continue
 		}
-		u := strAt(m, "subtitle_url")
-		if strings.HasPrefix(u, "//") {
-			u = "https:" + u
-		}
+		u := normalizeSubtitleURL(strAt(m, "subtitle_url"))
 		if u == "" {
 			continue
 		}
@@ -168,12 +189,16 @@ func parsePlayerExtras(d map[string]any) (*PlayerExtras, error) {
 		if label == "" {
 			label = strAt(m, "lan")
 		}
-		id := ""
-		switch n := m["id"].(type) {
-		case string:
-			id = n
-		case float64:
-			id = fmt.Sprintf("%.0f", n)
+		// id_str 比 id 更稳（大整数在 JSON 里可能丢精度）；AI 轨常见
+		// 只有 id_str。两者都没有时留空，选择回退到 URL。
+		id := strAt(m, "id_str")
+		if id == "" {
+			switch n := m["id"].(type) {
+			case string:
+				id = n
+			case float64:
+				id = fmt.Sprintf("%.0f", n)
+			}
 		}
 		out.Subtitles = append(out.Subtitles, SubtitleTrack{
 			ID: id, Lan: strAt(m, "lan"), Label: label, URL: u,
@@ -200,11 +225,32 @@ func playerExtrasIdentityError(d map[string]any, aid, cid int64, bvid string) er
 // playerExtrasURL 返回 player/v2 回退地址；WBI 主地址由 signedWBIURL
 // 在请求时动态签名。
 func playerExtrasURL(aid, cid int64, bvid string) string {
-	query := fmt.Sprintf("aid=%d&cid=%d", aid, cid)
+	query := fmt.Sprintf("cid=%d", cid)
+	if aid > 0 {
+		query = fmt.Sprintf("aid=%d&%s", aid, query)
+	}
 	if bvid != "" {
 		query += "&bvid=" + url.QueryEscape(bvid)
 	}
 	return "https://api.bilibili.com/x/player/v2?" + query
+}
+
+// normalizeSubtitleURL 把 B 站字幕地址补成完整 URL：协议相对（//host/…）
+// 补 https:，站点相对（/bfs/…）补 https://，已经是 http(s) 的原样返回。
+func normalizeSubtitleURL(raw string) string {
+	u := strings.TrimSpace(raw)
+	switch {
+	case u == "":
+		return ""
+	case strings.HasPrefix(u, "//"):
+		return "https:" + u
+	case strings.HasPrefix(u, "http://"), strings.HasPrefix(u, "https://"):
+		return u
+	case strings.HasPrefix(u, "/"):
+		return "https://" + strings.TrimLeft(u, "/")
+	default:
+		return "https://" + u
+	}
 }
 
 // GetSubtitleCues 下载并解析 BCC 字幕 JSON。
