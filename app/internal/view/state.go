@@ -781,6 +781,11 @@ type App struct {
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
 	HeatOn      bool
+	// HeatVersion 在热力数据变化时递增。0.7.0 起窗口只重绘变化的区域，
+	// 热力是播放栏 Draw 里的一段绘制，数据到达时不一定被算进损伤矩形；
+	// 绘制层看到版本变化就请求一次整窗重绘，保证新热力一定显示。
+	HeatVersion uint64
+	heatPainted uint64
 	// RadioOn / RadioLoading 是「顺着听」状态。
 	RadioOn      bool
 	RadioLoading bool

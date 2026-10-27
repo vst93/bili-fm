@@ -2031,7 +2031,14 @@ func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
 		track = rangeTrackRect(b, timelineGeom)
 	}
 	points, dur, dark := a.DanmakuHeat, a.Dur, a.Theme.Dark
+	version := a.HeatVersion
 	return func(p *ui.Painter, r ui.Rect) {
+		// 0.7.0 的局部重绘可能漏掉 Draw 里的热力层：数据版本一变就请
+		// 一次整窗重绘，确保新热力画出来。版本不变时不做任何额外请求。
+		if a.heatPainted != version {
+			a.heatPainted = version
+			p.AnimationFrame()
+		}
 		paintHeatBackdrop(p, r, track, points, dur, dark)
 	}
 }
@@ -2041,16 +2048,21 @@ func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
 // 的时间胶囊；它始终是一条贴底的背景带，而不是一张占满整栏的图表。
 const heatBarTopInset = float32(24)
 
-// heatPathPool 复用热力面积的多边形，避免每帧分配。
-var heatPathPool = sync.Pool{New: func() any { return new(ui.Path) }}
+// heatEdge 是热力顶部轮廓的折线缓存；StrokePolyline 会立刻把点拷进
+// painter 自己的缓冲，所以这条切片可以跨帧复用。
+type heatEdge struct{ pts [][2]float32 }
+
+var heatEdgePool = sync.Pool{New: func() any {
+	return &heatEdge{pts: make([][2]float32, 0, 256)}
+}}
 
 // paintHeatBackdrop 把弹幕热力画成一条贴底的面积带：高度 = 该时刻的
-// 弹幕密度，颜色从顶部的亮青渐变到底部的淡青。
+// 弹幕密度，纯色填充 + 1px 顶边。
 //
-// 只有一个视觉：面积本身。此前面积用 2px 竖条拼、再叠一条独立的折线，
-// 看起来像「柱状图 + 折线图 + 热力图」三张图；现在用一个多边形填充，
-// 顶部用渐变的亮边定义峰形，不再单独画线。章节分界是另一回事，见
-// paintTimeline 的短刻线。
+// 只有一个视觉：面积本身。此前面积按热度逐条变亮、再叠一条独立的折线，
+// 看起来像「柱状图 + 折线图 + 热力图」三张图；现在面积用同一个 alpha，
+// 顶边只是它的轮廓，不再单独画线。章节分界是另一回事，见 paintTimeline
+// 的短刻线。
 func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64, dark bool) {
 	if len(points) == 0 || r.H < 12 || dur <= 0 {
 		return
@@ -2080,32 +2092,42 @@ func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur 
 	if height < 2 {
 		height = r.H - 2
 	}
-	path := heatPathPool.Get().(*ui.Path)
-	defer heatPathPool.Put(path)
-	path.Reset()
-	path.MoveTo(track.X, base)
 	const step = float32(2)
 	last := track.X + track.W
+	// 先采样顶部轮廓：面积和它的顶边共用同一组点，避免两条曲线错位。
+	edge := heatEdgePool.Get().(*heatEdge)
+	defer heatEdgePool.Put(edge)
+	pts := edge.pts[:0]
+	pts = append(pts, [2]float32{track.X, base - height*clamp01(heatAt(points, 0))})
+	for x := track.X + step; x < last; x += step {
+		frac := clampF(float64((x-track.X)/track.W), 0, 1)
+		v := clamp01(heatAt(points, frac))
+		pts = append(pts, [2]float32{x, base - height*v})
+	}
+	pts = append(pts, [2]float32{last, base - height*clamp01(heatAt(points, 1))})
+	edge.pts = pts
+
+	// 面积用**等宽 2px 竖条**铺满：旧版就是这么画的，0.7.0 的局部重绘/
+	// GPU 路径最稳；颜色用同一个 alpha（不再按热度逐条变亮），整块看起来
+	// 是一张面积图，而不是一排深浅不一的柱子。高度仍由热度决定。
+	fillAlpha := fillBase + fillGain*1.1
 	for x := track.X; x < last; x += step {
 		frac := clampF(float64((x-track.X)/track.W), 0, 1)
 		v := clamp01(heatAt(points, frac))
-		path.LineTo(x, base-height*v)
+		h := height * v
+		if h <= 0.5 {
+			continue
+		}
+		w := min32(step, last-x)
+		p.Fill(ui.Rect{X: x, Y: base - h, W: w, H: h}, fillColor.Alpha(fillAlpha), 0)
 	}
-	path.LineTo(last, base-height*clamp01(heatAt(points, 1)))
-	path.LineTo(last, base)
-	path.Close()
-	// 面积：顶部亮、底部淡。顶部那 12% 的亮边就是峰形轮廓，不再单独
-	// 画折线，避免读成两张图。
-	p.Clip(r, 0, func() {
-		p.FillPathGradient(path, ui.LinearGradient{
-			Angle: 180,
-			Stops: []ui.GradientStop{
-				{Color: fillColor.Alpha(fillBase + fillGain*1.2), At: 0},
-				{Color: fillColor.Alpha(fillBase + fillGain*0.55), At: 0.12},
-				{Color: fillColor.Alpha(fillBase * 0.35), At: 1},
-			},
-		})
-	})
+	// 顶边只是同一块面积的轮廓（不是第二组数据）。此前把轮廓整个去掉，
+	// 面积太淡看起来像没开；保留一条 1px 的顶边让峰形清楚。
+	edgeAlpha := float32(0.38)
+	if dark {
+		edgeAlpha = 0.55
+	}
+	p.StrokePolyline(pts, 1, fillColor.Alpha(edgeAlpha))
 }
 
 // paintTimeline 画进度条的轨道、已播进度与滑块。轨道与滑块的画法在

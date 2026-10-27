@@ -39,6 +39,7 @@ func (c *controller) clearPlaybackExtras() {
 	a.SubtitlesURL = ""
 	a.SubtitleError = ""
 	a.DanmakuHeat = nil
+	a.HeatVersion++
 	a.HeatCid = 0
 	a.ResetSubtitleScroll()
 	c.extrasInflightCid = 0
@@ -483,6 +484,7 @@ func (c *controller) startDanmakuHeat(cid int64) {
 	go func() {
 		d, err := c.bl.GetDanmakuList(int(cid))
 		if err != nil || d == nil {
+			log.Printf("弹幕热力: cid=%d 拉取失败: %v", cid, err)
 			return
 		}
 		pts := buildDanmakuHeat(d.Items)
@@ -495,6 +497,7 @@ func (c *controller) startDanmakuHeat(cid int64) {
 				return
 			}
 			a.DanmakuHeat = pts
+			a.HeatVersion++
 			a.HeatCid = cid
 		})
 	}()
@@ -629,6 +632,7 @@ func (c *controller) toggleHeat() {
 func (c *controller) setHeatOn(on bool) {
 	a := c.app
 	a.HeatOn = on
+	a.HeatVersion++
 	_ = c.kv.SetString(prefHeatOn, strconv.FormatBool(on))
 	if c.menuHeat != nil {
 		c.menuHeat.SetChecked(on)

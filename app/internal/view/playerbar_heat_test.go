@@ -19,6 +19,9 @@ func heatProbe(t *testing.T, heat, chapters bool) *image.RGBA {
 	a.Pos = 100
 	a.SeekValue = 100
 	a.HeatOn = heat
+	if heat {
+		a.HeatVersion++ // 模拟数据到达，触发一次整窗重绘
+	}
 	a.DanmakuHeat = []HeatPoint{
 		{At: 0, Value: 1}, {At: 50, Value: 1}, {At: 100, Value: 1},
 		{At: 150, Value: 1}, {At: 200, Value: 1},
