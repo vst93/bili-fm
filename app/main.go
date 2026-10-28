@@ -125,7 +125,9 @@ type controller struct {
 	lyricsWin      *mygo.Window
 	lyricsAutoHide bool
 
-	// miniPoll 是迷你窗位置轮询的停止信号（mygo 没有 window move 事件）。
+	// miniPoll 是迷你窗位置轮询的停止信号。mygo 有 OnMove，但 Linux Wayland
+	// 的顶层位置由合成器管理，事件和 Position() 都不一定可靠；迷你窗仍用
+	// 轮询做跨平台兜底。
 	miniPoll chan struct{}
 	// winGate 是窗口操作（切迷你/切置顶）的在途闸门：兼作原版
 	// windowModeChangingRef 的防重入与 isWindowControlPending 的状态源
@@ -1883,8 +1885,9 @@ func clampToAreas(x, y, w, h int, areas []screenArea) (int, int) {
 	return clamp(x, best.X, best.X+max(0, best.W-w)), clamp(y, best.Y, best.Y+max(0, best.H-h))
 }
 
-// startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 没有 window move
-// 事件，所以只能轮询；只在迷你模式期间跑。
+// startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 的 OnMove 在
+// Wayland 上不一定触发（顶层位置由合成器管理），所以这里保留轮询兜底；
+// 只在迷你模式期间跑。
 func (c *controller) startMiniPosPoll() {
 	// 没有窗口（无头测试）就没有位置可轮询 —— 而且轮询体里会调 Window.Position()。
 	if c.app.Win == nil {

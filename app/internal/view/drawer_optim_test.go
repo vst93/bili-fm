@@ -337,3 +337,52 @@ func TestDrawerCardHoverTransition(t *testing.T) {
 		t.Errorf("移出 300ms 后应回到常态 %.1f，得到 %.1f", rest, back)
 	}
 }
+
+// TestCardHoverIntentHysteresis 钉住卡片悬停的迟滞判定：进入仍要求指针在
+// 盒内；已经悬停的卡允许指针因上浮落到盒外 cardHoverSlop 以内，只有真正
+// 离开放大后的命中区才取消。指针停在底边时若没有这段迟滞，上浮会把指针
+// 踢出盒子，hover 立刻变 false，卡片落回去又命中 —— 一帧一亮一灭。
+func TestCardHoverIntentHysteresis(t *testing.T) {
+	const w, h = 220, 170
+	cases := []struct {
+		name              string
+		actual, latched   bool
+		x, y              float32
+		hovered, wantHold bool
+	}{
+		{"未悬停时指针在盒内", true, false, w / 2, h / 2, true, true},
+		{"未悬停时指针在盒外", false, false, w / 2, h + 1, false, false},
+		{"已悬停，指针停在底边（上浮后落到盒外 3px 内）", false, true, w / 2, h + 3, true, true},
+		{"已悬停，指针在底边余量内", false, true, w / 2, h + cardHoverSlop, true, true},
+		{"已悬停，指针越过底边余量", false, true, w / 2, h + cardHoverSlop + 1, false, false},
+		{"已悬停，指针在顶部余量内", false, true, w / 2, -cardHoverSlop, true, true},
+		{"已悬停，指针在横向余量内", false, true, w + cardHoverSlop, h / 2, true, true},
+		{"已悬停，指针离开横向余量", false, true, w + cardHoverSlop + 1, h / 2, false, false},
+	}
+	for _, tc := range cases {
+		hovered, latch := cardHoverIntent(tc.actual, tc.latched, tc.x, tc.y, w, h)
+		if hovered != tc.hovered || latch != tc.wantHold {
+			t.Errorf("%s: hovered=%v latch=%v, want hovered=%v latch=%v",
+				tc.name, hovered, latch, tc.hovered, tc.wantHold)
+		}
+	}
+}
+
+// TestCardHoverBottomEdgeSettles 是无头反证：指针正好停在卡片底边时，卡片
+// 上浮后不能因为「指针已不在盒内」而反复回落/再上浮。没有迟滞时目标每帧在
+// 0 和 -3 之间来回，动画会一直请求新帧，Advance 结束后 FramePending 仍为真。
+func TestCardHoverBottomEdgeSettles(t *testing.T) {
+	tst, box := cardGlowProbe(t)
+	tst.Move(box.X+box.W/2, box.Y+box.H-1)
+	tst.Advance(200 * time.Millisecond)
+	if tst.FramePending() {
+		t.Fatal("指针停在卡片底边时悬停动画没有落定（上浮后脱离命中区，反复抽动）")
+	}
+
+	// 真正移开（超过余量）后必须能回落并落定，不能因为迟滞卡在悬停态。
+	tst.Move(box.X+box.W/2, box.Y+box.H+cardHoverSlop+8)
+	tst.Advance(300 * time.Millisecond)
+	if tst.FramePending() {
+		t.Fatal("指针离开卡片后悬停动画没有落定")
+	}
+}

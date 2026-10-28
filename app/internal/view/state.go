@@ -641,6 +641,11 @@ type App struct {
 	// 后应为 0（见 hoverfreeze_test.go）。它让「滚动时冻结悬停视觉」像
 	// liftChannels 一样可无头断言，而不必去猜某个像素色。
 	hoverChannels atomic.Int64
+	// cardHoverKey 是「已经进入悬停态」的那张卡的 key。卡片悬停会上浮 3px，
+	// 指针停在底边时盒子抬走后指针就落到盒外，box.Hovered() 立刻变 false，
+	// 卡片落回去又命中指针 —— 一帧亮一帧灭，看起来像被反复「抽出」。
+	// 记下已经悬停的卡，指针离开放大后的命中区才真正取消（见 cardHoverIntent）。
+	cardHoverKey string
 	// cardGlowKey 是「最后一张被指针悬停的卡」的 key，cardGlowX/Y 是指针离开
 	// （或仍在）时的圆心坐标。原版 `.is-pointer-hovered::before` 的 opacity 有
 	// `transition: opacity .12s ease`：指针离开后那团白光要渐隐 120ms，渐隐期间

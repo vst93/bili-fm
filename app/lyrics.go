@@ -97,7 +97,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 			// 管理，Position() 不一定是用户最后看到的位置；KV 是本应用
 			// 自己的事实源。取不到时才退回窗口当前位置。
 			var w int
-			x, y, ok := c.savedLyricsPos(desktopLyricsWidth, h)
+			x, y, ok := c.savedLyricsPos(h)
 			if ok {
 				w = c.desktopLyricsWidthFor(x, y)
 				x, y = clampLyricsPos(x, y, w, h)
@@ -117,7 +117,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 	a.LyricsConfig = false
 	a.LyricsConfigAbove = false
 	h := c.lyricsDisplayHeight()
-	x, y, ok := c.savedLyricsPos(desktopLyricsWidth, h)
+	x, y, ok := c.savedLyricsPos(h)
 	if !ok {
 		// 首次打开：按主屏比例算出实际宽度后再底部居中，不能拿设置页的
 		// 560 当显示宽度。
@@ -162,6 +162,15 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.lyricsWin = win
 	a.LyricsOn = true
 	c.lyricsAutoHide = false
+	// 拖动后立刻落盘。只在隐藏 / 退出时保存的话，系统注销、断电或进程
+	// 被结束时用户最后一次拖动就丢了 —— 隔天重开看起来像「位置被重置」。
+	// mygo 的 OnMove 在用户拖动和程序化 SetBounds 后都会触发；这里只存
+	// 可见窗口，避免初始化 / 隐藏收尺寸时的中间坐标覆盖已保存的位置。
+	win.OnMove(func() {
+		if c.lyricsWin == win && win.IsVisible() {
+			c.saveLyricsPos(win)
+		}
+	})
 	// 显式写回显示页尺寸：不设 StateKey，窗口状态不会用上次设置页的
 	// 高度把显示页撑开；位置也由本文件的 KV 管理。
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
@@ -171,6 +180,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// 下次开关回到用户拖到的地方。真正退出应用时 c.quitting 为真，放行。
 	win.OnClose(func(e *mygo.CloseEvent) {
 		if c.quitting {
+			// 系统注销 / 关机等路径可能绕过 c.quit() 的 hideDesktopLyrics；
+			// 这里在 native 窗口还在时补存一次（OnClosed 时 Bounds 已是零值）。
+			c.saveLyricsPos(win)
 			return
 		}
 		e.PreventDefault()
@@ -179,8 +191,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	win.OnClosed(func() {
 		// 只作为「窗口被系统销毁 / 应用退出」的兜底；正常关闭路径已被
 		// OnClose 拦成隐藏。应用退出时不要把用户的桌面字幕开关关掉。
+		// 位置已经在 OnMove / OnClose / 隐藏路径保存过：OnClosed 触发时
+		// mygo 已把 native 置空，再读 Bounds() 只会拿到零值。
 		if c.lyricsWin == win {
-			c.saveLyricsPos(win)
 			c.lyricsWin = nil
 		}
 		a.LyricsOn = false
@@ -295,7 +308,7 @@ func (c *controller) resizeDesktopLyrics() {
 
 // savedLyricsPos 读取上次关闭时记住的窗口位置，并夹到当前屏幕工作区内。
 // 显示器被拔掉/分辨率变化时也不能把窗口留在看不见的地方。
-func (c *controller) savedLyricsPos(w, h int) (int, int, bool) {
+func (c *controller) savedLyricsPos(h int) (int, int, bool) {
 	if c.kv == nil {
 		return 0, 0, false
 	}
@@ -308,6 +321,17 @@ func (c *controller) savedLyricsPos(w, h int) (int, int, bool) {
 	if errX != nil || errY != nil {
 		return 0, 0, false
 	}
+	// 旧版 OnClosed 在 native 置空后会把 0,0 写进 KV；没有新版本标记时
+	// 不能把它当成用户真的把窗口拖到了左上角，否则修复后第一次启动仍然
+	// 看起来「位置被重置」。用户之后真的拖到 (0,0) 时 saveLyricsPos 会
+	// 补上标记，下次就能正常恢复。
+	if x == 0 && y == 0 && c.kv.String(prefLyricsPosValid) != "true" {
+		return 0, 0, false
+	}
+	// 夹取时必须用**显示页实际宽度**，不能拿设置页的 560 去夹 320 宽的
+	// 字幕：窄屏上 560 放不下会把 X 一路推到工作区左缘，重启后看起来就像
+	// 位置被重置。宽度按保存点所在显示器与当前比例算，与打开窗口时同源。
+	w := c.desktopLyricsWidthFor(x, y)
 	cx, cy := clampLyricsPos(x, y, w, h)
 	return cx, cy, true
 }
@@ -318,7 +342,12 @@ func (c *controller) lyricsDisplayRect(w *mygo.Window) mygo.Rectangle {
 	if w == nil {
 		return mygo.Rectangle{}
 	}
-	b := w.Bounds()
+	return c.lyricsDisplayRectOf(w.Bounds())
+}
+
+// lyricsDisplayRectOf 从窗口 bounds 还原显示页矩形，供 saveLyricsPos 复用
+// （它已经读过一次 Bounds，不必再跨线程取一遍）。
+func (c *controller) lyricsDisplayRectOf(b mygo.Rectangle) mygo.Rectangle {
 	// 宽度始终按当前屏幕 / 比例重算，不信任缓存值：用户可能在设置页
 	// 打开期间把窗口拖到另一块显示器。
 	displayW := c.desktopLyricsWidthFor(b.X, b.Y)
@@ -345,9 +374,23 @@ func (c *controller) saveLyricsPos(w *mygo.Window) {
 	if w == nil || c.kv == nil {
 		return
 	}
-	r := c.lyricsDisplayRect(w)
+	b := w.Bounds()
+	// 窗口已经销毁 / 尚未布局时 Bounds 返回零值。mygo 的 OnClosed 在 native
+	// 置空之后才触发，若这时把 0,0 写进去，下次启动就真的回到左上角了。
+	if b.Width <= 1 || b.Height <= 1 {
+		return
+	}
+	// Wayland 的顶层位置由合成器管理，GTK 对顶层窗口常常恒返回 (0,0)。
+	// 不能把「读不到位置」当成用户把窗口拖到了左上角 —— 那会在每次退出时
+	// 把有效的旧坐标覆盖掉。
+	if waylandSession() && b.X == 0 && b.Y == 0 {
+		return
+	}
+	r := c.lyricsDisplayRectOf(b)
 	_ = c.kv.SetString(prefLyricsX, strconv.Itoa(r.X))
 	_ = c.kv.SetString(prefLyricsY, strconv.Itoa(r.Y))
+	// 标记这条坐标是本版本写下的有效记录（见 savedLyricsPos 的 0,0 迁移）。
+	_ = c.kv.SetString(prefLyricsPosValid, "true")
 }
 
 // clampLyricsPos 把窗口夹进离它最近的显示器工作区。窗口比工作区还大时

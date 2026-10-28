@@ -920,3 +920,16 @@ release notes 对应 PR 的源码后：**能用上的仍然是「升级即生效
 | #774 | `Path.Cap/Join/MiterLimit/Dash` | 本项目描边（播放栏聚光环、弹幕热力多边形、章节刻线）都是闭合/实线，默认的圆头圆角正是原版要的；没有虚线需求。 | **不适用** |
 | #753 | `Painter.AnimationFrameRate`：让自绘动画降帧 | 本项目唯一的 `AnimationFrame()` 用法（`playlist.go`）是「保证下一帧一定到来」，不是持续动画循环。 | **不适用** |
 | #724 / #728 / #737 / #781 / #778 / #777 / #787 / #776 / #766 / #764 / #723 / #721 / #722 / #734 / #804 / #719 | UI Automation 零分配、编辑器着色、Markdown 行内公式、`Page.IsAudible`/`ThemeColor`/`ProcessID`、flyout/窗口 FitContent、菜单图标、macOS 托盘标题定宽、子窗跟随父窗、最大化/顶部缩放/无边框材质/DWM caption、Linux 隐藏标题栏菜单栏、Liquid Glass | 视频弹窗已经用频道把 `muted` 推给页面（`video.html`），不需要 `SetAudioMuted`；本项目不用编辑器/Markdown/flyout/系统菜单图标/终端；主窗 `DisableResize` + `DisableMaximize`，不最大化、不从边缩放；不用窗口材质（玻璃是自己画的）。 | **不适用 / 无影响** |
+
+## mygo v0.7.1 升级评估（2026-10）
+
+`app/go.mod` 从 v0.7.0 升到 **v0.7.1**（go.sum 只换 mygo 两行）。v0.7.1 是
+两个改动的小版本，逐条对照源码后没有 API 破坏，也没有必须改的业务代码。
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #811 | macOS：用拖拽区（`DragWindow()` / `--app-region: drag`）拖窗口时不再抖动 | 主窗标题栏、迷你窗标题栏、桌面字幕整块面板都是 `DragWindow()`。0.7.0 的「原生拖拽 / 框架手动移动」竞态会在 macOS 上表现为窗口拖动时来回抖一下。 | **采用（升级即生效）**；桌面字幕的位置落盘也依赖 `OnMove`，抖动修掉后保存的坐标更稳定 |
+| #808 / #807 | `Font.LineHeight`：`ShapeText` / `ShapeRichText` 也按字号倍数设置行高 | 本项目自绘多行文本（`multilinetext.go` 的 `paintTextLines` / `paintHangingLines`）是**逐行成型 + 显式 linePitch**：原版 CSS 的行高可以小于字体自然行盒（如 22px 字号配 1.18），而框架的行高仍被夹在 `max(指定值, ascent+descent)`，`Font.LineHeight` 只能放大、不能压矮，替不掉现有逐行落点。`commentwrap` 等单行元素已用 `Element.LineHeight`，也不需要改。 | **不采用（现有自绘路径更准）** |
+
+升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
+amd64/arm64 六平台编译）全绿。`-shot` 无需重截：两个改动都不改布局/绘制。

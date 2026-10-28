@@ -39,6 +39,7 @@ const (
 	prefLyricsEnabled        = "desktopSubtitles"
 	prefLyricsX              = "desktopSubtitlesX"
 	prefLyricsY              = "desktopSubtitlesY"
+	prefLyricsPosValid       = "desktopSubtitlesPosValid"
 	prefLyricsOpacityLegacy  = "lyricsOpacity"
 	prefSubtitleLang         = "subtitleLanguage"
 	prefSubtitleFollow       = "subtitleFollow"

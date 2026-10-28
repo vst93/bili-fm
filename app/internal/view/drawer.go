@@ -2167,6 +2167,51 @@ type cardSpec struct {
 	Lazy bool
 }
 
+// cardHoverSlop 是卡片「已经悬停」后允许指针离开盒子的余量（DIP）。悬停时
+// 卡片上浮 3px，指针停在底边时盒子抬走后指针就落到盒外；没有这段迟滞，
+// Hovered() 会在 true/false 之间反复跳，卡片跟着上浮/回落，看起来像被反复
+// 抽出。取 6：大于 3px 的位移，又小于网格 8px 的行间距，不会误命中邻卡。
+const cardHoverSlop float32 = 6
+
+// cardHoverIntent 计算卡片这一帧是否按悬停态渲染。进入悬停仍要求指针真的
+// 在盒内（actual）；只有已经悬停的卡（latched）才享受 cardHoverSlop 的
+// 离开余量。这样指针停在底边时上浮不会把 hover 自己踢掉，而指针真正移开
+// 后也不会因为卡片回落又再次命中 —— 两个方向都不会来回抖。
+//
+// x/y 是指针在卡片局部坐标里的位置，w/h 是卡片盒尺寸。纯函数便于单测。
+func cardHoverIntent(actual, latched bool, x, y, w, h float32) (hovered, latch bool) {
+	if actual {
+		return true, true
+	}
+	if !latched {
+		return false, false
+	}
+	if x >= -cardHoverSlop && x <= w+cardHoverSlop &&
+		y >= -cardHoverSlop && y <= h+cardHoverSlop {
+		return true, true
+	}
+	return false, false
+}
+
+// cardHovered 是 cardHoverIntent 的每帧接线：只有已悬停的卡才读指针局部
+// 坐标，未悬停的卡仍只看 Hovered()，不会让整网格都挂 PointerPosition。
+func (a *App) cardHovered(box ui.Element, key string) bool {
+	if box.Hovered() {
+		a.cardHoverKey = key
+		return true
+	}
+	if a.cardHoverKey != key {
+		return false
+	}
+	px, py, _ := box.PointerPosition()
+	b := box.Bounds()
+	hovered, latch := cardHoverIntent(false, true, px, py, b.W, b.H)
+	if !latch {
+		a.cardHoverKey = ""
+	}
+	return hovered
+}
+
 // renderCard 画一张列表卡片。
 //
 // 搜索结果 / 推荐 / 收藏 / 稍后再看 / UP 空间 / **选集**……全走这一套：
@@ -2218,7 +2263,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// hover 在滚动中冻结：ui.List 滚动时卡片在指针下滑过，box.Hovered() 会
 	// 在相邻卡片之间来回跳，底/边/页脚洗色每帧翻转——用户看到的就是「选中
 	// 抖动」。锁定期间一律按常态渲染（在播卡片的 Active 态与指针无关，照旧）。
-	hovered := box.Hovered() && !locked
+	hovered := a.cardHovered(box, spec.Key) && !locked
 	if hovered {
 		a.hoverChannels.Add(1)
 	}
@@ -2285,7 +2330,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 上浮收回到 0（不是当帧硬切）。其它卡不重建通道。
 	if !locked || settling || spec.Active {
 		lift := float32(0)
-		if box.Hovered() || spec.Active {
+		if hovered || spec.Active {
 			lift = -3
 		}
 		if pressed {

@@ -316,3 +316,20 @@ func TestDesktopLyricsDefaultPosClamps(t *testing.T) {
 		t.Errorf("窗口顶边/底边越界：y=%d work=%+v", y, work)
 	}
 }
+
+// TestSavedLyricsPosIgnoresLegacyZero 钉住旧版 0,0 脏数据的迁移：旧版
+// OnClosed 在 native 置空后把 (0,0) 写进 KV，修复后不能把它当成用户真的
+// 把字幕拖到了左上角，否则第一次启动仍然看起来位置被重置。没有新版本
+// 标记时 (0,0) 视为无记录，回退到默认位置。
+func TestSavedLyricsPosIgnoresLegacyZero(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	_ = kv.SetString(prefLyricsX, "0")
+	_ = kv.SetString(prefLyricsY, "0")
+	c := &controller{app: view.NewApp(func() {}), kv: kv}
+	if _, _, ok := c.savedLyricsPos(100); ok {
+		t.Fatal("旧版写入的 (0,0) 应视为无记录")
+	}
+}
