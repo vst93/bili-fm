@@ -44,6 +44,9 @@ const (
 	prefSubtitleLang         = "subtitleLanguage"
 	prefSubtitleFollow       = "subtitleFollow"
 	prefDanmakuFollow        = "danmakuFollow"
+	// prefMainPos 是主窗位置（浮窗应用：用户把它摆到哪，下次启动 / 从迷你窗
+	// 回来就回到哪）。此前只记住迷你窗位置，主窗每次都居中。
+	prefMainPos = "mainWindowPosition"
 )
 
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
@@ -268,7 +271,7 @@ func (c *controller) showAbout() {
 		Kind:      "message",
 		Type:      "info",
 		Title:     "关于 bili-FM",
-		Message:   fmt.Sprintf("用音频聆听 B 站内容，既是音乐播放器，也是知识学习工具。\n\n版本 v%s", v),
+		Message:   fmt.Sprintf("用音频收听 B 站内容：既是播放器，也是学习工具。\n\n版本 v%s", v),
 		LinkLabel: "项目地址：github.com/vst93/bili-fm",
 		LinkURL:   "https://github.com/vst93/bili-fm",
 		Buttons:   []view.ModalButton{{Label: "好的", Primary: true}},

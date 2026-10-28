@@ -387,13 +387,30 @@ func (a *App) drawerHeader(c *ui.Context) {
 	})
 }
 
+// searchDrawerTitle 是搜索抽屉表头的标题：关键词不为空时带上它（长词截断），
+// 否则退回「搜索」。
+func searchDrawerTitle(query string) string {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return "搜索"
+	}
+	const maxRunes = 10
+	r := []rune(q)
+	if len(r) > maxRunes {
+		q = string(r[:maxRunes]) + "…"
+	}
+	return "搜索「" + q + "」"
+}
+
 // drawerTabs 画抽屉表头左边的部分：列表抽屉是 tab，其余是一个标题。
 func (a *App) drawerTabs(c *ui.Context) {
 	switch a.Drawer {
 	case DrawerSearch:
 		// 原版 searchList 表头：「搜索」标题 + 排序 tab。
-		ui.Text(c, "搜索").FontSize(14).FontWeight(600).SingleLine().
-			TextColor(ui.Hex("#334155")).Shrink(0)
+		// 抽屉会盖住主窗的搜索药丸，标题里带上关键词：翻结果时不用关抽屉
+		// 也知道自己在看哪次搜索（浮窗里尤其重要）。
+		ui.Text(c, searchDrawerTitle(a.Query)).FontSize(14).FontWeight(600).SingleLine().
+			TextColor(ui.Hex("#334155")).Shrink(0).MaxWidth(220)
 		a.tabs(c, "sort", []tabItem{
 			{Key: SortTotal, Label: "综合"},
 			{Key: SortClick, Label: "最多播放"},

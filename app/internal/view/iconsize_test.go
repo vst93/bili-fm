@@ -21,6 +21,9 @@ func TestIconComponentSizes(t *testing.T) {
 	// 已收藏，让内容操作行的收藏键文案变成「取消收藏」，与搜索栏的「收藏」
 	// 入口区分开（两者都叫「收藏」时 Find 只能拿到第一个）。
 	a.Faved = true
+	// 内容操作行只在「有曲目」时存在：真空态（Info 与 Track 都为空）现在
+	// 不画这一排占位按钮（见 videoInfo / emptyInfo）。
+	a.Track = &Track{Bvid: "BV1", Title: "标题"}
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
 
 	// 内容操作行（.video-content-actions）：34×34。

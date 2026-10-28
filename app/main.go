@@ -125,10 +125,11 @@ type controller struct {
 	lyricsWin      *mygo.Window
 	lyricsAutoHide bool
 
-	// miniPoll 是迷你窗位置轮询的停止信号。mygo 有 OnMove，但 Linux Wayland
-	// 的顶层位置由合成器管理，事件和 Position() 都不一定可靠；迷你窗仍用
-	// 轮询做跨平台兜底。
-	miniPoll chan struct{}
+	// posPoll 是窗口位置轮询的停止信号（主窗与迷你窗共用同一个轮询器，
+	// 落盘的键由 windowPosKey 决定）。mygo 有 OnMove，但 Linux Wayland
+	// 的顶层位置由合成器管理，事件和 Position() 都不一定可靠；所以轮询
+	// 做跨平台兜底。
+	posPoll chan struct{}
 	// winGate 是窗口操作（切迷你/切置顶）的在途闸门：兼作原版
 	// windowModeChangingRef 的防重入与 isWindowControlPending 的状态源
 	// （经 app.WindowControlPending 推给 view，迷你那两颗窗口控制键在期间
@@ -328,6 +329,15 @@ func main() {
 			}
 		}
 		app.Win = mygo.NewWindow(opts)
+
+		// 恢复上次的主窗位置：浮窗应用被用户摆到屏幕一侧后，下次启动
+		// 应该回到原地，而不是又重新居中。-window-pos 调试参数优先。
+		// 首次运行 / 老版本升级（没有记录）才交给 mygo 居中。
+		if *winPos == "" {
+			if x, y, ok := c.savedWindowPos(prefMainPos, mainWidth, mainHeight); ok {
+				app.Win.SetPosition(x, y)
+			}
+		}
 
 		// 首屏之后把堆还给系统一次：启动时解码封面、建字体图集、编译 Metal
 		// 管线都会把堆顶到一个远高于稳态的峰值，而 macOS/Windows 只记得峰值。
@@ -630,6 +640,8 @@ func main() {
 		// 现在才真正显示窗口：Explorer 会创建任务栏按钮并发送
 		// TaskbarButtonCreated，taskbarInit 在该消息里挂上缩略图工具栏。
 		app.Win.Show()
+		// 窗口位置落盘轮询（现在开始：隐藏 / 最小化时停，恢复时再启）。
+		c.startWindowPosPoll()
 		// Windows SMTC 需要窗口句柄；Linux/macOS 的媒体中心不实现该接口。
 		c.attachMediaCenter()
 		// 换抽屉 / -memstats 的内存观察（见 memory.go）。
@@ -1803,35 +1815,102 @@ func (c *controller) setMini(on bool) {
 		return
 	}
 	if on {
+		// 进迷你前先把主窗位置存一次：轮询最多慢 1 秒，刚拖完就切模式时
+		// 不能把最后这段位移丢掉（它决定退出迷你后回到哪）。窗口还没
+		// 显示（如 -mini 启动）时不存：那时读到的是平台的初始摆放，
+		// 不是用户的选择。
+		if a.Win.IsVisible() {
+			c.saveWindowPos(prefMainPos)
+		}
+		c.stopWindowPosPoll()
 		w, h := view.MiniSize()
 		a.Win.SetSize(w, h)
 		// 恢复上次的迷你窗位置（原版 miniWindowPosition）；不在任何屏幕里就夹回来。
-		if p := c.kv.String(prefMiniPos); p != "" {
-			if x, y, ok := strings.Cut(p, ","); ok {
-				xi, _ := strconv.Atoi(x)
-				yi, _ := strconv.Atoi(y)
-				xi, yi = clampToDisplays(xi, yi, w, h)
-				a.Win.SetPosition(xi, yi)
-			}
+		if x, y, ok := c.savedWindowPos(prefMiniPos, w, h); ok {
+			a.Win.SetPosition(x, y)
 		}
 		// 迷你窗默认**不**置顶（原版 isMiniPinned 初始 false，进迷你模式
 		// 也不调 set_window_always_on_top）；置顶由窗口上那颗图钉控制。
 		a.Win.SetAlwaysOnTop(a.Pinned)
-		c.startMiniPosPoll()
+		c.startWindowPosPoll()
 	} else {
-		c.stopMiniPosPoll()
+		c.stopWindowPosPoll()
 		// 退出迷你模式：尺寸和位置必须在**一次** SetBounds 里提交。此前是先
 		// SetSize 再 Center，两次 SetWindowPos 之间 DWM 可能先呈现「变大的旧位置」，
 		// 用户看到的就是「先切换再居中」（Tauri issue #35 同源）。拿不到屏幕
 		// 信息（无头/远程）时才退回两次调用。
-		if !c.setMainWindowCentered() {
+		//
+		// 落点是上次主窗的位置（浮窗用户已经把它摆好了），没有记录才居中。
+		if !c.restoreMainWindow() {
 			a.Win.SetSize(mainWidth, mainHeight)
 			a.Win.Center()
 		}
 		a.Win.SetAlwaysOnTop(false)
 		a.Pinned = false
+		c.startWindowPosPoll()
 	}
 	c.finishWinControl()
+}
+
+// restoreMainWindow 把主窗恢复到上次的位置与尺寸（一次 SetBounds 提交，
+// 避免「先变大、再挪位」的闪烁）；没有记录或拿不到屏幕信息时退回居中。
+func (c *controller) restoreMainWindow() bool {
+	if c.app == nil || c.app.Win == nil {
+		return false
+	}
+	if x, y, ok := c.savedWindowPos(prefMainPos, mainWidth, mainHeight); ok {
+		c.app.Win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: mainWidth, Height: mainHeight})
+		return true
+	}
+	return c.setMainWindowCentered()
+}
+
+// windowPosKey 返回当前模式该用的位置记忆键（主窗 / 迷你窗各一份）。
+func (c *controller) windowPosKey() string {
+	if c.app != nil && c.app.Mini {
+		return prefMiniPos
+	}
+	return prefMainPos
+}
+
+// saveWindowPos 把窗口当前位置写进 key（轮询与切迷你前的手动存点共用）。
+func (c *controller) saveWindowPos(key string) {
+	if c.app == nil || c.app.Win == nil || c.kv == nil || key == "" {
+		return
+	}
+	x, y := c.app.Win.Position()
+	_ = c.kv.SetString(key, fmt.Sprintf("%d,%d", x, y))
+}
+
+// savedWindowPos 读出存盘的窗口位置，并夹到已连接屏幕的可用区内；
+// 没有记录 / 格式坏掉时 ok=false，由调用方决定居中还是留在原地。
+func (c *controller) savedWindowPos(key string, w, h int) (x, y int, ok bool) {
+	if c.kv == nil {
+		return 0, 0, false
+	}
+	x, y, ok = parseWindowPos(c.kv.String(key))
+	if !ok {
+		return 0, 0, false
+	}
+	x, y = clampToDisplays(x, y, w, h)
+	return x, y, true
+}
+
+// parseWindowPos 解析存盘的 "x,y"（允许负坐标），拆成纯函数便于单测。
+func parseWindowPos(s string) (x, y int, ok bool) {
+	xs, ys, found := strings.Cut(strings.TrimSpace(s), ",")
+	if !found {
+		return 0, 0, false
+	}
+	xi, err := strconv.Atoi(strings.TrimSpace(xs))
+	if err != nil {
+		return 0, 0, false
+	}
+	yi, err := strconv.Atoi(strings.TrimSpace(ys))
+	if err != nil {
+		return 0, 0, false
+	}
+	return xi, yi, true
 }
 
 // clampToDisplays 把窗口位置夹到连接的屏幕里（原版多屏救援逻辑的简化版）：
@@ -1885,21 +1964,23 @@ func clampToAreas(x, y, w, h int, areas []screenArea) (int, int) {
 	return clamp(x, best.X, best.X+max(0, best.W-w)), clamp(y, best.Y, best.Y+max(0, best.H-h))
 }
 
-// startMiniPosPoll 每秒读一次迷你窗位置，变了就落盘。mygo 的 OnMove 在
+// startWindowPosPoll 每秒读一次窗口位置，变了就落盘。mygo 的 OnMove 在
 // Wayland 上不一定触发（顶层位置由合成器管理），所以这里保留轮询兜底；
-// 只在迷你模式期间跑。
-func (c *controller) startMiniPosPoll() {
+// 只在该窗口可见时跑（最小化 / 隐藏到托盘时停，避免把 -32000 之类
+// 的占位坐标当成用户选择存下来）。
+func (c *controller) startWindowPosPoll() {
 	// 没有窗口（无头测试）就没有位置可轮询 —— 而且轮询体里会调 Window.Position()。
-	if c.app.Win == nil {
+	if c.app == nil || c.app.Win == nil || c.kv == nil {
 		return
 	}
-	c.stopMiniPosPoll()
+	c.stopWindowPosPoll()
+	key := c.windowPosKey()
 	stop := make(chan struct{})
-	c.miniPoll = stop
+	c.posPoll = stop
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
-		last := c.kv.String(prefMiniPos)
+		last := c.kv.String(key)
 		for {
 			select {
 			case <-stop:
@@ -1910,16 +1991,16 @@ func (c *controller) startMiniPosPoll() {
 			p := fmt.Sprintf("%d,%d", x, y)
 			if p != last {
 				last = p
-				_ = c.kv.SetString(prefMiniPos, p)
+				_ = c.kv.SetString(key, p)
 			}
 		}
 	}()
 }
 
-func (c *controller) stopMiniPosPoll() {
-	if c.miniPoll != nil {
-		close(c.miniPoll)
-		c.miniPoll = nil
+func (c *controller) stopWindowPosPoll() {
+	if c.posPoll != nil {
+		close(c.posPoll)
+		c.posPoll = nil
 	}
 }
 
@@ -2555,12 +2636,26 @@ func searchResultCards(results []bilibili.SearchResult) []view.Card {
 			"title":    r.Title,
 			"duration": parseDurText(r.Length),
 			"owner":    map[string]any{"name": r.Author},
-			"stat":     map[string]any{"view": parseCountText(r.Views)},
+			// 播放量用接口给好的文案（"665.2万"）：解析成数字再直出会被窄列
+			// 截成「6652…」，读不出多少播放量（见 toCards 的 views_text）。
+			"views_text": r.Views,
 			// 原版搜索卡片的 meta 三列：作者/播放量/发布时间。
-			"pubdate": metaDateText(r.Date),
+			// toCards 的 pubdate 只认 Unix 秒（日期串会被 pickInt 当成秒数，
+			// 渲染成 1970-01-01），所以这里给数值；没有日期就不填这一格。
+			"pubdate": metaDateUnixValue(r.Date),
 		})
 	}
 	return toCards(items, true)
+}
+
+// metaDateUnixValue 把搜索返回的日期串变成 toCards 认的 Unix 秒（int64）；
+// 空串 / 1970 占位 / 解析不了都返回 nil，让 meta 行直接少一列。
+func metaDateUnixValue(raw string) any {
+	ts, ok := metaDateUnix(raw)
+	if !ok || ts <= 0 {
+		return nil
+	}
+	return ts
 }
 
 // searchMore 拉搜索结果的下一页（滚到底自动翻页）。

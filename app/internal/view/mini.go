@@ -1,6 +1,8 @@
 package view
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
@@ -167,16 +169,40 @@ func (a *App) MiniShell(c *ui.Context) {
 					// 播放列表模式圆点玫红 + 外圈光晕（原版
 					// .mini-status-dot-playlist 的 box-shadow ring）。
 					inList := a.PlayingPlaylist != ""
-					dotInk, dotRing := miniStatusDot(t, inList)
+					// 迷你窗的第二行：有分集就显示分集，空态改成播放列表条数。
+					// 两种「什么都没有」的旧文案（无选集标题 / 暂无播放内容）
+					// 都在占位：浮窗上每一行只有 12px，不能拿来写这种话。
+					status := a.partTitle()
+					idle := a.idle()
+					if idle {
+						if n := len(a.Playlist); n > 0 {
+							status = fmt.Sprintf("播放列表 %d 首", n)
+						} else {
+							status = "回到主窗开始搜索"
+						}
+					}
+					if status == "" {
+						return // 单 P 视频：没收视价值的分集行，不占高
+					}
+					var dotInk, dotRing ui.Color
+					if idle {
+						// 空态的中性圆点：不冒充「当前选集」/「播放列表」的来源色。
+						dotInk = ui.Hex("#94a3b8").Alpha(0.65)
+						dotRing = ui.Transparent
+					} else {
+						dotInk, dotRing = miniStatusDot(t, inList)
+					}
 					dot := ui.Box(c).Size(7, 7).Shrink(0).Margin(0, 0, 0, 5).
 						Radius(RadiusPill).Background(dotInk)
-					dot.Shadow(0, 0, 0, 4, dotRing.Alpha(0.12))
+					if !idle {
+						dot.Shadow(0, 0, 0, 4, dotRing.Alpha(0.12))
+					}
 					// 原版 .mini-part：12px / 650 / #526174 / line-height 1.2。
 					// 框架自然行盒（12px ≈ 18）下不去，这一行会高约 3.6px、把
 					// 信息列（Justify Center）整体推偏；用显式盒高 + 字形上移
 					// 复现（见 linebox.go）。
 					mh, msh := textLineBox(12, 1.2)
-					ui.Text(c, a.partTitle()).FontSize(12).FontWeight(650).
+					ui.Text(c, status).FontSize(12).FontWeight(650).
 						TextColor(ui.Hex("#526174")).SingleLine().Height(mh).Padding(msh, 0, 0, 0)
 				})
 			})

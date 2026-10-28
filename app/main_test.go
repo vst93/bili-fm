@@ -655,6 +655,41 @@ func TestMetaDateText(t *testing.T) {
 	}
 }
 
+// TestSearchResultCardsPubdate 钉住搜索卡片的发布时间列。
+//
+// 接口给的是 "2022-11-26" 这样的**日期串**，而 toCards 的 "pubdate" 只认
+// Unix 秒（pickInt 用 Sscanf("%d")）：此前 searchResultCards 直接把
+// metaDateText 的展示文案塞进去，前四位年份被当成秒数，每张搜索卡片都显示
+// 1970-01-01。现在数值走 metaDateUnix，展示层仍由 relTime 决定。
+func TestSearchResultCardsPubdate(t *testing.T) {
+	cards := searchResultCards([]bilibili.SearchResult{
+		{Bvid: "BVdate1", Title: "有日期", Date: "2020-05-01", Views: "665.2万"},
+		{Bvid: "BVdate2", Title: "1970 占位", Date: "1970-01-01"},
+		{Bvid: "BVdate3", Title: "没日期"},
+	})
+	if len(cards) != 3 {
+		t.Fatalf("卡片数 = %d，want 3", len(cards))
+	}
+	// 播放量保留接口文案：把 "665.2万" 还原成 6652000 会被窄列截成「6652…」。
+	if got := cards[0].Views; got != "665.2万" {
+		t.Errorf("播放量 = %q，want %q（接口文案直出）", got, "665.2万")
+	}
+	if got := cards[0].Pubdate; got != "2020-05-01" {
+		t.Errorf("有日期卡片 pubdate = %q，want %q", got, "2020-05-01")
+	}
+	if got := cards[1].Pubdate; got != "" {
+		t.Errorf("1970 占位 pubdate = %q，want 空", got)
+	}
+	if got := cards[2].Pubdate; got != "" {
+		t.Errorf("无日期 pubdate = %q，want 空", got)
+	}
+	for _, c := range cards {
+		if c.Pubdate == "1970-01-01" {
+			t.Fatalf("卡片 %s 又显示成 1970-01-01 了", c.Bvid)
+		}
+	}
+}
+
 func TestToCardsViewsFallbackAndPubdate(t *testing.T) {
 	// 播放量缺失时用弹幕数顶上（原版 viewsMetaField）。
 	items := []any{map[string]any{
@@ -1946,13 +1981,65 @@ func TestCenteredBounds(t *testing.T) {
 
 // TestSetMiniUsesSingleBounds 钉住退出迷你模式走一次 SetBounds（不是先
 // SetSize 再 Center 的两次提交）。
+//
+// 落点优先是**上次的主窗位置**（浮窗用户已经把它摆好了），没有记录时才
+// 退回居中 —— 两条路都是一次性提交尺寸+位置。
 func TestSetMiniUsesSingleBounds(t *testing.T) {
 	flat := flattenCode(t, "main.go")
-	if !strings.Contains(flat, "if!c.setMainWindowCentered(){a.Win.SetSize(mainWidth,mainHeight)a.Win.Center()}") {
-		t.Fatal("setMini 退出路径没有优先使用 setMainWindowCentered 的一次性 SetBounds")
+	if !strings.Contains(flat, "if!c.restoreMainWindow(){a.Win.SetSize(mainWidth,mainHeight)a.Win.Center()}") {
+		t.Fatal("setMini 退出路径没有优先使用 restoreMainWindow 的一次性 SetBounds")
+	}
+	if !strings.Contains(flat, "c.app.Win.SetBounds(mygo.Rectangle{X:x,Y:y,Width:mainWidth,Height:mainHeight})") {
+		t.Fatal("restoreMainWindow 没有把记住的位置+尺寸交给 SetBounds")
+	}
+	if !strings.Contains(flat, "returnc.setMainWindowCentered()") {
+		t.Fatal("restoreMainWindow 没有在主窗无记录时退回居中")
 	}
 	if !strings.Contains(flat, "c.app.Win.SetBounds(b)") {
 		t.Fatal("setMainWindowCentered 没有把位置+尺寸交给 SetBounds")
+	}
+}
+
+// TestParseWindowPos 钉住存盘格式 "x,y"：允许负坐标（副屏在左边），
+// 坏数据一律返回 ok=false（不能把脏字符串当成 (0,0) 用）。
+func TestParseWindowPos(t *testing.T) {
+	cases := []struct {
+		in   string
+		x, y int
+		ok   bool
+	}{
+		{"120,240", 120, 240, true},
+		{"-1600,80", -1600, 80, true},
+		{" 12 , -8 ", 12, -8, true},
+		{"", 0, 0, false},
+		{"120", 0, 0, false},
+		{"a,b", 0, 0, false},
+		{"12,", 0, 0, false},
+	}
+	for _, tc := range cases {
+		x, y, ok := parseWindowPos(tc.in)
+		if x != tc.x || y != tc.y || ok != tc.ok {
+			t.Errorf("parseWindowPos(%q) = (%d,%d,%v)，want (%d,%d,%v)",
+				tc.in, x, y, ok, tc.x, tc.y, tc.ok)
+		}
+	}
+}
+
+// TestWindowPosSeparateKeys 钉住主窗与迷你窗各记一份位置。
+//
+// 不在这里调 savedWindowPos：它会走 mygo.Screen.Displays() 回主线程，
+// 无头测试里没有主循环（夹取逻辑本身由 clampToAreas 的单测覆盖）。
+func TestWindowPosSeparateKeys(t *testing.T) {
+	c := &controller{app: &view.App{}}
+	if got := c.windowPosKey(); got != prefMainPos {
+		t.Fatalf("主窗位置键 = %q，want %q", got, prefMainPos)
+	}
+	if prefMainPos == prefMiniPos {
+		t.Fatal("主窗与迷你窗不能共用同一个位置键（尺寸不同）")
+	}
+	c.app.Mini = true
+	if got := c.windowPosKey(); got != prefMiniPos {
+		t.Fatalf("迷你窗位置键 = %q，want %q", got, prefMiniPos)
 	}
 }
 

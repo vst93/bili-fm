@@ -124,9 +124,15 @@ func toCards(items []any, rawViews bool) []view.Card {
 		// 回退弹幕数——原版 viewsMetaField（修复轮 22 的问题 1）。此前用 `n > 0`
 		// 判断，把「真实 0」也当成缺失，于是有 0 播放的视频会顶着弹幕数挂评论
 		// 图标（正是原版专门修掉的混同）。
-		views := ""
-		if n, ok := pickCount(subMap(m, "stat"), "view"); ok {
-			views = fmtView(n)
+		//
+		// views_text 是接口已经给好的展示文案（搜索结果的 "665.2万"）：直接用它。
+		// 把 "665.2万" 还原成数字再直出（6652000）会在 800px 的三列卡片里被截成
+		// 「6652…」——数字一旦被截就完全没有信息量。
+		views := pickStr(m, "views_text")
+		if views == "" {
+			if n, ok := pickCount(subMap(m, "stat"), "view"); ok {
+				views = fmtView(n)
+			}
 		}
 		if views == "" {
 			if n, ok := pickCount(subMap(m, "cnt_info"), "play"); ok {
@@ -417,6 +423,31 @@ func metaDateText(raw string) string {
 	if len(raw) > 19 {
 		raw = raw[:19]
 	}
+	if ts, ok := metaDateUnix(raw); ok {
+		// 1970 附近的都是没拿到 pubdate 的占位（接口给 0），不显示。
+		if ts <= 0 {
+			return ""
+		}
+		return relTime(ts)
+	}
+	return raw
+}
+
+// metaDateUnix 解析 meta 行里的日期串，返回本地时区的 Unix 秒；第二个返回值
+// 表示这串**确实是日期**（只是可能落在 1970 占位上），用来和「不像日期」区分。
+//
+// 拆出来的原因：卡片管线（toCards）的 "pubdate" 只认数值时间戳。此前
+// searchResultCards 把 metaDateText 的**展示文案**（"2022-11-26"）直接塞进
+// "pubdate"，pickInt 的 Sscanf("%d") 读到前四位年份当成 Unix 秒，每张搜索
+// 卡片的发布时间都变成 1970-01-01。数值走这里、展示走 metaDateText。
+func metaDateUnix(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	if len(raw) > 19 {
+		raw = raw[:19]
+	}
 	for _, layout := range []string{
 		"2006-01-02 15:04:05", "2006-01-02 15:04", "2006-01-02",
 	} {
@@ -424,11 +455,10 @@ func metaDateText(raw string) string {
 		if err != nil {
 			continue
 		}
-		// 1970 附近的都是没拿到 pubdate 的占位（接口给 0），不显示。
 		if ts.Year() <= 1971 {
-			return ""
+			return 0, true
 		}
-		return relTime(ts.Unix())
+		return ts.Unix(), true
 	}
-	return raw
+	return 0, false
 }

@@ -208,8 +208,14 @@ func (c *controller) setBackground(on bool) {
 		c.app.Win.Update(func() {})
 	}
 	if on {
+		// 隐藏到托盘 / 最小化：位置轮询停掉。窗口在后台时读到的坐标可能是
+		// 平台占位值（Windows 最小化是 -32000），存下来会把下次启动摆到屏外。
+		c.stopWindowPosPoll()
 		trimMemory()
+		return
 	}
+	// 回到前台：重新开始位置轮询（模式切换会重启到正确的键）。
+	c.startWindowPosPoll()
 }
 
 // memReport 拼一行内存构成：Go 侧 + 进程侧 + 位图缓存。

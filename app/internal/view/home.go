@@ -774,14 +774,27 @@ var (
 // 传 0 即可。
 func (a *App) videoInfo(c *ui.Context, wide bool, titleW float32) {
 	t := a.Theme
+	// 空态：连一条待播内容都没有（首次启动 / 播放列表为空）。
+	// 与「有曲目、详情还在路上」分开——后者标题、分集、操作行都该照常画。
+	idle := a.idle()
 	col := ui.Column(c).FillWidth().AlignItems(ui.Start)
 	if wide {
 		// Grow(1) 在 Row 里吃的是**横向**剩余宽度（原版 1fr 列）；
 		// Height(videoInfoHeight) 固定**纵向**盒高，两者互不冲突。
-		col.Grow(1).MinWidth(0).Height(videoInfoHeight).
-			Padding(videoInfoPad[0], videoInfoPad[1], videoInfoPad[2], videoInfoPad[3])
+		col.Grow(1).MinWidth(0)
+		// 空态不锁 366 的盒高：没有 UP 主 / 简介 / 操作行可排，固定盒高会
+		// 把三行字顶在盒顶，和旁边居中的封面错开一大截。
+		if !idle {
+			col.Height(videoInfoHeight)
+		}
+		col.Padding(videoInfoPad[0], videoInfoPad[1], videoInfoPad[2], videoInfoPad[3])
 	}
 	col.Children(func() {
+		if idle {
+			a.emptyInfo(c)
+			a.contextDock(c)
+			return
+		}
 		a.videoInfoHead(c)
 		// 原版 #video-title h2：22px / 800 / line-height 1.18 / 2 行截断 /
 		// min-height 52、max-height 58。#video-title 与 h2 都是 margin: 0（此前
@@ -830,6 +843,30 @@ func (a *App) videoInfo(c *ui.Context, wide bool, titleW float32) {
 		a.contentActions(c)
 		a.contextDock(c)
 	})
+}
+
+// emptyInfo 是「还没有在听的内容」时的右栏。
+//
+// 原版（以及此前的原生版）在这个状态下把占位当成内容来画：
+// 「神秘的UP主」「暂无播放内容」「无描述」「当前选集 无选集标题」，
+// 再加一排全部禁用的计数与操作键。首次启动看到的是「有内容但都坏了」，
+// 而真正该给的只有一件事：下一步做什么。
+//
+// 所以空态只保留一句标题 + 一句带具体动作的说明，工具条（搜索结果 /
+// 选集 / 合集 / 播放列表）照旧画在下方 —— 播放列表往往已经有歌，
+// 那是空态里唯一真正能点的入口。
+func (a *App) emptyInfo(c *ui.Context) {
+	t := a.Theme
+	ui.Text(c, "还没有正在听的内容").FontSize(infoTitleSize).
+		FontWeight(infoTitleWeight).TextColor(t.Ink).SingleLine().Shrink(0)
+	// 引导按手头的内容取：播放列表里有歌时把「从播放列表继续」也算进去，
+	// 那是最省事的一条路（工具条就在下面）。
+	hint := "搜索关键词，或把 B 站视频链接粘贴到上面的搜索框。"
+	if len(a.Playlist) > 0 {
+		hint = "搜索关键词、粘贴 B 站链接，或从下方播放列表继续。"
+	}
+	ui.Text(c, hint).FontSize(13).TextColor(ui.Hex("#475569")).MaxLines(2).
+		Margin(10, 0, 0, 0).Shrink(0)
 }
 
 // videoInfoHead 是 UP 主行（.video-info-head）：44px 圆头像（带磨砂玻璃罩）+
@@ -967,6 +1004,13 @@ func (a *App) partPill(c *ui.Context) {
 	// 播放列表模式的圆点是玫红（原版 .video-part-dot-playlist 用
 	// --studio-rose），非播放列表才是蓝。
 	inPlaylist := a.PlayingPlaylist != ""
+	// 没有分集标题、也不是从播放列表播的：胶囊只能写出「当前选集」四个字，
+	// 不携带任何信息（单 P 视频就是这样）。整块省略，把空间还给工具条。
+	// 播放列表模式仍保留胶囊：来源本身就是有效信息。
+	part := a.partTitle()
+	if part == "" && !inPlaylist {
+		return
+	}
 	dotInk := pick(inPlaylist, t.Rose, ui.Hex("#0284c7"))
 	source := "当前选集"
 	if inPlaylist {
@@ -993,7 +1037,9 @@ func (a *App) partPill(c *ui.Context) {
 		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
 		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
 		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
-		ui.Text(c, a.partTitle()).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
+		if part != "" {
+			ui.Text(c, part).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
+		}
 	})
 }
 
@@ -1500,6 +1546,12 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 
 // ---------------------------------------------------------------- 文案取值
 
+// idle 报告「连一条待播内容都没有」：既没有详情，也没有当前曲目。
+//
+// 它只用来区分真空态与「有曲目、详情还在路上」—— 后者只是转圈等数据，
+// 标题、分集标题、操作行都得照常占位。
+func (a *App) idle() bool { return a.Info == nil && a.Track == nil }
+
 func (a *App) infoTitle() string {
 	if a.Info != nil && a.Info.Title != "" {
 		return a.Info.Title
@@ -1507,7 +1559,7 @@ func (a *App) infoTitle() string {
 	if a.Track != nil && a.Track.Title != "" {
 		return a.Track.Title
 	}
-	return "暂无播放内容"
+	return "还没有正在听的内容"
 }
 
 func (a *App) infoDesc() string {
@@ -1554,7 +1606,10 @@ func (a *App) partTitle() string {
 	if a.Track != nil && a.Track.Part != "" {
 		return a.Track.Part
 	}
-	return "无选集标题"
+	// 没有分集标题（单 P 视频 / 详情还没回来）时返回空串，由调用方决定
+	// 是否整行省略。这里的占位文案「无选集标题」以前会直接显示在标题下方，
+	// 等于告诉用户「这里本该有东西，但我不告诉你是什么」。
+	return ""
 }
 
 // coverBitmap 返回当前要显示的封面位图。新封面还没抓回来时沿用上一张

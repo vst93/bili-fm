@@ -136,6 +136,9 @@ func TestStatValueOpacityWired(t *testing.T) {
 	render := func() (*image.RGBA, ui.Rect, bool) {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
+		// 「没有视频」= 有曲目但详情没回来（按钮禁用）。真空态（Info 与
+		// Track 都为空）现在整排不画，没有可量的计数（见 emptyInfo）。
+		a.Track = &Track{Bvid: "BV1", Title: "标题"}
 		tt := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
 		tt.Frame()
 		tt.Frame()
