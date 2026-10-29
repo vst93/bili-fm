@@ -968,3 +968,37 @@ release notes 对应 PR 的源码后：**能用上的仍然是「升级即生效
 
 升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
 amd64/arm64 六平台编译）全绿。`-shot` 无需重截：两个改动都不改布局/绘制。
+
+## mygo v0.7.2 / v0.7.3 升级评估（2026-10-29）
+
+`app/go.mod` 从 v0.7.1 升到 **v0.7.3**（go.sum 只多 mygo 两行）。这两个版本
+没有删除任何我们用的 API（编译 / vet 直接过），但 **0.7.2 的 #799 把
+`update_source.go` 的整套「Gitee 优先」机制打死了**，必须改，见下表第一行。
+
+结论：`./check.sh`（vet + 全包测试 + 六平台编译）全绿；`internal/view` 的
+无头像素测试全过（升级没改布局/绘制结果），不需要重截 `-shot`。
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #799 | **新增 `netproxy` 包**：mygo 自己的 HTTP 请求（更新器、fetch/websocket 插件）改走系统代理（WinHTTP / CFNetwork / GIO + PAC） | 两个致命影响：① updater 不再用 `http.DefaultClient`，`update_source.go` 那层套在 `http.DefaultTransport` 上的「Gitee 优先」传输层**根本收不到请求**，国内用户等于退回 GitHub 单源；② `netproxy.Transport()` 会 `http.DefaultTransport.(*http.Transport)` 断言（`netproxy.go:84`），我们换进去的 `*giteeFirstTransport` 会让它**直接 panic** —— 一检查更新就崩。已用 `_test.go` 里的探针实测确认 panic。 | **必须改**（已改：见下一行） |
+| #820 | **`Updater.SetSource(UpdateSource)`**：官方扩展点，替换「清单从哪来 / 文件从哪下」 | 把 `update_source.go` 从「劫持全局 transport」重写成实现 `mygo.UpdateSource` 的 `giteeFirstSource`：`Manifest` 先问 Gitee release 列表 → 取 `update-<GOOS>-<GOARCH>.json`；`Open` 把清单里的 GitHub 资产 URL 换成 Gitee 同名路径先下。回落顺序、HTML 伪 200 校验、只改写本仓库资产这些老约定全部保留，测试同步重写（`update_source_test.go`，11 个用例）。请求仍走 `netproxy.Transport()`，与框架自己的更新请求同一条代理链路。 | **采用（本轮适配核心）** |
+| #846 | **破坏性**：捏合缩放 / 触摸板滑动前进后退**默认关闭**（Windows / Linux 原本默认开，现在三平台都关；要用得显式设 `PageOptions.PinchZoom` / `SwipeNavigation`） | 视频弹窗（`internal/video`）只设了 `UserAgentSuffix`，没设这两项 → 0.7.1 在 Windows/Linux 上可以捏合放大整个播放页，0.7.3 起不行了。 | **采用新默认**：播放页不需要页面缩放，误触捏合把 `<video>` 连同控件一起放大反而是回归；真要开，在 `video.go` 的 `PageOptions` 加一行即可 |
+| #856 | `PageOptions.Autoplay: AutoplayAllow`：隐藏窗口也能自动播放有声媒体 | 视频弹窗是**可见**窗口，起播走页面里的 `video.play()`，当前正常。`AutoplayAllow` 的用点是「纯原生壳 + 隐藏 webview 出声」那种结构，本项目音频走纯 Go 引擎，不适用。 | **不采用** |
+| #831 | Windows：隐藏的窗口不再把 webview 留在屏幕上挡点击 | 视频弹窗最小化 / 被主窗挡住时不再留一层透明 webview 吃鼠标。 | **采用（升级即生效）** |
+| #877 | Linux：窗口自己隐藏后再显示不再空白 | 桌面字幕开关（隐藏 → 显示）、迷你模式切回主窗都走这条路径。 | **采用（升级即生效）** |
+| #889 | macOS：没有输入框聚焦时，窗口级 Cmd+C/V/X/A/Z、Cmd+Shift+Z 也生效 | 搜索框 / 设置里的输入框失焦后仍能粘贴（0.7.1 会没反应）。 | **采用（升级即生效）** |
+| #818 | macOS：Control+点击托盘图标打开右键菜单 | 托盘有「显示主窗 / 播放暂停 / 退出」菜单。 | **采用（升级即生效）** |
+| #827 | 滚轮越过不吃滚动的元素（编辑器标注、悬停卡片）继续交给外层 | 抽屉卡片列表、播放列表、弹幕列表都是滚动容器 + 内部有悬停卡片。 | **采用（升级即生效）** |
+| #826 | 屏幕阅读器按行内控件标签朗读整行（如勾选行读「完成」） | 设置菜单的复选框行、播放列表行。 | **采用（升级即生效）** |
+| #660 | Windows：透明原生 UI 窗口露出背后的内容，不再是纯黑 | 桌面字幕窗是 `Transparent: true`，Windows 上本来就靠 `Panel: true`（WS_POPUP、无重定向位图）绕开黑底（`lyrics.go` 有注释）。框架修好了普通透明窗，但**不改**现有方案：Panel 路径已稳定，换回去只会引入定位/焦点差异。 | **保持现状（无影响）** |
+| #893 / #855 | Windows：缩放原生 UI 窗口时内容不再放大错位、边缘不再黑 | 主窗固定尺寸（`DisableResize`），视频弹窗是纯 webview 窗，都不走「原生 UI 窗口缩放」。 | **无影响** |
+| #842 | `PageOptions.PictureInPicture` + `Page.TogglePictureInPicture`（macOS / Windows） | 可以给视频弹窗补一个画中画按钮（后台听歌时把画面钉在角落）。属于新功能，不混进升级轮。 | **候选（下轮功能）** |
+| #844 / #848 / #847 | 页面会话状态（前进后退 / 滚动 / 表单）、独立 session（cookie/存储隔离）、`BackgroundThrottling` | 视频弹窗是临时窗口、每次换源只改 `<video>.src`，不恢复表单/滚动；登录态在原生侧 KV，视频页不登录；也没有「隐藏窗口持续播放」场景。 | **不采用** |
+| #849 / #852 / #886 / #884 | 页面右键菜单回调、主题内绘制 `PopoverMenu` / `PopoverMenuButton`、`SearchField` 占位符 | 右键菜单（进度条「跳到下一个高能」）是自绘的液态玻璃面板；搜索框是自绘 `ui.Input`，没有菜单按钮/占位符需求。 | **不采用（现有自绘更贴原版）** |
+| #853 / #850 | 排版增强：`TextLayout.Lines`、`TextShape.Justify/Indent`、软连字符、`Span.BaselineShift`、段落间距 | 多行文本（`multilinetext.go`）刻意逐行成型 + 显式 linePitch，理由同 v0.7.1 的 `Font.LineHeight` 一条：CSS 行高可以小于字体自然行盒，框架行高会被夹到 ascent+descent。 | **不采用（现有自绘路径更准）** |
+| #839 / #868 / #858 | `ui.Video`（先支持 GIF）、`DecodeImage`/`ImageSize`（含 SVG）、释放像素后无 GPU 绘制不再崩 | 视频仍必须走 webview（H.264 无纯 Go 解码器）；封面是 B 站位图，没有 SVG；封面用 `ui.NewBitmap(image.Image)`，不用 `ReleasePixels`。 | **不适用** |
+| #819 / #854 / #833 | `windows.installerInclude`、`windows.installDirName`、`macos.icon` 收 `.icns` | 安装包名 / 安装目录维持现状（改 `installDirName` 会换安装路径，影响自更新定位与存量用户）；图标用单张 `resources/icon.png` 够用。 | **不采用** |
+| #851 / #891 / #880 / #874 / #859 / #829 / #843 / #845 / #871 | automation 插件、终端滚动倍率、diff 删除条、日历箭头、更新窗错误详情、`Untrusted` 页面、采集状态、HTTP 认证/证书回调、`PreloadAllFrames` | 本项目没有终端 / diff / 日历 / 独立更新窗（更新走应用内液态玻璃对话框），视频页只加载自己的本地 HTML。 | **不适用 / 无影响** |
+
+升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
+amd64/arm64 六平台编译）全绿。

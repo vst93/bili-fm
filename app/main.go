@@ -199,7 +199,8 @@ func main() {
 	bilibili.UseStore(kv)
 
 	// 更新源兜底：Gitee 优先、GitHub 回落。必须在任何更新检查之前装好
-	// （见 update_source.go；mygo.Updater 走 http.DefaultTransport）。
+	// （见 update_source.go；mygo 0.7.2 起用 mygo.Updater.SetSource 注册，
+	// 不再劫持 http.DefaultTransport —— 那样会让框架的 netproxy 直接 panic）。
 	installUpdateSource()
 
 	// 旧版（Wails / Tauri）迁移：键名改了名的配置（sponsor/incognito/播放模式）

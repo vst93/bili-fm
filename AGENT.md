@@ -4,9 +4,14 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
-- **依赖 mygo v0.7.1**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
-  评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 / v0.7.1 各一节），
-  当轮的坑与门槛写进 `.pending-bugs.md`。**先读这两处再动依赖。**
+- **依赖 mygo v0.7.3**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
+  评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 / v0.7.1 /
+  v0.7.2+v0.7.3 各一节），当轮的坑与门槛写进 `.pending-bugs.md`。
+  **先读这两处再动依赖。**
+
+- **更新源必须用 `mygo.Updater.SetSource`**（`app/update_source.go`）。0.7.2 起
+  mygo 的 updater 走 `netproxy.Transport()`，不再碰 `http.DefaultTransport`：
+  往那里塞自定义 RoundTripper 既拦不到请求，还会让 netproxy 的类型断言 panic。
 
 - **本仓库 `main` 分支已经是纯 Go + mygo 原生应用**，Tauri / React / WebView 前端
   已整体删除（`src/`、`src-tauri/`、Node/Vite/Tailwind 配置、`aur/`、MSIX 打包等）。
