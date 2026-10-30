@@ -43,6 +43,9 @@ func (c *controller) clearPlaybackExtras() {
 	a.DanmakuHeat = nil
 	a.HeatVersion++
 	a.HeatCid = 0
+	// 当前观看人数也是「某一集」的属性：换集先清掉，起播那一枪在
+	// startCurrent 里重打（见 viewers.go）。
+	c.clearOnlineViewers()
 	a.ResetSubtitleScroll()
 	c.extrasInflightCid = 0
 	c.subtitleInflightCid = 0

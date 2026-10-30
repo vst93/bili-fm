@@ -871,12 +871,14 @@ func (a *App) emptyInfo(c *ui.Context) {
 
 // videoInfoHead 是 UP 主行（.video-info-head）：44px 圆头像（带磨砂玻璃罩）+
 // 「UP 主」+ 名字。点头像或名字进 UP 主的空间（旧版的 onOwnerClick）。
+// 行尾另外挂「N 人在看」胶囊（见 onlineViewersBadge）。
 func (a *App) videoInfoHead(c *ui.Context) {
 	t := a.Theme
-	ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
+	ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
 		// .video-owner-wrap：头像 + 名字列，间距 11（原版 gap）。玻璃罩锚在这一层
-		// 的左上角，所以头像与名字必须同处一个 wrap。
-		wrap := ui.Row(c).Gap(ownerWrapGap).AlignItems(ui.Center).MinWidth(0)
+		// 的左上角，所以头像与名字必须同处一个 wrap。Grow(1) 吃掉右侧空余，把在线
+		// 胶囊顶到行尾（头像与名字自己的落点不变）。
+		wrap := ui.Row(c).Gap(ownerWrapGap).AlignItems(ui.Center).MinWidth(0).Grow(1)
 		wrap.Children(func() {
 			// .video-owner-wrap::before：48×48 磨砂玻璃罩，常态 opacity 1、
 			// 悬停 .7（原版）。盖在头像上但不吃指针。
@@ -927,8 +929,13 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				kh, ksh := textLineBox(10, 1)
 				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6")).
 					Height(kh).Margin(0, 0, 1, 0).Padding(ksh, 0, 0, 0)
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
+				// MinWidth(0)+Shrink(1)：这一行末尾可能要挂「N 人在看」胶囊（见
+				// onlineViewersBadge）。不给名字留收缩量的话，窄窗 + 长 UP 名时
+				// 胶囊会与名字重叠（实测 400 宽下名字撞进胶囊 40px）；给了之后
+				// 是**名字先让位**（240 → 按可用宽截断），胶囊永远在行尾。
+				// 没有胶囊时这一行本来就够宽，收缩不会生效，名字仍是原版 240。
+				ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Shrink(1).Children(func() {
+					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Shrink(1).MinWidth(0).Label("UP 主空间")
 					name.Background(ui.Transparent)
 					// 原版 `#video-owner-name:focus-visible`：`outline: 2px solid
 					// var(--studio-blue); outline-offset: 2px`。
@@ -938,9 +945,11 @@ func (a *App) videoInfoHead(c *ui.Context) {
 						// 框架自然行盒（15px ≈ 22.5）下不去，名字会高约 4px；用显式
 						// 盒高 + 字形上移复现（见 linebox.go）。
 						nh, nsh := textLineBox(15, 1.25)
+						// MaxWidth(240) 是原版上界；Shrink(1)+MinWidth(0) 只为了
+						// 行尾在线胶囊挤进来时能提前截断（SingleLine 负责画省略号）。
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
 							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
-							SingleLine().MaxWidth(240).Height(nh).Padding(nsh, 0, 0, 0)
+							SingleLine().MaxWidth(240).Shrink(1).MinWidth(0).Height(nh).Padding(nsh, 0, 0, 0)
 					})
 					if name.Clicked() {
 						a.openUp()
@@ -953,6 +962,65 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				})
 			})
 		})
+		// 行尾：此刻正在看这一集的人数（30s 轮询，见 app/viewers.go）。
+		a.onlineViewersBadge(c)
+	})
+}
+
+// onlineBadgeText 是「N 人在看」的文案；没有可展示的数据时为空串。
+//
+// 归属检查落在界面上（而不只靠调用方清状态）：万一哪条换集路径漏了清的
+// 那一步，也不会把上一集的在线人数挂到新视频上。
+func (a *App) onlineBadgeText() string {
+	if a.OnlineCount <= 0 || a.OnlineCid == 0 {
+		return ""
+	}
+	if a.Track != nil && a.Track.Cid != 0 && a.Track.Cid != a.OnlineCid {
+		return ""
+	}
+	if a.Info != nil && a.Info.Cid != 0 && a.Info.Cid != a.OnlineCid {
+		return ""
+	}
+	return onlineCountText(a.OnlineCount) + " 人在看"
+}
+
+// 在线胶囊的尺寸（小控件，不跟原版 CSS —— 原版没有这一块）：胶囊药丸
+// 直接复用 .video-part-pill 那一套材质参数（白 .15 底 + 1px 白 .38 描边 +
+// 顶部一线内高光 + 外侧 0 2 10 淡影），看上去就是选集胶囊的同胞小弟。
+const (
+	onlineDotSize   float32 = 6
+	onlineBadgeMinW float32 = 84
+)
+
+// onlineViewersBadge 画 UP 主行行尾的「N 人在看」：此刻正在看**这一集**的人数
+// （x/player/online/total 的 count，由 app/viewers.go 每 30s 轮询写进
+// a.OnlineCount / a.OnlineCid）。与 View（累计播放量）是两个不同的数。
+//
+// 为什么挂在 UP 主行行尾：右栏是固定 366 高的盒（videoInfoHeight），标题 /
+// 简介 / 选集胶囊 / 操作行 / 工具条都是按原版逐值排过的 —— 新加一行会把下方
+// 整体顶下去。UP 主行是这块里唯一常年留着横向空余的一行（UP 名字 MaxWidth
+// 240），挂在行尾不动任何一行的高度。
+//
+// 没数据就整块不画：接口没给数字 / B 站把 show_switch.count 关掉 / 换集后这一
+// 轮响应还没回来，都算「不知道」；写个「0 人在看」是误导。
+func (a *App) onlineViewersBadge(c *ui.Context) {
+	text := a.onlineBadgeText()
+	if text == "" {
+		return
+	}
+	badge := ui.Row(c).Shrink(0).MinWidth(onlineBadgeMinW).Gap(6).
+		AlignItems(ui.Center).Padding(4, 10).
+		Radius(RadiusPill).
+		Background(ui.Hex("#ffffff").Alpha(0.15)).
+		Border(1, ui.Hex("#ffffff").Alpha(0.38)).
+		InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.50)).
+		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
+		Tooltip("此刻正在看这一集的人数，每 30 秒刷新")
+	badge.Children(func() {
+		ui.Box(c).Size(onlineDotSize, onlineDotSize).Shrink(0).
+			Radius(RadiusPill).Background(a.Theme.Rose)
+		ui.Text(c, text).FontSize(12).FontWeight(600).
+			TextColor(partTitleInk).SingleLine()
 	})
 }
 

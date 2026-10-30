@@ -762,6 +762,15 @@ type App struct {
 	CollabOpenFor string
 	Danmaku       []Danmaku
 	Comments      []Comment
+	// OnlineCount 是**此刻正在看这一集**的人数（x/player/online/total 的 count）。
+	// 它跟 View（累计播放量）不是一回事：View 来自 view 接口、起播时一次性拿到，
+	// OnlineCount 是实时量，由 app/viewers.go 每 30s 轮询刷新。
+	//
+	// OnlineCid 记它属于哪个分集：换集后旧值立刻不算（宁可不显示，也不把
+	// 上一集的在线人数挂到新视频上）。0 = 未知 / B 站关掉了展示开关
+	// （show_switch.count）/ 接口没给数字，右栏不画这块。
+	OnlineCount int64
+	OnlineCid   int64
 	// Chapters / SubtitleTracks / Subtitles 是当前播放视频的播放器附加信息。
 	// ExtrasCid 记录它们属于哪个 cid；字幕正文按需下载（SubtitlesCid）。
 	Chapters       []Chapter
@@ -1536,6 +1545,17 @@ func compactCount(n int64) string {
 // ≥1万 显示「x.x万」——注意这里用的是「万」，与 compactCount 的「w」不同，
 // 原版两个函数就是两套写法。
 func fanCount(n int64) string {
+	if n >= 10000 {
+		return fmt.Sprintf("%.1f万", float64(n)/1e4)
+	}
+	return fmt.Sprint(n)
+}
+
+// onlineCountText 是「N 人在看」里的 N（对齐 B 站网页播放器那个气泡）。
+// 不足一万给确切数字 —— 实时量，缩小了就看不出人在动；一万以上才缩写。
+// 与 compactCount 不同（那是三个互动键的固定格式，≥100万 用「w」），
+// 也与 fanCount 不同（粉丝数从不展示确切值）。
+func onlineCountText(n int64) string {
 	if n >= 10000 {
 		return fmt.Sprintf("%.1f万", float64(n)/1e4)
 	}

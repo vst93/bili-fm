@@ -108,6 +108,12 @@ type controller struct {
 	subtitleReqID int
 	// heatReqID 保护弹幕热力结果（切集后旧结果丢弃）。
 	heatReqID int
+	// onlineReqID 保护「当前观看人数」的异步结果；onlineFails 是连续失败轮数
+	// （超过 staleAfterFailures 就不再显示旧数）；onlinePollStop 是 30s 轮询的
+	// 停止信号。见 viewers.go。
+	onlineReqID    int
+	onlineFails    int
+	onlinePollStop chan struct{}
 	// radioReqID 保护「顺着听」相关推荐请求。
 	radioReqID int
 	// radioSeen 是电台已经入过队的 bvid；只在当前电台会话里有效。
@@ -651,6 +657,10 @@ func main() {
 			c.setupMediaKeys()
 		}
 
+		// 当前观看人数的 30s 轮询（右栏 UP 主行行尾的「N 人在看」，见 viewers.go）。
+		// 起播那一枪另打在 startCurrent 里，这里只负责后续的周期刷新。
+		c.startOnlineViewersPoll()
+
 		// 后台自动检查更新（原版每日一次）：启动约 10s 后静默检查，只在
 		// 发现新版本时弹应用内对话框（是最新版 / 检查失败都不打扰）。
 		// 不能自更新的构建（开发构建 / 包管理器安装）直接跳过。
@@ -958,6 +968,8 @@ func waylandSessionFor(goos, display, sessionType string) bool {
 // quit 真正退出应用：先把状态写盘，再关掉弹窗与播放器。
 func (c *controller) quit() {
 	c.quitting = true
+	// 退出时先停掉在线人数的轮询，免得关窗路上还在打接口、回调又踩到已销毁的窗口。
+	c.stopOnlineViewersPoll()
 	// 退出应用时只隐藏桌面字幕，保留用户的开关偏好；下次启动/播放时继续。
 	c.hideDesktopLyrics()
 	c.flushProgress(c.app.Pos) // 退出前把断点/进度补齐
@@ -3017,6 +3029,9 @@ func (c *controller) startCurrent() {
 			c.app.Pos, c.app.Dur = 0, 0
 			c.loadPlaybackExtras(playAid, cid, playBvid)
 			c.startDanmakuHeat(cid)
+			// 当前观看人数：起播先拉一次（不等 30s 轮询），之后由 viewers.go
+			// 的定时器接着刷。Track 已回填，同一个更新回合里跑。
+			c.refreshOnlineViewers()
 		})
 
 		// 真正起播前再校验一次：这期间用户可能已经点了别的。
