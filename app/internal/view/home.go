@@ -982,44 +982,58 @@ func (a *App) onlineBadgeText() string {
 	return onlineCountText(a.OnlineCount) + " 人在看"
 }
 
-// onlineViewersBadge 画操作行行尾的「N 人在看」（x/player/online/total 的
-// count，由 app/viewers.go 每 30s 轮询写进 a.OnlineCount / a.OnlineCid）。
-// 与 View（累计播放量）是两个不同的数。
+// onlineViewersBadge 画「N 人在看」，接在**选集胶囊**里、分集标题之后
+// （x/player/online/total 的 count，由 app/viewers.go 每 30s 轮询写进
+// a.OnlineCount / a.OnlineCid）。与 View（累计播放量）是两个不同的数。
 //
-// 位置（用户第三轮反馈「放在 UP 主名字下有点奇怪，它应该属于作品的播放信息」）：
-// 操作行（.video-content-actions）是整块里唯一的**作品数据行** —— 点赞 / 投币 /
-// 收藏本来就是这支稿件的统计数据，在线人数属于同一类信息。左端七枚键宽度固定
-// （34+40+34+40+34×3 加 gap），400 宽时右缘停在 320，右端还有空位，用
-// MarginLeft(Auto) 把它顶到行尾即可，**左端那一排键的落点一个像素都不动**。
+// 位置（用户第四轮反馈「放在 UP 主名字下有点奇怪，它应该属于作品的播放信息」，
+// 第五轮又说操作行行尾「一样很丑，甚至比之前还丑」）：落在 `.video-part-pill`
+// 里面 —— 那颗胶囊本来写的就是「这一集在播什么」（来源 + 分集标题），在线人数
+// 是同一件事的另一面，接在后面读作「● 当前选集 P1 · 152 人在看」最自然：
 //
-// 为什么不新增一行：右栏是固定 366 高的盒（videoInfoHeight），标题 / 简介 /
-// 选集胶囊 / 操作行 / 工具条都按原版逐值排过，多一行会把下方整体顶下去。
+//   - 不新增行：右栏是固定 366 高的盒（videoInfoHeight），多一行会把下方整体
+//     顶下去；
+//   - 不是「贴边」：胶囊本身是一条有边界的信息条，文字接在它**内部**、随内容
+//     自然排布，不像行尾对齐那样孤零零地飘在右缘；
+//   - 与胶囊同档：13px 正文大小（不是更小的 12px），墨色 --studio-faint
+//     （#64748b，比胶囊标题的 #475569 轻一档，但比胶囊里的小标签深）。
+//
+// 前面用一个细竖线（"·" 与胶囊 gap 8 的间距）与分集标题分开，读作同一行的
+// 两个字段，而不是两段话。
 //
 // 之前试过都不行：① 胶囊底 + 白描边 + 玫瑰红圆点 + 600 字重 —— 366 宽的右栏里
-// 过于扎眼；② 同样文字挂在 UP 主行行尾 —— 离名字 238px、垂直中心对的是 44px
-// 头像而不是名字基线（高 5px），像浮在那儿；③ 接在「UP 主」kicker 后面 ——
-// 语义不对（那是 UP 主模块，不是作品信息）。
-//
-// 视觉上**什么装饰都不加**：没有底色、描边、投影、圆点，12px 常规字重、
-// 墨色 --studio-faint（比正文的 --studio-muted 轻一档）。
+// 过于扎眼；② 挂在 UP 主行行尾 —— 离名字 238px、垂直中心对的是 44px 头像而
+// 不是名字基线（高 5px），像浮在那儿；③ 接在「UP 主」kicker 后面 —— 语义不对
+// （那是 UP 主模块）；④ 操作行行尾 —— 与那一排图标键同一行但远隔 100px，
+// 读不成一组。
 //
 // 没数据就整块不画：接口没给数字 / B 站把 show_switch.count 关掉 / 换集后这一
 // 轮响应还没回来，都算「不知道」；写个「0 人在看」是误导。
+//
+// 两种形态：胶囊在时（见 partPillShown）进胶囊、跟分集标题同一行；胶囊被省略
+// 时（单 P 视频没有分集标题）退到操作行行尾，这个数不能因此消失。
 func (a *App) onlineViewersBadge(c *ui.Context) {
 	text := a.onlineBadgeText()
 	if text == "" {
 		return
 	}
-	// 顶到行尾：mygo 没有 `margin-left: auto`，用「一个 Grow(1) 的空盒子」
-	// 吃掉剩余宽度 —— 左端七枚键的宽度与落点因此一个像素都不变。
+	if a.partPillShown() {
+		// 胶囊内：分隔点 + 文字。胶囊的 gap 已经给了 8px，不再加内边距。
+		// 墨色比胶囊标题（#475569）淡一档，避免它比两侧文字还响。
+		ui.Text(c, "·").FontSize(13).TextColor(a.Theme.Faint).Shrink(0)
+		ui.Text(c, text).FontSize(13).TextColor(a.Theme.Faint).SingleLine().Shrink(0).
+			Tooltip(onlineBadgeTip)
+		return
+	}
+	// 退路（操作行行尾）：一个 Grow(1) 空盒子吃剩余宽度（mygo 没有
+	// margin-left: auto），左端那排键的落点因此不变。
 	ui.Box(c).Grow(1).Height(0).Shrink(1)
-	// 12px / 常规字重 / --studio-faint：与这一排按钮的计数（statButton 的
-	// 10px 计数）同属「数据」，但更轻一档 —— 它是辅助信息，不该与点赞数争。
-	// 行高 34 让它与 34px 按钮在 AlignItems(Start) 下视觉居中。
 	ui.Text(c, text).FontSize(12).TextColor(a.Theme.Faint).SingleLine().
-		Shrink(0).Height(34).LineHeight(34 / 12).
-		Tooltip("此刻正在看这一集的人数（来自 B 站当前在线），每 30 秒刷新")
+		Shrink(0).Height(34).LineHeight(34 / 12).Tooltip(onlineBadgeTip)
 }
+
+// onlineBadgeTip 是这一块的小提示（主窗与退路共用）。
+const onlineBadgeTip = "此刻正在看这一集的人数（来自 B 站当前在线），每 30 秒刷新"
 
 // collabOwner 返回用户在合作视频里选中的参与 UP 主。没选过、选的不在当前
 // 视频里（换了视频）都不算，退回主 UP —— 对应原版 videoInfo 的 displayedOwner
@@ -1063,6 +1077,10 @@ var partTitleInk = ui.Hex("#475569")
 
 // partPill 是选集胶囊（.video-part-pill）：小圆点 + 来源 + 分集标题。
 // 从播放列表播入时前缀显示「播放列表」（原版 isPlaylistMode）。
+//
+// 返回值报告胶囊这一帧是否真的画出来了 —— 在线人数（onlineViewersBadge）
+// 挂在胶囊里，胶囊被省略时（单 P 视频没有分集标题、也不是播放列表模式）
+// 调用方要把它退到操作行行尾，否则这个数就没地方显示了。
 func (a *App) partPill(c *ui.Context) {
 	t := a.Theme
 	blue := ui.Hex("#0369a1")
@@ -1073,7 +1091,7 @@ func (a *App) partPill(c *ui.Context) {
 	// 不携带任何信息（单 P 视频就是这样）。整块省略，把空间还给工具条。
 	// 播放列表模式仍保留胶囊：来源本身就是有效信息。
 	part := a.partTitle()
-	if part == "" && !inPlaylist {
+	if !a.partPillShown() {
 		return
 	}
 	dotInk := pick(inPlaylist, t.Rose, ui.Hex("#0284c7"))
@@ -1105,7 +1123,19 @@ func (a *App) partPill(c *ui.Context) {
 		if part != "" {
 			ui.Text(c, part).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
 		}
+		// 在线人数接在胶囊里、分集标题之后（见 onlineViewersBadge）：
+		// 「● 当前选集 P1 · 152 人在看」—— 整条读作「这一集在播什么、
+		// 有多少人同时在听」，是同一件事的两面，不需要额外一行也不破坏
+		// 右栏 366 的固定盒高。
+		a.onlineViewersBadge(c)
 	})
+}
+
+// partPillShown 报告选集胶囊这一帧是否会出现（纯函数，渲染期不写状态）。
+// 在线人数优先挂在胶囊里（见 onlineViewersBadge），胶囊被省略时改挂到操作行
+// 行尾 —— 单 P 视频没有分集标题，胶囊整块省略，但这个数不能因此消失。
+func (a *App) partPillShown() bool {
+	return a.partTitle() != "" || a.PlayingPlaylist != ""
 }
 
 // partPillGlass 画 `.video-part-pill` 的两层液态玻璃（原版 globals.css）：
@@ -1145,13 +1175,8 @@ func (a *App) contentActions(c *ui.Context) {
 	}
 	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
 	// 底部 14px 是给绝对定位的计数留的展示区（计数不占布局高，见 statButton）。
-	//
-	// FillWidth + 末尾的 onlineViewersBadge：这一行是整块里唯一的**作品数据
-	// 行**（点赞 / 投币 / 收藏就是作品的统计数据），「N 人在看」属于同一类
-	// 信息，放在这里语义才对。左端七枚键宽度固定（34+40+34+40+34×3 + gap），
-	// 400 宽时右缘停在 320，右端还有空位；在线人数用 MarginLeft(Auto) 顶到
-	// 行尾，与最后一枚键**同基线**（不用绝对定位，避免与右栏 366 的固定盒高
-	// 打架，也不新增高度）。
+	// FillWidth 只为退路形态（单 P 视频把在线人数顶到行尾）：胶囊在时这一行
+	// 没有 Grow 子元素，宽度不影响任何键的落点。
 	ui.Row(c).FillWidth().Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
 		AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
@@ -1215,9 +1240,10 @@ func (a *App) contentActions(c *ui.Context) {
 		// 「顺着听」是视频详情的一部分，不属于播放列表；放在内容操作行，
 		// 和弹幕/视频/浏览器入口同一排，不再藏进播放列表抽屉。
 		a.radioContentButton(c, a.Current() == nil)
-		// 行尾：此刻正在看这一集的人数（30s 轮询，见 app/viewers.go）。
-		// MarginLeft(Auto) 把它顶到最右；左端那一排键的落点完全不变。
-		a.onlineViewersBadge(c)
+		// 胶囊没画出来时（单 P 视频），在线人数退到这里（见 onlineViewersBadge）。
+		if !a.partPillShown() {
+			a.onlineViewersBadge(c)
+		}
 	})
 }
 

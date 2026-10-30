@@ -88,55 +88,64 @@ func TestOnlineBadgeWording(t *testing.T) {
 	}
 }
 
-// TestOnlineBadgeSitsInActionsRow 钉住位置：它挂在**操作行**（.video-content-actions）
-// 的行尾 —— 点赞 / 投币 / 收藏是这支稿件的统计数据，「N 人在看」属于同一类
-// 信息。用户第三轮反馈「放在 UP 主名字这个模块下有点奇怪，它应该属于作品的
-// 播放信息」。
+// TestOnlineBadgeSitsInPartPill 钉住主位置：挂在**选集胶囊**里、分集标题之后
+// —— 那颗胶囊写的就是「这一集在播什么」（来源 + 分集标题），在线人数是同一件
+// 事的另一面，读作「● 当前选集 P1 · 152 人在看」。
 //
-// 三条硬约束：
-//   - 与操作行的按钮**同一行**（y 相同），不新增高度；
-//   - 顶到行尾：右缘与标题 / 简介的右缘对齐（= 右栏内容宽），不悬在中间；
-//   - 左端那一排键的落点**一个像素都不动**（空盒子 Grow 吃剩余宽度）。
-func TestOnlineBadgeSitsInActionsRow(t *testing.T) {
+// 用户四轮反馈的落点：胶囊 + 圆点太扎眼 → UP 主行行尾太飘 → 操作行行尾
+// 「一样很丑，甚至比之前还丑」（与那一排图标键远隔 100px，读不成一组）。
+func TestOnlineBadgeSitsInPartPill(t *testing.T) {
 	for _, w := range []int{800, 600, 420, 400} {
 		t.Run(fmt.Sprintf("%dw", w), func(t *testing.T) {
-			off := shellTesterSize(t, viewersApp(0, 0), w, 600)
-			on := shellTesterSize(t, viewersApp(152, 2), w, 600)
-			badge, ok := on.Find(onlineLabel(152))
+			a := viewersApp(152, 2)
+			a.Info.Parts = []Part{{Cid: 2, Page: 1, Part: "P1"}}
+			tt := shellTesterSize(t, a, w, 600)
+			part, ok := tt.Find("P1")
+			if !ok {
+				t.Fatal("找不到分集标题")
+			}
+			badge, ok := tt.Find(onlineLabel(152))
 			if !ok {
 				t.Fatalf("没画出「%s」", onlineLabel(152))
 			}
-			// 同一行：与第一枚互动键（点赞）的 y 完全一致。
-			like, ok := on.Find("点赞")
-			if !ok {
-				t.Fatal("找不到点赞键")
+			// 同一行（同一颗胶囊里，y 差不超过 1px）。
+			if d := badge.Y - part.Y; d < -1 || d > 1 {
+				t.Fatalf("在线人数与分集标题 y 差 %v，应在同一行", d)
 			}
-			if badge.Y != like.Y || badge.H != like.H {
-				t.Fatalf("在线人数盒 %v 与操作行按钮 %v 不同行/不同高", badge, like)
+			// 紧接在分集标题之后（含分隔点，间距不超过 30px）。
+			if gap := badge.X - (part.X + part.W); gap <= 0 || gap > 30 {
+				t.Fatalf("在线人数离分集标题 %v，应紧邻（0 < gap ≤ 30）", gap)
 			}
-			// 右对齐到右栏内容宽：与标题右缘一致。
-			title, ok := on.Find("短标题")
-			if !ok {
-				t.Fatal("找不到标题")
-			}
-			if d := (badge.X + badge.W) - (title.X + title.W); d < -1 || d > 1 {
-				t.Fatalf("在线人数右缘 %v 与标题右缘 %v 差 %v，应顶到行尾对齐",
-					badge.X+badge.W, title.X+title.W, d)
-			}
-			// 左端那一排键不动：有/无在线人数时点赞键的 x 必须相同。
-			likeOff, ok := off.Find("点赞")
-			if !ok {
-				t.Fatal("找不到点赞键（无在线人数时）")
-			}
-			if likeOff.X != like.X {
-				t.Fatalf("在线人数把左端的键挤动了：x %v → %v", likeOff.X, like.X)
-			}
-			// 不该出现在 UP 主行：它与 kicker 不同行。
-			kick, _ := on.Find("UP 主")
-			if badge.Y == kick.Y {
-				t.Fatal("又跑回 UP 主行去了")
+			if badge.X+badge.W > float32(w) {
+				t.Fatalf("超出窗口：right=%v w=%d", badge.X+badge.W, w)
 			}
 		})
+	}
+}
+
+// TestOnlineBadgeFallsBackToActionsRow 钉住退路：单 P 视频没有分集标题，选集
+// 胶囊整块省略（见 partPillShown），此时在线人数退到操作行行尾 —— 这个数不能
+// 因为胶囊不在就消失。
+func TestOnlineBadgeFallsBackToActionsRow(t *testing.T) {
+	a := viewersApp(152, 2)
+	a.Track.Part = "" // 单 P：胶囊不画
+	tt := shellTesterSize(t, a, 800, 600)
+	if _, ok := tt.Find("当前选集"); ok {
+		t.Fatal("单 P 视频不该有选集胶囊")
+	}
+	like, ok := tt.Find("点赞")
+	if !ok {
+		t.Fatal("找不到点赞键")
+	}
+	badge, ok := tt.Find(onlineLabel(152))
+	if !ok {
+		t.Fatalf("单 P 视频的在线人数消失了（应退到操作行）")
+	}
+	if badge.Y != like.Y || badge.H != like.H {
+		t.Fatalf("退路形态应与操作行按钮同行同高：badge=%v like=%v", badge, like)
+	}
+	if badge.X+badge.W > 800 {
+		t.Fatalf("超出窗口：right=%v", badge.X+badge.W)
 	}
 }
 
