@@ -871,14 +871,12 @@ func (a *App) emptyInfo(c *ui.Context) {
 
 // videoInfoHead 是 UP 主行（.video-info-head）：44px 圆头像（带磨砂玻璃罩）+
 // 「UP 主」+ 名字。点头像或名字进 UP 主的空间（旧版的 onOwnerClick）。
-// 行尾另外挂一行「同时在线 N 人」（见 onlineViewersBadge）。
 func (a *App) videoInfoHead(c *ui.Context) {
 	t := a.Theme
-	ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
+	ui.Row(c).Gap(14).AlignItems(ui.Center).Margin(0, 0, 18, 0).Children(func() {
 		// .video-owner-wrap：头像 + 名字列，间距 11（原版 gap）。玻璃罩锚在这一层
-		// 的左上角，所以头像与名字必须同处一个 wrap。Grow(1) 吃掉右侧空余，把在线
-		// 胶囊顶到行尾（头像与名字自己的落点不变）。
-		wrap := ui.Row(c).Gap(ownerWrapGap).AlignItems(ui.Center).MinWidth(0).Grow(1)
+		// 的左上角，所以头像与名字必须同处一个 wrap。
+		wrap := ui.Row(c).Gap(ownerWrapGap).AlignItems(ui.Center).MinWidth(0)
 		wrap.Children(func() {
 			// .video-owner-wrap::before：48×48 磨砂玻璃罩，常态 opacity 1、
 			// 悬停 .7（原版）。盖在头像上但不吃指针。
@@ -926,16 +924,12 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				// 原版 .video-kicker：10px / 700 / line-height 1 / margin-bottom 1px。
 				// 框架自然行盒（10px ≈ 15）下不去，Kicker 会高 5px 并把名字挤低；
 				// 用显式盒高 + 字形上移复现（见 linebox.go）。
+				//
 				kh, ksh := textLineBox(10, 1)
-				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(ui.Hex("#8a95a6")).
+				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(kickerInk).
 					Height(kh).Margin(0, 0, 1, 0).Padding(ksh, 0, 0, 0)
-				// MinWidth(0)+Shrink(1)：这一行末尾可能还要挂在线人数（见
-				// onlineViewersBadge）。不给名字留收缩量的话，窄窗 + 长 UP 名时
-				// 胶囊会与名字重叠（实测 400 宽下名字撞进胶囊 40px）；给了之后
-				// 是**名字先让位**（240 → 按可用宽截断），胶囊永远在行尾。
-				// 没有胶囊时这一行本来就够宽，收缩不会生效，名字仍是原版 240。
-				ui.Row(c).Gap(6).AlignItems(ui.Center).MinWidth(0).Shrink(1).Children(func() {
-					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Shrink(1).MinWidth(0).Label("UP 主空间")
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
 					name.Background(ui.Transparent)
 					// 原版 `#video-owner-name:focus-visible`：`outline: 2px solid
 					// var(--studio-blue); outline-offset: 2px`。
@@ -945,11 +939,9 @@ func (a *App) videoInfoHead(c *ui.Context) {
 						// 框架自然行盒（15px ≈ 22.5）下不去，名字会高约 4px；用显式
 						// 盒高 + 字形上移复现（见 linebox.go）。
 						nh, nsh := textLineBox(15, 1.25)
-						// MaxWidth(240) 是原版上界；Shrink(1)+MinWidth(0) 只为了
-						// 行尾在线胶囊挤进来时能提前截断（SingleLine 负责画省略号）。
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
 							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
-							SingleLine().MaxWidth(240).Shrink(1).MinWidth(0).Height(nh).Padding(nsh, 0, 0, 0)
+							SingleLine().MaxWidth(240).Height(nh).Padding(nsh, 0, 0, 0)
 					})
 					if name.Clicked() {
 						a.openUp()
@@ -962,16 +954,18 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				})
 			})
 		})
-		// 行尾：此刻正在看这一集的人数（30s 轮询，见 app/viewers.go）。
-		a.onlineViewersBadge(c)
 	})
 }
 
-// onlineBadgeText 是行尾那行在线人数的文案；没有可展示的数据时为空串。
+// kickerInk 是「UP 主」那行小标题的墨色（原版 .video-kicker 的 #8a95a6）。
+// 在线人数接在同一行，共用这个颜色，读起来才是一行注脚而不是两块东西。
+var kickerInk = ui.Hex("#8a95a6")
+
+// onlineBadgeText 是「N 人在看」的文案；没有可展示的数据时为空串。
 //
-// 用「同时在线」而不是「人在看」：这是收听类应用，用户并没有在「看」；
-// 而且这个数本来就是 B 站的在线人数，说「在线」既准确又不带播放形式的
-// 暗示。
+// 文案用「N 人在看」：与 B 站网页播放器那个气泡同一个说法，用户一眼就能
+// 对上「这个数是什么」。（中途试过「同时在线 N 人」这种更笼统的说法，用户
+// 2026-10-29 决定还是回到「在看」—— 与 B 站口径一致，不需要额外解释。）
 //
 // 归属检查落在界面上（而不只靠调用方清状态）：万一哪条换集路径漏了清的
 // 那一步，也不会把上一集的在线人数挂到新视频上。
@@ -985,38 +979,46 @@ func (a *App) onlineBadgeText() string {
 	if a.Info != nil && a.Info.Cid != 0 && a.Info.Cid != a.OnlineCid {
 		return ""
 	}
-	return "同时在线 " + onlineCountText(a.OnlineCount) + " 人"
+	return onlineCountText(a.OnlineCount) + " 人在看"
 }
 
-// onlineViewersBadge 画 UP 主行行尾的在线人数（x/player/online/total 的
+// onlineViewersBadge 画操作行行尾的「N 人在看」（x/player/online/total 的
 // count，由 app/viewers.go 每 30s 轮询写进 a.OnlineCount / a.OnlineCid）。
 // 与 View（累计播放量）是两个不同的数。
 //
-// 为什么挂在 UP 主行行尾：右栏是固定 366 高的盒（videoInfoHeight），标题 /
-// 简介 / 选集胶囊 / 操作行 / 工具条都是按原版逐值排过的 —— 新加一行会把下方
-// 整体顶下去。UP 主行是这块里唯一常年留着横向空余的一行（UP 名字 MaxWidth
-// 240），挂在行尾不动任何一行的高度。
+// 位置（用户第三轮反馈「放在 UP 主名字下有点奇怪，它应该属于作品的播放信息」）：
+// 操作行（.video-content-actions）是整块里唯一的**作品数据行** —— 点赞 / 投币 /
+// 收藏本来就是这支稿件的统计数据，在线人数属于同一类信息。左端七枚键宽度固定
+// （34+40+34+40+34×3 加 gap），400 宽时右缘停在 320，右端还有空位，用
+// MarginLeft(Auto) 把它顶到行尾即可，**左端那一排键的落点一个像素都不动**。
 //
-// 视觉上刻意**什么装饰都不加**：没有底色、没有描边、没有投影、没有小圆点，
-// 就是一行 12px 的弱化文字（--studio-faint，与空态提示同一个墨色）、字重 500。
-// 它是辅助信息，不该抢 UP 名字和标题的注意力；之前那版用了胶囊底 + 白描边 +
-// 玫瑰红圆点 + 600 字重的深灰，在 366 宽的右栏里过于扎眼。
+// 为什么不新增一行：右栏是固定 366 高的盒（videoInfoHeight），标题 / 简介 /
+// 选集胶囊 / 操作行 / 工具条都按原版逐值排过，多一行会把下方整体顶下去。
+//
+// 之前试过都不行：① 胶囊底 + 白描边 + 玫瑰红圆点 + 600 字重 —— 366 宽的右栏里
+// 过于扎眼；② 同样文字挂在 UP 主行行尾 —— 离名字 238px、垂直中心对的是 44px
+// 头像而不是名字基线（高 5px），像浮在那儿；③ 接在「UP 主」kicker 后面 ——
+// 语义不对（那是 UP 主模块，不是作品信息）。
+//
+// 视觉上**什么装饰都不加**：没有底色、描边、投影、圆点，12px 常规字重、
+// 墨色 --studio-faint（比正文的 --studio-muted 轻一档）。
 //
 // 没数据就整块不画：接口没给数字 / B 站把 show_switch.count 关掉 / 换集后这一
-// 轮响应还没回来，都算「不知道」；写个「0 人在线」是误导。
+// 轮响应还没回来，都算「不知道」；写个「0 人在看」是误导。
 func (a *App) onlineViewersBadge(c *ui.Context) {
 	text := a.onlineBadgeText()
 	if text == "" {
 		return
 	}
-	badge := ui.Row(c).Shrink(0).AlignItems(ui.Center).
-		Tooltip("此刻正在收听这一集的人数（来自 B 站当前在线），每 30 秒刷新")
-	badge.Children(func() {
-		// 12px / 500 / --studio-faint：与右栏其它次要文字（简介之外的提示、
-		// 空态文案）同一档，比标题 / UP 名字轻得多。
-		ui.Text(c, text).FontSize(12).FontWeight(500).
-			TextColor(a.Theme.Faint).SingleLine()
-	})
+	// 顶到行尾：mygo 没有 `margin-left: auto`，用「一个 Grow(1) 的空盒子」
+	// 吃掉剩余宽度 —— 左端七枚键的宽度与落点因此一个像素都不变。
+	ui.Box(c).Grow(1).Height(0).Shrink(1)
+	// 12px / 常规字重 / --studio-faint：与这一排按钮的计数（statButton 的
+	// 10px 计数）同属「数据」，但更轻一档 —— 它是辅助信息，不该与点赞数争。
+	// 行高 34 让它与 34px 按钮在 AlignItems(Start) 下视觉居中。
+	ui.Text(c, text).FontSize(12).TextColor(a.Theme.Faint).SingleLine().
+		Shrink(0).Height(34).LineHeight(34 / 12).
+		Tooltip("此刻正在看这一集的人数（来自 B 站当前在线），每 30 秒刷新")
 }
 
 // collabOwner 返回用户在合作视频里选中的参与 UP 主。没选过、选的不在当前
@@ -1143,7 +1145,14 @@ func (a *App) contentActions(c *ui.Context) {
 	}
 	// 原版 .video-content-actions: margin-top 14、padding 0 0 14px、gap 4。
 	// 底部 14px 是给绝对定位的计数留的展示区（计数不占布局高，见 statButton）。
-	ui.Row(c).Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
+	//
+	// FillWidth + 末尾的 onlineViewersBadge：这一行是整块里唯一的**作品数据
+	// 行**（点赞 / 投币 / 收藏就是作品的统计数据），「N 人在看」属于同一类
+	// 信息，放在这里语义才对。左端七枚键宽度固定（34+40+34+40+34×3 + gap），
+	// 400 宽时右缘停在 320，右端还有空位；在线人数用 MarginLeft(Auto) 顶到
+	// 行尾，与最后一枚键**同基线**（不用绝对定位，避免与右栏 366 的固定盒高
+	// 打架，也不新增高度）。
+	ui.Row(c).FillWidth().Margin(14, 0, 0, 0).Padding(0, 0, 14, 0).Gap(4).
 		AlignItems(ui.Start).Children(func() {
 		// 激活色与原版一致：点赞 #e11d48、投币 #ca8a04、收藏 #eab308。
 		// 原版这三个是 size={20}，tooltip（title）随激活态变文案。
@@ -1206,6 +1215,9 @@ func (a *App) contentActions(c *ui.Context) {
 		// 「顺着听」是视频详情的一部分，不属于播放列表；放在内容操作行，
 		// 和弹幕/视频/浏览器入口同一排，不再藏进播放列表抽屉。
 		a.radioContentButton(c, a.Current() == nil)
+		// 行尾：此刻正在看这一集的人数（30s 轮询，见 app/viewers.go）。
+		// MarginLeft(Auto) 把它顶到最右；左端那一排键的落点完全不变。
+		a.onlineViewersBadge(c)
 	})
 }
 

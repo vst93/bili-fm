@@ -2,9 +2,12 @@ package view
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // viewersApp 造一个「正在播一条视频」的右栏：在线人数是唯一变量。
@@ -21,10 +24,10 @@ func viewersApp(on int64, cid int64) *App {
 
 // onlineLabel 是右栏行尾那行在线人数的完整文案（测试里统一从这里取，
 // 改文案时只改一处）。
-func onlineLabel(n int64) string { return "同时在线 " + onlineCountText(n) + " 人" }
+func onlineLabel(n int64) string { return onlineCountText(n) + " 人在看" }
 
 // TestOnlineBadgeAbsentWithoutData 钉住「不知道就不画」：没有数、或数不属于
-// 当前这一集时，右栏不该出现「0 人在线」这种误导文案。
+// 当前这一集时，右栏不该出现「0 人在看」这种误导文案。
 func TestOnlineBadgeAbsentWithoutData(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -72,47 +75,68 @@ func TestOnlineBadgeTextOwnership(t *testing.T) {
 	}
 }
 
-// TestOnlineBadgeWordingAvoidsWatching 钉住用词：这是收听类应用，文案不能说
-// 「在看」。用户明确要求换成更笼统的表达（本轮用「同时在线 N 人」）。
-func TestOnlineBadgeWordingAvoidsWatching(t *testing.T) {
+// TestOnlineBadgeWording 钉住用词口径：与 B 站网页播放器那个气泡一致，
+// 就是「N 人在看」。用户 2026-10-29 明确要求回到这个说法（中途试过
+// 「同时在线 N 人」这种更笼统的表达，最后决定还是跟 B 站一致，不需要额外解释）。
+func TestOnlineBadgeWording(t *testing.T) {
 	text := viewersApp(152, 2).onlineBadgeText()
-	if text == "" {
-		t.Fatal("应有文案")
+	if text != "152 人在看" {
+		t.Fatalf("文案 = %q，应为「152 人在看」（与 B 站口径一致）", text)
 	}
-	for _, banned := range []string{"在看", "观看", "播放中"} {
-		if strings.Contains(text, banned) {
-			t.Fatalf("文案 %q 含「%s」—— 收听类应用不该用观看类字眼", text, banned)
-		}
-	}
-	if !strings.Contains(text, "在线") {
-		t.Fatalf("文案 %q 应表达「在线」这种笼统的说法", text)
+	if !strings.HasSuffix(text, "人在看") {
+		t.Fatalf("文案 %q 应以「人在看」结尾", text)
 	}
 }
 
-// TestOnlineBadgeShownForCurrentEpisode 钉住正向路径：数属于当前这一集时
-// 画出来，且落在 UP 主行（与头像同一行、右对齐）。
-func TestOnlineBadgeShownForCurrentEpisode(t *testing.T) {
-	tt := shellTesterSize(t, viewersApp(152, 2), 800, 600)
-	badge, ok := tt.Find(onlineLabel(152))
-	if !ok {
-		t.Fatalf("右栏没画出「%s」", onlineLabel(152))
-	}
-	face, ok := tt.Find("UP 主空间")
-	if !ok {
-		t.Fatal("找不到 UP 头像，无法比对行位置")
-	}
-	// 同一行：文字盒的垂直中心落在头像那一段里（不新增一行）。
-	mid := badge.Y + badge.H/2
-	if mid < face.Y-2 || mid > face.Y+face.H+2 {
-		t.Fatalf("在线人数的垂直中心 %v 不在头像行 [%v,%v] 内 —— 它把下方内容顶下去了",
-			mid, face.Y, face.Y+face.H)
-	}
-	// 右对齐：文字盒右缘比头像右缘靠右得多（行尾），且在窗口内。
-	if badge.X+badge.W <= face.X+face.W+40 {
-		t.Fatalf("没被顶到行尾: badge=%v face=%v", badge, face)
-	}
-	if badge.X < 0 || badge.X+badge.W > 800 {
-		t.Fatalf("超出窗口: %v", badge)
+// TestOnlineBadgeSitsInActionsRow 钉住位置：它挂在**操作行**（.video-content-actions）
+// 的行尾 —— 点赞 / 投币 / 收藏是这支稿件的统计数据，「N 人在看」属于同一类
+// 信息。用户第三轮反馈「放在 UP 主名字这个模块下有点奇怪，它应该属于作品的
+// 播放信息」。
+//
+// 三条硬约束：
+//   - 与操作行的按钮**同一行**（y 相同），不新增高度；
+//   - 顶到行尾：右缘与标题 / 简介的右缘对齐（= 右栏内容宽），不悬在中间；
+//   - 左端那一排键的落点**一个像素都不动**（空盒子 Grow 吃剩余宽度）。
+func TestOnlineBadgeSitsInActionsRow(t *testing.T) {
+	for _, w := range []int{800, 600, 420, 400} {
+		t.Run(fmt.Sprintf("%dw", w), func(t *testing.T) {
+			off := shellTesterSize(t, viewersApp(0, 0), w, 600)
+			on := shellTesterSize(t, viewersApp(152, 2), w, 600)
+			badge, ok := on.Find(onlineLabel(152))
+			if !ok {
+				t.Fatalf("没画出「%s」", onlineLabel(152))
+			}
+			// 同一行：与第一枚互动键（点赞）的 y 完全一致。
+			like, ok := on.Find("点赞")
+			if !ok {
+				t.Fatal("找不到点赞键")
+			}
+			if badge.Y != like.Y || badge.H != like.H {
+				t.Fatalf("在线人数盒 %v 与操作行按钮 %v 不同行/不同高", badge, like)
+			}
+			// 右对齐到右栏内容宽：与标题右缘一致。
+			title, ok := on.Find("短标题")
+			if !ok {
+				t.Fatal("找不到标题")
+			}
+			if d := (badge.X + badge.W) - (title.X + title.W); d < -1 || d > 1 {
+				t.Fatalf("在线人数右缘 %v 与标题右缘 %v 差 %v，应顶到行尾对齐",
+					badge.X+badge.W, title.X+title.W, d)
+			}
+			// 左端那一排键不动：有/无在线人数时点赞键的 x 必须相同。
+			likeOff, ok := off.Find("点赞")
+			if !ok {
+				t.Fatal("找不到点赞键（无在线人数时）")
+			}
+			if likeOff.X != like.X {
+				t.Fatalf("在线人数把左端的键挤动了：x %v → %v", likeOff.X, like.X)
+			}
+			// 不该出现在 UP 主行：它与 kicker 不同行。
+			kick, _ := on.Find("UP 主")
+			if badge.Y == kick.Y {
+				t.Fatal("又跑回 UP 主行去了")
+			}
+		})
 	}
 }
 
@@ -173,70 +197,13 @@ func TestOnlineBadgeHasNoChrome(t *testing.T) {
 	}
 }
 
-// 长名字：用来把头像 + 名字 + 在线人数这一行撑到临界。
-const longOwnerName = "一个非常非常非常长的UP主名字用来压测试右栏宽度限制测试"
-
-// TestOnlineBadgeNeverOverlapsOwnerName 钉住两件事：
+// TestOnlineBadgeIsDeemphasized 钉住「弱化到位」：它的墨色必须比正文
+// （简介 / 选集标题用的 --studio-muted #475569）明显更浅 —— 用户要求
+// 「弱化颜色」，不能只是删掉装饰。
 //
-//  1. 这行字与 UP 名字**永不重叠**（宽窗长名字、窄窗长名字、窄窗大数字）：
-//     空间不够时是名字让位（名字那层带 Shrink(1)+MinWidth(0)），在线人数永远在行尾；
-//  2. 没有在线数时名字仍是原版的 240 —— 让位只在真的要画这行字时才发生。
-func TestOnlineBadgeNeverOverlapsOwnerName(t *testing.T) {
-	cases := []struct {
-		w    int
-		name string
-		on   int64
-	}{
-		{800, longOwnerName, 0},
-		{800, longOwnerName, 152},
-		{800, longOwnerName, 15234},
-		{420, "短名字", 152},
-		{400, longOwnerName, 152},
-		{400, longOwnerName, 1200000},
-	}
-	for _, tc := range cases {
-		t.Run(fmt.Sprintf("%dw-on%d", tc.w, tc.on), func(t *testing.T) {
-			a := viewersApp(tc.on, 2)
-			a.Info.OwnerName = tc.name
-			a.Track.Up = tc.name
-			tt := shellTesterSize(t, a, tc.w, 600)
-			name, ok := tt.Find(tc.name)
-			if !ok {
-				t.Fatal("名字没画出来")
-			}
-			if tc.on == 0 {
-				// 没这行字时不该动原版尺寸。
-				if name.W != 240 {
-					t.Fatalf("没有在线人数时名字宽应仍是原版 240，got %v", name.W)
-				}
-				if _, ok := tt.Find(onlineLabel(0)); ok {
-					t.Fatal("没数据不该有这行字")
-				}
-				return
-			}
-			badge, ok := tt.Find(onlineLabel(tc.on))
-			if !ok {
-				t.Fatalf("没画出「%s」", onlineLabel(tc.on))
-			}
-			if badge.X+badge.W > float32(tc.w) {
-				t.Fatalf("超出窗口：right=%v w=%d", badge.X+badge.W, tc.w)
-			}
-			if name.X+name.W > badge.X+0.5 {
-				t.Fatalf("与名字重叠：name right=%v badge left=%v", name.X+name.W, badge.X)
-			}
-			if name.W > 240 {
-				t.Fatalf("名字不该超过原版 240：got %v", name.W)
-			}
-		})
-	}
-}
-
-// TestOnlineBadgeIsDeemphasized 钉住「弱化到位」的两条：
-//
-//	① 对比度仍够读：午间 / 夜间都不低于 3:1（辅助信息的下限；正文类文字才要
-//	   4.5:1，而这行字是辅助信息、且同样的内容在 tooltip 里也有）；
-//	② 确实比正文轻：它的墨色（--studio-faint）比简介 / 选集标题用的
-//	   --studio-muted 更浅 —— 用户要求「弱化颜色」，不能只是删掉装饰。
+// 但它也不能浅到读不出来：挂在操作行后，它是「作品数据」的一员，旁边是
+// 点赞 / 投币 / 收藏的计数，太浅会显得像坏了。所以用 --studio-faint
+// （#64748b，与空态提示同一档），比正文轻、比 kicker 的小标签深。
 func TestOnlineBadgeIsDeemphasized(t *testing.T) {
 	relLum := func(r, g, b int) float64 {
 		chanL := func(v int) float64 {
@@ -248,37 +215,49 @@ func TestOnlineBadgeIsDeemphasized(t *testing.T) {
 		}
 		return 0.2126*chanL(r) + 0.7152*chanL(g) + 0.0722*chanL(b)
 	}
+	// 某一盒里最暗的那颗像素（墨色最深的一处）。
+	darkestIn := func(img *image.RGBA, r ui.Rect) (int, int, int) {
+		best := 1.0
+		br, bg, bb := 0, 0, 0
+		for y := int(r.Y); y < int(r.Y+r.H); y++ {
+			for x := int(r.X); x < int(r.X+r.W); x++ {
+				i := img.PixOffset(x, y)
+				if l := relLum(int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])); l < best {
+					best, br, bg, bb = l, int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])
+				}
+			}
+		}
+		return br, bg, bb
+	}
 	for _, hour := range []int{12, 22} {
 		t.Run(fmt.Sprintf("%dh", hour), func(t *testing.T) {
 			a := viewersApp(152, 2)
 			a.Theme = ThemeFor(PeriodAt(hour))
 			tt := shellTesterSize(t, a, 800, 600)
-			r, ok := tt.Find(onlineLabel(152))
+			badge, ok := tt.Find(onlineLabel(152))
 			if !ok {
 				t.Fatal("没画出在线人数")
 			}
+			kick, ok := tt.Find("UP 主")
+			if !ok {
+				t.Fatal("找不到 kicker")
+			}
 			img := tt.Image()
-			darkest := 1.0
-			for y := int(r.Y); y < int(r.Y+r.H); y++ {
-				for x := int(r.X); x < int(r.X+r.W); x++ {
-					i := img.PixOffset(x, y)
-					if l := relLum(int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])); l < darkest {
-						darkest = l
-					}
-				}
+
+			_ = kick
+			br, bg, bb := darkestIn(img, badge)
+
+			// ① 比正文轻：正文用的是 --studio-muted #475569。
+			badgeL := relLum(br, bg, bb)
+			mutedL := relLum(0x47, 0x55, 0x69)
+			if badgeL <= mutedL {
+				t.Fatalf("在线人数墨色亮度 %.3f 不高于正文 %.3f —— 没弱化", badgeL, mutedL)
 			}
-			// 文字盒正上方 6px 当背景（现在没有胶囊底，就是右栏底色）。
-			i := img.PixOffset(int(r.X+2), int(r.Y)-6)
-			bg := relLum(int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2]))
-			ratio := (bg + 0.05) / (darkest + 0.05)
-			if ratio < 3 {
-				t.Fatalf("%dh 时段墨/底对比只有 %.2f:1（辅助信息也不该低于 3:1）", hour, ratio)
-			}
-			// ② 比正文轻：简介用的是 --studio-muted。
-			muted := relLum(0x47, 0x55, 0x69) // Theme.Muted #475569
-			faint := relLum(0x64, 0x74, 0x8b) // Theme.Faint #64748b
-			if faint <= muted {
-				t.Fatalf("在线人数用的墨色（L=%.3f）不比正文（L=%.3f）浅 —— 没弱化", faint, muted)
+			// ② 但也不能浅到读不出来：至少比空态提示那档（--studio-faint）不深太多，
+			//    即实测墨色应当落在 faint 附近（±0.03 亮度）。
+			faintL := relLum(0x64, 0x74, 0x8b)
+			if badgeL < faintL-0.03 || badgeL > faintL+0.03 {
+				t.Fatalf("在线人数墨色亮度 %.3f 偏离 --studio-faint（%.3f）太多", badgeL, faintL)
 			}
 		})
 	}
@@ -303,7 +282,7 @@ func TestOnlineCountText(t *testing.T) {
 			t.Errorf("onlineCountText(%d) = %q, want %q", c.n, got, c.want)
 		}
 	}
-	if got := onlineLabel(152); got != "同时在线 152 人" {
+	if got := onlineLabel(152); got != "152 人在看" {
 		t.Fatalf("文案 = %q", got)
 	}
 }
