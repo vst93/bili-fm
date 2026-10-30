@@ -551,6 +551,87 @@ func (bl *BL) GetUrlByCid(aid int, cid int) (ret PlayURLInfo) {
 
 // ----------- end - getUrlByCid -----------
 
+// ----------- begin - getDashAudioByCid -----------
+
+// DashAudio 是 DASH 音轨的一条候选（playurl 的 data.dash.audio[]）。
+// Codecs 是挑轨的唯一依据：mp4a.40.2 才是解码器能解的 AAC-LC。
+type DashAudio struct {
+	ID        int    `json:"id"`
+	BaseURL   string `json:"baseUrl"`
+	Codecs    string `json:"codecs"`
+	Bandwidth int    `json:"bandwidth"`
+}
+
+// GetDashAudioByCid 取 DASH 里能解码的 AAC-LC 音轨（audio-only m4s）。
+//
+// 360P 合流（GetUrlByCid 的 durl）在部分稿件里用 HE-AAC（mp4a.40.5，
+// AAC-LC + SBR）省码率，纯 Go 解码器明确不支持 SBR，起播就会报「音频解码
+// 失败」。DASH 音轨自带 codecs 字段，能明确挑出真正的 AAC-LC；同时它是独立
+// 音轨，不再顺带下载整段 360P 视频。
+//
+// 只认 mp4a.40.2；HE-AAC/HE-AACv2（40.5/40.29）、Dolby（ec-3）、
+// Hi-Res（fLaC）都跳过。同一 codec 取码率最高的一条；没有可用的返回空，
+// 由调用方退回合流地址。
+func (bl *BL) GetDashAudioByCid(aid int, cid int) (ret PlayURLInfo) {
+	if cid == 0 {
+		return
+	}
+	// fnval=16 才返回 dash；qn=0 表示不关心视频清晰度（只要音轨）。
+	url := fmt.Sprintf("https://api.bilibili.com/x/player/playurl?avid=%d&cid=%d&qn=0&fnval=16&fourk=1&type=json", aid, cid)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Host", "api.bilibili.com")
+
+	resp, err := fetchImageClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Dash struct {
+				Audio []DashAudio `json:"audio"`
+			} `json:"dash"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return
+	}
+	if result.Code != 0 {
+		return
+	}
+	return PlayURLInfo{URL: pickDashAudioURL(result.Data.Dash.Audio)}
+}
+
+// pickDashAudioURL 从 DASH 音轨列表里挑码率最高的 AAC-LC。
+// 独立成纯函数是为了能脱网测挑轨规则（HE-AAC 的坑就在这里）。
+func pickDashAudioURL(list []DashAudio) string {
+	bestURL, bestBW := "", -1
+	for _, a := range list {
+		// 必须精确到 40.2（AAC-LC）。40.5/40.29 是 HE-AAC，解码器解不了。
+		if !strings.HasPrefix(a.Codecs, "mp4a.40.2") || a.BaseURL == "" {
+			continue
+		}
+		if a.Bandwidth > bestBW {
+			bestURL, bestBW = a.BaseURL, a.Bandwidth
+		}
+	}
+	return bestURL
+}
+
+// ----------- end - getDashAudioByCid -----------
+
 // ----------- begin - getLoginQRCodeStatus -----------
 type QRCodeStatusResponse struct {
 	Code    int    `json:"code"`

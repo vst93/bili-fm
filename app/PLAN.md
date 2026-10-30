@@ -1037,3 +1037,53 @@ amd64/arm64 六平台编译）全绿。`-shot` 无需重截：两个改动都不
 
 升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
 amd64/arm64 六平台编译）全绿。
+
+## HE-AAC 稿件「音频解码失败」→ 回退 DASH AAC-LC 音轨（2026-10-30）
+
+用户报 BV1k3411f7mX（许嵩歌曲 151 首精选）起播即「音频解码失败」。查实不是网络、
+不是链接过期，而是**编码 profile**：
+
+- `GetUrlByCid` 走的是 `platform=html5` 的 360P 合流 mp4，这一稿的音频是
+  **HE-AAC**（ffprobe：`profile=HE-AAC`、`mp4a.40.5`、49.9 kbps；ASC `2b920800`
+  = 显式 AOT 5 / SBR，核心 22.05 kHz）。纯 Go 的 `go-aac v0.7.0` 只做 AAC-LC，
+  `NewDecoder` 直接报 `ErrUnsupportedSBR`（显式 ASC 和帧内 fill element 两条路
+  都拒绝），所以起播必然失败。
+- 同一集 DASH 音轨里 30232/30280 是正常 AAC-LC（`mp4a.40.2`，117/185 kbps），
+  只有 30216 是 HE-AAC。B 站这样编码是为了给 360P 合流省码率。
+- 抽样 30 条热门视频的 `qn=0` 合流全是 AAC-LC，说明 HE-AAC 不是主流，但一撞上
+  就是整条视频播不了，必须兜住。
+
+修法（**不改主路径**：正常稿件仍走原来的 360P 合流，行为和带宽不变）：
+
+1. `media`：`aacpcm.ErrUnsupportedSBR` → 打上 `media.ErrHEAAC` 标记（`aacProfileErr`），
+   解码器建不起来 / 播放中途 / seek 重建三条路都覆盖；原始错误链保留，日志照旧。
+   顺带补上 `Player.Play` 建流水线失败时 `rf.Close()` —— 换流重试会连着失败两次，
+   不关会把 HTTP 连接挂到 30s 超时。
+2. `bilibili.GetDashAudioByCid`：`fnval=16` 取 `data.dash.audio[]`，**只认
+   `mp4a.40.2`**（HE-AAC 40.5/40.29、Dolby ec-3、Hi-Res fLaC 全部跳过），同 codec
+   取码率最高；没有可用的返回空（调用方退回合流地址）。挑轨抽成纯函数
+   `pickDashAudioURL`，脱网可测。
+3. `main.startCurrent`：起播返回 `ErrHEAAC` 时静默换 DASH 音轨重试（期间有
+   `stale()` 复核，快速切歌不会误播）。换流成功时用户只看到「起播中…」多停
+   一下，不会先弹「音频解码失败」。`blprobe info/play` 同路径，便于抓日志。
+
+实测（BV1k3411f7mX P1）：合流起播报 `media: HE-AAC（SBR）暂不支持`，
+DASH 音轨建流水线 1.3 s、时长 238.3 s、解码 3 s 无欠载。
+
+已知代价（记录在案，不改）：go-m4a 读 fMP4 要扫完所有 moof 才能建样本表，
+所以 DASH 音轨**起播**会先把整条音轨 m4s 拉一遍（4 分钟约 5.3 MB；`readHigh`
+在定位回 0 后会回落，缓冲条不会假装 100%）。**seek 不再重扫**：fMP4 的
+Reader 支持原地 SeekTime（go-m4a 文档明确允许 EOF 之后重定位，实测原地
+seek 与全新 Reader 取到的帧逐字节一致），所以 `pipeline.seek` 对
+`fragmentedBrand`（iso5/iso6/dash/cmfc…）不重开 reader，4 分钟的歌从
+~1.4 s 降到 ~3 ms；合流 mp4 仍是原来的「重开 + 重解析」路径。长视频若撞上
+HE-AAC，起播仍按文件大小线性变慢；真遇到再做 sidx 预取（按 sidx 并行抓
+moof，只下索引不整首下载），这次不提前上。
+
+测试：`media/errors_test.go`（HE-AAC 标记与不误标、类别仍为 KindDecode）、
+`media/seektime_test.go` 的 `TestFragmentedBrand`（fMP4 走原地 seek）、
+`bilibili/dash_audio_test.go`（只挑 LC、取最高码率、空地址/全不可解码）、
+`main_test.go` 的接线反证扩到「起播失败必须换 DASH 重试」。
+门槛：`go vet` + 相关包测试 + 六平台编译。`./check.sh fast` 在本机因
+`internal/view` 的 mygo 光栅测试偶发超时（HEAD 同样复现，与本次改动无关），
+媒体/接口/主包测试均全绿。

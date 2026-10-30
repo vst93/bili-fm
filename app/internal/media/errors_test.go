@@ -1,11 +1,14 @@
 package media
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	aacpcm "github.com/tphakala/go-aac/pcm"
 )
 
 // TestKindOfRootCauseWins 钉住类别判定的两条语义：
@@ -133,5 +136,37 @@ func TestErrSupersededIsExportedAndPlain(t *testing.T) {
 	}
 	if !errors.Is(fmt.Errorf("起播: %w", ErrSuperseded), ErrSuperseded) {
 		t.Error("ErrSuperseded 应能被 errors.Is 认出来")
+	}
+}
+
+// TestHEAACErrorIsTagged 钉住「换流重试」的判据：HE-AAC（SBR/PS）的解码
+// 错误必须带上 ErrHEAAC（上层据此换 DASH 的 AAC-LC 音轨）；普通解码错误
+// 不能误带，否则一次帧损坏也会白换一次流。
+func TestHEAACErrorIsTagged(t *testing.T) {
+	// 显式 HE-AAC（AOT 5）的 ASC：解码器在建解码器阶段就拒绝。
+	_, sbr := aacpcm.NewDecoder(bytes.NewReader(nil), aacpcm.WithRawStream([]byte{0x2b, 0x92, 0x08, 0x00}))
+	if sbr == nil || !errors.Is(sbr, aacpcm.ErrUnsupportedSBR) {
+		t.Fatalf("测试前提变了：HE-AAC 的 ASC 应被解码器拒绝，得到 %v", sbr)
+	}
+
+	tagged := aacProfileErr(fmt.Errorf("media: 打开 AAC 解码器失败: %w", sbr))
+	if !errors.Is(tagged, ErrHEAAC) {
+		t.Errorf("HE-AAC 错误应带 ErrHEAAC，得到 %v", tagged)
+	}
+	// 原始错误链要保留（日志里还能看到 go-aac 的具体原因）。
+	if !errors.Is(tagged, aacpcm.ErrUnsupportedSBR) {
+		t.Errorf("包装后丢了原始错误链：%v", tagged)
+	}
+	// 类别仍然是解码失败：用户文案不变。
+	if got := KindOf(WrapKind(KindDecode, tagged)); got != KindDecode {
+		t.Errorf("HE-AAC 的类别 = %v，want KindDecode", got)
+	}
+
+	plain := aacProfileErr(errors.New("media: 帧损坏"))
+	if errors.Is(plain, ErrHEAAC) {
+		t.Errorf("普通解码错误不该带 ErrHEAAC：%v", plain)
+	}
+	if aacProfileErr(nil) != nil {
+		t.Error("aacProfileErr(nil) 应为 nil")
 	}
 }

@@ -66,6 +66,14 @@ func KindOf(err error) Kind {
 	return KindOther
 }
 
+// ErrHEAAC 表示这份流的音频是 HE-AAC（AAC-LC + SBR/PS），纯 Go 解码器
+// （go-aac 只做 AAC-LC）解不了。
+//
+// 它不是「播放地址坏了」：B 站 360P 合流在部分稿件里用 HE-AAC 省码率，
+// 同一集往往还有 DASH 的 AAC-LC 音轨。上层（main.go）据此换音轨重试，
+// 不该直接弹「音频解码失败」。
+var ErrHEAAC = errors.New("media: HE-AAC（SBR）暂不支持")
+
 // ErrSuperseded 表示这次起播被更新的起播取代了。
 //
 // 建流水线要发 HTTP（秒级），期间用户切了别的曲目，这次的结果就作废。

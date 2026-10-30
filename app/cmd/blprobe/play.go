@@ -5,6 +5,7 @@ package main
 //	go run ./cmd/blprobe play BV1xx411c7mD 8 2.0
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,15 @@ func playVideo(bl *bilibili.BL, bvid string, seconds float64, speed float64, eq 
 		"Referer":    "https://www.bilibili.com/",
 	}
 	t0 := time.Now()
-	if err := p.Play(u.URL, headers); err != nil {
+	err := p.Play(u.URL, headers)
+	if err != nil && errors.Is(err, media.ErrHEAAC) {
+		// 与 app 同一条回退路径：360P 合流是 HE-AAC 时换 DASH 的 AAC-LC 音轨。
+		if alt := bl.GetDashAudioByCid(int(info.Aid), part.Cid); alt.URL != "" {
+			fmt.Println("360P 音频为 HE-AAC，改播 DASH AAC-LC 音轨")
+			err = p.Play(alt.URL, headers)
+		}
+	}
+	if err != nil {
 		fmt.Println("起播失败:", err)
 		return
 	}

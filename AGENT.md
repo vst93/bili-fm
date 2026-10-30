@@ -50,6 +50,16 @@
   `mygo.json` 里的 `slug` 已显式钉成 `bili-fm`，别删。
 - **Linux Wayland 无边框窗**：0.7.0 起框架给 Frameless 主窗加 GTK CSD
   （投影 + 描边，mygo #727）。透明窗（桌面字幕）、panel、X11 不受影响。
+- **B 站音频编码不统一（HE-AAC）**：360P 合流（`platform=html5` 的 durl）在
+  部分稿件里是 HE-AAC（`mp4a.40.5`，ASC AOT 5 / SBR），纯 Go 的 go-aac 只做
+  AAC-LC，起播必报 `ErrUnsupportedSBR`（别试「当 LC 解」：SBR 在 fill element
+  里，库会主动拒绝）。同一集 DASH 通常还有 AAC-LC 音轨（30232/30280，
+  `mp4a.40.2`）。`media.ErrHEAAC` → `main.startCurrent` 静默换
+  `GetDashAudioByCid` 重试，详见 PLAN 的「HE-AAC 稿件」一节。
+- **DASH 音轨是 fMP4（ftyp iso5）**：go-m4a 建样本表要扫全部 moof，所以**起播**
+  会把整条音轨 m4s 拉一遍（4 分钟≈5MB，几小时会按大小线性变慢）。seek 用
+  原地 `Reader.SeekTime`（`media.fragmentedBrand`）避免重扫，别再改回
+  「每次 seek 重开 reader」。
 
 - **CSP 已不存在**（原生版没有 webview 安全策略），旧 Tauri 的 CSP/WebView2 坑只作历史参考。
 - **SponsorBlock（bsbsb.top）**：免费无 key，`GET /api/skipSegments?videoID=BV..&cid=..`。会话缓存只能存真实服务端结论，abort/超时/网络失败不得写入。

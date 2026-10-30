@@ -1237,7 +1237,10 @@ func TestAudioErrorReportingWired(t *testing.T) {
 	}
 
 	// ② 起播失败：同样走分类文案，而不是把 Go 的错误串直接贴给用户。
-	play := sourceBlock(t, src, "if err := c.mp.Play(u.URL, audioHeaders); err != nil {")
+	//
+	// 起播现在先接一次 Play 的返回值（HE-AAC 要换流重试），再进错误分支；
+	// 用错误分支里那句独一无二的注释定位，sourceBlock 会抓到整个 if 块。
+	play := sourceBlock(t, src, "if err != nil {\n\t\t\t// 起播被更新的起播取代不是失败")
 	if !strings.Contains(play, `NotifyType("error", audioErrorMessage(err))`) {
 		t.Errorf("起播失败没有走 audioErrorMessage：\n%s", play)
 	}
@@ -1252,6 +1255,19 @@ func TestAudioErrorReportingWired(t *testing.T) {
 	if i, j := strings.Index(play, "errors.Is(err, media.ErrSuperseded)"),
 		strings.Index(play, "audioErrorMessage(err)"); i >= 0 && j >= 0 && i > j {
 		t.Error("ErrSuperseded 的判定必须在弹提示之前")
+	}
+	// ④ HE-AAC 换流：B 站 360P 合流的音频可能是 HE-AAC（纯 Go 解码器解
+	// 不了），起播失败后必须换 DASH 的 AAC-LC 音轨，而不是直接弹「音频解码
+	// 失败」。这条接线一断，BV1k3411f7mX 这类稿件就又播不了了。
+	he := sourceBlock(t, src, "if err != nil && errors.Is(err, media.ErrHEAAC) {")
+	if !strings.Contains(he, "GetDashAudioByCid(") {
+		t.Errorf("HE-AAC 起播失败没有去取 DASH 音轨：\n%s", he)
+	}
+	if !strings.Contains(he, "c.mp.Play(alt.URL, audioHeaders)") {
+		t.Errorf("HE-AAC 起播失败没有用 DASH 音轨重试：\n%s", he)
+	}
+	if !strings.Contains(he, "stale()") {
+		t.Errorf("HE-AAC 换流前后没有复查 stale（取地址期间切歌会把新一集顶掉）：\n%s", he)
 	}
 }
 

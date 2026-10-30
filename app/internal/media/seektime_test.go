@@ -212,3 +212,18 @@ func TestSeekTimeMatchesSequentialRead(t *testing.T) {
 		t.Error("seek 后读出的帧与顺序读不一致")
 	}
 }
+
+// TestFragmentedBrand 钉住 seek 的分支依据：B 站 DASH 音轨（fMP4，iso5）
+// 原地 seek、不重新扫整条流；合流 mp4（isom/mp42/M4A）仍走重解析。
+func TestFragmentedBrand(t *testing.T) {
+	for _, b := range []string{"iso5", "iso6", "dash", "msdh", "cmfc", "iso5\x00"} {
+		if !fragmentedBrand(b) {
+			t.Errorf("fragmentedBrand(%q) = false，应为分片 MP4", b)
+		}
+	}
+	for _, b := range []string{"isom", "mp42", "M4A ", "qt  ", ""} {
+		if fragmentedBrand(b) {
+			t.Errorf("fragmentedBrand(%q) = true，合流 mp4 应走重解析", b)
+		}
+	}
+}

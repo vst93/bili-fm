@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "用法: blprobe <search|info|playurl|popular> <参数>")
+		fmt.Fprintln(os.Stderr, "用法: blprobe <search|info|play|dash|rcmd|raw|popular> <参数>")
 		os.Exit(2)
 	}
 	kv, err := store.OpenDefault()
@@ -49,7 +49,22 @@ func main() {
 		if len(info.Pages) > 0 {
 			u := bl.GetUrlByCid(int(info.Aid), info.Pages[0].Cid)
 			fmt.Printf("播放地址: %s\n", truncate(u.URL, 90))
+			if d := bl.GetDashAudioByCid(int(info.Aid), info.Pages[0].Cid); d.URL != "" {
+				fmt.Printf("DASH 音轨: %s\n", truncate(d.URL, 90))
+			}
 		}
+	case "dash":
+		info := bl.GetCList(os.Args[2])
+		if len(info.Pages) == 0 {
+			fmt.Println("取分集失败")
+			return
+		}
+		u := bl.GetDashAudioByCid(int(info.Aid), info.Pages[0].Cid)
+		if u.URL == "" {
+			fmt.Println("没有可解码的 AAC-LC 音轨")
+			return
+		}
+		fmt.Printf("DASH AAC-LC 音轨: %s\n", truncate(u.URL, 120))
 	case "play":
 		secs, sp := 8.0, 1.0
 		if len(os.Args) > 3 {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,6 +79,9 @@ func (p *Player) Play(url string, headers map[string]string) error {
 
 	pipe, err := newPipeline(rf, rate, speed, eqOn, p.ensureContext)
 	if err != nil {
+		// 建流水线失败时没人再持有 rf：不关的话这次起播的 context 和
+		// 连接要挂到 30 秒超时才回收（HE-AAC 换流重试会连着发生两次）。
+		rf.Close()
 		return err
 	}
 
@@ -472,6 +476,16 @@ type pipeline struct {
 	once sync.Once
 }
 
+// aacProfileErr 给 HE-AAC（SBR/PS）解码错误挂上 media.ErrHEAAC 标记。
+// 上层据此换一条 AAC-LC 音轨重试；其他解码错误原样返回。
+func aacProfileErr(err error) error {
+	if err != nil && errors.Is(err, aacpcm.ErrUnsupportedSBR) {
+		// 两个 %w：既能 errors.Is(ErrHEAAC)，也保留 go-aac 的原始错误链。
+		return fmt.Errorf("%w: %w", ErrHEAAC, err)
+	}
+	return err
+}
+
 // newPipeline 建流水线。outRate 是音频上下文的采样率（0 表示还没建立，
 // 此时用流的采样率）；ensure 负责在需要时建立上下文并返回它用的采样率。
 func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure func(rate, ch int) (int, error)) (*pipeline, error) {
@@ -482,7 +496,7 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	info := rd.Info()
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(info.ASC))
 	if err != nil {
-		return nil, WrapKind(KindDecode, fmt.Errorf("media: 打开 AAC 解码器失败: %w", err))
+		return nil, WrapKind(KindDecode, fmt.Errorf("media: 打开 AAC 解码器失败: %w", aacProfileErr(err)))
 	}
 	rate, err := ensure(info.SampleRate, info.Channels)
 	if err != nil {
@@ -587,7 +601,8 @@ func (p *pipeline) pump() {
 			p.mu.Lock()
 			// 没带类别的都当解码失败：网络类的错误在 remote.go 里已带
 			// KindNetwork（WrapKind 会保留根因，不会被这里盖掉）。
-			p.err, p.rawEOF = WrapKind(KindDecode, err), true
+			// aacProfileErr 只给 HE-AAC 挂标记，其他错误不动。
+			p.err, p.rawEOF = WrapKind(KindDecode, aacProfileErr(err)), true
 			p.mu.Unlock()
 			p.procMu.Unlock()
 			p.nudgeEQ()
@@ -883,6 +898,19 @@ func seekStartSample(seconds float64, sampleRate int) int {
 	return int(seconds * float64(sampleRate))
 }
 
+// fragmentedBrand 报告 ftyp major brand 是不是分片 MP4（CMAF / DASH）。
+//
+// go-m4a 没有导出「是否分片」，但 B 站 DASH 音轨实测是 iso5；合流 mp4 是
+// isom / mp42 / M4A 。认错不会播错：分片流误判成普通流只是多一次重解析，
+// 普通流误判成分片流则走原地 SeekTime（库明确支持任意位置重定位）。
+func fragmentedBrand(brand string) bool {
+	switch strings.TrimRight(brand, "\x00 ") {
+	case "iso5", "iso6", "dash", "msdh", "msix", "cmfc", "cmff":
+		return true
+	}
+	return false
+}
+
 func (p *pipeline) seek(seconds float64) error {
 	// 同时拿 procMu 与 outMu：前者停住解码/入队，后者停住 WSOLA 输出链。
 	// 顺序固定 procMu → outMu（pump 只拿 procMu，finish 只拿 outMu），
@@ -896,18 +924,33 @@ func (p *pipeline) seek(seconds float64) error {
 		seconds = 0
 	}
 	dur := p.info.Duration.Seconds()
-	if dur > 0 && seconds > dur {
-		seconds = dur
+	if dur > 0 && seconds >= dur {
+		// SeekTime 不接受「呈现区间的最后半 tick」（go-m4a 文档），拖到
+		// 最右端会定位失败、退回平均帧长估算；fMP4 的原地 seek 还可能
+		// 从旧游标继续读。留 1ms 余量，落点仍在最后一帧里。
+		seconds = dur - 0.001
+		if seconds < 0 {
+			seconds = 0
+		}
 	}
 
 	frameSamples := seekFrameSamples(p.info)
 
-	if _, err := p.rf.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	rd, err := m4a.NewReader(p.rf)
-	if err != nil {
-		return WrapKind(KindUnsupported, fmt.Errorf("media: 重新解析失败: %w", err))
+	// fMP4（DASH 音轨）重新 m4a.NewReader 会把整条流的 moof 再扫一遍：
+	// 4 分钟的歌约 5MB、几小时的视频几百 MB，而且是在 procMu/outMu 里
+	// 同步做（拖动一次进度条就等一次）。go-m4a 的 Reader 支持任意位置
+	// 原地 SeekTime（含 EOF 之后），这类流就不必重开。合流 mp4 保持
+	// 原来的「重开 + 重新解析」路径不变。
+	rd := p.rd
+	if rd == nil || !fragmentedBrand(p.info.Brand) {
+		if _, err := p.rf.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		var err error
+		rd, err = m4a.NewReader(p.rf)
+		if err != nil {
+			return WrapKind(KindUnsupported, fmt.Errorf("media: 重新解析失败: %w", err))
+		}
 	}
 	// 先把读游标定位到目标所在帧。优先 SeekTime（内部已 SeekSample，且按
 	// presentation time 感知 priming），不可用时退回按平均帧长估算 + SeekSample
@@ -915,6 +958,14 @@ func (p *pipeline) seek(seconds float64) error {
 	frame, ok := seekFrame(rd, seconds, frameSamples)
 	if !ok {
 		log.Printf("SeekTime 不可用（退回按平均帧长估算）")
+		// 估算可能因 priming/滤镜舍入落到最后一帧之后；夹进帧表再定位，
+		// 免得 SeekSample 报错后从旧游标继续读（fMP4 原地 seek 时尤其明显）。
+		if frame < 0 {
+			frame = 0
+		}
+		if n := p.info.FrameCount; n > 0 && frame >= n {
+			frame = n - 1
+		}
 		if frame > 0 {
 			if err := rd.SeekSample(frame); err != nil {
 				log.Printf("seek 定位到帧 %d 失败（退回顺序读）: %v", frame, err)
@@ -923,7 +974,7 @@ func (p *pipeline) seek(seconds float64) error {
 	}
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(p.info.ASC))
 	if err != nil {
-		return WrapKind(KindDecode, fmt.Errorf("media: 重新打开解码器失败: %w", err))
+		return WrapKind(KindDecode, fmt.Errorf("media: 重新打开解码器失败: %w", aacProfileErr(err)))
 	}
 
 	p.rd, p.dec = rd, dec

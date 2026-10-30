@@ -3039,11 +3039,36 @@ func (c *controller) startCurrent() {
 			log.Printf("起播取消（已切到别的曲目）")
 			return
 		}
-		if err := c.mp.Play(u.URL, audioHeaders); err != nil {
+		err := c.mp.Play(u.URL, audioHeaders)
+		if err != nil && errors.Is(err, media.ErrHEAAC) {
+			// 360P 合流的音频是 HE-AAC（SBR），纯 Go 解码器解不了。
+			// 同一集在 DASH 里通常还有 AAC-LC 音轨（audio-only m4s），
+			// 换过去静默重试：界面还停在「起播中…」，用户不会先看到
+			// 一次「音频解码失败」再开始播。
+			if stale() {
+				return
+			}
+			if alt := c.bl.GetDashAudioByCid(int(playAid), int(cid)); alt.URL != "" {
+				// 取地址也要发 HTTP（几百 ms），期间用户可能又切了一集；
+				// 不复查就会把新那一集顶掉（旧请求的 Play 代号更新）。
+				if stale() {
+					return
+				}
+				log.Printf("360P 音频为 HE-AAC，改播 DASH AAC-LC 音轨（bvid=%s cid=%d）", playBvid, cid)
+				err = c.mp.Play(alt.URL, audioHeaders)
+			}
+		}
+		if err != nil {
 			// 起播被更新的起播取代不是失败：弹「起播失败」是误报，而且会把
 			// 新那一次正在进行的缓冲状态抹掉。
 			if errors.Is(err, media.ErrSuperseded) {
 				log.Printf("起播被取代，忽略: %v", err)
+				return
+			}
+			// 起播期间用户已经切到别的曲目：错误属于旧那一集，不能拿它去
+			// 弹提示、更不能把新那一集的「起播中」状态抹掉。
+			if stale() {
+				log.Printf("起播失败（已切到别的曲目，忽略）: %v", err)
 				return
 			}
 			log.Printf("起播失败: %v", err)
