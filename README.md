@@ -19,7 +19,7 @@ Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，
 - 0.5x ~ 3.0x 倍速、音量均衡（EQ）、弹幕列表与弹幕热力时间轴
 - 章节导航、字幕文稿（多语言/多版本切换）、时间点跳转与可配置桌面字幕
 - 「顺着听」相关推荐电台；UP 主合集与个人播放列表独立管理，自动保存恢复
-- 当前观看人数：右栏显示此刻正在看这一集的人数（「N 人在看」，每 30 秒刷新）
+- 当前在线人数：右栏以一行小字显示此刻正在收听这一集的人数（每 30 秒刷新）
 - 点赞、投币等常用互动，全局媒体键与 Windows 系统媒体中心随时控制播放
 - 液态玻璃风格 UI，适配亮暗环境
 - Windows、macOS、Linux 多平台；原生版稳定版支持应用内自动更新，Microsoft Store 版由商店更新
@@ -238,7 +238,7 @@ Current stable release: **3.1.2** (mygo native build). Users on the old Tauri bu
 - 0.5x–3.0x playback speed, loudness equalizer (EQ), danmaku list and danmaku heat timeline
 - Chapter navigation, subtitle transcript, timestamp seeking and desktop lyrics
 - “Flow” related-video radio; creator series and personal playlists managed separately
-- Live viewer count: the right panel shows how many people are watching this episode right now (“N watching”, refreshed every 30 seconds)
+- Live listener count: a small line in the right panel shows how many people are listening to this episode right now (refreshed every 30 seconds)
 - Like, coin, and other interactions; global media keys and Windows system media controls
 - Liquid glass UI that adapts to light/dark environments
 - Cross-platform: Windows, macOS, and Linux; native stable builds support in-app updates, and the Microsoft Store build updates through the Store

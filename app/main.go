@@ -657,7 +657,7 @@ func main() {
 			c.setupMediaKeys()
 		}
 
-		// 当前观看人数的 30s 轮询（右栏 UP 主行行尾的「N 人在看」，见 viewers.go）。
+		// 当前在线人数的 30s 轮询（右栏 UP 主行行尾那行字，见 viewers.go）。
 		// 起播那一枪另打在 startCurrent 里，这里只负责后续的周期刷新。
 		c.startOnlineViewersPoll()
 

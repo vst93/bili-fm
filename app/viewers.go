@@ -1,6 +1,6 @@
 package main
 
-// 当前观看人数（右栏 UP 主行行尾的「N 人在看」）。
+// 当前在线人数（右栏 UP 主行行尾的「同时在线 N 人」）。
 //
 // 数据来自 x/player/online/total —— 就是 B 站网页播放器里那个「N 人在看」气泡
 // 的接口（见 internal/bilibili/online.go）。它与右栏已有的 View（累计播放量）是

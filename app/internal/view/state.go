@@ -1551,7 +1551,7 @@ func fanCount(n int64) string {
 	return fmt.Sprint(n)
 }
 
-// onlineCountText 是「N 人在看」里的 N（对齐 B 站网页播放器那个气泡）。
+// onlineCountText 是「同时在线 N 人」里的 N（对齐 B 站网页播放器那个气泡）。
 // 不足一万给确切数字 —— 实时量，缩小了就看不出人在动；一万以上才缩写。
 // 与 compactCount 不同（那是三个互动键的固定格式，≥100万 用「w」），
 // 也与 fanCount 不同（粉丝数从不展示确切值）。
