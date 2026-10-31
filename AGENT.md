@@ -43,6 +43,33 @@
 
 ## 平台坑（已踩实）
 
+- **三平台字体已统一**（2026-10，`app/internal/view/font.go` 的 `fontStack`）：
+  拉丁用内置 Inter 子集（SIL OFL，`app/internal/view/fonts/`，注册在子包
+  `fonts` 的 `init` 里 —— 必须早于 view 的包级变量初始化，那些度量常量在
+  var 阶段就算好了；写进 view 自己的 init 会晚一步、冻住系统字体度量）。
+  中文按 PingFang SC → Microsoft YaHei UI → Noto Sans CJK SC 回退（macOS 的
+  PingFang 是基准）。三条硬规矩：
+  1. 量宽 / 自绘成型一律用 `fontOf(size, weight)`，别再写裸 `ui.Font{Size: n}`
+     （不带 Family 会悄悄落回系统字体，量出来的和画出来的不是同一个字体）；
+  2. 中文行盒 ≠ 拉丁行盒（14px：中文 22、Inter 18）。固定高度容器里放中文
+     （桌面字幕窗、多行标题逐行落点）用 `cjkLineBox` / `cjkTextLineBox`，
+     按拉丁度量算会裁字；
+  3. 改主题字体后，无头测试的 tester 要像生产一样 `c.SetTheme(a.Theme.uiTheme())`，
+     否则渲染用系统字体、期望值用 Inter 度量，测试会假红；
+  4. 同一行里混排拉丁与中文（标题栏品牌/设置、选集胶囊）要给**共用行盒**：
+     `textLineBoxFor(s, size)` 量每段文字，取 `max(自然行盒)` 当盒高、各自补
+     半个差值，否则盒顶会差 1.5px。
+- **桌面字幕窗必须是 Panel**（`app/lyrics.go`）：只有面板窗保证「压在所有窗口
+  之上、跨 Space / 虚拟桌面、全屏应用也压得住」。普通窗口的 `AlwaysOnTop` 各
+  平台都只是尽力：macOS 只到 floating level（切 Space 就没了）、Wayland 上
+  `keep_above` 是空操作、Windows 上非 topmost 窗口随便盖。副作用：Wayland 上
+  有 gtk-layer-shell 的合成器（Sway/Hyprland/KDE/COSMIC）里它是 overlay 层
+  surface，`gtk_window_begin_move_drag` 不生效 —— 该环境下拖不动窗口（位置仍
+  由 KV 记忆）；GNOME 没有 layer-shell，仍是普通窗口、照常可拖但压不住别人。
+- **Windows 的 DWM 阴影是窗口矩形的**，不看内容形状：桌面字幕背景透明度调到 0
+  （纯文字浮桌面）时还会有一圈方框影 + 1px 描边。窗口创建时 `DisableShadow`，
+  再由 `syncLyricsWindowShadow` 按 `LyricsBgOpacity > 0` 开关（滑块实时要切）。
+
 - **发布产物命名**：mygo 0.7.0 起磁盘镜像与 Windows 安装器**按 `slug` 命名**
   （`bili-fm-setup-<ver>-<arch>.exe`），0.6.x 是 `bili-FM Setup <ver> <arch>.exe`。
   `release-mygo.yml` 收集时要两代都匹配，且**找不到就 exit 1** —— 静默漏传会

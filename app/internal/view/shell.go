@@ -300,7 +300,8 @@ func (a *App) settingsButton(c *ui.Context) {
 	}
 	b.Children(func() {
 		// 同品牌文字：字重 500（见 titleBarFontWeight），并按 titleBarSettingsNudge
-		// 光学上移，抵消 CJK 字形相对拉丁品牌的墨迹下沉。
+		// 光学上移，抵消 CJK 字形相对拉丁品牌的墨迹下沉（主题字体栈里拉丁是
+		// Inter、中文是回退字体，「设置」的墨迹天生比「bili-FM」低）。
 		ui.Text(c, "设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink).
 			Translate(0, -titleBarSettingsNudge)
 	})

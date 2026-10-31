@@ -89,14 +89,14 @@ func TestStatCountInkFollowsShift(t *testing.T) {
 		}
 		return statCountInkY(t, tt.Image(), btn)
 	}
-	// statCountShift 为负 ⇒ 字形上移。
-	if statCountShift >= 0 {
-		t.Fatalf("statCountShift = %v，应为负（字形上移）", statCountShift)
-	}
-	shifted := measure()
+	// 统一字体后 Inter 的 9px 自然行盒正好是 12（= 原版 line-height），
+	// statCountShift 因此是 0；这里显式给一个 −1 的位移，验证「墨迹跟着
+	// statCountShift 走」的机制本身（与当前字体度量无关）。
 	old := statCountShift
-	statCountShift = 0
+	statCountShift = -1
 	defer func() { statCountShift = old }()
+	shifted := measure()
+	statCountShift = 0
 	unshifted := measure()
 	dy := unshifted - shifted
 	t.Logf("墨迹重心：有位移 y=%.2f，位移归零 y=%.2f，差 %.2f", shifted, unshifted, dy)
@@ -117,7 +117,9 @@ func TestStatCountLineBoxWired(t *testing.T) {
 	}
 	withBox := measure()
 	old := statCountBoxH
-	statCountBoxH = naturalLineBox(9) // 框架自然行盒（旧行为）
+	// 显式盒高 12 与 Inter 的 9px 自然行盒（也是 12）相等，反证要用一个
+	// 不同的值：自然行盒 +2，才能证明盒高确实由 statCountBoxH 驱动。
+	statCountBoxH = naturalLineBox(9) + 2
 	defer func() { statCountBoxH = old }()
 	natural := measure()
 	t.Logf("计数盒高：显式 12 → %v，自然行盒 → %v", withBox, natural)

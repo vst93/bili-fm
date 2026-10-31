@@ -121,7 +121,9 @@ func TestVideoTitleLinePitchMatchesOriginal(t *testing.T) {
 			t.Fatalf("只看得到 %d 段墨迹（%v），拿不到两行标题", len(runs), runs)
 		}
 		// 前两段墨迹都在标题盒内（第二行墨迹允许溢出盒底一点点，原版也是）。
-		if runs[0][0] < int(tr.Y) || runs[0][0] > int(tr.Y)+8 {
+		// 首行墨迹在盒顶下 ~9px：中文行盒（22px 字号 ≈32）比 CSS 行距
+		// （1.18×22≈26）高，负 half-leading 把字形上提后仍有半个余量。
+		if runs[0][0] < int(tr.Y) || runs[0][0] > int(tr.Y)+10 {
 			t.Fatalf("第一行墨迹顶 %d 不在标题盒顶 %v 附近", runs[0][0], tr.Y)
 		}
 		return float32(runs[1][0] - runs[0][0])
@@ -137,7 +139,7 @@ func TestVideoTitleLinePitchMatchesOriginal(t *testing.T) {
 
 	// 反证：换回自然行盒（框架原行为）应把第二行推低。
 	old := infoTitlePitch
-	infoTitlePitch = naturalLineBox(22)
+	infoTitlePitch = cjkLineBox(22)
 	defer func() { infoTitlePitch = old }()
 	if back := measure(); math.Abs(float64(back-33)) > 1 {
 		t.Errorf("换回自然行盒后行距 %v，want ≈33（证明行距确实由 infoTitlePitch 驱动）", back)

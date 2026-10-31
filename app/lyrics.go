@@ -136,10 +136,32 @@ func (c *controller) openDesktopLyricsIfReady() {
 		Y:           y,
 		Frameless:   true,
 		Transparent: true,
-		// Windows 上普通 native-UI 窗口有重定向位图，根节点透明会被画成
-		// 纯黑；Panel 是无重定向位图的 WS_POPUP，透明像素才能露出桌面。
-		// macOS/Linux 仍用普通窗口，避免 Wayland 的 popup 定位/焦点差异。
-		Panel:             runtime.GOOS == "windows",
+		// 桌面字幕必须钉在所有窗口之上，所以三平台都用「面板」窗口
+		// （mygo 的 WindowOptions.Panel）——只有它保证层级，普通窗口的
+		// AlwaysOnTop 各平台都只是「尽力」：
+		//
+		//   Windows  topmost tool window（WS_EX_TOPMOST），不是它就在
+		//            普通窗口层，随便一个新窗口都能盖住；顺带还有副作用
+		//            —— 普通 native-UI 窗口有重定向位图，根节点透明会被
+		//            画成纯黑，Panel 是没有重定向位图的 WS_POPUP，透明
+		//            像素才能露出桌面。
+		//   macOS    NSPanel + CanJoinAllSpaces/FullScreenAuxiliary：浮动
+		//            层级、在所有 Space 上都显示，全屏应用也压得住；普通
+		//            窗口只到 floating level，切换 Space / 进全屏就没了。
+		//   Linux    X11 是 utility window + keep_above；Wayland 有
+		//            gtk-layer-shell 时是 overlay 层（Sway/Hyprland/KDE/
+		//            COSMIC），压得住全屏窗；GNOME 没有 layer-shell，
+		//            合成器说了算，这一点客户端无能为力。
+		//
+		// 面板窗不吃键盘：窗口用 ShowInactive 显示，Wayland 下只是
+		// on-demand 键盘，不会把主窗的输入抢走。
+		Panel: true,
+		// Windows 的窗口阴影/描边由 DWM 按**窗口矩形**画，不看内容形状：
+		// 背景透明度调到 0（纯文字浮在桌面上）时仍会有一圈方框影 + 1px
+		// 描边，非常扎眼。这里先不给，创建后再由 syncLyricsWindowShadow
+		// 按背景透明度打开（背景不透明时阴影是加分的）。macOS 的窗口
+		// 阴影跟着内容 alpha 走、Linux 透明窗本来就不画，都不受影响。
+		DisableShadow:     runtime.GOOS == "windows",
 		AlwaysOnTop:       true,
 		SkipTaskbar:       true,
 		DisableResize:     true,
@@ -174,6 +196,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// 显式写回显示页尺寸：不设 StateKey，窗口状态不会用上次设置页的
 	// 高度把显示页撑开；位置也由本文件的 KV 管理。
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
+	c.syncLyricsWindowShadow()
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
 	// Alt+F4 等用户关闭路径：不销毁窗口，只隐藏并关掉开关。Wayland 上
 	// 销毁 toplevel 会丢掉合成器记住的位置，复用同一个 toplevel 才能让
@@ -637,12 +660,37 @@ func (c *controller) updateLyricsConfig() {
 	_ = c.kv.SetString(prefLyricsOffset, formatPrefFloat(a.LyricsOffset))
 	_ = c.kv.SetString(prefLyricsOffsetRemember, strconv.FormatBool(a.LyricsOffsetRemember))
 	if c.lyricsWin != nil {
+		// 背景透明度可能刚改过：Windows 的窗口阴影要跟着一起开关。
+		c.syncLyricsWindowShadow()
 		// 宽度 / 字号变化要同步调整窗口；微调变化则立即重算当前句，
 		// 否则要等下一次 500ms 进度回调才看到效果。
 		c.resizeDesktopLyrics()
 		c.syncLyricsAt(a.Pos)
 		c.lyricsWin.Update(func() {})
 	}
+}
+
+// syncLyricsWindowShadow 把系统窗口阴影跟背景透明度绑在一起。
+//
+// Windows 的 DWM 阴影是**窗口矩形**的投影，并在窗口四周画 1px 描边，与内容
+// 形状（我们画的是圆角面板）无关。背景全透明时用户要的是「桌面上只剩字」，
+// 那圈方框影就像个没内容的边框。所以：背景透明（opacity = 0）关掉系统阴影，
+// 有背景色时再打开。改背景透明度是实时拖滑块，必须当场切，不能等重建窗口。
+//
+// macOS 的阴影跟着窗口内容的 alpha 走，Linux 透明窗根本不画（useCSD 排除
+// Transparent/Panel，SetHasShadow 是空实现），都不需要处理。
+func (c *controller) syncLyricsWindowShadow() {
+	if c.lyricsWin == nil || runtime.GOOS != "windows" {
+		return
+	}
+	c.lyricsWin.SetHasShadow(lyricsWindowShadowOn(c.app.LyricsBgOpacity))
+}
+
+// lyricsWindowShadowOn 判断某个背景透明度下要不要系统窗口阴影：完全透明时
+// 不要，有背景色时要。抽成纯函数是为了能无头断言这条判据（Windows 分支本身
+// 在 Linux 测试机上跑不到）。
+func lyricsWindowShadowOn(bgOpacity float64) bool {
+	return bgOpacity > 0
 }
 
 func formatPrefFloat(v float64) string {

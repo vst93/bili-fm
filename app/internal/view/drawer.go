@@ -3797,7 +3797,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 }
 
 // danmakuTextFont 是弹幕文字的字体（原版 `.danmaku-message-text`：13px / 650）。
-var danmakuTextFont = ui.Font{Size: 13, Weight: 650}
+var danmakuTextFont = fontOf(13, 650)
 
 // danmakuTextLineH 是弹幕文字的行盒高（原版 `.danmaku-message-text` 的
 // `line-height: 18px`）。
@@ -4152,7 +4152,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 
 // replyFont 是楼中楼正文的字体：原版 `<span className="ml-1 …">` 继承外层
 // `div.text-xs` → 12px、字重 400。
-var replyFont = ui.Font{Size: 12}
+var replyFont = fontOf(12, 0)
 
 // replyMaxLines 是楼中楼正文的行数上限。原版 `<span>` 没有任何行数截断
 // （globals.css 只给标题/简介/迷你标题挂 -webkit-line-clamp），这里给一个足够
@@ -4192,7 +4192,7 @@ const replyBodyChrome = 20 + 12 + 2 + 64 + 40 + 12 + 4
 // 知道折行数，所以用这条与布局同源的算式代替实测宽。
 // TestReplyBodyWidthMatchesLayout 钉住它与实际盒宽逐值相等。
 func replyBodyWidthFor(winW float32, user string) float32 {
-	return winW - replyBodyChrome - textWidth(user+":", ui.Font{Size: 12, Weight: 600})
+	return winW - replyBodyChrome - textWidth(user+":", fontOf(12, 600))
 }
 
 // replyFirstLinePad 是「昵称:」与正文首行之间的间距（原版第二个 span 的
@@ -4203,7 +4203,7 @@ const replyFirstLinePad = 4
 // （两个 inline span 的 inline 流，续行没有悬挂缩进）。它比首行宽多出
 // 「昵称宽 + 4」那一截。
 func replyRestWidthFor(winW float32, user string) float32 {
-	return replyBodyWidthFor(winW, user) + textWidth(user+":", ui.Font{Size: 12, Weight: 600}) + replyFirstLinePad
+	return replyBodyWidthFor(winW, user) + textWidth(user+":", fontOf(12, 600)) + replyFirstLinePad
 }
 
 // replyLines 折出楼中楼正文的每一行：**悬挂缩进**（首行被昵称挤窄、续行用整行），
@@ -4226,7 +4226,7 @@ func replyLines(winW float32, rp Comment) []string {
 func (a *App) replyBody(c *ui.Context, rp Comment) {
 	winW := windowWidth(c)
 	name := rp.User + ":"
-	nameW := textWidth(name, ui.Font{Size: 12, Weight: 600})
+	nameW := textWidth(name, fontOf(12, 600))
 	lines := replyLines(winW, rp)
 	box := ui.Box(c).Grow(1).MinWidth(0).Height(float32(len(lines)) * replyLinePitch)
 	if rp.Content != "" {

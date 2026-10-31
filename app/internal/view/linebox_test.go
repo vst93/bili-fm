@@ -19,9 +19,9 @@ import (
 // 「盒高 / 位移」的换算在任何平台都钉得住；默认实现的实测行为另见
 // TestNaturalLineBoxMeasured。
 func stubNaturalLineBox(fn func(float32) float32) func() {
-	old := naturalLineBox
-	naturalLineBox = fn
-	return func() { naturalLineBox = old }
+	old, oldCJK := naturalLineBox, cjkLineBox
+	naturalLineBox, cjkLineBox = fn, fn
+	return func() { naturalLineBox, cjkLineBox = old, oldCJK }
 }
 
 // TestTextLineBox 钉住换算：盒高 = 原版行盒，shift = 负 half-leading
@@ -92,7 +92,7 @@ func TestNaturalLineBoxMeasured(t *testing.T) {
 	sizes := []float32{10, 11, 12, 14, 15, 22}
 	differs := false
 	for _, size := range sizes {
-		m := ui.Font{Size: size}.Metrics()
+		m := fontOf(size, 0).Metrics()
 		want := m.Ascent + m.Descent + m.LineGap
 		if got := naturalLineBox(size); math.Abs(float64(got-want)) > 1e-4 {
 			t.Errorf("naturalLineBox(%v) = %v，want 框架度量之和 %v", size, got, want)
@@ -101,8 +101,8 @@ func TestNaturalLineBoxMeasured(t *testing.T) {
 			differs = true
 		}
 	}
-	// 这条同时是反证：本机度量下 11 / 14 / 15px 与 1.5×不同；若有人把
-	// naturalLineBox 退回常量，differs 会全为 false。
+	// 这条同时是反证：主题字体（Inter）的度量下这些字号都与 1.5×不同；
+	// 若有人把 naturalLineBox 退回常量，differs 会全为 false。
 	if !differs {
 		t.Errorf("没有字号的自然行盒偏离 1.5×字号：自然行盒似乎仍是写死的 1.5 常量")
 	}

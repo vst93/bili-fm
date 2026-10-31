@@ -68,8 +68,8 @@ func lyricsNextFontSize(size float32) float32 {
 func LyricsDisplayHeight(fontSize float64) int {
 	size := lyricsLayoutFontSize(fontSize)
 	next := lyricsNextFontSize(size)
-	h := 2*lyricsPanelPadY + float32(lyricsMaxCurrentLines)*naturalLineBox(size) +
-		lyricsLineGap + naturalLineBox(next)
+	h := 2*lyricsPanelPadY + float32(lyricsMaxCurrentLines)*cjkLineBox(size) +
+		lyricsLineGap + cjkLineBox(next)
 	if h < 1 {
 		return 1
 	}

@@ -36,9 +36,11 @@ func TestSeekBubbleGeometryTokens(t *testing.T) {
 		t.Errorf("盒高 = %v，应为 20（padding 4 + 行盒 14 + border 2，原版 box-sizing:border-box）",
 			seekBubbleH)
 	}
-	// 文本行盒压到 line-height 1.4×10 = 14，负 half-leading =（14 − 自然 15）/2。
-	if h, sh := textLineBox(seekBubbleFont, seekBubbleLH); h != 14 || sh != -0.5 {
-		t.Errorf("textLineBox(10,1.4) = %v/%v，应为 14/-0.5", h, sh)
+	// 文本行盒压到 line-height 1.4×10 = 14，half-leading =（14 − 自然行盒）/2。
+	// 气泡里是纯数字/冒号（拉丁），自然行盒取 Inter 的度量（本机 13），所以
+	// half-leading 是正的 0.5（字形下移半像素）；旧系统字体是 15 → −0.5。
+	if h, sh := textLineBox(seekBubbleFont, seekBubbleLH); h != 14 || sh != (14-naturalLineBox(seekBubbleFont))/2 {
+		t.Errorf("textLineBox(10,1.4) = %v/%v，应为 14/（14−自然行盒）/2", h, sh)
 	}
 	// 顶内高光：inset 0 1px 1px 白 .95。
 	if got := seekBubbleTopHighlight(); got != ui.Hex("#ffffff").Alpha(0.95) {

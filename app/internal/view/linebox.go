@@ -47,12 +47,52 @@ var naturalLineBox = naturalLineBoxMeasured
 
 // naturalLineBoxMeasured 用框架自己的字体度量量出自然行盒。字号 ≤ 0 时按 0
 // （没有文本，不需要位移）。
+//
+// 量的是**拉丁**行盒（主题字体栈里的 Inter）：数字、时间、英文标签这类单行
+// 文本用它最准。中文文本的行盒由回退字体决定，比它高 3~5px，固定高度容器里
+// 放中文要用 cjkLineBox（见下）。
 func naturalLineBoxMeasured(size float32) float32 {
 	if size <= 0 {
 		return 0
 	}
-	m := ui.Font{Size: size}.Metrics()
+	m := fontOf(size, 0).Metrics()
 	return m.Ascent + m.Descent + m.LineGap
+}
+
+// cjkLineBox 返回一行**中文**文本在框架里的自然行盒。
+//
+// 主题字体栈（font.go）里 Inter 只有拉丁字形，汉字由回退字体绘制：macOS 的
+// PingFang SC、Windows 的 Microsoft YaHei UI、Linux 的 Noto Sans CJK SC。
+// 行盒取这些字体的 ascent+descent，比 Inter 的拉丁行盒高（14px 实测：拉丁
+// 18px，中文 22px）。固定高度容器里放中文 —— 桌面字幕窗、多行标题的逐行
+// 落点 —— 必须按中文行盒算，否则会按拉丁度量算出偏矮的盒子，裁掉半行字。
+//
+// 用「字」真正成型一次问框架要行盒，而不是写死倍数：三平台的中文回退字体
+// 不是同一款，度量本来就不同，量出来才是框架这一帧实际用的值。
+var cjkLineBox = cjkLineBoxMeasured
+
+// cjkLineBoxMeasured 是 cjkLineBox 的实现，声明成变量是为了纯算术测试能换桩
+// （同 naturalLineBox）。
+func cjkLineBoxMeasured(size float32) float32 {
+	if size <= 0 {
+		return 0
+	}
+	_, h := ui.ShapeText("字", fontOf(size, 0), 0).Size()
+	return h
+}
+
+// textLineBoxFor 返回**这段文字**在框架里的自然行盒：拉丁（Inter）与中文
+//（回退字体）各自的度量不同，混排在同一行时要用同一个共用盒高 + 每段文字各自
+// 的居中位移，盒子和墨迹才对得齐。
+//
+// 典型：选集胶囊里「当前选集」（中文）、分集标题「P1」（拉丁）、「152 人在看」
+//（混排）三者 13px 的行盒是 20 / 17 / 20，不统一的话盒顶各差半个行盒差。
+func textLineBoxFor(s string, size float32) float32 {
+	if s == "" || size <= 0 {
+		return 0
+	}
+	_, h := ui.ShapeText(s, fontOf(size, 0), 0).Size()
+	return h
 }
 
 // 原版 CSS 里两个最常用的字号类（Tailwind / HeroUI 默认）的行盒倍数，供
@@ -78,6 +118,17 @@ func textLineBox(size, cssLineHeight float32) (height, shift float32) {
 // font-size 时行高仍是那 20px / 16px，不会跟着字号缩。合作 UP 主选择面板的
 // 两行（title/description）正是这样（见 collabpicker.go）。
 func pxLineBox(size, cssLineHeight float32) (height, shift float32) {
-	natural := naturalLineBox(size)
+	return halfLeading(naturalLineBox(size), cssLineHeight)
+}
+
+// cjkTextLineBox 同 textLineBox，但按**中文**的自然行盒算 half-leading：多行
+// 标题（视频标题、迷你标题）逐行落点画的是中文，行盒得按中文回退字体的度量。
+func cjkTextLineBox(size, cssLineHeight float32) (height, shift float32) {
+	return halfLeading(cjkLineBox(size), cssLineHeight*size)
+}
+
+// halfLeading 返回指定行高下元素盒高与字形需要的上移量：原版 CSS 的负
+// half-leading = (行高 − 自然行盒)/2。
+func halfLeading(natural, cssLineHeight float32) (height, shift float32) {
 	return cssLineHeight, (cssLineHeight - natural) / 2
 }

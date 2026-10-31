@@ -636,7 +636,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 					// 压印只属于当前项（CSS 里那条规则挂在 .playlist-current 下）；
 					// 常态行没有任何 text-shadow。Draw 是就地挂 paintFn，返回值不用接。
 					playlistPartEmboss(part, item.Part,
-						ui.Font{Size: 14, Weight: p.PartWeight},
+						fontOf(14, p.PartWeight),
 						ui.Hex("#ffffff").Alpha(playlistPartShadowInk))
 				}
 			})

@@ -158,7 +158,10 @@ func playerBarOnlyProbe(t *testing.T, mutate func(a *App)) *ui.Tester {
 	if mutate != nil {
 		mutate(a)
 	}
-	tst := ui.NewTester(func(c *ui.Context) { a.playerBar(c) }, 1000, 120)
+	tst := ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(a.Theme.uiTheme()) // 生产里播放栏画在 Shell 里，字体/主题都由 Shell 给
+		a.playerBar(c)
+	}, 1000, 120)
 	tst.Frame()
 	return tst
 }

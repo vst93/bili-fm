@@ -756,10 +756,10 @@ const (
 )
 
 var (
-	infoTitleFont = ui.Font{Size: infoTitleSize, Weight: infoTitleWeight}
+	infoTitleFont = fontOf(infoTitleSize, infoTitleWeight)
 	// infoTitlePitch 由 textLineBox 算出（= 1.18 × 22），一并声明成 var 便于
 	// 测试换桩做反证。
-	infoTitlePitch = func() float32 { h, _ := textLineBox(infoTitleSize, infoTitleLineHeight); return h }()
+	infoTitlePitch = func() float32 { h, _ := cjkTextLineBox(infoTitleSize, infoTitleLineHeight); return h }()
 )
 
 // videoInfo 是右栏（原版 #video-info，宽窗固定 366 高）：
@@ -1020,9 +1020,10 @@ func (a *App) onlineViewersBadge(c *ui.Context) {
 	if a.partPillShown() {
 		// 胶囊内：分隔点 + 文字。胶囊的 gap 已经给了 8px，不再加内边距。
 		// 墨色比胶囊标题（#475569）淡一档，避免它比两侧文字还响。
-		ui.Text(c, "·").FontSize(13).TextColor(a.Theme.Faint).Shrink(0)
-		ui.Text(c, text).FontSize(13).TextColor(a.Theme.Faint).SingleLine().Shrink(0).
-			Tooltip(onlineBadgeTip)
+		// 行盒与胶囊里其它文字共用（pillText），否则「P1」这种拉丁标题的行盒
+		// 比中文矮 3px，两个盒顶会差 1.5px。
+		pillText(c, "·", a.Theme.Faint, 400)
+		pillText(c, text, a.Theme.Faint, 400).SingleLine().Tooltip(onlineBadgeTip)
 		return
 	}
 	// 退路（操作行行尾）：一个 Grow(1) 空盒子吃剩余宽度（mygo 没有
@@ -1116,12 +1117,15 @@ func (a *App) partPill(c *ui.Context) {
 	pill.Children(func() {
 		// .video-part-dot：7px（不是 6）——比原版小 1px 时圆点在胶囊里显得发飘。
 		ui.Box(c).Size(partDotSize, partDotSize).Shrink(0).Radius(RadiusPill).Background(dotInk)
+		// 三段的字号/行盒都相同（见 pillText）：中文与拉丁的行盒高度不同，
+		// 不给共用盒高的话三段的盒顶会各差 1.5px，读起来像没对齐。
+		//
 		// .video-part-source 继承胶囊的 #0369a1 / 700。
-		ui.Text(c, source).FontSize(13).Bold().TextColor(blue).Shrink(0)
+		pillText(c, source, blue, 700)
 		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
 		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
 		if part != "" {
-			ui.Text(c, part).FontSize(13).FontWeight(600).TextColor(partTitleInk).SingleLine()
+			pillText(c, part, partTitleInk, 600).SingleLine()
 		}
 		// 在线人数接在胶囊里、分集标题之后（见 onlineViewersBadge）：
 		// 「● 当前选集 P1 · 152 人在看」—— 整条读作「这一集在播什么、
@@ -1129,6 +1133,30 @@ func (a *App) partPill(c *ui.Context) {
 		// 右栏 366 的固定盒高。
 		a.onlineViewersBadge(c)
 	})
+}
+
+// partPillFontSize 是选集胶囊里所有文字的字号（原版 .video-part-pill 13px）。
+const partPillFontSize = float32(13)
+
+// partPillLineBox 是胶囊里文字共用的行盒高度。
+//
+// 胶囊里混着中文（「当前选集」「152 人在看」）和拉丁（分集标题「P1」）：主题
+// 字体栈里 Inter 的拉丁行盒比中文回退字体矮（13px：17 vs 20），各自 auto 高度
+// 的话三段盒顶会差半个行盒差（1.5px），在同一行里看着就是「在线人数被抬高了」。
+// 统一取两者较大的那个当共用盒高，每段文字再按自己的行盒补半个差值。
+var partPillLineBox = max32(naturalLineBox(partPillFontSize), cjkLineBox(partPillFontSize))
+
+// pillText 画胶囊里的一段文字：字号 / 字重 / 颜色固定，行盒统一成
+// partPillLineBox，并按这段文字自己的自然行盒补上居中位移。
+func pillText(c *ui.Context, s string, ink ui.Color, weight int) ui.Element {
+	e := ui.Text(c, s).FontSize(partPillFontSize).FontWeight(weight).TextColor(ink).
+		Shrink(0).Height(partPillLineBox)
+	if d := (partPillLineBox - textLineBoxFor(s, partPillFontSize)) / 2; d != 0 {
+		// 负内边距把字形上移（同 linebox.go 的约定：不用 Translate，避免
+		// 圆角 clip 升级成预烘焙遮罩）。
+		e = e.Padding(d, 0, 0, 0)
+	}
+	return e
 }
 
 // partPillShown 报告选集胶囊这一帧是否会出现（纯函数，渲染期不写状态）。

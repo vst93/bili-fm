@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo"
@@ -331,5 +333,54 @@ func TestSavedLyricsPosIgnoresLegacyZero(t *testing.T) {
 	c := &controller{app: view.NewApp(func() {}), kv: kv}
 	if _, _, ok := c.savedLyricsPos(100); ok {
 		t.Fatal("旧版写入的 (0,0) 应视为无记录")
+	}
+}
+
+// TestDesktopLyricsWindowPinnedAbove 钉住桌面字幕窗的层级与阴影设置。
+//
+// 层级必须是 Panel：三平台里只有面板窗口保证「压在所有窗口之上、跨 Space /
+// 虚拟桌面、连全屏应用也压得住」。普通窗口的 AlwaysOnTop 各平台都只是尽力
+// （macOS 只到 floating level、切 Space 就没了；Wayland 上 keep_above 是空
+// 操作；Windows 上非 topmost 的新窗口随便盖住它）。
+//
+// 阴影：Windows 的 DWM 阴影按窗口矩形画，背景透明度 0（纯文字浮在桌面）时
+// 会留一圈方框影 + 1px 描边，所以创建时先 DisableShadow，再由
+// syncLyricsWindowShadow 按背景透明度打开。
+func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
+	src, err := os.ReadFile("lyrics.go")
+	if err != nil {
+		t.Fatalf("读 lyrics.go 失败：%v", err)
+	}
+	s := string(src)
+	for _, want := range []string{
+		"Panel: true,",
+		"DisableShadow:     runtime.GOOS == \"windows\"",
+		"c.syncLyricsWindowShadow()",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("桌面字幕窗缺少 %q（层级/阴影设置被改回去了）", want)
+		}
+	}
+	if strings.Contains(s, "Panel: runtime.GOOS") {
+		t.Error("桌面字幕窗又按平台分支 Panel 了：macOS 会退回普通窗口，层级压不住其他应用")
+	}
+}
+
+// TestLyricsWindowShadowFollowsBackground 钉住「背景全透明时不要系统阴影」的
+// 判据（Windows 生效，其它平台 syncLyricsWindowShadow 直接返回）。
+func TestLyricsWindowShadowFollowsBackground(t *testing.T) {
+	cases := []struct {
+		opacity float64
+		want    bool
+	}{
+		{0, false},
+		{0.01, true},
+		{0.55, true},
+		{1, true},
+	}
+	for _, c := range cases {
+		if got := lyricsWindowShadowOn(c.opacity); got != c.want {
+			t.Errorf("背景透明度 %v：阴影 %v，want %v", c.opacity, got, c.want)
+		}
 	}
 }

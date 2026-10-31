@@ -71,8 +71,10 @@ func TestPlayerTimeLineBox(t *testing.T) {
 // Height(24)+Padding(0,8)），盒高就不再等于这个值，测试变红。
 func TestSpeedOptionCapsuleAutoHeight(t *testing.T) {
 	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
 	a.Speed = 1.0
 	tst := ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(a.Theme.uiTheme()) // 与生产一致：档位胶囊画在设过主题的 Shell 里
 		ui.Row(c).AlignItems(ui.Center).Children(func() {
 			a.speedOption(c, 1.25)
 		})

@@ -93,7 +93,7 @@ func TestMiniTitleLinePitchMatchesOriginal(t *testing.T) {
 
 	// 反证：换回自然行盒（框架原行为）应把第二行推低。
 	old := miniTitlePitch
-	miniTitlePitch = naturalLineBox(miniTitleSize)
+	miniTitlePitch = cjkLineBox(miniTitleSize)
 	defer func() { miniTitlePitch = old }()
 	if back := measure(); math.Abs(float64(back-23)) > 1.5 {
 		t.Errorf("换回自然行盒后行距 %v，want ≈23（证明行距确实由 miniTitlePitch 驱动）", back)

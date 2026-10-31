@@ -51,10 +51,10 @@ const (
 )
 
 var (
-	miniTitleFont = ui.Font{Size: miniTitleSize, Weight: miniTitleWeight}
+	miniTitleFont = fontOf(miniTitleSize, miniTitleWeight)
 	// miniTitlePitch 由 textLineBox 算出（= 1.25 × 15 = 18.75），声明成 var
 	// 便于无头测试换桩做反证（同 infoTitlePitch）。
-	miniTitlePitch = func() float32 { h, _ := textLineBox(miniTitleSize, miniTitleLineHeight); return h }()
+	miniTitlePitch = func() float32 { h, _ := cjkTextLineBox(miniTitleSize, miniTitleLineHeight); return h }()
 )
 
 // MiniShell 是迷你模式的界面（原版 body.mini-mode）：
