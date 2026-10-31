@@ -184,6 +184,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.lyricsWin = win
 	a.LyricsOn = true
 	c.lyricsAutoHide = false
+	// Windows：去掉 DWM 给顶层窗口画的那圈 1px 边框与圆角裁剪（背景透明时
+	// 它会露在内容外面，看起来就是个空边框）。见 lyrics_windows.go。
+	lyricsTuneWindowFrame(win.NativeHandle())
 	// 拖动后立刻落盘。只在隐藏 / 退出时保存的话，系统注销、断电或进程
 	// 被结束时用户最后一次拖动就丢了 —— 隔天重开看起来像「位置被重置」。
 	// mygo 的 OnMove 在用户拖动和程序化 SetBounds 后都会触发；这里只存
@@ -684,6 +687,7 @@ func (c *controller) syncLyricsWindowShadow() {
 		return
 	}
 	c.lyricsWin.SetHasShadow(lyricsWindowShadowOn(c.app.LyricsBgOpacity))
+	lyricsTuneWindowFrame(c.lyricsWin.NativeHandle())
 }
 
 // lyricsWindowShadowOn 判断某个背景透明度下要不要系统窗口阴影：完全透明时

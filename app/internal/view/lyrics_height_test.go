@@ -1,6 +1,7 @@
 package view
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -121,5 +122,25 @@ func TestLyricsDisplayHeightFitsActualText(t *testing.T) {
 		if float32(h)-need > 1.01 {
 			t.Errorf("%vpx：窗口高 %d 比内容 %v 多出太多空白", size, h, need)
 		}
+	}
+}
+
+// TestLyricsPanelDrawsNoOuterShadow 钉住「内容层不画外投影」：面板铺满整个
+// 窗口，外投影只能在窗口矩形内绘制，被裁掉的那一半全落在窗口内侧 —— 四边各
+// 出现一圈由深到浅的暗边，背景透明度 0 时就是用户报的「最外围还有边框和阴影感」。
+//
+// 反证：源码里出现 `panel.Shadow(` 就报红。窗口的系统投影由控制器按背景透明度
+// 开关（app/lyrics.go 的 syncLyricsWindowShadow），不在这里。
+func TestLyricsPanelDrawsNoOuterShadow(t *testing.T) {
+	src, err := os.ReadFile("lyrics.go")
+	if err != nil {
+		t.Fatalf("读 lyrics.go 失败：%v", err)
+	}
+	if strings.Contains(string(src), "panel.Shadow(") {
+		t.Error("桌面字幕面板又画了外投影：面板铺满窗口，投影会在窗口内侧留下一圈暗边")
+	}
+	// 鼠标进入时的选中蓝边仍要保留（背景透明时靠它看出窗口位置）。
+	if !strings.Contains(string(src), `panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62))`) {
+		t.Error("鼠标进入时的选中蓝边不见了")
 	}
 }

@@ -139,11 +139,15 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 				Background(bgColor.Alpha(bgOpacity)).
 				DragWindow().
 				Padding(lyricsPanelPadY, lyricsPanelPadX).Center()
-			if bgOpacity > 0 {
-				// 常态不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈
-				// 灰边，看起来像未选中的默认边框。只在鼠标进入时画选中蓝边。
-				panel.Shadow(0, 10, 30, 4, ui.Hex("#000000").Alpha(0.24*min32(1, bgOpacity*2)))
-			}
+			// 面板铺满整个窗口，**不能给它画外投影**：投影只能在窗口矩形内绘制，
+			// 被裁掉的那一半全落在窗口内侧 —— 四边各出现一圈由深到浅的暗边，
+			// 背景透明度调到 0 时尤其明显（用户报的「最外围还有边框和阴影感」）。
+			// 窗口本身的系统投影由控制器按背景透明度开关（Windows 上的 DWM 边框
+			// 也由 lyricsTuneWindowFrame 关掉），内容层这里一律不画。
+			//
+			// 常态也不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈灰边，
+			// 看起来像未选中的默认边框。只在鼠标进入时画选中蓝边（提示字幕窗的
+			// 位置和可设置区域，背景透明时也能看见）。
 			if over {
 				// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出
 				// 字幕窗的位置和可设置区域。

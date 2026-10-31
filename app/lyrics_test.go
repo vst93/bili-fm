@@ -345,7 +345,9 @@ func TestSavedLyricsPosIgnoresLegacyZero(t *testing.T) {
 //
 // 阴影：Windows 的 DWM 阴影按窗口矩形画，背景透明度 0（纯文字浮在桌面）时
 // 会留一圈方框影 + 1px 描边，所以创建时先 DisableShadow，再由
-// syncLyricsWindowShadow 按背景透明度打开。
+// syncLyricsWindowShadow 按背景透明度打开；DWM 那圈**边框**和圆角裁剪则由
+// lyricsTuneWindowFrame 关掉（DwmSetWindowAttribute 的 DWMWA_BORDER_COLOR =
+// DWMWA_COLOR_NONE、DWMWA_WINDOW_CORNER_PREFERENCE = DoNotRound）。
 func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 	src, err := os.ReadFile("lyrics.go")
 	if err != nil {
@@ -356,6 +358,7 @@ func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 		"Panel: true,",
 		"DisableShadow:     runtime.GOOS == \"windows\"",
 		"c.syncLyricsWindowShadow()",
+		"lyricsTuneWindowFrame(win.NativeHandle())",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("桌面字幕窗缺少 %q（层级/阴影设置被改回去了）", want)
@@ -363,6 +366,34 @@ func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 	}
 	if strings.Contains(s, "Panel: runtime.GOOS") {
 		t.Error("桌面字幕窗又按平台分支 Panel 了：macOS 会退回普通窗口，层级压不住其他应用")
+	}
+}
+
+// TestLyricsWindowFrameTuningWired 钉住 Windows 上「去掉 DWM 边框与圆角裁剪」
+// 这一步真的接上了：属性常量与调用点都在（Win11 给每个顶层窗口画 1px 边框，
+// mygo 对 Panel 又请求了圆角偏好，于是背景透明的字幕窗外面永远有一道框）。
+//
+// 这两个属性 mygo 没有公开接口，只能走 NativeHandle() + DwmSetWindowAttribute；
+// 常量写错（例如把 DWMWA_COLOR_NONE 写成 0）会静默变成「用黑色画边框」。
+func TestLyricsWindowFrameTuningWired(t *testing.T) {
+	src, err := os.ReadFile("lyrics_windows.go")
+	if err != nil {
+		t.Fatalf("读 lyrics_windows.go 失败：%v", err)
+	}
+	s := string(src)
+	for _, want := range []string{
+		"dwmwaWindowCornerPreference = 33",
+		"dwmwaBorderColor            = 34",
+		"dwmColorNone = 0xFFFFFFFE", // DWMWA_COLOR_NONE，不是 0（0 是黑色）
+		"dwmCornerDoNotRound = 1",
+		`"DwmSetWindowAttribute"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lyrics_windows.go 缺少 %q", want)
+		}
+	}
+	if strings.Contains(s, "dwmColorNone = 0x") && !strings.Contains(s, "0xFFFFFFFE") {
+		t.Error("DWMWA_COLOR_NONE 必须是 0xFFFFFFFE（0 会被 DWM 当成黑色边框）")
 	}
 }
 

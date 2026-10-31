@@ -66,9 +66,15 @@
   有 gtk-layer-shell 的合成器（Sway/Hyprland/KDE/COSMIC）里它是 overlay 层
   surface，`gtk_window_begin_move_drag` 不生效 —— 该环境下拖不动窗口（位置仍
   由 KV 记忆）；GNOME 没有 layer-shell，仍是普通窗口、照常可拖但压不住别人。
-- **Windows 的 DWM 阴影是窗口矩形的**，不看内容形状：桌面字幕背景透明度调到 0
-  （纯文字浮桌面）时还会有一圈方框影 + 1px 描边。窗口创建时 `DisableShadow`，
-  再由 `syncLyricsWindowShadow` 按 `LyricsBgOpacity > 0` 开关（滑块实时要切）。
+- **Windows 桌面字幕的「边框/阴影感」有两个独立来源**，只关一个不够：
+  1. **内容层**：字幕面板铺满整个窗口，给它挂外投影 `Shadow(...)` 时，被窗口
+     裁掉的那一半会落在窗口内侧，四边各出现一圈暗边。面板一律不画外投影；
+  2. **DWM**：Win11 给每个顶层窗口画 1px 边框（`DWMWA_BORDER_COLOR`），mygo 又
+     对 Panel 请求了圆角偏好，于是 DWM 按圆角裁剪窗口并沿它描边 —— 与内容的
+     14px 圆角不重合。`app/lyrics_windows.go` 用 `NativeHandle()` 直接调
+     `DwmSetWindowAttribute`：边框 `DWMWA_COLOR_NONE`(0xFFFFFFFE，**不是 0**)、
+     圆角 `DoNotRound`。窗口级 `DisableShadow` 只关掉 mygo 自己开的那层投影。
+  系统投影由 `syncLyricsWindowShadow` 按 `LyricsBgOpacity > 0` 实时开关。
 
 - **发布产物命名**：mygo 0.7.0 起磁盘镜像与 Windows 安装器**按 `slug` 命名**
   （`bili-fm-setup-<ver>-<arch>.exe`），0.6.x 是 `bili-FM Setup <ver> <arch>.exe`。
