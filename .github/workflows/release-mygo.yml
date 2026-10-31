@@ -230,6 +230,12 @@ jobs:
           # 应用内置的是对应公钥（mygo.json 的 updates.publicKey）。
           # 没配这个 secret 时构建照常，只是不产出更新文件（应用内更新不可用）。
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
+          # mygo 生成 .delta 增量包时要查 GitHub Releases 找上一个版本；匿名
+          # 调 API 只有 60 次/小时，被其它 runner 用光就静默降级成「没有增量
+          # 包」（3.1.12 的 macOS 两个 delta 就是这么丢的：
+          # `GET /repos/.../releases: 403 Forbidden`）。mygo 读 GH_TOKEN /
+          # GITHUB_TOKEN 给 api.github.com 加认证头，这里把它传进去。
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           # 版本号只写进这次构建的工作区，不提交回分支。
@@ -341,6 +347,8 @@ jobs:
                 [ -n "$DMG" ] && cp "$DMG" "../out/bili-FM-$VERSION-macos-$NAME.dmg"
                 cp "$D"/bili-fm-*-darwin-$A.tar.gz "../out/" 2>/dev/null || true
                 cp "$D"/update-darwin-$A.json "../out/" 2>/dev/null || true
+                [ -n "$(ls "$D"/*.delta 2>/dev/null)" ] || \
+                  echo "::warning::darwin-$A 没有 .delta（增量更新退化为整包）"
                 cp "$D"/*.delta "../out/" 2>/dev/null || true
               done
               ;;
@@ -355,6 +363,8 @@ jobs:
               # 这个名字，install.sh 也按 <name>-<version>-<target>.tar.gz 找同
               # 目录的归档。改名会让应用内更新 404、install.sh 找不到包。
               for A in amd64 arm64; do
+                [ -n "$(ls build/linux-$A/*.delta 2>/dev/null)" ] || \
+                  echo "::warning::linux-$A 没有 .delta（增量更新退化为整包）"
                 cp build/linux-$A/bili-fm-*-linux-$A.tar.gz "../out/" 2>/dev/null || true
                 cp build/linux-$A/update-linux-$A.json "../out/" 2>/dev/null || true
                 cp build/linux-$A/*.delta "../out/" 2>/dev/null || true
@@ -380,6 +390,8 @@ jobs:
                 cp "$SETUP" "../out/bili-FM-$VERSION-windows-$A-setup.exe"
                 cp build/windows-$A/bili-fm-*-windows-$A.tar.gz "../out/" 2>/dev/null || true
                 cp "build/windows-$A/update-windows-$A.json" "../out/" 2>/dev/null || true
+                [ -n "$(ls build/windows-$A/*.delta 2>/dev/null)" ] || \
+                  echo "::warning::windows-$A 没有 .delta（增量更新退化为整包）"
                 cp build/windows-$A/*.delta "../out/" 2>/dev/null || true
               done
               ;;
