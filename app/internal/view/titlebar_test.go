@@ -395,61 +395,44 @@ func TestTitleBarRevealKeepsFocus(t *testing.T) {
 	}
 }
 
-// TestTitleBarBrandAndSettingsAlign 钉住标题栏里「品牌行（logo + bili-FM）」
-// 与「设置」钮的垂直对齐。用户实测（Linux）报告「设置按钮看起来下移了」，
-// 2026-10-18 追诉：「文字底部仍未对齐、各平台都要检查」。
+// TestTitleBarBrandAndSettingsAlign 钉住「设置键与左侧 logo / 品牌名对齐」。
 //
-// 量了三层，每层都留了改前数值：
+// 历史：这枚键原版是文字「设置」，而中文会回退到各平台**自己的**界面字体
+// （Windows Microsoft YaHei / macOS PingFang / Linux Noto Sans CJK），与内置
+// Inter 管的拉丁品牌名并排时，两种字体的墨迹落点天生差 1~2px。此前靠一个按本机
+// 实测钉死的上移常量补（titleBarSettingsNudge），只能保证补它的那台机器对 ——
+// Windows 用户实测「设置键和左边的 logo / 应用名没对齐」。
 //
-//  1. **盒中心**：.app-title-bar 是 flex + align-items:center，品牌文字盒
-//     {40,7,46,22} 与设置钮盒 {94,4,44,28} 的中心**本来就重合**在栏中线
-//     18.00（差 0）——这不是盒错位。
-//  2. **墨迹**（同一字号 14 / 字重 500）：品牌 `bili-FM` 墨迹 [13..23]（高
-//     10）、「设置」墨迹 [13..25]（高 12），**顶/基线已重合**，但 CJK 表意框
-//     上下各多一个像素——于是中心差 +1.00、底部差 +2.00。这个高差是**字形
-//     固有**（换成同一框内居中的自绘盒后数值不变；Chromium 渲染的**原版**
-//     同样实测 Δ≈1.06，不是原生版独有），所以中心与底部**不能同时**对到 0。
-//  3. 字权在上上轮已被统一到 500（此前 600 vs 400，差 1.5px）。
+// 现在改成图标（icon-park 的 Setting）：图标没有字体，它的方框就是它的墨迹，
+// 三平台逐像素一致。断言：
 //
-// 用户先后要求「中心对齐」与「底部对齐」，于是本轮同时钉**两个指标**，并把
-// titleBarSettingsNudge 调到同时把两者收进 1px 的值（见 theme.go 的表）：
-// nudge=1.0 时中心 max ≤0.5、底部 min ≥1.0（0.75 时底部 1.33、1.5 时中心飘
-// 到 1.0）。断言：
+//  1. 设置键画的是图标、不再是文字「设置」；
+//  2. 四档缩放（1 / 1.2 / 1.5 / 2，Linux HiDPI 常用 1.2 与 1.5）下，齿轮与品牌
+//     名的墨迹中心差 ≤ 0.5px；
+//  3. 键面与品牌名都在栏中线上（盒中心 = 18）。
 //
-//  1. titleBarFontWeight == 500（.app-title-bar 的继承字重）；
-//
-//  2. titleBarSettingsNudge 在 (0, 1.5] 内（0=不改、>1.5 中心会飘）；
-//
-//  3. 无头实测 **四档缩放**（1 / 1.25 / 1.5 / 2，Linux HiDPI 常用 1.25 与 1.5）
-//     下，墨迹**中心差 ≤ 0.5px**（上上轮要求）且**底部差 ≤ 1.0px**（本轮要求，
-//     字形高差 ~2px 时的下限）。跨缩放一起断言，把「某个档位凑出来的假对齐」排除。
-//
-//     反证：把 titleBarSettingsNudge 退回 0 → 1x 中心 1.00、1.5x 底部 2.00，两条报红；
-//     退回到上一轮的 0.75 → 1.5x 底部 1.33 > 1.0，底部那条报红。
+// 反证：把 settingsIconNudge 改成 0，四档的 dCenter 变成 +0.5~+1.0；改回文字
+// 「设置」时，本机（Noto CJK）与 Windows（YaHei）量出的偏移不同 —— 测试只能
+// 在**当前**字体下报红，这也正是要改图标的原因。
 func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 	if titleBarFontWeight != 500 {
 		t.Fatalf("titleBarFontWeight = %d，应为 500（.app-title-bar font-weight:500）",
 			titleBarFontWeight)
 	}
-	if titleBarSettingsNudge <= 0 || titleBarSettingsNudge > 3 {
-		t.Fatalf("titleBarSettingsNudge = %v，应在 (0, 3] 内（0=不改、>3 会反向飘）",
-			titleBarSettingsNudge)
-	}
-	// 源码链：两边都用 titleBarFontWeight，且设置钮文字带光学位移。
 	flat := flattenNoComments(t, "shell.go")
-	if !strings.Contains(flat, `ui.Text(c,"bili-FM").FontSize(14).FontWeight(titleBarFontWeight)`) {
-		t.Error("品牌文字没有用 titleBarFontWeight（应与设置钮同一字重 500）")
+	if !strings.Contains(flat, "ui.Icon(c,iconSetting).Size(settingsIconSize,settingsIconSize)") {
+		t.Error("设置键没有画齿轮图标")
 	}
-	if !strings.Contains(flat, `ui.Text(c,"设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink).Translate(0,-titleBarSettingsNudge)`) {
-		t.Error("设置钮文字没有按 titleBarSettingsNudge 上移（CJK 墨迹天生偏低）")
+	if strings.Contains(flat, `ui.Text(c,"设置")`) {
+		t.Error("设置键又回到文字「设置」了：CJK 回退字体在三平台的墨迹落点不同，会再次「没对齐」")
+	}
+	if !strings.Contains(flat, "Translate(0,-settingsIconNudge)") {
+		t.Error("齿轮没有按 settingsIconNudge 做光学位移（图标墨迹在画布里偏下）")
 	}
 
-	// 无头实测：四档缩放下墨迹中心差 ≤ 0.75px、底部差 ≤ 1.0px。
-	//
-	// 阈值比统一字体之前（0.5 / 1.0）稍松：现在两段文字是**两种字体**（拉丁
-	// Inter / 中文回退字体），墨迹高差是字形固有的，一个常量位移无法让四档
-	// 缩放的中心与底部同时收进 0.5px（详见 theme.go 的实测表）。
-	for _, scale := range []float32{1, 1.25, 1.5, 2} {
+	scales := make([]float32, 4)
+	scales[0], scales[1], scales[2], scales[3] = 1, 1.2, 1.5, 2
+	for _, scale := range scales {
 		tst := titleBarProbeAt(t, scale)
 		brand, ok := tst.Find("bili-FM")
 		if !ok {
@@ -460,25 +443,15 @@ func TestTitleBarBrandAndSettingsAlign(t *testing.T) {
 			t.Fatal("标题栏里找不到设置键")
 		}
 		want := float32(TitleBarHeight) / 2
-		bc, sc := brand.Y+brand.H/2, settings.Y+settings.H/2
-		t.Logf("scale=%.1f 品牌盒中心=%.2f 设置盒中心=%.2f（栏中线=%.2f）", scale, bc, sc, want)
-		if d := bc - want; d < -0.5 || d > 0.5 {
-			t.Errorf("scale=%.1f 品牌盒中心 %.2f 不在栏中线上（want %.2f）", scale, bc, want)
+		for name, r := range map[string]ui.Rect{"品牌": brand, "设置键": settings} {
+			if c := r.Y + r.H/2; c < want-0.5 || c > want+0.5 {
+				t.Errorf("scale=%.1f %s盒中心 %.2f 不在栏中线 %.2f 上", scale, name, c, want)
+			}
 		}
-		if d := sc - want; d < -0.5 || d > 0.5 {
-			t.Errorf("scale=%.1f 设置键盒中心 %.2f 不在栏中线上（want %.2f）", scale, sc, want)
-		}
-		bInk, sInk := inkCenterDIP(t, tst, brand, scale, 150), inkCenterDIP(t, tst, settings, scale, 150)
-		t.Logf("scale=%.1f 品牌墨迹中心=%.2f 设置墨迹中心=%.2f Δ=%.2f", scale, bInk, sInk, sInk-bInk)
-		if d := sInk - bInk; d < -0.75 || d > 0.75 {
-			t.Errorf("scale=%.1f 品牌与设置的墨迹中心差 %.2fpx > 0.75px（用户报的「设置钮下移」）",
-				scale, d)
-		}
-		bBot, sBot := inkBottomDIP(t, tst, brand, scale, 150), inkBottomDIP(t, tst, settings, scale, 150)
-		t.Logf("scale=%.1f 品牌墨迹底=%.2f 设置墨迹底=%.2f Δ=%.2f", scale, bBot, sBot, sBot-bBot)
-		if d := sBot - bBot; d < -1.0 || d > 1.0 {
-			t.Errorf("scale=%.1f 品牌与设置的墨迹底部差 %.2fpx > 1.0px（2026-10-18 用户报的「文字底部没对齐」）",
-				scale, d)
+		bInk := inkCenterDIP(t, tst, brand, scale, 150)
+		sInk := inkCenterDIP(t, tst, settings, scale, 150)
+		if d := sInk - bInk; d < -0.5 || d > 0.5 {
+			t.Errorf("scale=%.1f 齿轮与品牌名的墨迹中心差 %.2fpx > 0.5px", scale, d)
 		}
 	}
 }

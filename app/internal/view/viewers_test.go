@@ -295,3 +295,43 @@ func TestOnlineCountText(t *testing.T) {
 		t.Fatalf("文案 = %q", got)
 	}
 }
+
+// TestPartPillLongTitleStaysInside 钉住「分集标题过长不能画到胶囊外面」。
+//
+// 回归来源：胶囊里各段文字统一加共用行盒时，顺手给分集标题也加了 Shrink(0)
+// —— 那等于**禁止收缩**：胶囊是 MaxWidth 430 的定宽盒，标题超出的部分不会走
+// 省略号，直接画到胶囊外（用户报的「当前选集后面的标题超出组件宽度、文字到
+// 外边去了」）。可以收缩的只有这一段的 pillTitle，其它三段（圆点/来源/在线
+// 人数）是固定宽度的小字段，保持 Shrink(0)。
+func TestPartPillLongTitleStaysInside(t *testing.T) {
+	long := strings.Repeat("很长的分集标题", 6)
+	widths := make([]int, 3)
+	widths[0], widths[1], widths[2] = 1000, 800, 600
+	for _, w := range widths {
+		a := viewersApp(152, 2)
+		a.Track.Part = long
+		a.Info.Parts = []Part{{Cid: 2, Page: 1, Part: long}}
+		tt := shellTesterSize(t, a, w, 700)
+		part, ok := tt.Find(long)
+		if !ok {
+			t.Fatalf("w=%d：找不到分集标题", w)
+		}
+		// 标题必须被压窄（走省略号），而不是按自然宽度画出去。
+		if natural := textWidth(long, fontOf(partPillFontSize, 600)); part.W >= natural {
+			t.Errorf("w=%d：标题宽 %v 未被压缩（自然宽 %v），胶囊会被撑破", w, part.W, natural)
+		}
+		// 在线人数跟在标题后面，也必须还在胶囊内：胶囊右缘 = 标题左缘 +
+		// 430（MaxWidth）以内。
+		badge, ok := tt.Find(onlineLabel(152))
+		if !ok {
+			t.Fatalf("w=%d：找不到在线人数", w)
+		}
+		right := badge.X + badge.W
+		if right > part.X+430 {
+			t.Errorf("w=%d：在线人数右缘 %.1f 超出胶囊右缘 %.1f", w, right, part.X+430)
+		}
+		if right > float32(w) {
+			t.Errorf("w=%d：在线人数右缘 %.1f 超出窗口", w, right)
+		}
+	}
+}

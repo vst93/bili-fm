@@ -265,6 +265,23 @@ var titleBarLayerFn = func(c *ui.Context, key string, stops []gradStop, height, 
 	})
 }
 
+// settingsIconSize 是标题栏设置键里齿轮图标的边长（原版那枚是 14px 的文字，
+// 图标取同一视觉重量的一档）。
+const settingsIconSize float32 = 16
+
+// settingsIconPadX 是设置键键面的左右内边距：键面 = 16 + 2×6 = 28 宽，与 28 高
+// 一起构成方形键面（原版按钮高 28）。
+const settingsIconPadX float32 = 6
+
+// settingsIconNudge 是齿轮图标的**光学**上移量（DIP）。
+//
+// 图标居中在 28 高的键面上，而齿轮图形的墨迹在 48 画布里偏下（外圈 4..44、
+// 中心 24 略低于几何中心），直接居中会比左侧品牌名低约 1.5px。品牌名是拉丁
+// 文本（内置 Inter，三平台度量一致），所以这个位移可以按它标定 —— 无头实测
+// 四档缩放下与品牌墨迹中心的残差 ≤0.5px（此前文字版按本机中文字体钉死位移，
+// 换平台就漂，正是用户报的「设置键没对齐」）。
+const settingsIconNudge float32 = 0.75
+
 // settingsButton 是标题栏里的「设置」下拉（原版非 macOS 平台的 #settings-entry）：
 // 关于应用 / 快捷键 / 检查更新 / 退出应用。它是 .title-bar-brand 的子元素，所以
 // 跟着品牌的不透明度走（由外层 brandBox 施加），自己不再设 opacity。
@@ -276,7 +293,10 @@ var titleBarLayerFn = func(c *ui.Context, key string, stops []gradStop, height, 
 // 下拉面板不是系统菜单，是原版手搓的液态玻璃面板（见 settingsMenu）。
 func (a *App) settingsButton(c *ui.Context) {
 	t := a.Theme
-	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, 8).Radius(4).
+	// 键面按图标尺寸收窄：原版那枚是文字「设置」（px-2 撑出宽度）。改用齿轮后
+	// 内容只有一枚 16px 图标，左右再各留 8px 就比原版宽出一截，和品牌名的间距
+	// 也跟着变大。给一个方形键面（28×28，与原版按钮高度一致）。
+	b := ui.ButtonBase(c.Key("settings")).Height(28).Padding(0, settingsIconPadX).Radius(4).
 		Margin(0, 0, 0, 8).Center().Label("设置").Tooltip("设置")
 	// 原版 #settings-entry 是 `aria-haspopup="menu" aria-expanded={showMenu}` 的
 	// button：无障碍上是一个「打开菜单、当前是否展开」的菜单键。mygo 对应
@@ -299,11 +319,19 @@ func (a *App) settingsButton(c *ui.Context) {
 		l.draw(b, 4)
 	}
 	b.Children(func() {
-		// 同品牌文字：字重 500（见 titleBarFontWeight），并按 titleBarSettingsNudge
-		// 光学上移，抵消 CJK 字形相对拉丁品牌的墨迹下沉（主题字体栈里拉丁是
-		// Inter、中文是回退字体，「设置」的墨迹天生比「bili-FM」低）。
-		ui.Text(c, "设置").FontSize(14).FontWeight(titleBarFontWeight).TextColor(t.Ink).
-			Translate(0, -titleBarSettingsNudge)
+		// 齿轮图标，不再用文字「设置」。
+		//
+		// 原因（Windows 用户实测「设置键和左边的 logo / 应用名没对齐」）：文字
+		// 「设置」是 CJK，主题字体栈里它回退到各平台**自己的中文界面字体**
+		// （Windows 是 Microsoft YaHei、macOS 是 PingFang、Linux 是 Noto Sans
+		// CJK），而品牌名 bili-FM 是内置 Inter 管的拉丁 —— 两种字体的墨迹在行盒
+		// 里的落点天生差 1~2px，靠一个按本机实测钉死的常量（titleBarSettingsNudge）
+		// 补，只能保证补它的那台机器对；换平台就是「设置往下沉」或「往上飘」。
+		// 图标没有字体，它的盒子就是它的墨迹，三平台逐像素一致。
+		//
+		// 尺寸 16（IconPark 的 48 画布等比缩放：描边 4 → 1.33px），与品牌名同高
+		// 一档；颜色取主题墨色，与文字一致。
+		ui.Icon(c, iconSetting).Size(settingsIconSize, settingsIconSize).TextColor(t.Ink).Translate(0, -settingsIconNudge)
 	})
 	// 点击开合（原版 toggleMenu）；面板由 PopoverBase 放进 Overlay，画在最上层。
 	if b.Clicked() {

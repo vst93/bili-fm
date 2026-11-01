@@ -1125,7 +1125,7 @@ func (a *App) partPill(c *ui.Context) {
 		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
 		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
 		if part != "" {
-			pillText(c, part, partTitleInk, 600).SingleLine()
+			pillTitle(c, part, partTitleInk, 600)
 		}
 		// 在线人数接在胶囊里、分集标题之后（见 onlineViewersBadge）：
 		// 「● 当前选集 P1 · 152 人在看」—— 整条读作「这一集在播什么、
@@ -1148,9 +1148,28 @@ var partPillLineBox = max32(naturalLineBox(partPillFontSize), cjkLineBox(partPil
 
 // pillText 画胶囊里的一段文字：字号 / 字重 / 颜色固定，行盒统一成
 // partPillLineBox，并按这段文字自己的自然行盒补上居中位移。
+//
+// Shrink(0)：胶囊里的圆点、来源、在线人数都是**固定宽度**的小字段，空间不够时
+// 只该让分集标题（pillTitle）变短，不能把它们挤扁。
 func pillText(c *ui.Context, s string, ink ui.Color, weight int) ui.Element {
+	return pillTextBase(c, s, ink, weight).Shrink(0)
+}
+
+// pillTitle 画分集标题：与 pillText 同一个盒子与行盒，但**可以收缩**。
+//
+// 分集标题是胶囊里唯一长度不可控的一段（用户投稿的标题可以很长）。此前它跟着
+// 一起 Shrink(0)，等于禁止收缩：胶囊是 MaxWidth 430 的定宽盒，超出的部分不会
+// 走省略号，文字直接画到胶囊外面（用户报的「选集标题过长、文字到外边去了」）。
+// 现在让它按需收缩、配合 SingleLine 出省略号，其它三段保持原样。
+func pillTitle(c *ui.Context, s string, ink ui.Color, weight int) ui.Element {
+	return pillTextBase(c, s, ink, weight).SingleLine()
+}
+
+// pillTextBase 是 pillText / pillTitle 共用的盒子：字号 / 字重 / 颜色固定，
+// 行盒统一成 partPillLineBox，并按这段文字自己的自然行盒补上居中位移。
+func pillTextBase(c *ui.Context, s string, ink ui.Color, weight int) ui.Element {
 	e := ui.Text(c, s).FontSize(partPillFontSize).FontWeight(weight).TextColor(ink).
-		Shrink(0).Height(partPillLineBox)
+		Height(partPillLineBox)
 	if d := (partPillLineBox - textLineBoxFor(s, partPillFontSize)) / 2; d != 0 {
 		// 负内边距把字形上移（同 linebox.go 的约定：不用 Translate，避免
 		// 圆角 clip 升级成预烘焙遮罩）。
