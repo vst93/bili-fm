@@ -527,15 +527,27 @@ func TestRangeThumbGlintIsRadial(t *testing.T) {
 	}
 }
 
-// TestThumbGlintBakeCached 钉住高光位图按皮肤缓存（亮/深各一张，之后每帧
-// 复用），且深色用的是自己那套停靠点。
-func TestThumbGlintBakeCached(t *testing.T) {
+// TestThumbGlintStopsPerSkin 钉住高光停靠点按皮肤给（亮/深各一套），且深色
+// 不是照抄亮色。
+//
+// mygo v0.7.4 起这条渐变直接走 Painter.FillRadialGradient，不再烘位图，所以
+// 判据从「两张位图不同」换成「两套停靠点不同」。
+func TestThumbGlintStopsPerSkin(t *testing.T) {
 	light := rangeSkinForTheme(false, false)
 	dark := rangeSkinForTheme(true, false)
-	if a, b := thumbGlintBitmap(light), thumbGlintBitmap(light); a == nil || a != b {
-		t.Fatalf("亮色高光位图没有缓存：%p vs %p", a, b)
+	var bufL, bufD [4]ui.GradientStop
+	l, d := thumbGlintStops(light, bufL[:0]), thumbGlintStops(dark, bufD[:0])
+	if len(l) == 0 || len(l) != len(d) {
+		t.Fatalf("停靠点数量不对：亮 %d 深 %d", len(l), len(d))
 	}
-	if thumbGlintBitmap(dark) == thumbGlintBitmap(light) {
-		t.Fatal("深色与亮色共用了同一张高光位图（停靠点不同，必须分开烘）")
+	same := true
+	for i := range l {
+		if l[i].Color != d[i].Color || l[i].At != d[i].At {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("深色与亮色共用了同一套高光停靠点（皮肤不同，必须分开）")
 	}
 }

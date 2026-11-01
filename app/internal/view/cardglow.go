@@ -3,7 +3,6 @@ package view
 import (
 	"image"
 	"math"
-	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -38,25 +37,18 @@ const (
 	cardGlowOpacity = float32(0.9)
 )
 
-// ---------------------------------------------------------------- 真径向渐变
+// ---------------------------------------------------------------- 径向渐变
 
-// radialBakeSize 是径向渐变位图的烘焙边长（384² = 576KB/张，懒烘：按下态
-// 那两张只在第一次按下时才烘）。渐变径向对称，画的时候按目标半径拉伸即可，
-// 所以一张小图能铺任意大小的圆：384² 的图在半径 192px 上跨 192 个像素，
-// 最陡那段 alpha 每像素只差 1~2/255，双线性拉伸后与解析曲线差 ≤2 灰阶
-// （实测 1.9，其中大部分是 8 位合成取整；换成 256² 或 512² 都无改善）。
-const radialBakeSize = 384
+// 圆形径向渐变走框架的 Painter.FillRadialGradient（mygo v0.7.4 起有这条
+// 接口）：不再烘位图，任意半径都是解析的，也没有「384² 拉伸」那层采样。
+//
+// 仍留位图的只有**椭圆**渐变（`radial-gradient(ellipse 72% 62%, …)`，氛围光
+// 的径向暗角，见 shell.go）：新接口的 Radius 只有一个值、只能画正圆。
 
-// radialGradientBitmap 把一条「圆心居中、半径 = 边长/2」的径向渐变烘成位图。
+// radialGradientBitmapSized 把一条「圆心居中、半径 = 边长/2」的**正圆**径向
+// 渐变烘成位图，供需要椭圆拉伸的调用方（把图非等比拉到盒子上）使用。
 // stops 的 At 是到半径的比例（与 CSS 的 `<color> <pct>` 同义）；边角处 t>1，
 // gradAt 夹到最后一个停靠点（也就是 CSS 的 transparent 收尾）。
-func radialGradientBitmap(stops []gradStop) *ui.Bitmap {
-	return radialGradientBitmapSized(stops, radialBakeSize)
-}
-
-// radialGradientBitmapSized 同 radialGradientBitmap，但烘焙边长由调用方给：
-// 面积大而频率低的渐变（如氛围光的径向暗角，见 shell.go 的
-// ambientVignetteBake）用不着 384² 的精度，小图能省下几百 KB 常驻内存。
 func radialGradientBitmapSized(stops []gradStop, n int) *ui.Bitmap {
 	img := image.NewNRGBA(image.Rect(0, 0, n, n))
 	c := float32(n) / 2
@@ -72,27 +64,56 @@ func radialGradientBitmapSized(stops []gradStop, n int) *ui.Bitmap {
 	return ui.NewBitmap(img)
 }
 
-// 三条径向渐变各烘一张（包级变量，进程内只烘一次）。
-var (
-	cardGlowBmp        = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardGlowStops) })
-	cardPressTopBmp    = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardPressTopStops) })
-	cardPressBottomBmp = sync.OnceValue(func() *ui.Bitmap { return radialGradientBitmap(cardPressBottomStops) })
-)
-
-// paintRadialGradient 把烘好的单位圆渐变铺成圆心 (cx,cy)、半径 radius 的圆，
-// 整层再乘 opacity（对应原版 `opacity: calc(var(--hover-strength) * .85)`）。
-func paintRadialGradient(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {
-	if bmp == nil || radius <= 0 || opacity <= 0 {
-		return
-	}
-	dst := ui.Rect{X: cx - radius, Y: cy - radius, W: 2 * radius, H: 2 * radius}
-	// Tint 乘颜色与 alpha —— 白 + alpha=opacity 就是「整层不透明度」。
-	p.ImageRegion(bmp, ui.Rect{}, dst, ui.ImageOptions{Tint: ui.RGBA(255, 255, 255, opacity)})
+// radialSpec 是一条待画的径向渐变：CSS 停靠点，外加「整层不透明度为 1」时
+// 预转好的框架停靠点（每帧现转会白白分配）。
+type radialSpec struct {
+	stops []gradStop
+	ui    []ui.GradientStop
 }
 
-// radialPaint 是「画一条径向渐变」的接线点：生产走位图；测试把它换成旧的
-// 同心圆写法做反证（见 cardglow_test.go 的 radialGradientBitmapStepped）。
-var radialPaint = paintRadialGradient
+func newRadialSpec(stops []gradStop) *radialSpec {
+	return &radialSpec{stops: stops, ui: gradStops(stops)}
+}
+
+// 三条渐变各建一次（进程内复用）。
+var (
+	cardGlowRadial        = newRadialSpec(cardGlowStops)
+	cardPressTopRadial    = newRadialSpec(cardPressTopStops)
+	cardPressBottomRadial = newRadialSpec(cardPressBottomStops)
+)
+
+// paintRadialStops 把一条「圆心 (cx,cy)、半径 radius」的径向渐变铺到 box 上，
+// 裁到 box 的圆角，整层再乘 opacity（对应原版
+// `opacity: calc(var(--hover-strength) * .85)`）。
+//
+// 圆心按 box 的比例传给框架（框架的 Center 是盒子宽高的分数），半径按 DIP
+// 给 —— 于是同一个渐变在任意大小的卡片上都精确，没有位图拉伸的采样误差。
+func paintRadialStops(p *ui.Painter, box ui.Rect, spec *radialSpec, cx, cy, radius, opacity float32) {
+	if spec == nil || radius <= 0 || opacity <= 0 || box.W <= 0 || box.H <= 0 {
+		return
+	}
+	// 整层不透明度走停靠点的 alpha（框架没有「整层 opacity」的画法）：等于 1
+	// 时直接用预转好的那组，淡出期间现乘（停靠点 ≤8 个，写在栈上）。
+	var buf [8]ui.GradientStop
+	stops := spec.ui
+	if opacity < 1 {
+		buf = [8]ui.GradientStop{}
+		scaled := buf[:0]
+		for _, s := range spec.stops {
+			scaled = append(scaled, ui.GradientStop{Color: s.C.Alpha(opacity), At: s.At})
+		}
+		stops = scaled
+	}
+	p.FillRadialGradient(box, ui.RadialGradient{
+		Center: ui.Point{X: (cx - box.X) / box.W, Y: (cy - box.Y) / box.H},
+		Radius: radius,
+		Stops:  stops,
+	}, 12)
+}
+
+// radialPaint 是「画一条径向渐变」的接线点：生产走框架的径向渐变；测试把它
+// 换成空实现做计数 / 换成量化写法做反证（见 cardglow_test.go）。
+var radialPaint = paintRadialStops
 
 // cardGlowFadeAnim 是卡片指针光晕的淡出曲线（原版
 // `.is-pointer-hovered::before { transition: opacity .12s ease }`）。此前原生版
@@ -112,9 +133,7 @@ func paintCardGlowAlpha(p *ui.Painter, box ui.Rect, px, py, opacity float32) {
 	if opacity <= 0 {
 		return
 	}
-	p.Clip(box, 12, func() {
-		radialPaint(p, cardGlowBmp(), box.X+px, box.Y+py, cardGlowRadius, opacity)
-	})
+	radialPaint(p, box, cardGlowRadial, box.X+px, box.Y+py, cardGlowRadius, opacity)
 }
 
 // ---------------------------------------------------------------- 按下态背景
@@ -185,12 +204,10 @@ func cardRadialAt(box ui.Rect, fx, fy float32) (cx, cy, r float32) {
 
 // paintCardPressGlow 画按下态背景的两个径向高光（右下天蓝在下、左上白在上）。
 func paintCardPressGlow(p *ui.Painter, box ui.Rect) {
-	p.Clip(box, 12, func() {
-		cx, cy, r := cardRadialAt(box, 0.86, 0.88)
-		radialPaint(p, cardPressBottomBmp(), cx, cy, r, 1)
-		cx, cy, r = cardRadialAt(box, 0.18, 0.10)
-		radialPaint(p, cardPressTopBmp(), cx, cy, r, 1)
-	})
+	cx, cy, r := cardRadialAt(box, 0.86, 0.88)
+	radialPaint(p, box, cardPressBottomRadial, cx, cy, r, 1)
+	cx, cy, r = cardRadialAt(box, 0.18, 0.10)
+	radialPaint(p, box, cardPressTopRadial, cx, cy, r, 1)
 }
 
 // cardSurface 在卡片背景之上、子元素之前画它的「背景图」层：按下态的两个

@@ -1038,6 +1038,35 @@ amd64/arm64 六平台编译）全绿。`-shot` 无需重截：两个改动都不
 升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
 amd64/arm64 六平台编译）全绿。
 
+## mygo v0.7.4 升级评估（2026-11-01）
+
+`app/go.mod` 从 v0.7.3 升到 **v0.7.4**（go.sum 只多 mygo 两行）。没有删除我们
+用的任何 API，`go build` / `go vet` 直接过；**0.7.4 新增了
+`Painter.FillRadialGradient` / `Element.RadialGradient`**，而这个仓库此前有
+8 处「mygo 没有径向渐变接口 → 逐像素烘位图」的绕法，其中**正圆**的那几条
+现在可以直画，本轮已改（见下表「采用」几行）。
+
+结论：`./check.sh`（vet + 全包测试 + 六平台编译）全绿；`internal/view` 的无头
+像素测试全过（含改写后的光晕/滑块/迷你窗断言）。
+
+| PR | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| #910 | **`Painter.FillRadialGradient` / `Element.RadialGradient`**：正圆径向渐变（Center 是盒宽高的分数、Radius 是 DIP、0 = farthest-corner，停靠点按 CSS 的预乘 alpha 插值） | 卡片指针光晕（`cardglow.go`，原来烘 3 张 384² = **1.7MB** 位图）、按下态两个径向高光、滑块玻璃高光（`rangeslider.go`，原来按皮肤各烘一张 384²）、迷你窗背景两条光晕（`minibg.go`，原来整块 400×155 位图 = 248KB）。全部改为框架渐变后：**位图从常驻内存里消失**，且任意半径都是解析的（位图拉伸到 200px 半径有采样误差）。 | **采用（本轮主要优化，省约 2.6MB 常驻 + 更准）** |
+| #910 | 同上 | **椭圆**径向渐变（`radial-gradient(ellipse 72% 62% …)`：氛围光的两条径向暗角 `shell.go`、`bloom.go` 的光场、`btnlight.go` 的按钮聚光）仍走位图：新接口的 Radius 只有一个值，只能画正圆，椭圆得自己上 `Painter.Transform` 做非等比缩放 —— 那会把整块全窗图层从「一个 Image 图元」变成「逐像素反变换」，是负优化。 | **不采用（保持位图，理由已写进代码注释）** |
+| #895 / #918 | Windows：原生 UI 窗口缩放时边缘不再黑；Win10 无边框窗口内容铺到边、不再有一圈白线 | 桌面字幕窗（`Frameless` + `Transparent` + `DisableResize`）会随字号变高变矮；Win10 上那圈白线此前被误当成「边框」。 | **采用（升级即生效）** |
+| #913 / #915 | 原生 UI 窗口「画好第一帧才显示」；`Hidden: true` 创建的窗口在隐藏期间就画第一帧，`OnReadyToShow` 可用来「画好再 Show」 | 桌面字幕窗用 `Hidden: true` + `ShowInactive()` 显示 —— 0.7.4 起 Windows 上不会先闪一帧空白。 | **采用（升级即生效，无需改代码）** |
+| #928 | macOS：空闲原生 UI 窗口的唤醒从 ~135 次/秒降到 ~13 次/秒（CPU 0.8% → 0.3%） | 迷你模式 / 主窗静止时。 | **采用（升级即生效）** |
+| #941 | 大应用的增量包（bsdiff）能算完了（匹配长度加了 64KB 上限，避免二次复杂度） | 发版流水线的 `.delta` 生成；我们的包 8MB 级，本来没触发，但这是纯收益。 | **采用（升级即生效）** |
+| #934 | `mygo build` 会在 Linux 归档旁写一份 `PKGBUILD`（`makepkg -si` 可用） | 发布产物里我们手搓 `.pkg.tar.zst`（`release-mygo.yml`）。新 PKGBUILD 是**给用户自己 makepkg** 用的，不替代我们的产物；要不要一起发是产品决定。 | **暂不采用（产物清单不变）** |
+| #972 / #927 / #969 | `Element.Scrollbars(false)`（隐藏滚动条但保留滚轮）、`Element.IgnoreInput`（鼠标穿透但读屏仍可点）、`PlaceholderColor` / `CaretWidth` / `DottedUnderline` / `Context.Instant` | 我们的滚动容器都按主题画 6px 细滚动条，不需要隐藏；悬停卡片用 `PassThrough` 已够；输入框是自绘 `ui.Input`，占位色/光标宽度现状即原版。 | **不采用（现状即原版）** |
+| #932 | `ui.Themed(c, t)`：给窗口的一部分单独套主题 | 目前只有「播放栏深色 / 正文浅色」这一处双主题，已经由 `Theme.Dark` 分支处理，不需要第二套 ui.Theme。 | **不适用** |
+| #971 | 原生 UI 的编辑菜单（撤销/剪切/复制…）跟随焦点自动启用/禁用 | 我们有「全选」这一项（`menu.go`），此前恒可用；升级后没有焦点内容时会自动变灰。 | **采用（升级即生效）** |
+| #960 | `updater.AvailableVersion()`：拿到上次检查发现的版本号 | 「检查更新」目前只有弹窗结论，没有常驻展示位。属新功能，不混进升级轮。 | **候选（下轮功能）** |
+| #937 / #903 / #949 / #967 / #944 / #935 / #947 / #911 / #920 / #923 / #975 / #950 / #942 / #938 / #925 / #953 / #662 / #900 / #902 / #943 | `DecimalInput`、日历翻页、`ui.Scrollbar`、`HandleInput` 的读屏改写、编辑器/终端/富文本滚动条与 diff 修复、Win11 高缩放下菜单文字截断、页面首帧就按强制明暗渲染、macOS 首次点击、托盘图标副本、对话框 Esc 取消、macOS 27 dmg、病毒扫描占位、安装器复选框本地化、`linux.command` 列表、`-skip-installer`、`WebViewOptions.ScrollToContainer` | 本项目没有金额输入 / 日历 / 终端 / diff / 代码编辑器；菜单是自绘液态玻璃面板（不是系统菜单）；视频页只加载自己的本地 HTML，且是独立窗口，没有「webview 嵌在原生滚动容器里」的结构；`linux.command` 保持单个 `bili-fm`。 | **不适用 / 无影响** |
+
+升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
+amd64/arm64 六平台编译）全绿。
+
 ## HE-AAC 稿件「音频解码失败」→ 回退 DASH AAC-LC 音轨（2026-10-30）
 
 用户报 BV1k3411f7mX（许嵩歌曲 151 首精选）起播即「音频解码失败」。查实不是网络、

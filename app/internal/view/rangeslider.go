@@ -1,7 +1,6 @@
 package view
 
 import (
-	"sync"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -250,42 +249,30 @@ var thumbGlintPaint = paintThumbGlintRadial
 //	                transparent 58%)
 //
 // 圆心在盒内 (34%,24%)，默认尺寸 farthest-corner = 到四角最远那个的距离。
-// 裁剪到滑块圆内（位图铺的是圆外接正方形）。
+// 走框架的径向渐变（v0.7.4 起），圆角传滑块半径即裁到圆内 —— 不再烘位图。
 func paintThumbGlintRadial(p *ui.Painter, k ui.Rect, d float32, s rangeSkin) {
-	cx, cy, r := cardRadialAt(k, 0.34, 0.24)
-	p.Clip(k, d/2, func() {
-		paintRadialGradient(p, thumbGlintBitmap(s), cx, cy, r, 1)
-	})
-}
-
-// thumbGlintKey 是缓存键：亮/深两套高光的 (核心色, 34% 色, 平台止点)。
-type thumbGlintKey struct {
-	Core, Mid ui.Color
-	Plateau   float32
-}
-
-var (
-	thumbGlintMu    sync.Mutex
-	thumbGlintCache = map[thumbGlintKey]*ui.Bitmap{}
-)
-
-// thumbGlintBitmap 按皮肤取（或烘）滑块高光的位图。同一套皮肤只烘一次，
-// 之后每帧只多一个图元。
-func thumbGlintBitmap(s rangeSkin) *ui.Bitmap {
-	key := thumbGlintKey{s.ThumbGlint, s.ThumbGlintMid, s.ThumbGlintPlateau}
-	thumbGlintMu.Lock()
-	defer thumbGlintMu.Unlock()
-	if b, ok := thumbGlintCache[key]; ok {
-		return b
+	if k.W <= 0 || k.H <= 0 {
+		return
 	}
-	b := radialGradientBitmap([]gradStop{
-		{0, s.ThumbGlint},
-		{s.ThumbGlintPlateau, s.ThumbGlint},
-		{0.34, s.ThumbGlintMid},
-		{0.58, ui.Transparent},
-	})
-	thumbGlintCache[key] = b
-	return b
+	_, _, r := cardRadialAt(k, 0.34, 0.24)
+	var buf [4]ui.GradientStop
+	p.FillRadialGradient(k, ui.RadialGradient{
+		Center: ui.Point{X: 0.34, Y: 0.24},
+		Radius: r,
+		Stops:  thumbGlintStops(s, buf[:0]),
+	}, d/2)
+}
+
+// thumbGlintStops 是滑块高光的停靠点（亮 / 深两套皮肤各一组）。
+//
+// buf 是调用方的定长数组：这条渐变每帧都画，返回值不能每次新建切片。
+func thumbGlintStops(s rangeSkin, buf []ui.GradientStop) []ui.GradientStop {
+	return append(buf,
+		ui.GradientStop{Color: s.ThumbGlint, At: 0},
+		ui.GradientStop{Color: s.ThumbGlint, At: s.ThumbGlintPlateau},
+		ui.GradientStop{Color: s.ThumbGlintMid, At: 0.34},
+		ui.GradientStop{Color: ui.Transparent, At: 0.58},
+	)
 }
 
 // paintRangeThumb 画滑块：淡蓝底 + 左上玻璃高光 + 两条 inset + 1px 白描边 +

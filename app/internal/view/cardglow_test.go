@@ -183,7 +183,7 @@ func TestCardGlowFadesOut(t *testing.T) {
 		if withGlow {
 			radialPaint = oldRadial
 		} else {
-			radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {}
+			radialPaint = func(p *ui.Painter, box ui.Rect, spec *radialSpec, cx, cy, radius, opacity float32) {}
 		}
 		tst, box := cardGlowProbe(t)
 		cx, cy := int(box.X+box.W/2), int(box.Y+box.H/2)
@@ -232,9 +232,9 @@ func TestCardGlowReduceMotion(t *testing.T) {
 	old := radialPaint
 	t.Cleanup(func() { radialPaint = old })
 	var painted int
-	radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {
+	radialPaint = func(p *ui.Painter, box ui.Rect, spec *radialSpec, cx, cy, radius, opacity float32) {
 		painted++
-		old(p, bmp, cx, cy, radius, opacity)
+		old(p, box, spec, cx, cy, radius, opacity)
 	}
 	tst, box := cardGlowProbe(t)
 	tst.Move(box.X+box.W/2, box.Y+box.H/2)
@@ -359,27 +359,57 @@ func cardRadialSteps(radius float32) int {
 	return max(cardGlowSteps, int(radius/4)+1)
 }
 
-// radialGradientBitmapStepped 是旧写法（paintRadialStops）的逐像素等价物：
-// 把同一条渐变按 steps 个同心环量化，环内取**环外缘**的值 —— 那正是
-// 「一串同心实心圆、每圈补一次 alpha」叠出来的结果（每点累计 alpha 等于该
-// 半径处外缘环的 want 值）。用来做反证：它和解析曲线的误差就是本轮修掉的台阶。
-func radialGradientBitmapStepped(stops []gradStop, steps int) *ui.Bitmap {
-	n := radialBakeSize
-	img := image.NewNRGBA(image.Rect(0, 0, n, n))
-	c := float32(n) / 2
-	for y := 0; y < n; y++ {
-		for x := 0; x < n; x++ {
-			dx := float32(x) + 0.5 - c
-			dy := float32(y) + 0.5 - c
-			t := float32(math.Sqrt(float64(dx*dx+dy*dy))) / c
-			// 落在第几个环里，取该环外缘的 t。
-			ring := math.Ceil(float64(t) * float64(steps))
-			col := gradAt(stops, float32(ring)/float32(steps))
-			i := img.PixOffset(x, y)
-			img.Pix[i+0], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = col.R, col.G, col.B, col.A
+// premulGradAt 在**预乘 alpha** 空间采样渐变，与 CSS 的渐变插值（也是框架
+// scene 的做法）一致；gradAt 是直通 RGBA，只在相邻停靠点 alpha 相等时相同。
+func premulGradAt(stops []gradStop, t float32) ui.Color {
+	if len(stops) == 0 {
+		return ui.Transparent
+	}
+	if t <= stops[0].At {
+		return stops[0].C
+	}
+	for i := 1; i < len(stops); i++ {
+		if t <= stops[i].At {
+			a, b := stops[i-1], stops[i]
+			k := float32(0)
+			if span := b.At - a.At; span > 0 {
+				k = (t - a.At) / span
+			}
+			aa, ba := float32(a.C.A)/255, float32(b.C.A)/255
+			al := aa + (ba-aa)*k
+			if al <= 0 {
+				return ui.Transparent
+			}
+			mix := func(x, y uint8) uint8 {
+				px, py := float32(x)/255*aa, float32(y)/255*ba
+				return uint8((px+(py-px)*k)/al*255 + 0.5)
+			}
+			return ui.Color{
+				R: mix(a.C.R, b.C.R), G: mix(a.C.G, b.C.G), B: mix(a.C.B, b.C.B),
+				A: uint8(al*255 + 0.5),
+			}
 		}
 	}
-	return ui.NewBitmap(img)
+	return stops[len(stops)-1].C
+}
+
+// paintRadialStepped 是旧写法（同心圆近似）的等价物：把同一条渐变按 steps 个
+// 同心环量化，环内取**环外缘**的值 —— 那正是「一串同心实心圆、每圈补一次
+// alpha」叠出来的结果。用来做反证：它和解析曲线的误差就是当年修掉的台阶。
+//
+// 生产路径自 mygo v0.7.4 起走框架的 FillRadialGradient（解析的正圆渐变），
+// 这里只在测试里重建旧画法。
+func paintRadialStepped(p *ui.Painter, box ui.Rect, stops []gradStop, cx, cy, radius, opacity float32, steps int) {
+	if radius <= 0 || opacity <= 0 {
+		return
+	}
+	p.Clip(box, 12, func() {
+		for i := steps; i >= 1; i-- {
+			t := float32(i) / float32(steps)
+			col := gradAt(stops, t).Alpha(opacity)
+			p.Fill(ui.Rect{X: cx - radius*t, Y: cy - radius*t, W: 2 * radius * t, H: 2 * radius * t}, col, 0)
+		}
+	})
 }
 
 // TestCardGlowRadialMatchesCSS 是逐半径的因果测试：光晕在半径 r 处的合成
@@ -395,8 +425,13 @@ func TestCardGlowRadialMatchesCSS(t *testing.T) {
 	const bg = 120
 	// 解析值：白 .6 → 天蓝 .2@40% → 透明@70%，整层 .9。
 	// 灰阶按三通道均值算（grayAt 量的就是它）。
+	//
+	// 插值必须在**预乘 alpha** 空间（CSS 规范，也是框架 scene 的做法），
+	// gradAt 是直通 RGBA —— 两端 alpha 不等时（.6 → .2）两者差 4~5 灰阶。
+	// 此前用位图烘的正是直通插值，所以那时的解析参考与实现一起偏；换成框架
+	// 的径向渐变后，这里必须按规范写参考值，否则测的是「实现与旧实现的差」。
 	analytic := func(r float32) float32 {
-		col := gradAt(cardGlowStops, r/cardGlowRadius)
+		col := premulGradAt(cardGlowStops, r/cardGlowRadius)
 		a := cardGlowOpacity * float32(col.A) / 255
 		mean := (float32(col.R) + float32(col.G) + float32(col.B)) / 3
 		return a*mean + (1-a)*bg
@@ -417,22 +452,18 @@ func TestCardGlowRadialMatchesCSS(t *testing.T) {
 	}
 
 	got := measure()
-	t.Logf("位图渐变：与 CSS 解析值的最大误差 = %.2f 灰阶", got)
-	// 阈值 3：位图逐像素烘好后残差只剩 8 位合成/取整（实测 1.9）；
-	// 旧的分环写法实测 12.9，两者之间有 6 倍余量。
+	t.Logf("框架径向渐变：与 CSS 解析值的最大误差 = %.2f 灰阶", got)
+	// 阈值 3：解析渐变 + 8 位合成取整，实测 1.5；旧的分环写法实测 12.9。
 	if got > 3 {
-		t.Fatalf("光晕与 CSS 解析值最大差 %.2f 灰阶 > 3 —— 径向渐变不是逐像素的", got)
+		t.Fatalf("光晕与 CSS 解析值最大差 %.2f 灰阶 > 3 —— 径向渐变不是解析的", got)
 	}
 
 	// 反证：换回旧的分环写法，误差必须明显变大（证明本测试量的就是「台阶」）。
-	ringBmp := radialGradientBitmapStepped(cardGlowStops, cardGlowSteps)
 	img := ui.Render(func(c *ui.Context) {
 		c.Root().Background(ui.RGB(bg, bg, bg))
 		ui.Box(c).Absolute().Left(0).Top(0).Size(360, 280).
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				p.Clip(r, 12, func() {
-					paintRadialGradient(p, ringBmp, 180, 140, cardGlowRadius, cardGlowOpacity)
-				})
+				paintRadialStepped(p, r, cardGlowStops, 180, 140, cardGlowRadius, cardGlowOpacity, cardGlowSteps)
 			})
 	}, 400, 300, 1)
 	var worst float32
@@ -448,20 +479,17 @@ func TestCardGlowRadialMatchesCSS(t *testing.T) {
 	}
 }
 
-// TestRadialBakeCached 钉住位图只烘一次（三条渐变各一张，进程内复用）：
-// 每次悬停都重烘 512² 会白烧 0.3ms/帧。
-func TestRadialBakeCached(t *testing.T) {
-	a, b := cardGlowBmp(), cardGlowBmp()
-	if a == nil || a != b {
-		t.Fatalf("cardGlowBmp 没有缓存：%p vs %p", a, b)
-	}
-	if cardPressTopBmp() == nil || cardPressBottomBmp() == nil {
-		t.Fatal("按下态的两条径向渐变没有烘成位图")
-	}
-	// 烘焙边长两头都要卡：太小拉伸后能看出插值台阶，太大白占显存
-	// （每张 边长² × 4 字节）。
-	if radialBakeSize < 128 || radialBakeSize > 512 {
-		t.Fatalf("烘焙边长 %d 超出 [128,512]：小了有台阶、大了白占显存", radialBakeSize)
+// TestRadialStopsPrecomputed 钉住三条渐变的框架停靠点只转一次（进程内复用）：
+// 每帧重新 gradStops 会白分配。
+//
+// 位图那条路径（cardGlowBmp / cardPressTopBmp / cardPressBottomBmp / 384² 的
+// 烘焙边长）在 mygo v0.7.4 起不需要了 —— Painter.FillRadialGradient 画的是
+// 解析的正圆渐变，任意半径都准，也不再常驻 1.7MB 位图。
+func TestRadialStopsPrecomputed(t *testing.T) {
+	for _, spec := range []*radialSpec{cardGlowRadial, cardPressTopRadial, cardPressBottomRadial} {
+		if spec == nil || len(spec.ui) != len(spec.stops) {
+			t.Fatal("三条径向渐变的框架停靠点没有预转好")
+		}
 	}
 }
 

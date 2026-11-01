@@ -1048,10 +1048,6 @@ type App struct {
 	// 无头测试里 mygo 后端未初始化，根包调用会阻塞。
 	rt bool
 
-	// miniBgBmp 是迷你窗 #root 背景（145° 线性 + 两条径向光晕）的烘焙位图；
-	// miniBgSize 记住烘焙时的画布尺寸，变了才重烘（见 minibg.go）。
-	miniBgBmp  *ui.Bitmap
-	miniBgSize [2]int
 
 	// toasts 是待弹出的 toast：后台线程通过 Notify 入队，下一帧由 Shell
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。

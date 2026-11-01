@@ -85,6 +85,9 @@ func miniBgBloomAlpha(bl miniBgBloom, x, y, w, h float32) float32 {
 
 // miniBgPixels 把迷你窗背景算成一张不透明的 straight-alpha 位图：底层 145°
 // 线性渐变，再按 CSS 顺序（列表靠前在上）叠两条径向光晕。
+//
+// 生产路径已改成「线性渐变 + 两条框架径向渐变」三层元素（见 miniBackground），
+// 不再用这张位图；保留它是为了逐像素核对三层叠加的结果与 CSS 一致。
 func miniBgPixels(w, h int) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	if w <= 0 || h <= 0 {
@@ -119,19 +122,40 @@ func miniBgPixels(w, h int) *image.NRGBA {
 	return img
 }
 
-// miniBackground 画迷你窗 #root 背景（线性渐变 + 两条径向光晕）。整块算成
-// 一张位图、每帧只多一个全窗图元；尺寸变了才重算（迷你窗固定 400×155，
-// 实际只烘一次）。
+// miniBackground 画迷你窗 #root 背景（145° 线性 + 两条正圆径向光晕）。
+//
+// 三层各画一次，都是框架的原生渐变（mygo v0.7.4 起有径向渐变）：此前是整块
+// 烘成 400×155 的位图，白占 248KB 常驻内存，窗口尺寸一变还要重算。两条光晕
+// 都是 `circle at …`（正圆，默认 farthest-corner），正好对上框架的 RadialGradient
+// ——Radius 传 0 就是 farthest-corner，Center 是盒子的比例。
 func (a *App) miniBackground(c *ui.Context) {
-	ui.Box(c).Absolute().Fill().PassThrough().Draw(func(p *ui.Painter, r ui.Rect) {
-		w, h := int(r.W+0.5), int(r.H+0.5)
-		if w < 1 || h < 1 {
-			return
-		}
-		if a.miniBgBmp == nil || a.miniBgSize != [2]int{w, h} {
-			a.miniBgBmp = ui.NewBitmap(miniBgPixels(w, h))
-			a.miniBgSize = [2]int{w, h}
-		}
-		p.Image(a.miniBgBmp, r, ui.FillBox)
-	})
+	ui.Box(c).Absolute().Fill().PassThrough().
+		LinearGradient(ui.LinearGradient{Angle: 145, Stops: miniBgBaseStops})
+	for i := range miniBgBloomGradients {
+		ui.Box(c).Absolute().Fill().PassThrough().RadialGradient(miniBgBloomGradients[i])
+	}
 }
+
+// miniBgBaseStops / miniBgBloomGradients 是那三层的框架停靠点：进程内只转一次，
+// 不随帧重建（迷你窗每帧都画）。
+var (
+	miniBgBaseStops = gradStops([]gradStop{{0, miniBgFrom}, {1, miniBgTo}})
+	// miniBgBloomGradients 按 CSS 顺序（列表靠前在上）：后画的压在先画的上面。
+	miniBgBloomGradients = func() []ui.RadialGradient {
+		out := make([]ui.RadialGradient, len(miniBgBlooms))
+		for i, bl := range miniBgBlooms {
+			col := ui.RGBA(to8(bl.r/255), to8(bl.g/255), to8(bl.b/255), bl.alpha)
+			clear := col.Alpha(0)
+			out[i] = ui.RadialGradient{
+				Center: ui.Point{X: bl.cx, Y: bl.cy},
+				// 0 = farthest-corner，与 CSS `circle at …` 的默认尺寸一致。
+				Radius: 0,
+				Stops: []ui.GradientStop{
+					{Color: col, At: 0},
+					{Color: clear, At: bl.stop},
+				},
+			}
+		}
+		return out
+	}()
+)

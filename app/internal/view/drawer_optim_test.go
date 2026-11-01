@@ -293,7 +293,7 @@ func TestPlaylistCoverPrefetchVisibleOnly(t *testing.T) {
 func TestDrawerCardHoverTransition(t *testing.T) {
 	oldRadial := radialPaint
 	t.Cleanup(func() { radialPaint = oldRadial })
-	radialPaint = func(p *ui.Painter, bmp *ui.Bitmap, cx, cy, radius, opacity float32) {}
+	radialPaint = func(p *ui.Painter, box ui.Rect, spec *radialSpec, cx, cy, radius, opacity float32) {}
 
 	tst, box := cardGlowProbe(t)
 	// 左边缘描边的蓝度：只取竖直中段，避开四角圆弧与页脚分隔线。
