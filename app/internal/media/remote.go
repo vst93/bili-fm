@@ -31,6 +31,10 @@ type remoteFile struct {
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 
+	// chunk 是单次 Range 请求的字节数。默认 remoteChunk；fMP4 起播时
+	// newFMP4Stream 会把它调小，避免为了一次 512KB 请求在慢网下等到超时。
+	chunk int64
+
 	// noRange 为真表示上游不支持 Range，只能顺序读。
 	noRange bool
 
@@ -56,7 +60,8 @@ type remoteFile struct {
 }
 
 // remoteChunk 是一块的大小。B 站音频 128kbps 时 512KB ≈ 32 秒，块边界很少；
-// 顺序读时预取又让跨块不产生同步等待。
+// 顺序读时预取又让跨块不产生同步等待。fMP4 起播会把它调小（见 fmp4.go），
+// 所以读块大小一律走 f.chunk，不要再写死这个常量。
 const remoteChunk = 512 << 10
 
 // remoteChunkRetries 是同步/预取取块遇到网络错误或 5xx 时的重试次数
@@ -67,7 +72,7 @@ const remoteChunkRetries = 2
 func newRemoteFile(url string, headers map[string]string) (*remoteFile, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
-	f := &remoteFile{client: client, url: url, headers: headers, ctx: ctx, cancel: cancel, size: -1}
+	f := &remoteFile{client: client, url: url, headers: headers, ctx: ctx, cancel: cancel, size: -1, chunk: remoteChunk}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -240,7 +245,11 @@ func (f *remoteFile) fetchChunkOnce(start int64) (data []byte, retry bool, err e
 		req.Header.Set(k, v)
 	}
 	if !f.noRange {
-		end := start + remoteChunk - 1
+		chunk := f.chunk
+		if chunk <= 0 {
+			chunk = remoteChunk
+		}
+		end := start + chunk - 1
 		if f.size > 0 && end >= f.size {
 			end = f.size - 1
 		}
@@ -353,7 +362,11 @@ func (f *remoteFile) prefetchCoversLocked(abs int64) bool {
 	if f.pfBuf != nil {
 		return abs >= f.pfStart && abs < f.pfStart+int64(len(f.pfBuf))
 	}
-	return f.pfBusy && abs >= f.pfStart && abs < f.pfStart+remoteChunk
+	chunk := f.chunk
+	if chunk <= 0 {
+		chunk = remoteChunk
+	}
+	return f.pfBusy && abs >= f.pfStart && abs < f.pfStart+chunk
 }
 
 // invalidatePrefetchLocked 让在途的预取结果作废（调用方持有 f.mu）。

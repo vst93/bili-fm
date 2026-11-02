@@ -1105,9 +1105,9 @@ DASH 音轨建流水线 1.3 s、时长 238.3 s、解码 3 s 无欠载。
 Reader 支持原地 SeekTime（go-m4a 文档明确允许 EOF 之后重定位，实测原地
 seek 与全新 Reader 取到的帧逐字节一致），所以 `pipeline.seek` 对
 `fragmentedBrand`（iso5/iso6/dash/cmfc…）不重开 reader，4 分钟的歌从
-~1.4 s 降到 ~3 ms；合流 mp4 仍是原来的「重开 + 重解析」路径。长视频若撞上
-HE-AAC，起播仍按文件大小线性变慢；真遇到再做 sidx 预取（按 sidx 并行抓
-moof，只下索引不整首下载），这次不提前上。
+~1.4 s 降到 ~3 ms；合流 mp4 仍是原来的「重开 + 重解析」路径。长视频撞上
+HE-AAC 时「先下完整条音轨」的代价已在 2026-11-02 的流式 fMP4 一节解决
+（有 sidx 的 DASH 音轨不再走 go-m4a 的全量扫描）。
 
 测试：`media/errors_test.go`（HE-AAC 标记与不误标、类别仍为 KindDecode）、
 `media/seektime_test.go` 的 `TestFragmentedBrand`（fMP4 走原地 seek）、
@@ -1116,3 +1116,58 @@ moof，只下索引不整首下载），这次不提前上。
 门槛：`go vet` + 相关包测试 + 六平台编译。`./check.sh fast` 在本机因
 `internal/view` 的 mygo 光栅测试偶发超时（HEAD 同样复现，与本次改动无关），
 媒体/接口/主包测试均全绿。
+
+
+## DASH fMP4 流式起播：长视频不再整条下载（2026-11-02）
+
+用户报 3 条音乐合集（`BV1oceneaEdv` 40 分钟、`BV1vr421w7iS` 54 分钟、
+`BV1ARMUzJEih` 42 分钟）「解析还是不行」。三条共同点：360P 合流都是
+HE-AAC，都会走 DASH AAC-LC 回退；而上一轮的 HE-AAC 修法在 DASH 上仍用
+go-m4a 的 `NewReader`，它要扫完**每一个 moof** 才能建样本表。按 192 kbps
+算，1 小时音频约 75MB；`scanTopLevel` 虽然只读 box 头，但每个 moof 都夹在
+mdat 中间，`remoteFile` 的 512KB 块会把整条音轨都拉下来。实测起播
+16.4s / 26.3s / 31.9s（本机千兆），慢网就是「一直起播中」，还容易在某个
+Range 请求上撞到 30 秒超时后报「音频格式不支持或加载失败」。
+
+### 修法
+
+1. 新增 `internal/media/fmp4.go`：只对**带 sidx 的 fMP4** 走流式解封装。
+   - 从头读 `ftyp/moov/sidx`（B 站实测 <10KB），从 sidx 拿到每条
+     reference 的 `[offset, size, duration]` 与总时长。
+   - 播放时按分片读 `moof/mdat`，按 `tfhd/trun`（含 trun 的逐样本
+     duration/size、tfhd 默认值、trex 默认值）展开 AAC access unit，再用
+     现有 `aacpcm` 解码；`RawStream` 输出与 go-m4a 相同的「2 字节长度 +
+     access unit」格式。
+   - seek 用 sidx 二分定位分片，再按 trun 的采样时长丢弃目标前采样；
+     不再重开解析器。
+   - 分片里允许以 `styp` 开头（CMAF 常见），`findMoof` 会跳过。
+   - 初始化段的格式信息复用 go-m4a：把 `moov` 里的 `mvex` 去掉后按普通
+     moov 解析，取 `SampleRate/Channels/ASC`；`Duration` 用 sidx 覆盖。
+2. `pipeline` 把 `rd *m4a.Reader` 抽成 `streamDemuxer` 接口；`openDemuxer`
+   先尝试 `fmp4Stream`，不是带 sidx 的 fMP4（或解析失败）再退回原
+   `m4a.NewReader`，没有 sidx 的流行为不变。`pipeline.fragmented` 明确
+   标记原地 seek（B 站 DASH 的 ftyp brand 常是 `isom`，只看 brand 会误判）。
+3. `remoteFile` 增加 `chunk` 字段（默认 512KB）；fMP4 路径改为 128KB，
+   慢网下不会为了一次 512KB Range 等到 30 秒超时。顺序读时预取仍然有效
+   （预取的起点正好是当前块的末尾）。
+
+### 实测（同一网络，blprobe play）
+
+| 视频 | 修改前起播 | 修改后起播 | seek 1200s / 300s / 2400s / 60s |
+|---|---|---|---|
+| `BV1oceneaEdv` (2411s) | 15.8s | 4.2s（冷 CDN，复测 4.9s） | 均正常，位置落在目标 ±0.1s |
+| `BV1vr421w7iS` (3221s) | 26.3s | 1.5s | 均正常 |
+| `BV1ARMUzJEih` (2535s) | 31.9s | 1.2s | 均正常 |
+
+连续播放 20 秒跨多个分片无欠载；2x 变速 20 秒（消费分片速度翻倍）也正常。
+普通 AAC-LC 合流（`BV1xx411c7mD`）仍走原路径，2.6s 起播，无回归。
+
+### 测试与边界
+
+- `media/fmp4_test.go`：sidx v0 解析、层级 reference 拒绝、moof/trun
+  展开、`styp` 跳过、用 go-m4a `FragmentWriter` 生成真实 init+分片后验证
+  读取与 seek、无 sidx 的回归。
+- `./check.sh fast` 全绿；linux/windows/darwin × amd64/arm64 六平台编译全绿。
+- 只支持 `reference_type=0` 的 sidx；层级 sidx、无 sidx、损坏 box 一律退回
+  go-m4a（慢但不错）。单个分片上限 32MB；B 站 5 秒分片约 50–130KB。
+- 初始化段仍要求 go-m4a 能解析（`mvex` 去掉后）；解析失败同样退回旧路径。

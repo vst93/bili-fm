@@ -89,10 +89,12 @@
   里，库会主动拒绝）。同一集 DASH 通常还有 AAC-LC 音轨（30232/30280，
   `mp4a.40.2`）。`media.ErrHEAAC` → `main.startCurrent` 静默换
   `GetDashAudioByCid` 重试，详见 PLAN 的「HE-AAC 稿件」一节。
-- **DASH 音轨是 fMP4（ftyp iso5）**：go-m4a 建样本表要扫全部 moof，所以**起播**
-  会把整条音轨 m4s 拉一遍（4 分钟≈5MB，几小时会按大小线性变慢）。seek 用
-  原地 `Reader.SeekTime`（`media.fragmentedBrand`）避免重扫，别再改回
-  「每次 seek 重开 reader」。
+- **DASH 音轨是 fMP4，且带 sidx**：`internal/media/fmp4.go` 直接读
+  ftyp/moov/sidx，按 sidx 的分片按需拉 moof/mdat（起播只下前几十 KB），
+  **不要**在新代码里对 DASH 音轨调 `m4a.NewReader` —— 它会扫完整条音轨的
+  moof，1 小时约 75MB，慢网就是「一直起播中 / 解析失败」（2026-11-02 的
+  bug）。只有无 sidx 的流才退回 go-m4a；`pipeline.fragmented` 决定 seek 是否
+  原地，B 站 DASH 的 ftyp brand 常是 `isom`，只看 brand 会误判成普通 MP4。
 
 - **CSP 已不存在**（原生版没有 webview 安全策略），旧 Tauri 的 CSP/WebView2 坑只作历史参考。
 - **SponsorBlock（bsbsb.top）**：免费无 key，`GET /api/skipSegments?videoID=BV..&cid=..`。会话缓存只能存真实服务端结论，abort/超时/网络失败不得写入。

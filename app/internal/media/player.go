@@ -428,9 +428,12 @@ type pipeline struct {
 	outMu  sync.Mutex
 
 	rf   *remoteFile
-	rd   *m4a.Reader
+	rd   streamDemuxer
 	dec  *aacpcm.Decoder
 	info m4a.Info
+	// fragmented 表示这条流可以原地 seek（fMP4 / DASH），不用重开解析器。
+	// fMP4 的 ftyp brand 常常是 isom（B 站 DASH 就是这样），不能只看 brand。
+	fragmented bool
 
 	channels int
 	wsMu     sync.Mutex
@@ -486,12 +489,40 @@ func aacProfileErr(err error) error {
 	return err
 }
 
-// newPipeline 建流水线。outRate 是音频上下文的采样率（0 表示还没建立，
-// 此时用流的采样率）；ensure 负责在需要时建立上下文并返回它用的采样率。
-func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure func(rate, ch int) (int, error)) (*pipeline, error) {
+// streamDemuxer 是流水线需要的解封装能力。*m4a.Reader 和 fmp4Stream 都
+// 实现它：前者是通用 MP4（含无 sidx 的 fMP4），后者是 B 站 DASH 的
+// 流式 fMP4（只下需要的分片，不在起播时扫描整条音轨）。
+type streamDemuxer interface {
+	Info() m4a.Info
+	RawStream() io.Reader
+	SeekTime(time.Duration) (int, int64, error)
+	SeekSample(int) error
+}
+
+// openDemuxer 优先按带 sidx 的 fMP4 打开；不是这种流时退回 go-m4a。
+func openDemuxer(rf *remoteFile) (streamDemuxer, error) {
+	if st, err := newFMP4Stream(rf); err == nil {
+		return st, nil
+	} else if KindOf(err) == KindNetwork {
+		// 网络错误重试一次 go-m4a 也没有意义，直接报给上层。
+		return nil, err
+	}
+	if _, err := rf.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
 	rd, err := m4a.NewReader(rf)
 	if err != nil {
 		return nil, WrapKind(KindUnsupported, fmt.Errorf("media: 解析 MP4 失败: %w", err))
+	}
+	return rd, nil
+}
+
+// newPipeline 建流水线。outRate 是音频上下文的采样率（0 表示还没建立，
+// 此时用流的采样率）；ensure 负责在需要时建立上下文并返回它用的采样率。
+func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure func(rate, ch int) (int, error)) (*pipeline, error) {
+	rd, err := openDemuxer(rf)
+	if err != nil {
+		return nil, err
 	}
 	info := rd.Info()
 	dec, err := aacpcm.NewDecoder(rd.RawStream(), aacpcm.WithRawStream(info.ASC))
@@ -502,10 +533,15 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 	if err != nil {
 		return nil, err
 	}
+	fragmented := fragmentedBrand(info.Brand)
+	if _, ok := rd.(*fmp4Stream); ok {
+		fragmented = true
+	}
 	p := &pipeline{
 		rf: rf, rd: rd, dec: dec, info: info,
-		channels: info.Channels,
-		ws:       NewWSOLA(info.Channels, speed, 0),
+		fragmented: fragmented,
+		channels:   info.Channels,
+		ws:         NewWSOLA(info.Channels, speed, 0),
 		// 均衡在重采样之后跑，采样率用**输出**采样率。
 		eq:     NewCompressor(info.Channels, rate),
 		eqWake: make(chan struct{}, 1),
@@ -872,14 +908,13 @@ func seekFrameSamples(info m4a.Info) int {
 
 // seekFrame 选 seek 目标所在的源帧下标。
 //
-// 优先用 go-m4a 的 SeekTime：它按 presentation time 在 stts 的**精确帧长**上
-// 定位（不是平均帧长），并且感知 edit list 的 priming —— UI 的 0 秒对应媒体里
-// EncoderDelay 之后的位置，所以有 priming 时目标帧会比「秒 × 采样率 / 帧长」
-// 晚一帧，正好落在目标真正所在的那一帧。SeekTime 成功时它内部已经把读游标
-// 移到该帧，调用方不用再 SeekSample；ok=false 表示 SeekTime 不可用（无 timing /
-// edit list 形状不规整 / 时间越界），frame 是按平均帧长估算的，调用方需自行
-// SeekSample 定位。
-func seekFrame(rd *m4a.Reader, seconds float64, frameSamples int) (frame int, ok bool) {
+// 优先用 demuxer 的 SeekTime：go-m4a 按 presentation time 在 stts 的**精确
+// 帧长**上定位（不是平均帧长），并且感知 edit list 的 priming；流式 fMP4
+// （fmp4Stream）则用 sidx 分片 + trun 采样时长定位。两者成功时内部都已经
+// 把读游标移到目标帧，调用方不用再 SeekSample；ok=false 表示 SeekTime 不可用
+// （无 timing / edit list 形状不规整 / 时间越界），frame 是按平均帧长估算的，
+// 调用方需自行 SeekSample 定位。
+func seekFrame(rd streamDemuxer, seconds float64, frameSamples int) (frame int, ok bool) {
 	if sample, _, err := rd.SeekTime(time.Duration(seconds * float64(time.Second))); err == nil {
 		return sample, true
 	}
@@ -938,11 +973,12 @@ func (p *pipeline) seek(seconds float64) error {
 
 	// fMP4（DASH 音轨）重新 m4a.NewReader 会把整条流的 moof 再扫一遍：
 	// 4 分钟的歌约 5MB、几小时的视频几百 MB，而且是在 procMu/outMu 里
-	// 同步做（拖动一次进度条就等一次）。go-m4a 的 Reader 支持任意位置
-	// 原地 SeekTime（含 EOF 之后），这类流就不必重开。合流 mp4 保持
-	// 原来的「重开 + 重新解析」路径不变。
+	// 同步做（拖动一次进度条就等一次）。有 sidx 的流由 fmp4Stream 直接
+	// 按分片原地 SeekTime；无 sidx 的 go-m4a fMP4 也支持任意位置原地
+	// SeekTime（含 EOF 之后），这类流都不必重开。合流 mp4 保持原来的
+	// 「重开 + 重新解析」路径不变。
 	rd := p.rd
-	if rd == nil || !fragmentedBrand(p.info.Brand) {
+	if rd == nil || !p.fragmented {
 		if _, err := p.rf.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
