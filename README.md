@@ -10,7 +10,7 @@
 
 Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，支持 Windows、macOS 和 Linux。它可以作为轻量音乐播放器，也适合用于课程、访谈、播客类视频和长视频内容的后台收听。
 
-当前稳定版：**3.1.15**（mygo 原生版）。从旧 Tauri 版升级会自动迁移，详见[从 Tauri 版升级](#从-tauri-版升级)。
+当前稳定版：**3.1.2**（mygo 原生版）。从旧 Tauri 版升级会自动迁移，详见[从 Tauri 版升级](#从-tauri-版升级)。
 
 ### 功能特性
 
@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 **安装指定版本：**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 3.1.15
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 3.1.2
 ```
 
 #### Windows
@@ -101,7 +101,7 @@ Homebrew tap（`vst93/tap/bili-fm`）可能暂时仍是旧 Tauri 版本；使用
 推荐使用上方一键安装命令。脚本会下载原生 pacman 包，并自动处理旧版脚本手工安装遗留的未托管文件。也可从 [GitHub Releases](https://github.com/vst93/bili-fm/releases) 下载后手动安装：
 
 ```bash
-sudo pacman -U ./bili-FM-3.1.15-linux-x86_64.pkg.tar.zst
+sudo pacman -U ./bili-FM-3.1.2-linux-x86_64.pkg.tar.zst
 ```
 
 pacman 会自动安装 `webkit2gtk-4.1` 等依赖，并完整跟踪应用文件。卸载可执行 `sudo pacman -R bili-fm`。
@@ -109,7 +109,7 @@ pacman 会自动安装 `webkit2gtk-4.1` 等依赖，并完整跟踪应用文件�
 ##### Ubuntu / Debian
 
 ```bash
-sudo apt install ./bili-FM-3.1.15-linux-x86_64.deb
+sudo apt install ./bili-FM-3.1.2-linux-x86_64.deb
 ```
 
 > 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
@@ -119,7 +119,7 @@ sudo apt install ./bili-FM-3.1.15-linux-x86_64.deb
 一键安装脚本会自动使用 dnf、yum 或 zypper。手动安装示例：
 
 ```bash
-sudo dnf install ./bili-FM-3.1.15-linux-x86_64.rpm
+sudo dnf install ./bili-FM-3.1.2-linux-x86_64.rpm
 ```
 
 Linux 不再发布 AppImage。AppImage 捆绑的 WebKit 运行时在部分 Mesa/滚动发行版环境中会出现白屏或 EGL 初始化失败；原生包直接使用系统 WebKit2GTK，兼容性和包管理体验更稳定。
@@ -229,7 +229,7 @@ go tool mygo build   # 出本机安装包到 app/build/
 
 Bili FM is a cross-platform desktop application that lets you listen to Bilibili video content as audio. It supports Windows, macOS, and Linux. It works as a lightweight music player and is also great for courses, interviews, podcasts, and long-form video content for background listening.
 
-Current stable release: **3.1.15** (mygo native build). Users on the old Tauri build are migrated automatically; see [Upgrading from Tauri](#upgrading-from-tauri).
+Current stable release: **3.1.2** (mygo native build). Users on the old Tauri build are migrated automatically; see [Upgrading from Tauri](#upgrading-from-tauri).
 
 ### Features
 
@@ -284,7 +284,7 @@ curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.
 **Install a specific version:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 3.1.15
+curl -fsSL https://raw.githubusercontent.com/vst93/bili-fm/main/scripts/install.sh | bash -s -- --version 3.1.2
 ```
 
 #### Windows
@@ -320,7 +320,7 @@ The Homebrew tap (`vst93/tap/bili-fm`) may still point at the old Tauri build. C
 The quick-install command above is recommended. It installs a native pacman package and migrates unmanaged files left by older versions of the script. To install a package downloaded from [GitHub Releases](https://github.com/vst93/bili-fm/releases) manually:
 
 ```bash
-sudo pacman -U ./bili-FM-3.1.15-linux-x86_64.pkg.tar.zst
+sudo pacman -U ./bili-FM-3.1.2-linux-x86_64.pkg.tar.zst
 ```
 
 pacman installs dependencies such as `webkit2gtk-4.1` and tracks all application files. Remove the app with `sudo pacman -R bili-fm`.
@@ -328,7 +328,7 @@ pacman installs dependencies such as `webkit2gtk-4.1` and tracks all application
 ##### Ubuntu / Debian
 
 ```bash
-sudo apt install ./bili-FM-3.1.15-linux-x86_64.deb
+sudo apt install ./bili-FM-3.1.2-linux-x86_64.deb
 ```
 
 > Requires Ubuntu 24.04+ (webkit2gtk-4.1). Ubuntu 22.04 only has 4.0, which is incompatible.
@@ -338,7 +338,7 @@ sudo apt install ./bili-FM-3.1.15-linux-x86_64.deb
 The quick installer automatically uses dnf, yum, or zypper. For manual installation:
 
 ```bash
-sudo dnf install ./bili-FM-3.1.15-linux-x86_64.rpm
+sudo dnf install ./bili-FM-3.1.2-linux-x86_64.rpm
 ```
 
 AppImage is no longer published. Its bundled WebKit runtime can produce blank windows or EGL initialization failures with some Mesa and rolling-release configurations. Native packages use the system WebKit2GTK runtime and provide more reliable package management.
