@@ -28,10 +28,18 @@ def call(method, path):
 
 
 def list_releases():
-    status, body = call("GET", "/releases?per_page=100")
-    if status >= 300:
-        raise SystemExit(f"list releases failed: {status} {body[:300]}")
-    return json.loads(body)
+    # Gitee 的 releases 列表接口对 per_page 有限制（100 会被拒），
+    # 用 20 一页翻。
+    out = []
+    for page in range(1, 11):
+        status, body = call("GET", f"/releases?page={page}&per_page=20")
+        if status >= 300:
+            raise SystemExit(f"list releases failed: {status} {body[:300]}")
+        batch = json.loads(body)
+        out.extend(batch)
+        if len(batch) < 20:
+            break
+    return out
 
 
 def main():
