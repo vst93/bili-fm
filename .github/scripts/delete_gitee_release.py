@@ -18,7 +18,8 @@ BASE = "https://gitee.com/api/v5/repos/vst93/bili-fm"
 
 
 def call(method, path):
-    url = BASE + path + "?" + urllib.parse.urlencode({"access_token": TOKEN})
+    sep = "&" if "?" in path else "?"
+    url = BASE + path + sep + urllib.parse.urlencode({"access_token": TOKEN})
     req = urllib.request.Request(url, method=method)
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
