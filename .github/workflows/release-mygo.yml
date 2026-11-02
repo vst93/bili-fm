@@ -179,10 +179,15 @@ jobs:
           if gh release view "mygo-v$VERSION" >/dev/null 2>&1; then
             echo "release 已存在，跳过创建"
           else
+            # 一律先建成预览版：mygo 生成增量包（.delta）时要读
+            # releases/latest 上的 update-<target>.json，而最新 release 一旦
+            # 是这次还没传资产的新包，就取不到清单 → 整个 release 没有 delta。
+            # 先挂成 prerelease，latest 仍指向上一个稳定版，构建期间就能正常
+            # 算增量；等资产全部传完，再由 release job 翻成正式版。
             gh release create "mygo-v$VERSION" \
               --title "bili-FM $VERSION" \
               --notes-file - \
-              $([ "$PRE" = "true" ] && echo "--prerelease") <<< "$NOTES"
+              --prerelease <<< "$NOTES"
           fi
 
   # ── 各平台构建 ──────────────────────────────────────────────────────
@@ -450,6 +455,17 @@ jobs:
           done
           [ "$FAIL" = "0" ] || exit 1
           echo "更新清单校验通过"
+
+      - name: 稳定版翻成正式版
+        # prepare 里一律先建 prerelease（为了让增量包能读到上一个稳定版的
+        # 清单），资产传完、清单校验通过后再翻正式版并指向 latest。
+        if: needs.prepare.outputs.prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release edit "mygo-v$VERSION" --repo "${{ github.repository }}" \
+            --prerelease=false --latest --title "bili-FM $VERSION"
 
       - name: 完成
         env:
