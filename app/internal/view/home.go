@@ -89,6 +89,7 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 				dark:  a.Theme.glassIsDark(),
 				blur:  liquidBlurRadius,
 				lens:  true,
+				edge:  true,
 				sheen: sheenGlassBaked,
 			})
 		}
@@ -97,6 +98,9 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 			Material(mat).
 			// 原版 ::after 的 conic 描光 + 色散边（玻璃材质只管 ::before 那层）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
+				if !a.Theme.classicGlass() {
+					return // 新主题的厚边由材质画
+				}
 				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.surfaceDark(), false))
 			})
 		// 原版 box-shadow 走 --liquid-shadow / --liquid-shadow-lifted 二选一（

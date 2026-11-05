@@ -144,6 +144,7 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 		dark:  t.glassIsDark(),
 		blur:  liquidBlurRadius,
 		lens:  true,
+		edge:  true,
 		sheen: playerBarSheen(t),
 	}))
 }

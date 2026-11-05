@@ -273,3 +273,31 @@ func TestGlassContrastAtDefaultTint(t *testing.T) {
 		t.Logf("暗主题最暗背景对比度 = %.2f", got)
 	}
 }
+
+// TestGlassThemeRowClick 实测设置菜单里点「表面材质」真的会切主题并让下一帧
+// 换材质。这条覆盖 controller 之外的全部视图路径：按钮点击 → Act 回调 →
+// a.GlassTheme → Shell 重推主题 → 菜单标签/滑杆变化。
+func TestGlassThemeRowClick(t *testing.T) {
+	a, tst := settingsProbe(t, 12)
+	a.Act.SetGlassTheme = func(g GlassTheme) {
+		a.GlassTheme = g
+		a.RefreshTheme()
+	}
+	if err := tst.Click("设置"); err != nil {
+		t.Fatalf("点设置键失败：%v", err)
+	}
+	tst.Frame()
+	if err := tst.Click("表面材质"); err != nil {
+		t.Fatalf("点「表面材质」失败：%v", err)
+	}
+	tst.Frame()
+	if a.GlassTheme != GlassLight {
+		t.Fatalf("点击后 GlassTheme = %v，应为 GlassLight", a.GlassTheme)
+	}
+	if _, ok := tst.Find("玻璃浓度（明）"); !ok {
+		t.Errorf("切到液态玻璃后没有出现浓度滑杆：%v", tst.Texts())
+	}
+	if _, ok := tst.Find("液态玻璃·明"); !ok {
+		t.Errorf("菜单标签没有更新到「液态玻璃·明」：%v", tst.Texts())
+	}
+}

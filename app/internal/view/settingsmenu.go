@@ -138,6 +138,13 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			}
 			ui.Box(c).FillWidth().Height(1).Margin(4, 0).Shrink(0).
 				Background(ui.Hex("#64748b").Alpha(0.16))
+			// 表面材质放在动作条目之后、播放偏好之前：开箱可见，不用滚到菜单
+			// 最底部找。经典主题下只多这一行；液态玻璃下再展开两个浓度滑杆。
+			a.settingsThemeRow(c)
+			if !a.Theme.classicGlass() {
+				a.settingsTintRow(c, "玻璃浓度（明）", &a.GlassTintLight)
+				a.settingsTintRow(c, "玻璃浓度（暗）", &a.GlassTintDark)
+			}
 			a.settingsToggle(c, "桌面字幕", a.LyricsEnabled, func() {
 				if a.Act.ToggleDesktopLyrics != nil {
 					a.Act.ToggleDesktopLyrics()
@@ -158,13 +165,6 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.Act.ToggleRadio()
 				}
 			})
-			// 表面材质：经典（原有 CSS 复刻）/ 液态玻璃·明 / 液态玻璃·暗。
-			// 放在最末，经典主题下菜单前几项的位置与原来一致。
-			a.settingsThemeRow(c)
-			if !a.Theme.classicGlass() {
-				a.settingsTintRow(c, "玻璃浓度（明）", &a.GlassTintLight)
-				a.settingsTintRow(c, "玻璃浓度（暗）", &a.GlassTintDark)
-			}
 		})
 	})
 }

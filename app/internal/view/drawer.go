@@ -265,6 +265,7 @@ func (a *App) drawer(c *ui.Context) {
 				dark:       a.Theme.glassIsDark(),
 				blur:       drawerBlurRadius,
 				lens:       true,
+				edge:       true,
 				denseFloor: 0.7,
 				inner:      true,
 				reading:    true,
@@ -278,7 +279,10 @@ func (a *App) drawer(c *ui.Context) {
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
 				// exclude，不占布局）。::after 没有 opacity 覆写 ⇒ 整圈 1；面板面积大，
-				// 走 paintPlayerRim 的定向光带分支。
+				// 走 paintPlayerRim 的定向光带分支。新主题的厚边由材质画。
+				if !a.Theme.classicGlass() {
+					return
+				}
 				paintPlayerRim(p, r, 18, 1)
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).

@@ -4,6 +4,8 @@ import (
 	"runtime"
 
 	"github.com/egoist/mygo"
+
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // setupAppMenu 装 macOS 顶端的**原生菜单栏**，对齐 Tauri 原版
@@ -64,6 +66,17 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			c.menuCheckbox("弹幕热力", c.app != nil && c.app.HeatOn, c.menuToggleHeat),
 			c.menuCheckbox("顺着听", c.app != nil && c.app.RadioOn, c.menuToggleRadio),
 			mygo.Separator(),
+			// 表面材质 / 浓度：macOS 没有窗口内设置菜单，只能放进系统菜单。
+			// 浓度用三档预设（原生菜单放不下连续滑杆），与窗口内滑杆共享同一
+			// 份 App 字段与偏好键。
+			{Label: "表面材质", Submenu: []*mygo.MenuItem{
+				c.menuGlassRadio("经典", view.GlassClassic),
+				c.menuGlassRadio("液态玻璃·明", view.GlassLight),
+				c.menuGlassRadio("液态玻璃·暗", view.GlassDark),
+			}},
+			{Label: "玻璃浓度（明）", Submenu: c.menuTintRadios(false)},
+			{Label: "玻璃浓度（暗）", Submenu: c.menuTintRadios(true)},
+			mygo.Separator(),
 			// 隐身入口上移（见 app/internal/view/settingsmenu.go）：它影响所有
 			// 列表的云端进度同步，藏在历史抽屉里太深；历史抽屉原开关保留。
 			{Label: "隐身模式", Type: mygo.MenuItemCheckbox, Checked: c.app != nil && c.app.Incognito,
@@ -73,6 +86,100 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 				Click: func(*mygo.MenuItem, *mygo.Window) { c.quit() }},
 		}},
 	}
+}
+
+// glassTintPresets 是原生菜单能提供的三档浓度（0..1.5 的连续值由窗口内
+// 滑杆负责；macOS 没有窗口内设置菜单，用预设覆盖常用档）。
+var glassTintPresets = []struct {
+	label string
+	value float64
+}{
+	{"淡", 0.6},
+	{"标准", 1.0},
+	{"浓", 1.4},
+}
+
+// menuGlassRadio 建一个表面材质单选项。
+func (c *controller) menuGlassRadio(label string, g view.GlassTheme) *mygo.MenuItem {
+	it := &mygo.MenuItem{
+		Label:   label,
+		Type:    mygo.MenuItemRadio,
+		Checked: c.app != nil && c.app.GlassTheme == g,
+	}
+	it.Click = func(*mygo.MenuItem, *mygo.Window) {
+		c.setGlassTheme(g)
+		c.syncMenuGlass()
+	}
+	c.menuGlass[int(g)] = it
+	return it
+}
+
+// menuTintRadios 建一档浓度的三个预设项。
+func (c *controller) menuTintRadios(dark bool) []*mygo.MenuItem {
+	out := make([]*mygo.MenuItem, 0, len(glassTintPresets))
+	for i, p := range glassTintPresets {
+		i, p := i, p
+		it := &mygo.MenuItem{Label: p.label, Type: mygo.MenuItemRadio}
+		it.Checked = c.app != nil && c.tintFor(dark) == p.value
+		it.Click = func(*mygo.MenuItem, *mygo.Window) {
+			if c.app == nil {
+				return
+			}
+			if dark {
+				c.app.GlassTintDark = p.value
+			} else {
+				c.app.GlassTintLight = p.value
+			}
+			c.persistGlassTint()
+			c.syncMenuGlass()
+		}
+		if dark {
+			c.menuTintDark[i] = it
+		} else {
+			c.menuTintLight[i] = it
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+func (c *controller) tintFor(dark bool) float64 {
+	if c.app == nil {
+		return 1
+	}
+	if dark {
+		return c.app.GlassTintDark
+	}
+	return c.app.GlassTintLight
+}
+
+// syncMenuGlass 把原生单选组的勾选态同步到 App（窗口内菜单/滑杆改动后也调）。
+func (c *controller) syncMenuGlass() {
+	if c.app == nil {
+		return
+	}
+	for i, it := range c.menuGlass {
+		if it != nil {
+			it.SetChecked(int(c.app.GlassTheme) == i)
+		}
+	}
+	for i, it := range c.menuTintLight {
+		if it != nil {
+			it.SetChecked(absF64(c.app.GlassTintLight-glassTintPresets[i].value) < 0.05)
+		}
+	}
+	for i, it := range c.menuTintDark {
+		if it != nil {
+			it.SetChecked(absF64(c.app.GlassTintDark-glassTintPresets[i].value) < 0.05)
+		}
+	}
+}
+
+func absF64(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // menuCheckbox 建一个原生复选框并记下指针，供其它入口切换后同步勾选态。

@@ -61,6 +61,10 @@ type glassOptions struct {
 	// 也换烟熏，正文会失去对比；这类面保持亮玻璃，只让浮动玻璃层（搜索、
 	// 播放栏、菜单、toast、弹层）跟着主题变。
 	reading bool
+	// edge 由材质自己画厚玻璃的边（左上亮、右下淡 + 0.5px 暗轮廓）。
+	// 只给原本没有边框/聚光描边的 hero 表面（搜索、播放栏、抽屉），
+	// 菜单/toast/弹层沿用各自的 Border/InsetShadow，避免双层描边。
+	edge bool
 }
 
 // liquidGlass 是一块玻璃表面：材质参数来自 Theme 的 glassState，每个表面
@@ -152,6 +156,33 @@ func (g liquidGlassMaterial) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]
 	} else if g.o.inner {
 		paintGlassInnerLight(p, box, radii[0])
 	}
+	if g.o.edge {
+		paintGlassEdge(p, box, radii[0])
+	}
+}
+
+// paintGlassEdge 画材质自己的「厚板边缘」：左上 1.5px 亮、右下淡，外加一圈
+// 0.5px 暗轮廓。它替代经典主题的 conic 聚光描边（hero 表面在新主题下不再
+// 调 paintPlayerRim），这样即使背后是平滑渐变，边缘也读得出玻璃的厚度。
+func paintGlassEdge(p *ui.Painter, box ui.Rect, radius float32) {
+	if box.W < 2 || box.H < 2 {
+		return
+	}
+	const w = 1.5
+	white := ui.Hex("#ffffff")
+	// 暗轮廓在亮边下面，先把形状收住。
+	p.Stroke(ui.Rect{X: box.X + 0.25, Y: box.Y + 0.25, W: box.W - 0.5, H: box.H - 0.5},
+		ui.Hex("#000000").Alpha(0.06), max(radius-0.25, 0), 0.5)
+	p.Clip(box, radius, func() {
+		// 上：左亮右淡；左：上亮下淡。
+		p.FillGradient(ui.Rect{X: box.X, Y: box.Y, W: box.W, H: w},
+			ui.LinearGradient{From: white.Alpha(0.95), To: white.Alpha(0.35), Angle: 90}, 0)
+		p.FillGradient(ui.Rect{X: box.X, Y: box.Y, W: w, H: box.H},
+			ui.LinearGradient{From: white.Alpha(0.95), To: white.Alpha(0.28), Angle: 180}, 0)
+		// 下 / 右：更淡的一圈。
+		p.Fill(ui.Rect{X: box.X, Y: box.Y + box.H - w, W: box.W, H: w}, white.Alpha(0.30), 0)
+		p.Fill(ui.Rect{X: box.X + box.W - w, Y: box.Y, W: w, H: box.H}, white.Alpha(0.38), 0)
+	})
 }
 
 // paintGlassInnerLight 是材质内层「从左上来的一团光」：白 24% 到 55% 处

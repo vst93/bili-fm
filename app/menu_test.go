@@ -73,6 +73,7 @@ func TestAppMenuTemplate(t *testing.T) {
 	var plain []*mygo.MenuItem
 	var incognito *mygo.MenuItem
 	toggles := map[string]*mygo.MenuItem{}
+	glass := map[string]*mygo.MenuItem{}
 	for _, it := range settings.Submenu {
 		if it.Type == mygo.MenuItemSeparator {
 			continue
@@ -83,6 +84,10 @@ func TestAppMenuTemplate(t *testing.T) {
 		}
 		if it.Type == mygo.MenuItemCheckbox {
 			toggles[it.Label] = it
+			continue
+		}
+		if it.Label == "表面材质" || it.Label == "玻璃浓度（明）" || it.Label == "玻璃浓度（暗）" {
+			glass[it.Label] = it
 			continue
 		}
 		plain = append(plain, it)
@@ -123,6 +128,26 @@ func TestAppMenuTemplate(t *testing.T) {
 	}
 	if incognito.Click == nil {
 		t.Error("隐身模式没有点击回调")
+	}
+	// 表面材质 / 浓度：macOS 只能走原生菜单，三个材质 + 各三档浓度都是
+	// 单选（radio），且点击回调非空。
+	for _, label := range []string{"表面材质", "玻璃浓度（明）", "玻璃浓度（暗）"} {
+		it := glass[label]
+		if it == nil {
+			t.Fatalf("macOS 设置菜单缺 %q 子菜单", label)
+		}
+		want := 3
+		if len(it.Submenu) != want {
+			t.Errorf("%q 子菜单 %d 项，应为 %d", label, len(it.Submenu), want)
+		}
+		for i, sub := range it.Submenu {
+			if sub.Type != mygo.MenuItemRadio {
+				t.Errorf("%q[%d] Type = %v，应为 Radio", label, i, sub.Type)
+			}
+			if sub.Click == nil {
+				t.Errorf("%q[%d] 没有点击回调", label, i)
+			}
+		}
 	}
 }
 
@@ -229,5 +254,69 @@ func TestMenuPlaybackTogglesInitialState(t *testing.T) {
 				t.Error("顺着听菜单勾选未同步为 true")
 			}
 		}
+	}
+}
+
+// TestMenuGlassRadioClick 实测 macOS 原生菜单的材质单选：点「液态玻璃·明」
+// 后 App 字段、偏好落盘与单选勾选态都跟上。
+func TestMenuGlassRadioClick(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{GlassTheme: view.GlassClassic}
+	c := &controller{app: a, kv: kv}
+	items := menuTemplate(t, c)
+	// 取「设置」子菜单里的「表面材质」。
+	var themeItem *mygo.MenuItem
+	for _, it := range items[2].Submenu {
+		if it.Label == "表面材质" {
+			themeItem = it
+			break
+		}
+	}
+	if themeItem == nil {
+		t.Fatal("缺表面材质子菜单")
+	}
+	// 点击「液态玻璃·明」单选项。
+	for _, it := range themeItem.Submenu {
+		if it.Label == "液态玻璃·明" {
+			it.Click(it, nil)
+			break
+		}
+	}
+	if a.GlassTheme != view.GlassLight {
+		t.Errorf("点击后 GlassTheme = %v，应为 GlassLight", a.GlassTheme)
+	}
+	if got := kv.String(prefGlassTheme); got != "light" {
+		t.Errorf("surfaceTheme = %q，应为 light", got)
+	}
+	if themeItem.Submenu[1].IsChecked() == false {
+		t.Error("液态玻璃·明没有勾上")
+	}
+}
+
+// TestLoadPrefsGlassDefault 钉住首次运行直接进液态玻璃·明（旧配置没有
+// surfaceTheme 键），而显式 classic 仍能保持经典。
+func TestLoadPrefsGlassDefault(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{}
+	c := &controller{app: a, kv: kv}
+	c.loadPrefs()
+	if a.GlassTheme != view.GlassLight {
+		t.Errorf("空配置默认主题 = %v，应为 GlassLight", a.GlassTheme)
+	}
+	if a.GlassTintLight != 1 || a.GlassTintDark != 1 {
+		t.Errorf("空配置 tint = %v/%v，应为 1/1", a.GlassTintLight, a.GlassTintDark)
+	}
+	_ = kv.SetString(prefGlassTheme, "classic")
+	a2 := &view.App{}
+	c2 := &controller{app: a2, kv: kv}
+	c2.loadPrefs()
+	if a2.GlassTheme != view.GlassClassic {
+		t.Errorf("显式 classic = %v，应为 GlassClassic", a2.GlassTheme)
 	}
 }

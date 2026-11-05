@@ -155,6 +155,10 @@ type controller struct {
 	menuLyrics *mygo.MenuItem
 	menuHeat   *mygo.MenuItem
 	menuRadio  *mygo.MenuItem
+	// macOS 原生菜单里的表面材质 / 浓度单选组（非 macOS 用窗口内设置菜单）。
+	menuGlass     [3]*mygo.MenuItem
+	menuTintLight [3]*mygo.MenuItem
+	menuTintDark  [3]*mygo.MenuItem
 }
 
 func main() {

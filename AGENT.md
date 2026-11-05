@@ -28,7 +28,8 @@
 
 ## 表面材质主题（2026-11）
 
-- 设置菜单最末的「表面材质」在**经典**（原有 CSS 复刻，默认）/ **液态玻璃·明** / **液态玻璃·暗** 之间切换；偏好键 `surfaceTheme`，两档 tint 缩放 `glassTintLight` / `glassTintDark`（0..1.5，1 为设计值）。
+- 表面材质在**经典**（原有 CSS 复刻）/ **液态玻璃·明** / **液态玻璃·暗** 之间切换；没有 `surfaceTheme` 记录时默认进液态玻璃·明，用户切回经典后写入 `classic` 并保持。偏好键 `surfaceTheme`，两档 tint 缩放 `glassTintLight` / `glassTintDark`（0..1.5，1 为设计值）。
+- 入口：Windows / Linux 是标题栏「设置」下拉里的「表面材质」行（动作条目之后、播放偏好之前）；macOS 没有窗口内设置菜单，走系统菜单栏「设置 → 表面材质 / 玻璃浓度」，浓度给淡/标准/浓三档预设。两处共享同一份 App 字段。切换时会弹一条 `表面材质：…` toast 作反馈。
 - 新材质在 `app/internal/view/liquidglass.go`：用 mygo `glass.Effect` 的 tint + 色调曲线复刻 `brightness()×saturate()`，`bezel/refraction` 取代 Web 的 SVG 位移贴图；原生没有三通道色散，保留 `--liquid-chromatic` 的 0.5px 暖/冷边作等价物。
 - 暗主题是**烟熏玻璃压在亮色时段壁纸上**，不是暗色场景，所以墨色仍是深墨（翻白字在浅壁纸上会掉到 2:1）；抽屉这类正文阅读面（`glassOptions.reading`）保持亮玻璃。
 - 经典路径完全保留；新主题只换表面，不改布局、字号、圆角、图标与文案。减少透明度时新材质退成全不透明 `GlassSolid`。

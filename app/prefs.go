@@ -126,15 +126,18 @@ func (c *controller) loadPrefs() {
 	if v := c.kv.String(prefHeatOn); v != "" {
 		a.HeatOn = v != "false"
 	}
-	// 表面材质：默认经典（旧配置没有这个键时保持现有外观）。
+	// 表面材质：没有记录（新装 / 从旧版升级）时直接进液态玻璃·明，让新材质
+	// 开箱可见；用户切回「经典」后写入 classic，之后保持经典。
 	switch c.kv.String(prefGlassTheme) {
-	case "light":
-		a.GlassTheme = view.GlassLight
+	case "classic":
+		a.GlassTheme = view.GlassClassic
 	case "dark":
 		a.GlassTheme = view.GlassDark
 	default:
-		a.GlassTheme = view.GlassClassic
+		a.GlassTheme = view.GlassLight
 	}
+	// 没有记录时回到设计值 1（旧配置 / 刚建的 App 字段是零值）。
+	a.GlassTintLight, a.GlassTintDark = 1, 1
 	if raw := c.kv.String(prefGlassTintLight); raw != "" {
 		if v := parseFloat(raw); v >= 0 && v <= 1.5 {
 			a.GlassTintLight = v
@@ -163,7 +166,11 @@ func (c *controller) setGlassTheme(g view.GlassTheme) {
 	}
 	_ = c.kv.SetString(prefGlassTheme, name)
 	a.RefreshTheme()
-	a.Win.Update(func() {})
+	c.syncMenuGlass()
+	a.Notify("表面材质：" + g.String())
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
 }
 
 // persistGlassTint 把两个 tint 缩放落盘；滑块拖动时调用。
@@ -171,7 +178,10 @@ func (c *controller) persistGlassTint() {
 	a := c.app
 	_ = c.kv.SetString(prefGlassTintLight, strconv.FormatFloat(a.GlassTintLight, 'f', -1, 64))
 	_ = c.kv.SetString(prefGlassTintDark, strconv.FormatFloat(a.GlassTintDark, 'f', -1, 64))
-	a.Win.Update(func() {})
+	c.syncMenuGlass()
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
 }
 
 // validHexColor 接受 #rrggbb（桌面字幕配置只开放这一种格式）。
