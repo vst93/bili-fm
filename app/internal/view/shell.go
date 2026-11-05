@@ -47,6 +47,15 @@ func (a *App) Shell(c *ui.Context) {
 	if hc != a.Theme.HighContrast || rt != a.Theme.ReducedTransparency {
 		a.Theme = a.Theme.withPreferences(hc, rt)
 	}
+	// 用户表面主题 / tint 缩放每帧叠在时段基态上：滑块拖动时下一帧就生效。
+	// 主题换了要先把整份令牌从时段基态重建（暗主题改写过播放栏墨色，
+	// 直接叠 Classic 不会自动还原）。
+	if a.Theme.GlassTheme != a.GlassTheme {
+		a.RefreshTheme()
+	} else {
+		a.Theme = a.Theme.withGlassTheme(a.GlassTheme).withGlassTint(
+			float32(a.GlassTintLight), float32(a.GlassTintDark))
+	}
 	if a.Mini {
 		a.MiniShell(c)
 		return

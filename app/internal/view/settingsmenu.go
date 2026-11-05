@@ -3,7 +3,6 @@ package view
 import (
 	"time"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -53,6 +52,19 @@ func settingsItems() []string {
 //	      （内高光仍在：原版 :active 只覆盖 background，不重置 :hover 的 box-shadow）
 func settingsItemPaint(t Theme, hovered, pressed bool) (bg ui.Color, inset bool, scale float32) {
 	scale = 1
+	if !t.classicGlass() {
+		// 新主题：行高亮是「更亮的一层玻璃」（白 .42 / 暗主题 .18），
+		// 不是经典主题的 .38 灰洗。
+		switch {
+		case pressed:
+			bg, inset, scale = t.GlassRowHover, true, 0.97
+		case hovered:
+			bg, inset = t.GlassRowHover, true
+		default:
+			bg = ui.Transparent
+		}
+		return bg, inset, scale
+	}
 	switch {
 	case pressed:
 		bg, inset, scale = t.GlassActive, true, 0.97
@@ -79,14 +91,18 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			// 用 glass.Blur（只模糊）+ 自铺白 .24 才对得上；此前用 Regular
 			// 玻璃（glass.Glass{}）会把面板提亮 —— 实测面板右中比背景亮 +20.9
 			// 灰阶，原版白 .24 只值 +6，整块比原版白一档。
-			Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+			// 经典 = glass.Blur + Draw 自铺白 .24；新主题 = liquidGlass
+			// （tint/色调/原有 sheen 一次铺完）。菜单是动画面板，不做 rim 位移。
+			Material(t.panelMaterial(glassOptions{
+				blur:       glassBlurSigma,
+				denseFloor: 0.35,
+				sheen:      sheenGlassBaked,
+			})).
 			Border(1, t.GlassBorder).
-			// 原版 `#settings-menu { background-image: var(--glass-sheen-static)
-			// !important }`（globals.css:1928）：在玻璃底之上、条目之下再铺一层
-			// 「左上径向热点 + 170° 斜向洗光」。此前只画了玻璃材质，面板顶左比
-			// 原版平一档（同为玻璃浮层的抽屉 tab / 搜索框 / 播放栏都已铺这条洗光，
-			// 只有设置菜单与合作 UP 主下拉漏着）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
+				if !t.classicGlass() {
+					return // 新主题的 tint/sheen 由 material 铺
+				}
 				paintGlassPanelFill(p, r, settingsMenuRadius, t.Glass)
 				paintBakedSheen(p, r, settingsMenuRadius, sheenGlassBaked)
 			}).
@@ -113,7 +129,7 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 				}
 				item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
 				item.Children(func() {
-					ui.Text(c, label).FontSize(14).TextColor(settingsItemInk)
+					ui.Text(c, label).FontSize(14).TextColor(a.Theme.glassMenuInk())
 				})
 				if item.Clicked() {
 					a.ShowSettings = false
@@ -135,13 +151,20 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			// 一句话说明播放栏里的两种图形：底部面积是弹幕密度，进度条
 			// 上的短竖线是章节分界，不是第二组热力数据。
 			ui.Text(c, "面积=弹幕密度；短竖线=章节分界").
-				FontSize(11).TextColor(settingsItemInk.Alpha(0.65)).
+				FontSize(11).TextColor(a.Theme.glassMenuInk().Alpha(0.65)).
 				Padding(0, settingsItemPadX).Margin(0, 0, 6, 0)
 			a.settingsToggle(c, "顺着听", a.RadioOn, func() {
 				if a.Act.ToggleRadio != nil {
 					a.Act.ToggleRadio()
 				}
 			})
+			// 表面材质：经典（原有 CSS 复刻）/ 液态玻璃·明 / 液态玻璃·暗。
+			// 放在最末，经典主题下菜单前几项的位置与原来一致。
+			a.settingsThemeRow(c)
+			if !a.Theme.classicGlass() {
+				a.settingsTintRow(c, "玻璃浓度（明）", &a.GlassTintLight)
+				a.settingsTintRow(c, "玻璃浓度（暗）", &a.GlassTintDark)
+			}
 		})
 	})
 }
@@ -219,7 +242,7 @@ func (a *App) settingsToggle(c *ui.Context, label string, on bool, toggle func()
 	item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
 	item.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, label).FontSize(13).TextColor(settingsItemInk).Grow(1)
+			ui.Text(c, label).FontSize(13).TextColor(a.Theme.glassMenuInk()).Grow(1)
 			incognitoTrack(c, on)
 		})
 	})
@@ -249,4 +272,45 @@ func (a *App) chooseSettingsItem(label string) {
 			a.Act.Quit()
 		}
 	}
+}
+
+// settingsThemeRow 是设置菜单里的「表面材质」行：点击循环三套主题。
+func (a *App) settingsThemeRow(c *ui.Context) {
+	label := "表面材质：" + a.GlassTheme.String()
+	item := ui.ButtonBase(c.Key("settings-theme")).
+		FillWidth().Height(34).Padding(0, settingsItemPadX).
+		Justify(ui.Start).Radius(0).Label(label).
+		Tooltip("表面材质：" + a.GlassTheme.String())
+	bg, inset, scale := settingsItemPaint(a.Theme, item.Hovered(), item.Pressed())
+	item.Background(bg)
+	if inset {
+		item.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+	}
+	p := ui.Pose{}
+	if scale != 1 {
+		p.Scale = scale
+	}
+	item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+	item.Children(func() {
+		ui.Text(c, "表面材质").FontSize(14).TextColor(a.Theme.glassMenuInk()).Grow(1)
+		ui.Text(c, a.GlassTheme.String()).FontSize(12).
+			TextColor(a.Theme.glassMenuInk().Alpha(0.62))
+	})
+	if item.Clicked() && a.Act.SetGlassTheme != nil {
+		a.Act.SetGlassTheme(a.GlassTheme.Next())
+	}
+}
+
+// settingsTintRow 是液态玻璃主题下的浓度滑杆（0..1.5，1 为设计值）。
+func (a *App) settingsTintRow(c *ui.Context, label string, value *float64) {
+	row := ui.Row(c).FillWidth().Height(34).Padding(0, settingsItemPadX).
+		Gap(8).AlignItems(ui.Center)
+	row.Children(func() {
+		ui.Text(c, label).FontSize(11).TextColor(a.Theme.glassMenuInk().Alpha(0.80)).Grow(1)
+		s := ui.Slider(c, value, 0, 1.5).Width(72).Step(0.05).
+			Label("玻璃浓度：" + label)
+		if s.Changed() && a.Act.PersistGlassTint != nil {
+			a.Act.PersistGlassTint()
+		}
+	})
 }

@@ -259,3 +259,19 @@ func avatarLift(b ui.Element) {
 	}
 	b.AnimatePose(ui.Pose{Y: -1}, faceHoverAnim)
 }
+
+// topToolStyleForTheme 是 topToolStyleFor 的浅墨版本：暗主题下玻璃上的
+// 小键常态用浅墨、悬停用天蓝，底色用「更亮的一层玻璃」而不是灰白洗。
+func (t Theme) topToolStyleForTheme(k topToolKind, hovered, pressed bool) topToolStyle {
+	st := topToolStyleFor(k, hovered, pressed)
+	if t.GlassTheme != GlassDark {
+		return st
+	}
+	if hovered || pressed {
+		st.Bg = t.GlassRowHover
+		st.Ink = ui.Hex("#0284c7")
+	} else {
+		st.Ink = t.GlassInk
+	}
+	return st
+}

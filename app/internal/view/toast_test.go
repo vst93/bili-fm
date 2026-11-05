@@ -424,8 +424,8 @@ func TestToastBlurOnlyMaterial(t *testing.T) {
 		t.Errorf("Theme.GlassBorder = %v，应为白 .55 = alpha 140（--glass-border: rgba(255,255,255,0.55)）", b)
 	}
 	flat := flattenNoComments(t, "toast.go")
-	if !strings.Contains(flat, `Material(blurLayer(glass.Blur{Radius:glassBlurSigma}))`) {
-		t.Error("toast 底材质不是 glass.Blur（只模糊不染色）——Regular 玻璃会比原版白")
+	if !strings.Contains(flat, `blurLayer(glass.Blur{Radius:glassBlurSigma})`) {
+		t.Error("toast 经典主题底材质不是 glass.Blur（只模糊不染色）——Regular 玻璃会比原版白")
 	}
 	if strings.Contains(flat, "glass.Glass{}") {
 		t.Error("toast 仍用了 glass.Glass{}（Regular 材质会提亮，原版的背景已被内联渐变顶掉）")

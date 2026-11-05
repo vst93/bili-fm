@@ -26,6 +26,14 @@
   `git show tauri:src/...`；不要把旧代码合回 `main`。
 - **进度与计划在 `app/PLAN.md`**，接手先读它。
 
+## 表面材质主题（2026-11）
+
+- 设置菜单最末的「表面材质」在**经典**（原有 CSS 复刻，默认）/ **液态玻璃·明** / **液态玻璃·暗** 之间切换；偏好键 `surfaceTheme`，两档 tint 缩放 `glassTintLight` / `glassTintDark`（0..1.5，1 为设计值）。
+- 新材质在 `app/internal/view/liquidglass.go`：用 mygo `glass.Effect` 的 tint + 色调曲线复刻 `brightness()×saturate()`，`bezel/refraction` 取代 Web 的 SVG 位移贴图；原生没有三通道色散，保留 `--liquid-chromatic` 的 0.5px 暖/冷边作等价物。
+- 暗主题是**烟熏玻璃压在亮色时段壁纸上**，不是暗色场景，所以墨色仍是深墨（翻白字在浅壁纸上会掉到 2:1）；抽屉这类正文阅读面（`glassOptions.reading`）保持亮玻璃。
+- 经典路径完全保留；新主题只换表面，不改布局、字号、圆角、图标与文案。减少透明度时新材质退成全不透明 `GlassSolid`。
+- 改这块先跑 `app/internal/view/liquidglass_test.go` 的镜头/浓度/对比度测试，再跑 `./check.sh fast`。
+
 ## 协作分工
 
 - 代码改动一律派 pi（`pi --provider mmz --model deepseek-v4.1-flash --thinking high`），Hermes 只做规格、审 diff、独立复验、commit+push。Hermes 不得直接改代码（2026-09-11 用户令，此前三次自改 CSS 均引发回归）。

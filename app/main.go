@@ -774,6 +774,8 @@ func (c *controller) wireActions() {
 		ToggleRadio:         c.toggleRadio,
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		ToggleHeat:          c.toggleHeat,
+		SetGlassTheme:       c.setGlassTheme,
+		PersistGlassTint:    c.persistGlassTint,
 		PersistFollow:       c.persistFollowPrefs,
 		ToggleLyricsConfig:  c.toggleLyricsConfig,
 		UpdateLyricsConfig:  c.updateLyricsConfig,

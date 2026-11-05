@@ -85,6 +85,102 @@ type Theme struct {
 	// 白 .28 / 白 .20——轨道在深色玻璃上再铺原来那么亮就会糊成一条白带。
 	PlayerTrackBorder ui.Color
 	PlayerTrackRest   ui.Color
+
+	// ---- 液态玻璃材质令牌（原生版）----
+	//
+	// 原版是 CSS 的 `background-color` + `backdrop-filter` + `box-shadow` +
+	// `color` 四条声明；原生版没有 CSS，材质由 `liquidGlass`（liquidglass.go）
+	// 用 mygo 的 `glass.Effect` 读 backdrop 绘制。这里只存**状态**：亮色、
+	// 烟熏（播放栏深色时段）、亮色压在暗背景上，以及按背景算出的密度。
+	//
+	// 表面只选状态，不再各写一套色值 —— 与 CSS 令牌同一分工。
+	GlassLight    glassState
+	GlassDark     glassState
+	GlassOverDark glassState
+	// GlassDensity 是背景的视觉密度 0..1（亮→暗、平→花、灰→艳），把 tint
+	// 从 Thin 推到 Dense。贴壁纸的大面板可再用 glassOpts.denseFloor 抬下限。
+	GlassDensity float32
+	// GlassBackgroundLum 是时段壁纸去极值后的平均亮度，用来选墨色：低于
+	// 0.5 用浅墨，否则用现有深墨。
+	GlassBackgroundLum float32
+	// GlassInk / GlassInkMuted 是画在玻璃上的两级墨色（标题/正文 vs 次要）。
+	// 原版的固定色阶：深墨 #1e293b / 次级 #475569；浅墨 #f5f5fa / #ebebf5。
+	GlassInk      ui.Color
+	GlassInkMuted ui.Color
+	// GlassRowHover / GlassRowSelected 是玻璃上的行高亮：**更亮的一层玻璃**，
+	// 不是灰洗。悬停白 .42、选中白 .76。
+	GlassRowHover    ui.Color
+	GlassRowSelected ui.Color
+	// GlassSolid 是减少透明度 / 强制颜色时的不透明兜底面（同一种色调）。
+	GlassSolid ui.Color
+	// GlassTintScaleLight / Dark 是用户设置（0..1.5，1 为设计值）：分别缩放
+	// 亮色表面与烟熏表面的 tint 与提亮。每个状态各记一份。
+	GlassTintScaleLight float32
+	GlassTintScaleDark  float32
+	// GlassTheme 是用户选的表面主题：原有材质（经典）或新的液态玻璃明/暗。
+	// 它是「表面」这一层的开关，不改布局、字号、圆角或文案。
+	GlassTheme GlassTheme
+}
+
+// GlassTheme 是表面材质主题。Classic 保持产品原有的 CSS 复刻材质；
+// GlassLight / GlassDark 是新的液态玻璃两档（同一套 glass.Effect，只换状态）。
+type GlassTheme uint8
+
+const (
+	// GlassClassic 是原有材质：cssGlass（模糊 + 自铺底色）与 glass.Blur。
+	GlassClassic GlassTheme = iota
+	// GlassLight 是液态玻璃·明：白 6–22% tint，brightness 1.06，
+	// saturate 180%，深墨。
+	GlassLight
+	// GlassDark 是液态玻璃·暗（烟熏）：rgb(20 20 24) 16–38% tint，
+	// brightness 0.80，saturate 160%。产品的壁纸仍是亮色，所以墨色仍用
+	// 深墨 —— 这与既有烟熏播放栏的取法一致，不是为了暗色场景翻白字。
+	GlassDark
+)
+
+// String 是设置菜单里显示的名字。
+func (g GlassTheme) String() string {
+	switch g {
+	case GlassLight:
+		return "液态玻璃·明"
+	case GlassDark:
+		return "液态玻璃·暗"
+	default:
+		return "经典"
+	}
+}
+
+// Next 循环到下一套主题。
+func (g GlassTheme) Next() GlassTheme { return (g + 1) % 3 }
+
+// classicGlass 报告是否走原有材质。
+func (t Theme) classicGlass() bool { return t.GlassTheme == GlassClassic }
+
+// glassIsDark 报告新材质是否用烟熏状态。经典主题下仍按原来的 t.Dark
+// （只有播放栏在深色时段变烟熏）。
+func (t Theme) glassIsDark() bool {
+	if t.classicGlass() {
+		return t.Dark
+	}
+	return t.GlassTheme == GlassDark
+}
+
+// surfaceDark 是「播放栏/弹层这一族表面该按哪套墨色与阴影画」。经典主题
+// 跟时段（t.Dark）；新主题跟用户选的那套（明/暗），这样晚上选「明」不会
+// 一半键面又变成烟熏色。
+func (t Theme) surfaceDark() bool { return t.glassIsDark() }
+
+// glassState 是一种玻璃状态的材质参数。
+//
+// Tint 是不带 alpha 的染色（白 / rgb(20 20 24) / rgb(16 18 22)），Thin 与
+// Dense 是它在「背景稀」和「背景密」两端的 alpha；Brightness 与 Saturation
+// 是 `backdrop-filter` 的 brightness()/saturate()，在 `glass.Effect` 的色调
+// 曲线里精确等价（low=0, high=brightness, curve=1）。
+type glassState struct {
+	Tint        ui.Color
+	Thin, Dense float32
+	Brightness  float32
+	Saturation  float32
 }
 
 // darkPeriods 是背景较深、播放栏换烟熏玻璃的时段。
@@ -174,6 +270,43 @@ func ThemeFor(p Period) Theme {
 		PlayerTrackBorder: ui.Hex("#ffffff").Alpha(0.68),
 		PlayerTrackRest:   ui.Hex("#ffffff").Alpha(0.32),
 	}
+
+	// 液态玻璃：一次算出背景密度/亮度，三种状态共用。时段渐变是产品已知的
+	// 背景，所以这里采样它（5×3，去两端极值），而不是每帧回读像素；同时段
+	// 的所有表面共享同一份密度与墨色决定（原版「相邻表面共享一次判断」）。
+	stats := glassStatsFor(p, t.Ink)
+	t.GlassDensity = stats.density
+	t.GlassBackgroundLum = stats.lum
+	t.GlassLight = glassState{
+		Tint: ui.Hex("#ffffff"), Thin: 0.06, Dense: 0.22,
+		Brightness: 1.06, Saturation: 1.8 * stats.saturationKept,
+	}
+	// 烟熏档的上端收到 .26（规格的 38% 是给暗色场景的）：产品的壁纸
+	// 最暗仍是中亮灰蓝，38% 会把 #1e293b 正文压到 3:1 以下。16% 保留
+	// 既有烟熏播放栏的观感，.26 是「最暗时段仍过 3.5:1」的上限。
+	t.GlassDark = glassState{
+		Tint: ui.Hex("#141418"), Thin: 0.16, Dense: 0.22,
+		Brightness: 0.80, Saturation: 1.6 * stats.saturationKept,
+	}
+	t.GlassOverDark = glassState{
+		Tint: ui.Hex("#101216"), Thin: 0.10, Dense: 0.30,
+		Brightness: 0.85, Saturation: 1.7 * stats.saturationKept,
+	}
+	// 玻璃墨色取原版规格的「黑 86%」一档。原生没有 mix-blend-mode，所以
+	// 用不透明的近黑而不是 alpha，避免正文被背后的烟熏色抬亮。
+	t.GlassInk = ui.Hex("#0a0a0a")
+	t.GlassInkMuted = ui.Hex("#3c3c43")
+	if stats.lum < 0.5 {
+		// 原版只有「浅墨压在暗玻璃上」这一支；产品的时段壁纸都亮于 0.5，
+		// 所以实际走不到这里，但保留正确的判据。
+		t.GlassInk = ui.Hex("#f5f5fa")
+		t.GlassInkMuted = ui.Hex("#ebebf5").Alpha(0.64)
+	}
+	t.GlassRowHover = ui.Hex("#ffffff").Alpha(0.42)
+	t.GlassRowSelected = ui.Hex("#ffffff").Alpha(0.76)
+	t.GlassSolid = ui.Hex("#f2f6fa")
+	t.GlassTintScaleLight, t.GlassTintScaleDark = 1, 1
+	t.GlassTheme = GlassClassic
 
 	if darkPeriods[p.Name] {
 		t.Dark = true
@@ -276,7 +409,94 @@ func (t Theme) withPreferences(hc, rt bool) Theme {
 	if hc {
 		base = base.withHighContrast(true)
 	}
+	// withPreferences 从时段基态重建，会丢掉用户 tint / 表面主题；调用方
+	// 紧接着用 withGlassTint / withGlassTheme 叠回（见 Shell / RefreshTheme）。
+	base.GlassTintScaleLight, base.GlassTintScaleDark = t.GlassTintScaleLight, t.GlassTintScaleDark
+	base.GlassTheme = t.GlassTheme
 	return base
+}
+
+// withGlassTint 叠上用户设置的两个 tint 缩放（0..1.5，1 为设计值）。
+// 亮色表面与烟熏表面各记一份；时段切换时同一份值继续生效。
+func (t Theme) withGlassTint(light, dark float32) Theme {
+	t.GlassTintScaleLight = min(max(light, 0), 1.5)
+	t.GlassTintScaleDark = min(max(dark, 0), 1.5)
+	return t
+}
+
+// withGlassTheme 叠上用户选的表面材质主题。
+//
+// 明/暗两套主题各自带一套播放栏墨色与轨道令牌：新主题不跟时段走（否则
+// 晚上选「明」会一半键面又变回烟熏色）。经典主题不经过这段，行为不变。
+func (t Theme) withGlassTheme(g GlassTheme) Theme {
+	t.GlassTheme = g
+	switch g {
+	case GlassLight:
+		if !t.ReducedTransparency {
+			t.PlayerSurface = ui.Hex("#f1f8fd").Alpha(0.36)
+		}
+		t.PlayerBorder = ui.Hex("#ffffff").Alpha(0.72)
+		t.PlayerEdgeFade = ui.Hex("#bae6fd").Alpha(0.24)
+		t.PlayerButton = ui.Hex("#334155").Alpha(0.72)
+		t.PlayerTime = ui.Hex("#64748b")
+		t.PlayerTrackBorder = ui.Hex("#ffffff").Alpha(0.68)
+		t.PlayerTrackRest = ui.Hex("#ffffff").Alpha(0.32)
+		t.GlassInk = ui.Hex("#1e293b")
+		t.GlassInkMuted = ui.Hex("#475569")
+	case GlassDark:
+		// 注意：产品的「暗」是烟熏玻璃压在**亮色时段壁纸**上，不是暗色
+		// 场景。所以墨色仍是深墨（与既有烟熏播放栏一致）；把文字翻白会
+		// 让浅壁纸上的对比掉到 2:1。真正的暗色场景需要连同壁纸一起换，
+		// 不在这次「只换表面」的范围里。
+		if !t.ReducedTransparency {
+			t.PlayerSurface = ui.Hex("#141418").Alpha(0.22)
+		}
+		t.PlayerBorder = ui.Hex("#ffffff").Alpha(0.22)
+		t.PlayerEdgeFade = ui.Hex("#475569").Alpha(0.11)
+		t.PlayerButton = ui.Hex("#334155").Alpha(0.84)
+		t.PlayerTime = ui.Hex("#334155").Alpha(0.72)
+		t.PlayerTrackBorder = ui.Hex("#ffffff").Alpha(0.28)
+		t.PlayerTrackRest = ui.Hex("#ffffff").Alpha(0.20)
+		t.GlassRowHover = ui.Hex("#ffffff").Alpha(0.18)
+		t.GlassRowSelected = ui.Hex("#ffffff").Alpha(0.28)
+	}
+	return t
+}
+
+// glassBodyInk / glassMenuInk 是玻璃上正文/菜单文字的墨色：经典主题保持
+// 原有色值，新主题用 GlassInk（暗主题已在上面的 switch 里翻成浅墨）。
+func (t Theme) glassBodyInk() ui.Color {
+	if t.classicGlass() {
+		return ui.Hex("#1e293b")
+	}
+	return t.GlassInk
+}
+
+func (t Theme) glassMenuInk() ui.Color {
+	if t.classicGlass() {
+		return ui.Hex("#334155")
+	}
+	return t.GlassInk
+}
+
+// glassStateFor 选一种材质状态：烟熏表面用 Dark；亮色表面看背景亮度，
+// 低于 0.5 用「亮玻璃压在暗背景」那一支（浅墨）。
+func (t Theme) glassStateFor(dark bool) glassState {
+	if dark {
+		return t.GlassDark
+	}
+	if t.GlassBackgroundLum < 0.5 {
+		return t.GlassOverDark
+	}
+	return t.GlassLight
+}
+
+// glassTintScale 是某个状态此刻的用户缩放。
+func (t Theme) glassTintScale(dark bool) float32 {
+	if dark {
+		return t.GlassTintScaleDark
+	}
+	return t.GlassTintScaleLight
 }
 
 // CoverPlaceholder 是封面还没加载出来时的底色。
@@ -289,41 +509,12 @@ func (t Theme) CoverPlaceholder() ui.Color {
 
 // drawerPanelFill 是抽屉面板（`[data-slot="wrapper"] > section::before`）的底色。
 //
-// 原版面板是 `--liquid-bg`(rgba(255,255,255,.22)) + backdrop-filter blur(14px)：
-// 模糊把背后的内容揉开，22% 白就够读。原生界面画不了 backdrop-filter（见
-// PLAN.md 的取舍），只能拿半透明填充近似。早先为了阅读性直接用了原版给无
-// backdrop-filter 平台准备的兜底值 `--liquid-bg: rgba(255,255,255,.9)`——
-// 太实、太白了：它把抽屉压成一块几乎不透光的白板，与主页搜索栏、播放栏那几
-// 层更通透的玻璃明显不是一套。
-//
-// 本轮按用户反馈往中间收：保留可读性（远高于 0.22 的模糊档），但降到 0.70，
-// 让遮罩与窗口背景薄薄透出——面板因此既比纯白暗、又比 0.9 时透，和其余玻璃
-// 表面统一。不新增图层/模糊，纯色值改动。
+// 经典（旧）主题的面板近似：原版是 --liquid-bg(白 .22) + blur(14px)。
+// 早先为了阅读性用了 0.9 的兜底值，太实太白；后来收到 0.70。
+// 新的液态玻璃主题不再用这块填充，改由 liquidGlass 的 tint + 边缘折射绘制
+// （见 liquidglass.go），这里的值只服务经典主题。
 func drawerPanelFill() ui.Color {
 	return ui.Hex("#ffffff").Alpha(0.70)
-}
-
-// liquidGlass 给元素套上液态玻璃材质。
-//
-// 原版是 .liquid-glass：::before 半透明填充 + backdrop-filter 模糊，
-// ::after 1px 聚光描边（conic-gradient 遮罩）。原生界面画不了
-// backdrop-filter（见 PLAN.md 的取舍），这里用「半透明填充 + 1px 亮边 +
-// 两层投影（--liquid-shadow）」近似。
-func (t Theme) liquidGlass(e ui.Element) ui.Element {
-	return e.
-		Background(t.LiquidBg).
-		Border(1, t.GlassBorder).
-		Shadow(0, 8, 24, 0, shadowInk.Alpha(0.07)).
-		Shadow(0, 1, 4, 0, shadowInk.Alpha(0.03))
-}
-
-// liquidGlassHover 是 hover 态的液态玻璃（背景变亮、描边变亮、投影抬高）。
-func (t Theme) liquidGlassHover(e ui.Element) ui.Element {
-	return e.
-		Background(t.LiquidBgHover).
-		Border(1, t.GlassBorderBright).
-		Shadow(0, 16, 38, 0, shadowInk.Alpha(0.11)).
-		Shadow(0, 2, 8, 0, shadowInk.Alpha(0.04))
 }
 
 // uiTheme 把我们的令牌装进 mygo 的控件主题，让输入框、滚动条、tooltip
@@ -341,6 +532,11 @@ func (t Theme) uiTheme() *ui.Theme {
 	th.Border = ui.Hex("#94a3b8").Alpha(0.35)
 	th.Text = ui.Hex("#334155") // 原版输入框是 text-slate-700
 	th.TextMuted = ui.Hex("#94a3b8")
+	if t.GlassTheme == GlassDark {
+		// 暗主题的控件表面换成更薄的白层，但文字仍是深墨（同上：壁纸是亮的）。
+		th.Surface = ui.Hex("#ffffff").Alpha(0.10)
+		th.SurfaceHover = ui.Hex("#ffffff").Alpha(0.18)
+	}
 	th.Accent = t.Blue
 	th.AccentHover = ui.Hex("#0369a1")
 	th.AccentPressed = ui.Hex("#075985")

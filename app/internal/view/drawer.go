@@ -257,10 +257,23 @@ func (a *App) drawer(c *ui.Context) {
 		// （既有的残留差异）。改成「上边 1px 布局边 + 全圈 1px 不占布局的聚光
 		// 描边」（paintPlayerRim 画的就是 --liquid-rim；面板面积大，走其中的
 		// 定向光带分支），正文宽度与原版逐值对齐。
+		mat := ui.Material(cssGlassLayer(drawerBlurRadius, drawerPanelFill(), nil))
+		if !a.Theme.classicGlass() {
+			// 大面积面板：清晰玻璃 + 边缘折射 + 内层左上高光。密度下限
+			// 0.7 保证抽屉正文在背后卡片/封面上仍然读得清。
+			mat = liquidGlassLayer(a.Theme, glassOptions{
+				dark:       a.Theme.glassIsDark(),
+				blur:       drawerBlurRadius,
+				lens:       true,
+				denseFloor: 0.7,
+				inner:      true,
+				reading:    true,
+			})
+		}
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).
 			Clip().
-			Material(cssGlassLayer(drawerBlurRadius, drawerPanelFill(), nil)).
+			Material(mat).
 			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask

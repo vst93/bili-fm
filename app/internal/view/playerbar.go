@@ -135,7 +135,17 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 	// --player-surface + background-image 洗光。三层都由 cssGlass 按 CSS 的
 	// 绘制顺序铺（模糊 → 底色 → 洗光），不再用 glass.Glass（Regular 把背景的
 	// 黑抬到 54%，浅色下整条栏发白、背后的背景透不出来）。
-	return b.Material(cssGlassLayer(liquidBlurRadius, playerBarTint(t), playerBarSheen(t)))
+	// 表面主题：经典 = 原有 cssGlass；明/暗 = 新液态玻璃（同一套
+	// glass.Effect，只换 tint/亮度/饱和度状态）。
+	if t.classicGlass() {
+		return b.Material(cssGlassLayer(liquidBlurRadius, playerBarTint(t), playerBarSheen(t)))
+	}
+	return b.Material(liquidGlassLayer(t, glassOptions{
+		dark:  t.glassIsDark(),
+		blur:  liquidBlurRadius,
+		lens:  true,
+		sheen: playerBarSheen(t),
+	}))
 }
 
 // playerBarSheen 是播放栏**本体**这一帧该铺的 `background-image`（原版
@@ -162,7 +172,7 @@ var playerBarSheen = func(t Theme) *sheenBaked {
 	if t.ReducedTransparency {
 		return nil
 	}
-	if t.Dark {
+	if t.surfaceDark() {
 		return sheenDarkBaked
 	}
 	return sheenGlassBaked
@@ -215,11 +225,11 @@ var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
 		return shadowSpec{0, -8, 20, 0, shadowInk.Alpha(0.04)}
 	}
 	alpha := float32(0.05)
-	if t.Dark {
+	if t.surfaceDark() {
 		alpha = 0.045
 	}
 	blur := float32(28)
-	if mini && !t.Dark {
+	if mini && !t.surfaceDark() {
 		blur = 22
 	}
 	return shadowSpec{0, -10, blur, 0, shadowInk.Alpha(alpha)}
@@ -247,7 +257,7 @@ var playerBarShadowInsets = func(t Theme, mini bool) []shadowSpec {
 	if t.ReducedTransparency {
 		return []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)}}
 	}
-	if t.Dark {
+	if t.surfaceDark() {
 		return []shadowSpec{
 			{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.24)},
 			{0, -1, 0, 0, shadowInk.Alpha(0.08)},
@@ -441,7 +451,7 @@ func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, 
 	if active {
 		// 深色激活态原版整条 box-shadow 只有「顶内高光白 .32 + 外蓝 .12」，
 		// 没有浅色那条 `inset 0 0 0 1px #bae6fd` 的蓝环。
-		if t.Dark && !hovered {
+		if t.surfaceDark() && !hovered {
 			return b.Shadow(0, 2, 9, 0, ui.Hex("#0284c7").Alpha(playerDarkActiveGlowA))
 		}
 		return b.InsetShadow(0, 0, 0, 1, ui.Hex("#bae6fd").Alpha(0.70)).
@@ -450,7 +460,7 @@ func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, 
 	if hovered {
 		return b.Shadow(0, 3, 9, 0, ui.Hex("#0f172a").Alpha(0.06))
 	}
-	return b.Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(pick(t.Dark, playerDarkShadowA, 0.045)))
+	return b.Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(pick(t.surfaceDark(), playerDarkShadowA, 0.045)))
 }
 
 // playerToolFill 是工具键三态的底色：常态 --liquid-bg（白 .22）、悬停白 .34、
@@ -465,13 +475,13 @@ func playerToolFill(t Theme, active, hovered bool) ui.Color {
 	}
 	switch {
 	case active:
-		if t.Dark {
+		if t.surfaceDark() {
 			return ui.Hex("#7dd3fc").Alpha(playerDarkActiveFillA)
 		}
 		return ui.Hex("#bae6fd").Alpha(0.30)
 	case hovered:
 		return ui.Hex("#ffffff").Alpha(0.34)
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#ffffff").Alpha(playerDarkFillA)
 	}
 	return ui.Hex("#ffffff").Alpha(0.22)
@@ -490,13 +500,13 @@ func playerToolBorder(t Theme, key playerToolKey, active, hovered bool) ui.Color
 	}
 	switch {
 	case active:
-		if t.Dark {
+		if t.surfaceDark() {
 			return ui.Hex("#7dd3fc").Alpha(playerDarkActiveBorderA)
 		}
 		return ui.Hex("#0284c7").Alpha(0.28)
 	case hovered:
 		return ui.Hex("#94a3b8").Alpha(0.32)
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#ffffff").Alpha(playerDarkBorderA)
 	}
 	return ui.Hex("#94a3b8").Alpha(0.20)
@@ -508,9 +518,9 @@ func playerToolInset(t Theme, active, hovered bool) ui.Color {
 	switch {
 	case hovered:
 		return ui.Hex("#ffffff").Alpha(0.56)
-	case t.Dark && active:
+	case t.surfaceDark() && active:
 		return ui.Hex("#ffffff").Alpha(playerDarkActiveInsetA)
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#ffffff").Alpha(playerDarkInsetA)
 	}
 	return ui.Hex("#ffffff").Alpha(0.44)
@@ -534,7 +544,7 @@ func playerToolInk(t Theme, key playerToolKey, active, hovered bool) ui.Color {
 		return ui.Hex("#0369a1")
 	case active || hovered:
 		return ui.Hex("#0284c7")
-	case t.Dark:
+	case t.surfaceDark():
 		return t.PlayerButton
 	}
 	return ui.Hex("#526174")
@@ -550,7 +560,7 @@ func playerButtonInk(t Theme, hovered bool) ui.Color {
 	switch {
 	case hovered:
 		return ui.Hex("#0284c7")
-	case t.Dark:
+	case t.surfaceDark():
 		return t.PlayerButton
 	}
 	return ui.Hex("#334155")
@@ -594,7 +604,7 @@ var playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.44)).
 			Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.045))
 	}
-	if t.Dark {
+	if t.surfaceDark() {
 		return b.Background(ui.Hex("#ffffff").Alpha(playerDarkFillA)).
 			Border(1, border).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerDarkInsetA)).
@@ -613,7 +623,7 @@ func playerMuteBorder(t Theme, muted bool) ui.Color {
 	switch {
 	case t.HighContrast:
 		return playerHCBorder
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#ffffff").Alpha(playerDarkBorderA)
 	case muted:
 		return ui.Hex("#0284c7").Alpha(0.28)
@@ -627,7 +637,7 @@ func playerMuteInk(t Theme, muted bool) ui.Color {
 	switch {
 	case t.HighContrast:
 		return playerHCInk
-	case t.Dark:
+	case t.surfaceDark():
 		return t.PlayerButton
 	case muted:
 		return ui.Hex("#0284c7")
@@ -722,7 +732,7 @@ func playerPlaySurface(t Theme, b ui.Element, playing, hovered, pressed bool) ui
 	case hovered:
 		return b.InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)).
 			Shadow(0, 6, 16, 0, ui.Hex("#0284c7").Alpha(0.18))
-	case t.Dark:
+	case t.surfaceDark():
 		return b.InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(playerPlayDarkInsetA)).
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0284c7").Alpha(0.08)).
 			Shadow(0, 4, 12, 0, ui.Hex("#0f172a").Alpha(0.10))
@@ -749,7 +759,7 @@ func playerPlayFill(t Theme, playing, hovered bool) ui.Color {
 		return ui.Hex("#7dd3fc").Alpha(0.22)
 	case hovered:
 		return ui.Hex("#bae6fd").Alpha(0.50)
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#e0f2fe").Alpha(playerPlayDarkFillA)
 	case playing:
 		return ui.Hex("#7dd3fc").Alpha(0.16)
@@ -770,7 +780,7 @@ func playerPlayBorder(t Theme, playing, hovered bool) ui.Color {
 		return ui.Hex("#0284c7").Alpha(0.40)
 	case hovered:
 		return ui.Hex("#0284c7").Alpha(0.28)
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#e0f2fe").Alpha(playerPlayDarkBorderA)
 	case playing:
 		return ui.Hex("#0284c7").Alpha(0.30)
@@ -790,7 +800,7 @@ func playerPlayInk(t Theme, playing, hovered bool) ui.Color {
 		return ui.Hex("#0369a1")
 	case hovered:
 		return ui.Hex("#0284c7")
-	case t.Dark:
+	case t.surfaceDark():
 		return ui.Hex("#0369a1")
 	}
 	return ui.Hex("#475569")
@@ -1822,7 +1832,7 @@ func playerSheenForTheme(t Theme, kind playerSheenKind, playing, hovered bool) *
 	if t.ReducedTransparency {
 		return nil
 	}
-	return playerSheenFor(kind, t.Dark, playing, hovered)
+	return playerSheenFor(kind, t.surfaceDark(), playing, hovered)
 }
 
 // playerSheenPaint 是视图画 sheen 的入口（测试可换桩关掉做反证）。
@@ -1858,7 +1868,7 @@ func playerRim(t Theme, b ui.Element, radius float32, tool bool, kind playerShee
 	// `outline: 2px solid var(--studio-blue); outline-offset: 2px`。聚光描边
 	// 与它互不影响（一个是 ::after、一个是 outline），所以无条件接线。
 	b = focusOutline(b, radius, focusStudio)
-	opacity := playerRimOpacityFn(t.Dark, tool)
+	opacity := playerRimOpacityFn(t.surfaceDark(), tool)
 	sheen := playerSheenForTheme(t, kind, playing, hovered)
 	if opacity <= 0 && sheen == nil {
 		return b
@@ -2545,7 +2555,7 @@ const (
 // （只模糊 + 自己铺底色），不再用 glass.Glass 的 Regular 玻璃 —— 那会把背景
 // 提亮、弹层发白（见 cssglass.go）。
 func playerPopoverVeil(t Theme, light ui.Color) ui.Color {
-	if t.Dark {
+	if t.surfaceDark() {
 		return ui.Hex("#475569").Alpha(0.64)
 	}
 	return light
@@ -2563,7 +2573,7 @@ const (
 // `border-color` 都覆写成 rgba(255,255,255,.2)。框架玻璃自带的是**边缘折光**，
 // 不是这条 1px 边框 —— 深色下继续沿用浅色边会亮出一圈白描边，所以这里单独覆写。
 func playerPopoverBorder(t Theme, light ui.Color) ui.Color {
-	if t.Dark {
+	if t.surfaceDark() {
 		return ui.Hex("#ffffff").Alpha(0.20)
 	}
 	return light
@@ -2574,7 +2584,7 @@ func playerPopoverBorder(t Theme, light ui.Color) ui.Color {
 // （更淡的顶内高光）。浅色那条 --glass-specular 由框架玻璃的边缘折光近似，这里
 // 不再重复。返回 nil 表示这一帧不铺内影。
 func playerPopoverInsets(t Theme) []shadowSpec {
-	if t.Dark {
+	if t.surfaceDark() {
 		return []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.26)}}
 	}
 	return nil
@@ -2584,7 +2594,7 @@ func playerPopoverInsets(t Theme) []shadowSpec {
 // （0 14px 40px 墨 .10）；烟熏玻璃时段原版整条换成 `0 10px 24px rgba(15,23,42,.14)`
 // （更紧、更深一档）。声明成函数便于测试逐值钉住。
 func playerPopoverLiftSpec(t Theme) shadowSpec {
-	if t.Dark {
+	if t.surfaceDark() {
 		return shadowSpec{0, 10, 24, 0, shadowInk.Alpha(0.14)}
 	}
 	return shadowSpec{0, 14, 40, 0, shadowInk.Alpha(0.10)}
@@ -2612,7 +2622,16 @@ var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color, veil ui
 	// 原版两层弹层：backdrop-filter 只模糊，底色是上面那条 backgroundColor。
 	// 1px 描边两时段都画（浅色各用各的玻璃边、深色白 .2）；用不占布局的
 	// 内描环，倍速弹层高度由内容决定（加 .Border 会从 32 撑到 34）。
-	return b.Material(cssGlassLayer(blur, veil, nil)).
+	// 材质走 liquidGlass：tint 与亮度/饱和度按状态取，不在弹层里各写一份。
+	if t.classicGlass() {
+		return b.Material(cssGlassLayer(blur, veil, nil)).
+			InsetShadow(0, 0, 0, 1, border)
+	}
+	return b.Material(liquidGlassLayer(t, glassOptions{
+		dark:       t.glassIsDark(),
+		blur:       blur,
+		denseFloor: 0.45,
+	})).
 		InsetShadow(0, 0, 0, 1, border)
 }
 
@@ -2630,7 +2649,7 @@ var volumePopoverSheen = func(t Theme) *sheenBaked {
 	if t.ReducedTransparency {
 		return nil
 	}
-	if t.Dark {
+	if t.surfaceDark() {
 		return sheenDarkBaked
 	}
 	return sheenGlassBaked
@@ -2640,7 +2659,7 @@ var speedPopoverSheen = func(t Theme) *sheenBaked {
 	if t.ReducedTransparency {
 		return nil
 	}
-	if t.Dark {
+	if t.surfaceDark() {
 		return sheenDarkBaked
 	}
 	return nil
@@ -2666,7 +2685,11 @@ func playerSpeedOptionInk(t Theme) ui.Color {
 		// 原版减少透明度下 `.player-speed-option { color: #334155 }`（实底上的深灰）。
 		return ui.Hex(rtSpeedOptionInk)
 	}
-	if t.Dark {
+	if t.surfaceDark() {
+		if !t.classicGlass() && t.GlassTheme == GlassDark {
+			// 烟熏玻璃压在亮壁纸上：仍是深墨，且不透明以保住对比。
+			return t.GlassInkMuted
+		}
 		return ui.Hex("#f1f5f9").Alpha(0.78)
 	}
 	return ui.Hex("#475569")
@@ -2692,7 +2715,7 @@ func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
 	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
 		Margin(0, speedPopoverEdgeGap, 0, 0).
 		Padding(4).Gap(2).Radius(speedPopoverRadius).
-		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
+		Shadow(0, pick[float32](t.surfaceDark(), 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.surfaceDark(), 0.14, 0.12))).
 		AlignItems(ui.Center)
 	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
 	panel = playerPopoverMaterial(t, panel,

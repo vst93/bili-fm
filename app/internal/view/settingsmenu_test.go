@@ -218,7 +218,7 @@ func TestSettingsMenuIncognitoGone(t *testing.T) {
 	if srcHas(flat, "settingsIncognitoRow") {
 		t.Error("settingsmenu.go 仍建 settingsIncognitoRow（用户已否掉这个位置）")
 	}
-	if count := strings.Count(flat, "ui.Text(c,label).FontSize(14).TextColor(settingsItemInk)"); count != 1 {
+	if count := strings.Count(flat, "ui.Text(c,label).FontSize(14).TextColor(a.Theme.glassMenuInk())"); count != 1 {
 		t.Errorf("设置菜单条目渲染点 %d 处，应恰好 1 处（面板里不应再挂隐身行）", count)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -223,13 +222,18 @@ func (a *App) collabMenu(c *ui.Context, anchor ui.Element) {
 			// 材质：原版 .video-owner-picker-menu 是 `background: var(--glass-bg)`
 			// （白 .24）+ `backdrop-filter: var(--liquid-blur)`，与设置下拉同一族，
 			// 同样用「只模糊 + 自铺白 .24」（Regular 玻璃会把面板提亮一档）。
-			Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+			// 与设置下拉同一族：经典 = glass.Blur + Draw 自铺；新主题 =
+			// liquidGlass。菜单是动画面板，不做 rim 位移。
+			Material(t.panelMaterial(glassOptions{
+				blur:       glassBlurSigma,
+				denseFloor: 0.35,
+				sheen:      sheenGlassBaked,
+			})).
 			Border(1, t.GlassBorder).
-			// 原版 `.video-owner-picker-menu { background-image:
-			// var(--glass-sheen-static) }`（globals.css:2136）：玻璃底之上、条目
-			// 之下那层「左上径向热点 + 170° 斜向洗光」。此前漏画，面板顶左
-			// 比原版平一档（同一族：设置菜单本轮一并补上）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
+				if !t.classicGlass() {
+					return
+				}
 				paintGlassPanelFill(p, r, collabMenuRadius, t.Glass)
 				paintBakedSheen(p, r, collabMenuRadius, sheenGlassBaked)
 			}).

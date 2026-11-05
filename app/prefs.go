@@ -33,17 +33,21 @@ const (
 	prefLyricsOffsetRemember = "lyricsOffsetRemember"
 	prefLyricsWidthRatio     = "lyricsWidthRatio"
 	prefHeatOn               = "danmakuHeat"
-	prefLyricsBgColor        = "lyricsBgColor"
-	prefLyricsBgOpacity      = "lyricsBgOpacity"
-	prefLyricsTextOpacity    = "lyricsTextOpacity"
-	prefLyricsEnabled        = "desktopSubtitles"
-	prefLyricsX              = "desktopSubtitlesX"
-	prefLyricsY              = "desktopSubtitlesY"
-	prefLyricsPosValid       = "desktopSubtitlesPosValid"
-	prefLyricsOpacityLegacy  = "lyricsOpacity"
-	prefSubtitleLang         = "subtitleLanguage"
-	prefSubtitleFollow       = "subtitleFollow"
-	prefDanmakuFollow        = "danmakuFollow"
+	// 表面材质主题：经典（原有复刻）/ light / dark 两档液态玻璃。
+	prefGlassTheme          = "surfaceTheme"
+	prefGlassTintLight      = "glassTintLight"
+	prefGlassTintDark       = "glassTintDark"
+	prefLyricsBgColor       = "lyricsBgColor"
+	prefLyricsBgOpacity     = "lyricsBgOpacity"
+	prefLyricsTextOpacity   = "lyricsTextOpacity"
+	prefLyricsEnabled       = "desktopSubtitles"
+	prefLyricsX             = "desktopSubtitlesX"
+	prefLyricsY             = "desktopSubtitlesY"
+	prefLyricsPosValid      = "desktopSubtitlesPosValid"
+	prefLyricsOpacityLegacy = "lyricsOpacity"
+	prefSubtitleLang        = "subtitleLanguage"
+	prefSubtitleFollow      = "subtitleFollow"
+	prefDanmakuFollow       = "danmakuFollow"
 	// prefMainPos 是主窗位置（浮窗应用：用户把它摆到哪，下次启动 / 从迷你窗
 	// 回来就回到哪）。此前只记住迷你窗位置，主窗每次都居中。
 	prefMainPos = "mainWindowPosition"
@@ -122,7 +126,52 @@ func (c *controller) loadPrefs() {
 	if v := c.kv.String(prefHeatOn); v != "" {
 		a.HeatOn = v != "false"
 	}
+	// 表面材质：默认经典（旧配置没有这个键时保持现有外观）。
+	switch c.kv.String(prefGlassTheme) {
+	case "light":
+		a.GlassTheme = view.GlassLight
+	case "dark":
+		a.GlassTheme = view.GlassDark
+	default:
+		a.GlassTheme = view.GlassClassic
+	}
+	if raw := c.kv.String(prefGlassTintLight); raw != "" {
+		if v := parseFloat(raw); v >= 0 && v <= 1.5 {
+			a.GlassTintLight = v
+		}
+	}
+	if raw := c.kv.String(prefGlassTintDark); raw != "" {
+		if v := parseFloat(raw); v >= 0 && v <= 1.5 {
+			a.GlassTintDark = v
+		}
+	}
+	a.RefreshTheme()
 	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
+}
+
+// setGlassTheme 切换表面材质主题并落盘。经典主题不读两个 tint 值，
+// 但值保留，切回液态玻璃时沿用。
+func (c *controller) setGlassTheme(g view.GlassTheme) {
+	a := c.app
+	a.GlassTheme = g
+	name := "classic"
+	switch g {
+	case view.GlassLight:
+		name = "light"
+	case view.GlassDark:
+		name = "dark"
+	}
+	_ = c.kv.SetString(prefGlassTheme, name)
+	a.RefreshTheme()
+	a.Win.Update(func() {})
+}
+
+// persistGlassTint 把两个 tint 缩放落盘；滑块拖动时调用。
+func (c *controller) persistGlassTint() {
+	a := c.app
+	_ = c.kv.SetString(prefGlassTintLight, strconv.FormatFloat(a.GlassTintLight, 'f', -1, 64))
+	_ = c.kv.SetString(prefGlassTintDark, strconv.FormatFloat(a.GlassTintDark, 'f', -1, 64))
+	a.Win.Update(func() {})
 }
 
 // validHexColor 接受 #rrggbb（桌面字幕配置只开放这一种格式）。

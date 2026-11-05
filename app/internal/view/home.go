@@ -78,14 +78,26 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 		// 悬停时描边转亮、投影抬起。
 		// 材质是框架玻璃，它自带边缘聚光与描光，所以不再叠 1px 边框/inset 内影
 		//（那是原版手搓同一件事的做法，两层描边会显脏）。只保留外层投影。
+		// 表面主题：经典保留原来的 cssGlass（模糊 + 白 .22 + 洗光）；
+		// 明/暗换成液态玻璃材质（tint/亮度/饱和度由状态决定，边缘折射由
+		// glass.Effect 的 bezel 完成）。
+		var mat ui.Material
+		if a.Theme.classicGlass() {
+			mat = cssGlassLayer(liquidBlurRadius, searchPillVeil(), sheenGlassBaked)
+		} else {
+			mat = liquidGlassLayer(a.Theme, glassOptions{
+				dark:  a.Theme.glassIsDark(),
+				blur:  liquidBlurRadius,
+				lens:  true,
+				sheen: sheenGlassBaked,
+			})
+		}
 		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
-			// 原版 .home-searchbar::before：blur(20px) + 白 22% + 静态洗光。
-			// 不再用 glass.Glass（Regular 会把背景的黑抬到 54%，整块发白、不透）。
-			Material(cssGlassLayer(liquidBlurRadius, searchPillVeil(), sheenGlassBaked)).
+			Material(mat).
 			// 原版 ::after 的 conic 描光 + 色散边（玻璃材质只管 ::before 那层）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.Dark, false))
+				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.surfaceDark(), false))
 			})
 		// 原版 box-shadow 走 --liquid-shadow / --liquid-shadow-lifted 二选一（
 		// mygo 的 Shadow 累加，见 searchPillShadows）。
@@ -126,7 +138,7 @@ func (a *App) searchField(c *ui.Context) {
 	var in ui.Element
 	slot.Children(func() {
 		in = ui.TextInputBase(c, &a.Query).Grow(1).FontSize(14).
-			TextColor(ui.Hex("#334155")).
+			TextColor(a.Theme.glassMenuInk()).
 			Placeholder("B站 / 关键词 / 视频链接").Label("搜索")
 		if in.Submitted() && !searching {
 			a.runSearch()
@@ -141,7 +153,7 @@ func (a *App) searchField(c *ui.Context) {
 		// `:hover`）。原生版不再借框架的 Disabled（见下面的说明），所以显式把「按下」
 		// 这一路在搜索中掐掉。
 		pressed := submit.Pressed() && !searching
-		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), pressed)
+		sub := a.Theme.topToolStyleForTheme(topToolSubmit, submit.Hovered(), pressed)
 		topToolBgTo(submit, sub.Bg)
 		topToolFade(submit, sub.Opacity)
 		// 原版 .search-submit-btn 常态带左上角径向聚光，按下换成居中光。
@@ -222,7 +234,7 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	// 原版 .top-tool-btn：基态透明 + opacity .82 + 图标 #64748b；悬停铺白 .65、
 	// 图标转 #0284c7、上浮 1px；按下缩到 .92。底色/图标色 0.18s、不透明度
 	// 0.16s 淡入（topToolBgTo / topToolInk / topToolFade），不是瞬时切换。
-	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
+	s := a.Theme.topToolStyleForTheme(topToolEntry, b.Hovered(), b.Pressed())
 	topToolBgTo(b, s.Bg)
 	topToolFade(b, s.Opacity)
 	// 原版 .top-tool-btn 常态带左上角径向聚光，按下换成居中光。

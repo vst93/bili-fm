@@ -1,9 +1,9 @@
 package view
 
 import (
+	"github.com/egoist/mygo/plugins/glass"
 	"time"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -78,8 +78,21 @@ func (a *App) toastViewport(c *ui.Context) {
 			// 项）。**不能**用 glass.Glass{}：原版 Toast.tsx 的内联 background
 			// 把 .toast-glass 的白 .24 底色一起顶掉了，Regular 玻璃的提亮会让整块
 			// 比原版白一档（这正是 11-07 剩余差异 ④）。
+			// 经典 = 只模糊；新主题 = liquidGlass。toast 自带 135° 类型
+			// 渐变（下面那层 Absolute 盒），所以不叠 sheen；有滑入动画，
+			// 不做 rim 位移。
+			var toastMat ui.Material
+			if a.Theme.classicGlass() {
+				toastMat = blurLayer(glass.Blur{Radius: glassBlurSigma})
+			} else {
+				toastMat = liquidGlassLayer(a.Theme, glassOptions{
+					dark:       a.Theme.glassIsDark(),
+					blur:       glassBlurSigma,
+					denseFloor: 0.5,
+				})
+			}
 			p.Root.Row().Gap(8).Padding(8, 16).Radius(toastRadius).
-				Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
+				Material(toastMat).
 				Border(1, a.Theme.GlassBorder).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
@@ -91,7 +104,7 @@ func (a *App) toastViewport(c *ui.Context) {
 				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(tint)
 				// 原版：text-sm（14）font-medium text-slate-800。
 				ui.Text(c, t.Title).FontSize(14).FontWeight(500).
-					TextColor(ui.Hex("#1e293b"))
+					TextColor(a.Theme.glassBodyInk())
 				// `.toast-glass::after`（globals.css:5345）的 `--glass-sheen-static`：
 				// 左上径向热点（白 .24 @22% -5%，48% 归零）+ 170° 斜向洗光。
 				// 伪元素是**定位**元素，CSS 的绘制顺序把它排在流式子元素（图标 /
