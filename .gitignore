@@ -25,3 +25,6 @@ app/blprobe
 # Python 缓存
 __pycache__/
 *.pyc
+
+# pi 的目标状态目录（本地会话数据，不入库）
+.pi/
