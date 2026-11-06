@@ -12,10 +12,10 @@ import (
 // 3. 滑块高光值对齐（亮色 0.98 / 深色 0.9）
 
 func TestProgressDisabledOpacityAligned(t *testing.T) {
-	got := disabledDim(progressDisabledOpacity)
-	want := float32(0.84) // 0.42 / 0.5（框架 disabled 自动乘 0.5）
-	if abs(float64(got-want)) > 0.001 {
-		t.Errorf("disabledDim(%v) = %v, want %v", progressDisabledOpacity, got, want)
+	// mygo 0.8.0 的 `DimDisabled(false)` 关掉框架对禁用节点的 0.5 减半，
+	// 常量就是落到画布上的值。
+	if got := progressDisabledOpacity; got != 0.42 {
+		t.Errorf("progressDisabledOpacity = %v, want 0.42", got)
 	}
 }
 

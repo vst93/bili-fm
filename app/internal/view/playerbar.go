@@ -797,14 +797,10 @@ func playerPlayInk(t Theme, playing, hovered bool) ui.Color {
 }
 
 // disablePlayerButton 把播放栏按钮设成原版 `.player-button:disabled` 的样子：
-// 禁用 + opacity .42。mygo 的禁用节点会自己再乘 .5（ui/paint.go），所以元素值要写
-// disabledDim(.42)=.84 抵消掉（见 disabled.go 的总说明）。
+// 禁用 + opacity .42（绝对值）。mygo 0.8.0 起用 `DimDisabled(false)` 关掉框架对
+// 禁用节点的减半，所以直接写原版的绝对值（见 disabled.go 的总说明）。
 func disablePlayerButton(b ui.Element, off bool) ui.Element {
-	b.Disabled(off)
-	if off {
-		b.Opacity(disabledDim(playerButtonDisabledOpacity))
-	}
-	return b
+	return setDisabledOpacity(b, off, playerButtonDisabledOpacity)
 }
 
 // playerDisabledIconOpacityFor 是 `#player .player-button:disabled svg` 的**额外**
@@ -2010,7 +2006,7 @@ var thumbScaleAnim = ui.Animation{
 
 // progressDisabledOpacity 是进度条禁用态的目标 opacity（原版
 // `#player input[type="range"]:disabled { opacity: 0.42; }`）。
-// mygo 框架对 disabled 元素自动乘 0.5，用 disabledDim 抵消后得到 0.42。
+// mygo 0.8.0 的 `DimDisabled(false)` 关掉框架对禁用节点的减半，这里就是最终值。
 const progressDisabledOpacity = 0.42
 
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
@@ -2264,12 +2260,13 @@ func (a *App) progress(c *ui.Context) {
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
 	focusOutline(s, 0, focusStudio)
 	// 禁用态 opacity 对齐原版：原版 `#player input[type="range"]:disabled
-	// { opacity: 0.42; }`。mygo 框架对 disabled 元素自动乘 0.5，用
-	// disabledDim 抵消后得到 0.42（见 disabled.go 的总说明）。
+	// { opacity: 0.42; }`。`DimDisabled(false)` 关掉框架对禁用节点的减半，
+	// 这里写的就是最终值（见 disabled.go 的总说明）。
 	if a.Dur <= 0 {
-		s.Opacity(disabledDim(progressDisabledOpacity))
+		s.DimDisabled(false).Opacity(progressDisabledOpacity)
 	}
 	_, _, held := s.Dragged()
+	canceled := s.PressCanceled()
 	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
 
 	if held != a.wasHeld {
@@ -2278,6 +2275,7 @@ func (a *App) progress(c *ui.Context) {
 	seek, next := progressPlan(progressInput{
 		held:    held,
 		changed: changed,
+		cancel:  canceled,
 		busy:    a.SeekBusy,
 		settle:  time.Since(a.SeekStableAt),
 		pos:     a.Pos,
@@ -2523,8 +2521,41 @@ func sponsorStatusTitle(status string, count int, reason string) string {
 }
 
 // hasSource 报告播放栏是否有可操作的媒体，对应原版播放键/音量/倍速/均衡
-// 的 `disabled={!src}`：队列空（还没选过任何视频）时整排控件是禁用态。
-func (a *App) hasSource() bool { return a.Current() != nil }
+// 的 `disabled={!src}`。
+//
+// 用户 issue #37 ②：「在播放列表中有视频的时候，播放键应该是可操作的状态，
+// 而不需要点开播放列表选择视频进行播放」—— 所以除了「当前有曲目」，播放列表
+// 里**有条目**也算有源：此时按播放键从列表第一条开始放（见 app 的
+// TogglePlay：Current() 为空时走 resumePlaylist）。
+func (a *App) hasSource() bool {
+	return a.Current() != nil || playlistPlayable(len(a.Playlist), len(a.SeriesPlaylist))
+}
+
+// playlistPlayable 报告「播放列表里有没有可播的东西」：我的列表与合集列表
+// 任一非空即可（用户可能停在空的「合集列表」tab 上，而「我的列表」有歌）。
+// 抽成纯函数便于测试直接钉住 issue #37 ② 的判据。
+func playlistPlayable(userN, seriesN int) bool { return userN > 0 || seriesN > 0 }
+
+// playlistStart 返回「播放键直接起播」应该从哪个列表、第几条开始：当前 tab
+// 非空就用它，否则退到另一个非空的列表。两个都空时 ok 为假。
+func PlaylistStart(tab, userTab string, userN, seriesN int) (list string, index int, ok bool) {
+	// 当前 tab 非空就用它（用户看到的就是这个列表，播它最不意外）。
+	if tab == userTab && userN > 0 {
+		return userTab, 0, true
+	}
+	if tab != userTab && seriesN > 0 {
+		return tab, 0, true
+	}
+	// 当前 tab 空：退到另一个非空的列表。
+	if userN > 0 {
+		return userTab, 0, true
+	}
+	if seriesN > 0 {
+		// 走到这里 tab 一定等于 userTab（另一个分支已覆盖），所以非空的是合集。
+		return ListSeries, 0, true
+	}
+	return "", 0, false
+}
 
 // ---------------------------------------------------------------- 弹层
 
@@ -2954,9 +2985,10 @@ func (a *App) miniProgress(c *ui.Context) {
 	focusOutline(s, 0, focusStudio)
 	// 禁用态 opacity 对齐原版（同主窗 progress）。
 	if a.Dur <= 0 {
-		s.Opacity(disabledDim(progressDisabledOpacity))
+		s.DimDisabled(false).Opacity(progressDisabledOpacity)
 	}
 	_, _, held := s.Dragged()
+	canceled := s.PressCanceled()
 	changed := s.Changed()
 	if held != a.wasHeld {
 		a.SeekStableAt = time.Now()
@@ -2964,6 +2996,7 @@ func (a *App) miniProgress(c *ui.Context) {
 	seek, next := progressPlan(progressInput{
 		held:    held,
 		changed: changed,
+		cancel:  canceled,
 		busy:    a.SeekBusy,
 		settle:  time.Since(a.SeekStableAt),
 		pos:     a.Pos,

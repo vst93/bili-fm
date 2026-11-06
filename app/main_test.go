@@ -830,43 +830,74 @@ func TestRelTimeLadder(t *testing.T) {
 // 自动切歌不关（handlePlaylistVideoSelect 的 preserveUi），选集自动续播/播完
 // 切集也不关（原版 handleVideoSelect 直接调用）；其余抽屉起播时关掉。
 // 手动从选集面板点一集由 playIndex 先关面板，见
-// TestPlayIndexClosesPartsDrawerOnSelect。
-func TestKeepDrawerOnPlay(t *testing.T) {
-	keep := map[string]bool{
-		view.DrawerParts:    true,
-		view.DrawerPlaylist: true,
-		view.DrawerSearch:   false,
-		"feed":              false,
-		"favorite":          false,
-		"":                  false,
-	}
-	for drawer, want := range keep {
-		if got := keepDrawerOnPlay(drawer); got != want {
-			t.Errorf("keepDrawerOnPlay(%q) = %v, want %v", drawer, got, want)
+// TestPlayIndexClosesPartsDrawerOnSelect 钉住「手动从选集面板点一集会关面板」，
+// 且**从列表点进来的那条要回到列表**（issue #37 ①）。
+//
+// 这里是**行为**测试，不是源码 grep：把起点播那一步换成替身，替身忠实复刻
+// startCurrent 对抽屉的唯一副作用（keepDrawerOnPlay）。顺序写反（先 CloseDrawer
+// 再 startCurrent）时，从列表恢复的抽屉会被 startCurrent 再关掉，这条会红 ——
+// 那正是审计抓到的缺陷。
+func TestPlayIndexClosesPartsDrawerOnSelect(t *testing.T) {
+	orig := startPlaybackStub
+	t.Cleanup(func() { startPlaybackStub = orig })
+	// 忠实复刻 startCurrent 的那一行：非选集 / 非播放列表就关抽屉。
+	startPlaybackStub = func(c *controller) {
+		if !keepDrawerOnPlay(c.app.Drawer) {
+			c.app.Drawer = ""
 		}
+	}
+
+	// ① 从列表（history）点进来的选集：点一集播放后应回到 history。
+	a := view.NewApp(func() {})
+	a.Drawer = "history"
+	a.BrowseInfo = &view.Info{Bvid: "BV9", Cid: 9, Title: "浏览中",
+		Parts: []view.Part{{Cid: 9, Part: "P1"}, {Cid: 10, Part: "P2"}}}
+	a.DrawerBack = "history"
+	a.Drawer = view.DrawerParts
+	c := &controller{app: a}
+	c.playIndex(0)
+	if a.Drawer != "history" {
+		t.Fatalf("从 history 进选集点一集播放后 Drawer = %q，应回到 history（不能落回主区）", a.Drawer)
+	}
+	if a.DrawerBack != "" {
+		t.Fatalf("点一集播放后 DrawerBack = %q，应清空", a.DrawerBack)
+	}
+
+	// ② 从主区（没有来源）进来的选集：点一集播放后应真的关掉。
+	b := view.NewApp(func() {})
+	b.BrowseInfo = &view.Info{Bvid: "BV9", Cid: 9, Title: "浏览中",
+		Parts: []view.Part{{Cid: 9, Part: "P1"}}}
+	b.Drawer = view.DrawerParts
+	c2 := &controller{app: b}
+	c2.playIndex(0)
+	if b.Drawer != "" {
+		t.Fatalf("从主区进选集点一集播放后 Drawer = %q，应收成空（回主区）", b.Drawer)
+	}
+	if b.DrawerBack != "" {
+		t.Fatalf("从主区进选集点一集播放后 DrawerBack = %q，应清空", b.DrawerBack)
 	}
 }
 
-// TestPlayIndexClosesPartsDrawerOnSelect 钉住「手动从选集面板点一集会关面板」：
-// 原版 PageList.handleVideoSelect 在 onVideoSelect 后调 handleOpenChange(false)，
-// 面板关闭；原生版此前把这条路径也交给 keepDrawerOnPlay 保留，属于误读。
-// 自动续播/播完切集仍走 startCurrent 的保留分支，不受这里影响。
-func TestPlayIndexClosesPartsDrawerOnSelect(t *testing.T) {
+// TestPlayIndexCallsCloseDrawerAfterStart 是配套的源码级顺序契约：playIndex 的
+// 选集分支必须**先起播、再关面板**。行为测试已经覆盖结果，这条只用来在有人
+// 把两行调换时给出更直白的提示。
+func TestPlayIndexCallsCloseDrawerAfterStart(t *testing.T) {
 	src, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatalf("读 main.go 失败：%v", err)
 	}
 	block := sourceBlock(t, src, "if c.app.Drawer == view.DrawerParts {")
-	closeIdx := strings.Index(block, `c.app.Drawer = ""`)
-	startIdx := strings.Index(block, "c.startCurrent()")
-	if closeIdx < 0 {
-		t.Fatal("playIndex 的选集分支没有关面板（缺少 c.app.Drawer = \"\"）")
+	startIdx := strings.Index(block, "runStartPlayback(c)")
+	closeIdx := strings.Index(block, "c.app.CloseDrawer()")
+	if startIdx < 0 || closeIdx < 0 {
+		t.Fatal("playIndex 的选集分支应同时调用 runStartPlayback 与 CloseDrawer")
 	}
-	if startIdx < 0 {
-		t.Fatal("playIndex 的选集分支没有调用 c.startCurrent()")
+	if startIdx > closeIdx {
+		t.Error("playIndex 必须先起播再关面板：startCurrent 会按 keepDrawerOnPlay " +
+			"决定抽屉去留，先关会把从列表恢复的抽屉再关掉（issue #37 ①）")
 	}
-	if closeIdx > startIdx {
-		t.Error("手动点选集应先关面板再起播（关面板必须在 startCurrent 之前）")
+	if strings.Contains(block, `c.app.Drawer = ""`) {
+		t.Error("playIndex 仍在裸写 c.app.Drawer = \"\"：应走 CloseDrawer()")
 	}
 }
 

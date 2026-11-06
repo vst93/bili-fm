@@ -301,7 +301,7 @@ func (a *App) drawer(c *ui.Context) {
 		dragY = offset + panel.DragOffset().Y
 		if !a.drawerClosing && drawerDismissed(a.drawerOffset.Y, h, panel.Transitioning()) {
 			// 拖拽已经把它滑出去了，下一帧走退场收尾（offset 保持，别弹回）。
-			a.Drawer = ""
+			a.closeDrawer()
 		}
 	})
 	// 遮罩跟着面板位置直接改不透明度（不再用 AnimatePose 的 Fade：那会把遮罩
@@ -309,7 +309,7 @@ func (a *App) drawer(c *ui.Context) {
 	overlay.Background(ui.Hex("#0f172a").Alpha(0.28 * drawerFade(dragY, h)))
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。退场中不再响应。
 	if !a.drawerClosing && overlay.Clicked() {
-		a.Drawer = ""
+		a.closeDrawer()
 	}
 }
 
@@ -382,7 +382,7 @@ func (a *App) drawerHeader(c *ui.Context) {
 		drawerClosePress(b)
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
-			a.Drawer = ""
+			a.closeDrawer()
 		}
 	})
 }
@@ -466,6 +466,13 @@ func (a *App) drawerTabs(c *ui.Context) {
 	case DrawerUp:
 		a.upHeader(c)
 	case DrawerParts:
+		// 用户 issue #37 ①：从列表抽屉点进来的选集，表头最前面放一个返回键
+		//（回到上一层列表，并保留它离开时的滚动位置）。
+		if a.DrawerBack != "" {
+			a.headerButton(c, "parts-back", "返回上一层列表", iconLeft, 18, ui.Hex("#888888"), func() {
+				a.backToDrawer()
+			})
+		}
 		a.partsHeader(c)
 	case DrawerDanmaku:
 		a.danmakuTabs(c)
@@ -1482,8 +1489,13 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 	b.Children(func() {
 		ui.Column(c).FillWidth().Children(func() {
 			// <b className="line-clamp-2 text-sm">：14px bold、两行截断。
+			//
+			// Balance（mygo 0.8.0）：合集标题常常是「[合集] 某位 UP 主的所有
+			// 翻唱投稿」这种一长串，两行截断时按自然断行会出现「第一行顶满、
+			// 第二行只剩两三个字」—— 观感上像标题被裁掉了。balance 让两行长度
+			// 接近，读起来完整。
 			ui.Text(c, s.Title).FontSize(14).FontWeight(700).
-				TextColor(t.Ink).MaxLines(2)
+				TextColor(t.Ink).MaxLines(2).Balance()
 			// <p className="text-xs text-default-500 mt-1">。
 			ui.Text(c, fmt.Sprintf("%d 个视频", s.Count)).FontSize(12).
 				Margin(4, 0, 0, 0).TextColor(ui.Hex("#71717a"))
@@ -1492,6 +1504,8 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 	if b.Clicked() {
 		a.SeriesID = s.ID
 		a.SeriesName = s.Title
+		// 换到列表抽屉：选集那一层的来源不再有意义（issue #37 ①）。
+		a.DrawerBack = ""
 		a.Drawer = DrawerSeries
 		if a.Act.SelectSeries != nil {
 			a.Act.SelectSeries(s.ID)
@@ -1677,7 +1691,10 @@ func (a *App) cardGrid(c *ui.Context, l *List) {
 				ui.Box(c).Grow(1).Basis(0)
 			}
 		})
-	}).FillWidth().Grow(1).Gap(8).Padding(8, 24).TrackScroll(&l.GridScroll)
+	}).FillWidth().Grow(1).Gap(8).Padding(8, 24).TrackScroll(&l.GridScroll).
+		// 卡片网格靠「滚到底自动翻页」，用户得能看出还剩多少 —— 框架的滚动条
+		// 默认只在悬停时出现，翻页时拇指一闪一闪看不出位置。
+		KeepScrollbars(true)
 }
 
 // canAutoLoadMore 报告卡片网格这一帧该不该自动翻页：有更多、不在加载中、
@@ -2036,17 +2053,16 @@ func (a *App) card(c *ui.Context, index int) {
 			b := ui.ButtonBase(c.Key("wl-remove-"+bvid)).
 				Size(wlRemoveSize, wlRemoveSize).Radius(wlRemoveRadius).
 				Center().Label("从稍后再看移除").Tooltip("从稍后再看移除")
-			// 原版 .watchlater-remove-btn:disabled 是 opacity .55（绝对值）。
-			// mygo 的禁用节点会再乘 .5（ui/paint.go），.55 会被压到 .275，
-			// 而元素不透明度封顶 1 最多只能补到 .5，补不回来（见 disabled.go）。
-			// 所以这里不借框架的 Disabled，改用原版同样的语义「自己挡住交互」
-			//（下面 Clicked 已带 !pending），只把那层绝对值落到 Opacity 上。
+			// 原版 .watchlater-remove-btn:disabled 是 opacity .55（绝对值）。mygo
+			// 0.8.0 的 `DimDisabled(false)` 关掉框架对禁用节点的减半，所以可以真正
+			// 用框架的 Disabled（此前 .55 会被压到 .275、补不回来，只能自己挡
+			// 交互，见 disabled.go 的总说明）。
 			// 原版 .watchlater-remove-btn:disabled 同时把 transform 归零，所以
 			// 悬停放大在请求中也关掉。
 			b.Absolute().Right(wlRemoveInset).Top(wlRemoveInset)
+			setDisabledOpacity(b, pending, wlRemoveOpacity(pending))
 			b.Background(wlRemoveFill(b.Hovered() && !pending)).
 				Border(1, wlRemoveBorder())
-			b.Opacity(wlRemoveOpacity(pending))
 			// 原版 `.watchlater-remove-btn:focus-visible`：`outline: 2px solid
 			// rgba(14,165,233,.62); outline-offset: 2px`。
 			focusOutline(b, wlRemoveRadius, focusSky62)
@@ -2606,7 +2622,64 @@ func (a *App) Browse() *Info {
 // 浏览另一条视频不该把主区的标题 / 封面 / 简介换掉。
 func (a *App) BrowseTo(info *Info) {
 	a.BrowseInfo = info
+	a.DrawerBack = partsBackTarget(a.Drawer, Sections)
 	a.Drawer = DrawerParts
+}
+
+// partsBackTarget 返回「从 drawer 进选集后，返回键该回到哪个抽屉」：
+// 只有列表类抽屉（动态 / 热门与推荐 / 收藏 / 历史 / 搜索 / UP 空间 / 合集 /
+// 播放列表）才长出返回键 —— 从别处（主区、托盘、调试入口）进来的选集不该有。
+//
+// 抽成纯函数便于测试直接钉住 issue #37 ① 的判据（哪些抽屉可以回、哪些不能）。
+func partsBackTarget(drawer string, sections []Section) string {
+	switch drawer {
+	case "", DrawerParts, DrawerDanmaku:
+		// 已经在选集里（重复进入）、或根本没开抽屉：没有上一层。
+		return ""
+	case DrawerSearch, DrawerUp, DrawerSeries, DrawerPlaylist:
+		return drawer
+	}
+	// 其余都是分区列表（动态 / 热门与推荐 / 收藏 / 历史）。
+	for _, s := range sections {
+		if s.Key == drawer {
+			return drawer
+		}
+	}
+	return ""
+}
+
+// closeDrawer 是「关掉抽屉」的统一入口（关闭键 / Esc / 点遮罩 / 下滑关闭）。
+//
+// 用户 issue #37 ①：从列表点进选集时，关掉选集应该**回到那个列表**而不是
+// 直接落回主区 —— 用户点的是「看这条的选集」，看完想继续从列表里挑下一条。
+// 只有没有上层（DrawerBack 为空）时才真的关掉。
+func (a *App) closeDrawer() {
+	if a.DrawerBack != "" && a.Drawer == DrawerParts {
+		a.backToDrawer()
+		return
+	}
+	a.Drawer = ""
+	a.DrawerBack = ""
+}
+
+// CloseDrawer 是 closeDrawer 的导出版，给装配层（main.go 的 playIndex）用：
+// 从选集点一集播放后关面板时，必须走同一条路 —— 从列表进来的要回到列表，
+// 并且一定要把 DrawerBack 清掉（残留会让下一次从主区打开选集错误地长出
+// 「返回上一层」）。
+func (a *App) CloseDrawer() { a.closeDrawer() }
+
+// backToDrawer 是返回键的动作：回到上一层列表抽屉。
+//
+// **不重拉第一页** —— 这是 issue #37 ① 的关键：滚动位置本来就存在
+// List.GridScroll / List.Scroll 里，一重拉就会被 ResetScroll 抹掉，
+// 用户又得重新滚到刚才那一行。
+func (a *App) backToDrawer() {
+	if a.DrawerBack == "" {
+		a.Drawer = ""
+		return
+	}
+	a.Drawer = a.DrawerBack
+	a.DrawerBack = ""
 }
 
 // partsAddAllTip 是「全部添加」键的工具提示 —— 原版 pageList.tsx 里这个键的

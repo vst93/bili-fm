@@ -284,6 +284,9 @@ func main() {
 		applyMemoryTuning()
 		applyRenderBackend()
 		applyWebViewArgs()
+		// Linux：把视频弹窗的 WebKitGTK DMA-BUF 渲染器交给框架判断
+		// （mygo 0.8.0，见 memory.go 的 applyDMABUFRenderer）。
+		applyDMABUFRenderer()
 		opts := mygo.WindowOptions{
 			Title: "bili-FM",
 			// 旧版默认窗口就是 800×600（src-tauri/src/lib.rs 的 inner_size）。
@@ -359,6 +362,11 @@ func main() {
 		// ui.Preferences 没有这一项，只在根包的 mygo.Theme.Preferences()
 		// 里（v0.5.0 起）；启动时读一次，之后靠 OnUpdated 跟进。
 		app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency)
+		// 注意：这里**故意不读** mygo 0.8.0 的 `Theme.WindowButtons` 来决定
+		// 「要不要自绘最小化 / 关闭」。那个 API 描述的是**桌面自己标题栏**里有
+		// 哪些键，而本仓库的窗口是 Frameless（合成器不提供标题栏）：Linux 平铺
+		// 合成器（Hyprland / Sway）会返回「一个键都没有」，跟着不画就是用户
+		// 2026-10-17 报告 ③ 的回归（关闭/最小化消失）。评估见 app/PLAN.md。
 		mygo.Theme.OnUpdated(func() {
 			if app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency) {
 				app.Win.Update(func() {})
@@ -2587,7 +2595,9 @@ func (c *controller) search(query string) {
 		list := a.ListFor(view.DrawerSearch)
 		list.Cards, list.HasMore, list.Loading = nil, false, false
 		list.LoadErr = false
-		a.Drawer = ""
+		// 走统一入口：清搜索时若正停在选集（从搜索列表点进来的），
+		// 也一并把 DrawerBack 收干净（issue #37 ①）。
+		a.CloseDrawer()
 		a.Win.Update(func() {})
 		return
 	}
@@ -2741,8 +2751,18 @@ func (c *controller) playIndex(index int) {
 		// onVideoSelect 后调 handleOpenChange(false)，面板会关掉；
 		// 自动续播/播完切集走 startCurrent 另一条路径，仍由
 		// keepDrawerOnPlay 保留面板。
-		c.app.Drawer = ""
-		c.startCurrent()
+		//
+		// **顺序不能反：先起播、再关面板。** startCurrent 自己也会按
+		// keepDrawerOnPlay 决定抽屉去留，而它只把「选集 / 播放列表」当成要保留的
+		// —— 如果先 CloseDrawer（从列表进来的选集会恢复成 history），startCurrent
+		// 随后看不到 DrawerParts，就会把刚恢复的历史列表再关掉，用户点一集播放后
+		// 落回主区。这正是 issue #37 ① 要消除的行为。
+		//
+		// 所以：让 startCurrent 在「仍停在选集」时起播（它保留面板），起播之后再走
+		// closeDrawer —— 有来源就回到那个列表（并把 DrawerBack 清干净），没有来源
+		// （从主区进来的选集）就真的关掉。
+		runStartPlayback(c)
+		c.app.CloseDrawer()
 		return
 	}
 	cards := c.app.ListFor(c.app.Drawer).Cards
@@ -3156,6 +3176,42 @@ func (c *controller) startCurrent() {
 	}()
 }
 
+// startPlaybackStub 是起点播这一步的测试替身：非 nil 时 runStartPlayback 走它。
+//
+// 为什么需要这个缝：startCurrent 要真播放器 / 真网络（取播放地址、开 oto、拉
+// 弹幕），单测里跑不起来，但它对抽屉的副作用（keepDrawerOnPlay）正是
+// issue #37 ① 的关键 —— 「在选集里点一集播放之后，用户最终落在哪个抽屉」必须
+// 能被行为测试钉住，而不是只 grep 源码字符串。
+//
+// 只声明不初始化：给它写默认实现（引用 startCurrent）会构成包级初始化环
+// （startCurrent → maybeExtendRadio → step → playPlaylist → 这里）。
+var startPlaybackStub func(*controller)
+
+// runStartPlayback 起播当前队列项：测试设了替身就走替身，否则走真的 startCurrent。
+func runStartPlayback(c *controller) {
+	if startPlaybackStub != nil {
+		startPlaybackStub(c)
+		return
+	}
+	c.startCurrent()
+}
+
+// resumePlaylist 是播放键在「还没选过任何视频」时的新行为（用户 issue #37 ②）：
+// 播放列表里已有条目就直接从第一条开始放，不需要先点开播放列表选一条。
+//
+// 优先当前 tab（用户眼前就是这个列表），空则退到另一个非空的。
+// 两个列表都空时什么也不做（播放键那时本来就是禁用态）。
+func (c *controller) resumePlaylist() {
+	a := c.app
+	list, index, ok := view.PlaylistStart(a.PlaylistTab, view.ListUser,
+		len(a.Playlist), len(a.SeriesPlaylist))
+	if !ok {
+		return
+	}
+	// keepDrawer=false：起播不弹抽屉（用户没点抽屉，只是按了播放键）。
+	c.playPlaylist(list, index, false)
+}
+
 func (c *controller) togglePlay() {
 	// 视频弹窗开着时，空格控制的是弹窗里的视频（音频引擎此刻是暂停的，
 	// 否则会双声）。
@@ -3179,6 +3235,9 @@ func (c *controller) togglePlay() {
 		return
 	}
 	if c.app.Current() == nil {
+		// 用户 issue #37 ②：播放列表里有东西时，播放键直接可用，不必先点开
+		// 播放列表选一条。这里从当前 tab（空则另一个非空的列表）的第一条开始。
+		c.resumePlaylist()
 		return
 	}
 	// 主音频引擎自然播完后 oto 已经 EOF：直接 Resume 会被 oto 的 mux 拒绝

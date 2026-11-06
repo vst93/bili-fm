@@ -253,12 +253,16 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 // 再点一次同一个入口就关掉。
 func (a *App) openSection(key string) {
 	if a.Drawer == key {
-		a.Drawer = ""
+		a.closeDrawer()
 		return
 	}
 	i := SectionIndex(key)
 	changed := i != a.Section
 	a.Section = i
+	// 打开的是**列表**抽屉：没有「上一层」可言，把可能残留的来源清掉
+	//（issue #37 ①：DrawerBack 只在选集这一层有意义）。每帧开头的
+	// 不变量（Shell）兜底，这里显式清是为了同一帧内就正确。
+	a.DrawerBack = ""
 	a.Drawer = key
 	if changed || len(a.list().Cards) == 0 {
 		a.reload()
@@ -407,7 +411,12 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 					disc := ui.ButtonBase(c.Key("disc")).Size(side*0.9, side*0.9).Radius(RadiusPill).Clip().
 						Background(ui.Hex("#0f172a")).
 						Border(1, ui.Hex("#ffffff").Alpha(0.20)).
-						Label(pick(a.Playing, "暂停", "播放"))
+						Label(pick(a.Playing, "暂停", "播放")).
+						// 唱片是正圆（RadiusPill + Clip），但命中区默认是整个方盒：
+						// 四角点到「空白」其实也在按唱片（用户报过「点封面边角也能
+						// 暂停」）。mygo 0.8.0 的 HitTest 让按键只在圆内吃指针，
+						// 圆外落到下面的玻璃环上（那里没有动作）。
+						HitTest(circleHitTest)
 					// #video-cover 的三态描边/投影：常态深色投影、悬停与播放中转
 					// 蓝色光晕。之前只画了内侧 1px 白线，唱片像平贴在玻璃环里，
 					// 播放时也没有那圈蓝光。
@@ -837,8 +846,11 @@ func (a *App) videoInfo(c *ui.Context, wide bool, titleW float32) {
 		// Shrink(0)：原版 p 是 `max-height: 60px; overflow: hidden`，不因固定盒高
 		// 被压短（计数改回绝对定位后内容已回到 366 以内，但锁住收缩更稳，
 		// 长标题等极端内容下简介仍是完整 3 行）。
+		// Pretty（mygo 0.8.0）：简介是正文，三行截断时最后一行常常只剩一个
+		// 词/一个字（中文尤其明显）。pretty 让最后一行至少多拿一个词，前几行
+		// 保持不变 —— 比 balance 更适合正文（不会把每行都拉平）。
 		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
-			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Shrink(0).Selectable()
+			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Shrink(0).Selectable().Pretty()
 		a.partPill(c)
 		a.contentActions(c)
 		a.contextDock(c)
@@ -888,7 +900,9 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				Size(ownerFaceSize, ownerFaceSize).Margin(ownerFaceMargin).
 				Radius(RadiusPill).Clip().
 				Background(t.CoverPlaceholder()).Border(1.5, ownerFaceBorder()).
-				Label("UP 主空间")
+				Label("UP 主空间").
+				// 头像也是正圆：四角不该点开 UP 空间（mygo 0.8.0 的 HitTest）。
+				HitTest(circleHitTest)
 			paint := ownerFacePaintFor(face.Hovered())
 			// 原版 `#video-owner-face:focus-visible`：`outline: none`，改用
 			// `box-shadow: 0 0 0 2px var(--studio-blue), 0 4px 12px 墨 .1`
@@ -1106,7 +1120,13 @@ func (a *App) partPill(c *ui.Context) {
 	// 半透明填充（原版 .video-part-pill 没有 backdrop-filter）：薄白底 +
 	// 1px 白边 + 顶部一线内高光；::before 的 --glass-sheen-static 光泽与
 	// ::after 的 --liquid-rim 聚光描边见 partPillGlass。
-	pill := ui.Row(c).MaxWidth(430).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
+	//
+	// mygo 0.8.0 起 DIP 与百分比两种上限**同时生效**（取更小的那个，等价 CSS
+	// 的 `max-width: min(78%, 34rem)`）。这里补一条 MaxWidthPercent：窗口最窄
+	// 可到 400（见 main.go 的 MinWidth），而右栏内容区只有 ~366 —— 430 的定宽
+	// 胶囊在窄窗里会横向溢出到栏外。加上「父宽的 100%」后，宽窗仍是 430、
+	// 窄窗自动收到可用宽度（等价原版的 flex 收缩）。
+	pill := ui.Row(c).MaxWidth(430).MaxWidthPercent(100).MinHeight(36).Margin(12, 0, 0, 0).Padding(5, 11).
 		Radius(RadiusPill).
 		Background(ui.Hex("#ffffff").Alpha(0.15)).
 		Border(1, ui.Hex("#ffffff").Alpha(0.38)).
@@ -1342,8 +1362,9 @@ func (a *App) contextDock(c *ui.Context) {
 		plist := a.inkButton(c, "dock-playlist", "播放列表", iconMusicList, iconOpticalSize,
 			plistInk, false, func() {
 				if a.Drawer == DrawerPlaylist {
-					a.Drawer = ""
+					a.closeDrawer()
 				} else {
+					a.DrawerBack = ""
 					a.Drawer = DrawerPlaylist
 				}
 			})
@@ -1406,9 +1427,10 @@ func (a *App) playlistBadgeInk() ui.Color {
 // openSeries 打开当前合集（旧版：还没选过合集就提示先去 UP 空间选一个）。
 func (a *App) openSeries() {
 	if a.Drawer == DrawerSeries {
-		a.Drawer = ""
+		a.closeDrawer()
 		return
 	}
+	a.DrawerBack = ""
 	if a.SeriesID == 0 {
 		// 旧版这里弹 toast 让用户先去 UP 空间选；没有 toast 就直接进 UP 空间的
 		// 合集 tab，少一步操作。
@@ -1416,6 +1438,7 @@ func (a *App) openSeries() {
 		a.openUp()
 		return
 	}
+	a.DrawerBack = ""
 	a.Drawer = DrawerSeries
 	if a.Act.SelectSeries != nil {
 		a.Act.SelectSeries(a.SeriesID)
@@ -1423,14 +1446,19 @@ func (a *App) openSeries() {
 }
 
 // openParts 打开分集抽屉；分集数据由上层拉取。
+//
+// 这是**主区**的「选集」入口：没有上一层，所以必须显式把 DrawerBack 清掉 ——
+// 否则上一次从列表进选集残留的来源会让这里错误地长出「返回上一层」键，点它
+// 直接跳到那个历史列表（issue #37 ① 的边界）。
 func (a *App) openParts() {
 	if a.Track == nil {
 		return
 	}
 	if a.Drawer == DrawerParts {
-		a.Drawer = ""
+		a.closeDrawer()
 		return
 	}
+	a.DrawerBack = ""
 	a.Drawer = DrawerParts
 	if a.Act.OpenParts != nil {
 		a.Act.OpenParts(*a.Track)
@@ -1448,9 +1476,10 @@ func (a *App) playlistActive(tab string) []PlayItem {
 // openDanmaku 打开弹幕抽屉；弹幕数据由上层拉取。
 func (a *App) openDanmaku() {
 	if a.Drawer == DrawerDanmaku {
-		a.Drawer = ""
+		a.closeDrawer()
 		return
 	}
+	a.DrawerBack = ""
 	a.Drawer = DrawerDanmaku
 	if a.Act.ToggleDanmaku != nil {
 		a.Act.ToggleDanmaku()
@@ -1576,14 +1605,10 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 }
 
 // disableNav 把按钮设成原版 `.nav-icon-btn:disabled` 的样子：禁用 +
-// opacity .34。mygo 的禁用节点会自己再乘 .5（ui/paint.go），所以元素值要写
-// disabledDim(.34)=.68 抵消掉（见 disabled.go 的总说明）。
+// opacity .34。mygo 0.8.0 起用 `DimDisabled(false)` 关掉框架对禁用节点的
+// 减半，所以这里直接写原版的绝对值（见 disabled.go 的总说明）。
 func disableNav(b ui.Element, off bool) ui.Element {
-	b.Disabled(off)
-	if off {
-		b.Opacity(disabledDim(navIconDisabledOpacity))
-	}
-	return b
+	return setDisabledOpacity(b, off, navIconDisabledOpacity)
 }
 
 // iconButton 是 34×34 的纯图标按钮（.video-context-dock .nav-icon-btn）。

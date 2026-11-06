@@ -157,12 +157,14 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 			panel.Children(func() {
 				ui.Column(c).FillWidth().Gap(lyricsLineGap).Center().Children(func() {
 					ui.Text(c, cur).FontSize(size).FontWeight(700).
-						TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(lyricsMaxCurrentLines)
+						TextColor(textColor.Alpha(textOpacity)).TextAlign(ui.Center).MaxLines(lyricsMaxCurrentLines).
+						TextShadow(0, 1, lyricsTextShadowBlur, lyricsTextShadowInk(textColor, bgOpacity, textOpacity))
 					if next != "" {
 						nextSize := lyricsNextFontSize(size)
 						ui.Text(c, next).FontSize(nextSize).
 							TextColor(textColor.Alpha(textOpacity * 0.62)).
-							TextAlign(ui.Center).SingleLine()
+							TextAlign(ui.Center).SingleLine().
+							TextShadow(0, 1, lyricsTextShadowBlur, lyricsTextShadowInk(textColor, bgOpacity, textOpacity*0.62))
 					}
 				})
 				if gear && over {
@@ -209,6 +211,39 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 	}
 	root := ui.Box(c).Fill().DragWindow()
 	draw(root)
+}
+
+// lyricsTextShadowBlur 是桌面字幕文字投影的模糊半径（DIP）。字幕窗背景
+// 透明度可以调到 0（纯文字浮在任意画面上），那时白字压在浅色内容上几乎看不见；
+// 一层很淡的深色投影把字形从背景里托起来。
+const lyricsTextShadowBlur float32 = 4
+
+// lyricsTextShadowInk 是字幕文字投影的颜色。
+//
+// 只在**需要**的时候画：
+//   - 面板底色够实（bgOpacity ≥ .55）时不需要 —— 字幕本来就有底，再画投影
+//     只会让字变糊（这是原版的做法：面板不透明时文字就是纯色）。
+//   - 文字颜色本身很深（灰阶 ≤ .5）时不需要 —— 深色字压在浅色画面上已经够
+//     清楚，再加深色投影反而糊成一团。
+//
+// 其余情况（透明/半透明面板 + 浅色字）给深色投影，alpha 随文字透明度与
+// 「面板有多透明」一起走：文字越淡、面板越透，投影越实一点才托得住。
+func lyricsTextShadowInk(text ui.Color, bgOpacity, textOpacity float32) ui.Color {
+	if bgOpacity >= 0.55 || lyricsTextIsDark(text) || textOpacity <= 0 {
+		return ui.Transparent
+	}
+	// 面板越透明、文字越淡 → 投影越实。上限 .55（再重就成了描边）。
+	alpha := 0.55 * (1 - bgOpacity) * textOpacity
+	if alpha > 0.55 {
+		alpha = 0.55
+	}
+	return ui.Hex("#000000").Alpha(alpha)
+}
+
+// lyricsTextIsDark 报告字幕文字颜色是不是深色（感知亮度 ≤ 50%）。
+// 用与本仓库其它地方一致的 YIQ 系数（见 lum / lumaSum），不依赖框架内部实现。
+func lyricsTextIsDark(c ui.Color) bool {
+	return (int(c.R)*299+int(c.G)*587+int(c.B)*114)/1000 <= 127
 }
 
 // lyricsConfigPanel 是设置页的下半部分，和上方预览同时存在。

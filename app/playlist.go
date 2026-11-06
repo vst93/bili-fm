@@ -104,12 +104,14 @@ func (c *controller) playPlaylist(list string, index int, keepDrawer bool) {
 		it := items[index]
 		a.BrowseInfo = browseInfoFromPlayItem(it)
 	}
-	c.startCurrent()
+	runStartPlayback(c)
 	if keepDrawer {
 		// startCurrent 会把抽屉关掉；从抽屉点进来的要让它保持打开。
 		a.Drawer = view.DrawerPlaylist
 	}
-	a.Win.Update(func() {})
+	if a.Win != nil { // 无头测试没有窗口
+		a.Win.Update(func() {})
+	}
 }
 
 // trackFromPlayItem 把播放列表记录转成播放队列条目。

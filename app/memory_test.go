@@ -258,3 +258,44 @@ func TestDrawerChangeTrimWired(t *testing.T) {
 		}
 	}
 }
+
+// TestDMABUFRendererEnvOverride 钉住 mygo 0.8.0 的 `App.SetDMABUFRenderer` 用法：
+// Linux 上默认交给框架判断（DMABUFRendererAuto），并支持 BILIFM_DMABUF 强制
+// 关/开（排查「视频弹窗白屏」时最有用）。
+//
+// 背景：mygo 默认把 WebKitGTK 的 DMA-BUF 渲染器关掉（NVIDIA / 虚拟机 / 容器里
+// 会画出空白窗口），而视频弹窗正是唯一用 WebKitGTK 的地方。能用的主机上开着它，
+// 页面滚动帧率是关着的数倍、CPU 也更低。
+//
+// 这里只验「选哪个档」这条纯逻辑，不真的调框架（那需要运行中的应用）。
+func TestDMABUFRendererEnvOverride(t *testing.T) {
+	for _, tc := range []struct {
+		env  string
+		want string // "off" / "on" / "auto"
+	}{
+		{"", "auto"},
+		{"off", "off"},
+		{"0", "off"},
+		{"false", "off"},
+		{"on", "on"},
+		{"1", "on"},
+		{"true", "on"},
+		{"AUTO", "auto"},    // 大小写不敏感
+		{" off ", "off"},    // 两端空白要吃掉
+		{"garbage", "auto"}, // 未知值退回自动判断
+	} {
+		if got := dmabufRendererFor(tc.env); got != tc.want {
+			t.Errorf("BILIFM_DMABUF=%q → %q，想 %q", tc.env, got, tc.want)
+		}
+	}
+}
+
+// TestApplyDMABUFRendererSkipsOtherPlatforms 保证非 Linux 上不碰这个开关
+// （macOS / Windows 根本没有 WebKitGTK，也没有 DMA-BUF）。
+func TestApplyDMABUFRendererSkipsOtherPlatforms(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux 上会真的设置框架选项，见下一条测试的用途")
+	}
+	// 非 Linux：函数是 no-op，调用不该 panic。
+	applyDMABUFRenderer()
+}

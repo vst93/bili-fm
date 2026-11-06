@@ -208,3 +208,56 @@ func TestVideoOpenEscapeClosesAndSpaceToggles(t *testing.T) {
 		t.Errorf("视频弹窗开着时按空格：TogglePlay 调用 %d 次，想 1", plays)
 	}
 }
+
+// TestHeldKeySemantics 钉住 mygo 0.8.0 的 `Context.ShortcutRepeated` 用法：
+// 开关/动作只吃首次按下，步进（音量）吃每一次自动重复。
+//
+// 此前所有快捷键都吃重复，于是按住空格会把播放/暂停来回切十几次、按住 ← 会
+// 一路退回整个队列；而按住 ↑ ↓ 调音量反而更自然（与原生 range 一致）。
+func TestHeldKeySemantics(t *testing.T) {
+	a := NewApp(func() {})
+	focusedInfo(a)
+	plays, prev, next := 0, 0, 0
+	vol := 0.0
+	a.Volume = 0.5
+	a.Act.TogglePlay = func() { plays++ }
+	a.Act.Prev = func() { prev++ }
+	a.Act.Next = func() { next++ }
+	a.Act.SetVolume = func(v float64) { vol = v }
+
+	tt := shellTester(t, a)
+
+	// 空格：按下 + 两次自动重复 → 只切一次。
+	tt.KeyDown(ui.KeySpace)
+	tt.KeyRepeat(0, ui.KeySpace)
+	tt.KeyRepeat(0, ui.KeySpace)
+	tt.KeyUp(ui.KeySpace)
+	tt.Frame()
+	if plays != 1 {
+		t.Errorf("按住空格：播放/暂停被切了 %d 次，想 1 次（自动重复应被 ShortcutRepeated 挡掉）", plays)
+	}
+
+	// ← →：按下 + 两次重复 → 各只跳一次。
+	tt.KeyDown(ui.KeyLeft)
+	tt.KeyRepeat(0, ui.KeyLeft)
+	tt.KeyRepeat(0, ui.KeyLeft)
+	tt.KeyUp(ui.KeyLeft)
+	tt.Frame()
+	tt.KeyDown(ui.KeyRight)
+	tt.KeyRepeat(0, ui.KeyRight)
+	tt.KeyUp(ui.KeyRight)
+	tt.Frame()
+	if prev != 1 || next != 1 {
+		t.Errorf("按住方向键：prev=%d next=%d，想各 1 次（切集是动作，不吃重复）", prev, next)
+	}
+
+	// ↑：按下 + 两次重复 → 音量连续加三档（步进，吃重复）。
+	tt.KeyDown(ui.KeyUp)
+	tt.KeyRepeat(0, ui.KeyUp)
+	tt.KeyRepeat(0, ui.KeyUp)
+	tt.KeyUp(ui.KeyUp)
+	tt.Frame()
+	if want := 0.65; vol < want-0.001 || vol > want+0.001 {
+		t.Errorf("按住 ↑ 三下：音量 = %v，想 %v（步进应吃自动重复）", vol, want)
+	}
+}

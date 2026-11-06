@@ -162,7 +162,12 @@ func (a *App) playlistBody(c *ui.Context) {
 	a.prefetchPlaylistCovers(c, st, &l.rowsPrefetch, items)
 	a.holdListScroll(c, &a.playlistHold, st, &l.RowsScroll, true)
 	ui.List(c, st, len(items), func(i int) { a.playlistRow(c, i, items[i]) }).
-		FillWidth().Grow(1).Gap(4).Padding(8, 24).TrackScroll(&l.RowsScroll)
+		FillWidth().Grow(1).Gap(4).Padding(8, 24).TrackScroll(&l.RowsScroll).
+		// 播放列表常常上百条（用户报过「历史添加的作品左侧图标不显示」的那个
+		// 长列表场景），而框架的滚动条默认只在悬停时出现 —— 一眼看不出自己在
+		// 这一百多条里的哪个位置，也就没法判断「滚到底了没有」。
+		// mygo 0.8.0 的 KeepScrollbars 让拇指在内容溢出时常驻。
+		KeepScrollbars(true)
 	// 定位标志只在这一次构建里生效。
 	a.locateNow = false
 }

@@ -345,6 +345,15 @@ func (t Theme) uiTheme() *ui.Theme {
 	th.AccentHover = ui.Hex("#0369a1")
 	th.AccentPressed = ui.Hex("#075985")
 	th.AccentText = ui.Hex("#ffffff")
+	// mygo 0.8.0 起，**非活动窗口**的强调色会像 AppKit 那样淡成灰色
+	// （Theme.InactiveAccent，默认给一个灰）。本仓库的强调色几乎全是自绘的
+	// （t.Blue 直写在按钮/选中/滑块上），不会跟着灰，于是后台窗口会出现
+	// 「框架控件变灰、自绘控件仍蓝」的半灰界面。
+	//
+	// 这里显式设成 Accent，让**每个窗口**都保持主题蓝，与自绘控件一致：
+	// 这是个常驻托盘的浮窗应用，窗口失焦（去浏览器里挑视频）是常态，
+	// 淡成灰反而让播放/收藏状态看起来像失效了。
+	th.InactiveAccent = th.Accent
 	th.Danger = t.Rose
 	th.Warning = ui.Hex("#d97706")
 	th.Success = ui.Hex("#16a34a")
@@ -365,8 +374,17 @@ func (t Theme) uiTheme() *ui.Theme {
 	th.Scrollbar = ui.Hex("#64748b").Alpha(0.30)
 	th.ScrollbarWidth = 6
 	th.Radius = RadiusSmall
+	// tooltip 延迟：框架默认 0.6s（浏览器 title 属性的一档）。这是个常驻托盘的
+	// 浮窗应用，播放栏与抽屉表头一排排全是图标键（55 处 tooltip），鼠标顺手
+	// 划过去想确认「这颗是啥」时要等 0.6s 才显形，实际用起来就是「没有 tooltip」。
+	// 收到 0.35s：仍要「停一下」才出（不误触），但不再让人怀疑键没说明。
+	th.TooltipDelay = tooltipDelay
 	return th
 }
+
+// tooltipDelay 是图标键的 tooltip 延迟（原版是浏览器的 title 属性，约 1s；
+// 原生版取 0.35s，理由见 uiTheme 里的说明）。
+const tooltipDelay = 350 * time.Millisecond
 
 // 尺寸常量，取自原版的布局（titleBar 36px、mini 标题栏 24px、
 // #video-info 固定 366px 等）。
@@ -485,8 +503,8 @@ var navIconRestOpacityFor = func(k navIconKind) float32 {
 // navIconStatValueOpacity 是 `.nav-stat-value`（按钮下方的计数）的透明度。原版
 // 数值是 `.nav-icon-btn` 的子元素，随按钮一起吃到 `.video-content-actions
 // .nav-icon-btn` 的 .82 与 `:disabled` 的 .34；原生版把数值画在按钮**之外**
-// （34×(34+13) 的列里），所以要显式补上同一层。数值自己不是禁用节点，不吃框架
-// 那层减半，所以直接给原版的绝对值 .34（按钮那边由 disabledDim 补到 .68）。
+// （34×(34+13) 的列里），所以要显式补上同一层。数值自己不是禁用节点，直接
+// 给原版的绝对值 .34（按钮那边写的是同一个绝对值，见 disabled.go）。
 var navIconStatValueOpacity = func(off bool) float32 {
 	if off {
 		return navIconDisabledOpacity
@@ -856,7 +874,7 @@ func navIconFadeValue(b ui.Element, target float32) float32 {
 }
 
 // navIconFade 是 `.nav-icon-btn` 的不透明度过渡：目标由常态度与是否禁用决定
-// （禁用的 .34 经 disabledDim 抵消框架对禁用节点的减半，见 disabled.go）。
+// （禁用的 .34 是原版绝对值，`DimDisabled(false)` 已关掉框架的减半，见 disabled.go）。
 // 必须在 `disableNav` 之后调用，末次写入生效。
 var navIconFade = func(b ui.Element, off bool, rest float32) ui.Element {
 	return b.Opacity(navIconFadeValue(b, navIconOpacityTarget(off, rest)))

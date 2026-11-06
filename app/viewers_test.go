@@ -120,3 +120,41 @@ func TestOnlinePollInterval(t *testing.T) {
 		t.Fatal("至少要容忍一轮瞬时失败")
 	}
 }
+
+// TestShouldPollOnlineViewers 钉住 mygo 0.8.0 的 WindowHidden 守卫：
+// 窗口被最小化 / 在别的 Space / **被其他窗口挡住**时都不打接口。
+//
+// 此前只判 Win.IsVisible()：用户去浏览器挑视频、主窗被盖住时，30s 一轮的
+// 在线人数请求照打（这一栏只在主窗右栏画，没人看）。
+func TestShouldPollOnlineViewers(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		hidden, visib bool
+		want          bool
+	}{
+		{"正常显示", false, true, true},
+		{"隐藏到托盘", false, false, false},
+		{"被其他窗口挡住", true, true, false},
+		{"两个条件都成立", true, false, false},
+	} {
+		if got := shouldPollOnlineViewers(tc.hidden, tc.visib); got != tc.want {
+			t.Errorf("%s：shouldPollOnlineViewers(%v, %v) = %v，想 %v",
+				tc.name, tc.hidden, tc.visib, got, tc.want)
+		}
+	}
+	// 反证：只看 IsVisible 的旧判法会在「被挡住」时误判为可以打接口。
+	if shouldPollOnlineViewers(true, true) {
+		t.Fatal("被挡住时旧判法（只看 IsVisible）会误打接口，新判法必须挡住")
+	}
+}
+
+// TestRefreshOnlineViewersSkipsHiddenWindow 是接线的反证：没有窗口时（无头
+// 测试 / 已销毁）本来就会提前返回，这里额外确认窗口隐藏时不会留下请求代号。
+func TestRefreshOnlineViewersSkipsHiddenWindow(t *testing.T) {
+	a := &view.App{WindowHidden: true}
+	c := &controller{app: a}
+	c.refreshOnlineViewers()
+	if c.onlineReqID != 0 {
+		t.Fatalf("窗口隐藏时不该发请求: reqID=%d", c.onlineReqID)
+	}
+}

@@ -103,6 +103,14 @@ func (c *controller) stopOnlineViewersPoll() {
 // refreshOnlineViewers 拉一次当前曲目的在线人数。**必须在主线程调用**，
 // 且在一个更新回合里（写状态靠该回合结束后框架自己重绘，这里不再嵌套
 // Win.Update）。
+// shouldPollOnlineViewers 报告这一轮要不要打接口：窗口被隐藏、最小化、在别的
+// Space、或被其他窗口挡住（mygo 0.8.0 的 `Context.WindowHidden`）时都不打 ——
+// 这一栏只在主窗右栏画，没人看。抽成纯函数便于直接钉住两个条件的组合，
+// 不必造一个假窗口。
+func shouldPollOnlineViewers(hidden, visible bool) bool {
+	return !hidden && visible
+}
+
 func (c *controller) refreshOnlineViewers() {
 	a := c.app
 	if a == nil || a.Win == nil {
@@ -114,10 +122,13 @@ func (c *controller) refreshOnlineViewers() {
 		c.setOnlineViewers(0, 0)
 		return
 	}
-	// 主窗不可见（收到托盘 / 迷你模式 / 最小化）时不打接口：这一栏只在主窗
-	// 右栏画，后台挂着音乐时没人看这个数。窗口回到可见后，下一个 tick
-	// （≤30s）就补上；界面上先留着同一集的旧值，不抹成空。
-	if !a.Win.IsVisible() {
+	// 窗口什么都没显示时不打接口：mygo 0.8.0 的 `Context.WindowHidden`
+	// 比 `Win.IsVisible()` 精确 —— 它还包括最小化、跑到另一个 Space / 虚拟桌面、
+	// 以及**被其他窗口挡住**（这个应用常驻托盘，用户去浏览器挑视频时主窗就
+	// 被盖住了）。这一栏只在主窗右栏画，没人看时打接口纯属浪费。
+	// 窗口重新显示时框架会再给一帧构建，下一个 tick（≤30s）就补上；界面上
+	// 先留着同一集的旧值，不抹成空。
+	if !shouldPollOnlineViewers(a.WindowHidden, a.Win.IsVisible()) {
 		return
 	}
 	cid, bvid, aid := t.Cid, t.Bvid, extrasAid(a, t)

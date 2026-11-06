@@ -47,6 +47,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/egoist/mygo"
+
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 	"github.com/vst93/bili-fm/app/internal/meminfo"
 )
@@ -114,6 +116,46 @@ func applyWebViewArgs() {
 		return
 	}
 	_ = os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args)
+}
+
+// applyDMABUFRenderer 在 Linux 上把 WebKitGTK 的 DMA-BUF 渲染器交给框架判断
+// （mygo 0.8.0 的 `App.SetDMABUFRenderer`，必须在 Run 之前调）。
+//
+// 背景：mygo 默认把它**关掉** —— DMA-BUF 在 NVIDIA 驱动、虚拟机、容器里会画出
+// 空白窗口，而视频弹窗正是唯一用 WebKitGTK 的地方（主窗是原生 UI）。但在能用的
+// 主机上，开着它的页面滚动帧率是关着的数倍、CPU 也更低。
+//
+// `DMABUFRendererAuto` 就是「只在已知能用的主机上开」：Wayland + Mesa 的 GPU +
+// 不在容器/虚拟机里。其余情况仍关。用户设了 WEBKIT_DISABLE_DMABUF_RENDERER
+// 时框架会尊重它。
+//
+// 想强制关 / 强制开（排查「视频弹窗白屏」时最有用）：BILIFM_DMABUF=off / on。
+func applyDMABUFRenderer() {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	switch dmabufRendererFor(os.Getenv("BILIFM_DMABUF")) {
+	case "off":
+		mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererOff)
+	case "on":
+		mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererOn)
+	default:
+		mygo.App.SetDMABUFRenderer(mygo.DMABUFRendererAuto)
+	}
+}
+
+// dmabufRendererFor 把 BILIFM_DMABUF 的取值折成三档（"off" / "on" / "auto"）。
+// 抽成纯函数便于测试逐值钉住：未知值退回 "auto"（框架自己判断主机），
+// 大小写不敏感、两端空白要吃掉。
+func dmabufRendererFor(env string) string {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "off", "0", "false":
+		return "off"
+	case "on", "1", "true":
+		return "on"
+	default:
+		return "auto"
+	}
 }
 
 // renderBackendEnv 是给 mygo 的渲染后端开关：MYGO_GPU=0 表示用 CPU 光栅化。

@@ -18,6 +18,11 @@ import (
 //	播放栏 56px     #player（单行）
 //	抽屉   覆盖层   [data-slot="wrapper"] > section（底部滑入）
 func (a *App) Shell(c *ui.Context) {
+	// 先记下框架报的「窗口什么都没显示」（mygo 0.8.0 的 Context.WindowHidden）。
+	// **必须在 Background 提前返回之前**：框架的规矩是「视图在隐藏时构建一次、
+	// 重新显示时再构建一次，从它第一次问这个状态开始」。在这里问，隐藏/重现
+	// 各有一帧构建，后台轮询就能准确地停下来/恢复；放在返回之后就永远不会被问。
+	a.WindowHidden = c.WindowHidden()
 	// 隐藏到托盘 / 最小化：不再构建界面。这样唱片旋转、氛围光、卡片动画与
 	// 悬停层都停住，既省 CPU，也让上一帧的 GPU 纹理/遮罩有机会释放；OnShow/
 	// OnRestore 会把 Background 置回 false 并触发重绘。
@@ -30,6 +35,14 @@ func (a *App) Shell(c *ui.Context) {
 	// 测试桩不实现该方法时跳过。
 	if f, ok := a.Images.(interface{ BeginFrame() }); ok {
 		f.BeginFrame()
+	}
+	// DrawerBack 只在「选集」这一层有意义：一旦当前抽屉不是选集，残留的来源
+	// 必须清掉。放在每帧开头统一收口，是因为 drawer 的关闭路径不止一条
+	// （关闭键 / Esc / 点遮罩 / 下滑关闭 / 装配层 playIndex / search 清空…），
+	// 漏掉任何一条都会让下一次从主区打开选集时错误地长出「返回上一层」，
+	// 点了还会跳到那个早就不相关的列表（issue #37 ①）。
+	if a.Drawer != DrawerParts {
+		a.DrawerBack = ""
 	}
 	// 抽屉换了：上一屏的封面位图已经不在界面上，通知主程序主动回收。
 	// 只在这里比较、不在后台 goroutine 里轮询界面字段（见 OnDrawerChange）。
@@ -204,6 +217,13 @@ func (a *App) titleBar(c *ui.Context) {
 		// 「Windows 的 DWM caption 键样式与原版对不上」（用户 2026-10-18 晚间 ①）。
 		// 判据保留 `tb.Right <= 0`：万一某个平台仍有原生控件占位（macOS 以外的
 		// 隐藏标题栏窗口），也不重复画。
+		//
+		// 这里**故意不参考** mygo 0.8.0 的 `Theme.WindowButtons`（桌面自己的标题栏
+		// 里有哪些窗口键）：Linux 平铺合成器（Hyprland / Sway）自己装饰窗口、
+		// 该 API 会返回「一个键都没有」，但我们的窗口是 `Frameless` —— 合成器
+		// 根本不提供标题栏，跟着不画就等于**重新引入**用户 2026-10-17 报告 ③
+		// 的回归（「Wayland 下合成器不给原生按钮 → 关闭/最小化消失」）。
+		// 无边框窗口必须自绘这两颗键，决定权不在桌面布局上。
 		if !mac && tb.Right <= 0 {
 			// 间距/内边距逐值对齐原版 #wds-handle-group（titleBar.tsx:411）：
 			// `flex items-center gap-1 px-1 py-0.5` —— Tailwind gap-1 = 4px、

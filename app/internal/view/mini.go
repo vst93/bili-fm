@@ -65,6 +65,8 @@ var (
 //
 // 迷你模式的背景是固定的浅色渐变，不跟时段（body.mini-mode #root）。
 func (a *App) MiniShell(c *ui.Context) {
+	// 同 Shell：先记下框架报的隐藏状态（后台轮询据此暂停，见 state.go）。
+	a.WindowHidden = c.WindowHidden()
 	t := a.Theme
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
@@ -98,6 +100,9 @@ func (a *App) MiniShell(c *ui.Context) {
 			// 窗口控件行（原版 #wds-handle-group 在 mini 里的几何：gap-1 = 4、
 			// px-1 py-0.5 → 这里用原版 mini 覆写的 padding 1px 3px）。整行不参与
 			// 命中（只有两颗键参与），空白处仍能拖窗。
+			// 与主窗同一条判据：无边框窗口必须自绘这两颗键（**不**参考
+			// Theme.WindowButtons —— 平铺合成器会返回「没有按钮」，而它们根本
+			// 不提供标题栏，跟着不画就是用户 2026-10-17 报告 ③ 的回归）。
 			if viewGOOS != "darwin" {
 				wc := ui.Row(c).Grow(1).Justify(ui.End).Gap(tbWinCtrlGap).
 					Padding(miniWinCtrlPadY, miniWinCtrlPadX).AlignItems(ui.Center)
@@ -522,10 +527,10 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, 
 	// --studio-blue；激活（aria-pressed=true）再叠内高光。没有边框、没有常驻投影。
 	bg, ink, opacity, _ := titleBarButtonStyle(t, active, b.Hovered(), b.Pressed(), b.IsDisabled())
 	// 原版 `.mini-window-controls button:disabled { opacity: 0.34 }` 的 .34 是
-	// **绝对值**（不是「在常态 .72 上再减半」）：框架对 disabled 节点会再乘 0.5
-	// （见 disabled.go），disabledDim 抵消那一次减半。
+	// **绝对值**：`DimDisabled(false)` 关掉框架对禁用节点的减半，直接写 .34。
 	if b.IsDisabled() {
-		opacity = disabledDim(opacity)
+		b.DimDisabled(false)
+		opacity = miniControlDisabledOpacity
 	}
 	// 原版 `:is(.app-title-bar, .mini-window-controls) .app-title-bar-btn:focus-visible`：
 	// opacity 1、图标转 --studio-blue，高光换成 `inset 0 1px 1px

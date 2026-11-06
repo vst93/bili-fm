@@ -907,6 +907,17 @@ type App struct {
 	// DrawerSearch / DrawerParts / DrawerDanmaku。
 	// 原版同一时刻只有一个抽屉（HeroUI Drawer 的 isOpen）。
 	Drawer string
+	// DrawerBack 是「从哪个列表抽屉进来的」：用户 issue #37 ① 要求从动态 /
+	// 收藏 / 历史等列表点进选集后能**返回上一层**，并回到离开时的滚动位置。
+	//
+	// 进入选集抽屉时记下来源（BrowseTo / openCard 的路径），返回键把它写回
+	// Drawer 并清空自己。空 = 没有可返回的上层（从搜索框 / UP 空间等进来的
+	// 选集不该长出返回键，那些本来就有自己的入口）。
+	//
+	// 关键点：返回时**不重拉第一页**。滚动位置本来就存在 List.GridScroll /
+	// Scroll 里，重拉会把它们 ResetScroll 掉 —— 那正是「要连续加歌就得重新
+	// 点开并滚到对应位置」的根因。
+	DrawerBack string
 	// OnDrawerChange 在抽屉 key 变化时调用一次（界面线程）。主程序把它接到
 	// trimMemory：换抽屉后上一屏的封面位图已经不在界面上，正是主动回收的
 	// 时刻。此前这是 memoryWatch 每秒 Win.Update 轮询出来的 —— 轮询本身会
@@ -923,6 +934,15 @@ type App struct {
 	// Background 为真表示窗口已隐藏到托盘 / 最小化：Shell 不再构建界面，
 	// 旋转封面、氛围光与悬停动画也随之停住，直到 OnShow/OnRestore 恢复。
 	Background bool
+	// WindowHidden 是本帧框架报的「窗口什么都没显示」：最小化 / 隐藏到托盘 /
+	// 在别的 Space / 被别的窗口挡住（mygo 0.8.0 的 Context.WindowHidden，
+	// 语义等价 web 的 document.hidden）。它比 Win.IsVisible() 精确：后者只管
+	// 「隐藏」，不知道窗口被盖住或跑到另一个桌面。后台轮询（在线人数等）据此
+	// 按需暂停，见 app/viewers.go。
+	//
+	// 由 Shell / MiniShell 每帧记录（在 Background 提前返回**之前**，否则框架
+	// 不知道有人在看这个状态，隐藏时就不会再给一次构建）。
+	WindowHidden bool
 	// shownCoverBmp 是当前正在显示的封面位图。新封面未加载完时先沿用旧的
 	// （原版「先预载、后换源」），避免切歌闪一下空白。
 	shownCoverBmp *ui.Bitmap
@@ -1631,6 +1651,7 @@ var iconDiscSheen = ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/s
 type progressInput struct {
 	held    bool          // 指针是否按在进度条上（Dragged 的 ok）
 	changed bool          // 框架本帧是否改了值（键盘/快速点击）
+	cancel  bool          // 这次按下被系统取消（PressCanceled），不是用户松手
 	busy    bool          // 一次 seek 还在跑
 	settle  time.Duration // 距最近一次交接点（按下/松手/seek 完成）的时间
 	pos     float64       // 播放位置
@@ -1644,8 +1665,17 @@ type progressInput struct {
 //     再写新值，这里通过返回值分离做到结构上不可能写反）；
 //  3. seek 在跑 / 刚过交接点时停在目标值，不跟随（Pos 慢半拍，跟随会弹回）；
 //  4. 其余时间跟随播放位置。
+//
+// mygo 0.8.0 起「被系统取消的按下什么都不提交」（#1365）：窗口失去鼠标捕获、
+// 触摸被浏览器当成滚动、菜单拿走了释放 —— 这些都**不再算松手**，Clicked /
+// DragEnded 也不会触发，而是 PressCanceled() 报告。此时必须撤销预览而不是
+// 提交：滑块回到真实播放位置，绝不能 seek 到用户根本没选的值。
 func progressPlan(in progressInput, value float64, wasHeld bool, settle time.Duration) (seek bool, next float64) {
 	next = value
+	if in.cancel {
+		// 取消：不提交，回落到真实播放位置（等同一次没有发生过的拖动）。
+		return false, in.pos
+	}
 	if wasHeld && !in.held {
 		seek = true // 松手：拖动结束 / 点击的按下-松开
 	}
@@ -1663,6 +1693,21 @@ func progressPlan(in progressInput, value float64, wasHeld bool, settle time.Dur
 func (a *App) ResetSeek() {
 	a.wasHeld, a.SeekBusy, a.SeekStableAt = false, false, time.Time{}
 	a.discLast, a.discLastPos = time.Time{}, 0
+}
+
+// circleHitTest 让一个正圆按钮只在圆内吃指针（mygo 0.8.0 的
+// Element.HitTest，语义同 SVG 的 pointer-events: visiblePainted）。
+//
+// 圆外的点落到它下面那层（唱片的玻璃环 / 头像的玻璃罩），那里没有动作 ——
+// 等价原版 CSS 的 border-radius 只是视觉裁切、命中仍是方盒**但**原版那些
+// 键的可点区域本来就贴着圆形外框（外框只有 1px 的缝），方盒四角落进去
+// 只多出 0.29×r² 的「死角」，用户报的是「点封面边角也能暂停」这类误触。
+func circleHitTest(x, y float32, r ui.Rect) bool {
+	cx, cy := r.X+r.W/2, r.Y+r.H/2
+	// 用外接正方形半径判：椭圆（宽高不等）时取短边，保证不会伸到圆外。
+	rad := min(r.W, r.H) / 2
+	dx, dy := x-cx, y-cy
+	return dx*dx+dy*dy <= rad*rad
 }
 
 // sameSlice 报告两个切片是不是同一段数据：长度相同且（非空时）底层数组首

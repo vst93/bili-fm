@@ -1,62 +1,97 @@
 package view
 
-import "testing"
+import (
+	"image"
+	"testing"
 
-// TestDisabledDim 钉住「框架禁用节点再乘 .5」的抵消换算（见 disabled.go 的总说明）：
-// 目标 ≤ .5 时写 target/0.5 抵消；目标 > .5 时封顶 1（补不回来，调用点必须改用
-// 「自己挡住交互」的办法）。
-func TestDisabledDim(t *testing.T) {
-	for _, tc := range []struct {
-		target, want float32
-	}{
-		{navIconDisabledOpacity, 0.68},      // .34 / .5
-		{playerButtonDisabledOpacity, 0.84}, // .42 / .5
-		{0.34, 0.68},
-		{0.42, 0.84},
-		{0.5, 1},  // 边界：正好 .5 也算「补不回来」
-		{0.55, 1}, // wl-remove 的 .55
-		{0.82, 1}, // search-submit 的 .82
-	} {
-		if got := disabledDim(tc.target); got != tc.want {
-			t.Errorf("disabledDim(%v) = %v，应为 %v", tc.target, got, tc.want)
-		}
-	}
-}
+	"github.com/egoist/mygo/ui"
+)
 
-// TestDisabledOpacityTargets 钉住两族「禁用时该落到画布上的绝对值」：
-// `.nav-icon-btn:disabled` = .34、`#player .player-button:disabled` = .42，
-// 且都经 disabledDim 换算成要写在元素上的值（.68 / .84）。
+// TestDisabledOpacityTargets 钉住各族「禁用时该落到画布上的绝对值」：
+// `.nav-icon-btn:disabled` = .34、`#player .player-button:disabled` = .42、
+// `#player input[type="range"]:disabled` = .42、`.watchlater-remove-btn:disabled`
+// = .55、`.mini-window-controls button:disabled` = .34。
+//
+// mygo 0.8.0 起用 `DimDisabled(false)` 关掉框架对禁用节点的 0.5 减半，所以这些
+// 常量**就是**写在元素上的值（见 disabled.go 的总说明）。
 func TestDisabledOpacityTargets(t *testing.T) {
-	if got := navIconOpacityTarget(true, 0.82); got != disabledDim(0.34) {
-		t.Errorf("nav 禁用目标 = %v，应为 disabledDim(.34)", got)
-	}
-	// 非禁用时直接返回常态度。
-	if got := navIconOpacityTarget(false, 0.82); got != 0.82 {
-		t.Errorf("nav 常态目标 = %v，应为 .82", got)
-	}
 	if navIconDisabledOpacity != 0.34 {
 		t.Errorf("nav 禁用绝对值 = %v，应为 .34", navIconDisabledOpacity)
 	}
 	if playerButtonDisabledOpacity != 0.42 {
 		t.Errorf("播放按钮禁用绝对值 = %v，应为 .42", playerButtonDisabledOpacity)
 	}
-}
-
-// TestExceptionsAboveHalf 钉住两处「目标 > .5、不能借框架 Disabled」的例外：
-// 搜索提交键搜索中仍是常态度 .82（不改不透明度）；稍后再看移除键请求中是 .55。
-func TestExceptionsAboveHalf(t *testing.T) {
+	if progressDisabledOpacity != 0.42 {
+		t.Errorf("进度条禁用绝对值 = %v，应为 .42", progressDisabledOpacity)
+	}
+	if miniControlDisabledOpacity != 0.34 {
+		t.Errorf("迷你窗控制键禁用绝对值 = %v，应为 .34", miniControlDisabledOpacity)
+	}
 	if got := wlRemoveOpacity(true); got != 0.55 {
 		t.Errorf("稍后再看移除键请求中透明度 = %v，应为 .55", got)
 	}
 	if got := wlRemoveOpacity(false); got != 1 {
 		t.Errorf("稍后再看移除键常态透明度 = %v，应为 1", got)
 	}
-	// 这两处的原版绝对值都 > .5，disabledDim 只能补到 1（= 实际仍会到 .5），
-	// 所以调用点不能走框架 Disabled —— 用 disabledDim 的结果恰好暴露这一点。
-	if disabledDim(wlRemoveOpacity(true)) != 1 {
-		t.Errorf("disabledDim(.55) 应封顶 1（说明补不回来，需改自挡交互）")
+}
+
+// TestNavIconOpacityTarget 钉住 `.nav-icon-btn` 的常/禁用两档目标值。
+func TestNavIconOpacityTarget(t *testing.T) {
+	if got := navIconOpacityTarget(true, 0.82); got != navIconDisabledOpacity {
+		t.Errorf("nav 禁用目标 = %v，应为 %v（原版绝对值，不再补偿）", got, navIconDisabledOpacity)
 	}
-	if disabledDim(0.82) != 1 {
-		t.Errorf("disabledDim(.82) 应封顶 1（说明补不回来，需改自挡交互）")
+	if got := navIconOpacityTarget(false, 0.82); got != 0.82 {
+		t.Errorf("nav 常态目标 = %v，应为 .82", got)
+	}
+}
+
+// TestSetDisabledOpacityWritesAbsoluteValue 是**绘制实测**：`setDisabledOpacity`
+// 落到画布上的不透明度必须等于原版的绝对值。
+//
+// 白底上一块纯黑方块，不透明度 α 时像素亮度 = 255×(1−α)。反证：若忘了
+// `DimDisabled(false)`，框架会把整棵子树再乘 .5，.34 会变成 .17 —— 这正是
+// 0.7.x 里那段「写 target/0.5」补偿存在的理由。
+func TestSetDisabledOpacityWritesAbsoluteValue(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		off    bool
+		target float32
+		want   float32 // 期望落到画布上的整体不透明度
+	}{
+		{"nav 禁用", true, navIconDisabledOpacity, 0.34},
+		{"播放按钮禁用", true, playerButtonDisabledOpacity, 0.42},
+		{"稍后再看移除键请求中", true, wlRemoveOpacity(true), 0.55},
+		{"未禁用", false, navIconDisabledOpacity, 1},
+	} {
+		off, target, want := tc.off, tc.target, tc.want
+		img := renderedDisabledProbe(t, off, target)
+		// 方块居中铺满 64×64 的白色画布。
+		got := 1 - float32(lum(pixelAt(t, img, 32, 32)))/255
+		if abs(float64(got-want)) > 0.02 {
+			t.Errorf("%s：落到画布上的不透明度 = %.3f，应为 %.2f（忘了 DimDisabled(false) 会再乘 .5）",
+				tc.name, got, want)
+		}
+	}
+}
+
+// renderedDisabledProbe 在白底上渲染一块 40×40 纯黑方块，套上 setDisabledOpacity。
+func renderedDisabledProbe(t *testing.T, off bool, target float32) *image.RGBA {
+	t.Helper()
+	tst := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Fill().Background(ui.Hex("#ffffff"))
+		b := ui.ButtonBase(c.Key("probe")).Size(40, 40).Background(ui.Hex("#000000"))
+		setDisabledOpacity(b, off, target)
+	}, 64, 64)
+	tst.Frame()
+	return tst.Image()
+}
+
+// TestSearchSubmitKeepsFullOpacity 钉住搜索提交键这条**与不透明度无关**的例外：
+// 原版 `.search-submit-btn:disabled` 不改不透明度（仍是常态度 .82），而且照样
+// 吃 `:hover`。mygo 的 Hovered() 对禁用元素恒假，所以这颗键仍不能走框架的
+// Disabled —— 只能在回调里挡（见 home.go searchField 的注释）。
+func TestSearchSubmitKeepsFullOpacity(t *testing.T) {
+	if got := topToolStyleFor(topToolSubmit, false, false).Opacity; got <= 0.5 {
+		t.Errorf("搜索提交键常态度 = %v，应 > .5（原版 disabled 不改不透明度，故不能用框架 Disabled 的置灰）", got)
 	}
 }

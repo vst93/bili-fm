@@ -34,9 +34,9 @@ func miniPendingProbe(t *testing.T, pending bool) *ui.Tester {
 // TestMiniControlDisabledStyleTarget 钉住禁用态的三项渲染参数：底色透明、
 // 图标 --studio-muted、**绝对值** .34 的不透明度。
 //
-// mygo 绘制禁用节点时会再乘 0.5（paint.go），所以写给元素的是
-// disabledDim(.34) = .68 —— 最终落到画布上才是原版那条 `opacity: 0.34`。
-// 这里换桩 titleBarBtnFade 把传下来的三值截下来逐项断言。
+// mygo 0.8.0 的 `DimDisabled(false)` 关掉了框架对禁用节点的 0.5 减半，所以传下来的
+// 不透明度**就是**原版那条 `opacity: 0.34`。这里换桩 titleBarBtnFade 把三值
+// 截下来逐项断言。
 func TestMiniControlDisabledStyleTarget(t *testing.T) {
 	orig := titleBarBtnFade
 	t.Cleanup(func() { titleBarBtnFade = orig })
@@ -59,7 +59,7 @@ func TestMiniControlDisabledStyleTarget(t *testing.T) {
 	if len(calls)%2 != 0 {
 		t.Errorf("titleBarBtnFade 被调了 %d 次，迷你窗每帧应恰好两颗键", len(calls))
 	}
-	want := disabledDim(0.34)
+	want := miniControlDisabledOpacity
 	for i, c := range calls {
 		if c.bg != ui.Transparent {
 			t.Errorf("第 %d 颗键禁用态底色 = %v，应为透明（没有悬停/按压高光）", i, c.bg)
@@ -68,12 +68,8 @@ func TestMiniControlDisabledStyleTarget(t *testing.T) {
 			t.Errorf("第 %d 颗键禁用态图标色 = %v，应为 --studio-muted", i, c.ink)
 		}
 		if c.op != want {
-			t.Errorf("第 %d 颗键禁用态元素不透明度 = %v，应为 disabledDim(.34) = %v（框架会再乘 %v）",
-				i, c.op, want, frameworkDisabledDim)
+			t.Errorf("第 %d 颗键禁用态元素不透明度 = %v，应为原版绝对值 %v", i, c.op, want)
 		}
-	}
-	if want*frameworkDisabledDim != 0.34 {
-		t.Errorf("补偿后落到画布上的不透明度 = %v，应等于原版的 0.34", want*frameworkDisabledDim)
 	}
 }
 

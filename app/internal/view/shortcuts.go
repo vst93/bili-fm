@@ -15,8 +15,20 @@ import "github.com/egoist/mygo/ui"
 // 空格改控弹窗里的视频、Esc 关弹窗，← → ↑ ↓ 全部 return（见下）。
 //
 // root 是窗口根元素：空格要额外注册在它上面，原因见 bindSpace。
+//
+// 按住不放时的语义按 mygo 0.8.0 的 `Context.ShortcutRepeated` 分两类：
+//
+//	音量 ↑ ↓   连续步进（按住就一直加/减，与原生 range 控件一致）
+//	← →        只吃首次按下（按住不会一路跳完整个队列）
+//	空格       只吃首次按下（自动重复会把暂停/播放来回切）
 func (a *App) shortcuts(c *ui.Context, root ui.Element) {
+	// 空格是**开关**：自动重复会把播放/暂停来回切（按住一秒能切十来次），
+	// 所以只吃首次按下（mygo 0.8.0 的 ShortcutRepeated，等价 web 的
+	// KeyboardEvent.repeat）。
 	bindSpace(c, root, func() {
+		if c.ShortcutRepeated() {
+			return
+		}
 		if a.Act.TogglePlay != nil {
 			a.Act.TogglePlay()
 		}
@@ -27,6 +39,10 @@ func (a *App) shortcuts(c *ui.Context, root ui.Element) {
 		if a.VideoOpen {
 			return
 		}
+		// 切集是**动作**：按住 ← 不该一路退回整个队列。
+		if c.ShortcutRepeated() {
+			return
+		}
 		if a.Act.Prev != nil {
 			a.Act.Prev()
 		}
@@ -35,10 +51,15 @@ func (a *App) shortcuts(c *ui.Context, root ui.Element) {
 		if a.VideoOpen {
 			return
 		}
+		if c.ShortcutRepeated() {
+			return
+		}
 		if a.Act.Next != nil {
 			a.Act.Next()
 		}
 	})
+	// 音量是**步进**：按住 ↑ ↓ 连续加减，与原生 range 控件的手感一致
+	//（mygo 文档：an action that steps while the key is held takes every key）。
 	c.OnShortcut(0, ui.KeyUp, func() {
 		if a.VideoOpen {
 			return
@@ -85,7 +106,9 @@ func (a *App) shortcuts(c *ui.Context, root ui.Element) {
 		}
 		switch {
 		case a.Drawer != "":
-			a.Drawer = ""
+			// 走统一入口：从列表点进选集时，Esc 等价于「回到来时的列表」，
+			// 而不是直接落回主区（issue #37 ①，见 drawer.go 的 closeDrawer）。
+			a.closeDrawer()
 		case a.ShowSpeed:
 			a.ShowSpeed = false
 		case a.ShowVolume:

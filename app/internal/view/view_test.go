@@ -353,6 +353,25 @@ func TestProgressPlan(t *testing.T) {
 			t.Fatalf("正常帧应为空操作，得到 seek=%v next=%v", seek, next)
 		}
 	})
+
+	// mygo 0.8.0：被系统取消的按下什么都不提交（#1365）。此前 wasHeld && !held
+	// 把「取消」当成了松手，会 seek 到用户根本没选的位置。
+	t.Run("按下被取消时不 seek，滑块回到真实位置", func(t *testing.T) {
+		seek, next := progressPlan(progressInput{held: false, cancel: true, pos: pos, settle: 0}, want, true, settle)
+		if seek {
+			t.Fatalf("取消的按下不应提交 seek（否则会跳到用户没选的值 %v）", want)
+		}
+		if next != pos {
+			t.Fatalf("取消后滑块应回到真实播放位置 %v，得到 %v", pos, next)
+		}
+	})
+
+	t.Run("取消优先于键盘改值", func(t *testing.T) {
+		seek, _ := progressPlan(progressInput{changed: true, cancel: true, pos: pos, settle: time.Second}, want, false, settle)
+		if seek {
+			t.Fatal("取消的按下不应因 changed 而提交 seek")
+		}
+	})
 }
 
 func TestFanCount(t *testing.T) {

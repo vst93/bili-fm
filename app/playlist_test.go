@@ -201,3 +201,115 @@ func TestClearSeriesPlaylist(t *testing.T) {
 		t.Fatal("清空合集列表后 PlayingPlaylist 仍指向合集")
 	}
 }
+
+// TestResumePlaylistEmptyIsNoop 钉住 issue #37 ② 的边界：两个列表都空时，
+// 播放键（此时是禁用态）即使被调用也什么都不做 —— 不能凭空清掉当前队列，
+// 也不能 panic。
+func TestResumePlaylistEmptyIsNoop(t *testing.T) {
+	a := &view.App{Queue: []view.Track{{Bvid: "BVkeep", Cid: 1}}, Index: 0}
+	c := &controller{app: a}
+	c.resumePlaylist()
+	if len(a.Queue) != 1 || a.Index != 0 {
+		t.Fatalf("空播放列表不该动队列：Queue=%d Index=%d", len(a.Queue), a.Index)
+	}
+	if a.PlayingPlaylist != "" {
+		t.Fatalf("空播放列表不该置 PlayingPlaylist，得到 %q", a.PlayingPlaylist)
+	}
+}
+
+// TestResumePlaylistFromPlaylist 钉住 issue #37 ② 的接线：播放列表有条目时，
+// 播放键走「从列表第一条开始放」，而不是像以前那样直接 return。
+//
+// 这是**行为**测试：把起点播那一步换成替身（真起播要播放器 / 网络），然后断言
+// 队列与来源真的按播放列表装好了 —— 「用户按下播放键之后到底会播什么」。
+func TestResumePlaylistFromPlaylist(t *testing.T) {
+	orig := startPlaybackStub
+	t.Cleanup(func() { startPlaybackStub = orig })
+	started := 0
+	startPlaybackStub = func(c *controller) { started++ }
+
+	a := &view.App{
+		PlaylistTab: view.ListUser,
+		Playlist: []view.PlayItem{
+			{Bvid: "BV1", Aid: 1, Cid: 11, Title: "第一首", Part: "P1"},
+			{Bvid: "BV2", Aid: 2, Cid: 22, Title: "第二首", Part: "P1"},
+		},
+	}
+	c := &controller{app: a}
+	c.resumePlaylist()
+
+	if started != 1 {
+		t.Fatalf("resumePlaylist 应正好起播一次，实际 %d 次", started)
+	}
+	if len(a.Queue) != 2 {
+		t.Fatalf("队列装了 %d 条，应为整个播放列表的 2 条", len(a.Queue))
+	}
+	if a.Queue[0].Bvid != "BV1" || a.Queue[1].Bvid != "BV2" {
+		t.Fatalf("队列顺序不对：%+v", a.Queue)
+	}
+	if a.Index != 0 {
+		t.Fatalf("应从第一条开始，Index = %d", a.Index)
+	}
+	if a.PlayingPlaylist != view.ListUser {
+		t.Fatalf("PlayingPlaylist = %q，应为 user（后续上一首/下一首在这个列表里走）", a.PlayingPlaylist)
+	}
+	if a.PlaylistTab != view.ListUser {
+		t.Fatalf("PlaylistTab = %q，应停在 user", a.PlaylistTab)
+	}
+	// keepDrawer=false：用户只是按了播放键，不该弹出播放列表抽屉。
+	if a.Drawer != "" {
+		t.Fatalf("按播放键不该弹抽屉，Drawer = %q", a.Drawer)
+	}
+}
+
+// TestResumePlaylistFallsBackToOtherList 钉住「当前 tab 是空的那个列表」：
+// 用户停在空的「合集列表」tab 上，按播放键应该去放「我的列表」。
+func TestResumePlaylistFallsBackToOtherList(t *testing.T) {
+	orig := startPlaybackStub
+	t.Cleanup(func() { startPlaybackStub = orig })
+	startPlaybackStub = func(c *controller) {}
+
+	a := &view.App{
+		PlaylistTab: view.ListSeries, // 停在空的合集 tab
+		Playlist: []view.PlayItem{
+			{Bvid: "BV1", Aid: 1, Cid: 11, Title: "第一首"},
+		},
+	}
+	c := &controller{app: a}
+	c.resumePlaylist()
+
+	if len(a.Queue) != 1 || a.Queue[0].Bvid != "BV1" {
+		t.Fatalf("应退到非空的「我的列表」起播，Queue = %+v", a.Queue)
+	}
+	if a.PlayingPlaylist != view.ListUser {
+		t.Fatalf("PlayingPlaylist = %q，应为 user", a.PlayingPlaylist)
+	}
+	if a.PlaylistTab != view.ListUser {
+		t.Fatalf("PlaylistTab 应切到实际播放的来源 user，得到 %q", a.PlaylistTab)
+	}
+}
+
+// TestTogglePlayFallsBackToPlaylist 是**源码级**契约：togglePlay 在
+// `Current() == nil` 时不再直接 return，而是走 resumePlaylist（issue #37 ②）。
+func TestTogglePlayFallsBackToPlaylist(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败: %v", err)
+	}
+	code := string(src)
+	i := strings.Index(code, "func (c *controller) togglePlay()")
+	if i < 0 {
+		t.Fatal("找不到 togglePlay")
+	}
+	body := code[i:]
+	if end := strings.Index(body, "\nfunc "); end > 0 {
+		body = body[:end]
+	}
+	if !strings.Contains(body, "resumePlaylist()") {
+		t.Fatal("togglePlay 在 Current() == nil 时应走 resumePlaylist（issue #37 ②），否则播放键仍是死键")
+	}
+	// 反证：旧的「直接 return」必须已经消失。
+	if strings.Contains(body, "if c.app.Current() == nil {\n\t\treturn\n\t}") {
+		t.Fatal("togglePlay 仍是旧的「没有曲目就直接 return」")
+	}
+}
