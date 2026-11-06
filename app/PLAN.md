@@ -1067,6 +1067,128 @@ amd64/arm64 六平台编译）全绿。
 升级门槛：`./check.sh`（vet + 全包测试 + linux/windows/darwin ×
 amd64/arm64 六平台编译）全绿。
 
+## mygo v0.8.0 升级评估（2026-11-06）
+
+`app/go.mod` 从 v0.7.4 升到 **v0.8.0**（go.sum 只多 mygo 两行）。**没有删除任何
+我们用到的 API**（逐函数名 diff 0.7.4 → 0.8.0：ui 包 2905 个函数名只少了 5 个
+内部实现辅助函数 `animateMatches` / `choosable` / `dragCount` / `rowAtPointer`，
+公共面一个没少），`go build` / `go vet` 直接过 —— 但 0.8.0 有**一批行为变更**
+必须逐条核对（见下表「Breaking」几行），否则会出「测试全绿、用户实机不对」的
+静默回归。
+
+本轮同时按用户 issue #37 的两条交互反馈做了改进（见本节末尾）。
+
+结论：`./check.sh` 等价门禁（vet + 全包测试 30m 超时 + 六平台编译）全绿；
+`internal/view` 无头测试 760s 全过。
+
+### Breaking changes 与行为变更（逐条核对的结论）
+
+| 变更 | 内容 | 本项目受影响点 | 结论 |
+|---|---|---|---|
+| #1328 | **`InputEvent.Code` + 每个键都到 `HandleInput`**（含 `KeyUnknown` 的锁键 / 小键盘 / 第 102 键；单独按修饰键也会到） | 本仓库**没有** `HandleInput` / `ObserveInput` 处理器（全局快捷键全走 `OnShortcut` / `Context.OnShortcut`，是 `switch` 取键），所以「按键按位置命名」「修饰键单独触发」都碰不到我们。逐条 grep 确认 0 处 `HandleInput`。 | **无影响（已核对）** |
+| #1022 | **非活动窗口的强调色淡成灰**（`Theme.InactiveAccent`，默认给一个灰） | 本仓库绝大多数强调色是**自绘**的（直写 `t.Blue`），不会跟着灰 —— 若不显式设置，后台窗口会出现「框架控件（输入框 / 滚动条 / 焦点环 / 复选框）变灰、自绘控件仍蓝」的半灰界面。这是常驻托盘的浮窗应用，窗口失焦（去浏览器挑视频）是常态。 | **已修：`uiTheme()` 显式 `th.InactiveAccent = th.Accent`**（三个时段都断言，见 `inactiveaccent_test.go`） |
+| #1321 | **`Opacity` 把元素与子树当一个整体淡出**（CSS 语义，重叠子元素不再互相叠暗） | 本仓库的父级淡出都是「整组淡入淡出」（标题栏 hover-to-reveal、封面开关组、抽屉遮罩、toast 入场），没有「父淡 + 子各自半透明」的重叠叠加。禁用节点的 .5 减半是另一条路径（`paint.go`），已由下一条的 `DimDisabled` 接管。 | **无影响（已核对）** |
+| #1156 | **按下 / 拖动只跟主键**（`Pressed` / `Dragged` / `DragVelocity` / `DragEnded` 不再由右键或中键起；`PressedButton` 报告是哪个键） | 进度条、音量条、播放列表拖拽排序都只该响应主键 —— 升级前右键拖也能拖动进度条。这是**修好了**一个隐患。 | **采用（升级即生效）** |
+| #1365 | **被系统取消的按下什么都不提交**（无 click / 无 `DragEnded` / 无右键菜单；`InputEvent.Canceled` + `PressCanceled` 用于回滚预览） | **进度条有实际影响**：`progressPlan` 用 `wasHeld && !held` 判「松手」，而取消时 `held` 也会变假 —— 会把「窗口失去鼠标捕获 / 菜单拿走释放」误判成松手，提交一次用户**根本没选**的 seek。 | **已修：`progressInput` 加 `cancel` 字段，取消时回落到真实播放位置、不提交**（含两条子测试，见 `view_test.go` 的 `TestProgressPlan`） |
+| #1165 | **`ui.Shape` 在 Windows 上给视觉顺序的字形**（与 macOS/Linux 一致） | 本仓库只用 `ui.ShapeText`（折行 / 量宽 / `TextLayout`），没有直接用 `ui.Shape` + `Painter.Glyphs`。 | **无影响（已核对）** |
+| #1063 / #1167 | **`mygo build` 不再把 `resources/` 里的 Go 源码打进包**；`resourcesExclude` 支持路径模式；资源目录里的点文件会打进去 | 我们的 `resources/` 只有三张图（`icon.png` / `tray.png` / `tray-template.png`），`mygo.json` **没有** `resourcesExclude`，也没有 `//go:embed` 读自身资源的包。 | **无影响（已核对）** |
+| #1064 / #1369 | **toast 的计时在后台继续走**（托盘应用主窗隐藏时不再显示过期 toast） | 本仓库 toast 是应用内自绘（`toast.go` 的 `ui.ToastViewportBase` + 2s 时长），不是系统通知；主窗隐藏时 `Shell` 直接不构建。 | **无影响（已核对）** |
+| #1325 | Linux/Windows 上「只做动画的帧」在最小化时也停 | 主窗隐藏时本来就 `Background` 早退（不构建），这是纯收益。 | **采用（升级即生效）** |
+| #1211 | 不带通道名的 `Transition` 也淡阴影 | 我们的 `ElementTransition` 只有 toast 与音量弹层两处，都显式写了 Enter/Exit。 | **无影响** |
+| #1012 / #1318 / #1333 | Windows 每帧 GPU 时间约减半；macOS 文本重排 CPU 约减半；字形图集按内容定尺寸（各平台文本内存下降） | 三平台纯收益，无需改代码。 | **采用（升级即生效）** |
+
+### 新能力：采用
+
+| 能力 | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| **`Element.DimDisabled(false)`** | 禁用元素保持自身与子树的不透明度，由调用方自己写禁用态的样子 | 直接**删掉了本仓库整套「.5 补偿」体系**：`disabledDim()` / `frameworkDisabledDim` 整块删除，`disableNav` / `disablePlayerButton` / 进度条 / 迷你窗控制键改为 `Disabled + DimDisabled(false) + 原版绝对值`。**「稍后再看」的移除键**（原版 `.55`）此前因为 .55 > .5 补不回来，只能放弃框架 `Disabled`、自己挡交互 —— 现在可以真正用框架的禁用语义了。 | **采用（本轮主要收益，见 `disabled.go`）** |
+| **`Context.WindowHidden`** | 窗口什么都没显示（最小化 / 隐藏 / 别的 Space / **被其他窗口挡住**），语义同 `document.hidden` | 在线人数轮询（`viewers.go`）此前只判 `Win.IsVisible()`：用户去浏览器挑视频、主窗被盖住时 30s 一轮的接口照打（这一栏只在主窗右栏画）。改为 `shouldPollOnlineViewers(WindowHidden, IsVisible)`。`Shell` / `MiniShell` 在 `Background` 早退**之前**记录它（框架的规矩是「隐藏时构建一次、显示时再构建一次」，从它第一次被问开始）。 | **采用（省后台请求 + 更准）** |
+| **`Context.ShortcutRepeated`** | 报告「这个快捷键是按住不放的自动重复」 | 全局快捷键此前**全都吃重复**：按住空格会把播放/暂停来回切十几次、按住 ← 会一路退回整个队列。现在按语义分两类：音量 ↑↓ 连续步进（吃重复，与原生 range 一致）、空格与 ←→ 只吃首次按下。 | **采用（修了实机手感 bug）** |
+| **`Element.TextShadow`** | 文字投影（字形轮廓 + 偏移 + 模糊） | **桌面字幕**（`lyrics.go`）：字幕窗背景透明度可调到 0（纯文字浮在任意画面上），那时白字压在浅色内容上几乎看不见。新增 `lyricsTextShadowInk`：只在「面板够透 + 文字够浅」时画，alpha 随两者单调走，上限 .55。 | **采用（可读性刚需）** |
+| **`Element.HitTest`** | 元素只在你说的地方吃指针（如圆按钮的圆内） | 唱片（263px 正圆）与 UP 头像（44px 正圆）此前命中区是整个**方盒**：四角点到空白也在按唱片（用户报的「点封面边角也能暂停」）。`circleHitTest` 让它们只在圆内吃指针。 | **采用（修了误触）** |
+| **`Theme.TooltipDelay`** | tooltip 的等待时长（0 = 0.6s 框架默认） | 本仓库 55 处 tooltip，全是播放栏 / 抽屉表头的一排图标键。浮窗应用里鼠标顺手划过去要等 0.6s，用起来就当成「没有 tooltip」。收到 **0.35s**（仍留 250ms 的「停一下」，不误触）。 | **采用** |
+| **`Element.KeepScrollbars(true)`** | 内容溢出时滚动条常驻（不再只在悬停时出现） | 卡片网格靠「滚到底自动翻页」、播放列表可能上百条 —— 拇指一闪一闪看不出位置，也判断不了「到底了没有」。只对这两种**长列表**开，短列表保持原版的悬停行为。 | **采用** |
+| **`Element.Balance` / `Element.Pretty`** | 两行等长折行 / 正文最后一行不留孤字（CSS `text-wrap: balance` / `pretty`） | 合集标题（两行截断）用 `Balance`：原来常出现「第一行顶满、第二行只剩两三个字」；简介正文（三行截断）用 `Pretty`。 | **采用** |
+| **`MaxWidth` + `MaxWidthPercent` 同时生效** | 两种上限同时生效、取更小者，等价 CSS 的 `max-width: min(78%, 34rem)` | 选集胶囊是 `MaxWidth(430)` 的定宽盒，而右栏内容区在最窄窗（`MinWidth: 400`）里只有 ~366 —— 会横向溢出到栏外。补一条 `MaxWidthPercent(100)` 后：宽窗仍是 430、窄窗自动收到可用宽度。 | **采用（`home.go` 的 partPill，含三档窗宽的绘制实测）** |
+| **`App.SetDMABUFRenderer`** | Linux 上 WebKitGTK 的 DMA-BUF 渲染器：mygo 默认**关**（NVIDIA 驱动 / 虚拟机 / 容器里会画空白窗），能用的主机上开着滚动帧率是数倍、CPU 更低；`Auto` 只在已知能用的主机（Wayland + Mesa GPU + 非容器/虚拟机）上开 | 视频弹窗是**唯一**用 WebKitGTK 的地方（主窗是原生 UI）。已接上：Linux 默认 `Auto`，`BILIFM_DMABUF=off/on` 可强制（排查「视频弹窗白屏」时最有用）。 | **采用（`memory.go` 的 `applyDMABUFRenderer`）** |
+
+### 新能力：评估后不采用
+
+| 能力 | 内容 | 本项目情况 | 结论 |
+|---|---|---|---|
+| `NotificationOptions.Image` | 通知显示一张图（macOS 附件 / Linux 通知图 / Windows 大图标） | 本仓库**不发系统通知**：播放状态走媒体中心（Windows SMTC / Linux MPRIS / macOS NowPlaying），应用内提示走自绘 toast。 | **不适用** |
+| `audio.Player.SetPreservesPitch` | 框架音频播放器的变速不变调 | 我们的音频引擎是**自研**的（`internal/media`，WSOLA 变速不变调 + 均衡 + oto 输出），根本不经过 `audio.Player`。 | **不适用（自研引擎已覆盖）** |
+| `Theme.WindowButtons` | 桌面自己标题栏里有哪些窗口键（gtk-decoration-layout） | **评估后不采用，而且是刻意的**：这个 API 描述的是**桌面自己标题栏**里的键，而本仓库窗口是 `Frameless` —— 合成器根本不提供标题栏。Linux 平铺合成器（Hyprland / Sway）会返回「一个键都没有」，跟着不画就等于重新引入用户 2026-10-17 报告 ③ 的回归（「Wayland 下合成器不给原生按钮 → 关闭/最小化消失」）。无边框窗口必须自绘这两颗键，决定权不在桌面布局上。 | **不采用（Frameless 必须自绘）** |
+| `Element.Sticky` | 像 CSS `position: sticky` 那样在滚动容器里保持可见 | 弹幕时间分组 / 字幕行是**虚拟化列表的行**，`Sticky` 对 `List` 的行不生效（行的定位由 `ListState` 接管）；做成「分组标题粘顶」得改成非虚拟化，代价远大于收益。 | **不采用（虚拟化冲突）** |
+| `ScrollSnap` / `SnapAlign` | 滚动容器吸附到元素标记的位置 | 本仓库没有轮播 / 分页画廊。抽屉是底部滑入的单面板。 | **不适用** |
+| `Element.ZIndex` | 同级元素的绘制顺序（CSS `z-index`） | 现有叠层（遮罩 / 面板 / 关闭键 / 封面角标）靠**建序**就已经正确，没有需要插队的地方。 | **不采用（现状即正确）** |
+| `ClipInset` / `MaskLinearGradient` / `MaskRadialGradient` / `Masks` / `ObjectPosition` | 裁剪与遮罩系列 | 我们的裁切都靠 `Clip()` + `Radius`（圆角/正圆），遮罩需求由**框架 Liquid Glass** 与自绘渐变满足；没有「按渐变淡出图片」这类用法。 | **不采用** |
+| `Element.TextStroke` | 文字描边 | 桌面字幕用 `TextShadow` 就够（描边会让中文字形变粗、糊边）。 | **不采用（投影更合适）** |
+| `PreserveSpaces` | 保留连续空格（`white-space: break-spaces`） | 本仓库没有需要保留空格的文本（简介 / 标题都按自然折行）。 | **不适用** |
+| `Element.NoShadow` | 去掉元素已有的投影 | 我们的投影都是逐处显式写的，没有「helper 返回带影子的卡片」这种结构。 | **不适用** |
+| 菜单 `Icon` / `Subtitle` / `Tooltip` | 原生菜单项带图标 / 副标题 / 提示 | 只有 macOS 的原生菜单栏（`menu.go`）用到 `mygo.MenuItem`，那里是与原版逐项对齐的四项纯文字动作；Windows/Linux 的菜单是自绘液态玻璃面板。 | **暂不采用（无对应原版设计）** |
+| `MenuBase` / `ContextMenuBase` / `AccordionBase` / `TreeBase` / `ComboboxBase` / `SelectBase.SetOpen` | 自定义外观的菜单 / 手风琴 / 树 / 组合框 | 本仓库的菜单（`settingsmenu.go`）、下拉（`collabpicker.go`）都是自绘面板，不依赖这些 Base。 | **不适用** |
+| `Context.SetMenuPresentation(PopoverMenus)` | 所有菜单都画在窗口内 | 我们的菜单本来就是自绘在窗口内。 | **不适用（已是现状）** |
+| `Context.KeyDown` / `KeysDown` / `OnWindowShortcut` | 窗口当前按住的键；从树里任意位置声明窗口快捷键 | `OnWindowShortcut` 的语义我们已由 `Context.OnShortcut`（在根处注册）达到；没有「快捷键速查表要高亮按住的键」这类界面。 | **不采用（现状已等价）** |
+| `TabStop(false)` / `FocusLeft` / `LabelledBy` / `FocusTakesText` | 焦点与无障碍细化 | 本仓库的可聚焦元素都靠 `ButtonBase` 自带语义；没有「可聚焦但不在 Tab 序」的自定义控件。 | **不适用** |
+| `InViewMargin` / `InViewAmount` | 元素是否在视野内（带边距 / 按面积比例），如提前加载缩略图 | 封面预取已由**虚拟化列表的可见窗口**（`ListState.Visible()`）+ 连续两帧稳定的闸门（`prefetchGate`）实现，比 IntersectionObserver 更精确（我们要的就是「哪几行在屏上」）。 | **不采用（现有机制更准）** |
+| `Local` 的 `io.Closer` 生命周期 | 元素消失时关闭 `Local` 里的 `io.Closer` | 本仓库的逐元素资源（缩略图请求）由 `imagecache` 的 `BeginFrame` / `Retain` / `Cancel` 管；没有需要 `Closer` 的逐元素句柄。 | **不适用** |
+| `Preferences.Pointer` / `AnyPointer` / `NoHover` | 指针是否粗粒度 / 能否悬停（CSS 媒体查询） | 桌面应用，指针恒为精细且可悬停；本仓库也没有触屏布局分支。 | **不适用** |
+| `TranslateZ` / `Translation3D` / `Magic Move`（`ElementTransition.Fly`）/ `ContentTransition.Morph` | 3D 位移与共享元素飞行转场 | 界面是单窗口、无页面路由（`Router` 也没用），没有「卡片打开成详情页」的转场。 | **不适用** |
+| `Flyouts` 的 `FitContent` / `Modal` | 弹出层按内容定尺寸；窗口以 flyout 为父 | 我们的浮层都是自绘（`ui.PopoverBase` / 自绘面板），没有系统 flyout。 | **不适用** |
+| `plugins/permissionflow` / `plugins/sfsymbols` / `plugins/automation` | 权限引导 / SF Symbols / AI 代理自动化 | 本仓库不需要系统权限（无麦克风/摄像头/录屏）；图标是逐字拷贝的 icon-park 路径（三平台一致，不用 SF Symbols）；没有自动化脚本需求。 | **不适用** |
+| `markdown.Options.LinkMenu` / `markdown.Revealed` | markdown 链接右键菜单 / 流式回复结束通知 | 本仓库不用 `ui.Markdown`（简介是纯文本 `ui.Text`）。 | **不适用** |
+| `terminal` / `code-editor` / `diff-viewer` 系列（`CellWidth`、`HoverDelay`、`SplitPercent`、`KeepScrollbars`…） | 编辑器 / 终端 / diff 的新选项 | 本仓库没有代码编辑器 / 终端 / diff。 | **不适用** |
+| `plugins/glass` 的 `Native: true` / `glass.Group` | macOS 26 原生 Liquid Glass、多面板合并 | 我们的玻璃是自绘材质（`glass.Glass{}` / `glass.Blur`）＋逐处烘焙的令牌；macOS 26 原生玻璃是另一套观感，与原版 CSS 对齐的目标冲突。 | **不采用（观感不符原版）** |
+| `Theme.SetGTKCSS` | Linux 上给 GTK 自身的控件（标题栏 / 标题按钮）上样式 | 主窗在 Linux 上是 `Frameless` + 全自绘标题栏，没有 GTK 自带控件可上样式；视频弹窗是无边框的纯 WebView。 | **不采用（无 GTK 控件）** |
+| `ListState.HeaderCell` / `CellsStyle` / `DragRows` | 表头单元格 / 电子表格单元格样式 / 行拖出 | 播放列表的拖拽排序已用 `ui.Draggable` 自绘实现；没有表格。 | **不适用** |
+| `Theme.InactiveAccent`（作为「淡成灰」的默认行为） | 见 Breaking 表 | 已显式关掉。 | **不采用（见上）** |
+
+### 用户 issue #37 的两条交互改进（同轮落地）
+
+用户在 2026-11-05 报（维护者回「下个版本优化上」）：
+
+1. **动态 / 收藏 / 历史等页面增加返回功能，点返回回到前面滚动到的位置** ——
+   这样想连续加歌时不用重复点开列表并滚到对应位置。
+2. **播放列表里有视频时，播放键应该是可操作状态**，不需要先点开播放列表选一条。
+
+实现要点：
+
+- 新增 `App.DrawerBack`（来源抽屉）与 `partsBackTarget()`：只有**列表类**抽屉
+  （动态 / 热门与推荐 / 收藏 / 历史 / 搜索 / UP 空间 / 合集 / 播放列表）进选集后
+  才长出「返回」键；从主区 / 托盘进来的选集没有。
+- `backToDrawer()` 返回时**不重拉第一页** —— 滚动位置本来就存在
+  `List.GridScroll` / `List.Scroll` 里，一重拉就会被 `ResetScroll` 抹掉，那正是
+  用户说的「要重新滚到对应位置」的根因。
+
+- **所有关闭路径统一走 `closeDrawer()`**：关闭键 / `Esc` / 点遮罩 / 下滑关闭 /
+  各入口「再点一次关掉」/ 装配层 `playIndex`（选集里点一集播放，走导出的
+  `CloseDrawer()`）。从列表进来的选集「关掉」= 回到列表，而不是落回主区。
+
+- **`playIndex` 里必须「先起播、再关面板」**：`startCurrent` 自己也会按
+  `keepDrawerOnPlay` 决定抽屉去留，而它只把「选集 / 播放列表」当成要保留的。
+  先 `CloseDrawer()` 会把从列表进来的选集恢复成 `history`，紧接着 `startCurrent`
+  看不到 `DrawerParts`，又把刚恢复的列表关掉 —— 用户点一集播放后落回主区。
+  这条有时序陷阱，所以加了**行为**测试（把起播那一步换成忠实复刻
+  `keepDrawerOnPlay` 副作用的替身），顺序写反会红。
+
+- **残留自愈**：`DrawerBack` 只在「选集」这一层有意义。`Shell` 每帧开头有一条
+  不变量 —— `if a.Drawer != DrawerParts { a.DrawerBack = "" }`。原因是抽屉的关闭
+  路径不止一条（上面那串），漏掉任何一条都会让下一次从主区打开选集时错误地长出
+  「返回上一层」，点了还会跳到那个早就不相关的列表。入口处（`openSection` /
+  `openParts` / `openSeries` / `openDanmaku` / 播放列表键 / `seriesChip`）另外显式
+  清一次，保证**同一帧内**就正确。
+- 播放键：`hasSource()` 改为 `Current() != nil || playlistPlayable(...)`；
+  `PlaylistStart()` 决定从哪个列表、第几条开始（当前 tab 非空就用它，否则退到
+  另一个非空的）；控制器 `togglePlay` 在 `Current() == nil` 时走 `resumePlaylist()`。
+
+测试：`issue37_test.go`（含滚动位置保留的强断言：`GridScroll` / `Scroll` / 页码 /
+卡片数逐个钉住；绘制实测点返回键；反证「从主区进来不该有返回键」；
+`TestDrawerBackResidueIsCleared` 覆盖残留自愈的四条抽屉值；
+`TestAllDrawerClosePathsShareOneEntry` 逐个入口验证「从列表进选集 → 再触发同一
+入口 = 回到列表」）、`playlist_test.go` 的 `TestResumePlaylist*` 与源码级契约
+`TestTogglePlayFallsBackToPlaylist`。
+
 ## HE-AAC 稿件「音频解码失败」→ 回退 DASH AAC-LC 音轨（2026-10-30）
 
 用户报 BV1k3411f7mX（许嵩歌曲 151 首精选）起播即「音频解码失败」。查实不是网络、

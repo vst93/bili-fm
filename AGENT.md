@@ -4,10 +4,36 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
-- **依赖 mygo v0.7.4**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
+- **依赖 mygo v0.8.0**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
   评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 / v0.7.1 /
-  v0.7.2+v0.7.3 各一节），当轮的坑与门槛写进 `.pending-bugs.md`。
-  **先读这两处再动依赖。**
+  v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 各一节），当轮的坑与门槛写进
+  `.pending-bugs.md`。**先读这两处再动依赖。**
+
+- **0.8.0 起禁用态用 `DimDisabled(false)`**（`app/internal/view/disabled.go`）：
+  框架不再自动给禁用节点乘 0.5，禁用元素的不透明度就是**原版 CSS 的绝对值**
+  （.34 / .42 / .55）。此前那套 `disabledDim(target) = target/0.5` 的补偿已删除
+  —— 别再写回去。例外只有「原版 disabled 不改不透明度」的搜索提交键（.82），
+  它还得靠回调自己挡（见 disabled.go 的总说明）。
+
+- **`Context.WindowHidden` 要在 `Background` 早退之前问**（`Shell` / `MiniShell`
+  开头）：框架靠「视图第一次问它」来决定隐藏/重现时各给一帧构建，放在早退之后
+  就永远读不到。后台轮询（在线人数）据此暂停，见 `viewers.go`。
+
+- **`internal/view` 单包测试要 `-timeout=30m`**：无头光栅 + 字体度量要 600~760s，
+  默认 10m 会在跑完前 panic（不是回归）。
+
+- **窗口键（最小化 / 关闭）一律自绘，不看 `Theme.WindowButtons`**：本仓库窗口是
+  `Frameless`，合成器不提供标题栏；平铺合成器（Hyprland / Sway）该 API 返回
+  「一个键都没有」，跟着不画就是 2026-10-17 报告 ③ 的回归（关不掉窗口）。
+
+- **「只在某一层有意义」的状态要有每帧兜底**：`App.DrawerBack`（issue #37 ①
+  的返回来源）除了各入口显式清，`Shell` 开头还有一条
+  `if a.Drawer != DrawerParts { a.DrawerBack = "" }`。关闭抽屉的路径有五条以上，
+  漏一条就会长出错误的「返回上一层」。
+
+- **`playIndex` 的选集分支必须「先起播、再关面板」**：`startCurrent` 按
+  `keepDrawerOnPlay` 决定抽屉去留，先关会把从列表恢复的抽屉再关掉（用户点一集
+  播放后落回主区）。回归测试用 `startPlaybackStub` 做行为断言，别改回源码 grep。
 
 - **更新源必须用 `mygo.Updater.SetSource`**（`app/update_source.go`）。0.7.2 起
   mygo 的 updater 走 `netproxy.Transport()`，不再碰 `http.DefaultTransport`：
