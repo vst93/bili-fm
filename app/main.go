@@ -284,9 +284,6 @@ func main() {
 		applyMemoryTuning()
 		applyRenderBackend()
 		applyWebViewArgs()
-		// Linux：把视频弹窗的 WebKitGTK DMA-BUF 渲染器交给框架判断
-		// （mygo 0.8.0，见 memory.go 的 applyDMABUFRenderer）。
-		applyDMABUFRenderer()
 		opts := mygo.WindowOptions{
 			Title: "bili-FM",
 			// 旧版默认窗口就是 800×600（src-tauri/src/lib.rs 的 inner_size）。
@@ -714,6 +711,15 @@ func main() {
 	// 在 Run 之前装：这样 mygo 就不会先装上它自带的英文默认菜单
 	// （App / File / Edit / View / Window）。
 	c.setupAppMenu()
+
+	// Linux：把视频弹窗的 WebKitGTK DMA-BUF 渲染器交给框架判断
+	// （mygo 0.8.0，见 memory.go 的 applyDMABUFRenderer）。
+	//
+	// **必须在 Run 之前**：框架把这项设置随 AppOptions 交给后端，Linux 后端在
+	// Init 里据此决定要不要设 WEBKIT_DISABLE_DMABUF_RENDERER=1（GTK 初始化前后的
+	// 事），之后再改这个字段就没有任何地方读了。放在 WhenReady 里是个静默失效
+	// 的坑 —— 代码看着在、实际一点效果没有（第一版就是这么写错的）。
+	applyDMABUFRenderer()
 
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

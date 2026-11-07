@@ -299,3 +299,51 @@ func TestApplyDMABUFRendererSkipsOtherPlatforms(t *testing.T) {
 	// 非 Linux：函数是 no-op，调用不该 panic。
 	applyDMABUFRenderer()
 }
+
+// TestDMABUFRendererSetBeforeRun 钉住**调用时机**：`applyDMABUFRenderer()` 必须在
+// `mygo.App.Run()` 之前调用，而且不能落在 `WhenReady` 回调内部。
+//
+// 为什么必须测时机：框架把这项设置随 AppOptions 交给后端，Linux 后端在 Init 里
+// 据此决定要不要设 WEBKIT_DISABLE_DMABUF_RENDERER=1（GTK 初始化前后的事），之后
+// 再改字段就没有任何地方读了。第一版写在 WhenReady 里 —— 代码在、测试绿、能力
+// 完全没生效（用户可见效果为零）。这类「静默失效」只能靠检查调用点发现。
+func TestDMABUFRendererSetBeforeRun(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败: %v", err)
+	}
+	code := string(src)
+
+	callIdx := strings.Index(code, "applyDMABUFRenderer()")
+	if callIdx < 0 {
+		t.Fatal("main.go 里没有调用 applyDMABUFRenderer()（Linux 视频弹窗的 DMA-BUF 没接上）")
+	}
+	runIdx := strings.Index(code, "mygo.App.Run()")
+	if runIdx < 0 {
+		t.Fatal("找不到 mygo.App.Run()")
+	}
+	if callIdx > runIdx {
+		t.Error("applyDMABUFRenderer() 必须在 mygo.App.Run() 之前调用" +
+			"（后端只在 Init 里读这项设置，之后再改就无效）")
+	}
+
+	// 反证：不许落在 WhenReady 的闭包**内部**（那是 Run 之后才跑的 ready 回调）。
+	// 光比字符串位置不够 —— WhenReady(...) 在文件里出现得更早，所以要按大括号
+	// 深度判：从回调起点数到调用点，深度 > 0 就是嵌在里面。
+	readyIdx := strings.Index(code, "mygo.App.WhenReady(func() {")
+	if readyIdx >= 0 && callIdx > readyIdx {
+		depth := 0
+		for i := readyIdx; i < callIdx; i++ {
+			switch code[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+		}
+		if depth > 0 {
+			t.Error("applyDMABUFRenderer() 落在 WhenReady 回调内部 —— 那会在 Run 之后才执行，" +
+				"框架早就按默认值把 WEBKIT_DISABLE_DMABUF_RENDERER 设好了，等于没设")
+		}
+	}
+}
