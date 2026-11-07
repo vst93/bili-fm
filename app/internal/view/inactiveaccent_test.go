@@ -34,6 +34,24 @@ func TestInactiveAccentKeepsTheAccent(t *testing.T) {
 	}
 }
 
+// TestTooltipDelayReachesFrameTheme 钉住 `TooltipDelay` 真的进了**这一帧的主题**：
+// 框架就是在构建时读 `c.Theme().TooltipDelay` 来决定 tooltip 等多久的，所以只要
+// 帧内主题带着 0.35s，这个设置就是生效的（不是只写在 `Theme` 结构体上没人看）。
+func TestTooltipDelayReachesFrameTheme(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	got := time.Duration(0)
+	tst := ui.NewTester(func(c *ui.Context) {
+		a.Shell(c)
+		got = c.Theme().TooltipDelay
+	}, 800, 600)
+	tst.Frame()
+	if got != tooltipDelay {
+		t.Fatalf("帧内主题的 TooltipDelay = %v，应为 %v（否则 tooltip 仍是框架默认 0.6s）",
+			got, tooltipDelay)
+	}
+}
+
 // TestUIPageKeepsAccentInBackground 是无头实测的反证：把一个窗口设成非活动
 // （tester 的 SetWindowActive(false)），框架画的强调色仍要是主题蓝。
 func TestUIPageKeepsAccentInBackground(t *testing.T) {

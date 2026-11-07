@@ -54,3 +54,57 @@ func TestWrapTextKeepsFullText(t *testing.T) {
 		}
 	}
 }
+
+// TestBalanceMakesTwoLinesEven 是**绘制实测**：`Element.Balance`（mygo 0.8.0）
+// 真的把两行拉到接近等长，而不是只写了个声明式开关。
+//
+// 量法：同一段长文本在固定宽度下折两行，逐行取「最右墨迹的横坐标」当作行宽。
+// 不加 Balance 时第一行顶满、第二行只剩一小截（实测 208 / 138）；加了之后两行
+// 接近（181 / 166）。这正是合集标题那个「第二行只剩两三个字」的问题。
+func TestBalanceMakesTwoLinesEven(t *testing.T) {
+	const long = "这是一条很长很长的合集标题用来检查两行折行是否等长"
+	lineEnds := func(balance bool) []int {
+		tst := ui.NewTester(func(c *ui.Context) {
+			c.SetTheme(ThemeFor(PeriodAt(12)).uiTheme())
+			ui.Column(c).Fill().Background(ui.Hex("#ffffff")).Children(func() {
+				txt := ui.Text(c, long).FontSize(14).FontWeight(700).
+					TextColor(ui.Hex("#000000")).Width(220)
+				if balance {
+					txt.Balance()
+				}
+			})
+		}, 240, 120)
+		tst.Frame()
+		img := tst.Image()
+		var out []int
+		for band := 0; band < 2; band++ {
+			best := 0
+			for y := band * 20; y < (band+1)*20 && y < img.Rect.Dy(); y++ {
+				for x := 0; x < img.Rect.Dx(); x++ {
+					if lum(pixelAt(t, img, x, y)) < 128 && x > best {
+						best = x
+					}
+				}
+			}
+			out = append(out, best)
+		}
+		return out
+	}
+
+	plain := lineEnds(false)
+	balanced := lineEnds(true)
+	diff := func(v []int) int {
+		if v[0] > v[1] {
+			return v[0] - v[1]
+		}
+		return v[1] - v[0]
+	}
+	t.Logf("行宽差：无 balance=%d（%v），有 balance=%d（%v）",
+		diff(plain), plain, diff(balanced), balanced)
+	if diff(balanced) >= diff(plain) {
+		t.Errorf("Balance 没让两行更接近：无 %d vs 有 %d", diff(plain), diff(balanced))
+	}
+	if diff(balanced) > 40 {
+		t.Errorf("Balance 后两行仍差 %d px，说明没真正生效", diff(balanced))
+	}
+}
