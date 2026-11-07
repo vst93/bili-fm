@@ -31,6 +31,12 @@
   `if a.Drawer != DrawerParts { a.DrawerBack = "" }`。关闭抽屉的路径有五条以上，
   漏一条就会长出错误的「返回上一层」。
 
+- **`App.SetDMABUFRenderer` 必须在 `mygo.App.Run()` 之前调**（`main.go` 末尾、
+  `setupAppMenu()` 旁）：框架在 `Run → 后端 Init` 里据此设
+  `WEBKIT_DISABLE_DMABUF_RENDERER`，之后再改字段没有任何地方会读。写在
+  `WhenReady` 里是**静默失效**（编译/测试全绿、能力为零）。护栏见
+  `TestDMABUFRendererSetBeforeRun`。
+
 - **`playIndex` 的选集分支必须「先起播、再关面板」**：`startCurrent` 按
   `keepDrawerOnPlay` 决定抽屉去留，先关会把从列表恢复的抽屉再关掉（用户点一集
   播放后落回主区）。回归测试用 `startPlaybackStub` 做行为断言，别改回源码 grep。

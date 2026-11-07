@@ -1069,8 +1069,8 @@ amd64/arm64 六平台编译）全绿。
 
 ## mygo v0.8.0 升级评估（2026-11-06）
 
-`app/go.mod` 从 v0.7.4 升到 **v0.8.0**（go.sum 只多 mygo 两行）。**没有删除任何
-我们用到的 API**（逐函数名 diff 0.7.4 → 0.8.0：ui 包 2905 个函数名只少了 5 个
+`app/go.mod` 从 v0.7.4 升到 **v0.8.0**（go.sum 删掉 v0.7.1 / v0.7.3 / v0.7.4 六行
+旧校验、加 v0.8.0 两行）。**没有删除任何我们用到的 API**（逐函数名 diff 0.7.4 → 0.8.0：ui 包 2905 个函数名只少了 5 个
 内部实现辅助函数 `animateMatches` / `choosable` / `dragCount` / `rowAtPointer`，
 公共面一个没少），`go build` / `go vet` 直接过 —— 但 0.8.0 有**一批行为变更**
 必须逐条核对（见下表「Breaking」几行），否则会出「测试全绿、用户实机不对」的
@@ -1110,7 +1110,7 @@ amd64/arm64 六平台编译）全绿。
 | **`Element.KeepScrollbars(true)`** | 内容溢出时滚动条常驻（不再只在悬停时出现） | 卡片网格靠「滚到底自动翻页」、播放列表可能上百条 —— 拇指一闪一闪看不出位置，也判断不了「到底了没有」。只对这两种**长列表**开，短列表保持原版的悬停行为。 | **采用** |
 | **`Element.Balance` / `Element.Pretty`** | 两行等长折行 / 正文最后一行不留孤字（CSS `text-wrap: balance` / `pretty`） | 合集标题（两行截断）用 `Balance`：原来常出现「第一行顶满、第二行只剩两三个字」；简介正文（三行截断）用 `Pretty`。 | **采用** |
 | **`MaxWidth` + `MaxWidthPercent` 同时生效** | 两种上限同时生效、取更小者，等价 CSS 的 `max-width: min(78%, 34rem)` | 选集胶囊是 `MaxWidth(430)` 的定宽盒，而右栏内容区在最窄窗（`MinWidth: 400`）里只有 ~366 —— 会横向溢出到栏外。补一条 `MaxWidthPercent(100)` 后：宽窗仍是 430、窄窗自动收到可用宽度。 | **采用（`home.go` 的 partPill，含三档窗宽的绘制实测）** |
-| **`App.SetDMABUFRenderer`** | Linux 上 WebKitGTK 的 DMA-BUF 渲染器：mygo 默认**关**（NVIDIA 驱动 / 虚拟机 / 容器里会画空白窗），能用的主机上开着滚动帧率是数倍、CPU 更低；`Auto` 只在已知能用的主机（Wayland + Mesa GPU + 非容器/虚拟机）上开 | 视频弹窗是**唯一**用 WebKitGTK 的地方（主窗是原生 UI）。已接上：Linux 默认 `Auto`，`BILIFM_DMABUF=off/on` 可强制（排查「视频弹窗白屏」时最有用）。 | **采用（`memory.go` 的 `applyDMABUFRenderer`）** |
+| **`App.SetDMABUFRenderer`** | Linux 上 WebKitGTK 的 DMA-BUF 渲染器：mygo 默认**关**（NVIDIA 驱动 / 虚拟机 / 容器里会画空白窗），能用的主机上开着滚动帧率是数倍、CPU 更低；`Auto` 只在已知能用的主机（Wayland + Mesa GPU + 非容器/虚拟机）上开 | 视频弹窗是**唯一**用 WebKitGTK 的地方（主窗是原生 UI）。Linux 默认 `Auto`，`BILIFM_DMABUF=off/on` 可强制（排查「视频弹窗白屏」时最有用）。**必须在 `mygo.App.Run()` 之前调用**：框架把这项设置随 AppOptions 交给后端，Linux 后端在 `Init` 里据此设 `WEBKIT_DISABLE_DMABUF_RENDERER`，之后再改字段没有任何地方会读（第一版写在 `WhenReady` 里就是静默失效，已加调用时机测试）。 | **采用（`memory.go` 的 `applyDMABUFRenderer`，调用点在 `Run` 之前）** |
 
 ### 新能力：评估后不采用
 
