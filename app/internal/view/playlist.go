@@ -83,7 +83,6 @@ func playModeIconInk(mode string) ui.Color {
 
 // playModeButton 是播放模式开关（顺序 → 单曲循环 → 随机 → 顺序）。
 func (a *App) playModeButton(c *ui.Context) {
-	t := a.Theme
 	ic := iconOrder
 	label := "当前：顺序播放"
 	switch a.PlayMode {
@@ -94,11 +93,12 @@ func (a *App) playModeButton(c *ui.Context) {
 	}
 	b := ui.ButtonBase(c.Key("play-mode")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label)
-	if b.Hovered() {
-		b.Background(t.GlassHover)
-	} else {
-		b.Background(t.GlassActive)
-	}
+	// 与同排的定位 / 清空 / 刷新键**同一套材质**（drawerHeaderSurface：白 .16 底 +
+	// inset 顶部白 .9 高光，悬停换白 .38 并多一道内暗线与外投影）。此前这里直接铺
+	// `t.GlassActive` / `t.GlassHover`，缺了那层内高光与悬停投影，在表头里看着比
+	// 旁边的键「平」一档、像没有底色的裸图标（用户 2026-11-07 报）。
+	drawerHeaderSurface(b, b.Hovered())
+	drawerHeaderPress(b)
 	b.Children(func() {
 		ui.Icon(c, ic).Size(18, 18).TextColor(playModeIconInk(a.PlayMode))
 	})
