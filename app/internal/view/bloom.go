@@ -278,6 +278,11 @@ func (a *App) lightField(c *ui.Context) {
 		box.Jump(lightFadeKey, 0)
 	}
 	k := box.AnimateTo(lightFadeKey, 1, lightFieldFadeAnim)
+	factor := a.Theme.backgroundOpacity()
+	if a.Theme.Mode == "dark" {
+		factor *= 0.08
+	}
+	box.Opacity(factor)
 	if a.bloomPrev == nil {
 		k = 1
 	}

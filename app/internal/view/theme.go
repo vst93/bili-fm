@@ -6,20 +6,15 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Theme 是 bili-FM 的视觉令牌，取自 src/styles/globals.css。
-//
-// 关键：原版没有「亮色/暗色开关」，而由时段驱动 —— 但**跟着时段走的只有
-// 窗口背景和播放栏**：
-//
-//   - 背景：--liquid-backdrop，11 个时段各一条渐变（见 backdrop.go）
-//   - 播放栏：#player 的 --player-* 令牌，深夜/黎明前/黄昏/傍晚/深夜
-//     换成「烟熏玻璃」
-//
-// 其余令牌（--studio-*、--glass-*、--liquid-*）在 CSS 里只定义在 :root，
-// 任何时段都不覆写。所以正文永远深色压在浅色渐变上，玻璃永远是同一种白。
+// Theme keeps the original time-of-day light palette and layers the user's
+// appearance and accessibility preferences over it. Dark describes the player
+// material (including the original evening style); Mode selects app appearance.
 type Theme struct {
 	Period Period
-	// Dark 为真表示处于烟熏玻璃时段。**只影响播放栏**。
+	// Mode is the explicit app appearance; Dark still includes the legacy evening player style.
+	Mode         string
+	Transparency float64
+	// Dark 为真时播放栏使用深色材质；全应用主题以 Mode 为准。
 	Dark bool
 
 	// 文字（--studio-ink / muted / faint，时段无关）
@@ -87,6 +82,76 @@ type Theme struct {
 	PlayerTrackRest   ui.Color
 }
 
+// appearanceTransparencyMax is intentionally bounded: enough to reveal the
+// desktop behind the gradient while leaving the foreground readable.
+const appearanceTransparencyMax = 0.40
+
+func clampAppearanceTransparency(v float64) float64 {
+	if v != v || v < 0 {
+		return 0
+	}
+	if v > appearanceTransparencyMax {
+		return appearanceTransparencyMax
+	}
+	return v
+}
+
+// withAppearance applies the explicit app appearance after the time-of-day
+// and accessibility tokens. Keeping it as a final layer means every glass
+// surface gets the same dark/light decision.
+func (t Theme) withAppearance(mode string, transparency float64) Theme {
+	if mode != "dark" {
+		mode = "light"
+	}
+	t.Mode = mode
+	t.Transparency = clampAppearanceTransparency(transparency)
+	if mode == "dark" {
+		t.Dark = true
+		t.Ink = ui.Hex("#e6edf7")
+		t.Muted = ui.Hex("#b9c5d6")
+		t.Faint = ui.Hex("#8fa0b8")
+		t.Line = ui.Hex("#d7e3f2").Alpha(0.20)
+		t.Glass = ui.Hex("#132033").Alpha(0.28)
+		t.GlassHover = ui.Hex("#243751").Alpha(0.42)
+		t.GlassActive = ui.Hex("#0b1422").Alpha(0.22)
+		t.GlassBorder = ui.Hex("#9bb9d3").Alpha(0.16)
+		t.GlassBorderBright = ui.Hex("#bad8ee").Alpha(0.30)
+		t.Highlight = ui.Hex("#ffffff").Alpha(0.18)
+		t.LiquidBg = ui.Hex("#142238").Alpha(0.26)
+		t.LiquidBgHover = ui.Hex("#233754").Alpha(0.38)
+		t.LiquidBgActive = ui.Hex("#0b1422").Alpha(0.22)
+		t.Panel = ui.Hex("#152238").Alpha(0.92)
+		t.Soft = ui.Hex("#1d2b41")
+		t.Blue = ui.Hex("#38bdf8")
+		t.Mint = ui.Hex("#2dd4bf")
+		t.Rose = ui.Hex("#fb7185")
+		t.PlayerSurface = ui.Hex("#101c2d").Alpha(0.36)
+		t.PlayerBorder = ui.Hex("#9bb9d3").Alpha(0.14)
+		t.PlayerEdgeFade = ui.Hex("#0b1422").Alpha(0.14)
+		t.PlayerButton = ui.Hex("#d7e3f2").Alpha(0.76)
+		t.PlayerTime = ui.Hex("#c5d2e5")
+		t.PlayerTrackBorder = ui.Hex("#d7e3f2").Alpha(0.34)
+		t.PlayerTrackRest = ui.Hex("#d7e3f2").Alpha(0.18)
+	}
+	// Small glass surfaces follow the window transparency; text stays opaque.
+	for _, color := range []*ui.Color{&t.Glass, &t.GlassHover, &t.GlassActive,
+		&t.LiquidBg, &t.LiquidBgHover, &t.LiquidBgActive, &t.Panel, &t.PlayerSurface} {
+		if t.ReducedTransparency {
+			color.A = 255
+		} else if t.Transparency > 0 {
+			a := float32(color.A) / 255
+			color.A = uint8(a*(1-float32(t.Transparency)*0.5)*255 + 0.5)
+		}
+	}
+	if mode == "dark" && t.HighContrast {
+		t.Ink, t.Muted, t.Faint = ui.Hex("#ffffff"), ui.Hex("#e2e8f0"), ui.Hex("#cbd5e1")
+		t.GlassBorder, t.PlayerBorder = ui.Hex("#d7e3f2").Alpha(.65), ui.Hex("#d7e3f2").Alpha(.65)
+		t.Line = ui.Hex("#d7e3f2").Alpha(.5)
+	}
+
+	return t
+}
+
 // darkPeriods 是背景较深、播放栏换烟熏玻璃的时段。
 var darkPeriods = map[string]bool{
 	"midnight":  true,
@@ -140,6 +205,7 @@ func ThemeAt(t time.Time) Theme {
 func ThemeFor(p Period) Theme {
 	t := Theme{
 		Period: p,
+		Mode:   "light",
 
 		Ink:   ui.Hex("#1e293b"),
 		Muted: ui.Hex("#475569"),
@@ -276,7 +342,7 @@ func (t Theme) withPreferences(hc, rt bool) Theme {
 	if hc {
 		base = base.withHighContrast(true)
 	}
-	return base
+	return base.withAppearance(t.Mode, t.Transparency)
 }
 
 // CoverPlaceholder 是封面还没加载出来时的底色。
@@ -287,20 +353,10 @@ func (t Theme) CoverPlaceholder() ui.Color {
 	return ui.Hex("#0f172a").Alpha(0.08)
 }
 
-// drawerPanelFill 是抽屉面板（`[data-slot="wrapper"] > section::before`）的底色。
-//
-// 原版面板是 `--liquid-bg`(rgba(255,255,255,.22)) + backdrop-filter blur(14px)：
-// 模糊把背后的内容揉开，22% 白就够读。原生界面画不了 backdrop-filter（见
-// PLAN.md 的取舍），只能拿半透明填充近似。早先为了阅读性直接用了原版给无
-// backdrop-filter 平台准备的兜底值 `--liquid-bg: rgba(255,255,255,.9)`——
-// 太实、太白了：它把抽屉压成一块几乎不透光的白板，与主页搜索栏、播放栏那几
-// 层更通透的玻璃明显不是一套。
-//
-// 本轮按用户反馈往中间收：保留可读性（远高于 0.22 的模糊档），但降到 0.70，
-// 让遮罩与窗口背景薄薄透出——面板因此既比纯白暗、又比 0.9 时透，和其余玻璃
-// 表面统一。不新增图层/模糊，纯色值改动。
+// drawerPanelFill is the light drawer tint over its shared backdrop blur.
+// Theme.panelFill coordinates it with window transparency and dark appearance.
 func drawerPanelFill() ui.Color {
-	return ui.Hex("#ffffff").Alpha(0.70)
+	return ui.Hex("#ffffff").Alpha(0.40)
 }
 
 // liquidGlass 给元素套上液态玻璃材质。
@@ -326,11 +382,12 @@ func (t Theme) liquidGlassHover(e ui.Element) ui.Element {
 		Shadow(0, 2, 8, 0, shadowInk.Alpha(0.04))
 }
 
-// uiTheme 把我们的令牌装进 mygo 的控件主题，让输入框、滚动条、tooltip
-// 这些现成控件也用同一套颜色。原版没有暗色主题（正文永远是深色），所以
-// 这里固定 Dark = false。
+// uiTheme 让输入框、滚动条和 tooltip 跟随当前深浅色主题。
 func (t Theme) uiTheme() *ui.Theme {
 	th := ui.LightTheme()
+	if t.Mode == "dark" {
+		th = ui.DarkTheme()
+	}
 	th.Background = ui.Transparent // 背景由 Shell 自己画时段渐变
 	// 三平台统一字体（见 font.go）：拉丁用内置 Inter，中文按 PingFang →
 	// YaHei → Noto Sans CJK 的顺序回退。写成主题级，所有元素继承。
@@ -379,6 +436,13 @@ func (t Theme) uiTheme() *ui.Theme {
 	// 划过去想确认「这颗是啥」时要等 0.6s 才显形，实际用起来就是「没有 tooltip」。
 	// 收到 0.35s：仍要「停一下」才出（不误触），但不再让人怀疑键没说明。
 	th.TooltipDelay = tooltipDelay
+	if t.Mode == "dark" {
+		th.Surface, th.SurfaceHover, th.SurfacePressed = t.Panel, t.GlassHover, t.GlassActive
+		th.Text, th.TextMuted, th.Border = t.Ink, t.Faint, t.Line
+		th.AccentHover, th.AccentPressed = ui.Hex("#bae6fd"), ui.Hex("#38bdf8")
+		th.InverseText = ui.Hex("#17212e")
+		th.Scrollbar = t.Faint.Alpha(0.45)
+	}
 	return th
 }
 

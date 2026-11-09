@@ -196,7 +196,7 @@ func (a *App) collabPicker(c *ui.Context) {
 	// transform 0.16s ease），选择键属通用族、与三族同一套手感。
 	navIconPose(b)
 	b.Children(func() {
-		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(st.Ink)
+		ui.Icon(c, iconPeoples).Size(18, 18).TextColor(a.Theme.text(st.Ink))
 	})
 	// 原版 `.nav-icon-btn.video-owner-picker-button:focus-visible`：
 	// `outline: 2px solid var(--studio-blue); outline-offset: 2px`。
@@ -230,8 +230,8 @@ func (a *App) collabMenu(c *ui.Context, anchor ui.Element) {
 			// 之下那层「左上径向热点 + 170° 斜向洗光」。此前漏画，面板顶左
 			// 比原版平一档（同一族：设置菜单本轮一并补上）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				paintGlassPanelFill(p, r, collabMenuRadius, t.Glass)
-				paintBakedSheen(p, r, collabMenuRadius, sheenGlassBaked)
+				paintGlassPanelFill(p, r, collabMenuRadius, t.surface(t.Glass, "#18263a", .94))
+				paintBakedSheen(p, r, collabMenuRadius, t.glassSheen())
 			}).
 			InsetShadow(0, 1, 1, 0, t.Highlight).
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.04)).
@@ -277,7 +277,7 @@ func (a *App) collabItem(c *ui.Context, st Collaborator, checked bool) {
 				nh, nsh := pxLineBox(collabNameSize, collabNameBoxH)
 				rh, rsh := pxLineBox(collabRoleSize, collabRoleBoxH)
 				ui.Text(c, st.Name).FontSize(collabNameSize).
-					FontWeight(collabNameWeight).TextColor(stl.Ink).SingleLine().
+					FontWeight(collabNameWeight).TextColor(a.Theme.text(stl.Ink)).SingleLine().
 					Height(nh).Padding(nsh, 0, 0, 0)
 				if st.Title != "" {
 					ui.Text(c, st.Title).FontSize(collabRoleSize).
@@ -288,7 +288,7 @@ func (a *App) collabItem(c *ui.Context, st Collaborator, checked bool) {
 			// 与文案同色（蓝）。
 			if checked {
 				ui.Icon(c, iconCheck).Size(collabCheckSize, collabCheckSize).
-					TextColor(stl.Ink).Shrink(0)
+					TextColor(a.Theme.text(stl.Ink)).Shrink(0)
 			}
 		})
 	})

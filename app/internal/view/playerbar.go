@@ -96,17 +96,14 @@ func (a *App) playerBar(c *ui.Context) {
 	}
 }
 
-// playerBarTint 是播放栏那层 Liquid Glass 的染色，对应原版
-// `#player .player-controls { background-color: var(--player-surface, …) }`。
-//
-// 浅色兜底是近白的 rgba(241,248,253,.36)，五个烟熏玻璃时段覆写成
-// rgba(30,41,59,.16)。旧实现用的是框架 Regular 玻璃：它已经把背后大幅提亮
-// （黑→54%），浅色再叠一层近白就比原版实一档，所以当时浅色返回透明、并靠
-// 冷灰染色去压 —— 结果就是「不透」。现在材质换成「只模糊 + 自己铺底色」
-// （见 cssGlass），两个时段都按原版把 --player-surface 铺上去。
-// 声明成 var 便于测试换桩做反证。
+// playerBarTint keeps the original time-of-day hue with a thinner veil.
+// Explicit dark appearance uses a navy tint, and the transparency slider
+// makes either one lighter. Reduced Transparency keeps an opaque surface.
 var playerBarTint = func(t Theme) ui.Color {
-	return t.PlayerSurface
+	if t.ReducedTransparency {
+		return t.PlayerSurface
+	}
+	return t.glassVeil(t.PlayerSurface.Alpha(.72), "#101c2d", .30)
 }
 
 // playerBarMaterial 给出播放栏（主窗 + mini）那一层的材质。默认是框架
@@ -244,6 +241,9 @@ var playerBarShadowSpec = func(t Theme, mini bool) shadowSpec {
 // 组合逐值补上（layers 声明成 var 便于测试换桩：传 nil/黑影即退回「只靠框架
 // 描光」做反证）。
 var playerBarShadowInsets = func(t Theme, mini bool) []shadowSpec {
+	if t.Mode == "dark" {
+		return []shadowSpec{{0, 1, 2, 0, ui.Hex("#bad8ee").Alpha(.10)}, {0, -1, 1, 0, shadowInk.Alpha(.08)}}
+	}
 	if t.ReducedTransparency {
 		return []shadowSpec{{0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)}}
 	}
@@ -438,6 +438,9 @@ func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, 
 	b = b.Background(playerFadeColor(c, b, "player-tool-bg", playerToolFill(t, active, hovered))).
 		Border(1, playerFadeColor(c, b, "player-tool-border", playerToolBorder(t, key, active, hovered))).
 		InsetShadow(0, 1, 1, 0, playerToolInset(t, active, hovered))
+	if t.Mode == "dark" {
+		return b.Shadow(0, 3, 10, 0, shadowInk.Alpha(.12))
+	}
 	if active {
 		// 深色激活态原版整条 box-shadow 只有「顶内高光白 .32 + 外蓝 .12」，
 		// 没有浅色那条 `inset 0 0 0 1px #bae6fd` 的蓝环。
@@ -457,6 +460,15 @@ func playerToolSurface(c *ui.Context, t Theme, key playerToolKey, b ui.Element, 
 // 激活 rgba(186,230,253,.30)（原版 ::before 的 background-color）；深色时段
 // 常态收成白 .085、激活转 rgba(125,211,252,.16)，悬停不变（hover 规则更特异）。
 func playerToolFill(t Theme, active, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		if active {
+			return t.Blue.Alpha(0.22)
+		}
+		if hovered {
+			return t.GlassHover
+		}
+		return t.Glass
+	}
 	if t.ReducedTransparency {
 		// 见 rtButtonFill 的说明：减少透明度下所有键面 ::before 都是实底，
 		// 四个激活键走 #d9eef9，悬停 / 按下不再改底色（通用规则 (1,3,x)
@@ -482,6 +494,12 @@ func playerToolFill(t Theme, active, hovered bool) ui.Color {
 // 高对比下由高对比块覆写：EQ / 恰饭激活走蓝调 (1,4,1)，其余走
 // slate .44 (1,3,1)。
 func playerToolBorder(t Theme, key playerToolKey, active, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		if t.HighContrast {
+			return t.GlassBorder
+		}
+		return pick(active || hovered, t.Blue.Alpha(.32), t.GlassBorder)
+	}
 	if t.HighContrast {
 		if key.hcBlueActive(active) {
 			return playerHCActiveBorder
@@ -505,6 +523,9 @@ func playerToolBorder(t Theme, key playerToolKey, active, hovered bool) ui.Color
 // playerToolInset 是工具键的内高光（原版 tool 规则的白 .44，悬停抬到 .56）；
 // 深色常态收成白 .22、深色激活抬到白 .32。
 func playerToolInset(t Theme, active, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		return ui.Hex("#bad8ee").Alpha(pick[float32](hovered, .14, .08))
+	}
 	switch {
 	case hovered:
 		return ui.Hex("#ffffff").Alpha(0.56)
@@ -523,6 +544,9 @@ func playerToolInset(t Theme, active, hovered bool) ui.Color {
 // 没有任何使用点），悬停/激活不变（规则更特异）。高对比下由高对比块覆写
 // （EQ / 恰饭激活走蓝调，其余走 #1e293b）。
 func playerToolInk(t Theme, key playerToolKey, active, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		return pick(active || hovered, t.Blue, t.Ink)
+	}
 	if t.HighContrast {
 		if key.hcBlueActive(active) {
 			return playerHCActiveInk
@@ -544,6 +568,9 @@ func playerToolInk(t Theme, key playerToolKey, active, hovered bool) ui.Color {
 // 覆盖 color）：常态 #334155、悬停 --studio-blue；深色常态走 Theme.PlayerButton。
 // 高对比下统一收成 #1e293b。
 func playerButtonInk(t Theme, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		return pick(hovered, t.Blue, t.Ink)
+	}
 	if t.HighContrast {
 		return playerHCInk
 	}
@@ -584,6 +611,9 @@ func volumeIconFor(muted bool) *ui.SVG {
 // 白 .22 内高光），而且 `[data-active]` (1,2,0) 输给深色基态 (1,2,1)——原版在
 // 深色下已静音也**不转蓝**，只靠图标形状区分。
 var playerMuteSurface = func(t Theme, b ui.Element, muted bool) ui.Element {
+	if t.Mode == "dark" {
+		return t.darkControl(b, muted, b.Hovered())
+	}
 	// 描边走 playerMuteBorder（它自己处理高对比 / 烟熏玻璃的覆写）。
 	border := playerMuteBorder(t, muted)
 	if t.ReducedTransparency {
@@ -624,6 +654,9 @@ func playerMuteBorder(t Theme, muted bool) ui.Color {
 // playerMuteInk 是静音键图标的墨色：常态 #526174、已静音 studio-blue；
 // 深色常态走 Theme.PlayerButton（已静音不转蓝）。高对比下统一 #1e293b。
 func playerMuteInk(t Theme, muted bool) ui.Color {
+	if t.Mode == "dark" {
+		return pick(muted, t.Blue, t.Ink)
+	}
 	switch {
 	case t.HighContrast:
 		return playerHCInk
@@ -679,6 +712,9 @@ func playerPressFill() ui.Color { return ui.Hex("#ffffff").Alpha(0.16) }
 // 普通键白 .88、激活键 #d9eef9（见 rtButtonFill）。activeKey 为真表示该键在
 // 这份偏好下属于「激活 / 打开」名单（EQ / 恰饭 / 音量 / 倍速弹层）。
 func playerPressFillFor(t Theme, activeKey bool) ui.Color {
+	if t.Mode == "dark" {
+		return t.GlassActive
+	}
 	if t.ReducedTransparency {
 		return rtButtonFill(activeKey)
 	}
@@ -713,6 +749,9 @@ func playerPlaySurface(t Theme, b ui.Element, playing, hovered, pressed bool) ui
 	}
 	b = b.Background(playerPlayFill(t, playing, hovered)).
 		Border(1, playerPlayBorder(t, playing, hovered))
+	if t.Mode == "dark" {
+		return b.InsetShadow(0, 1, 2, 0, t.Highlight.Alpha(.6)).Shadow(0, 3, 10, 0, shadowInk.Alpha(.14))
+	}
 	switch {
 	case playing && hovered:
 		return b.InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)).
@@ -739,6 +778,9 @@ func playerPlaySurface(t Theme, b ui.Element, playing, hovered, pressed bool) ui
 // playerPlayFill 是播放键三态的底色（原版 ::before 的 background-color）；
 // 深色基态（无论是否播放）是 rgba(224,242,254,.24)。
 func playerPlayFill(t Theme, playing, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		return t.Blue.Alpha(pick[float32](hovered, 0.3, 0.18))
+	}
 	if t.ReducedTransparency {
 		// 播放键的 [data-playing] / 悬停 ::before 都被通用规则盖过：
 		// 减少透明度下是实白 .88（播放键不在 #d9eef9 的四个激活键名单里）。
@@ -762,6 +804,12 @@ func playerPlayFill(t Theme, playing, hovered bool) ui.Color {
 // 与悬停 (1,3,0)，收成 slate .44；唯独「播放中悬停」那条 (1,4,0) 更高，
 // 仍走浅色悬停值（见 playerHCBorder 的说明）。
 func playerPlayBorder(t Theme, playing, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		if t.HighContrast {
+			return t.GlassBorder
+		}
+		return pick(playing || hovered, t.Blue.Alpha(.30), t.GlassBorder)
+	}
 	if t.HighContrast && !(playing && hovered) {
 		return playerHCBorder
 	}
@@ -782,6 +830,9 @@ func playerPlayBorder(t Theme, playing, hovered bool) ui.Color {
 // 暂停悬停转 #0284c7）；深色基态是 #0369a1（与播放中同色）。
 // 高对比下统一 #1e293b；播放中悬停例外（(1,4,0) 更高，仍 #0369a1）。
 func playerPlayInk(t Theme, playing, hovered bool) ui.Color {
+	if t.Mode == "dark" {
+		return pick(playing || hovered, t.Blue, t.Ink)
+	}
 	if t.HighContrast && !(playing && hovered) {
 		return playerHCInk
 	}
@@ -1330,6 +1381,10 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
+	if p.Theme().Dark {
+		paintDarkGlassRim(p, r, radius, opacity)
+		return
+	}
 	// 色散边画在描边之外（clip 之前）：暖边紧贴下缘外、冷边紧贴上缘外。
 	paintPlayerChromaticFn(p, r, radius)
 	if opacity <= 0 {
@@ -1818,6 +1873,9 @@ func playerSheenForTheme(t Theme, kind playerSheenKind, playing, hovered bool) *
 	if t.ReducedTransparency {
 		return nil
 	}
+	if t.Mode == "dark" {
+		return sheenDarkBaked
+	}
 	return playerSheenFor(kind, t.Dark, playing, hovered)
 }
 
@@ -1889,7 +1947,11 @@ func playerIconShadow(b ui.Element, svg *ui.SVG, dx, dy, opacity float32) ui.Ele
 	}
 	return b.Draw(func(p *ui.Painter, r ui.Rect) {
 		shadow := ui.Rect{X: r.X + dx, Y: r.Y + dy, W: r.W, H: r.H}
-		p.Icon(svg, shadow, ui.Hex("#ffffff").Alpha(opacity))
+		ink := ui.Hex("#ffffff").Alpha(opacity)
+		if p.Theme().Dark {
+			ink = ui.Hex("#020914").Alpha(opacity * .35)
+		}
+		p.Icon(svg, shadow, ink)
 	})
 }
 
@@ -2576,6 +2638,9 @@ const (
 // （只模糊 + 自己铺底色），不再用 glass.Glass 的 Regular 玻璃 —— 那会把背景
 // 提亮、弹层发白（见 cssglass.go）。
 func playerPopoverVeil(t Theme, light ui.Color) ui.Color {
+	if t.Mode == "dark" || t.Transparency > 0 {
+		return t.surface(light, "#192a40", 0.94)
+	}
 	if t.Dark {
 		return ui.Hex("#475569").Alpha(0.64)
 	}
@@ -2638,7 +2703,7 @@ func playerPopoverLiftSpec(t Theme) shadowSpec {
 // 声明成 var 便于无头测试换桩反证。
 var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color, veil ui.Color, blur float32) ui.Element {
 	if t.ReducedTransparency {
-		return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
+		return b.Background(t.surface(ui.Hex(rtPopoverSurface), "#192a40", 1)).Border(1, border)
 	}
 	// 原版两层弹层：backdrop-filter 只模糊，底色是上面那条 backgroundColor。
 	// 1px 描边两时段都画（浅色各用各的玻璃边、深色白 .2）；用不占布局的
@@ -2693,6 +2758,9 @@ var popoverGlass = func(b ui.Element, radius float32, sheen *sheenBaked) ui.Elem
 // playerSpeedOptionInk 是倍速弹层里档位文字的常态色：浅色 #475569，
 // 深色时段 rgba(241,245,249,.78)（激活/悬停仍走 --studio-blue）。
 func playerSpeedOptionInk(t Theme) ui.Color {
+	if t.Mode == "dark" {
+		return t.text(ui.Hex("#334155"))
+	}
 	if t.ReducedTransparency {
 		// 原版减少透明度下 `.player-speed-option { color: #334155 }`（实底上的深灰）。
 		return ui.Hex(rtSpeedOptionInk)

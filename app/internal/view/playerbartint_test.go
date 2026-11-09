@@ -12,32 +12,20 @@ import (
 // 播放栏（主窗 + mini）的 Liquid Glass 此前都没染色，深色时段与浅色长得
 // 一模一样——`Theme.PlayerSurface` 令牌也一直没有使用点。
 
-// TestPlayerBarTintTokens 钉住底色令牌：两个时段都取 `Theme.PlayerSurface`
-// （浅色近白 rgba(241,248,253,.36)、烟熏玻璃 rgba(30,41,59,.16)）。
-//
-// 2026-10 玻璃改造后，播放栏材质从框架 Regular 玻璃换成「只模糊 + 自己铺底色」
-// （cssGlass）：Regular 已经把背景的黑抬到 54%，浅色再叠近白会过实；换掉之后
-// 浅色也要按原版把 --player-surface 铺上去，否则栏体比原版透太多、字压不住。
+// Keep each time-of-day tint while letting more of the backdrop through.
 func TestPlayerBarTintTokens(t *testing.T) {
-	light := ThemeFor(PeriodAt(12))
-	if got := playerBarTint(light); got != light.PlayerSurface {
-		t.Errorf("浅色播放栏底色 = %v，应为 %v", got, light.PlayerSurface)
-	}
-	dark := ThemeFor(PeriodAt(0))
-	want := ui.Hex("#1e293b").Alpha(0.16)
-	if got := playerBarTint(dark); got != want {
-		t.Errorf("烟熏玻璃播放栏染色 = %v，应为 %v", got, want)
-	}
-	if light.PlayerSurface == dark.PlayerSurface {
-		t.Error("两个时段的 --player-surface 应不同（浅色近白、深色压暗）")
-	}
-	for _, hour := range []int{0, 4, 19, 21, 23} {
+	for _, hour := range []int{0, 4, 12, 19, 21, 23} {
 		th := ThemeFor(PeriodAt(hour))
-		if !th.Dark {
-			t.Fatalf("%d 点（%s）应为烟熏玻璃时段", hour, th.Period.Name)
+		got := playerBarTint(th)
+		if got.R != th.PlayerSurface.R || got.G != th.PlayerSurface.G || got.B != th.PlayerSurface.B {
+			t.Fatalf("%d: lost time-of-day tint: %v", hour, got)
 		}
-		if got := playerBarTint(th); got != th.PlayerSurface {
-			t.Errorf("%d 点染色 = %v，应为 %v", hour, got, th.PlayerSurface)
+		if got.A == 0 || got.A >= th.PlayerSurface.A {
+			t.Fatalf("%d: player veil must be lighter than the original surface: %v", hour, got)
+		}
+		th = th.withPreferences(false, true)
+		if playerBarTint(th).A != 255 {
+			t.Fatal("reduced transparency must stay opaque")
 		}
 	}
 }

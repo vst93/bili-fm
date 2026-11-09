@@ -231,20 +231,12 @@ func (a *App) drawer(c *ui.Context) {
 		c.AnimationFrame()
 	}
 	overlay := ui.Box(c).Absolute().Fill()
-	overlay.Background(ui.Hex("#0f172a").Alpha(0.28))
+	overlay.Background(ui.Hex("#0f172a").Alpha(0.12))
 	var dragY float32
 	overlay.Children(func() {
-		// 原版抽屉的 ::before 有 backdrop-filter: blur(14px) saturate(1.35)
-		// （--liquid-blur-thin），面板确实是真玻璃。但这一层是抽屉打开时**面积
-		// 最大**的 backdrop（2.7Mpx 级），mygo 对每个 backdrop 都要断一次渲染
-		// 通道 + 回读下采样 + 两次模糊，层数直接乘进每帧——上一轮实测 24→4 层
-		// 后用户实机反馈「仍卡」，所以本轮按既定下一档把面板降级成半透明填充：
-		//   background --liquid-bg + 1px 亮边 + 顶部内高光（原版 ::after 的聚光）
-		// 唯一的观感取舍：面板由「磨砂」变成实色。
-		//
-		// 降级成填充后底色不能再用 0.22 的 --liquid-bg（那是给 blur 用的）：没有
-		// 模糊时 22% 白太透，用户反馈「影响阅读」。改用原版给无 backdrop-filter
-		// 平台的兜底 --liquid-bg(0.9)（见 drawerPanelFill）。
+		// One shared blur sits behind the entire drawer. A thin tinted veil,
+		// directional sheen and rim provide depth without stacking opaque fills.
+		// Cards keep plain fills so scrolling does not add more backdrop passes.
 		//
 		// 位移走 Bottom（布局）而不是 AnimatePose 的 transform：软件渲染器对带
 		// transform 的 op 一律逐像素重绘，整棵抽屉子树（面板 + 卡片 + 文字）都会
@@ -258,15 +250,15 @@ func (a *App) drawer(c *ui.Context) {
 		// 描边」（paintPlayerRim 画的就是 --liquid-rim；面板面积大，走其中的
 		// 定向光带分支），正文宽度与原版逐值对齐。
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
-			Radius(18, 18, 0, 0).
+			Radius(18, 18, 0, 0).Label("内容抽屉").
 			Clip().
-			Material(cssGlassLayer(drawerBlurRadius, drawerPanelFill(), nil)).
+			Material(cssGlassLayer(drawerBlurRadius, a.Theme.panelFill(), a.Theme.glassSheen())).
 			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
 				// exclude，不占布局）。::after 没有 opacity 覆写 ⇒ 整圈 1；面板面积大，
 				// 走 paintPlayerRim 的定向光带分支。
-				paintPlayerRim(p, r, 18, 1)
+				paintPlayerRim(p, r, 18, 0.65)
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			Shadow(0, -16, 50, 0, shadowInk.Alpha(0.08))
@@ -305,17 +297,16 @@ func (a *App) drawer(c *ui.Context) {
 		}
 	})
 	// 遮罩跟着面板位置直接改不透明度（不再用 AnimatePose 的 Fade：那会把遮罩
-	// 也打上 transform 的慢路径）：贴底 28%、滑到底 0%。
-	overlay.Background(ui.Hex("#0f172a").Alpha(0.28 * drawerFade(dragY, h)))
+	// 也打上 transform 的慢路径）：贴底 12%、滑到底 0%。
+	overlay.Background(ui.Hex("#0f172a").Alpha(0.12 * drawerFade(dragY, h)))
 	// 点覆盖层空白处关闭（面板在它上面，点面板不会关）。退场中不再响应。
 	if !a.drawerClosing && overlay.Clicked() {
 		a.closeDrawer()
 	}
 }
 
-// drawerHeaderFillAlpha 是抽屉表头的底色 alpha：面板是白 .70（drawerPanelFill），
-// 表头比它再实 8%，用来区分层次而不脱离同一套玻璃。
-const drawerHeaderFillAlpha = 0.78
+// drawerHeaderFillAlpha gives the header a subtle separation above the shared glass.
+const drawerHeaderFillAlpha = 0.20
 
 // drawerHeader 是抽屉头部（`[data-slot="wrapper"] > section > header`）：
 // 高 48、右侧留 44 给绝对定位的关闭键、下边框 1px rgba(100,116,139,0.14)。
@@ -325,14 +316,10 @@ func (a *App) drawerHeader(c *ui.Context) {
 	// HeroUI 的 DrawerHeader/DrawerBody 都是 px-6（24），所以表头左边距
 	// 与正文一致；右侧 44 给绝对定位的关闭键让位。
 	//
-	// 表头底色：比面板（白 .70）再实一点点（白 .78），与正文拉开一档层次。
-	// 原版 header 是 transparent（浮在面板玻璃上），但原生版的面板是**无模糊**
-	// 的半透明填充，header 完全透明时两者会糊成一片；此前用的 `#f1f5f9 .92`
-	// 又太实、发灰，像贴了一条横带（用户 2026-10 报「抽屉 header 要优化」）。
-	// 这里取 0.78：比面板多 8% 的白，能看出分区，又不脱离同一套玻璃。
+	// A light veil keeps the header in the same translucent pane as its content.
 	ui.Row(c).FillWidth().Height(48).Shrink(0).Padding(0, 44, 0, 24).
 		Gap(8).AlignItems(ui.Center).
-		Background(ui.Hex("#ffffff").Alpha(drawerHeaderFillAlpha)).
+		Background(t.glassVeil(ui.Hex("#ffffff").Alpha(drawerHeaderFillAlpha), "#1c2c42", .24)).
 		Children(func() {
 			a.drawerTabs(c)
 			// 原版 drawer header 默认类是 flex + px-6 py-4（无 justify / 无弹性占位），
@@ -370,7 +357,7 @@ func (a *App) drawerHeader(c *ui.Context) {
 	// border-bottom + box-shadow 两层）。
 	ui.Box(c).FillWidth().Height(2).Shrink(0).Children(func() {
 		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#64748b").Alpha(0.14))
-		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(ui.Hex("#ffffff").Alpha(0.40))
+		ui.Box(c).FillWidth().Height(1).Shrink(0).Background(pick(t.Mode == "dark", t.Highlight, ui.Hex("#ffffff").Alpha(0.40)))
 	})
 
 	// 关闭键浮在右上角（原版是绝对定位的 close 按钮）。圆角是 HeroUI 按钮默认的
@@ -378,7 +365,7 @@ func (a *App) drawerHeader(c *ui.Context) {
 	ui.Box(c).Absolute().Right(10).Top(8).Children(func() {
 		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(8).Center().
 			Label("关闭").Tooltip("关闭")
-		drawerCloseSurface(b, b.Hovered(), b.Pressed())
+		t.drawerCloseButton(b, b.Hovered(), b.Pressed())
 		drawerClosePress(b)
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
@@ -410,7 +397,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 抽屉会盖住主窗的搜索药丸，标题里带上关键词：翻结果时不用关抽屉
 		// 也知道自己在看哪次搜索（浮窗里尤其重要）。
 		ui.Text(c, searchDrawerTitle(a.Query)).FontSize(14).FontWeight(600).SingleLine().
-			TextColor(ui.Hex("#334155")).Shrink(0).MaxWidth(220)
+			TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0).MaxWidth(220)
 		a.tabs(c, "sort", []tabItem{
 			{Key: SortTotal, Label: "综合"},
 			{Key: SortClick, Label: "最多播放"},
@@ -441,7 +428,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		// 原版 collectList 表头文案「收藏列表」（14/600 #334155，字重由 header 的
 		// 全局规则统一给出）。
 		ui.Text(c, "收藏列表").FontSize(14).FontWeight(600).SingleLine().
-			TextColor(ui.Hex("#334155")).Shrink(0)
+			TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 		// 原版表头**不判空**：收藏夹还没回来（或一个都没有）时照样画左右滚动键
 		// 与（空的）胶囊容器，空态只出现在正文里（.history-empty-tip）。之前这里
 		// 直接换成一行「暂无收藏内容」，既和正文的空态重复，也把两个滚动键藏掉了。
@@ -462,7 +449,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		})
 		a.collectScrollBtn(c, "collect-right", "向右滚动", 200)
 	case "feed":
-		ui.Text(c, "动态列表").FontSize(14).FontWeight(600).SingleLine().TextColor(ui.Hex("#334155")).Shrink(0)
+		ui.Text(c, "动态列表").FontSize(14).FontWeight(600).SingleLine().TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 	case DrawerUp:
 		a.upHeader(c)
 	case DrawerParts:
@@ -480,7 +467,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		a.playlistTabs(c)
 	case DrawerSeries:
 		ui.Text(c, a.seriesLabel()).FontSize(14).FontWeight(600).SingleLine().
-			TextColor(ui.Hex("#334155")).Shrink(0)
+			TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 		// 旧版的「播放全部」：把整个合集当队列从第一条开始放。
 		// 原版 seriesList 的按钮有二态：列表为空或正在拉取时禁用
 		//（isDisabled / isLoading），拉取中画 Spinner 替代播放图标。
@@ -489,19 +476,19 @@ func (a *App) drawerTabs(c *ui.Context) {
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
 			b.Disabled(!enabled)
-			drawerHeaderSurface(b, b.Hovered())
+			a.Theme.drawerHeaderButton(b, b.Hovered())
 			drawerHeaderPress(b)
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 					if spinner {
 						// 原版 isLoading 时 HeroUI 画 Spinner 替代 <Play />。
-						ui.Spinner(c).Size(16, 16).TextColor(ui.Hex("#2563eb"))
+						ui.Spinner(c).Size(16, 16).TextColor(a.Theme.text(ui.Hex("#2563eb")))
 					} else {
 						// 原版 <Play fill="#666" size={16} theme="filled" />：灰色圆盘
 						// + 挖白三角（逐色 Image）。
-						ui.Image(c, iconPlayFilled).Size(16, 16).TextColor(ui.Hex("#666666"))
+						ui.Image(c, iconPlayFilled).Size(16, 16).TextColor(a.Theme.text(ui.Hex("#666666")))
 					}
-					ui.Text(c, "播放全部").FontSize(12).TextColor(ui.Hex("#475569"))
+					ui.Text(c, "播放全部").FontSize(12).TextColor(a.Theme.text(ui.Hex("#475569")))
 				})
 			})
 			if b.Clicked() && enabled && a.Act.SeriesPlayAll != nil {
@@ -510,7 +497,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		}
 	default:
 		ui.Text(c, a.drawerTitle()).FontSize(14).FontWeight(600).SingleLine().
-			TextColor(ui.Hex("#334155")).Shrink(0)
+			TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 	}
 }
 
@@ -520,10 +507,10 @@ func (a *App) upHeader(c *ui.Context) {
 	// 原版 upVideoList 表头：「name」的空间（14/600 #334155，见 header 全局规则）
 	// + 粉丝数（12 default-500）+ 关注键（min-w 70、图标 14）。
 	ui.Text(c, fmt.Sprintf("「%s」的空间", a.UpName)).FontSize(14).FontWeight(600).
-		SingleLine().MaxWidth(200).TextColor(ui.Hex("#334155")).Shrink(0)
+		SingleLine().MaxWidth(200).TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 	if a.UpFans > 0 {
 		ui.Text(c, "粉丝 "+fanCount(a.UpFans)).FontSize(12).SingleLine().
-			TextColor(ui.Hex("#71717a")).Shrink(0)
+			TextColor(a.Theme.text(ui.Hex("#71717a"))).Shrink(0)
 	}
 
 	label, spinner := upFollowSpec(a.UpFollowPending, a.UpFollowed)
@@ -532,20 +519,20 @@ func (a *App) upHeader(c *ui.Context) {
 	// 原版关注键在「查关注状态 / 关注请求在途」时禁用（isCheckingFollow /
 	// isFollowingLoading）：挡住连点，避免 follow 与 unfollow 各发一次。
 	b.Disabled(a.UpFollowPending)
-	drawerHeaderSurface(b, b.Hovered())
+	a.Theme.drawerHeaderButton(b, b.Hovered())
 	drawerHeaderPress(b)
 	b.Children(func() {
 		if spinner {
 			// 原版 <Spinner size="sm" />：转圈替代图标 + 文案。
-			ui.Spinner(c).Size(16, 16).TextColor(ui.Hex("#2563eb"))
+			ui.Spinner(c).Size(16, 16).TextColor(a.Theme.text(ui.Hex("#2563eb")))
 			return
 		}
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// 原版：关注态是 Close #666 + 默认字色；未关注是 Add + text-primary。
 			ui.Icon(c, pick(a.UpFollowed, iconFollowed, iconFollow)).Size(14, 14).
-				TextColor(pick(a.UpFollowed, ui.Hex("#666666"), ui.Hex("#2563eb")))
+				TextColor(a.Theme.text(pick(a.UpFollowed, ui.Hex("#666666"), ui.Hex("#2563eb"))))
 			ui.Text(c, label).FontSize(14).
-				TextColor(pick(a.UpFollowed, ui.Hex("#3f3f46"), ui.Hex("#2563eb")))
+				TextColor(a.Theme.text(pick(a.UpFollowed, ui.Hex("#3f3f46"), ui.Hex("#2563eb"))))
 		})
 	})
 	if b.Clicked() && !a.UpFollowPending && a.Act.ToggleFollow != nil {
@@ -720,11 +707,11 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	ink := incognitoInk(a.Incognito)
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(ink)
+			ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(15, 15).TextColor(a.Theme.text(ink))
 			// .history-incognito-label：12px / 650 / line-height 1；≤520 时不画
 			//（原版 display:none，min-width 同步收到 66）。
 			if showLabel {
-				ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(ink)
+				ui.Text(c, "隐身").FontSize(12).FontWeight(650).TextColor(a.Theme.text(ink))
 			}
 			incognitoTrack(c, a.Incognito)
 		})
@@ -1020,7 +1007,7 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 	// ::before 洗光 + ::after 聚光描边；悬停 / 选中各自换色抬起。
 	// 原版 `header [data-slot="tab"]:active { transform: none !important }`——
 	// tab 按下不缩放（与小键 / 导航键不同），所以这里不加 pressPose。
-	b = drawerTabSurface(b, active, b.Hovered())
+	b = a.Theme.drawerTab(b, active, b.Hovered())
 	// 原版 tab 的文字色带 `transition: color 0.2s ease`：选中 #0369a1，
 	// 悬停（未选中）#334155，常态 #475569。
 	ink := drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered()))
@@ -1028,12 +1015,12 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 		if it.Icon != nil {
 			// 原版是 flex items-center gap-1（4px）+ 14px 图标。
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, it.Icon).Size(14, 14).TextColor(ink)
-				ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink).SingleLine()
+				ui.Icon(c, it.Icon).Size(14, 14).TextColor(a.Theme.text(ink))
+				ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(a.Theme.text(ink)).SingleLine()
 			})
 			return
 		}
-		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(ink).SingleLine()
+		ui.Text(c, it.Label).FontSize(13).FontWeight(600).TextColor(a.Theme.text(ink)).SingleLine()
 	})
 	if b.Clicked() && !active {
 		onSelect(it.Key)
@@ -1051,10 +1038,10 @@ func (a *App) folderTab(c *ui.Context, f Folder) ui.Element {
 		Role(ui.RoleTab).Checked(active)
 	// 收藏夹 tab 也是 HeroUI 的 `[data-slot="tab"]`（只在 .collect-tabs-scroll
 	// 里横向滚动），材质与普通 tab 完全一致。
-	b = drawerTabSurface(b, active, b.Hovered())
+	b = a.Theme.drawerTab(b, active, b.Hovered())
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).Bold().SingleLine().MaxWidth(180).
-			TextColor(drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered())))
+			TextColor(a.Theme.text(drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered()))))
 	})
 	if b.Clicked() && !active {
 		a.FolderID = f.ID
@@ -1241,17 +1228,17 @@ var drawerClosePress = func(b ui.Element) {
 func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, spin, spinner bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	b.Disabled(spin || spinner)
-	drawerHeaderSurface(b, b.Hovered())
+	a.Theme.drawerHeaderButton(b, b.Hovered())
 	drawerHeaderPress(b)
 	b.Children(func() {
 		if spinner {
 			// 原版 Spinner size="sm"（HeroUI button.sm → spinner sm），w-5 h-5。
 			// 起个名字给辅助技术（也是无头测试认它的锚点：HeroUI 的 Spinner
 			// 同样带 role=status）。
-			ui.Spinner(c).Size(20, 20).TextColor(ink).Label("加载中")
+			ui.Spinner(c).Size(20, 20).TextColor(a.Theme.text(ink)).Label("加载中")
 			return
 		}
-		icon := ui.Icon(c, ic).Size(size, size).TextColor(ink)
+		icon := ui.Icon(c, ic).Size(size, size).TextColor(a.Theme.text(ink))
 		if refreshKeySpin(spin, reduceMotion(c)) {
 			spinRefreshIcon(icon, b.Loop("spin", refreshSpinPeriod, ui.Linear))
 		}
@@ -1498,7 +1485,7 @@ func (a *App) seriesChip(c *ui.Context, s Series) {
 				TextColor(t.Ink).MaxLines(2).Balance()
 			// <p className="text-xs text-default-500 mt-1">。
 			ui.Text(c, fmt.Sprintf("%d 个视频", s.Count)).FontSize(12).
-				Margin(4, 0, 0, 0).TextColor(ui.Hex("#71717a"))
+				Margin(4, 0, 0, 0).TextColor(a.Theme.text(ui.Hex("#71717a")))
 		})
 	})
 	if b.Clicked() {
@@ -1727,7 +1714,7 @@ func (a *App) loadMoreRetry(c *ui.Context, l *List) {
 	}
 	b.Children(func() {
 		ui.Text(c, "加载失败，点击重试").FontSize(13).
-			TextColor(ui.Hex("#be123c"))
+			TextColor(a.Theme.text(ui.Hex("#be123c")))
 	})
 	// 加载中不重复触发；点一次清掉错误态再重试（同原版按钮）。
 	if b.Clicked() && !l.Loading {
@@ -2071,7 +2058,7 @@ func (a *App) card(c *ui.Context, index int) {
 				ui.Animation{Duration: 160 * time.Millisecond, Ease: ui.EaseOut})
 			b.Children(func() {
 				ui.Icon(c, iconClose).Size(wlRemoveIconSize, wlRemoveIconSize).
-					TextColor(wlRemoveInk(b.Hovered()))
+					TextColor(a.Theme.text(wlRemoveInk(b.Hovered())))
 			})
 			if b.Clicked() && !pending && a.Act.RemoveWatchLater != nil {
 				a.Act.RemoveWatchLater(aid)
@@ -2310,6 +2297,8 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 原版按下时整卡 translateY(0) + scale(.985)：上浮归零、按进去半毫米。
 	pressed := box.Pressed() && !locked
 	switch {
+	case t.Mode == "dark" && pressed:
+		box.Background(t.GlassActive).Border(pick[float32](spec.Active, 2, 1), t.Blue)
 	case pressed:
 		pp := cardPressPaintFor()
 		box.LinearGradient(cardPressGradient())
@@ -2446,7 +2435,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 		// 分隔（白 .18），悬停时洗色涨到 .36。标题与 meta 行都按原版的行盒
 		// （text-small 14/20、text-xs 12/16）压回原版高度。
 		ui.Column(c).FillWidth().Grow(1).Padding(4, 8).
-			Background(cardFooterBG(hovered)).
+			Background(t.glassVeil(cardFooterBG(hovered), "#1b2c43", 0.20)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.18)).
 			Children(func() {
 				th, tsh := textLineBox(14, textSmLH)
@@ -2533,26 +2522,26 @@ func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
 					}
 					ui.Row(c).FillWidth().Justify(ui.End).AlignItems(ui.Center).Gap(2).Children(func() {
 						// 原版 .card-meta-field svg { opacity: .72 }。
-						ui.Icon(c, icon).Size(12, 12).TextColor(ink.Alpha(0.72))
-						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+						ui.Icon(c, icon).Size(12, 12).TextColor(a.Theme.text(ink.Alpha(0.72)))
+						ui.Text(c, f.Text).FontSize(12).TextColor(a.Theme.text(ink)).SingleLine().
 							Height(mh).Padding(msh, 0, 0, 0)
 					})
 				case fieldPubdate:
 					text := pubdateFit(c, f.Text, avail, now)
 					// 原版 CardMeta 给发布时间加了 title tooltip（轮 28）：
 					// 日期若被截，悬浮仍可看完整值。
-					ui.Text(c, text).FontSize(12).TextColor(ink).SingleLine().
+					ui.Text(c, text).FontSize(12).TextColor(a.Theme.text(ink)).SingleLine().
 						Height(mh).Padding(msh, 0, 0, 0).
 						FillWidth().TextAlign(align).Tooltip(f.Text)
 				default:
 					// 原版 CardMeta 给作者名加了 title tooltip（轮 22）：
 					// 窄卡片截断时悬浮显示完整名字。
 					if f.Kind == fieldAuthor {
-						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+						ui.Text(c, f.Text).FontSize(12).TextColor(a.Theme.text(ink)).SingleLine().
 							Height(mh).Padding(msh, 0, 0, 0).
 							FillWidth().TextAlign(align).Tooltip(f.Text)
 					} else {
-						ui.Text(c, f.Text).FontSize(12).TextColor(ink).SingleLine().
+						ui.Text(c, f.Text).FontSize(12).TextColor(a.Theme.text(ink)).SingleLine().
 							Height(mh).Padding(msh, 0, 0, 0).
 							FillWidth().TextAlign(align)
 					}
@@ -2587,7 +2576,7 @@ func (a *App) playingBadge(c *ui.Context) {
 		// Loop 拿到循环进度并顺带请下一帧，三根柱的相位差在 eqBarScale 里。
 		eqBars(c, badge.Loop("eq", eqPeriod, ui.Linear))
 		ui.Text(c, "正在播放").FontSize(11).FontWeight(600).
-			TextColor(ui.Hex("#e2e8f0"))
+			TextColor(a.Theme.text(ui.Hex("#e2e8f0")))
 	})
 }
 
@@ -2702,7 +2691,7 @@ func (a *App) partsHeader(c *ui.Context) {
 	}
 	// 原版 pageList 表头：「选集(N)」是 text-sm（14/600，见 header 全局规则）。
 	ui.Text(c, fmt.Sprintf("选集(%d)", n)).FontSize(14).FontWeight(600).SingleLine().
-		TextColor(ui.Hex("#334155")).Shrink(0)
+		TextColor(a.Theme.text(ui.Hex("#334155"))).Shrink(0)
 
 	if a.Track != nil {
 		a.headerButton(c, "parts-locate", "定位到当前播放的位置", iconLocate, 18, ui.Hex("#888888"), func() {
@@ -2744,10 +2733,14 @@ func (a *App) partsHeader(c *ui.Context) {
 	partSearchShadowInto(box, "ps-ring", ring)
 	// ::after 的聚光描边做 0.2s 不透明度过渡（常态 .5、聚焦 1），再叠上
 	// ::before 的光泽。
-	box = partSearchGlass(box, partSearchRimOpacity(box, paint.Rim))
+	if a.Theme.Mode == "dark" {
+		box = a.Theme.darkControl(box, box.FocusWithin(), box.Hovered())
+	} else {
+		box = partSearchGlass(box, partSearchRimOpacity(box, paint.Rim))
+	}
 	box.Children(func() {
 		icon := ui.Icon(c, iconMagnifier).Size(15, 15)
-		icon.TextColor(partSearchIconFade(icon, "ps-icon", paint.Icon))
+		icon.TextColor(a.Theme.text(partSearchIconFade(icon, "ps-icon", paint.Icon)))
 		// field 把输入框与自绘占位文本收在一起，占位文本 Attach 到它的左缘。
 		field := ui.Row(c).Grow(1).MinWidth(0).AlignItems(ui.Center)
 		field.Children(func() {
@@ -2758,7 +2751,7 @@ func (a *App) partsHeader(c *ui.Context) {
 			// 与原版 #475569 / 400 不符，故自己叠一层。
 			in := ui.TextInputBase(c, &a.PartSearch).Grow(1).FontSize(13).FontWeight(500).
 				FocusRing(false).
-				TextColor(ui.Hex("#0f172a")).Label("搜索选集").
+				TextColor(a.Theme.text(ui.Hex("#0f172a"))).Label("搜索选集").
 				Description("搜索选集，回车跳转")
 			if in.Submitted() {
 				a.locatePart(a.PartSearch)
@@ -2771,12 +2764,12 @@ func (a *App) partsHeader(c *ui.Context) {
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加").Tooltip(partsAddAllTip)
-		drawerHeaderSurface(b, b.Hovered())
+		a.Theme.drawerHeaderButton(b, b.Hovered())
 		drawerHeaderPress(b)
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconAdd).Size(16, 16).TextColor(partsAddAllInk)
-				ui.Text(c, "全部添加").FontSize(12).TextColor(partsAddAllInk)
+				ui.Icon(c, iconAdd).Size(16, 16).TextColor(a.Theme.text(partsAddAllInk))
+				ui.Text(c, "全部添加").FontSize(12).TextColor(a.Theme.text(partsAddAllInk))
 			})
 		})
 		if b.Clicked() && a.Act.AddAllToPlaylist != nil {
@@ -2798,7 +2791,7 @@ var (
 // 所在的 field（不参与布局、不撑高容器），PassThrough 让点击落到输入框上。
 func (a *App) partSearchPlaceholder(c *ui.Context) {
 	ui.Text(c, "搜索选集，回车跳转").FontSize(13).FontWeight(partSearchPlaceholderWeight).
-		TextColor(partSearchPlaceholderInk).SingleLine().PassThrough().
+		TextColor(a.Theme.text(partSearchPlaceholderInk)).SingleLine().PassThrough().
 		Attach(ui.AnchorLeft, ui.AnchorLeft)
 }
 
@@ -3063,7 +3056,7 @@ func (a *App) partCard(c *ui.Context, index int, p Part) {
 			add.Children(func() {
 				ui.Icon(c, pick(inList, iconCheck, iconAdd)).
 					Size(partAddIconSize, partAddIconSize).
-					TextColor(partAddInk(inList))
+					TextColor(a.Theme.text(partAddInk(inList)))
 			})
 			if add.Clicked() && a.Act.AddToPlaylist != nil {
 				a.Act.AddToPlaylist(p)
@@ -3147,7 +3140,9 @@ func (a *App) danmakuHeatButton(c *ui.Context) {
 	tip := "弹幕热力：播放栏底部面积越高，弹幕越密集；进度条上的短竖线是章节分界"
 	b := ui.ButtonBase(c.Key("dm-heat")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(tip).Role(ui.RoleToggleButton).Checked(a.HeatOn)
-	if a.HeatOn {
+	if a.Theme.Mode == "dark" {
+		a.Theme.darkControl(b, a.HeatOn, b.Hovered())
+	} else if a.HeatOn {
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
@@ -3160,7 +3155,7 @@ func (a *App) danmakuHeatButton(c *ui.Context) {
 	pressPose(b)
 	b.Children(func() {
 		ink := pick(a.HeatOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
-		ui.Icon(c, iconEQ).Size(18, 18).TextColor(ink)
+		ui.Icon(c, iconEQ).Size(18, 18).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() && a.Act.ToggleHeat != nil {
 		a.Act.ToggleHeat()
@@ -3178,7 +3173,9 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 	label := pick(a.DanmakuAutoScroll, "暂停跟随", "开始跟随")
 	b := ui.ButtonBase(c.Key("dm-autoscroll")).Size(32, 32).Radius(Radius).
 		Center().Label(label).Tooltip(label)
-	if a.DanmakuAutoScroll {
+	if a.Theme.Mode == "dark" {
+		a.Theme.darkControl(b, a.DanmakuAutoScroll, b.Hovered())
+	} else if a.DanmakuAutoScroll {
 		// .danmaku-follow-btn.is-active：蓝边 + 145° 淡蓝渐变底 + 蓝字 +
 		// inset 0 1px 0 白 .72，外围还有一圈 `0 0 0 2px rgba(14,165,233,.14)`
 		// 的聚光蓝环。原版是 linear-gradient(145deg,
@@ -3199,7 +3196,7 @@ func (a *App) danmakuFollowButton(c *ui.Context) {
 	pressPose(b)
 	b.Children(func() {
 		ink := pick(a.DanmakuAutoScroll, ui.Hex("#0369a1"), ui.Hex("#64748b"))
-		icon := ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+		icon := ui.Icon(c, iconConnection).Size(18, 18).TextColor(a.Theme.text(ink))
 		// 原版 `.danmaku-follow-btn svg { filter: drop-shadow(0 1px 0 rgba(255,255,255,.55)) }`
 		// —— 图标下缘 1px 白压印（与播放栏 svg 的 drop-shadow 同一手法）。此前
 		// 这颗键只画了键面材质，漏了图标的白色压印，深色描边上少了一道立体感。
@@ -3223,7 +3220,9 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 	label := pick(a.SubtitleFollow, "暂停跟随字幕", "跟随字幕")
 	b := ui.ButtonBase(c.Key("sub-follow")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.SubtitleFollow)
-	if a.SubtitleFollow {
+	if a.Theme.Mode == "dark" {
+		a.Theme.darkControl(b, a.SubtitleFollow, b.Hovered())
+	} else if a.SubtitleFollow {
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
@@ -3236,7 +3235,7 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 	pressPose(b)
 	b.Children(func() {
 		ink := pick(a.SubtitleFollow, ui.Hex("#0369a1"), ui.Hex("#64748b"))
-		ui.Icon(c, iconConnection).Size(18, 18).TextColor(ink)
+		ui.Icon(c, iconConnection).Size(18, 18).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() {
 		a.SubtitleFollow = !a.SubtitleFollow
@@ -3255,7 +3254,9 @@ func (a *App) subtitleLyricsButton(c *ui.Context) {
 	label := pick(a.LyricsEnabled, "关闭桌面字幕", "打开桌面字幕")
 	b := ui.ButtonBase(c.Key("sub-lyrics")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsEnabled)
-	if a.LyricsEnabled {
+	if a.Theme.Mode == "dark" {
+		a.Theme.darkControl(b, a.LyricsEnabled, b.Hovered())
+	} else if a.LyricsEnabled {
 		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
 			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
 			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
@@ -3268,7 +3269,7 @@ func (a *App) subtitleLyricsButton(c *ui.Context) {
 	pressPose(b)
 	b.Children(func() {
 		ink := pick(a.LyricsEnabled, ui.Hex("#0369a1"), ui.Hex("#64748b"))
-		ui.Icon(c, iconHalo).Size(18, 18).TextColor(ink)
+		ui.Icon(c, iconHalo).Size(18, 18).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() && a.Act.ToggleDesktopLyrics != nil {
 		a.Act.ToggleDesktopLyrics()
@@ -3332,16 +3333,16 @@ func (a *App) chaptersBody(c *ui.Context) {
 					b.Background(ui.Hex("#0ea5e9").Alpha(0.14)).
 						BorderColor(ui.Hex("#0ea5e9").Alpha(0.35))
 				} else if b.Hovered() {
-					b.Background(ui.Hex("#ffffff").Alpha(0.28)).
+					b.Background(a.Theme.surface(ui.Hex("#ffffff").Alpha(0.28), "#1b2c43", .8)).
 						BorderColor(ui.Hex("#64748b").Alpha(0.18))
 				}
 				b.Children(func() {
 					ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 						ui.Text(c, fmtTime(ch.From)).FontSize(12).FontWeight(650).
-							TextColor(ui.Hex("#0369a1")).Width(48).Shrink(0)
+							TextColor(a.Theme.text(ui.Hex("#0369a1"))).Width(48).Shrink(0)
 						ui.Column(c).Grow(1).Children(func() {
 							ui.Text(c, ch.Title).FontSize(13).MaxLines(2).
-								TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#334155")))
+								TextColor(a.Theme.text(pick(active, ui.Hex("#0369a1"), ui.Hex("#334155"))))
 						})
 					})
 				})
@@ -3359,7 +3360,7 @@ func (a *App) chaptersBody(c *ui.Context) {
 func (a *App) subtitleTrackPicker(c *ui.Context) {
 	ui.Row(c).FillWidth().Shrink(0).Height(36).Padding(8, 24, 0, 24).
 		Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "字幕版本").FontSize(11).TextColor(ui.Hex("#94a3b8")).Shrink(0)
+		ui.Text(c, "字幕版本").FontSize(11).TextColor(a.Theme.text(ui.Hex("#94a3b8"))).Shrink(0)
 		for i, tr := range a.SubtitleTracks {
 			i, tr := i, tr
 			label := SubtitleTrackLabel(tr)
@@ -3380,13 +3381,13 @@ func (a *App) subtitleTrackPicker(c *ui.Context) {
 				b.Background(ui.Hex("#0ea5e9").Alpha(0.16)).
 					BorderColor(ui.Hex("#0ea5e9").Alpha(0.45))
 			} else {
-				b.Background(ui.Hex("#ffffff").Alpha(0.22)).
+				b.Background(a.Theme.surface(ui.Hex("#ffffff").Alpha(0.22), "#1b2c43", .8)).
 					BorderColor(ui.Hex("#64748b").Alpha(0.16))
 			}
 			b.BorderWidth(1)
 			b.Children(func() {
 				ui.Text(c, label).FontSize(11).
-					TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569"))).SingleLine()
+					TextColor(a.Theme.text(pick(active, ui.Hex("#0369a1"), ui.Hex("#475569")))).SingleLine()
 			})
 			if b.Clicked() && a.Act.SelectSubtitle != nil {
 				a.Act.SelectSubtitle(i)
@@ -3454,15 +3455,15 @@ func (a *App) subtitlesBody(c *ui.Context) {
 		if active {
 			b.Background(ui.Hex("#0ea5e9").Alpha(0.13))
 		} else if b.Hovered() {
-			b.Background(ui.Hex("#ffffff").Alpha(0.26))
+			b.Background(a.Theme.surface(ui.Hex("#ffffff").Alpha(0.26), "#1b2c43", .8))
 		}
 		b.Children(func() {
 			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Start).Children(func() {
 				ui.Text(c, fmtTime(cue.From)).FontSize(12).FontWeight(650).
-					TextColor(pick(active, ui.Hex("#0369a1"), ui.Hex("#64748b"))).
+					TextColor(a.Theme.text(pick(active, ui.Hex("#0369a1"), ui.Hex("#64748b")))).
 					Width(48).Shrink(0)
 				ui.Text(c, cue.Content).FontSize(13).MaxLines(3).
-					TextColor(pick(active, ui.Hex("#0f172a"), ui.Hex("#475569")))
+					TextColor(a.Theme.text(pick(active, ui.Hex("#0f172a"), ui.Hex("#475569"))))
 			})
 		})
 		if b.Clicked() && a.Act.Seek != nil {
@@ -3797,7 +3798,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 				labelInk = ui.Hex("#ffffff")
 			}
 			lbl.Background(drawerFadeColor(c, lbl, "dmg-label-bg", labelBG, drawerFadeAnim)).
-				TextColor(drawerFadeColor(c, lbl, "dmg-label-ink", labelInk, drawerFadeAnim))
+				TextColor(a.Theme.text(drawerFadeColor(c, lbl, "dmg-label-ink", labelInk, drawerFadeAnim)))
 			if isCur {
 				lbl.InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.28)).
 					Shadow(0, 2, 7, 0, ui.Hex("#0284c7").Alpha(0.22))
@@ -3806,10 +3807,10 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 			// `line-height:1.2`（11×1.2=13.2）由显式盒高 + 字形上移复现，
 			// 否则框架的自然行盒（约 17）会把左列撑高约 4px。
 			tot := ui.Text(c, fmt.Sprintf("%d 条", g.TotalCount)).FontSize(11).
-				TextColor(ui.Hex("#64748b")).
+				TextColor(a.Theme.text(ui.Hex("#64748b"))).
 				Height(danmakuTotalHeight).Padding(danmakuTotalShift, 0, 0, 0)
 			if isCur {
-				tot.TextColor(ui.Hex("#0369a1")).FontWeight(700)
+				tot.TextColor(a.Theme.text(ui.Hex("#0369a1"))).FontWeight(700)
 			}
 		})
 
@@ -3822,6 +3823,9 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 			ui.Row(c).Wrap().Gap(6).AlignItems(ui.Center).AlignContent(ui.Center).Children(func() {
 				for _, e := range g.Entries {
 					paint := danmakuChipPaint(isCur, box.Hovered(), linux)
+					if a.Theme.Mode == "dark" {
+						paint.BG, paint.Border, paint.Inset = a.Theme.Glass, a.Theme.GlassBorder, a.Theme.Highlight
+					}
 					chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
 						Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
 						Radius(8).AlignItems(ui.Center)
@@ -3852,10 +3856,10 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，
 							// 显式 Height + Translate 压回原版高度。
 							numericText(c, fmt.Sprintf("×%d", e.Count)).FontSize(10).
-								FontWeight(700).TextColor(ui.Hex("#0369a1")).
+								FontWeight(700).TextColor(a.Theme.text(ui.Hex("#0369a1"))).
 								Height(danmakuRepeatCountHeight).Padding(danmakuRepeatCountShift, 5, 0, 5).
 								Radius(7).MinWidth(24).
-								Background(ui.Hex("#e0f2fe").Alpha(0.70)).
+								Background(a.Theme.surface(ui.Hex("#e0f2fe").Alpha(0.70), "#1b4058", .94)).
 								Border(1, t.Blue.Alpha(0.20))
 						}
 					})
@@ -4067,7 +4071,7 @@ func (a *App) repliesBody(c *ui.Context) {
 			// 「加载中...」是 `.text-center.text-default-400.py-2.text-xs` → 12/16。
 			loadingH, loadingShift := textLineBox(12, textXsLH)
 			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
-				ui.Text(c, "加载中...").FontSize(12).TextColor(ui.Hex(replyInkMuted)).
+				ui.Text(c, "加载中...").FontSize(12).TextColor(a.Theme.text(ui.Hex(replyInkMuted))).
 					Height(loadingH).Padding(loadingShift, 0, 0, 0)
 			})
 			return
@@ -4136,6 +4140,9 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 		targetBorder = ui.Hex("#0ea5e9").Alpha(0.22)
 		inset = ui.Hex("#ffffff").Alpha(0.58)
 	}
+	if a.Theme.Mode == "dark" {
+		targetBG, targetBorder, inset = pick(hovered, a.Theme.GlassHover, a.Theme.Glass), a.Theme.GlassBorder, a.Theme.Highlight
+	}
 	row.Background(drawerFadeColor(c, row, "cm-row-bg", targetBG, drawerFadeAnim)).
 		Border(1, drawerFadeColor(c, row, "cm-row-border", targetBorder, drawerFadeAnim)).
 		InsetShadow(0, 1, 0, 0, inset)
@@ -4169,11 +4176,11 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 			// 昵称 / 「Lv.N · 时间」两行行盒（见 commentRow 顶部）。
 			ui.Column(c).Children(func() {
 				ui.Text(c, cm.User).FontSize(14).FontWeight(600).
-					TextColor(ui.Hex(replyInkName)).SingleLine().
+					TextColor(a.Theme.text(ui.Hex(replyInkName))).SingleLine().
 					Height(nameH).Padding(nameShift, 0, 0, 0)
 				// text-xs text-default-400 → #64748b（见 replyInkMeta）。
 				ui.Text(c, replyMetaText(cm.Level, cm.Time)).FontSize(12).
-					TextColor(ui.Hex(replyInkMeta)).SingleLine().
+					TextColor(a.Theme.text(ui.Hex(replyInkMeta))).SingleLine().
 					Height(metaH).Padding(metaShift, 0, 0, 0)
 			})
 		})
@@ -4185,11 +4192,11 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 			// <p> 没有行数上限（globals.css 只给标题/简介挂 -webkit-line-clamp），
 			// 长评论整段铺开。行高必须显式给：框架默认取字体自然行盒（14.5px
 			// 时约 22），比原版的 24.94 每行少约 3px，多行评论会明显更挤。
-			ui.Text(c, cm.Content).FontSize(14.5).LineHeight(1.72).TextColor(ui.Hex(replyInkBody))
+			ui.Text(c, cm.Content).FontSize(14.5).LineHeight(1.72).TextColor(a.Theme.text(ui.Hex(replyInkBody)))
 			if cm.Likes > 0 {
 				// .mt-1.text-xs → 12/16。
 				ui.Text(c, fmt.Sprintf("👍 %d", cm.Likes)).FontSize(12).
-					Margin(4, 0, 0, 0).TextColor(ui.Hex(replyInkMeta)).
+					Margin(4, 0, 0, 0).TextColor(a.Theme.text(ui.Hex(replyInkMeta))).
 					Height(metaH).Padding(metaShift, 0, 0, 0)
 			}
 			// 楼中楼：mt-2 pl-3 + 左侧 2px 分隔线（border-default-200 → 灰蓝 .25）。
@@ -4203,7 +4210,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 							// 不参与换行（自然宽即单行），可以安全地压行盒；正文可换行，
 							// 行距由框架逐行决定、压不下去，改自绘逐行落点（见 replyBody）。
 							ui.Text(c, rp.User+":").FontSize(12).
-								FontWeight(600).TextColor(ui.Hex(replyInkPrim)).Shrink(0).
+								FontWeight(600).TextColor(a.Theme.text(ui.Hex(replyInkPrim))).Shrink(0).
 								Height(metaH).Padding(metaShift, 0, 0, 0)
 							a.replyBody(c, rp)
 						})
@@ -4211,10 +4218,10 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 					if cm.RepliesMore || len(cm.Replies) >= 3 {
 						// .text-xs.text-default-400，悬停转 .text-primary-500。
 						more := ui.Text(c, "查看更多回复...").FontSize(12).
-							TextColor(ui.Hex(replyInkMeta)).
+							TextColor(a.Theme.text(ui.Hex(replyInkMeta))).
 							Height(metaH).Padding(metaShift, 0, 0, 0)
 						if more.Hovered() {
-							more.TextColor(ui.Hex(replyInkPrim))
+							more.TextColor(a.Theme.text(ui.Hex(replyInkPrim)))
 						}
 					}
 				})
@@ -4361,7 +4368,7 @@ func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) 
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(26, 28).Radius(7).Center().
 		Label(label).Tooltip(label)
-	b.Background(collectScrollBtnPaintFor(b.Hovered(), b.Pressed()))
+	b.Background(a.Theme.surface(collectScrollBtnPaintFor(b.Hovered(), b.Pressed()), "#243751", .8))
 	// 原版 `.collect-scroll-btn:focus-visible`：`outline: 0; color: #0284c7;
 	// box-shadow: 0 0 0 2px rgba(2,132,199,.4)` —— 换色跟悬停同值（聚光蓝），
 	// 环是 titleBarFocus 那一款无偏移的 2px 蓝环。
@@ -4371,7 +4378,7 @@ func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) 
 		ic := pick(delta < 0, iconLeft, iconRight)
 		lit := b.Hovered() || b.FocusVisible()
 		ui.Icon(c, ic).Size(collectScrollIconSize, collectScrollIconSize).
-			TextColor(pick(lit, t.Blue, ui.Hex("#475569")))
+			TextColor(a.Theme.text(pick(lit, t.Blue, ui.Hex("#475569"))))
 	})
 	focusOutline(b, 7, focusGlow)
 	if b.Clicked() {

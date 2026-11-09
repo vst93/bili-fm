@@ -24,6 +24,8 @@ const (
 	prefCover                = "coverMode"
 	prefAmbient              = "ambientBackgroundEnabled"
 	prefPremium              = "premiumTexture"
+	prefTheme                = "appearanceTheme"
+	prefTransparency         = "backgroundTransparency"
 	prefRecTab               = "recommendTab"
 	prefHistTab              = "historyTab"
 	prefMiniPos              = "miniWindowPosition"
@@ -52,6 +54,11 @@ const (
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
 func (c *controller) loadPrefs() {
 	a := c.app
+	transparency, err := strconv.ParseFloat(c.kv.String(prefTransparency), 64)
+	if err != nil {
+		transparency = 0
+	}
+	a.SetAppearance(c.kv.String(prefTheme), transparency)
 	if v := parseFloat(c.kv.String(prefSpeed)); v > 0 {
 		a.Speed = v
 	}
@@ -123,6 +130,11 @@ func (c *controller) loadPrefs() {
 		a.HeatOn = v != "false"
 	}
 	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
+}
+
+func (c *controller) persistAppearance() {
+	_ = c.kv.SetString(prefTheme, c.app.Theme.Mode)
+	_ = c.kv.SetString(prefTransparency, strconv.FormatFloat(c.app.Theme.Transparency, 'f', -1, 64))
 }
 
 // validHexColor 接受 #rrggbb（桌面字幕配置只开放这一种格式）。

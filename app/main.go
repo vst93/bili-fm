@@ -285,7 +285,9 @@ func main() {
 		applyRenderBackend()
 		applyWebViewArgs()
 		opts := mygo.WindowOptions{
-			Title: "bili-FM",
+			Title:           "bili-FM",
+			Transparent:     true,
+			BackgroundColor: "#00000000",
 			// 旧版默认窗口就是 800×600（src-tauri/src/lib.rs 的 inner_size）。
 			Width:     mainWidth,
 			Height:    mainHeight,
@@ -683,11 +685,7 @@ func main() {
 		// 时段变化时换主题（原版也按小时切背景）。
 		go func() {
 			for range time.Tick(time.Minute) {
-				before := app.Theme.Period.Name
-				app.RefreshTheme()
-				if app.Theme.Period.Name != before {
-					app.Win.Update(func() {})
-				}
+				app.Win.Update(func() { app.RefreshTheme() })
 			}
 		}()
 
@@ -803,12 +801,13 @@ func (c *controller) wireActions() {
 		CloseModal:          c.closeModal,
 		// 主区的点赞 / 投币 / 收藏三个按钮走这里。漏接的话按钮看着能点、
 		// 点了却什么都不发生（Act 为 nil，statButton 会静默跳过）。
-		Like:          c.like,
-		Coin:          c.coin,
-		Favorite:      c.favorite,
-		SetCoverMode:  c.setCoverMode,
-		ToggleAmbient: c.toggleAmbient,
-		TogglePremium: c.togglePremium,
+		Like:              c.like,
+		Coin:              c.coin,
+		Favorite:          c.favorite,
+		SetCoverMode:      c.setCoverMode,
+		ToggleAmbient:     c.toggleAmbient,
+		TogglePremium:     c.togglePremium,
+		PersistAppearance: c.persistAppearance,
 		// 从播放列表抽屉里点某一行：播完保持抽屉打开（要接着挑）。
 		PlayPlaylist:       func(list string, index int) { c.playPlaylist(list, index, true) },
 		DeletePlaylistItem: c.deletePlaylistItem,

@@ -68,7 +68,7 @@ func (a *App) Shell(c *ui.Context) {
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
 	a.shortcuts(c, c.Root())
-	c.Root().Background(t.Period.Sample(0.5))
+	c.Root().Background(ui.Transparent)
 
 	// 背景：时段渐变 + 方向光晕 / 时段光罩（#root::before/::after 一块烘图）
 	// + 当前封面的氛围光（原版 #root 的 --liquid-backdrop、#root::before /
@@ -97,7 +97,19 @@ func (a *App) Shell(c *ui.Context) {
 // backdrop 铺窗口背景：原版 `#root` 的 `background: var(--liquid-backdrop)` ——
 // 一条 **165° 的多停靠点**线性渐变，整块一次铺满（见 backdrop.go 的说明）。
 func (a *App) backdrop(c *ui.Context) {
-	a.Theme.Period.Fill(ui.Box(c).FillWidth().Grow(1))
+	alpha := a.Theme.backgroundOpacity()
+	period := a.Theme.Period
+	if a.Theme.Mode == "dark" {
+		period = darkBackdropPeriod(period)
+	}
+	period.Fill(ui.Box(c).FillWidth().Grow(1).Opacity(alpha))
+}
+
+func darkBackdropPeriod(p Period) Period {
+	return Period{Angle: p.Angle, Stops: []gradStop{
+		{0, ui.Hex("#08111f")}, {0.28, ui.Hex("#101d31")},
+		{0.55, ui.Hex("#17253b")}, {0.78, ui.Hex("#0d192b")}, {1, ui.Hex("#07101c")},
+	}}
 }
 
 // titleBar 是标题栏（.app-title-bar）：高 36，品牌居中，右侧依次是
@@ -607,6 +619,10 @@ func (a *App) ambient(c *ui.Context) {
 	}
 	box := ui.Box(c).Absolute().Fill().PassThrough()
 	opacity := box.AnimateTo("ambient", target, ambientFadeAnim)
+	box.Opacity(a.Theme.backgroundOpacity())
+	if a.Theme.Mode == "dark" {
+		opacity *= 0.3
+	}
 	// 关闭且已淡到 0：::before 什么都不画，也不必为它去拉封面。
 	var bmp *ui.Bitmap
 	if opacity > ambientVisible {
@@ -627,7 +643,9 @@ func (a *App) ambient(c *ui.Context) {
 		if bmp != nil && opacity > ambientVisible {
 			ambientBefore(p, box, bmp, opacity, sheen)
 		}
-		ambientAfter(p, box)
+		if a.Theme.Mode != "dark" {
+			ambientAfter(p, box)
+		}
 	})
 }
 

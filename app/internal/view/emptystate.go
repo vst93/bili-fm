@@ -73,7 +73,7 @@ func (a *App) emptyBlock(c *ui.Context, text string, v emptyVariant) {
 	box := ui.Row(c).FillWidth().MinHeight(st.MinHeight).Center().
 		Padding(st.PadY, st.PadX)
 	box.Children(func() {
-		ui.Text(c, text).FontSize(st.FontSize).TextColor(st.Ink)
+		ui.Text(c, text).FontSize(st.FontSize).TextColor(a.Theme.text(st.Ink))
 	})
 }
 

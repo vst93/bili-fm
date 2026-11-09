@@ -87,8 +87,8 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			// 原版平一档（同为玻璃浮层的抽屉 tab / 搜索框 / 播放栏都已铺这条洗光，
 			// 只有设置菜单与合作 UP 主下拉漏着）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				paintGlassPanelFill(p, r, settingsMenuRadius, t.Glass)
-				paintBakedSheen(p, r, settingsMenuRadius, sheenGlassBaked)
+				paintGlassPanelFill(p, r, settingsMenuRadius, t.surface(t.Glass, "#18263a", 0.94))
+				paintBakedSheen(p, r, settingsMenuRadius, t.glassSheen())
 			}).
 			InsetShadow(0, 1, 1, 0, a.Theme.Highlight).
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
@@ -113,7 +113,7 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 				}
 				item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
 				item.Children(func() {
-					ui.Text(c, label).FontSize(14).TextColor(settingsItemInk)
+					ui.Text(c, label).FontSize(14).TextColor(a.Theme.text(settingsItemInk))
 				})
 				if item.Clicked() {
 					a.ShowSettings = false
@@ -135,7 +135,7 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			// 一句话说明播放栏里的两种图形：底部面积是弹幕密度，进度条
 			// 上的短竖线是章节分界，不是第二组热力数据。
 			ui.Text(c, "面积=弹幕密度；短竖线=章节分界").
-				FontSize(11).TextColor(settingsItemInk.Alpha(0.65)).
+				FontSize(11).TextColor(a.Theme.text(settingsItemInk.Alpha(0.65))).
 				Padding(0, settingsItemPadX).Margin(0, 0, 6, 0)
 			a.settingsToggle(c, "顺着听", a.RadioOn, func() {
 				if a.Act.ToggleRadio != nil {
@@ -192,7 +192,7 @@ func (a *App) incognitoToggle(c *ui.Context) {
 	pressScale(b)
 	focusOutline(b, RadiusSmall, focusGlow)
 	b.Children(func() {
-		ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(16, 16).TextColor(ink)
+		ui.Icon(c, pick(a.Incognito, iconMaskFilled, iconMask)).Size(16, 16).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() && a.Act.ToggleIncognito != nil {
 		a.Act.ToggleIncognito()
@@ -219,7 +219,7 @@ func (a *App) settingsToggle(c *ui.Context, label string, on bool, toggle func()
 	item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
 	item.Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Text(c, label).FontSize(13).TextColor(settingsItemInk).Grow(1)
+			ui.Text(c, label).FontSize(13).TextColor(a.Theme.text(settingsItemInk)).Grow(1)
 			incognitoTrack(c, on)
 		})
 	})

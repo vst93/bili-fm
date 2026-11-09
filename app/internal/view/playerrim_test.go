@@ -1054,27 +1054,8 @@ func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
 	orig := paintPlayerChromaticFn
 	defer func() { paintPlayerChromaticFn = orig }()
 
-	// panelTopAt 从顶往下在 x=400 找面板上沿（避开搜栏与圆角）：取 0..200 里
-	// 亮度跳变最大的一行分隔（背景 → 面板本体）。**不用「第一行够白」**那种判法
-	// —— 面板最上一行会被描边/色散边改写，大表面走 conic 采样的定向光带后
-	// 上沿中点是 ≈.20 的淡光（原版语义），不再是旧四边线性近似的白 .85，
-	// 「够白」判法会因描边实现变更而失效（本轮实测：top=-1）。
-	panelTopAt := func(img *image.RGBA) int {
-		luma := func(y int) int {
-			i := img.PixOffset(400, y)
-			return int(img.Pix[i]) + int(img.Pix[i+1]) + int(img.Pix[i+2])
-		}
-		best, bestAt := 0, -1
-		for y := 0; y < 200; y++ {
-			if d := luma(y+1) - luma(y); d > best {
-				best, bestAt = d, y+1
-			}
-		}
-		if best < 100 { // 面板本体比背景亮得多；跳变不够大说明没找到面板
-			return -1
-		}
-		return bestAt
-	}
+	// Locate the actual panel geometry; a translucent header need not be
+	// the brightest horizontal edge in the window.
 	render := func(mode string) (*image.RGBA, int) {
 		switch mode {
 		case "on":
@@ -1091,7 +1072,11 @@ func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
 		_, tst := drawerProbe(t, "feed")
 		settleTester(tst)
 		img := tst.Image()
-		return img, panelTopAt(img)
+		panel, ok := tst.Find("内容抽屉")
+		if !ok {
+			t.Fatal("missing drawer panel")
+		}
+		return img, int(panel.Y)
 	}
 
 	on, top := render("on")

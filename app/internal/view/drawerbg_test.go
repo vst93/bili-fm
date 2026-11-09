@@ -30,32 +30,26 @@ func rgbaAt(t *testing.T, img *image.RGBA, x, y int) (int, int, int, int) {
 	return int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2]), int(img.Pix[i+3])
 }
 
-// TestDrawerPanelNotTooTransparent 是无头渲染实测：抽屉面板区域最终合成出的
-// 像素应当接近不透明（底下的窗口背景几乎不可见），否则文字压在半透明的
-// 背景上，阅读性差——这正是用户反馈的「抽屉背景太透」。
-//
-// 量法：面板底色是「白色 @ α」叠在「遮罩 + 窗口背景」之上。同一位置在
-// 抽屉关闭时是 P0，打开后是 P1。先扣掉遮罩（rgba(15,23,42,.28)）得到面板
-// 之下的底色 B，再由 P1 = B·(1-α) + 255·α 反解 α。α 越大越不透明。
-func TestDrawerPanelNotTooTransparent(t *testing.T) {
+// The drawer should transmit background color through one shared blur and
+// a light veil. Sample an empty region, away from content and the lit rim.
+func TestDrawerPanelTranslucent(t *testing.T) {
 	const (
 		px, py = 24, 520 // 面板左下角，远离居中的空态文字
 	)
 	// 关闭抽屉，取该点的窗口背景（遮罩之下）。
-	closed, tstC := drawerProbe(t, "feed")
-	closed.Drawer = ""
-	tstC.Frame()
+	_, tstC := drawerProbe(t, "")
+	settleTester(tstC)
 	img0 := tstC.Image()
 	r0, g0, b0, _ := rgbaAt(t, img0, px, py)
 
 	// 打开抽屉，取同一点。
 	_, tstO := drawerProbe(t, "feed")
-	tstO.Frame()
+	settleTester(tstO)
 	img1 := tstO.Image()
 	r1, g1, b1, _ := rgbaAt(t, img1, px, py)
 
-	// 遮罩 rgba(15,23,42,0.28) 先压一层。
-	const oa = 0.28
+	// Subtract the lighter drawer scrim before measuring its veil.
+	const oa = 0.12
 	br := float64(r0)*(1-oa) + 15*oa
 	bg := float64(g0)*(1-oa) + 23*oa
 	bb := float64(b0)*(1-oa) + 42*oa
@@ -73,23 +67,8 @@ func TestDrawerPanelNotTooTransparent(t *testing.T) {
 	t.Logf("抽屉面板实测：关=(%d,%d,%d) 开=(%d,%d,%d) 面板之下=(%.0f,%.0f,%.0f) 反解 α=%.3f",
 		r0, g0, b0, r1, g1, b1, br, bg, bb, a)
 
-	// 本轮把面板从「几乎不透明白板」往回收：既不能回到 0.22 那种太透
-	// （影响阅读），也不该再是 0.9 的白板。可读的下限 0.6，上限 0.8。
-	if a < 0.6 {
-		t.Fatalf("抽屉面板不透明度 α=%.3f < 0.6：背景透出过多，影响阅读", a)
-	}
-	if a > 0.8 {
-		t.Fatalf("抽屉面板不透明度 α=%.3f > 0.8：面板偏白偏实，与其余玻璃表面不统一", a)
-	}
-}
-
-// TestDrawerPanelFillIsOpaqueToken 钉住面板填充令牌本身：不再是 0.22 的
-// 半透明 --liquid-bg，也不是 0.9 的白板，而是折中的 0.70（更暗更通）。
-func TestDrawerPanelFillIsOpaqueToken(t *testing.T) {
-	fill := drawerPanelFill()
-	alpha := float64(fill.A) / 255
-	if alpha < 0.6 || alpha > 0.8 {
-		t.Fatalf("drawerPanelFill alpha=%.3f，应落在 [0.6,0.8]", alpha)
+	if a < 0.30 || a > 0.60 {
+		t.Fatalf("drawer veil alpha %.3f should stay in [0.30,0.60] for a light glass pane", a)
 	}
 }
 

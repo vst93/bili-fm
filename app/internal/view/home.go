@@ -82,7 +82,7 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
 			// 原版 .home-searchbar::before：blur(20px) + 白 22% + 静态洗光。
 			// 不再用 glass.Glass（Regular 会把背景的黑抬到 54%，整块发白、不透）。
-			Material(cssGlassLayer(liquidBlurRadius, searchPillVeil(), sheenGlassBaked)).
+			Material(cssGlassLayer(liquidBlurRadius, a.Theme.glassVeil(searchPillVeil().Alpha(.72), "#18273b", .30), a.Theme.glassSheen())).
 			// 原版 ::after 的 conic 描光 + 色散边（玻璃材质只管 ::before 那层）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.Dark, false))
@@ -116,7 +116,7 @@ func (a *App) searchField(c *ui.Context) {
 		Background(ui.Hex("#0f172a").Alpha(0.025)).
 		Border(1, ui.Hex("#64748b").Alpha(0.14)).
 		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.06)).
-		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.30)).
+		InsetShadow(0, -1, pick[float32](t.Mode == "dark", 1, 0), 0, pick(t.Mode == "dark", ui.Hex("#bad8ee").Alpha(.06), ui.Hex("#ffffff").Alpha(0.30))).
 		AlignItems(ui.Center)
 	if slot.FocusWithin() {
 		slot.Border(1, ui.Hex("#0ea5e9").Alpha(0.40)).
@@ -126,7 +126,7 @@ func (a *App) searchField(c *ui.Context) {
 	var in ui.Element
 	slot.Children(func() {
 		in = ui.TextInputBase(c, &a.Query).Grow(1).FontSize(14).
-			TextColor(ui.Hex("#334155")).
+			TextColor(a.Theme.text(ui.Hex("#334155"))).
 			Placeholder("B站 / 关键词 / 视频链接").Label("搜索")
 		if in.Submitted() && !searching {
 			a.runSearch()
@@ -142,25 +142,10 @@ func (a *App) searchField(c *ui.Context) {
 		// 这一路在搜索中掐掉。
 		pressed := submit.Pressed() && !searching
 		sub := topToolStyleFor(topToolSubmit, submit.Hovered(), pressed)
+		sub = a.Theme.topTool(sub, false, submit.Hovered(), pressed)
 		topToolBgTo(submit, sub.Bg)
 		topToolFade(submit, sub.Opacity)
-		// 原版 .search-submit-btn 常态带左上角径向聚光，按下换成居中光。
-		if pressed {
-			btnLightPress.draw(submit, ToolButtonR)
-		} else {
-			btnLightTool.draw(submit, ToolButtonR)
-		}
-		// 原版 .search-submit-btn::after：悬停才显形的内高光 + 弱投影（不是描边）；
-		// 按下时 ::after 归零、换成 :active 的内压阴影；搜索中（`disabled`）原版
-		// `.search-submit-btn:disabled::after { opacity: 0 }` 把它整层关掉，所以
-		// 即便悬停在键上也不再铺（悬停的底色 / 图标色仍照旧生效）。
-		if searching {
-			// 搜索中 ::after 归零。
-		} else if pressed {
-			navPressShadow(submit)
-		} else if submit.Hovered() {
-			topToolHoverHighlight(submit, topToolSubmit)
-		}
+		a.Theme.topToolLighting(submit, topToolSubmit, false, pressed, !searching)
 		topToolPose(submit)
 		// 原版 `.search-submit-btn:disabled` **不改**不透明度（只把 ::after 归零），
 		// 所以搜索中这颗键仍是常态度 .82、悬停也照样生效——但 mygo 的禁用节点会把
@@ -223,22 +208,12 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	// 图标转 #0284c7、上浮 1px；按下缩到 .92。底色/图标色 0.18s、不透明度
 	// 0.16s 淡入（topToolBgTo / topToolInk / topToolFade），不是瞬时切换。
 	s := topToolStyleFor(topToolEntry, b.Hovered(), b.Pressed())
+	selected := a.Drawer == key
+	b.Expanded(selected)
+	s = a.Theme.topTool(s, selected, b.Hovered(), b.Pressed())
 	topToolBgTo(b, s.Bg)
 	topToolFade(b, s.Opacity)
-	// 原版 .top-tool-btn 常态带左上角径向聚光，按下换成居中光。
-	if b.Pressed() {
-		btnLightPress.draw(b, ToolButtonR)
-	} else {
-		btnLightTool.draw(b, ToolButtonR)
-	}
-	// 原版 .top-tool-btn::after：悬停才显形的内高光 + 弱投影（不是描边）。
-	// 之前这里用「白 .55 描边 + inset .55」近似，比原版（白 .9 / 10px）低一档。
-	// 按下时 ::after 归零、换成 :active 的内压阴影。
-	if b.Pressed() {
-		navPressShadow(b)
-	} else if b.Hovered() {
-		topToolHoverHighlight(b, topToolEntry)
-	}
+	a.Theme.topToolLighting(b, topToolEntry, selected, b.Pressed(), true)
 	topToolPose(b)
 	b.Children(func() { topToolInk(ui.Icon(c, ic).Size(18, 18), s.Ink) })
 	// 原版 `.top-tool-btn:focus-visible`：`outline: 2px solid rgba(14,165,233,.45);
@@ -282,6 +257,9 @@ func (a *App) userButton(c *ui.Context) {
 		Border(1, ui.Hex("#ffffff").Alpha(0.55)).
 		Label(pick(a.LoggedIn, "切换登录账号", "登录账号")).
 		Tooltip(pick(a.LoggedIn, "点击登录其他账号", "点击登录账号"))
+	if t.Mode == "dark" {
+		b.Background(t.GlassHover).Border(1, t.GlassBorder)
+	}
 	avatarShadow(b)
 	avatarLift(b)
 	b.Children(func() {
@@ -372,6 +350,7 @@ func (a *App) nowPlaying(c *ui.Context, l homeLayout) {
 //
 // 右下角三个开关（原版 .cover-mode-toggle）：切换碟片/封面、封面背景、高级质感。
 func (a *App) coverDisc(c *ui.Context, side float32) {
+	var appearanceAnchor ui.Element
 	ui.Row(c).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
 		shell := ui.Box(c).Size(side, side).Shrink(0).Center()
 		// 原版 .cover-shell 是 `display:grid; place-items:center` —— 玻璃环与
@@ -472,8 +451,12 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 			if shellHovered {
 				target = 0.85
 			}
+			if shell.FocusWithin() || a.ShowAppearance {
+				target = 1
+			}
 			group.Opacity(group.AnimateTo("cover-toggles", target,
 				ui.Animation{Duration: 200 * time.Millisecond})).Children(func() {
+				appearanceAnchor = a.appearanceButton(c)
 				// tooltip 文案与原版一致（碟片/封面模式、封面背景、高级质感）。
 				// 顺序必须是「高级质感 / 封面背景 / 模式切换」——对应的 right 偏移
 				// 是 76 / 42 / 8。
@@ -506,6 +489,7 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 			})
 		})
 	})
+	a.appearancePopover(c, appearanceAnchor)
 }
 
 // coverSurface 是 #video-cover（碟片 / 方形封面）这一帧的描边与外投影。
@@ -631,13 +615,19 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func(
 		b.Role(ui.RoleToggleButton).Checked(active)
 	}
 	bg, border, ink := coverToggleStyle(active, b.Hovered())
+	if a.Theme.Mode == "dark" {
+		bg, border, ink = a.Theme.Glass, a.Theme.GlassBorder, a.Theme.Muted
+		if active || b.Hovered() {
+			bg, ink = a.Theme.GlassHover, a.Theme.Blue
+		}
+	}
 	// 原版 .cover-mode-toggle { transition: opacity 0.2s ease, background 0.2s ease }
 	// —— 背景色切换有 0.2s 过渡。opacity 过渡已由外层 group.AnimateTo 提供，
 	// 这里用 AnimateColor 给背景色加同样的 0.2s 过渡。
 	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.CubicBezier(0.25, 0.5, 0.25, 1)})).
 		Border(1, border)
 	b.Children(func() {
-		ui.Icon(c, ic).Size(14, 14).TextColor(ink)
+		ui.Icon(c, ic).Size(14, 14).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() {
 		fn()
@@ -849,7 +839,7 @@ func (a *App) videoInfo(c *ui.Context, wide bool, titleW float32) {
 		// Pretty（mygo 0.8.0）：简介是正文，三行截断时最后一行常常只剩一个
 		// 词/一个字（中文尤其明显）。pretty 让最后一行至少多拿一个词，前几行
 		// 保持不变 —— 比 balance 更适合正文（不会把每行都拉平）。
-		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(ui.Hex("#475569")).
+		ui.Text(c, a.infoDesc()).FontSize(13).TextColor(a.Theme.text(ui.Hex("#475569"))).
 			MaxLines(3).MinHeight(infoDescMinH).Margin(14, 0, 0, 0).Shrink(0).Selectable().Pretty()
 		a.partPill(c)
 		a.contentActions(c)
@@ -877,7 +867,7 @@ func (a *App) emptyInfo(c *ui.Context) {
 	if len(a.Playlist) > 0 {
 		hint = "搜索关键词、粘贴 B 站链接，或从下方播放列表继续。"
 	}
-	ui.Text(c, hint).FontSize(13).TextColor(ui.Hex("#475569")).MaxLines(2).
+	ui.Text(c, hint).FontSize(13).TextColor(a.Theme.text(ui.Hex("#475569"))).MaxLines(2).
 		Margin(10, 0, 0, 0).Shrink(0)
 }
 
@@ -940,7 +930,7 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				// 用显式盒高 + 字形上移复现（见 linebox.go）。
 				//
 				kh, ksh := textLineBox(10, 1)
-				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(kickerInk).
+				ui.Text(c, "UP 主").FontSize(10).Bold().TextColor(a.Theme.text(kickerInk)).
 					Height(kh).Margin(0, 0, 1, 0).Padding(ksh, 0, 0, 0)
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					name := ui.ButtonBase(c.Key("owner-name")).Padding(0).Label("UP 主空间")
@@ -954,7 +944,7 @@ func (a *App) videoInfoHead(c *ui.Context) {
 						// 盒高 + 字形上移复现（见 linebox.go）。
 						nh, nsh := textLineBox(15, 1.25)
 						ui.Text(c, a.ownerName()).FontSize(15).FontWeight(650).
-							TextColor(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155"))).
+							TextColor(a.Theme.text(pick(name.Hovered(), ui.Hex("#0284c7"), ui.Hex("#334155")))).
 							SingleLine().MaxWidth(240).Height(nh).Padding(nsh, 0, 0, 0)
 					})
 					if name.Clicked() {
@@ -1130,10 +1120,14 @@ func (a *App) partPill(c *ui.Context) {
 		Radius(RadiusPill).
 		Background(ui.Hex("#ffffff").Alpha(0.15)).
 		Border(1, ui.Hex("#ffffff").Alpha(0.38)).
-		InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.50)).
+		InsetShadow(0, 1, 0, 0, pick(t.Mode == "dark", t.Highlight.Alpha(.6), ui.Hex("#ffffff").Alpha(0.50))).
 		Shadow(0, 2, 10, 0, ui.Hex("#0f172a").Alpha(0.035)).
 		Gap(8).AlignItems(ui.Center)
-	pill = partPillGlass(pill)
+	if a.Theme.Mode == "dark" {
+		pill.Background(a.Theme.Glass).Border(1, a.Theme.GlassBorder)
+	} else {
+		pill = partPillGlass(pill)
+	}
 	pill.Children(func() {
 		// .video-part-dot：7px（不是 6）——比原版小 1px 时圆点在胶囊里显得发飘。
 		ui.Box(c).Size(partDotSize, partDotSize).Shrink(0).Radius(RadiusPill).Background(dotInk)
@@ -1141,11 +1135,11 @@ func (a *App) partPill(c *ui.Context) {
 		// 不给共用盒高的话三段的盒顶会各差 1.5px，读起来像没对齐。
 		//
 		// .video-part-source 继承胶囊的 #0369a1 / 700。
-		pillText(c, source, blue, 700)
+		pillText(c, source, a.Theme.text(blue), 700)
 		// .video-part-title 单独覆写成 #475569 / 600（原版只有来源是蓝的，
 		// 分集标题是中性深灰），之前这里也染成蓝色/700，读起来比原版抢眼。
 		if part != "" {
-			pillTitle(c, part, partTitleInk, 600)
+			pillTitle(c, part, a.Theme.text(partTitleInk), 600)
 		}
 		// 在线人数接在胶囊里、分集标题之后（见 onlineViewersBadge）：
 		// 「● 当前选集 P1 · 152 人在看」—— 整条读作「这一集在播什么、
@@ -1327,7 +1321,7 @@ func (a *App) contextDock(c *ui.Context) {
 		Background(ui.Hex("#0f172a").Alpha(0.03)).
 		Border(1, ui.Hex("#64748b").Alpha(0.14)).
 		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.05)).
-		InsetShadow(0, -1, 0, 0, ui.Hex("#ffffff").Alpha(0.35)).Children(func() {
+		InsetShadow(0, -1, pick[float32](t.Mode == "dark", 1, 0), 0, pick(t.Mode == "dark", ui.Hex("#bad8ee").Alpha(.05), ui.Hex("#ffffff").Alpha(0.35))).Children(func() {
 		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
 		a.iconButton(c, "dock-search", "搜索结果", iconSearch, iconOpticalSize,
 			len(a.ListFor(DrawerSearch).Cards) == 0, func() {
@@ -1574,7 +1568,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 	}
 	b.Children(func() {
 		ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
-			TextColor(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569")))
+			TextColor(a.Theme.text(pick(spec.Active, spec.ActiveInk, ui.Hex("#475569"))))
 		// 原版这一格始终有值（没有视频时是 "0"），且是 `.nav-icon-btn` 的
 		// **绝对定位子元素**：top: calc(100% + 1px)、水平居中、不占布局高。
 		// 用 Attach(Bottom, Top) 把计数上缘挂到按钮下缘中点，再 +1px —— 等价
@@ -1592,6 +1586,7 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 			if spec.Off {
 				valueInk = ui.Hex("#475569")
 			}
+			valueInk = a.Theme.text(valueInk)
 			numericText(c, spec.Count).FontSize(9).FontWeight(statCountWeight).TextColor(valueInk).
 				Opacity(navIconStatValueOpacity(spec.Off)).
 				SingleLine().
@@ -1640,7 +1635,7 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	} else if b.Hovered() {
 		navHoverHighlight(b)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(ui.Hex("#475569")) })
+	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(a.Theme.text(ui.Hex("#475569"))) })
 	if b.Clicked() && fn != nil {
 		fn()
 	}
@@ -1675,7 +1670,7 @@ func (a *App) radioContentButton(c *ui.Context, off bool) {
 		if a.RadioOn {
 			ink = ui.Hex("#3b82f6")
 		}
-		ui.Icon(c, iconSparkles).Size(iconOpticalSize, iconOpticalSize).TextColor(ink)
+		ui.Icon(c, iconSparkles).Size(iconOpticalSize, iconOpticalSize).TextColor(a.Theme.text(ink))
 	})
 	if b.Clicked() && a.Act.ToggleRadio != nil {
 		a.Act.ToggleRadio()
@@ -1710,7 +1705,7 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	} else if b.Hovered() {
 		navHoverHighlight(b)
 	}
-	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(textInk) })
+	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(a.Theme.text(textInk)) })
 	if b.Clicked() && fn != nil {
 		fn()
 	}

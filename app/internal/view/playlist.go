@@ -103,7 +103,7 @@ func (a *App) playModeButton(c *ui.Context) {
 	drawerHeaderSurface(b, b.Hovered())
 	drawerHeaderPress(b)
 	b.Children(func() {
-		ui.Icon(c, ic).Size(18, 18).TextColor(playModeIconInk(a.PlayMode))
+		ui.Icon(c, ic).Size(18, 18).TextColor(a.Theme.text(playModeIconInk(a.PlayMode)))
 	})
 	if b.Clicked() && a.Act.CyclePlayMode != nil {
 		a.Act.CyclePlayMode()
@@ -564,6 +564,18 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 		k = row.Jump("pl-row-hover", 0)
 	}
 	p := playlistRowPaintAt(rest, hover, k)
+	if a.Theme.Mode == "dark" {
+		t := a.Theme
+		p.Stops, p.Gradient = nil, false
+		p.From = t.Glass.Mix(t.GlassHover, k)
+		p.Border, p.InsetTop, p.InsetBot = t.GlassBorder, t.Highlight, ui.Transparent
+		if current || dragOver {
+			p.From, p.Border = t.surface(ui.Transparent, "#1b4058", .48), t.Blue.Alpha(.6)
+		}
+		if row.Pressed() {
+			p.From = t.GlassActive
+		}
+	}
 	switch {
 	case len(p.Stops) > 0:
 		// 原版 .playlist-current:hover 的三段蓝→白渐变（逐值见停靠点函数）。
@@ -633,14 +645,14 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 				if current {
 					// 原版 <Play fill="#3b82f6" size={12} theme="filled" />：蓝色圆盘
 					// + 挖白三角，两层色，走逐色 Image。
-					ui.Image(c, iconPlayFilled).Size(12, 12).TextColor(ui.Hex("#3b82f6"))
+					ui.Image(c, iconPlayFilled).Size(12, 12).TextColor(a.Theme.text(ui.Hex("#3b82f6")))
 				}
 				// 原版首行：常态 .text-gray-800（#1e293b/600），当前项
 				// .playlist-current p:first-of-type（#064e7a/800 + 白 .65 压印）。
 				part := ui.Text(c, item.Part).FontSize(14).SingleLine().
-					TextColor(p.PartInk).FontWeight(p.PartWeight).
+					TextColor(a.Theme.text(p.PartInk)).FontWeight(p.PartWeight).
 					Height(th).Padding(tsh, 0, 0, 0)
-				if current {
+				if current && a.Theme.Mode != "dark" {
 					// 压印只属于当前项（CSS 里那条规则挂在 .playlist-current 下）；
 					// 常态行没有任何 text-shadow。Draw 是就地挂 paintFn，返回值不用接。
 					playlistPartEmboss(part, item.Part,
@@ -651,7 +663,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			// 原版次行：常态 .text-gray-400（#64748b），当前项
 			// .playlist-current p:last-of-type（#334155/600）。
 			ui.Text(c, item.Title).FontSize(12).SingleLine().
-				TextColor(p.TitleInk).FontWeight(p.TitleWeight).
+				TextColor(a.Theme.text(p.TitleInk)).FontWeight(p.TitleWeight).
 				Height(mh).Padding(msh, 0, 0, 0)
 		})
 
@@ -698,7 +710,7 @@ func (a *App) rowIconButton(c *ui.Context, key, label string, ic *ui.SVG, ink ui
 		b.Background(ui.Transparent)
 	}
 	b.Opacity(b.AnimateTo("pl-del-fade", opacity, playlistDeleteFadeAnim))
-	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(ink) })
+	b.Children(func() { ui.Icon(c, ic).Size(16, 16).TextColor(a.Theme.text(ink)) })
 	if b.Clicked() {
 		fn()
 	}

@@ -71,6 +71,9 @@ func (a *App) toastViewport(c *ui.Context) {
 			p := ui.ToastBase(c, t)
 			tint, ic := toastAccent(t.Type)
 			from, to := toastFillStops(tint)
+			if a.Theme.Mode == "dark" {
+				from, to = a.Theme.floatingFill(), a.Theme.floatingFill()
+			}
 			// 入场/退场：原版是 CSS transition（上方 8px、300ms）。
 			p.Root.Transition(toastTransition())
 			// 材质用「只模糊不染色」的 glass.Blur 打底（原版 .toast-glass 的
@@ -88,10 +91,10 @@ func (a *App) toastViewport(c *ui.Context) {
 				ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
 					Radius(toastRadius).PassThrough().
 					LinearGradient(ui.LinearGradient{From: from, To: to, Angle: 135})
-				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(tint)
+				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(a.Theme.text(tint))
 				// 原版：text-sm（14）font-medium text-slate-800。
 				ui.Text(c, t.Title).FontSize(14).FontWeight(500).
-					TextColor(ui.Hex("#1e293b"))
+					TextColor(a.Theme.text(ui.Hex("#1e293b")))
 				// `.toast-glass::after`（globals.css:5345）的 `--glass-sheen-static`：
 				// 左上径向热点（白 .24 @22% -5%，48% 归零）+ 170° 斜向洗光。
 				// 伪元素是**定位**元素，CSS 的绘制顺序把它排在流式子元素（图标 /
@@ -107,7 +110,7 @@ func (a *App) toastViewport(c *ui.Context) {
 					InsetShadow(0, 1, 1, 0, ins[0]).
 					InsetShadow(0, -1, 1, 0, ins[1]).
 					Draw(func(p *ui.Painter, r ui.Rect) {
-						paintBakedSheen(p, r, toastRadius, sheenGlassBaked)
+						paintBakedSheen(p, r, toastRadius, a.Theme.glassSheen())
 					})
 			})
 		}

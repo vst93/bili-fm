@@ -63,7 +63,7 @@ var (
 //	88px  #min-video-info：64px 封面 + 标题/选集 + 右侧窗口控制
 //	43px  #player：切曲 / 当前时间 / 进度 / 时长 / 音量
 //
-// 迷你模式的背景是固定的浅色渐变，不跟时段（body.mini-mode #root）。
+// 迷你模式保留原浅色渐变，并跟随全应用的主题与透明度。
 func (a *App) MiniShell(c *ui.Context) {
 	// 同 Shell：先记下框架报的隐藏状态（后台轮询据此暂停，见 state.go）。
 	a.WindowHidden = c.WindowHidden()
@@ -71,12 +71,16 @@ func (a *App) MiniShell(c *ui.Context) {
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
 	a.shortcuts(c, c.Root())
-	c.Root().Background(ui.Hex("#f7fafd"))
+	c.Root().Background(ui.Transparent)
 
 	// 背景：145° 线性渐变 + 左上偏蓝 / 右下偏绿两条径向光晕
 	//（原版 body.mini-mode #root 的三层 background，见 minibg.go）。
-	ui.Column(c).Fill().Children(func() {
-		a.miniBackground(c)
+	ui.Column(c).Fill().Opacity(t.backgroundOpacity()).Children(func() {
+		if t.Mode == "dark" {
+			darkBackdropPeriod(t.Period).Fill(ui.Box(c).Fill())
+		} else {
+			a.miniBackground(c)
+		}
 	})
 
 	ui.Column(c).Absolute().Fill().Children(func() {
@@ -208,7 +212,7 @@ func (a *App) MiniShell(c *ui.Context) {
 					// 复现（见 linebox.go）。
 					mh, msh := textLineBox(12, 1.2)
 					ui.Text(c, status).FontSize(12).FontWeight(650).
-						TextColor(ui.Hex("#526174")).SingleLine().Height(mh).Padding(msh, 0, 0, 0)
+						TextColor(a.Theme.text(ui.Hex("#526174"))).SingleLine().Height(mh).Padding(msh, 0, 0, 0)
 				})
 			})
 
@@ -319,7 +323,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					play.Children(func() {
 						ic := pick(a.Playing, iconPause, iconPlayOne)
 						icon := ui.Icon(c, ic).Size(16, 16).
-							TextColor(playInk).
+							TextColor(a.Theme.text(playInk)).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource())).
 							Translate(0.5, 0)
 						playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
@@ -337,8 +341,8 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					playerRim(t, next, RadiusPill, true, sheenKindStatic, false, false)
 					next.Children(func() {
 						icon := ui.Icon(c, iconNext).Size(18, 18).
-							TextColor(playerFadeColor(c, next, "mini-next-ink",
-								playerButtonInk(t, next.Hovered()))).
+							TextColor(a.Theme.text(playerFadeColor(c, next, "mini-next-ink",
+								playerButtonInk(t, next.Hovered())))).
 							Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
 						playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
 					})
@@ -372,7 +376,7 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 						// mini 的那颗键也该是静音图标。之前这里恒画喇叭。
 						ic := volumeIconFor(a.Muted || a.Volume <= 0)
 						icon := ui.Icon(c, ic).Size(18, 18).
-							TextColor(playerFadeColor(c, vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered()))).
+							TextColor(a.Theme.text(playerFadeColor(c, vol, "mini-volume-ink", playerToolInk(t, toolVolume, false, vol.Hovered())))).
 							Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
 						playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
 					})
@@ -429,6 +433,9 @@ func miniStatusDot(t Theme, inList bool) (dot, ring ui.Color) {
 // 深色时段的主窗深色基态 (1,2,1) 源序在 mini 基态之后，盖过 mini 基态 —— 深色
 // 未悬停换成主窗深色面；悬停规则仍 (1,3,x) 胜出，两时段同值。
 func miniPlayStyle(t Theme, playing, hovered bool) (fill, border, ink ui.Color) {
+	if t.Mode == "dark" {
+		return t.GlassHover, t.GlassBorder, t.Blue
+	}
 	if hovered {
 		if playing {
 			return ui.Hex("#7dd3fc").Alpha(0.22), ui.Hex("#0284c7").Alpha(0.40), ui.Hex("#0369a1")
@@ -445,6 +452,9 @@ func miniPlayStyle(t Theme, playing, hovered bool) (fill, border, ink ui.Color) 
 // miniPlayShadowSpecs 返回迷你窗播放键这一帧该铺的（内影, 外影）。拆成纯函数
 // 便于无头测试逐值断言五支取值（同 playerPlaySurface 的分支口径）。
 func miniPlayShadowSpecs(t Theme, playing, hovered, pressed bool) (inset, outer []shadowSpec) {
+	if t.Mode == "dark" && !pressed {
+		return []shadowSpec{{0, 1, 2, 0, t.Highlight.Alpha(.6)}}, []shadowSpec{{0, 3, 10, 0, shadowInk.Alpha(.14)}}
+	}
 	switch {
 	case pressed:
 		// 原版 `:active:not(:disabled)`（1,3,0）：box-shadow 换
@@ -453,12 +463,12 @@ func miniPlayShadowSpecs(t Theme, playing, hovered, pressed bool) (inset, outer 
 	case hovered && playing:
 		// [data-playing]:hover（1,4,0）。
 		return []shadowSpec{
-				{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
-				{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
-			}, []shadowSpec{
-				{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
-				{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
-			}
+			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
+			{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
+		}, []shadowSpec{
+			{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
+			{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
+		}
 	case hovered:
 		// :hover（1,3,0）。
 		return []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}},
@@ -560,7 +570,7 @@ func (a *App) miniControl(c *ui.Context, key, label string, ic *ui.SVG, active, 
 	}
 	pressScale(b)
 	b.Children(func() {
-		ui.Icon(c, ic).Size(16, 16).TextColor(ink)
+		ui.Icon(c, ic).Size(16, 16).TextColor(a.Theme.text(ink))
 	})
 	focusOutline(b, RadiusSmall, focusGlow)
 	if b.Clicked() {

@@ -85,7 +85,7 @@ func (a *App) modal(c *ui.Context) {
 				Padding(32, 24, 24).
 				Material(blurLayer(glass.Blur{Radius: loginGlassBlur})).
 				Draw(func(p *ui.Painter, r ui.Rect) {
-					paintGlassPanelFill(p, r, 16, loginPanelFill)
+					paintGlassPanelFill(p, r, 16, t.surface(loginPanelFill, "#18263a", 0.95))
 				}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.40)).
 				InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.30)).
@@ -108,7 +108,11 @@ func (a *App) modal(c *ui.Context) {
 				// glass.Blur 只模糊，渐变由 Draw 自铺（inset 1px 让开边框）。
 				Material(blurLayer(glass.Blur{Radius: dialogGlassBlur})).
 				Draw(func(p *ui.Painter, r ui.Rect) {
-					paintDialogPanelFill(p, r, 18, st.Tint)
+					if t.Mode == "dark" {
+						paintGlassPanelFill(p, r, 18, t.floatingFill())
+					} else {
+						paintDialogPanelFill(p, r, 18, st.Tint)
+					}
 				}).
 				Border(1, ui.Hex("#ffffff").Alpha(0.65)).
 				InsetShadow(0, 1, 2, 0, ui.Hex("#ffffff").Alpha(0.85)).
@@ -140,7 +144,9 @@ func (a *App) modal(c *ui.Context) {
 			default:
 				a.modalMessage(c, m, t)
 				// ::after 光泽层是伪元素，天然画在内容之上。
-				dialogSheen(c)
+				if t.Mode != "dark" {
+					dialogSheen(c)
+				}
 			}
 		})
 
@@ -179,7 +185,9 @@ func modalScrimInk(kind string) ui.Color {
 func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	// .login-glass::before 的 135° 光泽层：画在最前，落在面板底之上、内容之下
 	//（原版 `.login-glass > * { z-index: 1 }` 把内容抬到它上面）。
-	loginSheen(c)
+	if t.Mode != "dark" && !t.ReducedTransparency {
+		loginSheen(c)
+	}
 
 	// 关闭键：原版 .login-close-btn 是 32 圆键（半透明白底 + 白描边 +
 	// 顶部内高光 + 外投影，见 loginclose.go）。原版定位 `-right-4 top-4`
@@ -188,6 +196,10 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 		Radius(RadiusPill).Center().Label("关闭登录").Tooltip("关闭登录")
 	close.Absolute().Right(loginCloseInset).Top(loginCloseInset)
 	p := loginClosePaintFor(close.Hovered(), close.Pressed())
+	if t.Mode == "dark" {
+		p.BG, p.Border = pick(close.Hovered(), t.GlassHover, t.Glass), t.GlassBorder
+		p.Inset = nil
+	}
 	close.Background(p.BG).Border(1, p.Border)
 	for _, s := range p.Inset {
 		close.InsetShadow(s.X, s.Y, s.Blur, s.Spread, s.C)
@@ -196,7 +208,7 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	close.AnimatePose(ui.Pose{Scale: p.Scale}, ui.Snappy)
 	close.Children(func() {
 		ui.Icon(c, iconCloseSmall).Size(loginCloseIconSize, loginCloseIconSize).
-			TextColor(ui.Hex("#475569"))
+			TextColor(a.Theme.text(ui.Hex("#475569")))
 	})
 	if close.Clicked() {
 		if a.Act.CloseLogin != nil {
@@ -208,12 +220,12 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 	ui.Box(c).FillWidth().Center().Children(func() {
 		// h3：text-lg（18）/ bold / #0f172a，下间距 4。
 		ui.Text(c, "使用 B站 App 扫码登录").FontSize(18).FontWeight(700).
-			TextColor(ui.Hex("#0f172a"))
+			TextColor(a.Theme.text(ui.Hex("#0f172a")))
 	})
 	ui.Box(c).FillWidth().Center().Margin(4, 0, 16, 0).Children(func() {
 		// p：text-sm（14）/ 500 / #334155，下间距 16。
 		ui.Text(c, "打开手机扫一扫").FontSize(14).FontWeight(500).
-			TextColor(ui.Hex("#334155"))
+			TextColor(a.Theme.text(ui.Hex("#334155")))
 	})
 	ui.Box(c).FillWidth().Center().Children(func() {
 		// .login-qr-card：padding 12、圆角 12；里面是 160 的二维码（w-40 h-40）。
@@ -227,7 +239,7 @@ func (a *App) modalLogin(c *ui.Context, m *Modal, t Theme) {
 				ui.Image(c, m.QR).Fill().Fit(ui.Contain)
 			} else {
 				ui.Box(c).Fill().Center().Children(func() {
-					ui.Text(c, "二维码加载中…").FontSize(12).TextColor(t.Faint)
+					ui.Text(c, "二维码加载中…").FontSize(12).TextColor(ui.Hex("#64748b"))
 				})
 			}
 		})
@@ -277,13 +289,13 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 		if st.Spinner {
 			a.dialogSpinner(c, st.Ink)
 		} else {
-			ui.Icon(c, st.Icon).Size(28, 28).Shrink(0).TextColor(st.Ink).
+			ui.Icon(c, st.Icon).Size(28, 28).Shrink(0).TextColor(a.Theme.text(st.Ink)).
 				Margin(2, 0, 0, 0)
 		}
 		ui.Column(c).Children(func() {
 			// .dialog-title：16px / 600 / #1e293b，下间距 8。
 			ui.Text(c, m.Title).FontSize(16).FontWeight(600).
-				TextColor(ui.Hex("#1e293b")).Margin(0, 0, 8, 0)
+				TextColor(a.Theme.text(ui.Hex("#1e293b"))).Margin(0, 0, 8, 0)
 			if m.Message != "" {
 				// .dialog-message：13.5px / #475569 / `line-height:1.7`
 				//（globals.css:5679，即 13.5×1.7=22.95px）；多行文本按行拆开逐行画
@@ -293,7 +305,7 @@ func (a *App) modalMessage(c *ui.Context, m *Modal, t Theme) {
 				ui.Column(c).Children(func() {
 					for _, line := range splitLines(m.Message) {
 						ui.Text(c, line).FontSize(13.5).LineHeight(1.7).
-							TextColor(ui.Hex("#475569"))
+							TextColor(a.Theme.text(ui.Hex("#475569")))
 					}
 				})
 			}
@@ -401,7 +413,7 @@ func dialogSpinnerArc(ph float64) (start, end float32, wrap bool) {
 // padding 8 22、圆角 10、13px / 500，悬停上浮 1px、按下缩到 .94（pressPose）。
 func (a *App) modalButton(c *ui.Context, btn ModalButton, fn func()) {
 	label := btn.Label
-	b := ui.ButtonBase(c.Key("modal-" + label)).Height(34).Padding(0, 22).
+	b := ui.ButtonBase(c.Key("modal-"+label)).Height(34).Padding(0, 22).
 		Radius(10).Center().Label(label)
 	hovered := b.Hovered()
 	if btn.Primary {
@@ -418,6 +430,9 @@ func (a *App) modalButton(c *ui.Context, btn ModalButton, fn func()) {
 			Shadow(0, shY, shBlur, 0, ui.Hex("#0ea5e9").Alpha(shInk))
 	} else {
 		st := dialogSecondaryStyleFor(hovered)
+		if a.Theme.Mode == "dark" {
+			st.Fill, st.Border = pick(hovered, a.Theme.GlassHover, a.Theme.Glass), a.Theme.GlassBorder
+		}
 		b.Background(st.Fill).Border(1, st.Border).
 			InsetShadow(0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.55))
 		if st.Shadow.A > 0 {
@@ -427,7 +442,7 @@ func (a *App) modalButton(c *ui.Context, btn ModalButton, fn func()) {
 	pressPose(b)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).FontWeight(500).
-			TextColor(pick(btn.Primary, ui.Hex("#ffffff"), dialogSecondaryStyleFor(hovered).Ink))
+			TextColor(a.Theme.text(pick(btn.Primary, ui.Hex("#ffffff"), dialogSecondaryStyleFor(hovered).Ink)))
 	})
 	if b.Clicked() {
 		fn()
@@ -552,7 +567,7 @@ func (a *App) dialogLink(c *ui.Context, label, url string) {
 	active := link.Hovered() || link.FocusVisible()
 	link.BorderColor(dialogLinkEdge(active))
 	link.Children(func() {
-		ui.Text(c, label).FontSize(13.5).TextColor(dialogLinkInk(active))
+		ui.Text(c, label).FontSize(13.5).TextColor(a.Theme.text(dialogLinkInk(active)))
 	})
 	link.OnClick(func() { c.OpenURL(url) })
 }
