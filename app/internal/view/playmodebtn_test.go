@@ -15,17 +15,14 @@ import (
 //	<Button isIconOnly size="sm" variant="light" title="当前：顺序播放">
 //	<Button isIconOnly size="sm" variant="light" title="清空播放列表">
 //
-// 也就是材质必须逐像素一致。原生版此前把播放模式键单独铺了 GlassActive /
-// GlassHover，底色 alpha 虽然一样（白 .16 / .38），但少了表头小键那层
-// `inset 0 1px 1px 白 .9` 顶部高光与悬停外投影，也没有按压缩放 —— 在一排键里
-// 看着就是「平」的、像没有底色的裸图标。
+// 也就是材质必须逐像素一致 —— 浅色与深色、常态 / 悬停 / 按下都一样。此前播放
+// 模式键直接铺浅色的 drawerHeaderSurface，深色主题下就是一块亮白的键。
 
 // playmodeHeaderProbe 渲染播放列表抽屉的表头（让定位 / 播放模式 / 清空三颗键
 // 同时出现），返回 tester 与三颗键的矩形。
-func playmodeHeaderProbe(t *testing.T) (*ui.Tester, ui.Rect, ui.Rect, ui.Rect) {
+func playmodeHeaderProbe(t *testing.T, mode string) (*ui.Tester, ui.Rect, ui.Rect, ui.Rect) {
 	t.Helper()
-	a := NewApp(func() {})
-	a.Theme = ThemeFor(PeriodAt(12))
+	a := headerApp(mode)
 	a.Playlist = []PlayItem{
 		{ID: "BV1-1", Bvid: "BV1", Cid: 1, Title: "歌一"},
 		{ID: "BV2-2", Bvid: "BV2", Cid: 2, Title: "歌二"},
@@ -35,7 +32,7 @@ func playmodeHeaderProbe(t *testing.T) (*ui.Tester, ui.Rect, ui.Rect, ui.Rect) {
 	a.Index = 0
 	a.Drawer = DrawerPlaylist
 
-	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600))
+	tst := headerProbe(t, a)
 	pm, ok1 := tst.Find("当前：顺序播放")
 	loc, ok2 := tst.Find("定位到当前播放的记录")
 	clr, ok3 := tst.Find("清空播放列表")
@@ -45,72 +42,55 @@ func playmodeHeaderProbe(t *testing.T) (*ui.Tester, ui.Rect, ui.Rect, ui.Rect) {
 	return tst, pm, loc, clr
 }
 
-// TestPlayModeButtonMatchesHeaderButtons 比播放模式键与旁边定位键的**背景带均值**：
-// 顶部两行（`inset 0 1px 1px 白 .9` 的落点）与底部两行必须基本一致。
-//
-// 为什么比均值而不是逐像素：两颗键的 x 不同（中间还隔着 tab），亚像素落点与圆角
-// 抗锯齿会带来 ±1 的抖动，逐像素比会假红。均值能把「缺了那层 .9 白高光」这种
-// 系统性差异放大出来：实测缺高光时顶部两行均值 250.4 vs 252.6（差 2.2），
-// 补齐后是 252.65 vs 252.60（差 0.05）。
+// playModeBands 是避开图标的四条采样带（图标 18px 居中，约占高度的
+// 22%–78%）：顶 / 底描边内高光，以及图标上下两条纯填充带。播放模式键的图标
+// 墨色与旁边两颗不同，中间带会把「图标颜色」误读成「键面材质」。
+var playModeBands = [][2]float64{{0.02, 0.09}, {0.10, 0.20}, {0.80, 0.90}, {0.93, 0.98}}
+
+// TestPlayModeButtonMatchesHeaderButtons 比播放模式键与旁边两颗键（定位 / 清空）
+// 的键面材质：常态三颗键亮度一致；悬停 / 按下的**变化量**一致（同一套材质与
+// 过渡）。比变化量而不是绝对值，是因为三颗键的 x 不同、底下的表头渐变略有差异；
+// 半透明填充上的变化量本身也随底层颜色浮动（实测最多差 2.6），所以容差取 3。
 func TestPlayModeButtonMatchesHeaderButtons(t *testing.T) {
-	tst, pm, loc, _ := playmodeHeaderProbe(t)
-	img := tst.Image()
-
-	bandMean := func(r ui.Rect, y0, y1 int) float64 {
-		sum, n := 0, 0
-		for y := y0; y < y1; y++ {
-			for x := 4; x < 28; x++ {
-				sum += lum(pixelAt(t, img, int(r.X)+x, int(r.Y)+y))
-				n++
+	for _, mode := range []string{"light", "dark"} {
+		t.Run(mode, func(t *testing.T) {
+			tst, _, _, _ := playmodeHeaderProbe(t, mode)
+			rest := map[string]headerShot{}
+			for _, label := range []string{"当前：顺序播放", "定位到当前播放的记录", "清空播放列表"} {
+				rest[label] = headerRender(t, tst, label, "rest")
 			}
-		}
-		return float64(sum) / float64(n)
-	}
-
-	for _, b := range []struct {
-		name   string
-		y0, y1 int
-	}{
-		{"顶部两行（内高光）", 0, 2},
-		{"底部两行", 30, 32},
-	} {
-		got := bandMean(pm, b.y0, b.y1)
-		want := bandMean(loc, b.y0, b.y1)
-		if abs(got-want) > 1.0 {
-			t.Errorf("%s：播放模式键均值 %.2f ≠ 定位键 %.2f（差 %.2f）—— "+
-				"原版三颗键是同一个 Button，材质必须一致；缺 inset 顶部高光会差约 2.2",
-				b.name, got, want, abs(got-want))
-		}
+			pm := rest["当前：顺序播放"]
+			for _, other := range []string{"定位到当前播放的记录", "清空播放列表"} {
+				for _, band := range playModeBands {
+					if d := absF(float32(headerBand(t, pm, band[0], band[1]) - headerBand(t, rest[other], band[0], band[1]))); d > 2.0 {
+						t.Errorf("%s 常态：播放模式键亮度 %.2f ≠ %s %.2f（%.2f–%.2f 带）",
+							mode, headerBand(t, pm, band[0], band[1]), other,
+							headerBand(t, rest[other], band[0], band[1]), band[0], band[1])
+					}
+				}
+				for _, state := range []string{"hover", "press"} {
+					pms := headerRender(t, tst, "当前：顺序播放", state)
+					os := headerRender(t, tst, other, state)
+					for _, band := range playModeBands {
+						dpm := headerBand(t, pms, band[0], band[1]) - headerBand(t, pm, band[0], band[1])
+						dother := headerBand(t, os, band[0], band[1]) - headerBand(t, rest[other], band[0], band[1])
+						if d := absF(float32(dpm - dother)); d > 3.0 {
+							t.Errorf("%s %s：播放模式键变化 %.2f ≠ %s 变化 %.2f（%.2f–%.2f 带，差 %.2f）",
+								mode, state, dpm, other, dother, band[0], band[1], d)
+						}
+					}
+				}
+			}
+		})
 	}
 }
 
-// TestPlayModeButtonSharesHeaderMaterial 是**结构**断言：播放模式键也必须经过
-// 表头小键的共享材质与按压手感（drawerHeaderSurface / drawerHeaderPress）。
-//
-// 像素测试盯的是「现在长得一样」，这条盯的是「走的是同一套实现」—— 有人以后把
-// 它改回手写底色，像素那条会红，但这条能直接指出「绕过了共享材质」。
-func TestPlayModeButtonSharesHeaderMaterial(t *testing.T) {
-	origSurface, origPress := drawerHeaderSurface, drawerHeaderPress
-	t.Cleanup(func() { drawerHeaderSurface, drawerHeaderPress = origSurface, origPress })
-
-	surfaceCalls, pressCalls := 0, 0
-	drawerHeaderSurface = func(b ui.Element, hovered bool) ui.Element {
-		surfaceCalls++
-		return origSurface(b, hovered)
-	}
-	drawerHeaderPress = func(b ui.Element) {
-		pressCalls++
-		origPress(b)
-	}
-
-	playmodeHeaderProbe(t)
-	// 表头一排三颗键（定位 / 播放模式 / 清空）每帧各走一次。
-	if surfaceCalls < 3 {
-		t.Errorf("drawerHeaderSurface 只被调了 %d 次，表头三颗键应各走一次"+
-			"（播放模式键绕过了共享材质？）", surfaceCalls)
-	}
-	if pressCalls < 3 {
-		t.Errorf("drawerHeaderPress 只被调了 %d 次，表头三颗键应各走一次"+
-			"（播放模式键没有按压缩放？）", pressCalls)
+// TestPlayModeButtonPressedScales 三颗键按下缩到同一档（.94），松手回位。
+func TestPlayModeButtonPressedScales(t *testing.T) {
+	tst, _, _, _ := playmodeHeaderProbe(t, "light")
+	rest := headerRender(t, tst, "当前：顺序播放", "rest")
+	press := headerRender(t, tst, "当前：顺序播放", "press")
+	if ratio := press.r.W / rest.r.W; absF(ratio-headerPressScale) > 0.02 {
+		t.Errorf("播放模式键按下缩放 = %.3f，应为 %.2f", ratio, headerPressScale)
 	}
 }

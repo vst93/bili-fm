@@ -61,27 +61,6 @@ func (t Theme) darkControl(b ui.Element, active, hovered bool) ui.Element {
 	return b.Background(fill).Border(1, border).InsetShadow(0, 1, 0, 0, t.Highlight)
 }
 
-func (t Theme) drawerTab(b ui.Element, active, hovered bool) ui.Element {
-	if t.Mode == "dark" {
-		return t.darkControl(b, active, hovered)
-	}
-	return drawerTabSurface(b, active, hovered)
-}
-
-func (t Theme) drawerHeaderButton(b ui.Element, hovered bool) ui.Element {
-	if t.Mode == "dark" {
-		return t.darkControl(b, false, hovered)
-	}
-	return drawerHeaderSurface(b, hovered)
-}
-
-func (t Theme) drawerCloseButton(b ui.Element, hovered, pressed bool) ui.Element {
-	if t.Mode == "dark" {
-		return t.darkControl(b, false, hovered)
-	}
-	return drawerCloseSurface(b, hovered, pressed)
-}
-
 // glassVeil keeps broad panes light: higher window transparency also thins
 // their tint, while blur and local control fills preserve content contrast.
 func (t Theme) glassVeil(light ui.Color, dark string, darkAlpha float32) ui.Color {

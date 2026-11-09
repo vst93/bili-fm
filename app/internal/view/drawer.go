@@ -361,12 +361,11 @@ func (a *App) drawerHeader(c *ui.Context) {
 	})
 
 	// 关闭键浮在右上角（原版是绝对定位的 close 按钮）。圆角是 HeroUI 按钮默认的
-	// md（8），不是工具键的 6；材质见 drawerCloseSurface（常驻玻璃，不再只在悬停时出现）。
+	// md（8），不是工具键的 6；材质与并排的动作键同一套（headerAction）。
 	ui.Box(c).Absolute().Right(10).Top(8).Children(func() {
 		b := ui.ButtonBase(c.Key("drawer-close")).Size(32, 32).Radius(8).Center().
 			Label("关闭").Tooltip("关闭")
-		t.drawerCloseButton(b, b.Hovered(), b.Pressed())
-		drawerClosePress(b)
+		t.headerAction(c, b, false, 8)
 		b.Children(func() { ui.Icon(c, iconClose).Size(14, 14).TextColor(t.Muted) })
 		if b.Clicked() {
 			a.closeDrawer()
@@ -476,8 +475,7 @@ func (a *App) drawerTabs(c *ui.Context) {
 		if b := ui.ButtonBase(c.Key("series-play-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("播放全部").Tooltip("播放合集中的全部视频"); true {
 			b.Disabled(!enabled)
-			a.Theme.drawerHeaderButton(b, b.Hovered())
-			drawerHeaderPress(b)
+			a.Theme.headerAction(c, b, false, Radius)
 			b.Children(func() {
 				ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 					if spinner {
@@ -519,8 +517,7 @@ func (a *App) upHeader(c *ui.Context) {
 	// 原版关注键在「查关注状态 / 关注请求在途」时禁用（isCheckingFollow /
 	// isFollowingLoading）：挡住连点，避免 follow 与 unfollow 各发一次。
 	b.Disabled(a.UpFollowPending)
-	a.Theme.drawerHeaderButton(b, b.Hovered())
-	drawerHeaderPress(b)
+	a.Theme.headerAction(c, b, false, Radius)
 	b.Children(func() {
 		if spinner {
 			// 原版 <Spinner size="sm" />：转圈替代图标 + 文案。
@@ -695,15 +692,11 @@ func (a *App) incognitoSwitch(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("incognito")).MinWidth(minW).Height(32).Padding(0, 8).
 		Radius(Radius).Role(ui.RoleSwitch).Label("隐身").Tooltip(incognitoTip(a.Incognito)).
 		Checked(a.Incognito)
-	// 半透明填充。用户 2026-10-18 晚间 ②：开启态那块青色底太突兀，去掉 ——
-	// 底色只由悬停决定（与普通玻璃键一致），开启状态只改图标墨色（incognitoInk）
-	// 与图标 filled，三个入口（标题栏 / 设置菜单 / 这里）同一套视觉。
-	buttonSurface(b, false, b.Hovered(),
-		ui.Hex("#06b6d4").Alpha(0.28), ui.Hex("#ffffff").Alpha(0.30)).
-		Shadow(0, 2, 7, 0, ui.Hex("#0f172a").Alpha(0.05))
-	// 原版 `.history-incognito-switch:focus-visible`：`outline: 2px solid
-	// rgba(14,165,233,.44); outline-offset: 2px`（没有换色 / 换底的整态差异）。
-	focusOutline(b, Radius, focusSky44)
+	// 与表头其它动作键同一套材质与按压 / 焦点环。开启态**不**铺选中底色
+	//（用户 2026-10-18 晚间 ②：那块青色底太突兀）—— 状态只由图标墨色
+	//（incognitoInk）与图标 filled 表达，三个入口（标题栏 / 设置菜单 / 这里）
+	// 同一套视觉。
+	a.Theme.headerAction(c, b, false, Radius)
 	ink := incognitoInk(a.Incognito)
 	b.Children(func() {
 		ui.Row(c).Gap(7).AlignItems(ui.Center).Children(func() {
@@ -779,47 +772,6 @@ type tabItem struct {
 
 // ---------------------------------------------------------------- 表头 tab 材质
 
-// drawerTabPaint 是抽屉表头 tab（原版
-// `[data-slot="wrapper"] header [data-slot="tab"]`）某一状态解析好的材质：
-//
-//	常态  1px --glass-border（白 .55）边、--liquid-bg（白 .22）底、box-shadow none
-//	悬停  1px --glass-border-bright（白 .72）边、--liquid-bg-hover（白 .30）底、
-//	      box-shadow --liquid-shadow（0 8 24 墨 .07 + 0 1 4 墨 .03）
-//	选中  1px --glass-border-bright 边、白 .52 底、
-//	      box-shadow --liquid-shadow-lifted（0 16 38 墨 .11 + 0 2 8 墨 .04）
-//
-// 常态的 `box-shadow: none` 对应两层零值 shadowSpec（几何与色值都为零，CSS 把
-// none 当成一组零长透明影子参与插值）。Rim 是 ::after 聚光描边的整圈不透明度：
-// 常态 .65、选中 1（悬停未选中不覆写，仍是 .65）。
-type drawerTabPaint struct {
-	BG, Border     ui.Color
-	LiftLG, LiftSM shadowSpec
-	Rim            float32
-}
-
-// drawerTabPaintFor 由（选中 / 悬停）解析材质。
-func drawerTabPaintFor(active, hovered bool) drawerTabPaint {
-	p := drawerTabPaint{
-		BG:     ui.Hex("#ffffff").Alpha(0.22), // --liquid-bg
-		Border: ui.Hex("#ffffff").Alpha(0.55), // --glass-border
-		Rim:    0.65,
-	}
-	switch {
-	case active:
-		p.BG = ui.Hex("#ffffff").Alpha(0.52)
-		p.Border = ui.Hex("#ffffff").Alpha(0.72) // --glass-border-bright
-		p.Rim = 1
-		p.LiftLG = shadowSpec{0, 16, 38, 0, shadowInk.Alpha(0.11)}
-		p.LiftSM = shadowSpec{0, 2, 8, 0, shadowInk.Alpha(0.04)}
-	case hovered:
-		p.BG = ui.Hex("#ffffff").Alpha(0.30) // --liquid-bg-hover
-		p.Border = ui.Hex("#ffffff").Alpha(0.72)
-		p.LiftLG = shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}
-		p.LiftSM = shadowSpec{0, 1, 4, 0, shadowInk.Alpha(0.03)}
-	}
-	return p
-}
-
 // drawerTabInk 是 tab 的文字色：常态 #475569、悬停（未选中）#334155、
 // 选中 #0369a1。
 func drawerTabInk(active, hovered bool) ui.Color {
@@ -836,37 +788,10 @@ func drawerTabInk(active, hovered bool) ui.Color {
 // `transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease`，
 // 加上 `::before { transition: background-color 0.2s ease }` 与
 // `::after { transition: opacity 0.2s ease }`（CSS ease = cubic-bezier(.25,.1,.25,1)）。
+// tab 的状态解析与绘制在 headeraction.go（与表头动作键共用一套）。
 var drawerTabAnim = ui.Animation{
 	Duration: 200 * time.Millisecond,
 	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
-}
-
-// drawerTabFade 把一处色值交给 0.2s 过渡（同 partSearchFade）。声明成 var 便于
-// 测试冻结动画相位。
-var drawerTabFade = func(b ui.Element, key string, target ui.Color) ui.Color {
-	return b.AnimateColor(key, target, drawerTabAnim)
-}
-
-// drawerTabShadow 同 partSearchShadow：box-shadow 的几何与色值一起走 0.2s 过渡。
-var drawerTabShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec {
-	return shadowSpec{
-		X:      b.AnimateTo(key+"-x", s.X, drawerTabAnim),
-		Y:      b.AnimateTo(key+"-y", s.Y, drawerTabAnim),
-		Blur:   b.AnimateTo(key+"-blur", s.Blur, drawerTabAnim),
-		Spread: b.AnimateTo(key+"-spread", s.Spread, drawerTabAnim),
-		C:      b.AnimateColor(key+"-ink", s.C, drawerTabAnim),
-	}
-}
-
-// drawerTabShadowInto 把一条过渡中的 box-shadow 画到 tab 上。
-func drawerTabShadowInto(b ui.Element, key string, s shadowSpec) {
-	r := drawerTabShadow(b, key, s)
-	b.Shadow(r.X, r.Y, r.Blur, r.Spread, r.C)
-}
-
-// drawerTabRimOpacity 把 ::after 聚光描边的整圈不透明度做 0.2s 过渡。
-var drawerTabRimOpacity = func(b ui.Element, target float32) float32 {
-	return b.AnimateTo("tab-rim", target, drawerTabAnim)
 }
 
 // drawerTabGlass 画 tab 的 `::before` 洗光（--glass-sheen-static）与 `::after`
@@ -883,35 +808,6 @@ var drawerTabGlass = func(b ui.Element, rimOpacity float32) ui.Element {
 			paintPlayerRim(p, r, Radius, rimOpacity)
 		}
 	})
-}
-
-// drawerTabSurface 给抽屉表头 tab（HeroUI Tabs）铺原版那套液态玻璃材质：
-// 1px 玻璃边 + --liquid-bg 底 + ::before 的 --glass-sheen-static 洗光 +
-// ::after 的 1px 聚光描边与两条内影 / 色散边；悬停 / 选中换边色、换底、抬起一档。
-//
-// 此前 tab 借的是播放栏的 buttonSurface —— 那是 `#player .player-button` 的材质
-// （白 .22 底 + 1px 白 .55 边 + 两层内影 + **常驻**小投影），于是 tab 多出一层
-// 原版没有的常驻投影、少了两层液态玻璃，顶部内高光也暗一档（.55 vs
-// --glass-highlight 的 .9），悬停 / 选中的抬起档位更是完全没有。
-// 声明成 var 便于测试换桩做反证。
-var drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element {
-	p := drawerTabPaintFor(active, hovered)
-	// 原版 transition: border-color / box-shadow / color 0.2s ease，
-	// ::before { background-color 0.2s ease }、::after { opacity 0.2s ease }。
-	b.Background(drawerTabFade(b, "tab-bg", p.BG)).
-		Border(1, drawerTabFade(b, "tab-border", p.Border))
-	drawerTabShadowInto(b, "tab-lift-lg", p.LiftLG)
-	drawerTabShadowInto(b, "tab-lift-sm", p.LiftSM)
-	// ::after 上那组不随状态变的内影与色散边（原版 ::after 的 box-shadow：
-	// inset 0 1px 1px .5px --glass-highlight、inset 0 -1px 1px 墨 .06、
-	// --liquid-chromatic 两条 0.5px 亚像素边）。整圈不透明度由 ::after 的
-	// opacity 统一缩放，所以这里也按 rim 缩一遍。
-	rim := drawerTabRimOpacity(b, p.Rim)
-	b.InsetShadow(0, 1, 1, 0.5, ui.Hex("#ffffff").Alpha(0.90*rim))
-	b.InsetShadow(0, -1, 1, 0, shadowInk.Alpha(0.06*rim))
-	b.Shadow(0, 0.5, 0, 0, ui.Hex("#fffaf0").Alpha(0.50*rim))
-	b.Shadow(0, -0.5, 0, 0, ui.Hex("#c8dcf0").Alpha(0.20*rim))
-	return drawerTabGlass(b, rim)
 }
 
 // tabs 是一排胶囊 tab（原版抽屉表头的 HeroUI Tabs）：
@@ -1003,14 +899,14 @@ func (a *App) tab(c *ui.Context, group string, it tabItem, active bool, onSelect
 		// mygo 对应 RoleTab + Checked（选中态 → AccessChecked，即 aria-selected）。
 		// 放进上面的 role=tablist + FocusGroup 里，左右方向键就能来回选。
 		Role(ui.RoleTab).Checked(active)
-	// 液态玻璃材质（见 drawerTabSurface）：1px 玻璃边 + --liquid-bg 底 +
-	// ::before 洗光 + ::after 聚光描边；悬停 / 选中各自换色抬起。
+	// 液态玻璃材质（见 headeraction.go 的 headerTab）：1px 玻璃边 + --liquid-bg 底 +
+	// ::before 洗光 + ::after 聚光描边；悬停 / 选中 / 按下各自换色抬起。
 	// 原版 `header [data-slot="tab"]:active { transform: none !important }`——
-	// tab 按下不缩放（与小键 / 导航键不同），所以这里不加 pressPose。
-	b = a.Theme.drawerTab(b, active, b.Hovered())
+	// tab 按下不缩放（与小键 / 导航键不同），所以这里不加按压姿势。
+	b = a.Theme.headerTab(c, b, active)
 	// 原版 tab 的文字色带 `transition: color 0.2s ease`：选中 #0369a1，
 	// 悬停（未选中）#334155，常态 #475569。
-	ink := drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered()))
+	ink := headerFade(c, b, "tab-ink", drawerTabInk(active, b.Hovered()), drawerTabAnim)
 	b.Children(func() {
 		if it.Icon != nil {
 			// 原版是 flex items-center gap-1（4px）+ 14px 图标。
@@ -1038,10 +934,10 @@ func (a *App) folderTab(c *ui.Context, f Folder) ui.Element {
 		Role(ui.RoleTab).Checked(active)
 	// 收藏夹 tab 也是 HeroUI 的 `[data-slot="tab"]`（只在 .collect-tabs-scroll
 	// 里横向滚动），材质与普通 tab 完全一致。
-	b = a.Theme.drawerTab(b, active, b.Hovered())
+	b = a.Theme.headerTab(c, b, active)
 	b.Children(func() {
 		ui.Text(c, label).FontSize(13).Bold().SingleLine().MaxWidth(180).
-			TextColor(a.Theme.text(drawerTabFade(b, "tab-ink", drawerTabInk(active, b.Hovered()))))
+			TextColor(a.Theme.text(headerFade(c, b, "tab-ink", drawerTabInk(active, b.Hovered()), drawerTabAnim)))
 	})
 	if b.Clicked() && !active {
 		a.FolderID = f.ID
@@ -1062,152 +958,11 @@ func (a *App) selectFolderByIndex(i int) {
 	a.reload()
 }
 
-// headerButton 是表头里的图标键（原版是 variant="light" 的小按钮）。
-// headerButton 是抽屉表头的图标按钮。原版各按钮的图标尺寸/颜色并不统一：
-// 刷新 20px #333、定位/播放模式/清空 18px #888，弹幕抽屉的刷新是 18px。
+// headerButton 是抽屉表头的图标按钮（原版是 variant="light" 的小按钮）。
+// 原版各按钮的图标尺寸/颜色并不统一：刷新 20px #333、定位/播放模式/清空
+// 18px #888，弹幕抽屉的刷新是 18px。材质统一走 Theme.headerAction。
 func (a *App) headerButton(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, fn func()) {
 	a.headerButtonOff(c, key, label, ic, size, ink, false, false, fn)
-}
-
-// drawerHeaderPaint 是抽屉表头小键某一状态解析好的材质（原版
-// `[data-slot="wrapper"] header button[class*="variant-light"]` / `variant-flat`
-// / `variant-solid` 三条逐字相同的规则）：
-//
-//	常态  无边框、--glass-bg-active（白 .16）底 + inset 0 1px 1px --glass-highlight（白 .9）
-//	悬停  --glass-bg-hover（白 .38）底 + inset 0 1px 1px 白 .9
-//	      + inset 0 -1px 1px 墨 .04 + 0 4px 12px 墨 .06
-//
-// 按下回到 --glass-bg-active（缩放由 drawerHeaderPress 承担）。BotIn / Shadow
-// 的零值（A == 0）表示该状态不画这两层。
-type drawerHeaderPaint struct {
-	BG     ui.Color // 底色
-	Inset  ui.Color // inset 0 1px 1px（顶部内高光）
-	BotIn  ui.Color // inset 0 -1px 1px（底部内暗线）
-	Shadow ui.Color // 0 4px 12px（外投影）
-}
-
-// drawerHeaderPaintFor 解析常态 / 悬停两态。取值都是全站不随时段覆写的玻璃令牌。
-func drawerHeaderPaintFor(hovered bool) drawerHeaderPaint {
-	if hovered {
-		return drawerHeaderPaint{
-			BG:     ui.Hex("#ffffff").Alpha(0.38), // --glass-bg-hover
-			Inset:  ui.Hex("#ffffff").Alpha(0.90), // --glass-highlight
-			BotIn:  ui.Hex("#0f172a").Alpha(0.04),
-			Shadow: ui.Hex("#0f172a").Alpha(0.06),
-		}
-	}
-	return drawerHeaderPaint{
-		BG:    ui.Hex("#ffffff").Alpha(0.16), // --glass-bg-active
-		Inset: ui.Hex("#ffffff").Alpha(0.90),
-	}
-}
-
-// drawerHeaderSurface 给抽屉表头小键（刷新 / 定位 / 全部添加 / 关注 / 播放全部）
-// 铺原版那套材质。此前这里借用播放栏的 buttonSurface —— 那是
-// `#player .player-button` 的材质（白 .22 底 + 1px 白 .55 边 + 两层内影 + 常驻
-// 小投影），于是表头小键多出一圈白边和常驻投影、顶部内高光也暗一档
-// （.55 vs 原版 --glass-highlight 的 .9）。声明成 var 便于测试换桩做反证。
-var drawerHeaderSurface = func(b ui.Element, hovered bool) ui.Element {
-	p := drawerHeaderPaintFor(hovered)
-	b.Background(p.BG).InsetShadow(0, 1, 1, 0, p.Inset)
-	if p.BotIn.A > 0 {
-		b.InsetShadow(0, -1, 1, 0, p.BotIn)
-	}
-	if p.Shadow.A > 0 {
-		b.Shadow(0, 4, 12, 0, p.Shadow)
-	}
-	return b
-}
-
-// drawerHeaderPressAnim 是表头小键的按压动画：原版 transition 里的
-// `transform 0.1s ease`（底色 / box-shadow 是 0.18s，本轮不动那两条）。
-var drawerHeaderPressAnim = ui.Animation{
-	Duration: 100 * time.Millisecond,
-	Ease:     ui.CubicBezier(0.25, 0.1, 0.25, 1),
-}
-
-// drawerHeaderPress 给表头小键加原版那套按压手感：**只按下缩到 .94、悬停不上浮**
-// —— 原版表头按钮只有 `:active { transform: scale(0.94) }`，没有 :hover 位移规则
-// （与 `.nav-icon-btn` 的悬停上浮不同）。每帧都要调（未按下时把目标写回 0），
-// 否则姿势会停在上一帧的 .94。声明成 var 便于测试换桩。
-var drawerHeaderPress = func(b ui.Element) {
-	pose := ui.Pose{}
-	if b.Pressed() {
-		pose = ui.Pose{Scale: 0.94}
-	}
-	b.AnimatePose(pose, drawerHeaderPressAnim)
-}
-
-// drawerClosePaint 是抽屉右上角关闭键在某一状态下解析好的样式。原版
-// globals.css:4112-4140 的 `button[aria-label="Close"]` 三条规则：
-//
-//	常态  background --glass-bg（白 .24）+ 1px --glass-border（白 .55）
-//	      + inset 0 1px 1px --glass-highlight（白 .9）
-//	      + inset 0 -1px 1px 墨 .04 + 0 6px 16px 墨 .08
-//	悬停  background --glass-bg-hover（白 .38），投影抬到 0 8px 20px 墨 .10
-//	按下  background --glass-bg-active（白 .16）、transform: scale(.9)
-//
-// 原版 :active 只覆写 background 与 transform，所以按下态沿用常态的描边 /
-// 内影 / 投影（只有 :hover 才换投影），不能「先铺常态再叠悬停」。
-type drawerClosePaint struct {
-	BG         ui.Color
-	Border     ui.Color
-	Inset      ui.Color
-	BotIn      ui.Color
-	Shadow     ui.Color
-	ShadowY    float32
-	ShadowBlur float32
-	// Scale 是按下时的缩放，其余状态为 1。
-	Scale float32
-}
-
-// drawerClosePaintFor 解析常态 / 悬停 / 按下三态。
-func drawerClosePaintFor(hovered, pressed bool) drawerClosePaint {
-	p := drawerClosePaint{
-		BG:         ui.Hex("#ffffff").Alpha(0.24), // --glass-bg
-		Border:     ui.Hex("#ffffff").Alpha(0.55), // --glass-border
-		Inset:      ui.Hex("#ffffff").Alpha(0.90), // --glass-highlight
-		BotIn:      ui.Hex("#0f172a").Alpha(0.04),
-		Shadow:     ui.Hex("#0f172a").Alpha(0.08),
-		ShadowY:    6,
-		ShadowBlur: 16,
-		Scale:      1,
-	}
-	if hovered {
-		p.BG = ui.Hex("#ffffff").Alpha(0.38) // --glass-bg-hover
-		p.BotIn = ui.Hex("#0f172a").Alpha(0.05)
-		p.Shadow = ui.Hex("#0f172a").Alpha(0.10)
-		p.ShadowY, p.ShadowBlur = 8, 20
-	}
-	if pressed {
-		p.BG = ui.Hex("#ffffff").Alpha(0.16) // --glass-bg-active
-		p.Scale = 0.9
-	}
-	return p
-}
-
-// drawerCloseSurface 把解析出的玻璃材质铺到关闭键上。常驻（不再只在悬停时画），
-// 否则关闭键在常态是一枚裸图标。声明成 var 便于测试换桩做反证（同 drawerHeaderSurface）。
-var drawerCloseSurface = func(b ui.Element, hovered, pressed bool) ui.Element {
-	p := drawerClosePaintFor(hovered, pressed)
-	return b.Background(p.BG).Border(1, p.Border).
-		InsetShadow(0, 1, 1, 0, p.Inset).
-		InsetShadow(0, -1, 1, 0, p.BotIn).
-		Shadow(0, p.ShadowY, p.ShadowBlur, 0, p.Shadow)
-}
-
-// drawerClosePressAnim 是关闭键的 :active 过渡：原版 `transition: ... transform
-// 0.1s ease`。色值由 drawerCloseSurface 当帧铺，这里只补缩放这一路。
-var drawerClosePressAnim = ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut}
-
-// drawerClosePress 给关闭键加原版 :active 的 scale(.9)。**悬停无位移**（原版这条
-// 规则没有 :hover 的 transform），所以不悬停时把目标姿势写回 0，避免停在上一帧。
-var drawerClosePress = func(b ui.Element) {
-	pose := ui.Pose{}
-	if b.Pressed() {
-		pose = ui.Pose{Scale: 0.9}
-	}
-	b.AnimatePose(pose, drawerClosePressAnim)
 }
 
 // headerButtonOff 同 headerButton，但可置为加载形态。对应原版抽屉表头里
@@ -1228,8 +983,7 @@ var drawerClosePress = func(b ui.Element) {
 func (a *App) headerButtonOff(c *ui.Context, key, label string, ic *ui.SVG, size float32, ink ui.Color, spin, spinner bool, fn func()) {
 	b := ui.ButtonBase(c.Key(key)).Size(32, 32).Radius(Radius).Center().Label(label).Tooltip(label)
 	b.Disabled(spin || spinner)
-	a.Theme.drawerHeaderButton(b, b.Hovered())
-	drawerHeaderPress(b)
+	a.Theme.headerAction(c, b, false, Radius)
 	b.Children(func() {
 		if spinner {
 			// 原版 Spinner size="sm"（HeroUI button.sm → spinner sm），w-5 h-5。
@@ -2764,8 +2518,7 @@ func (a *App) partsHeader(c *ui.Context) {
 	if n > 0 {
 		b := ui.ButtonBase(c.Key("parts-add-all")).Height(32).Padding(0, 12).
 			Radius(Radius).Center().Label("全部添加").Tooltip(partsAddAllTip)
-		a.Theme.drawerHeaderButton(b, b.Hovered())
-		drawerHeaderPress(b)
+		a.Theme.headerAction(c, b, false, Radius)
 		b.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 				ui.Icon(c, iconAdd).Size(16, 16).TextColor(a.Theme.text(partsAddAllInk))
@@ -3140,19 +2893,9 @@ func (a *App) danmakuHeatButton(c *ui.Context) {
 	tip := "弹幕热力：播放栏底部面积越高，弹幕越密集；进度条上的短竖线是章节分界"
 	b := ui.ButtonBase(c.Key("dm-heat")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(tip).Role(ui.RoleToggleButton).Checked(a.HeatOn)
-	if a.Theme.Mode == "dark" {
-		a.Theme.darkControl(b, a.HeatOn, b.Hovered())
-	} else if a.HeatOn {
-		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
-			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
-			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
-	} else {
-		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
-			Border(1, ui.Hex("#64748b").Alpha(0.22)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
-	}
-	pressPose(b)
+	// 开 / 关两态共用表头的选中 / 常态材质（浅色淡蓝渐变 + 蓝描边 + 光环，
+	// 深色蓝调深底 + 蓝描边），悬停 / 按下各自再走一档。
+	a.Theme.headerAction(c, b, a.HeatOn, Radius)
 	b.Children(func() {
 		ink := pick(a.HeatOn, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		ui.Icon(c, iconEQ).Size(18, 18).TextColor(a.Theme.text(ink))
@@ -3167,40 +2910,24 @@ func (a *App) danmakuHeatButton(c *ui.Context) {
 const danmakuFollowIconShadowInk = 0.55
 
 // danmakuFollowButton 是弹幕 tab 的「自动跟随」键（原版 .danmaku-follow-btn）：
-// 32×32 图标钮，未开启是灰玻璃、开启是蓝边 + 蓝字 + 一圈光晕。
-// 它不走通用 headerButton —— 原版给了单独的 is-active 态，通用键没有。
+// 32×32 图标钮，未开启是灰玻璃、开启是蓝边 + 蓝字 + 一圈光晕。开关态由
+// headerAction 的 selected 参数表达，与字幕页那两个开关、表头其它键同一套。
 func (a *App) danmakuFollowButton(c *ui.Context) {
 	label := pick(a.DanmakuAutoScroll, "暂停跟随", "开始跟随")
 	b := ui.ButtonBase(c.Key("dm-autoscroll")).Size(32, 32).Radius(Radius).
-		Center().Label(label).Tooltip(label)
-	if a.Theme.Mode == "dark" {
-		a.Theme.darkControl(b, a.DanmakuAutoScroll, b.Hovered())
-	} else if a.DanmakuAutoScroll {
-		// .danmaku-follow-btn.is-active：蓝边 + 145° 淡蓝渐变底 + 蓝字 +
-		// inset 0 1px 0 白 .72，外围还有一圈 `0 0 0 2px rgba(14,165,233,.14)`
-		// 的聚光蓝环。原版是 linear-gradient(145deg,
-		// rgba(14,165,233,.22), rgba(255,255,255,.5))，用 Gradient 直接对齐。
-		// 此前只画了内高光与外投影记成了 `Shadow(0,2,...)`，2px 无偏移的
-		// 光环整条漏掉（那是 is-active 与常态最显眼的区别）。
-		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
-			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
-			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
-	} else {
-		// .danmaku-follow-btn 常态：白 .36 底 + inset 0 1px 0 白 .5，无外投影。
-		// 此前用 buttonSurface（常态 fill 白 .22 + 外投影），两处都与原版不符。
-		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
-			Border(1, ui.Hex("#64748b").Alpha(0.22)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
-	}
-	pressPose(b)
+		Center().Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.DanmakuAutoScroll)
+	// 开启态就是表头的「选中」材质：浅色淡蓝渐变 + 蓝描边 + 2px 光环，
+	// 深色蓝调深底 + 蓝描边；未开启走常态玻璃。悬停 / 按下各自再走一档。
+	a.Theme.headerAction(c, b, a.DanmakuAutoScroll, Radius)
 	b.Children(func() {
 		ink := pick(a.DanmakuAutoScroll, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		icon := ui.Icon(c, iconConnection).Size(18, 18).TextColor(a.Theme.text(ink))
 		// 原版 `.danmaku-follow-btn svg { filter: drop-shadow(0 1px 0 rgba(255,255,255,.55)) }`
-		// —— 图标下缘 1px 白压印（与播放栏 svg 的 drop-shadow 同一手法）。此前
-		// 这颗键只画了键面材质，漏了图标的白色压印，深色描边上少了一道立体感。
-		playerIconShadowFn(icon, iconConnection, 0, 1, danmakuFollowIconShadowInk)
+		// —— 图标下缘 1px 白压印。浅色玻璃上这道白压印是立体感，深色玻璃上
+		// 却会变成图标外一圈白边，所以只在浅色主题下画。
+		if a.Theme.Mode != "dark" {
+			playerIconShadowFn(icon, iconConnection, 0, 1, danmakuFollowIconShadowInk)
+		}
 	})
 	if b.Clicked() {
 		a.DanmakuAutoScroll = !a.DanmakuAutoScroll
@@ -3220,19 +2947,7 @@ func (a *App) subtitleFollowButton(c *ui.Context) {
 	label := pick(a.SubtitleFollow, "暂停跟随字幕", "跟随字幕")
 	b := ui.ButtonBase(c.Key("sub-follow")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.SubtitleFollow)
-	if a.Theme.Mode == "dark" {
-		a.Theme.darkControl(b, a.SubtitleFollow, b.Hovered())
-	} else if a.SubtitleFollow {
-		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
-			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
-			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
-	} else {
-		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
-			Border(1, ui.Hex("#64748b").Alpha(0.22)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
-	}
-	pressPose(b)
+	a.Theme.headerAction(c, b, a.SubtitleFollow, Radius)
 	b.Children(func() {
 		ink := pick(a.SubtitleFollow, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		ui.Icon(c, iconConnection).Size(18, 18).TextColor(a.Theme.text(ink))
@@ -3254,19 +2969,7 @@ func (a *App) subtitleLyricsButton(c *ui.Context) {
 	label := pick(a.LyricsEnabled, "关闭桌面字幕", "打开桌面字幕")
 	b := ui.ButtonBase(c.Key("sub-lyrics")).Size(32, 32).Radius(Radius).Center().
 		Label(label).Tooltip(label).Role(ui.RoleToggleButton).Checked(a.LyricsEnabled)
-	if a.Theme.Mode == "dark" {
-		a.Theme.darkControl(b, a.LyricsEnabled, b.Hovered())
-	} else if a.LyricsEnabled {
-		b.Gradient(ui.Hex("#0ea5e9").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.5), 145).
-			Border(1, ui.Hex("#0284c7").Alpha(0.45)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.72)).
-			Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
-	} else {
-		b.Background(ui.Hex("#ffffff").Alpha(0.36)).
-			Border(1, ui.Hex("#64748b").Alpha(0.22)).
-			InsetShadow(0, 1, 0, 0, ui.Hex("#ffffff").Alpha(0.5))
-	}
-	pressPose(b)
+	a.Theme.headerAction(c, b, a.LyricsEnabled, Radius)
 	b.Children(func() {
 		ink := pick(a.LyricsEnabled, ui.Hex("#0369a1"), ui.Hex("#64748b"))
 		ui.Icon(c, iconHalo).Size(18, 18).TextColor(a.Theme.text(ink))
@@ -4347,40 +4050,24 @@ func (a *App) locatePart(keyword string) {
 // <Left size="16"> / <Right size="16">，见下 collectScrollBtn）。
 const collectScrollIconSize float32 = 16
 
-// collectScrollBtnPaintFor 解析收藏夹滚动键的常态 / 悬停 / 按下底色。原版
-// globals.css 的 `.collect-scroll-btn`：常态 `rgba(15,23,42,.06)`；`:hover
-// background: rgba(14,165,233,.14)`（浅蓝 #0ea5e9 14%）；`:active
-// background: rgba(15,23,42,.12)`（深灰蓝）。此前 hover 误用了 :active 的深灰蓝，
-// 底色方向偏了（原版悬停是浅蓝）。按下优先于悬停（:active 在 :hover 之后）。
-func collectScrollBtnPaintFor(hovered, pressed bool) ui.Color {
-	switch {
-	case pressed:
-		return ui.Hex("#0f172a").Alpha(0.12)
-	case hovered:
-		return ui.Hex("#0ea5e9").Alpha(0.14)
-	}
-	return ui.Hex("#0f172a").Alpha(0.06)
-}
-
 // collectScrollBtn 是收藏夹表头的左右滚动键（原版 collect-scroll-btn）：
-// 把横向滚动位置拨 200px。
+// 把横向滚动位置拨 200px。材质与表头其它动作键同一套（headerAction）——
+// 此前它单独铺了一层底色（深色主题下还完全不带悬停 / 按下反馈），并排看
+// 与旁边的刷新键不是一块玻璃。
+//
+// 原版 collectList 里 <Left size="16" theme="outline" /> / <Right size="16" .../>：
+// 箭头是 16px。此前画成 14px（比原版小一圈），核对 main 逐值后改回 16。
 func (a *App) collectScrollBtn(c *ui.Context, key, label string, delta float32) {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key(key)).Size(26, 28).Radius(7).Center().
 		Label(label).Tooltip(label)
-	b.Background(a.Theme.surface(collectScrollBtnPaintFor(b.Hovered(), b.Pressed()), "#243751", .8))
-	// 原版 `.collect-scroll-btn:focus-visible`：`outline: 0; color: #0284c7;
-	// box-shadow: 0 0 0 2px rgba(2,132,199,.4)` —— 换色跟悬停同值（聚光蓝），
-	// 环是 titleBarFocus 那一款无偏移的 2px 蓝环。
-	// 原版 collectList 里 <Left size="16" theme="outline" /> / <Right size="16" .../>：
-	// 箭头是 16px。此前画成 14px（比原版小一圈），核对 main 逐值后改回 16。
+	a.Theme.headerAction(c, b, false, 7)
 	b.Children(func() {
 		ic := pick(delta < 0, iconLeft, iconRight)
 		lit := b.Hovered() || b.FocusVisible()
 		ui.Icon(c, ic).Size(collectScrollIconSize, collectScrollIconSize).
 			TextColor(a.Theme.text(pick(lit, t.Blue, ui.Hex("#475569"))))
 	})
-	focusOutline(b, 7, focusGlow)
 	if b.Clicked() {
 		a.CollectScroll.X = max(0, a.CollectScroll.X+delta)
 	}

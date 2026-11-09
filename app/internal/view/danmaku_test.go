@@ -3,7 +3,6 @@ package view
 import (
 	"fmt"
 	"image"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -958,39 +957,94 @@ func TestFormatCommentTime(t *testing.T) {
 	}
 }
 
-// TestDanmakuFollowButtonActiveGlow 钉住弹幕跟随按钮 is-active 状态的
-// `0 0 0 2px rgba(14,165,233,.14)` 外光环（原版
-// `.danmaku-follow-btn.is-active` 的 box-shadow 第二条）。
-//
-// 源码反证：danmakuFollowButton 的 is-active 分支必须调用
-// Shadow(0,0,0,2, ...) 画那圈 2px 无偏移的聚光蓝环；
-// 非 active 分支不得有这个调用。
+// danmakuFollowProbe 把**真实的** danmakuFollowButton 放进一块纯色面板渲染，
+// 不走整块 Shell：这颗键的材质不依赖抽屉背景图，逐像素断言看键自己的描边 /
+// 光环即可（Shell 的背景渐变会干扰读数，也贵）。
+func danmakuFollowProbe(t *testing.T, mode string, on bool) *ui.Tester {
+	t.Helper()
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	if mode != "" {
+		a.SetAppearance(mode, 0)
+	}
+	a.DanmakuAutoScroll = on
+	return settleTester(ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(a.Theme.uiTheme())
+		c.Root().Background(ui.RGB(96, 96, 96))
+		ui.Box(c).Absolute().Left(24).Top(24).Size(48, 48).Children(func() {
+			a.danmakuFollowButton(c)
+		})
+	}, 120, 100))
+}
+
+// danmakuFollowEdge 沿键上沿取三列，返回三段的最高蓝度（B−R）：描边（盒内上沿）、
+// 2px 光环带（上沿外 1..2px）、更外圈（4..5px，应回到面板底色）。
+func danmakuFollowEdge(img *image.RGBA, r ui.Rect) (border, ring, outer int) {
+	for _, fx := range []float32{0.3, 0.5, 0.7} {
+		x := int(r.X + r.W*fx)
+		for y := int(r.Y) - 6; y <= int(r.Y)+1; y++ {
+			dist := int(r.Y) - y // 0 = 上沿那一行，正数在盒外
+			b := blueAt(img, x, y)
+			switch {
+			case dist >= -1 && dist <= 0:
+				border = max(border, b)
+			case dist >= 1 && dist <= 2:
+				ring = max(ring, b)
+			case dist >= 4 && dist <= 5:
+				outer = max(outer, b)
+			}
+		}
+	}
+	return
+}
+
+// TestDanmakuFollowButtonActiveGlow 无头实测弹幕「自动跟随」键：开启态是表头的
+// 选中材质（蓝色描边，浅色另有 `0 0 0 2px rgba(14,165,233,.14)` 的 2px 光环），
+// toggle 语义（Checked）跟着 a.DanmakuAutoScroll；关闭态与开启态在键面上明显不同。
+// 两种主题各测一遍。
 func TestDanmakuFollowButtonActiveGlow(t *testing.T) {
-	src, err := os.ReadFile("drawer.go")
-	if err != nil {
-		t.Fatalf("读 drawer.go 失败：%v", err)
-	}
-	s := string(src)
+	for _, mode := range []string{"light", "dark"} {
+		t.Run(mode, func(t *testing.T) {
+			onTst := danmakuFollowProbe(t, mode, true)
+			onRect := mustFind(t, onTst, "暂停跟随")
+			onBorder, onRing, onOuter := danmakuFollowEdge(onTst.Image(), onRect)
 
-	// 提取 danmakuFollowButton 函数体做精确检查
-	start := strings.Index(s, "func (a *App) danmakuFollowButton")
-	if start < 0 {
-		t.Fatal("找不到 danmakuFollowButton 函数")
-	}
-	// 函数体到下一个同层函数
-	end := strings.Index(s[start:], "\nfunc ")
-	if end < 0 {
-		end = len(s)
-	}
-	body := s[start : start+end]
+			offTst := danmakuFollowProbe(t, mode, false)
+			offRect := mustFind(t, offTst, "开始跟随")
+			offBorder, _, _ := danmakuFollowEdge(offTst.Image(), offRect)
 
-	// is-active 分支应有 Shadow(0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.14))
-	if !strings.Contains(body, "Shadow(0, 0, 0, 2, ui.Hex(\"#0ea5e9\").Alpha(0.14))") {
-		t.Error("danmakuFollowButton is-active 缺少 2px 蓝光环 Shadow(0,0,0,2,...)")
-	}
-	// 不应再有旧的 Shadow(0,2,...)（那是把外光环误记成外投影）
-	if strings.Contains(body, "Shadow(0, 2,") {
-		t.Error("danmakuFollowButton 仍有旧的 Shadow(0,2,...) 外投影（应为 2px 无偏移光环）")
+			// 开启态 = 选中材质：上沿是强调色描边，且与关闭态拉开差距。
+			if onBorder < 40 {
+				t.Errorf("%s：开启态上沿蓝度 = %d，选中态应有蓝色描边", mode, onBorder)
+			}
+			if onBorder <= offBorder+20 {
+				t.Errorf("%s：开启 / 关闭的描边没拉开：开 %d，关 %d", mode, onBorder, offBorder)
+			}
+			// 选中语义：toggle 按钮的 Checked 跟着 a.DanmakuAutoScroll。
+			if info, ok := onTst.Access("暂停跟随"); !ok || !info.Checked {
+				t.Errorf("%s：开启态读不到 Checked：%+v ok=%v", mode, info, ok)
+			}
+			if info, ok := offTst.Access("开始跟随"); !ok || info.Checked {
+				t.Errorf("%s：关闭态不该 Checked：%+v ok=%v", mode, info, ok)
+			}
+			// 两态在键面内有可见差异（不是只换图标墨色）。
+			if n := headerChanged(
+				headerShot{img: onTst.Image(), r: onRect},
+				headerShot{img: offTst.Image(), r: offRect},
+			); n < 150 {
+				t.Errorf("%s：开启 / 关闭键面只差 %d 个像素", mode, n)
+			}
+			// 浅色选中态的回归：那圈 2px 光环仍在，而且落在外扩 1..2px 那一条，
+			// 更外圈回落到面板底色。
+			if mode == "light" {
+				if onRing < 15 {
+					t.Errorf("浅色开启态缺少上沿 2px 蓝光环：蓝度 %d", onRing)
+				}
+				if onRing <= onOuter+8 {
+					t.Errorf("浅色光环没落在 2px 圈内：2px 处蓝度 %d，更外 %d", onRing, onOuter)
+				}
+			}
+		})
 	}
 }
 

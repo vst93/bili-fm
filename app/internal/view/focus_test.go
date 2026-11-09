@@ -239,8 +239,8 @@ func TestFocusRingsOnRealControls(t *testing.T) {
 		{"稍后再看移除键", historyProbe(true), "从稍后再看移除", 2, 4, 60, 30},
 		// `.history-incognito-switch:focus-visible`：offset 2 + 2px → 外扩 4。
 		{"历史隐身开关", historyProbe(false), "隐身", 2, 4, 60, 30},
-		// `.collect-scroll-btn:focus-visible` 的 `0 0 0 2px`（offset 0 + 2px）→ 外扩 2。
-		{"收藏右滚键", favoriteProbe, "向右滚动", 0, 2, 40, 40},
+		// `.collect-scroll-btn:focus-visible` 与同排表头动作键统一为 offset 2 + 2px → 外扩 4。
+		{"收藏右滚键", favoriteProbe, "向右滚动", 2, 4, 40, 40},
 		// `.top-tool-btn:focus-visible`：offset 2 + 2px → 外扩 4。
 		{"主页工具栏键", mainProbe, "动态", 2, 4, 40, 8},
 		// `.home-user-button:focus-visible`：offset 3 + 2px → 外扩 5。

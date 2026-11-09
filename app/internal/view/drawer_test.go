@@ -3,7 +3,6 @@ package view
 import (
 	"bytes"
 	"fmt"
-	"image"
 	"os"
 	"testing"
 	"time"
@@ -813,92 +812,59 @@ func TestLoadMoreErrorStopsAutoRetry(t *testing.T) {
 	}
 }
 
-// TestDrawerCloseButtonPaintTokens 逐值钉住关闭键三态材质（原版
-// globals.css:4112-4140 的 button[aria-label="Close"] 三条规则）。
-func TestDrawerCloseButtonPaintTokens(t *testing.T) {
-	base := drawerClosePaintFor(false, false)
-	if base.BG != ui.Hex("#ffffff").Alpha(0.24) {
-		t.Errorf("常态底 = %v，应为 --glass-bg 白 .24", base.BG)
-	}
-	if base.Border != ui.Hex("#ffffff").Alpha(0.55) {
-		t.Errorf("常态描边 = %v，应为 --glass-border 白 .55", base.Border)
-	}
-	if base.Inset != ui.Hex("#ffffff").Alpha(0.90) {
-		t.Errorf("常态内高光 = %v，应为 --glass-highlight 白 .9", base.Inset)
-	}
-	if base.BotIn != ui.Hex("#0f172a").Alpha(0.04) {
-		t.Errorf("常态底部内暗线 = %v，应为墨 .04", base.BotIn)
-	}
-	if base.Shadow != ui.Hex("#0f172a").Alpha(0.08) || base.ShadowY != 6 || base.ShadowBlur != 16 {
-		t.Errorf("常态投影 = %+v，应为 0 6px 16px 墨 .08", base)
-	}
-	if base.Scale != 1 {
-		t.Errorf("常态缩放 = %v，应为 1", base.Scale)
-	}
-
-	hover := drawerClosePaintFor(true, false)
-	if hover.BG != ui.Hex("#ffffff").Alpha(0.38) {
-		t.Errorf("悬停底 = %v，应为 --glass-bg-hover 白 .38", hover.BG)
-	}
-	if hover.BotIn != ui.Hex("#0f172a").Alpha(0.05) {
-		t.Errorf("悬停底部内暗线 = %v，应为墨 .05", hover.BotIn)
-	}
-	if hover.Shadow != ui.Hex("#0f172a").Alpha(0.10) || hover.ShadowY != 8 || hover.ShadowBlur != 20 {
-		t.Errorf("悬停投影 = %+v，应为 0 8px 20px 墨 .10", hover)
-	}
-
-	pressed := drawerClosePaintFor(true, true)
-	if pressed.BG != ui.Hex("#ffffff").Alpha(0.16) {
-		t.Errorf("按下底 = %v，应为 --glass-bg-active 白 .16", pressed.BG)
-	}
-	if pressed.Scale != 0.9 {
-		t.Errorf("按下缩放 = %v，应为 0.9", pressed.Scale)
-	}
-	// 原版 :active 只覆写 background 与 transform，按下沿用悬停投影。
-	if pressed.Shadow != ui.Hex("#0f172a").Alpha(0.10) {
-		t.Errorf("按下投影应沿用悬停 = 墨 .10，实际 %v", pressed.Shadow)
+// TestDrawerCloseButtonSharesHeaderMaterial 钉住关闭键与并排的表头动作键是
+// 同一套材质：悬停 / 按下时键面的**变化量**与「定位到当前播放的记录」一致
+// （同一套 headerAction 材质与过渡）。比变化量而不是绝对亮度：关闭键在右上角，
+// 与左侧动作键底下的渐变 / 氛围光不同，绝对值本来就不相等。
+//
+// 关闭键按下再松手会真的关掉抽屉，所以每轮最后才按它。
+func TestDrawerCloseButtonSharesHeaderMaterial(t *testing.T) {
+	// 避开中间图标（18px 居中，约占高度 22%–78%）。深色下两颗键底下的
+	// 氛围光差得多，半透明填充的变化量本身也会浮动（实测最多差 5），
+	// 所以深色容差放宽到 6：真换成另一套材质时差的是几十。
+	bands := [][2]float64{{0.02, 0.09}, {0.10, 0.20}, {0.80, 0.90}, {0.93, 0.98}}
+	for _, mode := range []string{"light", "dark"} {
+		t.Run(mode, func(t *testing.T) {
+			tol := float32(2)
+			if mode == "dark" {
+				tol = 6
+			}
+			a := headerApp(mode)
+			a.Drawer, a.PlaylistTab, a.PlayingPlaylist = DrawerPlaylist, ListUser, ListUser
+			a.Index = 0
+			a.Playlist = []PlayItem{{ID: "a", Title: "午后音乐会"}}
+			tst := headerProbe(t, a)
+			restClose := headerRender(t, tst, "关闭", "rest")
+			restLocate := headerRender(t, tst, "定位到当前播放的记录", "rest")
+			for _, state := range []string{"hover", "press"} {
+				locate := headerRender(t, tst, "定位到当前播放的记录", state)
+				close := headerRender(t, tst, "关闭", state)
+				for _, band := range bands {
+					dc := headerBand(t, close, band[0], band[1]) - headerBand(t, restClose, band[0], band[1])
+					dl := headerBand(t, locate, band[0], band[1]) - headerBand(t, restLocate, band[0], band[1])
+					if absF(float32(dc-dl)) > tol {
+						t.Errorf("%s %s：关闭键变化 %.2f ≠ 定位键变化 %.2f（%.2f–%.2f 带）——两者应走同一套表头材质",
+							mode, state, dc, dl, band[0], band[1])
+					}
+				}
+			}
+		})
 	}
 }
 
-// TestDrawerCloseButtonSurfaceWired 无头反证：把 drawerCloseSurface 换成
-// no-op，关闭键矩形内应有一片像素随之变化（常驻材质真的接在关闭键上，
-// 不再只在悬停时出现）。
-func TestDrawerCloseButtonSurfaceWired(t *testing.T) {
-	orig := drawerCloseSurface
-	defer func() { drawerCloseSurface = orig }()
-
-	render := func(stub bool) (*image.RGBA, ui.Rect) {
-		if stub {
-			drawerCloseSurface = func(b ui.Element, _, _ bool) ui.Element { return b }
-		} else {
-			drawerCloseSurface = orig
-		}
-		a := NewApp(func() {})
-		a.Theme = ThemeFor(PeriodAt(12))
-		a.Drawer = DrawerSearch
-		a.Query = "关键词"
-		tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
-		r, ok := tt.Find("关闭")
-		if !ok {
-			t.Fatal("抽屉表头里找不到关闭键")
-		}
-		return tt.Image(), r
+// TestDrawerCloseButtonPressScalesLikeActions 关闭键按下缩到 .94（与并排动作键
+// 一致，原版关闭键那条 .9 已按「表头一套手感」统一）。
+func TestDrawerCloseButtonPressScalesLikeActions(t *testing.T) {
+	a := headerApp("")
+	a.Drawer, a.Query = DrawerSearch, "关键词"
+	tst := headerProbe(t, a)
+	rest := headerRender(t, tst, "关闭", "rest")
+	press := headerRender(t, tst, "关闭", "press")
+	if !(press.r.W < rest.r.W-0.5) {
+		t.Errorf("关闭键按下应缩到 %.2f：宽 %v → %v", headerPressScale, rest.r.W, press.r.W)
 	}
-
-	on, rect := render(false)
-	off, _ := render(true)
-
-	changed := 0
-	for y := int(rect.Y); y < int(rect.Y+rect.H); y++ {
-		for x := int(rect.X); x < int(rect.X+rect.W); x++ {
-			if rgbAt(on, x, y) != rgbAt(off, x, y) {
-				changed++
-			}
-		}
-	}
-	t.Logf("关掉关闭键材质后变化 %d 像素", changed)
-	if changed < 100 {
-		t.Errorf("关闭键常驻材质没接上：只变了 %d 个像素", changed)
+	if ratio := press.r.W / rest.r.W; absF(ratio-headerPressScale) > 0.02 {
+		t.Errorf("关闭键按下缩放 = %.3f，应为 %.2f（与并排动作键一致）", ratio, headerPressScale)
 	}
 }
 
@@ -933,25 +899,27 @@ func TestCollectScrollIconSize(t *testing.T) {
 	}
 }
 
-// TestCollectScrollBtnPaintTokens 逐值钉住收藏夹滚动键三态底色（原版
-// globals.css 的 .collect-scroll-btn：常态墨 .06、:hover 浅蓝、:active 墨 .12）。
-func TestCollectScrollBtnPaintTokens(t *testing.T) {
-	base := collectScrollBtnPaintFor(false, false)
-	if base != ui.Hex("#0f172a").Alpha(0.06) {
-		t.Errorf("常态底 = %v，应为 rgba(15,23,42,.06)", base)
-	}
-	hover := collectScrollBtnPaintFor(true, false)
-	if hover != ui.Hex("#0ea5e9").Alpha(0.14) {
-		t.Errorf("悬停底 = %v，应为 rgba(14,165,233,.14) 浅蓝（此前误用了 :active 的深灰蓝）", hover)
-	}
-	pressed := collectScrollBtnPaintFor(true, true)
-	if pressed != ui.Hex("#0f172a").Alpha(0.12) {
-		t.Errorf("按下底 = %v，应为 rgba(15,23,42,.12)", pressed)
-	}
-	// 按下优先于悬停：仅按下时仍是深灰蓝，不走浅蓝。
-	pressedNoHover := collectScrollBtnPaintFor(false, true)
-	if pressedNoHover != ui.Hex("#0f172a").Alpha(0.12) {
-		t.Errorf("仅按下底 = %v，应为深灰蓝 .12", pressedNoHover)
+// TestCollectScrollBtnFollowsHeaderMaterial 钉住收藏夹左右滚动键走表头那套
+// 材质：浅色 / 深色下悬停与按下都看得出变化。此前它单独铺一层底色，深色主题
+// 下底色是固定的 #243751（悬停 / 按下完全没有反馈）。
+func TestCollectScrollBtnFollowsHeaderMaterial(t *testing.T) {
+	for _, mode := range []string{"light", "dark"} {
+		t.Run(mode, func(t *testing.T) {
+			a := headerApp(mode)
+			a.Drawer = "favorite"
+			a.Folders = []Folder{{ID: 1, Title: "默认收藏夹", Count: 3}, {ID: 2, Title: "音乐", Count: 8}}
+			a.FolderID = 1
+			tst := headerProbe(t, a)
+			rest := headerRender(t, tst, "向右滚动", "rest")
+			hover := headerRender(t, tst, "向右滚动", "hover")
+			press := headerRender(t, tst, "向右滚动", "press")
+			if n := headerChanged(rest, hover); n < 40 {
+				t.Errorf("%s：滚动键悬停只变了 %d 个像素", mode, n)
+			}
+			if d := absF(float32(headerBand(t, press, 0.45, 0.55) - headerBand(t, hover, 0.45, 0.55))); d < 1.5 {
+				t.Errorf("%s：滚动键按下与悬停填充亮度只差 %.2f", mode, d)
+			}
+		})
 	}
 }
 

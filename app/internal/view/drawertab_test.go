@@ -10,7 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// 本轮（抽屉表头 tab 材质）的测试。原版
+// 抽屉表头 tab 的材质测试。原版
 // `[data-slot="wrapper"] header [data-slot="tab"]`：
 //
 //	常态  1px --glass-border（白 .55）边、--liquid-bg（白 .22）底、box-shadow none
@@ -23,19 +23,22 @@ import (
 //	          + --liquid-chromatic / inset 0 1px 1px .5px 白 .9 / inset 0 -1px 1px 墨 .06
 //	:active   transform: none（tab 按下不缩放）
 //
-// 此前 tab 借的是播放栏的 buttonSurface —— 多出一层原版没有的常驻投影、少了
-// 两层液态玻璃、顶部内高光暗一档，且带着 pressPose 的悬停上浮 / 按下缩放。
+// 状态解析在 headeraction.go（与表头动作键共用一套，深色主题下两族收敛到同一
+// 套深色玻璃）；这里钉住浅色液态玻璃的取值与「选中 + 悬停 / 选中 + 按下」的
+// 状态优先级，以及过渡真的接在 tab 上。
 
-// freezeDrawerTabFades 把本轮补上的色值 / 阴影 / 不透明度过渡换成瞬时写入，供
-// 像素对照测试消除动画相位干扰（同 freezePartSearchFades 的手法）。过渡本身的
-// 正确性由 TestDrawerTabFadeWired / TestDrawerTabShadowInflightWired 单独钉住。
-func freezeDrawerTabFades(t *testing.T) {
+// freezeHeaderFades 把表头材质的三条过渡（色值 / 阴影 / 聚光边）换成瞬时写入，
+// 供像素对照测试消除动画相位干扰（同 freezePartSearchFades 的手法）。过渡本身
+// 的正确性由 TestHeaderFadeWired / TestHeaderLiftGrowsFromNone 单独钉住。
+func freezeHeaderFades(t *testing.T) {
 	t.Helper()
-	fade, rim, shadow := drawerTabFade, drawerTabRimOpacity, drawerTabShadow
-	drawerTabFade = func(b ui.Element, key string, target ui.Color) ui.Color { return target }
-	drawerTabRimOpacity = func(b ui.Element, target float32) float32 { return target }
-	drawerTabShadow = func(b ui.Element, key string, s shadowSpec) shadowSpec { return s }
-	t.Cleanup(func() { drawerTabFade, drawerTabRimOpacity, drawerTabShadow = fade, rim, shadow })
+	fade, rim, lift := headerFade, headerRimFade, headerLift
+	headerFade = func(_ *ui.Context, _ ui.Element, _ string, target ui.Color, _ ui.Animation) ui.Color {
+		return target
+	}
+	headerRimFade = func(_ *ui.Context, _ ui.Element, target float32, _ ui.Animation) float32 { return target }
+	headerLift = func(_ *ui.Context, _ ui.Element, _ string, s shadowSpec, _ ui.Animation) shadowSpec { return s }
+	t.Cleanup(func() { headerFade, headerRimFade, headerLift = fade, rim, lift })
 }
 
 // drawerTabProbe 起一个打开了搜索抽屉的无头窗口：表头是「搜索」标题 +
@@ -49,12 +52,16 @@ func drawerTabProbe(t *testing.T) (*App, *ui.Tester) {
 	return a, settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
 }
 
-// TestDrawerTabPaintTokens 逐值钉住三态。
+// TestDrawerTabPaintTokens 钉住浅色 tab 四态（常态 / 悬停 / 选中 / 选中 + 悬停，
+// 以及按下两档）。选中 + 悬停必须比选中更实、边更亮（此前选中规则压过 :hover，
+// 悬停毫无反馈）；按下不得抹掉选中。
 func TestDrawerTabPaintTokens(t *testing.T) {
+	th := ThemeFor(PeriodAt(12)) // 浅色
 	white := ui.Hex("#ffffff")
-	base := drawerTabPaintFor(false, false)
-	if base.BG != white.Alpha(0.22) {
-		t.Errorf("常态底 = %v，应为 --liquid-bg 白 .22", base.BG)
+
+	base := th.headerPaintFor(headerState{}, headerTabFamily)
+	if base.Fill != white.Alpha(0.22) {
+		t.Errorf("常态底 = %v，应为 --liquid-bg 白 .22", base.Fill)
 	}
 	if base.Border != white.Alpha(0.55) {
 		t.Errorf("常态边 = %v，应为 --glass-border 白 .55", base.Border)
@@ -62,13 +69,16 @@ func TestDrawerTabPaintTokens(t *testing.T) {
 	if base.Rim != 0.65 {
 		t.Errorf("常态 ::after opacity = %v，应为 .65", base.Rim)
 	}
-	if base.LiftLG != (shadowSpec{}) || base.LiftSM != (shadowSpec{}) {
-		t.Errorf("常态 box-shadow 应为 none（两层零值），得到 %+v / %+v", base.LiftLG, base.LiftSM)
+	if !base.Sheen {
+		t.Error("浅色 tab 应画 --glass-sheen-static 洗光")
+	}
+	if base.Outer != [2]shadowSpec{} {
+		t.Errorf("常态 box-shadow 应为 none（两层零值），得到 %+v", base.Outer)
 	}
 
-	hover := drawerTabPaintFor(false, true)
-	if hover.BG != white.Alpha(0.30) {
-		t.Errorf("悬停底 = %v，应为 --liquid-bg-hover 白 .30", hover.BG)
+	hover := th.headerPaintFor(headerState{Hovered: true}, headerTabFamily)
+	if hover.Fill != white.Alpha(0.30) {
+		t.Errorf("悬停底 = %v，应为 --liquid-bg-hover 白 .30", hover.Fill)
 	}
 	if hover.Border != white.Alpha(0.72) {
 		t.Errorf("悬停边 = %v，应为 --glass-border-bright 白 .72", hover.Border)
@@ -76,16 +86,16 @@ func TestDrawerTabPaintTokens(t *testing.T) {
 	if hover.Rim != 0.65 {
 		t.Errorf("悬停未选中不覆写 ::after opacity，应为 .65，得到 %v", hover.Rim)
 	}
-	if hover.LiftLG != (shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}) {
-		t.Errorf("悬停抬起第一层 = %+v，应为 --liquid-shadow 0 8 24 墨 .07", hover.LiftLG)
+	if hover.Outer[0] != (shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}) {
+		t.Errorf("悬停抬起第一层 = %+v，应为 --liquid-shadow 0 8 24 墨 .07", hover.Outer[0])
 	}
-	if hover.LiftSM != (shadowSpec{0, 1, 4, 0, shadowInk.Alpha(0.03)}) {
-		t.Errorf("悬停抬起第二层 = %+v，应为 --liquid-shadow 0 1 4 墨 .03", hover.LiftSM)
+	if hover.Outer[1] != (shadowSpec{0, 1, 4, 0, shadowInk.Alpha(0.03)}) {
+		t.Errorf("悬停抬起第二层 = %+v，应为 --liquid-shadow 0 1 4 墨 .03", hover.Outer[1])
 	}
 
-	act := drawerTabPaintFor(true, false)
-	if act.BG != white.Alpha(0.52) {
-		t.Errorf("选中底 = %v，应为白 .52", act.BG)
+	act := th.headerPaintFor(headerState{Selected: true}, headerTabFamily)
+	if act.Fill != white.Alpha(0.52) {
+		t.Errorf("选中底 = %v，应为白 .52", act.Fill)
 	}
 	if act.Border != white.Alpha(0.72) {
 		t.Errorf("选中边 = %v，应为 --glass-border-bright 白 .72", act.Border)
@@ -93,16 +103,39 @@ func TestDrawerTabPaintTokens(t *testing.T) {
 	if act.Rim != 1 {
 		t.Errorf("选中 ::after opacity = %v，应为 1", act.Rim)
 	}
-	if act.LiftLG != (shadowSpec{0, 16, 38, 0, shadowInk.Alpha(0.11)}) {
-		t.Errorf("选中抬起第一层 = %+v，应为 --liquid-shadow-lifted 0 16 38 墨 .11", act.LiftLG)
+	if act.Outer[0] != (shadowSpec{0, 16, 38, 0, shadowInk.Alpha(0.11)}) {
+		t.Errorf("选中抬起第一层 = %+v，应为 --liquid-shadow-lifted 0 16 38 墨 .11", act.Outer[0])
 	}
-	if act.LiftSM != (shadowSpec{0, 2, 8, 0, shadowInk.Alpha(0.04)}) {
-		t.Errorf("选中抬起第二层 = %+v，应为 --liquid-shadow-lifted 0 2 8 墨 .04", act.LiftSM)
+	if act.Outer[1] != (shadowSpec{0, 2, 8, 0, shadowInk.Alpha(0.04)}) {
+		t.Errorf("选中抬起第二层 = %+v，应为 --liquid-shadow-lifted 0 2 8 墨 .04", act.Outer[1])
 	}
 
-	// 选中态特异度更高：同时悬停仍按选中取值。
-	if both := drawerTabPaintFor(true, true); both != act {
-		t.Errorf("选中 + 悬停 = %+v，应同选中态 %+v", both, act)
+	// 选中 + 悬停：仍按选中（蓝字 / 满圈聚光边），但底更实、边更亮。
+	both := th.headerPaintFor(headerState{Selected: true, Hovered: true}, headerTabFamily)
+	if both.Rim != 1 {
+		t.Errorf("选中 + 悬停 ::after opacity = %v，应为 1（保持选中）", both.Rim)
+	}
+	if both.Fill == act.Fill || both.Border == act.Border {
+		t.Errorf("选中 + 悬停应比选中更实 / 边更亮，得到 %+v（选中 %+v）", both, act)
+	}
+	if both.Fill.A <= act.Fill.A {
+		t.Errorf("选中 + 悬停的底应更实（alpha 更大）：%v vs %v", both.Fill, act.Fill)
+	}
+
+	// 按下：未选中压暗；选中仍保留选中（实底 + 满圈聚光边）。
+	press := th.headerPaintFor(headerState{Pressed: true}, headerTabFamily)
+	if press.Fill.A >= base.Fill.A {
+		t.Errorf("未选中按下应压暗（alpha 更小）：%v vs 常态 %v", press.Fill, base.Fill)
+	}
+	if press.Outer != [2]shadowSpec{} {
+		t.Errorf("未选中按下不该抬起：%+v", press.Outer)
+	}
+	pressAct := th.headerPaintFor(headerState{Selected: true, Pressed: true}, headerTabFamily)
+	if pressAct.Rim != 1 || pressAct.Outer[0] != act.Outer[0] {
+		t.Errorf("选中按下丢了选中：%+v", pressAct)
+	}
+	if pressAct.Fill.A >= act.Fill.A {
+		t.Errorf("选中按下应压暗一层（alpha 更小）：%v vs 选中 %v", pressAct.Fill, act.Fill)
 	}
 }
 
@@ -142,9 +175,9 @@ func TestDrawerTabAnimTokens(t *testing.T) {
 	}
 }
 
-// TestDrawerTabFadeWired 实测 tab 的底 / 边色值真的走 0.2s 过渡（换目标那一帧
-// 曲线 t=0 ⇒ 返回上一帧的值）。
-func TestDrawerTabFadeWired(t *testing.T) {
+// TestHeaderFadeWired 实测色值真的走过渡（换目标那一帧曲线 t=0 ⇒ 返回上一帧的值），
+// 且桌面要求减少动态效果时当帧到位。
+func TestHeaderFadeWired(t *testing.T) {
 	colA, colB := ui.Hex("#ffffff").Alpha(0.22), ui.Hex("#ffffff").Alpha(0.30)
 	cur := colA
 	var cols []ui.Color
@@ -152,8 +185,8 @@ func TestDrawerTabFadeWired(t *testing.T) {
 	rimTarget := float32(0.65)
 	tt := ui.NewTester(func(c *ui.Context) {
 		b := ui.Box(c)
-		cols = append(cols, drawerTabFade(b, "probe", cur))
-		rims = append(rims, drawerTabRimOpacity(b, rimTarget))
+		cols = append(cols, headerFade(c, b, "probe", cur, drawerTabAnim))
+		rims = append(rims, headerRimFade(c, b, rimTarget, drawerTabAnim))
 	}, 60, 60)
 	tt.Frame()
 	if len(cols) == 0 || len(rims) == 0 {
@@ -183,14 +216,14 @@ func TestDrawerTabFadeWired(t *testing.T) {
 	}
 }
 
-// TestDrawerTabShadowGrowsFromNone 实测常态（box-shadow: none）→ 抬起时几何真的
-// 从零长出来（同 partSearch 的同类测试）。
-func TestDrawerTabShadowGrowsFromNone(t *testing.T) {
+// TestHeaderLiftGrowsFromNone 实测常态（box-shadow: none）→ 抬起时几何真的从零
+// 长出来（同 partSearch 的同类测试）。
+func TestHeaderLiftGrowsFromNone(t *testing.T) {
 	cur := shadowSpec{}
 	var got []shadowSpec
 	tt := ui.NewTester(func(c *ui.Context) {
 		b := ui.Box(c)
-		got = append(got, drawerTabShadow(b, "probe", cur))
+		got = append(got, headerLift(c, b, "probe", cur, drawerTabAnim))
 	}, 60, 60)
 	tt.Frame() // 首帧：零
 	cur = shadowSpec{0, 8, 24, 0, shadowInk.Alpha(0.07)}
@@ -204,48 +237,10 @@ func TestDrawerTabShadowGrowsFromNone(t *testing.T) {
 	}
 }
 
-// TestDrawerTabSurfaceWired 无头反证：把 drawerTabSurface 换成 no-op，选中 tab
-// 的矩形内应有一片像素随之变化（材质真的接在 tab 上）。
-func TestDrawerTabSurfaceWired(t *testing.T) {
-	freezeDrawerTabFades(t)
-	orig := drawerTabSurface
-	defer func() { drawerTabSurface = orig }()
-
-	render := func(stub bool) (*image.RGBA, ui.Rect) {
-		if stub {
-			drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element { return b }
-		} else {
-			drawerTabSurface = orig
-		}
-		_, tt := drawerTabProbe(t)
-		r, ok := tt.Find("综合")
-		if !ok {
-			t.Fatal("搜索抽屉表头里找不到「综合」tab")
-		}
-		return tt.Image(), r
-	}
-
-	on, rect := render(false)
-	off, _ := render(true)
-
-	changed := 0
-	for y := int(rect.Y); y < int(rect.Y+rect.H); y++ {
-		for x := int(rect.X); x < int(rect.X+rect.W); x++ {
-			if rgbAt(on, x, y) != rgbAt(off, x, y) {
-				changed++
-			}
-		}
-	}
-	t.Logf("关掉 tab 材质后「综合」内变化 %d 像素", changed)
-	if changed < 100 {
-		t.Errorf("tab 材质没接上：只变了 %d 个像素", changed)
-	}
-}
-
 // TestDrawerTabGlassWired 反证 tab 真的画了 ::before 洗光 + ::after 聚光描边：
 // 把 drawerTabGlass 换成 no-op 后 tab 矩形内像素跟着变。
 func TestDrawerTabGlassWired(t *testing.T) {
-	freezeDrawerTabFades(t)
+	freezeHeaderFades(t)
 	orig := drawerTabGlass
 	defer func() { drawerTabGlass = orig }()
 
@@ -275,19 +270,16 @@ func TestDrawerTabGlassWired(t *testing.T) {
 		}
 	}
 	t.Logf("关掉 tab 玻璃层后「综合」内变化 %d 像素", changed)
-	// 阈值 60：2026-10 抽屉表头底色从 `#f1f5f9 .92` 换成白 .78（与面板同一套
-	// 玻璃、只多 8% 白），tab 的洗光/描边与底色的对比因此小了一档，实测
-	// 88 像素（改前 ~130）。no-op 桩下是 0，仍能反证接线。
+	// 阈值 60：tab 的洗光/描边与底色的对比很小，实测 88 像素（见历史注释）。
 	if changed < 60 {
 		t.Errorf("tab 的 ::before/::after 没画上：只变了 %d 个像素", changed)
 	}
 }
 
 // TestDrawerTabNoPressScale tab 按下**不缩放**：原版
-// `header [data-slot="tab"]:active { transform: none !important }`。此前借的
-// pressPose 会缩到 .94 并带悬停上浮。
+// `header [data-slot="tab"]:active { transform: none !important }`。
 func TestDrawerTabNoPressScale(t *testing.T) {
-	freezeDrawerTabFades(t)
+	freezeHeaderFades(t)
 	_, tt := drawerTabProbe(t)
 	tt.Move(-1, -1)
 	tt.Frame()
@@ -309,7 +301,7 @@ func TestDrawerTabNoPressScale(t *testing.T) {
 
 // TestDrawerTabNoHoverLift tab 悬停**不上浮**：原版这条规则没有 `:hover` 位移。
 func TestDrawerTabNoHoverLift(t *testing.T) {
-	freezeDrawerTabFades(t)
+	freezeHeaderFades(t)
 	_, tt := drawerTabProbe(t)
 	tt.Move(-1, -1)
 	tt.Frame()
@@ -328,50 +320,37 @@ func TestDrawerTabNoHoverLift(t *testing.T) {
 	}
 }
 
-// TestDrawerTabSurfaceUsedForAllTabs 把 drawerTabSurface 换成记录调用的桩，
-// 搜索抽屉表头的三个 tab 应各调用一次。
-func TestDrawerTabSurfaceUsedForAllTabs(t *testing.T) {
-	orig := drawerTabSurface
-	defer func() { drawerTabSurface = orig }()
-	calls := 0
-	drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element {
-		calls++
-		return orig(b, active, hovered)
-	}
-	drawerTabProbe(t)
-	if calls < 3 {
-		t.Errorf("搜索抽屉表头只调用了 %d 次 tab 材质（应有综合 / 最多播放 / 最新发布三个）", calls)
-	}
-}
-
-// TestFolderTabUsesDrawerTabSurface 收藏夹 tab 也走同一套材质（原版它们就是
-// 同一个 `[data-slot="tab"]` 规则，只是放在 .collect-tabs-scroll 里）。
-func TestFolderTabUsesDrawerTabSurface(t *testing.T) {
-	orig := drawerTabSurface
-	defer func() { drawerTabSurface = orig }()
-	calls := 0
-	drawerTabSurface = func(b ui.Element, active, hovered bool) ui.Element {
-		calls++
-		return orig(b, active, hovered)
-	}
+// TestFolderTabSelectionAndHover 收藏夹 tab 与普通 tab 是同一套材质
+// （原版它们就是同一个 `[data-slot="tab"]` 规则，只放在 .collect-tabs-scroll 里）：
+// 选中那颗更实，悬停未选中的那颗有可见变化。
+func TestFolderTabSelectionAndHover(t *testing.T) {
+	freezeHeaderFades(t)
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
 	a.Drawer = "favorite"
-	a.Folders = []Folder{{ID: 1, Title: "默认收藏夹", Count: 3}}
-	settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
-	if calls < 1 {
-		t.Errorf("收藏夹 tab 没走 drawerTabSurface（调用 %d 次）", calls)
+	a.Folders = []Folder{{ID: 1, Title: "默认收藏夹", Count: 3}, {ID: 2, Title: "音乐", Count: 8}}
+	a.FolderID = 1
+	tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 900, 680))
+
+	active := headerRender(t, tt, "默认收藏夹 (3)", "rest")
+	inactive := headerRender(t, tt, "音乐 (8)", "rest")
+	if d := absF(float32(headerBand(t, active, 0.45, 0.55) - headerBand(t, inactive, 0.45, 0.55))); d < 1.5 {
+		t.Errorf("选中的收藏夹 tab 与未选中的键面亮度只差 %.2f（选中态没画出来）", d)
+	}
+	hover := headerRender(t, tt, "音乐 (8)", "hover")
+	if n := headerChanged(inactive, hover); n < 100 {
+		t.Errorf("收藏夹 tab 悬停只变了 %d 个像素", n)
 	}
 }
 
 // TestDrawerTabHoverFillWired 无头实测：悬停把 tab 底从 --liquid-bg（白 .22）
 // 换成 --liquid-bg-hover（白 .30）、边提到 --glass-border-bright 并抬起一档，
-// tab 区域内的像素应随之变化。此前借 buttonSurface 时悬停只换底色，且没有抬起。
+// tab 区域内的像素应随之变化。
 //
-// 必须悬停**未选中**的 tab（「最多播放」）：选中态材质由 active 分支固定，
-// 悬停不再改底/边/投影（原版选中规则在 CSS 里更靠后，压过 :hover）。
+// 必须悬停**未选中**的 tab（「最多播放」）：选中态另有一套材质（见
+// TestActiveTabHoverStaysSelected）。
 func TestDrawerTabHoverFillWired(t *testing.T) {
-	freezeDrawerTabFades(t)
+	freezeHeaderFades(t)
 
 	render := func(hover bool) (*image.RGBA, ui.Rect) {
 		_, tt := drawerTabProbe(t)
@@ -436,9 +415,6 @@ func TestDanmakuTabSwitchKeepsAutoScroll(t *testing.T) {
 //   - 每颗 tab 是 role=tab（RoleTab），选中态带 checked（aria-selected）；
 //   - 左右方向键在 tab 间移动焦点，且**移动即选中**（HeroUI Tabs 默认
 //     keyboardActivation="automatic"）。
-//
-// 此前整排只是个裸 Row、每颗 tab 是普通 button：读屏看不到「这是一组 tab」、
-// 也不知道谁被选中，键盘也只能逐个 Tab。
 func TestDrawerTabGroupRoleAndSelection(t *testing.T) {
 	// 源码链（无头 Tester 不导出无障碍树）：
 	flat := flattenNoComments(t, "drawer.go")
@@ -499,6 +475,4 @@ func TestDrawerTabGroupRoleAndSelection(t *testing.T) {
 		t.Errorf("按 ← 后没有回到「最多播放」（focused=%v sort=%q）",
 			tt.Focused("最多播放"), a.SortOrder)
 	}
-	// 反证：把 tabArrowSelect 里的 choose(to) 去掉 → 上面三条
-	// 「移动即选中」断言变红（已实测）。
 }
