@@ -154,6 +154,11 @@
 - 不新增依赖需克制；验证 = 仓库根的 **`./check.sh`**（vet + 全包测试 +
   linux/windows/darwin × amd64/arm64 六平台编译，与 CI 门禁同口径；`./check.sh fast`
   只跑 vet+test）。改动 `internal/view` 另用 `-shot` 截图对照。
+- `internal/view` 的像素测试以 **Noto Sans CJK SC** 为参考中文字体（见 font.go
+  的 fontStack）：缺字会退成豆腐块，几十条行盒/墨迹/量宽断言集体假红。
+  `build-check.yml` 因此先装 `fonts-noto-cjk` 再跑测试（ubuntu-26.04 不自带）；
+  本机缺这套字体时不要相信那些红。时间/日期格式化的测试**必须自己钉时区**
+  （CI 的 runner 是 UTC，本机是 CST），别依赖 `time.Local`。
 
 ## 用户裁决记录
 

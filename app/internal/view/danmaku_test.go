@@ -941,6 +941,13 @@ func TestDanmakuMessageListInnerScroll(t *testing.T) {
 // `time.Format("2006-01-02 15:04")`，分隔符（- vs /）、补零（月日补零 vs 不补）、
 // 缺秒三处都与原版不同。
 func TestFormatCommentTime(t *testing.T) {
+	// 时区钉在 UTC+8（B 站用户的主场）：本函数跟随本机时区（原版
+	// toLocaleString 也如此），所以断言必须自己给时区，不能跟着跑测试的机器
+	// 走 —— CI 的 runner 是 UTC，之前这里就把两条期望值全跑红了。
+	saved := commentTimeLocation
+	commentTimeLocation = time.FixedZone("CST", 8*3600)
+	defer func() { commentTimeLocation = saved }()
+
 	cases := []struct {
 		name string
 		in   int64

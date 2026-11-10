@@ -101,10 +101,20 @@ func TestDrawerPanelClip(t *testing.T) {
 		t.Fatalf("读 drawer.go 失败：%v", err)
 	}
 	flat := strings.Join(strings.Fields(string(src)), "")
-	// panel 的创建链：Radius(18, 18, 0, 0) 之后紧跟 Clip()。
-	chain := strings.Join(strings.Fields(
-		`panel:=ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).Radius(18,18,0,0).Clip().`), "")
-	if !strings.Contains(flat, chain) {
-		t.Errorf("抽屉面板没有 .Clip()：找不到 %q", chain)
+	// panel 的创建链：Radius(18, 18, 0, 0) 之后到第一个 BorderWidth( 之前
+	// 必须有 Clip()。不把中间的属性逐个写死：头链上后来又加了 Label，
+	// 以后还会加别的 —— 断的是「这条链上有 Clip」，不是「链长这样」。
+	prefix := strings.Join(strings.Fields(
+		`panel:=ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).Radius(18,18,0,0).`), "")
+	i := strings.Index(flat, prefix)
+	if i < 0 {
+		t.Fatalf("抽屉面板的创建链变了：找不到 %q", prefix)
+	}
+	chain := flat[i:]
+	if end := strings.Index(chain, "BorderWidth("); end >= 0 {
+		chain = chain[:end]
+	}
+	if !strings.Contains(chain, "Clip()") {
+		t.Errorf("抽屉面板没有 .Clip()：%q", chain)
 	}
 }

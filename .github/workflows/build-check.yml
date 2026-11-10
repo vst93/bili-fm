@@ -50,6 +50,19 @@ jobs:
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: go vet ./...
 
+      # internal/view 的像素测试把行盒 / 墨迹 / 量宽钉在「参考中文字体」上
+      # （font.go 的 fontStack 在 Linux 上以 Noto Sans CJK SC 作中文回退）。
+      # ubuntu-latest（现在是 ubuntu-26.04）不带 Noto CJK：缺字时中文退成
+      # 豆腐块，几十条像素断言会集体假红 —— 2026-11 的 main 就一直红在这。
+      # 装上字体，让 CI 的门槛与开发机的 ./check.sh 同口径。
+      - name: Install CJK fonts (host)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk
+          fc-cache -f >/dev/null
+          fc-match "Noto Sans CJK SC"
+
       - name: Test (host)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: go test -count=1 -timeout=30m ./...

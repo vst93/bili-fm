@@ -3708,6 +3708,13 @@ func replyMetaText(level int, when string) string {
 	return fmt.Sprintf("Lv.%d · %s", level, when)
 }
 
+// commentTimeLocation 是评论时间格式化用的时区。原版是 webview 里的
+// `new Date(ts*1000).toLocaleString("zh-CN")`，跟着**机器所在时区**走，
+// 这里同样取本机时区。声明成变量是为了让测试能钉在一个固定时区断言
+// （CI 的 runner 是 UTC，不钉就会假红，见 danmaku_test.go 的
+// TestFormatCommentTime）。
+var commentTimeLocation = time.Local
+
 // FormatCommentTime 把评论发送时间（unix 秒）格式化成原版 danmakuList 的
 // formatDate：`new Date(timestamp * 1000).toLocaleString("zh-CN")`。
 //
@@ -3715,7 +3722,7 @@ func replyMetaText(level int, when string) string {
 // 月与日**不补零**，时/分/秒补到两位并带秒。此前用
 // `time.Format("2006-01-02 15:04")`，分隔符、补零、缺秒三处都与原版不同。
 func FormatCommentTime(sec int64) string {
-	t := time.Unix(sec, 0)
+	t := time.Unix(sec, 0).In(commentTimeLocation)
 	return fmt.Sprintf("%d/%d/%d %02d:%02d:%02d",
 		t.Year(), int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second())
 }

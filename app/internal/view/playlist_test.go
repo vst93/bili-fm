@@ -294,10 +294,19 @@ func TestPlaylistDeleteFadesIn(t *testing.T) {
 	tt.Frame()
 	hoverLum := darkest()
 	t.Logf("删除键区域亮度 静息=%d 悬停=%d", restLum, hoverLum)
-	if restLum < 220 {
+	// 主判据用**差值**而不是绝对阈值：静息采样到的是行底色，亮度随主题/
+	// 字体光栅在 219~221 之间抖（此前阈值钉在 220，1 个灰阶就假红），
+	// 而删除键真显形会暗下去 60+ 个灰阶。反证仍然成立：把 Opacity 恒置 1
+	// → 静息也暗（差值≈ 0）；不画淡入 → 悬停仍亮（差值≈ 0）。
+	const minDrop = 40
+	if drop := restLum - hoverLum; drop < minDrop {
+		t.Fatalf("删除键没有淡入：静息=%d 悬停=%d（只暗了 %d 个灰阶，至少应 %d）",
+			restLum, hoverLum, drop, minDrop)
+	}
+	if restLum < 200 {
 		t.Fatalf("静息时删除键已可见（亮度=%d），应停在 opacity 0", restLum)
 	}
-	if hoverLum > 200 {
+	if hoverLum > 210 {
 		t.Fatalf("悬停后删除键仍不可见（亮度=%d），淡入没接上", hoverLum)
 	}
 }

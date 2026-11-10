@@ -218,7 +218,10 @@ func TestSettingsMenuIncognitoGone(t *testing.T) {
 	if srcHas(flat, "settingsIncognitoRow") {
 		t.Error("settingsmenu.go 仍建 settingsIncognitoRow（用户已否掉这个位置）")
 	}
-	if count := strings.Count(flat, "ui.Text(c,label).FontSize(14).TextColor(settingsItemInk)"); count != 1 {
+	// 动作条目只有一个渲染点。写「前缀」而不是整行：文案色后来又包了一层
+	// a.Theme.text(...)，整行字面量会随着样式调整过期（本条就因此在 HEAD 上
+	// 一直假红）。
+	if count := strings.Count(flat, "ui.Text(c,label).FontSize(14)"); count != 1 {
 		t.Errorf("设置菜单条目渲染点 %d 处，应恰好 1 处（面板里不应再挂隐身行）", count)
 	}
 }

@@ -37,6 +37,10 @@ func heatProbe(t *testing.T, heat, chapters bool) *image.RGBA {
 
 // chapterProbe 只渲染播放栏本身，避免章节 tab / 正文等整窗内容混进
 // 章节刻线的包围盒断言。
+//
+// 底必须是**深色**的：章节刻线是白 .55，且按层序画在半透明轨道**下面**
+// （见 paintTimeline 的层序），铺在白底上时白刻线叠在白色的轨道底色里
+// 逐像素差为零 —— 测试会报「章节分界没有画出来」（CI 与开发机都这么红过）。
 func chapterProbe(t *testing.T, chapters bool) *image.RGBA {
 	t.Helper()
 	a := NewApp(func() {})
@@ -48,7 +52,11 @@ func chapterProbe(t *testing.T, chapters bool) *image.RGBA {
 	if chapters {
 		a.Chapters = []Chapter{{From: 40}, {From: 120}}
 	}
-	tst := ui.NewTester(func(c *ui.Context) { a.playerBar(c) }, 1000, PlayerBarHeight)
+	tst := ui.NewTester(func(c *ui.Context) {
+		c.SetTheme(a.Theme.uiTheme())
+		c.Root().Background(ui.Hex("#1e293b"))
+		a.playerBar(c)
+	}, 1000, PlayerBarHeight)
 	tst.Advance(400 * time.Millisecond)
 	tst.Frame()
 	return tst.Image()
