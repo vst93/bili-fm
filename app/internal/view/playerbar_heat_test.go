@@ -64,8 +64,23 @@ func chapterProbe(t *testing.T, chapters bool) *image.RGBA {
 
 // diffBounds 返回两张图像不同像素的包围盒与数量。
 func diffBounds(a, b *image.RGBA) (minX, minY, maxX, maxY, n int) {
+	return diffBoundsIn(a, b, 0, a.Rect.Dy())
+}
+
+// diffBoundsIn 是 diffBounds 的「只看 [y0, y1) 这几行」版。
+//
+// 两张图是**两次独立渲染**：主区里随时间/动画变化的像素（封面圆盘、谈话
+// 光晕等）会把包围盒拉出被测的那一层，在 CI 那种慢机器上尤其容易。只量
+// 被测层所在的行段，噪声就进不来。
+func diffBoundsIn(a, b *image.RGBA, y0, y1 int) (minX, minY, maxX, maxY, n int) {
 	minX, minY, maxX, maxY = 1<<30, 1<<30, -1, -1
-	for y := 0; y < a.Rect.Dy(); y++ {
+	if y0 < 0 {
+		y0 = 0
+	}
+	if y1 > a.Rect.Dy() {
+		y1 = a.Rect.Dy()
+	}
+	for y := y0; y < y1; y++ {
 		for x := 0; x < a.Rect.Dx(); x++ {
 			i := y*a.Stride + x*4
 			if a.Pix[i] != b.Pix[i] || a.Pix[i+1] != b.Pix[i+1] || a.Pix[i+2] != b.Pix[i+2] {
@@ -93,11 +108,13 @@ func diffBounds(a, b *image.RGBA) (minX, minY, maxX, maxY, n int) {
 func TestHeatBackdropStaysBelowTopInset(t *testing.T) {
 	off := heatProbe(t, false, false)
 	on := heatProbe(t, true, false)
-	_, minY, _, maxY, n := diffBounds(off, on)
+	barTop := 700 - PlayerBarHeight
+	// 只量播放栏那几行：主区里随时间变化的像素与热力层无关（两张图是两次
+	// 独立渲染，CI 上曾被这类噪声把包围盒拉到 y=198 而假红）。
+	_, minY, _, maxY, n := diffBoundsIn(off, on, barTop, 700)
 	if n == 0 {
 		t.Fatal("打开热力后画面没有变化（热力层没接上）")
 	}
-	barTop := 700 - PlayerBarHeight
 	if minY < barTop+int(heatBarTopInset)-1 {
 		t.Errorf("热力最高点 y=%d，越过了顶部留白：barTop=%d inset=%v", minY, barTop, heatBarTopInset)
 	}

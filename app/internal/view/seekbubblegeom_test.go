@@ -89,6 +89,11 @@ func TestSeekBubbleWidthMeasured(t *testing.T) {
 
 	var tw float32
 	tst := ui.NewTester(func(c *ui.Context) {
+		// 量宽必须与气泡实际渲染同一套字体：气泡画在设过主题的播放栏里
+		// （Shell 会给 ui.Theme.Font = fontStack），而 MeasureText 的默认族
+		// 取自**当前帧主题**。不设主题时，量的是本机默认无衬线字体 ——
+		// 本机恰好与 Inter 同宽就绿，CI（DejaVu）上就是 25 vs 21 的假红。
+		c.SetTheme(a.Theme.uiTheme())
 		tw, _ = c.MeasureText(0, ui.Span{
 			Text: a.seekBubbleLabel, Size: seekBubbleFont, Weight: 650, Features: tabularNums[0],
 		})
