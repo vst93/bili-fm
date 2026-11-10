@@ -616,8 +616,6 @@ type Actions struct {
 	PersistFollow func()
 	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
 	SelectSubtitle func(index int)
-	// NextHighlight 跳到下一个弹幕高能点。
-	NextHighlight func()
 	// ToggleLyricsConfig 在桌面字幕显示页 / 设置页之间切换。
 	ToggleLyricsConfig func()
 	// UpdateLyricsConfig 把桌面字幕的颜色/字号/宽度/透明度落盘。

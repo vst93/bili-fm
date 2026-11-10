@@ -123,18 +123,26 @@ func resumeTarget(resume, dur float64) float64 {
 	return resume
 }
 
-// cloudProgressOn 报告云端播放记录/进度同步是否开启。隐身模式（原版
-// localStorage 的 incognitoMode）下关掉：**不读取也不上报**（本地断点照写，
-// 与原版一致）。所有碰云端进度的路径都必须先过这一条 —— resolveResume 读、
+// cloudProgressOn 报告云端播放记录/进度同步是否开启。
+//
+//	隐身模式  关掉：**不读取也不上报**（本地断点照写，与原版一致）；
+//	未登录    关掉：B 站的进度读写接口都要登录（未登录必返 -101），打过去只会
+//	          白等一次 800ms 预算、再记一条失败日志。静默只用本地断点。
+//
+// 所有碰云端进度的路径都必须先过这一条 —— resolveResume 读、
 // trackResume/flushProgress/finishProgress 写。
-func (c *controller) cloudProgressOn() bool { return !c.app.Incognito }
+func (c *controller) cloudProgressOn() bool { return c.app.LoggedIn && !c.app.Incognito }
 
 // resolveResume 定这条视频的续播位置（秒）。云端最多等 800ms，超时或失败就
 // 只用本地断点；晚到的云端响应不再管（否则会把已经在播的曲目跳走）。
 //
-// 隐身模式下**根本不发云端请求**（此前守卫写成 `c.app.Incognito || …`，语义
-// 相同但散落在多处；抽成 cloudProgressOn 后只有一处判据）。
+// 隐身模式下**完全不续播**（云端不读、本地断点也不跳）：用户 2026-11-10 报
+// 「开了隐身模式，切换播放还是读取并跳转了进度」。本地断点仍然照写，关掉隐身
+// 之后还能续上。
 func (c *controller) resolveResume(aid, cid int64) float64 {
+	if c.app.Incognito {
+		return 0
+	}
 	local := c.localResumePoint(mediaKey(aid, cid))
 	if !c.cloudProgressOn() || aid == 0 || cid == 0 {
 		return local

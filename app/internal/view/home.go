@@ -297,7 +297,18 @@ func (a *App) userButton(c *ui.Context) {
 		} else if !a.LoggedIn {
 			// 未登录：原版 HeroUI Avatar 的默认 fallback 是人形剪影，不是首字
 			//（未登录 UName 为空，从前这里画出一个 "?"）。
-			b.Draw(func(p *ui.Painter, r ui.Rect) { userAvatarSilhouette(p, r, t.Faint) })
+			//
+			// 剪影是**本元素自己的 Draw**，而 mygo 的 `Element.Clip()` 只裁
+			// 子元素（"Clip hides what the children draw outside the element"）：
+			// 人形的肩部底边本来就撑到方盒下缘、两角落在圆外，不自己裁就
+			// 会露出一小截 —— 用户 2026-11-10 报「未登录的登录图标超出背景
+			// 的圆框」（无头实测：圆外最暗差 142 灰阶，位置就是左肩下角）。
+			b.Draw(func(p *ui.Painter, r ui.Rect) {
+				rad := min(r.W, r.H) / 2
+				p.Clip(ui.Rect{X: r.X + r.W/2 - rad, Y: r.Y + r.H/2 - rad, W: 2 * rad, H: 2 * rad}, rad, func() {
+					userAvatarSilhouetteFn(p, r, t.Faint)
+				})
+			})
 		} else {
 			ui.Text(c, avatarInitial(a.UName)).FontSize(13).Bold().TextColor(t.Muted)
 		}
@@ -323,6 +334,9 @@ func avatarInitial(name string) string {
 // userAvatarSilhouette 画原版 @heroui/avatar 默认 fallback 的人形剪影：
 // 一个头 + 一段肩（灰色 currentColor，`AvatarIcon`/`AvatarFallback` 里的
 // person 图形）。未登录时画它，替代从前的 "?" 首字。
+// userAvatarSilhouetteFn 是剪影的绘制入口（测试可换空桩，验证它不会画出圆外）。
+var userAvatarSilhouetteFn = userAvatarSilhouette
+
 func userAvatarSilhouette(p *ui.Painter, r ui.Rect, col ui.Color) {
 	s := min(r.W, r.H)
 	if s <= 0 {

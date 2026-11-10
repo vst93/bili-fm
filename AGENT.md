@@ -9,6 +9,22 @@
   v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 各一节），当轮的坑与门槛写进
   `.pending-bugs.md`。**先读这两处再动依赖。**
 
+- **「需要登录才行」的动作一律静默限制**：字幕（字幕轨 + `aisubtitle` 正文）
+  与云端进度读写（`x/v2/history/report` / `GetPlayProgress`）都要登录。判据只有
+  两处：`controller.subtitlesAvailable()` 与 `controller.cloudProgressOn()`
+  （后者 = `LoggedIn && !Incognito`）。未登录时**一个请求都不发**、不记失败日志、
+  不写 `SubtitleError`。章节（view_points）不需要登录，别一起挡掉。
+- **隐身模式 = 不续播**：`resolveResume` 在隐身时返回 0（云端不读、本地断点也
+  不跳）。本地断点仍然照写，关掉隐身后能续上。用户 2026-11-10 明确要求。
+- **`--liquid-chromatic` 色散边（下暖 / 上冷）只画到圆角切点**
+  （`paintPlayerChromatic`）：带的两端收进 `[x+radius, x+W-radius]`，裁剪矩形
+  只向两端各外 1px 且半径不变。外扩 1px + 半径 +1 的写法会让带在圆角处多探出
+  ~2.5px 的直线（Linux/Windows 的硬边裁剪下尤其扎眼，用户 2026-11-10 ⑧）。
+- **主窗的 `TitleBarStyle` 只在 Windows/macOS 给 `TitleBarHidden`，Linux 给
+  default**（`titleBarStyleFor`）：Linux 上那是「隐藏标题栏但保留 GTK 自己的
+  窗口按钮」，与两颗自绘键冲突。窗框剩下的部分由 mygo 对 `Frameless` /
+  透明窗的处理决定，应用侧没有别的开关（见 `.pending-bugs.md` 2026-11-10 ⑤）。
+
 - **桌面字幕的「鼠标穿透」入口只在主窗**（标题栏设置下拉 + macOS 原生菜单，
   `App.LyricsClickThrough` / `lyricsIgnoreMouse`）：穿透后字幕窗收不到鼠标，
   齿轮与拖动都不响应，把关闭入口放在它自己身上等于锁死。设置页永不穿透。

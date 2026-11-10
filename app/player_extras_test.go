@@ -195,3 +195,27 @@ func TestPickSubtitleTrackURLIgnoresChangingQuery(t *testing.T) {
 		t.Errorf("SubtitleURLKey = %q", got)
 	}
 }
+
+// TestSubtitlesRequireLogin 钉住字幕链路的登录门槛：B 站的字幕轨与字幕正文都要
+// 登录，未登录时三个入口必须**静默返回** —— 不发请求（c.bl 为 nil，真发就会
+// panic）、不改字幕状态、不记 SubtitleError（用户 2026-11-10：要登录的功能做
+// 静默限制）。
+func TestSubtitlesRequireLogin(t *testing.T) {
+	a := view.NewApp(func() {})
+	c := &controller{app: a}
+	if c.subtitlesAvailable() {
+		t.Fatal("未登录时 subtitlesAvailable 应为 false")
+	}
+	track := &view.Track{Bvid: "BV1", Cid: 1, Aid: 2}
+	c.ensureSubtitles()
+	c.retrySubtitles()
+	c.startSubtitleLoad(track, view.SubtitleTrack{ID: "1", Lan: "zh-CN", URL: "https://example.invalid/sub.json"})
+	if a.SubtitlesLoading || a.SubtitleError != "" || a.SubtitleLang != "" || a.SubtitlesCid != 0 {
+		t.Fatalf("未登录时字幕状态被改动：loading=%v err=%q lang=%q cid=%d",
+			a.SubtitlesLoading, a.SubtitleError, a.SubtitleLang, a.SubtitlesCid)
+	}
+	a.LoggedIn = true
+	if !c.subtitlesAvailable() {
+		t.Error("登录后 subtitlesAvailable 应为 true")
+	}
+}

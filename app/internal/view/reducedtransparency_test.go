@@ -363,3 +363,27 @@ func TestSetReduceTransparencyWired(t *testing.T) {
 		t.Error("Shell 渲染一帧后减少透明度偏好被清掉了")
 	}
 }
+
+// TestPlayerSpeedOptionInkWithTransparency 钉住「背景透明度 > 0 时档位文字跟着
+// 弹层底色走」：透明外观下弹层走 Theme.surface（浅色外观 = 浅底），此时不能再
+// 用烟熏玻璃那条近乎全白的墨色 —— 用户 2026-11-10 报「浅色模式下设置倍速的
+// 档位白字看不清」。
+func TestPlayerSpeedOptionInkWithTransparency(t *testing.T) {
+	// 浅色外观 + 晚间时段（t.Dark 为真）+ 背景透明度 > 0：底是浅的，字必须深。
+	smoke := ThemeFor(PeriodAt(22))
+	if !smoke.Dark || smoke.Mode != "light" {
+		t.Fatalf("前置：晚间浅色外观应当是 Dark=true / Mode=light，得到 %v/%q", smoke.Dark, smoke.Mode)
+	}
+	lightInk := ui.Hex("#f1f5f9").Alpha(0.78)
+	if got := playerSpeedOptionInk(smoke); got != lightInk {
+		t.Fatalf("不透明窗口下烟熏时段应保持浅墨，得到 %v", got)
+	}
+	withAlpha := smoke.withAppearance("light", 0.2)
+	if got := playerSpeedOptionInk(withAlpha); got != ui.Hex(rtSpeedOptionInk) {
+		t.Errorf("背景透明下的倍速档位墨色 = %v，应为 %v（浅底深字）", got, ui.Hex(rtSpeedOptionInk))
+	}
+	// 深色外观仍走 t.text（浅墨）。
+	if got := playerSpeedOptionInk(smoke.withAppearance("dark", 0.2)); got == ui.Hex(rtSpeedOptionInk) {
+		t.Error("深色外观不该用实底深灰")
+	}
+}

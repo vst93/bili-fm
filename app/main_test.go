@@ -1771,8 +1771,12 @@ func TestMainWindowChromeSelfDrawn(t *testing.T) {
 	if !strings.Contains(flat, `Frameless:runtime.GOOS!="darwin"`) {
 		t.Error("主窗没有在非 macOS 上 Frameless —— Windows 仍会画出系统样式的 caption 键")
 	}
-	if !strings.Contains(flat, `TitleBarStyle:mygo.TitleBarHidden`) {
-		t.Error("主窗丢了 TitleBarStyle: TitleBarHidden（macOS 红绿灯要靠它）")
+	// TitleBarStyle 按平台给（见 titleBarStyleFor 的单测）：macOS / Windows 要
+	// TitleBarHidden（红绿灯 / DWM 圆角投影），**Linux 不给** —— 那在 Linux 上
+	// 是「让 GTK 画它自己的窗口按钮」，与我们两颗自绘键冲突（用户 2026-11-10
+	// 报「Linux 下出现系统默认标题栏」）。
+	if !strings.Contains(flat, `TitleBarStyle:titleBarStyleFor(runtime.GOOS)`) {
+		t.Error("主窗的 TitleBarStyle 不再按平台给（见 titleBarStyleFor）")
 	}
 	if !strings.Contains(flat, `DisableMaximize:true`) {
 		t.Error("主窗没关掉放大键（浮窗应用不该有最大化）")
@@ -2143,6 +2147,23 @@ func TestStartupSendsAppStats(t *testing.T) {
 	for _, want := range []string{"func SendAppStats()", "https://api-gateway.umami.dev/api/send"} {
 		if !bytes.Contains(statSrc, []byte(want)) {
 			t.Errorf("SendAppStats 里缺少 %q", want)
+		}
+	}
+}
+
+// TestTitleBarStyleForLinux 钉住主窗的 TitleBarStyle：Linux **不要** TitleBarHidden。
+//
+// 那是「隐藏标题栏但保留 GTK 自己的窗口按钮」—— 我们的最小化 / 关闭键是自绘的，
+// 多给这一项等于让 GTK 在无边框窗上再画一套（用户 2026-11-10 报「Linux 下出现
+// 系统默认标题栏」）。macOS / Windows 仍走 TitleBarHidden（红绿灯 / DWM 圆角与
+// 投影都靠它）。
+func TestTitleBarStyleForLinux(t *testing.T) {
+	if got := titleBarStyleFor("linux"); got != mygo.TitleBarDefault {
+		t.Errorf("linux TitleBarStyle = %q，应为 default（不要在无边框窗上留 GTK 的标题控件）", got)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		if got := titleBarStyleFor(goos); got != mygo.TitleBarHidden {
+			t.Errorf("%s TitleBarStyle = %q，应为 hidden", goos, got)
 		}
 	}
 }

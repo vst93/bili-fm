@@ -1,6 +1,8 @@
 package view
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,5 +324,34 @@ func TestMiniTitleBarWindowControls(t *testing.T) {
 		if _, ok := tst.Find(lab); ok {
 			t.Errorf("macOS 迷你窗画了自绘键 %q（应走系统红绿灯）", lab)
 		}
+	}
+}
+
+// TestMiniTitleBarControlTrayHugsButtons 钉住迷你标题栏的窗口控制托盘**收着
+// 两颗键**（Shrink(0)），不是铺满整行。
+//
+// 此前这一行写的是 `Grow(1).Justify(ui.End)`：托盘的内凹玻璃背景跟着整行张
+// 开、几乎占满迷你窗宽度（用户 2026-11-10 报「缩小 / 关闭键的背景框没有限制
+// 住」）。主窗那一排（shell.go 的 wc）本来就是 Shrink(0)，这里对齐它，靠外层
+// 行的 Justify(ui.End) 把托盘推到右端。
+//
+// 源码级契约：托盘的宽度没有可测的标签/几何（它是两颗键的容器，背景又是
+// rgba(255,255,255,.06) 的极淡色），像素断言在这种淡底上不可靠。
+func TestMiniTitleBarControlTrayHugsButtons(t *testing.T) {
+	src, err := os.ReadFile("mini.go")
+	if err != nil {
+		t.Fatalf("读 mini.go 失败：%v", err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	want := "bar:=ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).Padding(0,miniTitleBarPadX).DragWindow().Justify(ui.End)"
+	if !strings.Contains(flat, want) {
+		t.Errorf("迷你标题栏没把控制托盘推到右端：找不到 %q", want)
+	}
+	row := "wc:=ui.Row(c).Shrink(0).Gap(tbWinCtrlGap).Padding(miniWinCtrlPadY,miniWinCtrlPadX).AlignItems(ui.Center)"
+	if !strings.Contains(flat, row) {
+		t.Errorf("控制托盘不是按内容收宽（Shrink(0)）：找不到 %q", row)
+	}
+	if strings.Contains(flat, "ui.Row(c).Grow(1).Justify(ui.End).Gap(tbWinCtrlGap)") {
+		t.Error("控制托盘又写成 Grow(1)：背景会铺满整行")
 	}
 }

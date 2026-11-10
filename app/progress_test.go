@@ -51,38 +51,64 @@ func srcContains(haystack, needle string) bool {
 	return needle != "" && strings.Contains(haystack, needle)
 }
 
-// TestCloudProgressOnIncognito 钉住隐身模式的总判据：开启后所有云端进度读写
-// 都关掉（原版 cloudHistoryEnabled={!isIncognitoMode}）。
-func TestCloudProgressOnIncognito(t *testing.T) {
-	a := &view.App{}
+// TestCloudProgressOnGates 钉住云端进度同步的总判据：**未登录**与**隐身模式**
+// 都关掉（两者都只用本地断点）。未登录时 B 站的进度读写接口必返 -101，打过去
+// 只是白等一次 800ms 预算 + 一条失败日志（用户 2026-11-10 要求「需要登录的
+// 逻辑做静默限制」）。
+func TestCloudProgressOnGates(t *testing.T) {
+	a := &view.App{LoggedIn: true}
 	c := &controller{app: a}
 	if !c.cloudProgressOn() {
-		t.Error("默认应开启云端进度同步")
+		t.Error("登录且非隐身时应开启云端进度同步")
 	}
 	a.Incognito = true
 	if c.cloudProgressOn() {
 		t.Error("隐身模式下云端进度同步应关闭")
 	}
+	a.Incognito, a.LoggedIn = false, false
+	if c.cloudProgressOn() {
+		t.Error("未登录时云端进度同步应关闭")
+	}
 }
 
-// TestResolveResumeIgnoresCloudWhenIncognito 钉住「隐身模式不读取云端」：
-// 隐身时 resolveResume 只回本地断点，一次云端请求都不发。
-func TestResolveResumeIgnoresCloudWhenIncognito(t *testing.T) {
+// TestResolveResumeNoJumpWhenIncognito 钉住「隐身模式不续播」：云端本来就不读，
+// 本地断点**也不跳** —— 用户 2026-11-10 报「开了隐身模式，切换播放还是读取并
+// 跳转了进度」。断点仍然照写（关掉隐身后能续上），只是不当场跳。
+func TestResolveResumeNoJumpWhenIncognito(t *testing.T) {
 	kv, err := store.Open(t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("建 KV 失败：%v", err)
 	}
-	a := &view.App{Incognito: true}
+	a := &view.App{Incognito: true, LoggedIn: true}
 	c := &controller{app: a, kv: kv}
 
 	// 本地断点：先写一笔再读回来。
 	c.saveResumePoint(mediaKey(1, 2), 42)
-
-	if got := c.resolveResume(1, 2); got != 42 {
-		t.Fatalf("隐身模式 resolveResume = %v，应为本地断点 42（且不发云端请求）", got)
+	if got := c.localResumePoint(mediaKey(1, 2)); got != 42 {
+		t.Fatalf("前置：本地断点应为 42，得到 %v", got)
 	}
-	if got := c.resolveResume(3, 4); got != 0 {
-		t.Fatalf("无本地断点时 resolveResume = %v，应为 0", got)
+
+	if got := c.resolveResume(1, 2); got != 0 {
+		t.Fatalf("隐身模式 resolveResume = %v，应为 0（不续播）", got)
+	}
+	// 关掉隐身（仍登录）：本地断点照旧生效。
+	a.Incognito = false
+	if got := c.resolveResume(1, 2); got != 42 {
+		t.Fatalf("关掉隐身后 resolveResume = %v，应为本地断点 42", got)
+	}
+}
+
+// TestResolveResumeLocalOnlyWhenLoggedOut 未登录时不发云端请求、只用本地断点。
+func TestResolveResumeLocalOnlyWhenLoggedOut(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{}
+	c := &controller{app: a, kv: kv}
+	c.saveResumePoint(mediaKey(7, 8), 33)
+	if got := c.resolveResume(7, 8); got != 33 {
+		t.Fatalf("未登录 resolveResume = %v，应为本地断点 33（不碰云端）", got)
 	}
 }
 
@@ -91,7 +117,9 @@ func TestResolveResumeIgnoresCloudWhenIncognito(t *testing.T) {
 func TestProgressIncognitoSourceChain(t *testing.T) {
 	flat := flattenCode(t, "progress.go")
 	for _, want := range []string{
-		"func(c*controller)cloudProgressOn()bool{return!c.app.Incognito}",
+		"func(c*controller)cloudProgressOn()bool{returnc.app.LoggedIn&&!c.app.Incognito}",
+		// resolveResume：隐身时不续播（本地断点也不跳）。
+		"ifc.app.Incognito{return0}",
 		// resolveResume：不读云端。
 		"if!c.cloudProgressOn()||aid==0||cid==0{",
 		// trackResume / reportProgress：不上报。

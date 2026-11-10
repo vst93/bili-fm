@@ -160,6 +160,22 @@ type controller struct {
 	menuLyricsClickThrough *mygo.MenuItem
 }
 
+// titleBarStyleFor 返回主窗该用的 TitleBarStyle。
+//
+//	macOS    TitleBarHidden：内容铺满窗口，系统红绿灯浮在上面（旧版的 Overlay）
+//	Windows  TitleBarHidden：同样隐藏标题栏，但保留 DWM 的圆角 / 投影 / 控件占位
+//	Linux    TitleBarDefault：**不要**「隐藏标题栏但留着 GTK 的窗口按钮」——
+//	         我们的最小化 / 关闭键是自绘的，多给这一项只会让 GTK 在无边框窗上
+//	         仍画它自己的一套（用户 2026-11-10 报「Linux 下出现系统默认标题栏」）。
+//	         置空（default）后 mygo 对 Frameless 窗走 CSD：空标题栏 + 投影 + 描边，
+//	         没有系统标题栏。
+func titleBarStyleFor(goos string) mygo.TitleBarStyle {
+	if goos == "linux" {
+		return mygo.TitleBarDefault
+	}
+	return mygo.TitleBarHidden
+}
+
 func main() {
 	shot := flag.String("shot", "", "启动后截图到该路径并退出")
 	shotDelay := flag.Duration("shot-delay", 3*time.Second, "截图前的等待时间")
@@ -332,8 +348,13 @@ func main() {
 			// 代价只有「原生缩放边框」——主窗本来就是固定尺寸（DisableResize，
 			// 原版 resizable(false)），迷你模式走 SetSize，用不到。拖拽仍走
 			// 标题栏的 DragWindow（mygo 的 StartDrag 在无边框窗上照常生效）。
-			Frameless:     runtime.GOOS != "darwin",
-			TitleBarStyle: mygo.TitleBarHidden,
+			Frameless: runtime.GOOS != "darwin",
+			// Linux 只给 Frameless，**不给** TitleBarStyle：后者的语义是「隐藏
+			// 标题栏但保留窗口按钮」，在 Linux 上就是「让 GTK 画它自己的按钮
+			// / 标题控件」，而我们两颗键全自绘（见 view.shell.go）。用户
+			// 2026-11-10 报「Linux 下出现系统默认标题栏」—— 这条去掉后再让
+			// mygo 走它给 Frameless 窗准备的 CSD 路径（空标题栏 + 投影 + 描边）。
+			TitleBarStyle: titleBarStyleFor(runtime.GOOS),
 			Content:       ui.View(app.Shell),
 			// 先 Hidden 创建，等 setupTaskbar 装好 TaskbarButtonCreated 消息钩子后
 			// 再 Show。任务栏按钮是在首次显示时由 Explorer 创建的；如果窗口先 Show、
@@ -799,20 +820,19 @@ func (c *controller) wireActions() {
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		// 穿透（mygo 0.8.2 起 Linux 也生效；入口只在主窗，见 lyrics.go）。
 		ToggleLyricsClickThrough: c.toggleLyricsClickThrough,
-		ToggleHeat:          c.toggleHeat,
-		PersistFollow:       c.persistFollowPrefs,
-		ToggleLyricsConfig:  c.toggleLyricsConfig,
-		UpdateLyricsConfig:  c.updateLyricsConfig,
-		ResetLyricsConfig:   c.resetLyricsConfig,
-		SelectSubtitle:      c.selectSubtitle,
-		NextHighlight:       c.nextHighlight,
-		LoadMore:            c.loadMore,
-		Login:               c.login,
-		CloseLogin:          c.closeLogin,
-		ShowAbout:           c.showAbout,
-		ShowShortcuts:       c.showShortcuts,
-		CheckUpdate:         c.checkUpdate,
-		CloseModal:          c.closeModal,
+		ToggleHeat:               c.toggleHeat,
+		PersistFollow:            c.persistFollowPrefs,
+		ToggleLyricsConfig:       c.toggleLyricsConfig,
+		UpdateLyricsConfig:       c.updateLyricsConfig,
+		ResetLyricsConfig:        c.resetLyricsConfig,
+		SelectSubtitle:           c.selectSubtitle,
+		LoadMore:                 c.loadMore,
+		Login:                    c.login,
+		CloseLogin:               c.closeLogin,
+		ShowAbout:                c.showAbout,
+		ShowShortcuts:            c.showShortcuts,
+		CheckUpdate:              c.checkUpdate,
+		CloseModal:               c.closeModal,
 		// 主区的点赞 / 投币 / 收藏三个按钮走这里。漏接的话按钮看着能点、
 		// 点了却什么都不发生（Act 为 nil，statButton 会静默跳过）。
 		Like:              c.like,

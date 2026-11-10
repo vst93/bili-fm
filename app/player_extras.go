@@ -135,7 +135,10 @@ func (c *controller) loadPlaybackExtras(aid, cid int64, bvid string) {
 			}
 			if len(a.SubtitleTracks) == 0 {
 				// 没字幕只隐藏窗口，保留用户开关；下一个有字幕的视频会自动显示。
-				log.Printf("字幕: aid=%d cid=%d 上游没有返回字幕轨", aid, cid)
+				// 未登录时上游本来就不给字幕轨 —— 那是预期而不是故障，静默。
+				if a.LoggedIn {
+					log.Printf("字幕: aid=%d cid=%d 上游没有返回字幕轨", aid, cid)
+				}
 				if a.LyricsEnabled {
 					c.hideDesktopLyrics()
 				}
@@ -259,6 +262,10 @@ func pickSubtitleTrackPref(tracks []view.SubtitleTrack, pref, preferID, preferUR
 // 静默结束，不打扰播放。
 func (c *controller) ensureSubtitles() {
 	a := c.app
+	if !c.subtitlesAvailable() {
+		// 未登录：字幕轨拿不到，别每帧重试、也别把「没有字幕」当失败记下来。
+		return
+	}
 	t := currentExtrasTrack(a)
 	if t == nil || t.Cid == 0 {
 		return
@@ -289,12 +296,23 @@ func (c *controller) ensureSubtitles() {
 	c.startSubtitleLoad(t, track)
 }
 
+// subtitlesAvailable 报告字幕链路这一帧能不能用：B 站的字幕轨
+// （`x/player/v2` 的 `subtitle.subtitles`）与字幕正文（`aisubtitle` 签名地址）
+// **都要登录** —— 未登录时上游直接返回空轨 / 无签名 URL。
+//
+// 用户 2026-11-10 要求这类「需要登录才行」的逻辑做**静默限制**：不发请求、
+// 不记「加载失败」、不动用户已经打开的字幕窗（没有字幕就是没有字幕，不报错）。
+func (c *controller) subtitlesAvailable() bool { return c.app != nil && c.app.LoggedIn }
+
 // retrySubtitles 在用户重新打开字幕页时重试一次失败的字幕正文。网络抖动
 // 或上游临时返回空轨时，失败被 markFailed 记下来是为了避免抽屉每帧重试；
 // 但用户主动打开页面应当得到一次新的机会。
 func (c *controller) retrySubtitles() {
 	a := c.app
-	if a == nil || a.SubtitlesLoading || len(a.Subtitles) > 0 {
+	if a == nil || !c.subtitlesAvailable() {
+		return
+	}
+	if a.SubtitlesLoading || len(a.Subtitles) > 0 {
 		c.ensureSubtitles()
 		return
 	}
@@ -312,6 +330,9 @@ func (c *controller) retrySubtitles() {
 // 这里再用 subtitleReqID + 当前 cid 挡住过期响应。
 func (c *controller) startSubtitleLoad(t *view.Track, track view.SubtitleTrack) {
 	a := c.app
+	if !c.subtitlesAvailable() {
+		return // 兜底（调用方已经挡过；这里再挡一次，保证不会真的发出请求）
+	}
 	// 请求参数在发请求这一刻快照下来；回调不再读可变的 t（它可能在用户
 	// 切到另一集时被原地改写），只用快照和当前曲目做身份校验。
 	bvid, cid := t.Bvid, t.Cid
@@ -607,18 +628,6 @@ func buildDanmakuHeat(items []bilibili.DanmakuItem) []view.HeatPoint {
 		}
 	}
 	return out
-}
-
-// nextHighlight 跳到当前时间之后第一个足够明显的弹幕热区。选点规则由
-// view.NextHighlightPoint 给出（进度条右键菜单显示同一个落点，见
-// internal/view/highlight.go）。
-func (c *controller) nextHighlight() {
-	a := c.app
-	if at, ok := view.NextHighlightPoint(a.DanmakuHeat, a.Pos); ok {
-		c.seek(at)
-		return
-	}
-	a.Notify("后面没有更多高能片段")
 }
 
 // ---------------------------------------------------------------- 顺着听

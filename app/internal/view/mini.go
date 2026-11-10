@@ -92,7 +92,7 @@ func (a *App) MiniShell(c *ui.Context) {
 		// 标题栏那两层 hover-to-reveal 贴边**照旧**：`::before` 顶沿投影 .52 →
 		// hover .78、`::after` 白玻璃洗层 0 → hover 1（`transition: opacity .24s`）。
 		bar := ui.Row(c).FillWidth().Height(miniTitleBar).Shrink(0).
-			Padding(0, miniTitleBarPadX).DragWindow()
+			Padding(0, miniTitleBarPadX).DragWindow().Justify(ui.End)
 		_, _, edge, wash := titleBarReveal(bar.Hovered() || bar.FocusWithin())
 		bar.Children(func() {
 			// 两层**无条件**建出来（静息时白玻璃那层 opacity 0、整棵子树不绘制）：
@@ -108,7 +108,12 @@ func (a *App) MiniShell(c *ui.Context) {
 			// Theme.WindowButtons —— 平铺合成器会返回「没有按钮」，而它们根本
 			// 不提供标题栏，跟着不画就是用户 2026-10-17 报告 ③ 的回归）。
 			if viewGOOS != "darwin" {
-				wc := ui.Row(c).Grow(1).Justify(ui.End).Gap(tbWinCtrlGap).
+				// 托盘**贴着两颗键收尺寸**（Shrink(0)）：主窗那一排就是这种形态
+				//（shell.go 的 wc）。此前这里写的是 `Grow(1).Justify(ui.End)`：
+				// 托盘背景跟着整行铺开，几乎占满迷你窗宽度（用户 2026-11-10 报
+				// 「缩小 / 关闭键的背景框没有限制住」）。靠外层的
+				// `Justify(ui.End)` 把它推到右端即可。
+				wc := ui.Row(c).Shrink(0).Gap(tbWinCtrlGap).
 					Padding(miniWinCtrlPadY, miniWinCtrlPadX).AlignItems(ui.Center)
 				// 同一层内凹玻璃托盘（原版 #wds-handle-group 在 mini 下只改 padding /
 				// 键尺寸，背景与 inset 阴影不变）。高度 = 20 + 2×1 = 22，加上下边框

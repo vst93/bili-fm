@@ -1024,9 +1024,9 @@ func TestPlayerChromaticFringeFollowsCorners(t *testing.T) {
 	if straightWarm < 8 {
 		t.Errorf("暖色散边直边段没画出来（%d < 8）", straightWarm)
 	}
-	// 圆角处只允许极少量（连续圆角把外扩弧与直角的差摊开的亚像素残留），
-	// 退回直角绘制会是满行（圆角段宽 = 半径 + 外扩 ≈ 10）。
-	const maxCorner = 6
+	// 圆角处只允许极少量（GPU 掩码在边界上可能剩一个经过滤波的像素）；
+	// 带按切点收窄之前这里是 6（外扩弧在带那一行要到 x+半径-√(2·半径) 才交）。
+	const maxCorner = 1
 	if cornerCool > maxCorner {
 		t.Errorf("冷色散边在圆角区仍是直线（圆角段 %d > %d）：未按圆角裁切",
 			cornerCool, maxCorner)

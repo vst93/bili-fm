@@ -663,6 +663,9 @@ func (c *controller) login() {
 					// 后的 goroutine 里读 c.app.Drawer —— 那时用户可能已经切走。
 					c.invalidateBrowsingForAccount()
 					c.reloadBrowsingAfterAccountChange()
+					// 字幕要登录才可用（见 player_extras.go 的 subtitlesAvailable）：
+					// 起播那一刻还没登录时整块是空的，这里补拉一次。
+					c.retrySubtitles()
 					a.Notify("登录成功")
 				})
 				return

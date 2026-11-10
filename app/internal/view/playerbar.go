@@ -1480,15 +1480,32 @@ func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
+	if radius < 0 {
+		radius = 0
+	}
 	// 暖边在下缘外 0.5px、冷边在上缘外 0.5px。原版这两条是 box-shadow：形状
 	// 是**元素自己的圆角矩形平移半像素**，只从边缘外露出半条，因此**必然跟着
 	// 圆角弯曲**。此前直接画两条横贯整宽的 1px 直线（不裁圆角），在四个圆角处
 	// 就成了一条超出圆角范围的直角色线（用户报「上下边的彩色线条超出圆角范围」）。
-	// 这里把两条带裁到「元素圆角矩形向外扩 1px」的形状（半径相应 +1）：直边上
-	// 照旧露在边缘外，四个圆角处被扩出的弧线裁掉，与 CSS 逐形一致。
-	p.Clip(ui.Rect{X: r.X - 1, Y: r.Y - 1, W: r.W + 2, H: r.H + 2}, radius+1, func() {
-		p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
-		p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
+	//
+	// 这里两件事一起做，缺一件都还会留一小截直线：
+	//
+	//	1. 带只画到两端**切点**（元素底/顶边的平直段就是 [x+radius, x+W-radius]）。
+	//	   只裁圆角是不够的：外扩 1px 的圆角矩形在带所在那一行的弧上要到
+	//	   x + radius - √(2·radius) 处才交，比切点还要外 ~3px，看起来就是「线
+	//	   从圆角里探出一小截」（用户 2026-11-10 报「搜索栏 / 播放键底部多一条
+	//	   高光线，还超出两端圆角」；GPU 裁剪是硬边的 Linux/Windows 上尤其明显，
+	//	   macOS 的掩码带抗锯齿，同一几何看着才不那么扎眼）。
+	//	2. 裁剪改成「只向两端各外 1px、半径不变」：这样带所在的行正是扩出矩形的
+	//	   首/末行，两端落在圆心（= 元素的切点）上；就算某个渲染后端把圆角裁剪
+	//	   退化成矩形，带本身也已经窄到切点以内。
+	x0, x1 := r.X+radius, r.X+r.W-radius
+	if x1-x0 < 1 {
+		x0, x1 = r.X, r.X+r.W
+	}
+	p.Clip(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: r.H + 2}, radius, func() {
+		p.Fill(ui.Rect{X: x0, Y: r.Y + r.H, W: x1 - x0, H: 1}, playerChromaticWarm(), 0)
+		p.Fill(ui.Rect{X: x0, Y: r.Y - 1, W: x1 - x0, H: 1}, playerChromaticCool(), 0)
 	})
 }
 
@@ -2314,10 +2331,10 @@ func (a *App) progress(c *ui.Context) {
 	// 不设禁用，此前无视频时也能把 SeekValue 拖出一串数字（拖了又弹回）。
 	// 只用 Dur <= 0 判：无视频时 Dur 通常为 0，已覆盖原版的 !src 分支。
 	s.Disabled(a.Dur <= 0)
-	// 高能跳转放在进度条右键菜单：不占播放栏的定宽列，也不改变原版布局。
-	// 热力条只负责“看见”，右键负责“跳过去”；副标题写出落点时刻
-	//（见 highlight.go）。
-	a.nextHighlightMenu(s)
+	// 进度条**不挂右键菜单**：此前有一条「跳到下一个高能」的右键项（本仓库
+	// 自己加的，原版没有），用户 2026-11-10 报它过于突兀，整条去掉
+	//（`Act.NextHighlight` / `view.NextHighlightPoint` 一并删）。热力条只负责
+	// 「看见」，不再提供跳转入口。
 	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
@@ -2759,14 +2776,19 @@ var popoverGlass = func(b ui.Element, radius float32, sheen *sheenBaked) ui.Elem
 // playerSpeedOptionInk 是倍速弹层里档位文字的常态色：浅色 #475569，
 // 深色时段 rgba(241,245,249,.78)（激活/悬停仍走 --studio-blue）。
 func playerSpeedOptionInk(t Theme) ui.Color {
-	if t.Mode == "dark" {
+	switch {
+	case t.Mode == "dark":
 		return t.text(ui.Hex("#334155"))
-	}
-	if t.ReducedTransparency {
+	case t.ReducedTransparency:
 		// 原版减少透明度下 `.player-speed-option { color: #334155 }`（实底上的深灰）。
 		return ui.Hex(rtSpeedOptionInk)
-	}
-	if t.Dark {
+	case t.Transparency > 0:
+		// 背景透明度 > 0 时弹层走 Theme.surface（playerPopoverVeil 的第一条
+		// 分支）：**浅色外观**拿到的是一块浅底，不能再按烟熏玻璃画浅墨 ——
+		// 用户 2026-11-10 报「浅色模式下设置倍速的档位白字看不清」（白字
+		// 落在白玻璃上）。深色外观在上面那条已经返回浅墨。
+		return ui.Hex(rtSpeedOptionInk)
+	case t.Dark:
 		return ui.Hex("#f1f5f9").Alpha(0.78)
 	}
 	return ui.Hex("#475569")
@@ -3044,8 +3066,8 @@ func (a *App) miniProgress(c *ui.Context) {
 	// 与主窗 progress 同一条原版规则：`disabled={!src || !duration}`。
 	// 只用 Dur <= 0 判，理由同主窗 progress 的注释。
 	s.Disabled(a.Dur <= 0)
-	// 与主窗同一条菜单（同一份副标题与动作，见 highlight.go）。
-	a.nextHighlightMenu(s)
+	// 与主窗一致：进度条不再有右键菜单（原来那条「跳到下一个高能」已按用户
+	// 2026-11-10 的要求整条去掉）。
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)
