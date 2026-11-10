@@ -65,7 +65,7 @@ func (l btnLight) alphaAt(x, y, w, h float32) float32 {
 	return float32(gradAt(l.stops[:l.n], d).A) / 255
 }
 
-// 四条几何。前三条只差停靠点（都锚在左上 30% 8%），第四条是按下时的居中光。
+// 五条几何。前四条只差停靠点与色值（都锚在左上 30% 8%），末条是按下时的居中光。
 var (
 	// .nav-icon-btn（常态）/ .app-title-bar button（悬停）: 白 .38 → .12 → .02 → 0
 	btnLightNav = newBtnLight(0.30, 0.08, 0.80, 1.10,
@@ -79,6 +79,13 @@ var (
 		gradStop{0, ui.Hex("#ffffff").Alpha(0.36)},
 		gradStop{0.30, ui.Hex("#ffffff").Alpha(0.10)},
 		gradStop{0.72, ui.Hex("#ffffff").Alpha(0)},
+	)
+	// .nav-icon-btn（深色）：白 .38 的左上径向光在深色底上会显成一块灰白污渍，
+	// 收成低强度冷色反射（与 --player-sheen 深色那层同色系）。
+	btnLightNavDark = newBtnLight(0.30, 0.08, 0.80, 1.10,
+		gradStop{0, ui.Hex("#a9d9f4").Alpha(0.09)},
+		gradStop{0.30, ui.Hex("#a9d9f4").Alpha(0.03)},
+		gradStop{0.72, ui.Hex("#a9d9f4").Alpha(0)},
 	)
 	// .app-title-bar button.app-title-bar-close（悬停，暖红）: 白 .30 → 0
 	btnLightClose = newBtnLight(0.30, 0.08, 0.80, 1.10,

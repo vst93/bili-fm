@@ -29,14 +29,33 @@ var Logo = func() *ui.Bitmap {
 //go:embed assets/logo-cover.png
 var logoCoverPNG []byte
 
-// LogoCover 是封面缺失时用的白底品牌位图，解码失败时为 nil（兜底退回 Logo）。
-var LogoCover = func() *ui.Bitmap {
-	bmp, err := ui.DecodeBitmap(logoCoverPNG)
+//go:embed assets/logo-cover-dark.png
+var logoCoverDarkPNG []byte
+
+// LogoCover 是浅色封面缺失时用的白底品牌位图；LogoCoverDark 是对应的深色
+// 底版本。解码失败时为 nil（兜底退回 Logo）。
+var LogoCover = decodeLogoCover(logoCoverPNG)
+var LogoCoverDark = decodeLogoCover(logoCoverDarkPNG)
+
+func decodeLogoCover(png []byte) *ui.Bitmap {
+	bmp, err := ui.DecodeBitmap(png)
 	if err != nil {
 		return nil
 	}
 	return bmp
-}()
+}
+
+// coverLogoFor picks the white or dark logo plate for the resolved app
+// appearance. coverLogo() stays the light-only historical entry point.
+func coverLogoFor(t Theme) *ui.Bitmap {
+	if t.Mode == "dark" && LogoCoverDark != nil {
+		return LogoCoverDark
+	}
+	if LogoCover != nil {
+		return LogoCover
+	}
+	return Logo
+}
 
 // coverLogo 返回封面缺失时该铺的位图：白底 LogoCover 优先，解码失败时退回
 // 透明的 Logo（至少还有台标）。标题栏仍只用 Logo。

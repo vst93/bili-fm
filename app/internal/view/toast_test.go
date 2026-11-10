@@ -453,3 +453,37 @@ func TestToastNoGlassLift(t *testing.T) {
 			inside, outside, inside-outside)
 	}
 }
+
+// TestDarkToastTextReadable 钉住深色 toast 的文案仍是亮色：深色底
+// (floatingFill .97) 曾经作为 Absolute 子盒铺在流式文案之后，把白字整块
+// 盖成深灰（文字区域最亮只有 46 灰阶，用户报「暗色下提示文字看不清」）。
+// 现在深色底进根材质，文案区域应出现接近白的字形像素。
+func TestDarkToastTextReadable(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(21))
+	a.SetAppearance("dark", 0)
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 1000, 700)
+	tst.Frame()
+	a.NotifyType("info", "已复制链接到剪贴板")
+	tst.Frame()
+	tst.Advance(400 * time.Millisecond)
+	tst.Frame()
+	r, ok := tst.Find("已复制链接到剪贴板")
+	if !ok {
+		t.Fatalf("找不到深色 toast 文案：%v", tst.Texts())
+	}
+	img := tst.Image()
+	maxL := 0
+	for y := int(r.Y); y < int(r.Y+r.H); y++ {
+		for x := int(r.X); x < int(r.X+r.W); x++ {
+			p := img.RGBAAt(x, y)
+			l := (int(p.R)*299 + int(p.G)*587 + int(p.B)*114) / 1000
+			if l > maxL {
+				maxL = l
+			}
+		}
+	}
+	if maxL < 180 {
+		t.Fatalf("深色 toast 文案区域最亮 %d，白字被深色底盖住了", maxL)
+	}
+}

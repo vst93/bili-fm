@@ -81,8 +81,10 @@ func (a *App) searchBar(c *ui.Context, l homeLayout) {
 		pill := ui.Row(c).Width(l.SearchWidth).Height(SearchBarHeight).Radius(SearchRadius).
 			Padding(SearchPadding).Gap(8).AlignItems(ui.Center).
 			// 原版 .home-searchbar::before：blur(20px) + 白 22% + 静态洗光。
+			// 白底只保留玻璃令牌的四成（glassPaneVeil）：用户要求比原版更透，
+			// 背后的渐变与封面要能真正读出来；窗口越透它还会平方级继续让出。
 			// 不再用 glass.Glass（Regular 会把背景的黑抬到 54%，整块发白、不透）。
-			Material(cssGlassLayer(liquidBlurRadius, a.Theme.glassVeil(searchPillVeil().Alpha(.72), "#18273b", .30), a.Theme.glassSheen())).
+			Material(cssGlassLayer(liquidBlurRadius, a.Theme.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark), a.Theme.glassSheen(), a.Theme.glassPaneSheenFade())).
 			// 原版 ::after 的 conic 描光 + 色散边（玻璃材质只管 ::before 那层）。
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				paintPlayerRim(p, r, SearchRadius, playerRimOpacity(a.Theme.Dark, false))
@@ -444,7 +446,7 @@ func (a *App) coverDisc(c *ui.Context, side float32) {
 						// 桌面要求减少动态效果时原版把这条 animation 整个撤掉
 						// （`.record-disc { animation: none }`）——唱片不再转、回正到
 						// 0°；这里停步进并复位角度（见 discTargetAngle / resetDisc）。
-						if a.coverBitmap() != nil || coverLogo() != nil {
+						if a.coverBitmap() != nil || coverLogoFor(a.Theme) != nil {
 							reduce := reduceMotion(c)
 							now := time.Now()
 							if reduce {
@@ -613,6 +615,11 @@ func coverToggleStyle(active, hovered bool) (bg, border, ink ui.Color) {
 	return bg, border, ink
 }
 
+// coverToggleAnim 是封面小开关的底色过渡（原版
+// `.cover-mode-toggle { transition: opacity 0.2s ease, background 0.2s ease }`）。
+// 外观键与旁边几颗共用同一条，避免一颗瞬时、一颗渐变。
+var coverToggleAnim = ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.CubicBezier(0.25, 0.5, 0.25, 1)}
+
 // coverToggleStateful 报告封面上的某个小开关是不是**保持型开关**。原版只给
 // 「封面背景 / 高级质感」两颗键写了 `aria-pressed`，模式切换键（Refresh）没有——
 // 它是「点一下换一种模式」的动作键，不是有开/关状态的切换键。无障碍上 aria-pressed
@@ -648,7 +655,7 @@ func (a *App) coverToggle(c *ui.Context, key, label string, ic *ui.SVG, fn func(
 	// 原版 .cover-mode-toggle { transition: opacity 0.2s ease, background 0.2s ease }
 	// —— 背景色切换有 0.2s 过渡。opacity 过渡已由外层 group.AnimateTo 提供，
 	// 这里用 AnimateColor 给背景色加同样的 0.2s 过渡。
-	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 200 * time.Millisecond, Ease: ui.CubicBezier(0.25, 0.5, 0.25, 1)})).
+	b.Background(b.AnimateColor("bg", bg, coverToggleAnim)).
 		Border(1, border)
 	b.Children(func() {
 		ui.Icon(c, ic).Size(14, 14).TextColor(a.Theme.text(ink))
@@ -938,10 +945,10 @@ func (a *App) videoInfoHead(c *ui.Context) {
 				a.Images.Retain(a.ownerFace(), imagecache.WidthAvatar)
 				if bmp := a.Images.Bitmap(a.ownerFace(), imagecache.WidthAvatar); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
-				} else if placeholderCover != nil {
+				} else if ph := placeholderCoverFor(a.Theme); ph != nil {
 					// 默认头像 / 真头像还没解码好：先铺占位图（原版 RetryImg 的
 					// onError 退 /cover.png 那一层），解码完再被真图盖掉。
-					ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
+					ui.Image(c, ph).Fill().Fit(ui.Cover)
 				}
 			})
 			if face.Clicked() {
@@ -1585,12 +1592,12 @@ func (a *App) statButton(c *ui.Context, spec statSpec) {
 		navIconBgTo(b, pressFeedback(b, ui.Transparent, a.Theme.GlassHover, a.Theme.GlassActive))
 	}
 	// 原版 .nav-icon-btn.nav-stat-btn 仍带常态的左上角径向聚光。
-	btnLightNav.draw(b, ContentIconR)
+	a.Theme.navIconLighting(b, ContentIconR)
 	// 悬停 ::after 内高光；按下时它归零、换成 :active 的内压阴影。
 	if b.Pressed() {
-		navPressShadow(b)
+		a.Theme.navIconPress(b)
 	} else if b.Hovered() {
-		navHoverHighlight(b)
+		a.Theme.navIconHover(b)
 	}
 	b.Children(func() {
 		ui.Icon(c, spec.Icon).Size(spec.Size, spec.Size).
@@ -1654,12 +1661,12 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 	navIconBgTo(b, pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态就带一层左上角径向聚光（background-image），
 	// 之前原生版只有填充、少了这道光（见 btnlight.go）。
-	btnLightNav.draw(b, ContentIconR)
+	t.navIconLighting(b, ContentIconR)
 	// 悬停叠 ::after 内高光（原版不是描边）；按下换成 :active 的内压阴影。
 	if b.Pressed() {
-		navPressShadow(b)
+		t.navIconPress(b)
 	} else if b.Hovered() {
-		navHoverHighlight(b)
+		t.navIconHover(b)
 	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(a.Theme.text(ui.Hex("#475569"))) })
 	if b.Clicked() && fn != nil {
@@ -1685,11 +1692,11 @@ func (a *App) radioContentButton(c *ui.Context, off bool) {
 		bg = t.GlassActive
 	}
 	navIconBgTo(b, bg)
-	btnLightNav.draw(b, ContentIconR)
+	t.navIconLighting(b, ContentIconR)
 	if b.Pressed() {
-		navPressShadow(b)
+		t.navIconPress(b)
 	} else if b.Hovered() {
-		navHoverHighlight(b)
+		t.navIconHover(b)
 	}
 	b.Children(func() {
 		ink := ui.Hex("#475569")
@@ -1724,12 +1731,12 @@ func (a *App) inkButton(c *ui.Context, key, label string, ic *ui.SVG, size float
 	navIconPose(b)
 	navIconBgTo(b, pressFeedback(b, ui.Transparent, t.GlassHover, t.GlassActive))
 	// 原版 .nav-icon-btn 常态的左上角径向聚光（见 btnlight.go）。
-	btnLightNav.draw(b, DockIconR)
+	t.navIconLighting(b, DockIconR)
 	// 悬停叠 ::after 内高光（原版不是描边）；按下换成 :active 的内压阴影。
 	if b.Pressed() {
-		navPressShadow(b)
+		t.navIconPress(b)
 	} else if b.Hovered() {
-		navHoverHighlight(b)
+		t.navIconHover(b)
 	}
 	b.Children(func() { ui.Icon(c, ic).Size(size, size).TextColor(a.Theme.text(textInk)) })
 	if b.Clicked() && fn != nil {
@@ -1854,16 +1861,16 @@ func statText(info *Info, pick func(*Info) int64) string {
 func (a *App) coverOrLogo(c *ui.Context) {
 	if bmp := a.coverBitmap(); bmp != nil {
 		ui.Image(c, bmp).Fill().Fit(ui.Cover)
-	} else if lg := coverLogo(); lg != nil {
+	} else if lg := coverLogoFor(a.Theme); lg != nil {
 		ui.Image(c, lg).Fill().Fit(ui.Cover)
 	}
 }
 
 // coverImage 画圆盘封面（或 logo）并返回图片元素，供旋转。
-// 调用前先确认 coverBitmap() 或 coverLogo() 非空。
+// 调用前先确认 coverBitmap() 或 coverLogoFor(a.Theme) 非空。
 func (a *App) coverImage(c *ui.Context) ui.Element {
 	if bmp := a.coverBitmap(); bmp != nil {
 		return ui.Image(c, bmp).Fill().Fit(ui.Cover)
 	}
-	return ui.Image(c, coverLogo()).Fill().Fit(ui.Cover)
+	return ui.Image(c, coverLogoFor(a.Theme)).Fill().Fit(ui.Cover)
 }

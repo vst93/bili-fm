@@ -133,7 +133,7 @@ func (c *controller) loadPrefs() {
 }
 
 func (c *controller) persistAppearance() {
-	_ = c.kv.SetString(prefTheme, c.app.Theme.Mode)
+	_ = c.kv.SetString(prefTheme, c.app.AppearancePref())
 	_ = c.kv.SetString(prefTransparency, strconv.FormatFloat(c.app.Theme.Transparency, 'f', -1, 64))
 }
 

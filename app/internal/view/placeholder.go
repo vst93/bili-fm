@@ -28,16 +28,34 @@ const noFaceAvatar = "https://i0.hdslb.com/bfs/face/member/noface.jpg"
 // placeholderAvailable 报告占位图这次真的画得出来（解码成功）。只铺底色 /
 // 不铺占位图的调用点要看它，免得让「占位图解码失败」这种构建事故静默通过
 // 测试（issueImage 里真图 nil 会 NPE，属于同类事故）。
-func placeholderAvailable() bool { return placeholderCover != nil }
+func placeholderAvailable() bool { return placeholderCover != nil || placeholderCoverDark != nil }
 
 //go:embed assets/cover.png
 var coverPlaceholderPNG []byte
 
-// placeholderCover 是占位图位图，解码失败时为 nil（那就退回底色）。
-var placeholderCover = func() *ui.Bitmap {
-	bmp, err := ui.DecodeBitmap(coverPlaceholderPNG)
+//go:embed assets/cover-dark.png
+var coverPlaceholderDarkPNG []byte
+
+// placeholderCover / placeholderCoverDark 是浅色 / 深色两套占位图；深色版
+// 把原来纯白的底换成与侧栏面板同色系的深蓝渐变，并保留了浅色描边的台标，
+// 压在深色卡片上不再是一块白。解码失败时为 nil（那就退回底色）。
+var placeholderCover = decodePlaceholder(coverPlaceholderPNG)
+var placeholderCoverDark = decodePlaceholder(coverPlaceholderDarkPNG)
+
+func decodePlaceholder(png []byte) *ui.Bitmap {
+	bmp, err := ui.DecodeBitmap(png)
 	if err != nil {
 		return nil
 	}
 	return bmp
-}()
+}
+
+// placeholderCoverFor picks the placeholder that matches the resolved app
+// appearance. Keeping placeholderCover as the light variant preserves the
+// existing test seams (they stub the light bitmap and render in light mode).
+func placeholderCoverFor(t Theme) *ui.Bitmap {
+	if t.Mode == "dark" && placeholderCoverDark != nil {
+		return placeholderCoverDark
+	}
+	return placeholderCover
+}

@@ -71,26 +71,35 @@ func (a *App) toastViewport(c *ui.Context) {
 			p := ui.ToastBase(c, t)
 			tint, ic := toastAccent(t.Type)
 			from, to := toastFillStops(tint)
-			if a.Theme.Mode == "dark" {
-				from, to = a.Theme.floatingFill(), a.Theme.floatingFill()
-			}
 			// 入场/退场：原版是 CSS transition（上方 8px、300ms）。
 			p.Root.Transition(toastTransition())
-			// 材质用「只模糊不染色」的 glass.Blur 打底（原版 .toast-glass 的
+			// 浅色材质用「只模糊不染色」的 glass.Blur 打底（原版 .toast-glass 的
 			// `backdrop-filter: blur(20px) saturate(1.45)`；saturate 框架没有对应
 			// 项）。**不能**用 glass.Glass{}：原版 Toast.tsx 的内联 background
 			// 把 .toast-glass 的白 .24 底色一起顶掉了，Regular 玻璃的提亮会让整块
-			// 比原版白一档（这正是 11-07 剩余差异 ④）。
-			p.Root.Row().Gap(8).Padding(8, 16).Radius(toastRadius).
-				Material(blurLayer(glass.Blur{Radius: glassBlurSigma})).
-				Border(1, a.Theme.GlassBorder).
+			// 比原版白一档（这正是 11-07 剩余差异 ④）。深色底不透明，见下。
+			root := p.Root.Row().Gap(8).Padding(8, 16).Radius(toastRadius)
+			if a.Theme.Mode == "dark" {
+				// 深色底不透明（floatingFill .97），不能再学浅色那样把它作为
+				// Absolute 子盒铺——框架的 Absolute 子元素在本元素的流式子元素
+				// **之后**绘制，那层会盖住图标和文案（实测文字区域没有任何
+				// 亮像素）。直接让它进材质：cssGlass 在子元素之前画模糊 + 底色。
+				root.Material(cssGlassLayer(glassBlurSigma, a.Theme.floatingFill(), nil, 1))
+			} else {
+				root.Material(blurLayer(glass.Blur{Radius: glassBlurSigma}))
+			}
+			root.Border(1, a.Theme.GlassBorder).
 				Shadow(0, 14, 40, 0, ui.Hex("#0f172a").Alpha(0.10)).
 				AlignItems(ui.Center)
 			ins := toastSpecularInsets()
 			p.Root.Children(func() {
-				ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
-					Radius(toastRadius).PassThrough().
-					LinearGradient(ui.LinearGradient{From: from, To: to, Angle: 135})
+				if a.Theme.Mode != "dark" {
+					// 浅色保留原版的 135° 内联渐变：它是半透明的，压在文案
+					// 上仍能读；深色底已经走根材质，再铺就变成不透明遮罩。
+					ui.Box(c).Absolute().Left(0).Top(0).Right(0).Bottom(0).
+						Radius(toastRadius).PassThrough().
+						LinearGradient(ui.LinearGradient{From: from, To: to, Angle: 135})
+				}
 				ui.Icon(c, ic).Size(20, 20).Shrink(0).TextColor(a.Theme.text(tint))
 				// 原版：text-sm（14）font-medium text-slate-800。
 				ui.Text(c, t.Title).FontSize(14).FontWeight(500).

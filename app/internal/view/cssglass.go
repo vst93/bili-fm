@@ -27,16 +27,22 @@ import (
 // 1px 描光不在这里：原版的 rim 是 ::after 的 conic（--liquid-rim + 色散边），
 // 由调用方用 paintPlayerRim 画；材质只负责 ::before 那一层。
 type cssGlass struct {
-	blur  glass.Blur
-	veil  ui.Color
-	sheen *sheenBaked
+	blur      glass.Blur
+	veil      ui.Color
+	sheen     *sheenBaked
+	sheenFade float32
 }
 
 // cssGlassLayer 记一层 backdrop（见 backdropcount.go）并给出材质。
 // radius 是原版 blur() 的半径（DIP），veil 是 background-color，
-// sheen 是 background-image（nil 表示这一帧不铺）。
-func cssGlassLayer(radius float32, veil ui.Color, sheen *sheenBaked) cssGlass {
-	return cssGlass{blur: blurLayer(glass.Blur{Radius: radius}), veil: veil, sheen: sheen}
+// sheen 是 background-image（nil 表示这一帧不铺）。sheenFade 是洗光整层
+// 不透明度（1 = 原值）：窗口越透，固定的烘焙洗光越该一起收，否则它在
+// veil 已经淡下去之后变成最大的一层白纱。
+func cssGlassLayer(radius float32, veil ui.Color, sheen *sheenBaked, sheenFade float32) cssGlass {
+	if sheenFade <= 0 {
+		sheen = nil
+	}
+	return cssGlass{blur: blurLayer(glass.Blur{Radius: radius}), veil: veil, sheen: sheen, sheenFade: sheenFade}
 }
 
 // PaintMaterial paints the blur, then the veil and the sheen over it, as CSS
@@ -49,8 +55,35 @@ func (m cssGlass) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
 		p.Fill(box, m.veil, radii[0])
 	}
 	if m.sheen != nil {
-		playerSheenPaint(p, box, radii[0], m.sheen.bitmapFor(box.W, box.H))
+		paintBakedSheenFaded(p, box, radii[0], m.sheen, m.sheenFade)
 	}
+}
+
+// paintBakedSheenFaded 按 fade 缩放一条已烘焙洗光的整层不透明度。
+//
+// 位图本身不带逐帧的 alpha 参数（playerSheenPaint 只画图），所以走
+// Painter.ImageRegion 的 Tint：白色 × fade 只乘 alpha、不改色相，与
+// 给 ::before 设 opacity 同义。fade >= 1 时仍走 playerSheenPaint，
+// 保持默认外观与测试里的绘制桩完全不差。
+func paintBakedSheenFaded(p *ui.Painter, r ui.Rect, radius float32, baked *sheenBaked, fade float32) {
+	bmp := baked.bitmapFor(r.W, r.H)
+	if bmp == nil || fade <= 0 {
+		return
+	}
+	if fade >= 1 {
+		playerSheenPaint(p, r, radius, bmp)
+		return
+	}
+	paintFadedSheen(p, r, radius, bmp, fade)
+}
+
+// paintFadedSheen 画一条按 fade 调过整层不透明度的洗光。声明成 var 是为了
+// 让无头测试能像 playerSheenPaint 一样记录「播放栏本体有没有铺、用的是不是
+// 按栏宽高比烘的位图」（见 TestPlayerBarSheenWired）。
+var paintFadedSheen = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap, fade float32) {
+	p.Clip(r, radius, func() {
+		p.ImageRegion(bmp, ui.Rect{}, r, ui.ImageOptions{Tint: ui.Hex("#ffffff").Alpha(fade)})
+	})
 }
 
 // searchPillVeil 是原版 .home-searchbar::before 的 background-color

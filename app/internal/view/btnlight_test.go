@@ -213,3 +213,18 @@ func TestBtnLightWired(t *testing.T) {
 		})
 	}
 }
+
+// TestDarkNavLightSubtle 钉住深色下内容操作行按钮的聚光：仍是冷色反射，
+// 峰值不超过白 .10（浅色原版是白 .38），不再是一块灰白污渍。
+func TestDarkNavLightSubtle(t *testing.T) {
+	peak := btnLightNavDark.alphaAt(.30, .08, 1, 1)
+	if peak <= 0 || peak > .10 {
+		t.Fatalf("深色导航聚光峰值 = %v，应在 (0, .10]", peak)
+	}
+	if peak >= btnLightNav.alphaAt(.30, .08, 1, 1) {
+		t.Fatal("深色聚光应明显弱于浅色白 .38")
+	}
+	if got := btnLightNavDark.alphaAt(1, 1, 1, 1); got != 0 {
+		t.Errorf("深色聚光右下角 = %v，应为 0", got)
+	}
+}

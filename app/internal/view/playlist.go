@@ -621,10 +621,10 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 			// 构建只读缓存：缩略图由 playlistBody 的可见窗口预取负责抓。
 			if bmp := a.Images.Get(src, imagecache.WidthPlaylist); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			} else if placeholderCover != nil {
+			} else if ph := placeholderCoverFor(a.Theme); ph != nil {
 				// 未就绪 / 本来就没缩略图（src 空，原版 RetryImg `src || fallbackSrc`
 				// 同样画 /cover.png）都先铺占位图，与列表卡片同一套渐进式加载。
-				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
+				ui.Image(c, ph).Fill().Fit(ui.Cover)
 			}
 		})
 

@@ -55,6 +55,10 @@ func TestDanmakuInk(t *testing.T) {
 	if got := danmakuInk(-1, false); got != ui.Hex("#000000") {
 		t.Errorf("danmakuInk(-1) = %v, want #000000", got)
 	}
+	// 深色底上无颜色 = 默认弹幕，必须用白字，否则黑字读不清。
+	if got := danmakuInk(0, true); got != ui.Hex("#ffffff") {
+		t.Errorf("danmakuInk(0, true) = %v, want #ffffff", got)
+	}
 	// 白色太亮 → 浅色模式深灰对比色。
 	if got := danmakuInk(0xffffff, false); got != ui.Hex("#1a1a1a") {
 		t.Errorf("danmakuInk(白, false) = %v", got)
@@ -739,19 +743,26 @@ func TestDanmakuTextHasNoBackground(t *testing.T) {
 	if !strings.Contains(flat, `danmakuTextFont`) {
 		t.Error("弹幕文字没有用 danmakuTextFont（13px/650）")
 	}
-	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuListInk(e.Color))`) {
-		t.Error("danmakuGroupRow 没有用 danmakuText 画文字")
+	if !strings.Contains(flat, `danmakuText(c,e.Text,danmakuListInk(e.Color,a.Theme.Mode=="dark"))`) {
+		t.Error("danmakuGroupRow 没有按应用外观选弹幕墨色")
 	}
-	// 用户 2026-10-18 晚间 ⑤：弹幕列表的墨色必须走浅色分支（默认白弹幕 →
-	// #1a1a1a / 无颜色 → #000000），不能跟着播放栏的烟熏时段翻成白字。
+	// 用户 2026-10-18 晚间 ⑤ 的教训仍在：不能拿只描述播放栏的 Theme.Dark
+	// 当抽屉背景。现在全应用深色真的会把抽屉变深，墨色按 Theme.Mode 走。
 	if strings.Contains(flat, `danmakuInk(e.Color,t.Dark)`) {
 		t.Error("弹幕列表的墨色跟了播放栏的 Theme.Dark（浅色玻璃上会出白字白底）")
 	}
-	if got := danmakuListInk(0xffffff); got != ui.Hex("#1a1a1a") {
-		t.Errorf("danmakuListInk(默认白弹幕) = %v, want #1a1a1a", got)
+	if got := danmakuListInk(0xffffff, false); got != ui.Hex("#1a1a1a") {
+		t.Errorf("danmakuListInk(默认白弹幕, 浅色) = %v, want #1a1a1a", got)
 	}
-	if got := danmakuListInk(0); got != ui.Hex("#000000") {
-		t.Errorf("danmakuListInk(无颜色) = %v, want #000000", got)
+	if got := danmakuListInk(0, false); got != ui.Hex("#000000") {
+		t.Errorf("danmakuListInk(无颜色, 浅色) = %v, want #000000", got)
+	}
+	// 深色抽屉：默认白弹幕保持白、无颜色也转白，不能是黑字。
+	if got := danmakuListInk(0xffffff, true); got != ui.Hex("#ffffff") {
+		t.Errorf("danmakuListInk(默认白弹幕, 深色) = %v, want #ffffff", got)
+	}
+	if got := danmakuListInk(0, true); got != ui.Hex("#ffffff") {
+		t.Errorf("danmakuListInk(无颜色, 深色) = %v, want #ffffff", got)
 	}
 }
 

@@ -31,7 +31,7 @@ func TestAppearancePreservesPreferences(t *testing.T) {
 	}
 	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1, 2} {
 		a.SetAppearance("unknown", value)
-		if a.Theme.Mode != "light" || a.Theme.Transparency < 0 || a.Theme.Transparency > .4 || math.IsNaN(a.Theme.Transparency) {
+		if a.AppearancePref() != "light" || a.Theme.Mode != "light" || a.Theme.Transparency < 0 || a.Theme.Transparency > .4 || math.IsNaN(a.Theme.Transparency) {
 			t.Fatal("invalid persisted appearance was not normalized")
 		}
 	}
@@ -109,7 +109,7 @@ func TestAppearanceRender(t *testing.T) {
 			a.Track = &Track{Bvid: "BVdemo", Title: a.Info.Title, Up: a.Info.OwnerName}
 			a.ShowAppearance = true
 			tt := shellTesterSize(t, a, width, 600)
-			for _, label := range []string{"浅色主题", "深色主题", "透明度 40%"} {
+			for _, label := range []string{"浅色主题", "自动主题", "深色主题", "透明度 40%"} {
 				r, ok := tt.Find(label)
 				if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > float32(width)+1 || r.Y+r.H > 600 {
 					t.Fatalf("%s %d: clipped %s: %v", mode, width, label, r)
@@ -361,5 +361,124 @@ func TestAppearanceDarkEdgesStayInsideGlass(t *testing.T) {
 		if int(top.R)-int(bottom.R) < 10 {
 			t.Fatalf("glass reflection should fade toward the bottom: %v / %v", top, bottom)
 		}
+	}
+}
+
+// TestAppearanceTriggerDoesNotShiftWhenPressed 钉住封面上的外观键按下时
+// 几何不变：此前它用 b.Scale(.97,.97) 做按压缩放，而旁边三颗封面开关
+// 只做底色过渡；缩放还在亚像素落点上让图标看起来“往下跳一下”。
+func TestAppearanceTriggerDoesNotShiftWhenPressed(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	tt := shellTester(t, a)
+	rest, ok := tt.Find("外观")
+	if !ok {
+		t.Fatal("missing appearance trigger")
+	}
+	tt.Move(rest.X+rest.W/2, rest.Y+rest.H/2)
+	tt.Advance(300 * time.Millisecond)
+	tt.Press(rest.X+rest.W/2, rest.Y+rest.H/2)
+	tt.Advance(100 * time.Millisecond)
+	pressed, _ := tt.Find("外观")
+	if abs32(pressed.X-rest.X) > .01 || abs32(pressed.Y-rest.Y) > .01 ||
+		abs32(pressed.W-rest.W) > .01 || abs32(pressed.H-rest.H) > .01 {
+		t.Fatalf("外观键按下时几何变了：rest=%+v pressed=%+v", rest, pressed)
+	}
+	tt.Release(rest.X+rest.W/2, rest.Y+rest.H/2)
+	tt.Advance(100 * time.Millisecond)
+	if !a.ShowAppearance {
+		t.Fatal("appearance trigger no longer opens the popover")
+	}
+}
+
+// TestAppearanceAutoPeriods 钉住自动模式的时间表：与播放栏烟熏玻璃共用
+// darkPeriods，18:00–06:00 深色，06:00–18:00 浅色。
+func TestAppearanceAutoPeriods(t *testing.T) {
+	for _, tc := range []struct {
+		hour int
+		want string
+	}{
+		{0, "dark"}, {5, "dark"}, {6, "light"}, {7, "light"},
+		{12, "light"}, {17, "light"}, {18, "dark"}, {21, "dark"}, {23, "dark"},
+	} {
+		got := ThemeFor(PeriodAt(tc.hour)).withAppearance("auto", .2).Mode
+		if got != tc.want {
+			t.Errorf("%02d:00 auto mode = %s, want %s", tc.hour, got, tc.want)
+		}
+	}
+}
+
+// TestAppearanceAutoPreserved 钉住 RefreshTheme / 减少透明度重推时不会把
+// "auto" 偏好丢掉，并且每次按新的时段重新解析。
+func TestAppearanceAutoPreserved(t *testing.T) {
+	a := NewApp(func() {})
+	a.SetAppearance("auto", .25)
+	a.RefreshTheme()
+	want := appearanceForPeriod(PeriodAt(time.Now().Hour()))
+	if a.AppearancePref() != "auto" || a.Theme.Mode != want || a.Theme.Transparency != .25 {
+		t.Fatalf("auto lost on refresh: pref=%s mode=%s transparency=%v", a.AppearancePref(), a.Theme.Mode, a.Theme.Transparency)
+	}
+	a.SetReduceTransparency(true)
+	want = appearanceForPeriod(PeriodAt(time.Now().Hour()))
+	if a.AppearancePref() != "auto" || a.Theme.Mode != want || a.Theme.Transparency != .25 {
+		t.Fatalf("auto lost on reduce-transparency: pref=%s mode=%s transparency=%v", a.AppearancePref(), a.Theme.Mode, a.Theme.Transparency)
+	}
+}
+
+// TestAppearanceAutoControl 走真实面板：点「自动主题」后偏好是 auto、
+// 解析到当前时段；再点「浅色主题」能回到显式浅色。
+func TestAppearanceAutoControl(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(21)) // evening → auto dark
+	saved := 0
+	a.Act.PersistAppearance = func() { saved++ }
+	tt := shellTester(t, a)
+	trigger, ok := tt.Find("外观")
+	if !ok {
+		t.Fatal("missing appearance trigger")
+	}
+	tt.Move(trigger.X+trigger.W/2, trigger.Y+trigger.H/2)
+	tt.Advance(250 * time.Millisecond)
+	if err := tt.Click("外观"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("自动主题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.AppearancePref() != "auto" || a.Theme.Mode != "dark" || saved != 1 {
+		t.Fatalf("auto selection: pref=%s mode=%s saved=%d", a.AppearancePref(), a.Theme.Mode, saved)
+	}
+	if _, ok := tt.Find("自动 · 当前深色（18:00–06:00）· 拖动调整"); !ok {
+		t.Fatalf("auto hint missing: %v", tt.Texts())
+	}
+	if err := tt.Click("浅色主题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.AppearancePref() != "light" || a.Theme.Mode != "light" || saved != 2 {
+		t.Fatalf("explicit light after auto: pref=%s mode=%s saved=%d", a.AppearancePref(), a.Theme.Mode, saved)
+	}
+}
+
+// TestAppearancePopoverHeightStableForAuto 钉住弹层高度不随「自动」选择变化：
+// 自动提示替换同一条底部提示，不再额外插一行（用户报设置窗口一会儿高一会儿低）。
+func TestAppearancePopoverHeightStableForAuto(t *testing.T) {
+	height := func(mode string) float32 {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(21)) // 固定 evening，auto 解析为 dark
+		a.SetAppearance(mode, .25)
+		a.ShowAppearance = true
+		tt := shellTesterSize(t, a, 900, 620)
+		r, ok := tt.Find("外观设置")
+		if !ok {
+			t.Fatalf("%s: missing appearance panel", mode)
+		}
+		return r.H
+	}
+	light, dark, auto := height("light"), height("dark"), height("auto")
+	if abs32(light-dark) > .5 || abs32(light-auto) > .5 {
+		t.Fatalf("popover height changes with mode: light=%v dark=%v auto=%v", light, dark, auto)
 	}
 }

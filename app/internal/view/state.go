@@ -689,10 +689,14 @@ type ImageStore interface {
 
 // App 是主窗口的全部状态。
 type App struct {
-	Win    *mygo.Window
-	Theme  Theme
-	Images ImageStore
-	Act    Actions
+	Win   *mygo.Window
+	Theme Theme
+	// Appearance is the user preference: "light", "dark" or "auto".
+	// Theme.Mode is always the resolved light/dark that is painted; with
+	// "auto" RefreshTheme re-resolves it from the time-of-day every minute.
+	Appearance string
+	Images     ImageStore
+	Act        Actions
 
 	// 导航
 	Section int
@@ -1205,6 +1209,7 @@ func NewApp(repaint func()) *App {
 		LyricsBgOpacity:   DefaultLyricsBgOpacity,
 		LyricsTextOpacity: DefaultLyricsTextOpacity,
 		HeatOn:            true,
+		Appearance:        "light",
 	}
 	a.Theme = a.Theme.withAppearance("light", 0)
 	a.discAt = time.Now()
@@ -1212,9 +1217,29 @@ func NewApp(repaint func()) *App {
 }
 
 // SetAppearance updates the app-wide appearance and transparency tokens.
+// mode is the user preference ("light", "dark" or "auto"); with "auto" it
+// resolves against the current time-of-day period (see appearanceForPeriod).
 func (a *App) SetAppearance(mode string, transparency float64) {
+	a.Appearance = normalizeAppearance(mode)
 	base := ThemeFor(a.Theme.Period).withPreferences(a.Theme.HighContrast, a.rt)
-	a.Theme = base.withAppearance(mode, transparency)
+	a.Theme = base.withAppearance(a.Appearance, transparency)
+}
+
+// AppearancePref returns the stored preference, falling back to the resolved
+// mode for callers (tests / older code) that set Theme directly. Persisting
+// this rather than Theme.Mode is what keeps "auto" across restarts.
+func (a *App) AppearancePref() string {
+	if a.Appearance != "" {
+		return normalizeAppearance(a.Appearance)
+	}
+	return normalizeAppearance(a.Theme.Mode)
+}
+
+// refreshAppearance re-applies the stored preference to a theme that was
+// rebuilt from a period base. withPreferences copies the old resolved Mode,
+// so auto must be resolved again from the new Period.
+func (a *App) refreshAppearance(th Theme, transparency float64) Theme {
+	return th.withAppearance(a.AppearancePref(), transparency)
 }
 
 // SetBackground 切换「窗口在后台」：进入后台时清掉界面持有的封面位图，
@@ -1353,10 +1378,12 @@ func SectionIndex(key string) int {
 }
 
 // RefreshTheme 在时段变化时重新取令牌（保留无障碍偏好：从时段基态重推）。
+// 自动外观在这里重新按新时段解析，所以跨越 06:00 / 18:00 时整窗会在
+// 一分钟内切换明暗。
 func (a *App) RefreshTheme() {
 	t := a.Theme
 	base := ThemeAt(time.Now()).withPreferences(t.HighContrast, a.rt)
-	a.Theme = base.withAppearance(t.Mode, t.Transparency)
+	a.Theme = a.refreshAppearance(base, t.Transparency)
 }
 
 // ReducedTransparency 报告桌面是否要求「减少透明度」。值为 main 经
@@ -1371,7 +1398,7 @@ func (a *App) SetReduceTransparency(rt bool) bool {
 		return false
 	}
 	a.rt = rt
-	a.Theme = a.Theme.withPreferences(a.Theme.HighContrast, rt)
+	a.Theme = a.refreshAppearance(a.Theme.withPreferences(a.Theme.HighContrast, rt), a.Theme.Transparency)
 	return true
 }
 

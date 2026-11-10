@@ -110,7 +110,7 @@ func TestPlayerPopoverDarkBorderWired(t *testing.T) {
 		if t.ReducedTransparency {
 			return b.Background(ui.Hex(rtPopoverSurface)).Border(1, border)
 		}
-		return b.Material(cssGlassLayer(blur, veil, nil))
+		return b.Material(cssGlassLayer(blur, veil, nil, 1))
 	}
 	without := edgeLuma()
 

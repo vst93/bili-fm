@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 与 a11ystate_test.go 相同的 flatten 手法：读源码去掉空白后逐字匹配。
@@ -21,11 +22,20 @@ func flattenCover(t *testing.T) string {
 // —— 背景色切换有 0.2s 过渡。mygo 用 AnimateColor 给 Background 加同样的过渡。
 func TestCoverToggleBackgroundTransition(t *testing.T) {
 	flat := flattenCover(t)
+	// 外观键与旁边几颗共用 coverToggleAnim，避免一处瞬变、一处渐变。
+	anim := strings.Join(strings.Fields(
+		`coverToggleAnim=ui.Animation{Duration:200*time.Millisecond,Ease:ui.CubicBezier(0.25,0.5,0.25,1)}`), "")
+	if !strings.Contains(flat, anim) {
+		t.Errorf("coverToggleAnim 不是 0.2s / cubic-bezier(.25,.5,.25,1)：找不到 %q", anim)
+	}
 	// coverToggle 函数中 Background 的参数是 b.AnimateColor("bg", ...)。
 	chain := strings.Join(strings.Fields(
-		`b.Background(b.AnimateColor("bg",bg,ui.Animation{Duration:200*time.Millisecond,Ease:ui.CubicBezier(0.25,0.5,0.25,1)}))`), "")
+		`b.Background(b.AnimateColor("bg",bg,coverToggleAnim))`), "")
 	if !strings.Contains(flat, chain) {
 		t.Errorf("coverToggle 背景色没有用 AnimateColor 加 0.2s 过渡：找不到 %q", chain)
+	}
+	if coverToggleAnim.Duration != 200*time.Millisecond {
+		t.Errorf("coverToggleAnim.Duration = %v，应为 200ms", coverToggleAnim.Duration)
 	}
 }
 

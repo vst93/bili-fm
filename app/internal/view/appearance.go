@@ -61,6 +61,38 @@ func (t Theme) darkControl(b ui.Element, active, hovered bool) ui.Element {
 	return b.Background(fill).Border(1, border).InsetShadow(0, 1, 0, 0, t.Highlight)
 }
 
+// glassPaneVeil 是搜索药丸 / 播放栏这两块**大面积**玻璃保留原版 CSS
+// 底色令牌的比例。原版是白 .22 / --player-surface .36；整份照铺时用户仍觉得
+// “不够透”，这里只留四成，让背后的渐变与封面真正读得出来。小的控件面
+// （按钮、抽屉、弹层）不走这两个值，仍按各自令牌给足对比。
+const (
+	glassPaneVeil     float32 = 0.40
+	glassPaneVeilDark float32 = 0.09
+)
+
+// glassPaneSheenBase / glassPaneSheenBaseDark 是两块大面板在**零窗口
+// 透明度**时也保留的洗光比例。veil 减薄之后，烘焙的白色洗光已经是面上一层
+// 最大的不透明层；用户第二轮仍要求“再透些”，所以浅色收到 .72，深色再
+// 收到 .05——深色底上的白洗光最显“蒙了一层灰”，必须比浅色更克制。
+// 抽屉面板不走这个值（见 glassSheenFade），保持原有玻璃质感。
+const (
+	glassPaneSheenBase     float32 = 0.72
+	glassPaneSheenBaseDark float32 = 0.05
+)
+
+// glassPaneOpacity 是两块大面板跟随窗口背景透明度的系数。窗口越透，它们
+// 也越透，且用平方曲线：前段（0–15%）变化温和，后段（25–40%）明显让出
+// 背后的桌面，避免滑块拉满时面板还像一层固定白纱。
+//
+// 抽屉不跟这条曲线（它的内容更密，仍走线性的 backgroundOpacity）。
+func (t Theme) glassPaneOpacity() float32 {
+	if t.ReducedTransparency {
+		return 1
+	}
+	b := t.backgroundOpacity()
+	return b * b
+}
+
 // glassVeil keeps broad panes light: higher window transparency also thins
 // their tint, while blur and local control fills preserve content contrast.
 func (t Theme) glassVeil(light ui.Color, dark string, darkAlpha float32) ui.Color {
@@ -72,6 +104,48 @@ func (t Theme) glassVeil(light ui.Color, dark string, darkAlpha float32) ui.Colo
 		return light
 	}
 	return light.Alpha(t.backgroundOpacity())
+}
+
+// glassSheenFade thins the baked static sheen together with the window
+// transparency. The sheen is a fixed bitmap: without this, thinning only the
+// veil leaves the white reflection as the largest opaque layer at the top of
+// the slider, and the pane stops getting clearer.
+func (t Theme) glassSheenFade() float32 {
+	if t.ReducedTransparency {
+		return 1
+	}
+	return t.backgroundOpacity()
+}
+
+// glassPaneSheenFade is glassSheenFade for the two large panes, which start
+// from a thinner base (glassPaneSheenBase) and follow the pane opacity curve
+// (glassPaneOpacity) as the window clears. The drawer keeps the full sheen:
+// its larger, darker panel needs the glass depth more than these panes need
+// to hide the backdrop.
+func (t Theme) glassPaneSheenFade() float32 {
+	if t.ReducedTransparency {
+		return 1
+	}
+	base := glassPaneSheenBase
+	if t.Mode == "dark" {
+		base = glassPaneSheenBaseDark
+	}
+	return base * t.glassPaneOpacity()
+}
+
+// glassPaneTint is glassVeil for the two large panes: the original CSS token
+// keeps glassPaneVeil of its alpha, then scales with the window transparency
+// through glassPaneOpacity. The small controls and the drawer keep glassVeil's
+// gentler linear fade.
+func (t Theme) glassPaneTint(light ui.Color, dark string, darkAlpha float32) ui.Color {
+	if t.Mode == "dark" {
+		light = ui.Hex(dark).Alpha(darkAlpha)
+	}
+	if t.ReducedTransparency {
+		light.A = 255
+		return light
+	}
+	return light.Alpha(t.glassPaneOpacity())
 }
 
 func (t Theme) panelFill() ui.Color {
@@ -151,6 +225,40 @@ func (t Theme) topToolLighting(b ui.Element, kind topToolKind, selected, pressed
 	}
 }
 
+// navIconLighting 给内容操作行 / 工具条那批 .nav-icon-btn 铺常态的径向聚光。
+// 浅色沿用原版白 .38 的左上光；深色换低强度冷色反射（btnLightNavDark），
+// 不再在深底上压一块白斑。
+func (t Theme) navIconLighting(b ui.Element, radius float32) ui.Element {
+	if t.Mode == "dark" {
+		btnLightNavDark.draw(b, radius)
+		return b
+	}
+	btnLightNav.draw(b, radius)
+	return b
+}
+
+// navIconHover 是 .nav-icon-btn 悬停时 ::after 的内高光。深色下原版那条
+// 白 .90 顶缘会成为一条扎眼的亮线，改成与抽屉表头深色材质一致的
+// t.Highlight（白 .18）再加一道暗底缘与暗投影。
+func (t Theme) navIconHover(b ui.Element) ui.Element {
+	if t.Mode != "dark" {
+		return navHoverHighlight(b)
+	}
+	b.InsetShadow(0, 1, 1, 0, t.Highlight)
+	b.InsetShadow(0, -1, 1, 0, ui.Hex("#020914").Alpha(.28))
+	b.Shadow(0, 2, 10, 0, ui.Hex("#020914").Alpha(.22))
+	return b
+}
+
+// navIconPress 是 .nav-icon-btn:active 的内压阴影。浅色照原版墨 .08；
+// 深色背景上那条几乎看不见，换成更深的冷墨，按下仍有“压进去”的深度。
+func (t Theme) navIconPress(b ui.Element) ui.Element {
+	if t.Mode != "dark" {
+		return navPressShadow(b)
+	}
+	return b.InsetShadow(0, 2, 4, 0, ui.Hex("#020914").Alpha(.38))
+}
+
 // Existing detailed component palettes keep their light values. In dark mode
 // neutral inks and saturated action colors are mapped to their readable peers.
 func (t Theme) text(light ui.Color) ui.Color {
@@ -192,11 +300,11 @@ func (a *App) appearanceButton(c *ui.Context) ui.Element {
 			bg, ink = t.GlassHover, t.Blue
 		}
 	}
-	b.Background(bg).Border(1, border)
+	// 与边上的封面开关同一套：底色 200ms 过渡，按下不缩放。此前这颗键
+	// 瞬时换底、按下直接 Scale(.97)，既和邻居不一致，缩放还会在亚像素
+	// 落点上让图标“往下跳一下”。
+	b.Background(b.AnimateColor("cover-appearance-bg", bg, coverToggleAnim)).Border(1, border)
 	focusOutline(b, RadiusPill, focusStudio)
-	if b.Pressed() {
-		b.Scale(0.97, 0.97)
-	}
 	b.Children(func() { ui.Icon(c, iconAppearance).Size(14, 14).TextColor(ink) })
 	if b.Clicked() {
 		a.ShowAppearance = !a.ShowAppearance
@@ -230,12 +338,16 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 					a.ShowAppearance = false
 				}
 			})
+			pref := a.AppearancePref()
 			ui.Row(c).FillWidth().Gap(6).Children(func() {
-				for _, mode := range []string{"light", "dark"} {
-					label := pick(mode == "light", "浅色", "深色")
-					selected := (t.Mode == "dark") == (mode == "dark")
+				for _, mode := range []string{"light", "dark", "auto"} {
+					label := pick(mode == "light", "浅色", pick(mode == "auto", "自动", "深色"))
+					selected := pref == mode
 					b := ui.ButtonBase(c.Key("appearance-" + mode)).Grow(1).Basis(0).Height(36).
 						Radius(8).Center().Label(label + "主题").Role(ui.RoleToggleButton).Checked(selected)
+					if mode == "auto" {
+						b.Tooltip("跟随系统时间自动切换（18:00–06:00 深色，06:00–18:00 浅色）")
+					}
 					b.Background(pick(selected, t.Blue.Alpha(0.14), t.Glass)).
 						Border(1, pick(selected, t.Blue.Alpha(0.6), t.Line))
 					b.Children(func() { ui.Text(c, label).FontSize(13).TextColor(pick(selected, t.Blue, t.Muted)) })
@@ -265,13 +377,22 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 						ui.Text(c, preset.Label).FontSize(10).TextColor(t.Faint)
 					})
 					if b.Clicked() {
-						a.SetAppearance(a.Theme.Mode, preset.Value)
+						a.SetAppearance(a.AppearancePref(), preset.Value)
 						a.persistAppearance()
 					}
 				}
 			})
-			ui.Text(c, pick(t.ReducedTransparency, "系统已开启减少透明度，当前使用实色背景", "拖动自由调整 · 靠近推荐刻度自动吸附")).
-				FontSize(10).TextColor(t.Faint)
+			hint := "拖动自由调整 · 靠近推荐刻度自动吸附"
+			if t.ReducedTransparency {
+				hint = "系统已开启减少透明度，当前使用实色背景"
+			} else if pref == "auto" {
+				hint = fmt.Sprintf("自动 · 当前%s（%s）· 拖动调整",
+					pick(t.Mode == "dark", "深色", "浅色"),
+					pick(t.Mode == "dark", "18:00–06:00", "06:00–18:00"))
+			}
+			// 这一行始终只有一个固定位置：自动提示替换原有拖动提示，
+			// 不再额外加一行，切换自动时弹层高度不会跳。
+			ui.Text(c, hint).FontSize(10).TextColor(t.Faint).SingleLine()
 		})
 	})
 	if wasOpen && !a.ShowAppearance && a.appearanceHeld {
@@ -291,7 +412,7 @@ func (a *App) transparencySlider(c *ui.Context) {
 		if held || s.Pressed() {
 			value = snapTransparency(value)
 		}
-		a.SetAppearance(a.Theme.Mode, value)
+		a.SetAppearance(a.AppearancePref(), value)
 		if !held {
 			a.persistAppearance()
 		}

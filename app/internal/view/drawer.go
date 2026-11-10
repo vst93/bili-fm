@@ -252,7 +252,7 @@ func (a *App) drawer(c *ui.Context) {
 		panel := ui.Column(c).Absolute().Left(0).Right(0).Bottom(-offset).Height(h).
 			Radius(18, 18, 0, 0).Label("内容抽屉").
 			Clip().
-			Material(cssGlassLayer(drawerBlurRadius, a.Theme.panelFill(), a.Theme.glassSheen())).
+			Material(cssGlassLayer(drawerBlurRadius, a.Theme.panelFill(), a.Theme.glassSheen(), a.Theme.glassSheenFade())).
 			BorderWidth(1, 0, 0, 0).BorderColor(a.Theme.GlassBorder).
 			Draw(func(p *ui.Painter, r ui.Rect) {
 				// `::after`：整圈 1px 聚光描边（原版 inset:0 + padding 1px + mask
@@ -2158,12 +2158,12 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 			}
 			if bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			} else if placeholderCover != nil {
+			} else if ph := placeholderCoverFor(t); ph != nil {
 				// 原版 ListCard 的 RetryImg 是 `src={src || fallbackSrc}`：空封面
 				// 也画 /cover.png（原版数据结构里 cover 可以是 ""，首帧未填充的
 				// 卡片就是这种）。所以这里不再按 `spec.Cover != ""` 分岔，一律铺
 				// 占位图 —— 解码好的真图下一帧盖掉，渐进式加载。
-				ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
+				ui.Image(c, ph).Fill().Fit(ui.Cover)
 			}
 			// 时长角标（原版 .c-cover-duration）：右下贴角，左上圆角 5。
 			// 原版 `font-size:11px; line-height:1.2; padding:2px 5px`（盒高
@@ -3276,7 +3276,8 @@ func (a *App) sortedComments() []Comment {
 }
 
 // danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle
-// 的 YIQ 亮度逻辑；原生界面只有浅色主题，对应 isDarkMode = false 分支）。
+// 的 YIQ 亮度逻辑）。dark 为真时按深色底选亮字；现在是“应用外观”的深色
+// 模式，不再用只影响播放栏的 Theme.Dark。
 //
 // 原版逻辑（isDarkMode = false）：
 //
@@ -3285,12 +3286,13 @@ func (a *App) sortedComments() []Comment {
 //	其他                           → 原色 hex
 //	color = 0                      → #000000（原版 (0).toString(16).padStart(6,"0")）
 //
-// danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle）。
-// dark 为真表示系统深色模式（原版 document.documentElement.classList.contains("dark")）：
-// 亮度 >200 的弹幕在深色底上直接用白字，浅色底上换深灰 #1a1a1a；
-// 亮度 160–200 区间也按深浅分档。
+// 深色底（dark）：亮度 >200 直接用白字，160–200 抬到 #e0e0e0；无颜色 / 纯黑
+// 也改成白色，否则深色抽屉上默认弹幕是看不见的黑字。
 func danmakuInk(color int, dark bool) ui.Color {
 	if color <= 0 {
+		if dark {
+			return ui.Hex("#ffffff")
+		}
 		return ui.Hex("#000000")
 	}
 	r := (color >> 16) & 0xff
@@ -3316,16 +3318,12 @@ func danmakuInk(color int, dark bool) ui.Color {
 
 // danmakuListInk 是弹幕列表里用的墨色。
 //
-// 用户 2026-10-18 晚间 ⑤：「默认弹幕文字是白色，但背景是偏白的透明色，看起来
-// 不协调，把默认文字颜色改为黑色」。根因不在 danmakuInk 的取值，而在调用点：
-// 它把播放栏的「烟熏玻璃时段」标志（Theme.Dark，文档里写明**只影响播放栏**）
-// 当成了弹幕列表的背景色。深色时段里 B 站默认白弹幕（#ffffff，亮度 255）被翻成
-// #ffffff，压在始终浅色的抽屉玻璃上 —— 白字白底。
-//
-// 弹幕列表的背景恒为浅色玻璃，所以这里固定走 danmakuInk 的浅色分支：默认白
-// 弹幕 → #1a1a1a（原版 getColorStyle 在 isDarkMode=false 时的取值），无颜色 /
-// 纯黑 → #000000。
-func danmakuListInk(color int) ui.Color { return danmakuInk(color, false) }
+// 用户 2026-10-18 晚间 ⑤ 曾要求固定走浅色分支：当时抽屉玻璃恒为浅色，
+// 把只影响播放栏的 Theme.Dark 当成弹幕背景会把默认白弹幕翻成白字白底。
+// 现在“应用外观 → 深色”真的会把抽屉玻璃变深，弹幕文字必须跟着外观走，
+// 否则默认弹幕（无颜色 / 白）在深色底上就是黑字，读不清。判据用
+// Theme.Mode（全应用外观），不是 Theme.Dark（只描述播放栏材质）。
+func danmakuListInk(color int, dark bool) ui.Color { return danmakuInk(color, dark) }
 
 // nearestGroup 返回当前播放时间最近的弹幕组下标（原版 danmakuList 的
 // currentIndex）：先二分找到第一个 second ≥ pos 的组，再和它前一组比距离，
@@ -3556,7 +3554,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 						// 由元素自己的 `.Draw` 在字形**之前**绘制（框架的 `.Draw` 先于本
 						// 元素的字形，正好是 text-shadow 的层序）——只有字形轮廓外那 1px
 						// 的偏移露出白，不再是矩形白底。
-						danmakuText(c, e.Text, danmakuListInk(e.Color))
+						danmakuText(c, e.Text, danmakuListInk(e.Color, a.Theme.Mode == "dark"))
 						if e.Count > 1 {
 							// .danmaku-repeat-count：小蓝胶囊 ×N。
 							// 原版 height:18px; line-height:16px；框架自然行盒约 15px，
@@ -3872,11 +3870,11 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 			face.Children(func() {
 				if bmp := a.Images.Bitmap(cm.Avatar, imagecache.WidthAvatar); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
-				} else if placeholderCover != nil {
+				} else if ph := placeholderCoverFor(a.Theme); ph != nil {
 					// 原版 danmakuList.tsx:302 的 getMemberInfo：无 face 时
 					// face="/default-avatar.png"（该图 404 → RetryImg onError 退
 					// /cover.png）。这里同退占位图，不再只铺一层底色。
-					ui.Image(c, placeholderCover).Fill().Fit(ui.Cover)
+					ui.Image(c, ph).Fill().Fit(ui.Cover)
 				}
 			})
 			// 昵称 / 「Lv.N · 时间」两行行盒（见 commentRow 顶部）。

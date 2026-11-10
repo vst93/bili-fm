@@ -99,11 +99,15 @@ func (a *App) playerBar(c *ui.Context) {
 // playerBarTint keeps the original time-of-day hue with a thinner veil.
 // Explicit dark appearance uses a navy tint, and the transparency slider
 // makes either one lighter. Reduced Transparency keeps an opaque surface.
+// The veil keeps four tenths of the CSS token (glassPaneVeil), then scales
+// with the window transparency on the stronger pane curve: the user asked for
+// more backdrop than the original .36 / smoked .16, while the control fills
+// and the rim keep the bar readable.
 var playerBarTint = func(t Theme) ui.Color {
 	if t.ReducedTransparency {
 		return t.PlayerSurface
 	}
-	return t.glassVeil(t.PlayerSurface.Alpha(.72), "#101c2d", .30)
+	return t.glassPaneTint(t.PlayerSurface.Alpha(glassPaneVeil), "#101c2d", glassPaneVeilDark)
 }
 
 // playerBarMaterial 给出播放栏（主窗 + mini）那一层的材质。默认是框架
@@ -132,7 +136,7 @@ var playerBarMaterial = func(t Theme, b ui.Element) ui.Element {
 	// --player-surface + background-image 洗光。三层都由 cssGlass 按 CSS 的
 	// 绘制顺序铺（模糊 → 底色 → 洗光），不再用 glass.Glass（Regular 把背景的
 	// 黑抬到 54%，浅色下整条栏发白、背后的背景透不出来）。
-	return b.Material(cssGlassLayer(liquidBlurRadius, playerBarTint(t), playerBarSheen(t)))
+	return b.Material(cssGlassLayer(liquidBlurRadius, playerBarTint(t), playerBarSheen(t), t.glassPaneSheenFade()))
 }
 
 // playerBarSheen 是播放栏**本体**这一帧该铺的 `background-image`（原版
@@ -2708,7 +2712,7 @@ var playerPopoverMaterial = func(t Theme, b ui.Element, border ui.Color, veil ui
 	// 原版两层弹层：backdrop-filter 只模糊，底色是上面那条 backgroundColor。
 	// 1px 描边两时段都画（浅色各用各的玻璃边、深色白 .2）；用不占布局的
 	// 内描环，倍速弹层高度由内容决定（加 .Border 会从 32 撑到 34）。
-	return b.Material(cssGlassLayer(blur, veil, nil)).
+	return b.Material(cssGlassLayer(blur, veil, nil, 1)).
 		InsetShadow(0, 0, 0, 1, border)
 }
 

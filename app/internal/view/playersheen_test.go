@@ -169,16 +169,27 @@ func TestPlayerBarSheenTokens(t *testing.T) {
 // 反证：把 playerBarSheen 换成恒返回 nil 的桩，这条整条栏的绘制就消失。
 func TestPlayerBarSheenWired(t *testing.T) {
 	orig := playerSheenPaint
-	defer func() { playerSheenPaint = orig }()
+	origFaded := paintFadedSheen
+	defer func() { playerSheenPaint, paintFadedSheen = orig, origFaded }()
 	type hit struct {
 		r      ui.Rect
 		radius float32
 		bmp    *ui.Bitmap
+		fade   float32
 	}
 	var got []hit
+	record := func(r ui.Rect, radius float32, bmp *ui.Bitmap, fade float32) hit {
+		h := hit{r, radius, bmp, fade}
+		got = append(got, h)
+		return h
+	}
 	playerSheenPaint = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap) {
-		got = append(got, hit{r, radius, bmp})
+		record(r, radius, bmp, 1)
 		orig(p, r, radius, bmp)
+	}
+	paintFadedSheen = func(p *ui.Painter, r ui.Rect, radius float32, bmp *ui.Bitmap, fade float32) {
+		record(r, radius, bmp, fade)
+		origFaded(p, r, radius, bmp, fade)
 	}
 
 	// 找到「整条栏」那一次绘制：宽度等于窗口宽、高度等于栏高。
@@ -201,6 +212,10 @@ func TestPlayerBarSheenWired(t *testing.T) {
 	}
 	if bar.radius != 0 {
 		t.Errorf("播放栏无圆角，radius 应为 0，得到 %v", bar.radius)
+	}
+	// 默认外观下大面板已按 glassPaneSheenBase 收薄（不是整层原值）。
+	if bar.fade != glassPaneSheenBase {
+		t.Errorf("播放栏本体洗光 fade = %v，应为 %v", bar.fade, glassPaneSheenBase)
 	}
 
 	got = nil

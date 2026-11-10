@@ -96,12 +96,36 @@ func clampAppearanceTransparency(v float64) float64 {
 	return v
 }
 
+// normalizeAppearance keeps the three user-selectable appearance modes and
+// turns empty or unknown stored values into the historical default, light.
+func normalizeAppearance(mode string) string {
+	switch mode {
+	case "auto", "dark":
+		return mode
+	}
+	return "light"
+}
+
+// appearanceForPeriod resolves the automatic appearance from the existing
+// time-of-day periods: dusk/evening/late night/midnight/predawn paint dark
+// (18:00–06:00), dawn through afternoon paint light (06:00–18:00). Sharing
+// darkPeriods with the player-bar smoked glass keeps the app and bar in step
+// at the same boundaries.
+func appearanceForPeriod(p Period) string {
+	if darkPeriods[p.Name] {
+		return "dark"
+	}
+	return "light"
+}
+
 // withAppearance applies the explicit app appearance after the time-of-day
-// and accessibility tokens. Keeping it as a final layer means every glass
-// surface gets the same dark/light decision.
+// and accessibility tokens. "auto" resolves against t.Period, so callers can
+// pass the user preference straight through. Keeping it as a final layer
+// means every glass surface gets the same dark/light decision.
 func (t Theme) withAppearance(mode string, transparency float64) Theme {
-	if mode != "dark" {
-		mode = "light"
+	mode = normalizeAppearance(mode)
+	if mode == "auto" {
+		mode = appearanceForPeriod(t.Period)
 	}
 	t.Mode = mode
 	t.Transparency = clampAppearanceTransparency(transparency)

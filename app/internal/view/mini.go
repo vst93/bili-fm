@@ -147,7 +147,7 @@ func (a *App) MiniShell(c *ui.Context) {
 				// 封面缺失时退回 logo（原版 cover || "/logo.png"）——用白底那张。
 				if bmp := a.coverBitmap(); bmp != nil {
 					ui.Image(c, bmp).Fill().Fit(ui.Cover)
-				} else if lg := coverLogo(); lg != nil {
+				} else if lg := coverLogoFor(a.Theme); lg != nil {
 					ui.Image(c, lg).Fill().Fit(ui.Cover)
 				}
 				// 高光（原版 .mini-cover-shine）：左上到右下的白渐变。
