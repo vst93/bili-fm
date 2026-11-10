@@ -66,3 +66,55 @@ func TestCancelAbortsInFlightFetch(t *testing.T) {
 		t.Fatalf("取消被记成失败（Failed=%d），会写失败冷却", st.Failed)
 	}
 }
+
+// TestAcquireAfterCancelBeforeWaitDoesNotPoisonQueue 钉住 Cancel 在
+// 「fetch 已设好 cancel、尚未 acquire」这段窗口里发生时，acquire 不能先给
+// 已取消条目加 waitHi/waitLo 再退出：那些计数会永远留在队列上，优先队列
+// 一旦被污染，后续普通抓取可能永远等不到名额。
+func TestAcquireAfterCancelBeforeWaitDoesNotPoisonQueue(t *testing.T) {
+	old := maxConcurrentFetches
+	maxConcurrentFetches = 1
+	t.Cleanup(func() { maxConcurrentFetches = old })
+
+	srv, hits := countServer(t)
+	c := New(nil)
+	c.Client = srv.Client()
+	u := srv.URL + "/cancelled-before-acquire.png"
+	k := key{u, WidthCard}
+	e := &entry{pending: true}
+	c.mu.Lock()
+	c.items[k] = e
+	c.order = append(c.order, k)
+	c.loading = 1
+	c.mu.Unlock()
+
+	// 模拟 Cancel 先于同一 fetch 的 acquire 执行：此时 e.waiting 仍是 false。
+	c.Cancel(u, WidthCard)
+	if release := c.acquire(e, true); release != nil {
+		release()
+		t.Fatal("已取消的条目不应拿到抓取名额")
+	}
+	c.mu.Lock()
+	hi, lo, slots := c.waitHi, c.waitLo, c.slots
+	c.mu.Unlock()
+	if hi != 0 || lo != 0 || slots != 0 {
+		t.Fatalf("已取消条目的 acquire 污染了队列：waitHi=%d waitLo=%d slots=%d", hi, lo, slots)
+	}
+
+	// 旧 fetch 的收尾路径：只删自己的 entry、只扣自己的 pending。
+	c.dropPending(k, e)
+	if p := c.Pending(); p != 0 {
+		t.Fatalf("取消 + 收尾后 Pending = %d, want 0", p)
+	}
+
+	// 下一个普通（非 Touch）抓取必须能正常拿到名额并完成。
+	next := srv.URL + "/after-cancel.png"
+	c.Bitmap(next, WidthCard)
+	waitIdle(t, c)
+	if c.Get(next, WidthCard) == nil {
+		t.Fatalf("Cancel-before-acquire 之后的普通抓取没有完成: %+v", c.Stats())
+	}
+	if n := hits("/after-cancel.png"); n != 1 {
+		t.Fatalf("普通抓取请求数 = %d, want 1", n)
+	}
+}

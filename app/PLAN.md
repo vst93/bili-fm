@@ -1157,9 +1157,11 @@ amd64/arm64 六平台编译）全绿。
 - 新增 `App.DrawerBack`（来源抽屉）与 `partsBackTarget()`：只有**列表类**抽屉
   （动态 / 热门与推荐 / 收藏 / 历史 / 搜索 / UP 空间 / 合集 / 播放列表）进选集后
   才长出「返回」键；从主区 / 托盘进来的选集没有。
-- `backToDrawer()` 返回时**不重拉第一页** —— 滚动位置本来就存在
-  `List.GridScroll` / `List.Scroll` 里，一重拉就会被 `ResetScroll` 抹掉，那正是
-  用户说的「要重新滚到对应位置」的根因。
+- `backToDrawer()` 返回普通**已初始化**来源时**不重拉第一页** —— 滚动位置本来
+  就存在 `List.GridScroll` / `List.Scroll` 里，一重拉就会被 `ResetScroll` 抹掉，
+  那正是用户说的「要重新滚到对应位置」的根因。例外：来源已被换账号作废
+  （列表清空、`Initialized=false`）时按 `NeedsLoad` 惰性重载一次，不能把用户
+  丢在一个空壳列表上。
 
 - **所有关闭路径统一走 `closeDrawer()`**：关闭键 / `Esc` / 点遮罩 / 下滑关闭 /
   各入口「再点一次关掉」/ 装配层 `playIndex`（选集里点一集播放，走导出的
@@ -1188,6 +1190,77 @@ amd64/arm64 六平台编译）全绿。
 `TestAllDrawerClosePathsShareOneEntry` 逐个入口验证「从列表进选集 → 再触发同一
 入口 = 回到列表」）、`playlist_test.go` 的 `TestResumePlaylist*` 与源码级契约
 `TestTogglePlayFallsBackToPlaylist`。
+
+## 抽屉会话、搜索入口与生产图片磁盘缓存（2026-11-10）
+
+关闭抽屉或切到其他分区后，再次打开会恢复本次运行中的列表和滚动位置。
+图片另用内存与磁盘两层缓存，浏览状态只保存卡片元数据和封面 URL。
+
+### 抽屉返回与搜索入口
+
+- 每个固定抽屉保留最后一次浏览上下文，分区 A → B → A 不再因全局 Section
+  改变而重拉第一页。成功的空列表也标记已初始化；同一上下文正在加载时不重复
+  请求，首页失败后重新打开可重试。手动刷新、切 tab / 收藏夹仍回到第一页。
+- 浏览状态只保留到应用退出，不跨重启恢复；每个列表最多 128 条。裁头时复制
+  保留部分，释放被丢弃卡片的底层数组引用。切换账号清空浏览状态和分页游标，
+  请求代号阻止旧账号、旧上下文或刷新前的响应覆盖新数据。
+- 普通已初始化列表的返回（`backToDrawer`）继续保留卡片、页码、`GridScroll` /
+  `Scroll`，不触发第一页请求。换账号把来源列表作废后，返回时按
+  `List.NeedsLoad` 惰性重载；播放列表是本地数据，不参与重载。
+- 搜索结果入口不再用 `len(Cards)==0` 禁用，只要求输入框有非空关键词。点击时
+  先切回搜索抽屉：已初始化（含空结果）与在途请求只复用；失败 / 被账号作废 /
+  上下文变了才走一次 `Reload`。搜索提交键仍是显式刷新，每次提交都会重拉第一页。
+- UP 空间的关注状态与合集列表（`SeriesList`）除了 mid / 账号代号，还捕获发起
+  时的 UP 列表 `Context + Gen` 并在落地前复核。A→B→A、刷新、视频/合集 tab
+  切换后旧辅助响应不会覆盖新数据；新关注请求会置 pending，只有当前代号的响应
+  能清掉它。
+- 搜索翻页在抽屉隐藏后仍可完成并清除 Loading；清空关键词会作废在途搜索。
+  网络结果经窗口 Update 回到 UI 线程，再由 `acceptListResult` /
+  `acceptSearchResult` / `upAuxCurrent` 校验请求归属。
+
+### 图片磁盘缓存（生产策略）
+
+- `view.NewApp` 仍是纯 RAM（`imagecache.New`），测试 / 无头不会碰用户缓存目录。
+  生产只在 `main` 的窗口创建前显式换成 `imagecache.NewPersistent(repaint)`，
+  复用同一个重绘回调；构造时同步扫一次目录（只读文件头，不 decode）。
+- 磁盘只存**下载到的压缩字节**，不存解码位图；默认 128MiB / 7 天 / 8192 条，
+  按最近使用淘汰，读命中不续期。目录为 `os.UserCacheDir()/bili-fm/images-v1`，
+  文件名使用实际缩略图 URL 的 SHA-256。启动时清理，使用中每隔 10 分钟有机会
+  触发后台维护，写入时检查容量；不在每次重启时清空全部缓存。
+- RAM LRU 保留 64 条 / 12MiB 的基础位图预算，氛围光派生图也计入并立即淘汰。
+  窗口隐藏时 Purge 仅清 RAM 和在途请求；恢复后按需从磁盘解码。Purge 后旧请求
+  和旧氛围光结果不能重新填回 RAM。
+- 整条读取 / 下载 / 解码 / 写入管线最多 16 路，解码最多 2 路，避免压缩数据
+  在解码前无界积压。压缩响应超过 4MiB、图片超过 4Mi 像素或单边超过 8192
+  会在完整解码前被拒绝。动图 WebP 的 JPEG 兜底图同样可从磁盘离线恢复。
+- 目录不可写、扫描失败、坏文件等只降级为纯网络，不影响抓图；启动时用
+  `DiskInfo().Err` 记一条日志，不弹 UI 警告。窗口创建前扫描意味着启动会有一次
+  目录遍历（条目上限约束下可控），这是为「不阻塞首个窗口之后的交互」做的取舍。
+
+### 验证与已知限制
+
+- 新增无头整窗会话回归（`drawer_session_test.go`，浅色 / 深色各跑一遍）：
+  - `TestDrawerSessionPartsReturnRenderedAToBToASameScroll`：既有 #37 路径，
+    90 张卡片真实滚动 → 进选集 → 点返回键。
+  - `TestDrawerSessionSectionAToBToASameScroll`：固定分区经 `openSection` 做
+    feed → popular（预置已初始化的第二份上下文，不联网）→ feed，两次切换
+    都真实渲染并推进抽屉入场动画。
+  - `TestDrawerSessionCloseSettledReopenRestoresSameScroll`：再点同一入口关闭，
+    等退场动画完整结束、抽屉真正卸载（`drawerShown` 清空）后，再经
+    `openSection` 重开，证明恢复的是列表会话而不是抽屉 key 残留。
+  三条都断言可见行、锚点卡片、`GridScroll` 不变且 `Loading=false` / 不触发
+  reload。fixture 只记录图片请求，画面仍是占位图，不声称真图已加载。设置
+  `BILI_DRAWER_SESSION_SHOTS=<目录>` 可导出 `section-*` / `close-reopen-*` /
+  `parts-return-*` 的 before/after PNG（关闭路径另有 `hidden`）供人工对照。
+- 独立运行 `./check.sh`：vet 与 linux/windows/darwin × amd64/arm64 六平台
+  编译通过；全量测试仅有已在修改前复现的 `TestDrawerPanelClip`、
+  `TestChapterMarksAreTicks`、`TestSettingsMenuIncognitoGone` 三条失败，无新增失败。
+- 独立运行 `go test -race -count=1 -timeout=5m ./internal/imagecache` 通过；
+  覆盖离线重启复用、TTL、容量与文件数淘汰、坏文件与目录不可用回退、取消与
+  Purge 竞态、解码限制，以及 120 张 480×270 封面的连续轮换。
+- 独立重跑三条黑白主题无头会话测试并检查 PNG，滚动锚点与偏移恢复正确。
+  缓存预算不包括框架的 mipmap、GPU 纹理和视频窗口；未测量实机 RSS 降幅、
+  用户数据下的命中率或启动耗时。无头回归和六平台编译不能替代实机验证。
 
 ## HE-AAC 稿件「音频解码失败」→ 回退 DASH AAC-LC 音轨（2026-10-30）
 

@@ -189,6 +189,17 @@ type List struct {
 	Loading bool
 	Page    int
 	HasMore bool
+	// Context 是这个列表最后一次加载所对应的浏览上下文（tab / 收藏夹 /
+	// 搜索词与排序 / UP 与合集）。同一个固定抽屉只保留**最后一次**上下文，
+	// 不做「每个 tab 一页历史」：切 tab 仍然按刷新语义回第一页。
+	Context string
+	// Initialized 表示 Context 的首页请求已经成功完成（空结果也算成功）。
+	// 失败首页保持 false，所以关掉再打开仍会重试；空成功则不会被误当成
+	// 「还没加载」而反复重拉。
+	Initialized bool
+	// Gen 是列表请求的代号。换上下文 / 手动刷新 / 换账号时递增，异步结果
+	// 必须带着发起时的 Gen 回来、且与当前 Context 一致才允许落地。
+	Gen int
 	// Dropped 为真表示这个列表的卡片曾因上限（maxRetainedCards）从**头部**
 	// 释放过：此时 Cards 只是尾部窗口，最早的条目已经不在了，不能当作
 	// 「已加载的全集」用（合集「播放全部」据此决定是否从第 1 页重拉）。
@@ -267,6 +278,69 @@ func (g *prefetchGate) previous() (int, int) {
 		return 0, 0
 	}
 	return g.prevFirst, g.prevLast
+}
+
+// NeedsLoad 报告这个列表当前是否需要重新拉第一页：
+// 上下文不同、或首页还没成功（失败 / 从未加载）时才需要；仍在加载的同一
+// 上下文不再重复发请求。
+func (l *List) NeedsLoad(ctx string) bool {
+	return l.Context != ctx || (!l.Initialized && !l.Loading)
+}
+
+// Fresh 报告一次异步请求（发起时捕获的 ctx / gen）是否仍属于列表当前的
+// 上下文与代号。辅助信息（UP 关注状态 / 合集列表）不属于 List.Loading，
+// 落地前用它校验，避免 A→B→A 或刷新后旧响应覆盖新数据。
+func (l *List) Fresh(ctx string, gen int) bool {
+	return l.Context == ctx && l.Gen == gen
+}
+
+// Invalidate 丢弃列表内容并让所有在途请求作废。换账号 / 清空搜索时用；
+// 调用方保证在界面线程执行。
+func (l *List) Invalidate() {
+	l.Gen++
+	l.Context = ""
+	l.Cards = nil
+	l.Initialized = false
+	l.Loading = false
+	l.Page = 0
+	l.HasMore = false
+	l.Dropped = false
+	l.LoadErr = false
+	l.ResetScroll()
+}
+
+// BeginFirstPage 开始一个新的首页请求：清掉上一批内容与滚动、递增代号，
+// 并把上下文换成 ctx。失败后 Initialized 仍为 false，下次打开可重试。
+// 调用方保证在界面线程执行。
+func (l *List) BeginFirstPage(ctx string) int {
+	l.Invalidate()
+	l.Context = ctx
+	l.Loading = true
+	return l.Gen
+}
+
+// BeginNextPage 为翻页请求捕获当前代号；上下文不符 / 尚未成功加载 / 已有
+// 请求在途时返回 false，不重复发。调用方保证在界面线程执行。
+func (l *List) BeginNextPage(ctx string) (int, bool) {
+	if l.Context != ctx || !l.Initialized || l.Loading {
+		return l.Gen, false
+	}
+	l.Loading = true
+	return l.Gen, true
+}
+
+// FinishLoad 在异步结果回到界面线程后调用：只有代号与上下文都仍是发起时
+// 那一份才允许继续，并清掉 Loading。firstPage 且成功时标记 Initialized
+// （包括空结果）。返回 false 表示结果是旧的，调用方不得再改列表 / 全局游标。
+func (l *List) FinishLoad(ctx string, gen int, firstPage, ok bool) bool {
+	if l.Gen != gen || l.Context != ctx {
+		return false
+	}
+	l.Loading = false
+	if firstPage && ok {
+		l.Initialized = true
+	}
+	return true
 }
 
 // ResetGrid 在卡片列表被整批替换（换关键词 / 刷新 / 换抽屉）时复位网格滚动，
@@ -624,6 +698,10 @@ type App struct {
 	Section int
 	// Lists 按抽屉 key（分区 key 或 DrawerSearch）存各自的列表。
 	Lists map[string]*List
+	// BrowseGeneration 是「浏览数据属于谁」的代号（当前只有账号切换会
+	// 递增）：文件夹元数据、UP 关注状态等不在 List 里的异步结果也带它回来，
+	// 避免旧账号的响应覆盖新账号。
+	BrowseGeneration int
 	// listsMu 保护 Lists 这个 map：网络 goroutine 与界面线程都会调 ListFor，
 	// 而 Go 的 map 并发读写会直接 panic。
 	listsMu sync.Mutex
@@ -1192,6 +1270,56 @@ func (a *App) drainToasts(c *ui.Context) {
 	for _, t := range list {
 		c.AddToast(t)
 	}
+}
+
+// ListContext 返回一个抽屉当前的浏览上下文。固定抽屉只保留最后一次上下文；
+// 搜索词 / 排序、tab、收藏夹、UP、合集都在里面，所以同类抽屉换了这些就会
+// 走刷新（回第一页），而同 key 再次打开时可以复用同一份卡片与滚动位置。
+func (a *App) ListContext(key string) string {
+	switch key {
+	case "popular":
+		return "popular|" + a.RecTab
+	case "history":
+		return "history|" + a.HistTab
+	case "favorite":
+		return fmt.Sprintf("favorite|%d", a.FolderID)
+	case DrawerSearch:
+		sort := a.SortOrder
+		if sort == "" {
+			sort = SortTotal
+		}
+		return fmt.Sprintf("search|%s|%s", a.Query, sort)
+	case DrawerUp:
+		return fmt.Sprintf("up|%d|%s", a.UpMid, a.UpTab)
+	case DrawerSeries:
+		return fmt.Sprintf("series|%d|%d", a.UpMid, a.SeriesID)
+	case DrawerPlaylist:
+		return "playlist|" + a.PlaylistTab
+	}
+	return key
+}
+
+// InvalidateBrowsing 在成功登录 / 切换账号后调用：所有浏览列表、文件夹
+// 元数据与分页游标都作废，旧账号的异步结果（靠 List.Gen / BrowseGeneration）
+// 不得再落地。播放列表与播放状态不属于浏览数据，保持不动。
+func (a *App) InvalidateBrowsing() {
+	a.BrowseGeneration++
+	a.listsMu.Lock()
+	for _, l := range a.Lists {
+		l.Invalidate()
+	}
+	a.listsMu.Unlock()
+	a.Folders = nil
+	a.FolderID = 0
+	a.CollectScroll = ui.ScrollState{}
+	a.UpOffset = ""
+	a.FeedOffset = ""
+	a.HistCursor = HistCursor{}
+	a.SeriesList = nil
+	a.UpFollowPending = false
+	a.UpFollowed = false
+	a.UpFans = 0
+	a.SearchRequestID++
 }
 
 // ListFor 返回某个抽屉的列表状态，没有就建一个。

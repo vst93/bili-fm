@@ -190,6 +190,7 @@ func (c *Cache) Ambient(rawURL string, width int, blur bool) *ui.Bitmap {
 		c.mu.Unlock()
 		return b
 	}
+	gen := c.gen
 	c.mu.Unlock()
 
 	// 确保源图（同 URL、同宽度）已在抓取。命中则立即返回，未命中就发起
@@ -202,19 +203,42 @@ func (c *Cache) Ambient(rawURL string, width int, blur bool) *ui.Bitmap {
 		c.mu.Unlock()
 		return nil
 	}
-	small := src.small
+	small, srcBitmap := src.small, src.bitmap
 	c.mu.Unlock()
 
+	// 调色在锁外算；插入前必须确认期间没有 Purge、也没有换源（重抓后
+	// 同 key 的 entry 会被替换 / 改写）。否则旧图的派生结果会重新塞回
+	// 已经清空的缓存，或挂到新源图旁边。
 	bmp := ui.NewBitmap(gradeAmbient(small, blur))
+	return c.storeAmbient(srcKey, k, gen, src, small, srcBitmap, bmp)
+}
+
+// storeAmbient 是 Ambient 的插入阶段：锁内确认代数、源图身份和已有派生
+// 条目，再决定插入还是放弃。独立成小方法便于测试确定性地把 Purge / 换源
+// 安排在「派生已算完、尚未插入」之间，而不需要在生产代码里留可变钩子。
+func (c *Cache) storeAmbient(srcKey, k key, gen uint64, src *entry, small *image.RGBA, srcBitmap, bmp *ui.Bitmap) *ui.Bitmap {
 	c.mu.Lock()
-	if e := c.items[k]; e != nil {
-		// 另一个 goroutine 先算好了，用它的。
-		bmp = e.bitmap
-	} else {
-		c.items[k] = &entry{bitmap: bmp}
-		c.order = append(c.order, k)
+	defer c.mu.Unlock()
+	if c.gen != gen {
+		return nil
 	}
+	cur := c.items[srcKey]
+	if cur != src || cur.small != small || cur.bitmap != srcBitmap {
+		return nil
+	}
+	if e := c.items[k]; e != nil {
+		// 另一个 goroutine 先算好了，用它的（不重复记账）。
+		c.touchLocked(k)
+		return e.bitmap
+	}
+	e := &entry{bitmap: bmp}
+	e.bytes = bitmapBytes(bmp, nil)
+	c.items[k] = e
+	c.order = append(c.order, k)
+	c.bytes += e.bytes
 	c.touchLocked(k)
-	c.mu.Unlock()
+	// 派生图也是 RAM 缓存的一部分：立刻参与条目数 / 字节预算，而不是等
+	// 下一次别的抓取完成才顺手淘汰。
+	c.evictLocked()
 	return bmp
 }

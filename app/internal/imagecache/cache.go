@@ -8,6 +8,7 @@ package imagecache
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"io"
 	"net/http"
@@ -106,6 +107,22 @@ type Cache struct {
 	// bytes 是当前缓存里所有位图的解码字节数（CPU 侧；GPU 侧由框架另存
 	// 一份同尺寸纹理，实际占用约为它的 2 倍）。受 cacheByteLimit 约束。
 	bytes int64
+
+	// gen 是 RAM 缓存的代数：Purge 时递增。Ambient 这类「先取源图、再在
+	// 锁外派生」的异步生成用它在插入前确认期间没有发生 Purge / 换源。
+	gen uint64
+
+	// disk 是可选的压缩图磁盘缓存。New 不创建它（测试/无头默认零磁盘写入），
+	// 生产通过 NewPersistent / NewWithDisk / EnableDisk 显式开启。
+	disk *diskStore
+	// diskErr 是磁盘缓存配置/写入失败的原因。失败只降级为纯网络，不阻止
+	// 抓图（见 EnableDisk 的说明）。
+	diskErr error
+
+	// decodeSem 把 CPU 解码并发压到 maxConcurrentDecodes。抓取名额覆盖
+	// 整条管线（含解码），这里只是更窄的 CPU 闸，避免 maxConcurrentFetches
+	// 个 goroutine 同时 image.Decode。
+	decodeSem chan struct{}
 }
 
 type entry struct {
@@ -148,14 +165,17 @@ const (
 // Stats 是抓取的计数器。之前所有失败路径都是静默的，没法判断空白到底是
 // 「没请求」还是「请求失败了」，也没法看失败原因分布；这里把每条路径都记上。
 type Stats struct {
-	// Fetches 是发起的 HTTP 请求数（进入 fetch 即计）。
+	// Fetches 是真正发起的 HTTP 请求数（磁盘命中不计；动图转码的第二次
+	// 请求照计）。磁盘命中会记在 DiskHits，未命中记在 DiskMisses。
 	Fetches int64
 	// Ready 是成功解码入库的图数；Failed 是失败总数，等于下面四项之和。
 	Ready, Failed      int64
 	ReqErr, StatusErr  int64 // 请求构造/发送失败、非 200
-	ReadErr, DecodeErr int64 // 读响应体失败、解码失败
-	Evicted            int64 // 被 LRU 淘汰的条目数
+	ReadErr, DecodeErr int64 // 读响应体失败、解码失败（含尺寸/字节上限）
+	Evicted            int64 // 被 RAM LRU 淘汰的条目数
 	Retried            int64 // 失败冷却到期后重新发起的次数
+	// DiskHits / DiskMisses 是磁盘缓存查找结果（未启用磁盘时恒为 0）。
+	DiskHits, DiskMisses int64
 	// LastError 是最近一次失败的原因描述（含状态码 / 错误文本）。
 	LastError string
 }
@@ -226,6 +246,7 @@ func New(notify func()) *Cache {
 		transcodeURL: ThumbTranscoded,
 	}
 	c.slotCond = sync.NewCond(&c.mu)
+	c.decodeSem = make(chan struct{}, decodeConcurrency())
 	return c
 }
 
@@ -236,6 +257,14 @@ func New(notify func()) *Cache {
 // 期间被 Cancel 退队时返回 nil，调用方直接放弃这次抓取。
 func (c *Cache) acquire(e *entry, high bool) func() {
 	c.mu.Lock()
+	// Cancel 可能在 fetch 设好 e.cancel、解锁之后、本函数拿到锁之前发生：
+	// 那时 e.waiting 还是 false，Cancel 不会退队。这里必须在入队/加计数前
+	// 先看取消标记，否则会给一个已取消的条目留下永远不清零的 waitHi/waitLo
+	// （优先队列被污染后普通等待者可能永远拿不到名额）。
+	if e.cancelled {
+		c.mu.Unlock()
+		return nil
+	}
 	e.high, e.waiting = high, true
 	if high {
 		c.waitHi++
@@ -290,16 +319,16 @@ const cacheLimit = 64
 // cacheByteLimit 是缓存解码位图的字节上限（默认 12MB）。
 //
 // 条目数上限不够：主播放器封面是 480w（480×270×4 ≈ 0.5MB，是 240w 卡片的
-// 4 倍），64 条全落在 480w 上是 33MB —— 条目数看着「还在预算内」，字节数却
-// 翻了 4 倍。用户报「切几个视频 + 翻几个抽屉后内存涨到 315MB」里，这类
-// 「同样 64 条、尺寸不同」的波动是 Go 侧唯一能压的部分（其余是系统库 /
-// WebView2，见 .pending-bugs.md 的内存构成实测）。
+// 4 倍），64 条全落在 480w 上约 33MB —— 条目数看着「还在预算内」，字节数却
+// 翻了 4 倍。因此字节数和条目数两套预算都要生效。
 //
 // 12MB 覆盖 4 屏卡片（约 8MB）+ 当前曲目的 480w 封面 + 播放列表缩略图；
 // 超出按同一套 LRU（retained 不动）淘汰。
 const cacheByteLimit = 12 << 20
 
-// maxConcurrentFetches 是同时抓取 / 解码的封面数。
+// maxConcurrentFetches 是同时在管线里（读磁盘 / 网络 / 解码 / 落盘）的
+// 封面数。解码另有 maxConcurrentDecodes 的 CPU 上限，但名额会一直持有到
+// 解码和落盘结束，避免压缩字节在解码闸前无界排队。
 //
 // 原版（Tauri）封面走 <img loading="lazy">，应用层不设闸、由浏览器连接池
 // 调度（HTTP/1.1 每主机 6 并发、HTTP/2 多路复用更多），一屏十几张基本同时
@@ -328,6 +357,22 @@ const cacheByteLimit = 12 << 20
 //
 // 0 = 不设闸（仅供水位对比）；运行时恒 ≥1。
 var maxConcurrentFetches = 16
+
+// maxConcurrentDecodes 是同时 image.Decode 的张数（CPU 侧上限）。
+//
+// 抓取名额（maxConcurrentFetches）覆盖整条管线，解码闸再套在名额里面：
+// 16 个请求可以在途，但最多 2 个同时 image.Decode，其余持有名额等解码。
+// 这样既把纯 CPU 解码压在最多两核上，又不会因为「网络先放行」而让一堆
+// 压缩字节排在解码闸前。var 便于测试调整；它只影响新解码等待，已经开始
+// 的解码不会被中断。
+var maxConcurrentDecodes = 2
+
+func decodeConcurrency() int {
+	if maxConcurrentDecodes < 1 {
+		return 1
+	}
+	return maxConcurrentDecodes
+}
 
 // httpClient 返回抓图用的客户端，未显式设置时给出默认的。
 func (c *Cache) httpClient() *http.Client {
@@ -364,7 +409,7 @@ func (c *Cache) Bitmap(rawURL string, width int) *ui.Bitmap {
 			c.stats.Retried++
 			c.touchLocked(k)
 			c.mu.Unlock()
-			go c.fetch(rawURL, width)
+			go c.fetch(rawURL, width, e)
 			return nil
 		}
 		c.touchLocked(k)
@@ -378,7 +423,7 @@ func (c *Cache) Bitmap(rawURL string, width int) *ui.Bitmap {
 	c.loading++
 	c.mu.Unlock()
 
-	go c.fetch(rawURL, width)
+	go c.fetch(rawURL, width, e)
 	return nil
 }
 
@@ -387,6 +432,7 @@ func (c *Cache) Bitmap(rawURL string, width int) *ui.Bitmap {
 // 请求不会写失败冷却；窗口恢复后按需重新抓取。
 func (c *Cache) Purge() {
 	c.mu.Lock()
+	c.gen++
 	var cancels []context.CancelFunc
 	for _, e := range c.items {
 		if e.waiting {
@@ -605,7 +651,7 @@ func (c *Cache) dropPending(k key, e *entry) {
 	c.mu.Unlock()
 }
 
-func (c *Cache) fetch(rawURL string, width int) {
+func (c *Cache) fetch(rawURL string, width int, e *entry) {
 	k := key{rawURL, width}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -613,8 +659,9 @@ func (c *Cache) fetch(rawURL string, width int) {
 	// 可见优先：Bitmap 发起时预取方已用 Touch 把可见窗口登记在 priority 里；
 	// 在这里查它决定排优先队（本轮可见）还是普通队（先到的屏外预取）。
 	c.mu.Lock()
-	e := c.items[k]
-	if e == nil || !e.pending {
+	// 身份校验：必须操作发起本次 goroutine 的那个 entry。Purge 之后同 key
+	// 可能已经开了新请求，旧 goroutine 绝不能拿新 entry 再抓一遍。
+	if c.items[k] != e || !e.pending {
 		c.mu.Unlock()
 		return
 	}
@@ -630,6 +677,11 @@ func (c *Cache) fetch(rawURL string, width int) {
 	}
 	c.mu.Unlock()
 
+	// 一个并发名额覆盖「读磁盘 -> 网络（含动图兜底）-> 解码 -> 落盘」整条
+	// 链路。解码闸（maxConcurrentDecodes）套在里面：最多 maxConcurrentFetches
+	// 张图的压缩字节在途，其中最多两张在解码，不会出现「网络先放行、一堆
+	// 压缩字节排在解码闸前面」的无界堆积。磁盘读写不在渲染帧上，串行化也
+	// 只影响后台抓取。
 	release := c.acquire(e, high)
 	if release == nil {
 		// 排队期间被 Cancel 退队（滚出窗口）：请求作废。
@@ -637,21 +689,67 @@ func (c *Cache) fetch(rawURL string, width int) {
 		return
 	}
 	defer release()
+
+	src := ThumbURL(rawURL, width)
+	bmp, small, data, err := c.diskDecode(ctx, src)
+	switch {
+	case err == nil:
+		if ctx.Err() != nil {
+			c.dropPending(k, e)
+			return
+		}
+		c.finish(rawURL, width, e, bmp, small, false)
+		return
+	case errors.Is(err, errCancelled):
+		c.dropPending(k, e)
+		return
+	}
 	if ctx.Err() != nil {
 		c.dropPending(k, e)
 		return
 	}
 
-	bmp, small, err := c.download(ctx, ThumbURL(rawURL, width))
-	if err != nil && isAnimatedWebPError(err) && ctx.Err() == nil {
+	// 动图头像的兜底图（@<w>w.jpg）也按磁盘缓存持久化。原地址未命中时
+	// 先试兜底地址的磁盘条目：离线启动后仍能靠这张转码图恢复头像，不必
+	// 等 HTTP 原地址先失败一次。坏文件已由 diskDecode 删掉，继续走网络。
+	fallback := c.transcodeURL(rawURL, width)
+	if fallback != src {
+		fb, fs, _, ferr := c.diskDecode(ctx, fallback)
+		switch {
+		case ferr == nil:
+			if ctx.Err() != nil {
+				c.dropPending(k, e)
+				return
+			}
+			c.finish(rawURL, width, e, fb, fs, false)
+			return
+		case errors.Is(ferr, errCancelled):
+			c.dropPending(k, e)
+			return
+		}
+		if ctx.Err() != nil {
+			c.dropPending(k, e)
+			return
+		}
+	}
+
+	bmp, small, data, err = c.fetchNetwork(ctx, src)
+	finalSrc := src
+	if err != nil && !errors.Is(err, errCancelled) && isAnimatedWebPError(err) && ctx.Err() == nil {
 		// 动图 webp 解不出来（x/image/webp 不支持 ANIM/ANMF，见 decodeWebP）。
 		// 换 @<w>w.jpg 让服务端转码成 JPEG 再抓一次 —— B 站图床对任意后缀
 		// 都会重新编码。只重试一次；头像这类动图从此就绪，不再反复失败。
 		c.statsFail("动图转码")
-		bmp, small, err = c.download(ctx, c.transcodeURL(rawURL, width))
+		if fallback != src {
+			// 兜底地址的磁盘条目上面已经查过（未命中或已删坏文件），
+			// 这里只走网络。
+			bmp, small, data, err = c.fetchNetwork(ctx, fallback)
+			finalSrc = fallback
+		}
 	}
-	if ctx.Err() != nil {
-		// Cancel 在下载中把请求 abort 了：这不是失败，不记冷却，也不入库。
+	if ctx.Err() != nil || errors.Is(err, errCancelled) {
+		// Cancel / Purge 在下载或等解码名额时中止：这不是失败，不记冷却，
+		// 不入库，也不写磁盘。
 		c.dropPending(k, e)
 		return
 	}
@@ -659,39 +757,119 @@ func (c *Cache) fetch(rawURL string, width int) {
 		c.fail(rawURL, width, e, err.Error(), errKind(err))
 		return
 	}
-	c.mu.Lock()
-	c.stats.Fetches++
-	c.mu.Unlock()
+	// 先落盘再 finish：这样 Pending 归零时磁盘已经可被下一个进程命中。
+	// 落盘是完整、已校验的字节；此后即使 Cancel/Purge 让 finish 的身份
+	// 校验失败，也不再回删磁盘 —— 同 key 的新请求可能已经写了更新的文件，
+	// 回删会误伤它。已完成写入的条目留给下一次请求复用即可。
+	c.diskPutURL(finalSrc, data)
 	c.finish(rawURL, width, e, bmp, small, false)
 }
 
-// download 抓一个图片地址并解码成位图 + 氛围光小图。errKind(err) 给出失败
-// 分类（与 Stats 的字段一一对应）。
+// errCancelled 是抓取内部的「已取消」哨兵，不对应 Stats 里的失败。
+var errCancelled = errors.New("imagecache: cancelled")
+
+// errDiskMiss 表示磁盘层没有可用的这一条（未启用、未命中或已过期）。
+// 它不是抓取失败，调用方继续走网络。
+var errDiskMiss = errors.New("imagecache: disk miss")
+
+// diskDecode 在已持有抓取名额时读取磁盘并解码。命中且解码成功返回字节；
+// 压缩字节损坏时删掉磁盘条目并返回解码错误，让调用方回退网络；等待解码
+// 名额期间被取消则返回 errCancelled，且不删除（文件本身可能是好的）。
+func (c *Cache) diskDecode(ctx context.Context, src string) (*ui.Bitmap, *image.RGBA, []byte, error) {
+	data, ok := c.diskLoad(src)
+	if !ok {
+		return nil, nil, nil, errDiskMiss
+	}
+	bmp, small, err := c.decodeData(ctx, data)
+	if err != nil {
+		if errors.Is(err, errCancelled) {
+			return nil, nil, nil, errCancelled
+		}
+		// 磁盘里的字节坏了 / 是旧版本不认识的格式：删掉这一条再走网络。
+		// 缓存失败不能变成封面永久空白。
+		c.diskForget(src)
+		return nil, nil, nil, err
+	}
+	return bmp, small, data, nil
+}
+
+// fetchNetwork 在调用方已持有的抓取名额内发 HTTP 并解码。名额覆盖网络和
+// 解码两段，所以慢解码不会让后续请求提前下载、把压缩字节堆在解码闸前。
+func (c *Cache) fetchNetwork(ctx context.Context, src string) (*ui.Bitmap, *image.RGBA, []byte, error) {
+	data, err := c.httpGet(ctx, src)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, nil, nil, errCancelled
+	}
+	bmp, small, err := c.decodeData(ctx, data)
+	return bmp, small, data, err
+}
+
+// download 保留为「直接抓一个地址并解码」的组合入口（不经过缓存并发门），
+// 主要给包内测试与诊断复用；真实抓取由 fetch 在并发名额内调用 fetchNetwork。
 func (c *Cache) download(ctx context.Context, src string) (*ui.Bitmap, *image.RGBA, error) {
+	data, err := c.httpGet(ctx, src)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c.decodeData(ctx, data)
+}
+
+// httpGet 抓一个图片地址的原始字节。响应体最多读 maxDownloadBytes+1：多读
+// 一个字节就能区分「刚好 4MiB」与「超过上限」，不会把异常大响应读进内存。
+// Fetches 在这里按真正发起的 HTTP 请求计数（磁盘命中不会走到这里）。
+func (c *Cache) httpGet(ctx context.Context, src string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", src, nil)
 	if err != nil {
-		return nil, nil, kindErr(errReason("请求构造", err), statReqErr)
+		return nil, kindErr(errReason("请求构造", err), statReqErr)
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Referer", referer)
 	req.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
 
+	c.mu.Lock()
+	c.stats.Fetches++
+	c.mu.Unlock()
+
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		return nil, nil, kindErr(errReason("请求发送", err), statReqErr)
+		return nil, kindErr(errReason("请求发送", err), statReqErr)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, kindErr("状态码 "+itoa(resp.StatusCode), statStatusErr)
+		return nil, kindErr("状态码 "+itoa(resp.StatusCode), statStatusErr)
 	}
-	// 封面是缩略图，限制读取量，避免异常响应把内存吃满。
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes+1))
 	if err != nil {
-		return nil, nil, kindErr(errReason("读取响应", err), statReadErr)
+		return nil, kindErr(errReason("读取响应", err), statReadErr)
+	}
+	if len(data) > maxDownloadBytes {
+		return nil, kindErr("图片超过 4MiB 上限", statReadErr)
+	}
+	return data, nil
+}
+
+// decodeData 在独立、有上限的解码并发里把下载/磁盘字节变成位图 + 氛围光
+// 小图。等待名额时可被 ctx 取消；解码本身不可中断，但解码后若已取消就丢弃
+// 结果（绝不通知 UI、绝不入库）。
+func (c *Cache) decodeData(ctx context.Context, data []byte) (*ui.Bitmap, *image.RGBA, error) {
+	if ctx.Err() != nil {
+		return nil, nil, errCancelled
+	}
+	select {
+	case c.decodeSem <- struct{}{}:
+		defer func() { <-c.decodeSem }()
+	case <-ctx.Done():
+		return nil, nil, errCancelled
 	}
 	img, err := decodeWebP(data)
 	if err != nil {
 		return nil, nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, nil, errCancelled
 	}
 	// 只解码一次：位图和氛围光的小图都从同一张 image 派生。旧版先
 	// ui.DecodeBitmap 再 image.Decode，同一份数据解两遍（CPU 翻倍）。
@@ -708,7 +886,7 @@ const (
 	statDecodeErr
 )
 
-// kindErr 把失败原因和分类打进一个 error，download 往上返、fetch 用
+// kindErr 把失败原因和分类打进一个 error，抓取链路上返、fetch 用
 // errKind / errReason 拆开。
 type kindError struct {
 	msg  string
@@ -721,7 +899,8 @@ func kindErr(msg string, kind int) error { return &kindError{msg, kind} }
 
 // errKind 取出失败分类；不是 kindError 就当请求错误。
 func errKind(err error) int {
-	if ke, ok := err.(*kindError); ok {
+	var ke *kindError
+	if errors.As(err, &ke) {
 		return ke.kind
 	}
 	return statReqErr
@@ -730,24 +909,53 @@ func errKind(err error) int {
 // errReason 把失败包装成可读的一句话（原因分类 + 底层错误）。
 func errReason(what string, err error) string { return what + "失败: " + err.Error() }
 
-// statsFail 记一次中间失败（动图转码重试）：转码也是一次真实 HTTP 请求，
-// 计入 Fetches；它成功时 Ready 在 finish 里另行计数，所以 Failed 会大于
-// 最终失败的条目数 —— 这正是中间失败该有的口径（失败过程可观测）。
+// statsFail 记一次中间失败（动图转码重试）。它成功时 Ready 在 finish 里
+// 另行计数，所以 Failed 会大于最终失败的条目数 —— 这正是中间失败该有的
+// 口径（失败过程可观测）。HTTP 请求数已由 httpGet 计数，这里不重复加。
 func (c *Cache) statsFail(reason string) {
 	c.mu.Lock()
-	c.stats.Fetches++
 	c.stats.Failed++
 	c.stats.DecodeErr++
 	c.stats.LastError = reason
 	c.mu.Unlock()
 }
 
-// decodeWebP 解码图片数据。B 站头像有一部分是**动图 webp**（RIFF 头里带
-// ANIM/ANMF 块），x/image/webp 的解码器不认识这两个块、整张报
-// 「webp: invalid format」—— 而这些 URL 结尾就是 .webp，走 @<w>w.webp
+// maxDownloadBytes 是单张图（压缩后）允许读取/落盘/解码的硬上限。封面是
+// 缩略图，正常只有几 KB 到几十 KB；4MiB 只用于挡住异常响应与恶意文件。
+const maxDownloadBytes = 4 << 20
+
+// 解码前的尺寸闸：先 DecodeConfig 看头部，再决定要不要 image.Decode。
+// 4Mi 像素覆盖不了 4K（3840×2160 约 829 万像素，会被拒绝）。B 站 hdslb
+// 图床的请求会按调用点宽度加 @<n>w 后缀（本项目最大 480w），但非 hdslb
+// 地址原样不动、可能更大，所以这个闸仍然必要。它的意义是阻止「几 KB 的
+// 压缩炸弹」在解码时吃掉几 GB，不是支持 4K 原图。
+const (
+	maxDecodePixels    = 4 << 20
+	maxDecodeDimension = 8192
+)
+
+// decodeWebP 解码图片数据。在真正 image.Decode 之前先做字节上限与
+// DecodeConfig 尺寸校验（压缩炸弹防护）。B 站头像有一部分是**动图 webp**
+// （RIFF 头里带 ANIM/ANMF 块），x/image/webp 的解码器不认识这两个块、整张
+// 报「webp: invalid format」—— 而这些 URL 结尾就是 .webp，走 @<w>w.webp
 // 后缀拿回来的还是动图。这里检测出动图后报 animWebPError，让 fetch 换
 // @<w>w.jpg 让服务端转码成 JPEG 再抓一次。
 func decodeWebP(data []byte) (image.Image, error) {
+	if len(data) > maxDownloadBytes {
+		return nil, kindErr("图片超过 4MiB 上限", statDecodeErr)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		if isAnimatedWebPData(data) {
+			return nil, animWebPError{}
+		}
+		return nil, kindErr(errReason("解码配置", err), statDecodeErr)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 ||
+		cfg.Width > maxDecodeDimension || cfg.Height > maxDecodeDimension ||
+		int64(cfg.Width)*int64(cfg.Height) > maxDecodePixels {
+		return nil, kindErr("图片尺寸 "+itoa(cfg.Width)+"x"+itoa(cfg.Height)+" 超过解码上限", statDecodeErr)
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		if isAnimatedWebPData(data) {
@@ -793,7 +1001,6 @@ func isAnimatedWebPData(data []byte) bool {
 // fail 记下失败原因（分类计数 + 最近一条）再走 finish。
 func (c *Cache) fail(rawURL string, width int, e *entry, reason string, kind int) {
 	c.mu.Lock()
-	c.stats.Fetches++
 	c.stats.Failed++
 	switch kind {
 	case statReqErr:
@@ -810,14 +1017,17 @@ func (c *Cache) fail(rawURL string, width int, e *entry, reason string, kind int
 	c.finish(rawURL, width, e, nil, nil, true)
 }
 
-func (c *Cache) finish(rawURL string, width int, e *entry, bmp *ui.Bitmap, small *image.RGBA, failed bool) {
+// finish 把一次抓取的结果写回 RAM 缓存。返回 false 表示结果已过期
+// （Purge / Cancel / 同 key 的新请求取代了它），调用方不得再把它当成
+// 新结果使用。
+func (c *Cache) finish(rawURL string, width int, e *entry, bmp *ui.Bitmap, small *image.RGBA, failed bool) bool {
 	k := key{rawURL, width}
 	c.mu.Lock()
 	// 身份校验：Purge / 取消之后同 key 可能已经有一个新的 entry，旧请求的
 	// 结果绝不能覆盖它（否则新请求的 pending/loading 账目会被旧结果打乱）。
 	if cur := c.items[k]; cur != e {
 		c.mu.Unlock()
-		return
+		return false
 	}
 	if e != nil && e.cancelled {
 		// 下载完成与 Cancel 赛跑：以 Cancel 为准，不入库、不计成败。条目可能
@@ -835,7 +1045,7 @@ func (c *Cache) finish(rawURL string, width int, e *entry, bmp *ui.Bitmap, small
 		}
 		e.cancel = nil
 		c.mu.Unlock()
-		return
+		return false
 	}
 	if !failed {
 		c.stats.Ready++
@@ -859,6 +1069,7 @@ func (c *Cache) finish(rawURL string, width int, e *entry, bmp *ui.Bitmap, small
 	if notify != nil {
 		notify()
 	}
+	return true
 }
 
 // touchLocked 把 key 移到最近使用的一端。就地搬移，不分配。

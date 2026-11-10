@@ -174,6 +174,18 @@ func (a *App) searchField(c *ui.Context) {
 	}
 }
 
+// openSearchDock 重新打开上一次搜索结果。已初始化（含空结果）与在途请求
+// 只切抽屉；失败 / 被换账号作废的列表按 NeedsLoad 走一次刷新。搜索提交键
+// 仍然每次都显式刷新，不经过这里。
+func (a *App) openSearchDock() {
+	if strings.TrimSpace(a.Query) == "" {
+		return
+	}
+	a.DrawerBack = ""
+	a.Drawer = DrawerSearch
+	a.ensureListLoaded(DrawerSearch)
+}
+
 func (a *App) runSearch() {
 	if a.Query == "" {
 		return
@@ -224,23 +236,35 @@ func (a *App) sectionButton(c *ui.Context, key, label string, ic *ui.SVG) {
 	}
 }
 
-// openSection 打开某个分区的抽屉；数据没拉过（或换了分区）就拉第一页。
-// 再点一次同一个入口就关掉。
+// openSection 打开某个分区的抽屉；只有这个抽屉自己的上下文变了、或首页还
+// 没成功加载过才拉第一页。再点一次同一个入口就关掉。
+//
+// 不能再用全局 a.Section 判断「换了分区」：A → B → A 时全局下标一定变了，
+// 但 A 的 List 里已经保留了离开时的卡片、页码与滚动位置，重拉会把它们丢掉。
+// 每个固定抽屉只记最后一次上下文（tab / 收藏夹等），不做多份历史。
 func (a *App) openSection(key string) {
 	if a.Drawer == key {
 		a.closeDrawer()
 		return
 	}
-	i := SectionIndex(key)
-	changed := i != a.Section
-	a.Section = i
+	a.Section = SectionIndex(key)
 	// 打开的是**列表**抽屉：没有「上一层」可言，把可能残留的来源清掉
 	//（issue #37 ①：DrawerBack 只在选集这一层有意义）。每帧开头的
 	// 不变量（Shell）兜底，这里显式清是为了同一帧内就正确。
 	a.DrawerBack = ""
 	a.Drawer = key
-	if changed || len(a.list().Cards) == 0 {
-		a.reload()
+	a.ensureListLoaded(key)
+}
+
+// ensureListLoaded 只在列表需要第一页时触发统一刷新入口。普通已初始化
+// 列表（同一上下文）保持原样，滚动位置 / 页码 / 卡片都不会被 ResetScroll。
+// 播放列表是本地数据，没有网络第一页，不参与。
+func (a *App) ensureListLoaded(key string) {
+	if key == DrawerPlaylist || a.Act.Reload == nil {
+		return
+	}
+	if a.ListFor(key).NeedsLoad(a.ListContext(key)) {
+		a.Act.Reload()
 	}
 }
 
@@ -1322,11 +1346,11 @@ func (a *App) contextDock(c *ui.Context) {
 		Border(1, ui.Hex("#64748b").Alpha(0.14)).
 		InsetShadow(0, 1, 2, 0, ui.Hex("#0f172a").Alpha(0.05)).
 		InsetShadow(0, -1, pick[float32](t.Mode == "dark", 1, 0), 0, pick(t.Mode == "dark", ui.Hex("#bad8ee").Alpha(.05), ui.Hex("#ffffff").Alpha(0.35))).Children(func() {
-		// 搜索结果：没有搜索结果时禁用（原版 disabled={!searchResultsCount}）。
+		// 搜索结果：原版按 searchResultsCount 禁用，但空成功 / 在途 / 失败
+		// 的搜索也应该能重新打开（结果为空是正常状态，不等于没有搜索）。
+		// 只要还有关键词就可用；是否重拉交给 NeedsLoad，显式提交仍是刷新。
 		a.iconButton(c, "dock-search", "搜索结果", iconSearch, iconOpticalSize,
-			len(a.ListFor(DrawerSearch).Cards) == 0, func() {
-				a.Drawer = DrawerSearch
-			})
+			strings.TrimSpace(a.Query) == "", a.openSearchDock)
 		// 选集：非播放列表模式且有视频时图标是蓝色（原版 fill 逻辑）。
 		// 禁用判据同原版 `disabled={!bvid}`。
 		partsInk := ui.Color{}
@@ -1434,7 +1458,9 @@ func (a *App) openSeries() {
 	}
 	a.DrawerBack = ""
 	a.Drawer = DrawerSeries
-	if a.Act.SelectSeries != nil {
+	// 同一个合集再次打开（或上次还在加载）时复用现有列表；换合集 id 时
+	// 上下文不同，SelectSeries 会明确重拉第一页。
+	if a.ListFor(DrawerSeries).NeedsLoad(a.ListContext(DrawerSeries)) && a.Act.SelectSeries != nil {
 		a.Act.SelectSeries(a.SeriesID)
 	}
 }

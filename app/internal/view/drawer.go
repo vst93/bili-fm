@@ -2413,16 +2413,19 @@ func (a *App) CloseDrawer() { a.closeDrawer() }
 
 // backToDrawer 是返回键的动作：回到上一层列表抽屉。
 //
-// **不重拉第一页** —— 这是 issue #37 ① 的关键：滚动位置本来就存在
-// List.GridScroll / List.Scroll 里，一重拉就会被 ResetScroll 抹掉，
-// 用户又得重新滚到刚才那一行。
+// **普通已初始化的来源不重拉第一页** —— 这是 issue #37 ① 的关键：滚动位置
+// 本来就存在 List.GridScroll / List.Scroll 里，一重拉就会被 ResetScroll 抹掉，
+// 用户又得重新滚到刚才那一行。例外是来源已被换账号作废（列表被清空、
+// Initialized=false）：这时保留空列表毫无意义，按 NeedsLoad 惰性重载一次。
 func (a *App) backToDrawer() {
 	if a.DrawerBack == "" {
 		a.Drawer = ""
 		return
 	}
-	a.Drawer = a.DrawerBack
+	target := a.DrawerBack
+	a.Drawer = target
 	a.DrawerBack = ""
+	a.ensureListLoaded(target)
 }
 
 // partsAddAllTip 是「全部添加」键的工具提示 —— 原版 pageList.tsx 里这个键的

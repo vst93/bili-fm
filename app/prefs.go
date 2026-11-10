@@ -654,26 +654,13 @@ func (c *controller) login() {
 					}
 					c.bl.SetLoginStatus(true)
 					a.Modal = nil
+					// 登录成功 = 换账号：旧账号的浏览列表 / 收藏夹 / 游标全部
+					// 作废，再在当前界面线程上重拉当前列表。不能放在 sleep
+					// 后的 goroutine 里读 c.app.Drawer —— 那时用户可能已经切走。
+					c.invalidateBrowsingForAccount()
+					c.reloadBrowsingAfterAccountChange()
 					a.Notify("登录成功")
 				})
-				// 登录后重拉当前抽屉（收藏/历史/动态这些需要登录的内容）。
-				go func() {
-					time.Sleep(300 * time.Millisecond)
-					if c.loginGen != gen {
-						return
-					}
-					if c.app.Drawer == "favorite" {
-						c.loadFolders()
-						return
-					}
-					key := c.app.CurrentSection().Key
-					if c.app.Drawer != "" {
-						key = c.app.Drawer
-					}
-					if key != "" && key != view.DrawerPlaylist {
-						a.Win.Update(func() { c.loadSection(key, 1) })
-					}
-				}()
 				return
 			}
 		}

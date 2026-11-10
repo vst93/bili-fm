@@ -34,6 +34,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/imagecache"
 	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/mediactl"
 	"github.com/vst93/bili-fm/app/internal/proxy"
@@ -243,11 +244,20 @@ func main() {
 	}
 
 	var app *view.App
-	app = view.NewApp(func() {
+	repaint := func() {
 		if app.Win != nil {
 			app.Win.Update(func() {})
 		}
-	})
+	}
+	app = view.NewApp(repaint)
+	// 生产环境显式开启图片磁盘缓存：view.NewApp 保持纯 RAM（测试/无头不会
+	// 碰用户缓存目录）。NewPersistent 在构造时同步扫一次目录（只读文件头），
+	// 所以必须放在原生窗口启动之前；失败自动降级为纯网络，只记一条日志。
+	diskImages := imagecache.NewPersistent(repaint)
+	app.Images = diskImages
+	if info := diskImages.DiskInfo(); info.Err != nil {
+		log.Printf("图片磁盘缓存不可用，降级为内存/网络: %v", info.Err)
+	}
 	c.app = app
 	app.UName = kv.String("uname")
 	app.Face = kv.String("face")
@@ -1527,48 +1537,88 @@ func (c *controller) follow() {
 // ---------------------------------------------------------------- UP 空间 / 合集
 
 // openUp 打开某个 UP 主的空间：拉视频列表、合集列表和关注状态。
+// 同一个 UP 的同一 tab 再次打开（或上次请求仍在途）时复用现有列表；
+// 换 UP / 换 tab / 换账号则重新拉第一页。
 func (c *controller) openUp(mid int64, name string) {
 	a := c.app
 	a.UpMid, a.UpName = mid, name
 	a.Drawer = view.DrawerUp
-	a.UpOffset = ""
+	ctx := a.ListContext(view.DrawerUp)
 	upList := a.ListFor(view.DrawerUp)
-	upList.ResetScroll()
-	upList.Cards = nil
-	upList.Loading = true
+	if !upList.NeedsLoad(ctx) {
+		return
+	}
+	a.UpOffset = ""
 	a.SeriesList = nil
-	upTab := a.UpTab
-	// 关注状态查回来之前，表头关注键转圈且禁用（原版 isCheckingFollow）。
-	a.UpFollowPending = true
-	a.Win.Update(func() {})
+	browseGen := a.BrowseGeneration
+	// 先让列表 loader 发起首页（会推进 List.Gen），辅助信息必须带着同一个
+	// 上下文 / 代号回来；否则 A→B→A 或刷新后旧关注/合集响应会覆盖新数据。
+	fetchSeries := a.UpTab != view.UpTabSeries
+	if a.UpTab == view.UpTabSeries {
+		c.loadUpSeries(mid)
+	} else {
+		c.loadUpVideos(mid, "", true)
+	}
+	listGen := upList.Gen
+	c.update(func() {})
+	c.loadUpFollow(mid, upList, ctx, listGen, browseGen)
+	if fetchSeries {
+		c.loadUpSeriesAux(mid, upList, ctx, listGen, browseGen)
+	}
+}
 
+// loadUpFollow 查 UP 关注状态。发起时捕获列表上下文 / 代号与账号代号；
+// pending 由这里置位，只有仍然属于当前列表的响应才能清除（旧响应被拒时
+// 新请求的响应会负责收尾）。
+func (c *controller) loadUpFollow(mid int64, list *view.List, ctx string, gen, browseGen int) {
+	c.app.UpFollowPending = true
 	go func() {
 		st, err := c.bl.IsFollowing(int(mid))
-		a.Win.Update(func() {
-			// 不管成败都要清掉 pending，否则查失败时关注键会永远转圈。
-			a.UpFollowPending = false
-			if err == nil && st != nil {
-				a.UpFollowed = st.IsFollowing
-				a.UpFans = st.Follower
-			}
-		})
+		c.update(func() { c.completeUpFollow(mid, list, ctx, gen, browseGen, st, err) })
+	}()
+}
+
+// completeUpFollow 是关注状态响应的生产落地逻辑，抽出来便于在无窗口测试里
+// 直接验证陈旧代号的拒绝与 pending 清理。
+func (c *controller) completeUpFollow(mid int64, list *view.List, ctx string, gen, browseGen int, st *bilibili.FollowStatus, err error) bool {
+	if !c.upAuxCurrent(mid, list, ctx, gen, browseGen) {
+		return false
+	}
+	a := c.app
+	a.UpFollowPending = false
+	if err == nil && st != nil {
+		a.UpFollowed = st.IsFollowing
+		a.UpFans = st.Follower
+	}
+	return true
+}
+
+// loadUpSeriesAux 是「视频 tab 也顺手拉合集列表」的辅助请求（合集 tab 自己
+// 走 loadUpSeries）。它和 tab 切换共用同一份 List.Gen 验收。
+func (c *controller) loadUpSeriesAux(mid int64, list *view.List, ctx string, gen, browseGen int) {
+	go func() {
 		series, _ := c.bl.GetSeriesList(int(mid))
-		list := make([]view.Series, 0, len(series))
+		out := make([]view.Series, 0, len(series))
 		for _, it := range series {
 			m := toMap(it)
-			list = append(list, view.Series{
+			out = append(out, view.Series{
 				ID:    pickInt(m, "season_id", "id"),
 				Title: pickStr(m, "name", "title"),
 				Count: pickInt(m, "total"),
 			})
 		}
-		a.Win.Update(func() { a.SeriesList = list })
-		if upTab == view.UpTabSeries {
-			a.Win.Update(func() { a.ListFor(view.DrawerUp).Loading = false })
-			return
-		}
-		c.loadUpVideos(mid, "")
+		c.update(func() { c.completeUpSeries(mid, list, ctx, gen, browseGen, out) })
 	}()
+}
+
+// completeUpSeries 落地合集列表；与视频 tab 的辅助请求、合集 tab 的 loader
+// 共用同一套新鲜度校验。
+func (c *controller) completeUpSeries(mid int64, list *view.List, ctx string, gen, browseGen int, series []view.Series) bool {
+	if !c.upAuxCurrent(mid, list, ctx, gen, browseGen) {
+		return false
+	}
+	c.app.SeriesList = series
+	return true
 }
 
 // upHasMore 判定 UP 空间视频列表这一页之后还能不能续。
@@ -1598,17 +1648,34 @@ func upPageReplaces(offset string, existing int) bool {
 
 // loadUpVideos 拉 UP 空间「视频」tab 的一页（旧版用 offset 翻页，不是页码）。
 // mid 由调用方在主线程取好传进来，不在网络 goroutine 里读界面状态。
-func (c *controller) loadUpVideos(mid int64, offset string) {
-	list := c.app.ListFor(view.DrawerUp)
-	c.app.Win.Update(func() { list.Loading = true })
+// fresh 表示这次是首页（打开 / 刷新），即使 offset 为空也不是「续页」：
+// 续页在游标为空时仍可能发生，不能靠 offset 判首页。
+func (c *controller) loadUpVideos(mid int64, offset string, fresh bool) {
+	a := c.app
+	list := a.ListFor(view.DrawerUp)
+	ctx := a.ListContext(view.DrawerUp)
+	var gen int
+	if fresh {
+		gen = list.BeginFirstPage(ctx)
+	} else {
+		var ok bool
+		gen, ok = list.BeginNextPage(ctx)
+		if !ok {
+			return
+		}
+	}
+	browseGen := a.BrowseGeneration
+	c.update(func() {})
 
 	go func() {
 		l, err := c.bl.GetUpVideoList(int(mid), offset)
-		c.app.Win.Update(func() {
-			list.Loading = false
+		c.update(func() {
+			if !c.acceptListResult(list, ctx, gen, browseGen, fresh, err == nil) {
+				return
+			}
 			if err != nil {
-				list.LoadErr = offset != ""
-				c.app.NotifyType("error", actionFailText("加载", err))
+				list.LoadErr = !fresh
+				a.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			cards := toUpCards(l.Items)
@@ -1627,20 +1694,25 @@ func (c *controller) loadUpVideos(mid int64, offset string) {
 				more = false
 			}
 			list.HasMore = more
-			c.app.UpOffset = l.Offset
+			a.UpOffset = l.Offset
 			list.LoadErr = false
-			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
 }
 
 // loadUpSeries 拉 UP 主的合集列表（UP 空间的「合集」tab）。
 func (c *controller) loadUpSeries(mid int64) {
-	list := c.app.ListFor(view.DrawerUp)
-	c.app.Win.Update(func() { list.Loading = true })
+	a := c.app
+	list := a.ListFor(view.DrawerUp)
+	ctx := a.ListContext(view.DrawerUp)
+	gen := list.BeginFirstPage(ctx)
+	a.SeriesList = nil
+	browseGen := a.BrowseGeneration
+	c.update(func() {})
 
 	go func() {
-		series, _ := c.bl.GetSeriesList(int(mid))
+		series, err := c.bl.GetSeriesList(int(mid))
 		out := make([]view.Series, 0, len(series))
 		for _, it := range series {
 			m := toMap(it)
@@ -1650,41 +1722,65 @@ func (c *controller) loadUpSeries(mid int64) {
 				Count: pickInt(m, "total"),
 			})
 		}
-		c.app.Win.Update(func() {
-			list.Loading = false
-			c.app.SeriesList = out
+		c.update(func() {
+			if !c.acceptListResult(list, ctx, gen, browseGen, true, err == nil) {
+				return
+			}
+			if err != nil {
+				a.NotifyType("error", actionFailText("加载", err))
+				return
+			}
+			c.completeUpSeries(mid, list, ctx, gen, browseGen, out)
 		})
 	}()
 }
 
 // selectSeries 选一个合集：拉它的视频列表（旧版 selectSeries 走的就是这个）。
+// 同一个合集已在加载 / 已有内容时不再重拉；换 id 才显式回第一页。
 func (c *controller) selectSeries(id int64) {
-	c.app.SeriesID = id
-	list := c.app.ListFor(view.DrawerSeries)
-	list.ResetScroll()
-	list.Cards = nil
-	c.loadSeriesVideos(id, 1)
+	a := c.app
+	a.SeriesID = id
+	list := a.ListFor(view.DrawerSeries)
+	if list.NeedsLoad(a.ListContext(view.DrawerSeries)) {
+		c.loadSeriesVideos(id, 1)
+	}
 }
 
-// loadSeriesVideos 拉某个合集的视频列表。id 显式传入，不读 app.SeriesID ——
-// Win.Update 是排队到主线程执行的，在它之后立刻读会读到旧值。
+// loadSeriesVideos 拉某个合集的视频列表。id / upName 显式传入或提前取好，
+// 不在网络 goroutine 里读界面状态。
 func (c *controller) loadSeriesVideos(id int64, page int) {
-	list := c.app.ListFor(view.DrawerSeries)
-	c.app.Win.Update(func() { list.Loading = true })
+	a := c.app
+	list := a.ListFor(view.DrawerSeries)
+	ctx := a.ListContext(view.DrawerSeries)
+	firstPage := page <= 1
+	var gen int
+	if firstPage {
+		gen = list.BeginFirstPage(ctx)
+	} else {
+		var ok bool
+		gen, ok = list.BeginNextPage(ctx)
+		if !ok {
+			return
+		}
+	}
+	browseGen := a.BrowseGeneration
+	mid, upName := a.UpMid, a.UpName
+	c.update(func() {})
 
-	mid := c.app.UpMid
 	go func() {
 		archives, err := c.bl.GetSeriesVideos(int(mid), int(id), page)
-		c.app.Win.Update(func() {
-			list.Loading = false
+		c.update(func() {
+			if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
+				return
+			}
 			if err != nil {
 				list.LoadErr = page > 1
-				c.app.NotifyType("error", actionFailText("加载", err))
+				a.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			cards := make([]view.Card, 0, len(archives))
 			for _, ar := range archives {
-				cards = append(cards, seriesCard(ar, c.app.UpName))
+				cards = append(cards, seriesCard(ar, upName))
 			}
 			// setCards 返回的是**裁头前**实际新增数；不能用
 			// len(list.Cards)-before：封顶后每页一边追加一边裁头，总长度
@@ -1699,7 +1795,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 			// 同时用「本页没追加任何新卡片」兜住接口重复返回同一页的死循环。
 			list.HasMore = added > 0 && len(archives) > 0
 			list.LoadErr = false
-			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
 }
@@ -2135,16 +2231,23 @@ func setCards(list *view.List, cards []view.Card, replace bool) int {
 		list.Cards = dedupeCards(nil, cards)
 		added = len(list.Cards)
 		// 整批替换（换关键词 / 刷新 / 换抽屉）时把虚拟网格的滚动复位到顶；
-		// 追加翻页不动它，锚点跟着旧内容。
+		// 追加翻页不动它，锚点跟着旧内容。新的一批是完整首页，Dropped
+		// 不再成立（除非下面这一批自己又超了上限）。
 		list.ResetGrid()
 		list.Trimmed = 0
+		list.Dropped = false
 	} else {
 		before := len(list.Cards)
 		list.Cards = dedupeCards(list.Cards, cards)
 		added = len(list.Cards) - before
 	}
 	if drop := retentionDrop(len(list.Cards), maxRetainedCards); drop > 0 {
-		list.Cards = list.Cards[drop:]
+		// 复制保留的尾部到一个新底层数组：直接 `Cards = Cards[drop:]` 会让
+		// 旧底层数组继续挂着被裁掉那批卡片的封面 / 标题 / Track 字符串。
+		// 只差 128 条的量级，不差这一次拷贝。
+		kept := make([]view.Card, len(list.Cards)-drop)
+		copy(kept, list.Cards[drop:])
+		list.Cards = kept
 		// 记下「头部被释放过」：合集「播放全部」会据此判断能不能拿这份
 		// 卡片当「已加载的全集」用（丢了头部就只能从第 1 页重拉）。
 		list.Dropped = true
@@ -2178,10 +2281,57 @@ func dedupeCards(base, extra []view.Card) []view.Card {
 	return out
 }
 
+// update 把状态变更送回界面线程。调用方必须是已经完成窗口装配的生产路径；
+// 单测不要靠它直接跑网络 loader（没有窗口时现在会直接 panic，暴露误用）。
+// 列表请求的代号必须在调用它之前、在界面线程上取好，异步结果回来时只做
+// 校验与落地，不在 goroutine 里读界面状态。
+func (c *controller) update(fn func()) {
+	c.app.Win.Update(fn)
+}
+
+// acceptListResult 是列表异步结果的统一验收：账号代号 + 列表上下文 + 请求
+// 代号三者都必须是发起时那一份。抽出来供测试直接验证生产回调逻辑，不需要
+// 真窗口或网络。
+func (c *controller) acceptListResult(list *view.List, ctx string, gen, browseGen int, firstPage, ok bool) bool {
+	return c.app.BrowseGeneration == browseGen && list.FinishLoad(ctx, gen, firstPage, ok)
+}
+
+// acceptSearchResult 是搜索结果的验收：在列表代号之外还要确认 SearchRequestID
+// 没被新的搜索 / 清空 / 换账号推进。抽屉是否还开着不影响在途页落地（见
+// searchMore），所以这里不看 Drawer。
+func (c *controller) acceptSearchResult(reqID int, list *view.List, ctx string, gen int, firstPage, ok bool) bool {
+	if c.app.SearchRequestID != reqID {
+		return false
+	}
+	return list.FinishLoad(ctx, gen, firstPage, ok)
+}
+
+// upAuxCurrent 验收 UP 空间的辅助信息（关注状态 / 合集列表）：除了 mid 与
+// 账号代号，还必须与发起时捕获的 UP 列表上下文 / 代号一致。A→B→A、刷新或
+// 切 tab 都会推进列表代号，旧辅助响应不得再覆盖新数据。
+func (c *controller) upAuxCurrent(mid int64, list *view.List, ctx string, gen, browseGen int) bool {
+	a := c.app
+	return a.UpMid == mid && a.BrowseGeneration == browseGen && list.Fresh(ctx, gen)
+}
+
 func (c *controller) loadSection(section string, page int) {
 	a := c.app
 	list := a.ListFor(section)
-	a.Win.Update(func() { list.Loading = true; a.Status = "加载中…" })
+	ctx := a.ListContext(section)
+	firstPage := page <= 1
+	var gen int
+	if firstPage {
+		gen = list.BeginFirstPage(ctx)
+	} else {
+		var ok bool
+		gen, ok = list.BeginNextPage(ctx)
+		if !ok {
+			return
+		}
+	}
+	browseGen := a.BrowseGeneration
+	a.Status = "加载中…"
+	c.update(func() {})
 
 	// 在起 goroutine 之前把这一帧的取值固定下来，避免和界面线程争。
 	folderID, recTab, histTab := a.FolderID, a.RecTab, a.HistTab
@@ -2194,8 +2344,10 @@ func (c *controller) loadSection(section string, page int) {
 		}
 		go func() {
 			l, err := c.bl.GetBLFeedList(offset)
-			a.Win.Update(func() {
-				list.Loading = false
+			c.update(func() {
+				if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
+					return
+				}
 				if err != nil {
 					// 只有「翻页」失败才进入可重试的错误态；首屏失败仍走空态。
 					list.LoadErr = page > 1
@@ -2225,8 +2377,10 @@ func (c *controller) loadSection(section string, page int) {
 		}
 		go func() {
 			l, err := c.bl.GetBLHistoryList(cur.Max, cur.ViewAt, cur.Business, 30)
-			a.Win.Update(func() {
-				list.Loading = false
+			c.update(func() {
+				if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
+					return
+				}
 				if err != nil {
 					list.LoadErr = page > 1
 					a.NotifyType("error", actionFailText("加载", err))
@@ -2249,8 +2403,10 @@ func (c *controller) loadSection(section string, page int) {
 
 	go func() {
 		cards, more, err := c.fetchSection(section, page, folderID, recTab, histTab)
-		a.Win.Update(func() {
-			list.Loading = false
+		c.update(func() {
+			if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
+				return
+			}
 			if err != nil {
 				list.LoadErr = page > 1
 				a.NotifyType("error", actionFailText("加载", err))
@@ -2352,28 +2508,23 @@ func (c *controller) reload() {
 	case view.DrawerSearch:
 		c.search(a.Query)
 	case view.DrawerUp:
-		a.ListFor(view.DrawerUp).Cards = nil
 		a.UpOffset = ""
-		// 刷新时同时重查关注状态和粉丝数（原版 handleRefresh）。
-		if mid := a.UpMid; mid != 0 {
-			go func() {
-				st, err := c.bl.IsFollowing(int(mid))
-				if err != nil || st == nil {
-					return
-				}
-				a.Win.Update(func() {
-					a.UpFollowed = st.IsFollowing
-					a.UpFans = st.Follower
-				})
-			}()
-		}
+		mid := a.UpMid
+		ctx := a.ListContext(view.DrawerUp)
+		list := a.ListFor(view.DrawerUp)
+		browseGen := a.BrowseGeneration
 		if a.UpTab == view.UpTabSeries {
-			c.loadUpSeries(a.UpMid)
+			c.loadUpSeries(mid)
 		} else {
-			c.loadUpVideos(a.UpMid, "")
+			c.loadUpVideos(mid, "", true)
+		}
+		// 刷新时同时重查关注状态和粉丝数（原版 handleRefresh）。关注状态
+		// 也带这次列表的代号，旧刷新 / 切 tab 的响应不能再落到新表头；
+		// 新请求会置 pending，当前响应负责清掉，避免旧响应被拒后卡住。
+		if mid != 0 {
+			c.loadUpFollow(mid, list, ctx, list.Gen, browseGen)
 		}
 	case view.DrawerSeries:
-		a.ListFor(view.DrawerSeries).Cards = nil
 		c.loadSeriesVideos(a.SeriesID, 1)
 	case view.DrawerDanmaku:
 		// 弹幕 / 评论 / 章节 / 字幕共用抽屉，但刷新目标不同。
@@ -2396,29 +2547,64 @@ func (c *controller) reload() {
 	case "favorite":
 		// 收藏夹列表还没拉过（或换账号了）就先拉它，再拉内容。
 		if len(a.Folders) == 0 {
-			a.ListFor("favorite").Loading = true
-			a.Win.Update(func() {})
 			c.loadFolders()
 			return
 		}
-		a.ListFor("favorite").Cards = nil
 		c.loadFolderDetail(a.FolderID, 1)
 	default:
 		key := a.CurrentSection().Key
-		a.ListFor(key).Cards = nil
+		switch a.Drawer {
+		case "feed", "popular", "history":
+			key = a.Drawer
+		}
 		c.loadSection(key, 1)
+	}
+}
+
+// invalidateBrowsingForAccount 在登录 / 切换账号成功时作废所有浏览数据：
+// 列表内容、文件夹元数据、分页游标和在途请求的代号都换掉，旧账号的响应
+// 回来时会被 List.Gen / BrowseGeneration 挡住。播放列表与播放状态不动。
+func (c *controller) invalidateBrowsingForAccount() {
+	c.app.InvalidateBrowsing()
+}
+
+// reloadBrowsingAfterAccountChange 在界面线程上把当前正打开的浏览列表按新
+// 账号重拉一次。其它抽屉（选集 / 弹幕 / 播放列表）不碰；关着抽屉时也不用
+// 预取，下次打开会因为列表已作废而自动加载。
+func (c *controller) reloadBrowsingAfterAccountChange() {
+	a := c.app
+	switch a.Drawer {
+	case "":
+		return
+	case view.DrawerSearch:
+		if strings.TrimSpace(a.Query) != "" {
+			c.search(a.Query)
+		}
+	case "favorite":
+		c.loadFolders()
+	case "feed", "popular", "history", view.DrawerUp, view.DrawerSeries:
+		c.reload()
 	}
 }
 
 // loadFolders 拉收藏夹列表（收藏抽屉的表头 tab），并选中第一个。
 // 旧版也是默认取第一个收藏夹（默认收藏夹在最前）。
 func (c *controller) loadFolders() {
+	a := c.app
+	fav := a.ListFor("favorite")
+	ctx := a.ListContext("favorite")
+	gen := fav.BeginFirstPage(ctx)
+	browseGen := a.BrowseGeneration
+	c.update(func() {})
+
 	go func() {
 		folders, err := c.bl.GetBLFavFolderList()
 		if err != nil {
-			c.app.Win.Update(func() {
-				c.app.ListFor("favorite").Loading = false
-				c.app.NotifyType("error", actionFailText("收藏夹加载", err))
+			c.update(func() {
+				if !c.acceptListResult(fav, ctx, gen, browseGen, true, false) {
+					return
+				}
+				a.NotifyType("error", actionFailText("收藏夹加载", err))
 			})
 			return
 		}
@@ -2435,32 +2621,50 @@ func (c *controller) loadFolders() {
 		if len(list) > 0 {
 			fid = list[0].ID
 		}
-		c.app.Win.Update(func() {
-			c.app.Folders = list
-			c.app.FolderID = fid
+		c.update(func() {
+			if !c.acceptListResult(fav, ctx, gen, browseGen, true, true) {
+				return
+			}
+			a.Folders = list
+			a.FolderID = fid
+			if fid == 0 {
+				return
+			}
+			// 这里已经在界面线程：收藏夹 id 显式传下去，收藏内容请求的代号
+			// 也在 loadFolderDetail 里按新 FolderID 重新取。
+			c.loadFolderDetail(fid, 1)
 		})
-		if fid == 0 {
-			c.app.Win.Update(func() { c.app.ListFor("favorite").Loading = false })
-			return
-		}
-		// 注意：不能在这里调 loadSection 让它去读 app.FolderID —— Win.Update 是
-		// 排队到主线程执行的，这一行读到的还是旧值。收藏夹 id 显式传下去。
-		c.loadFolderDetail(fid, 1)
 	}()
 }
 
 // loadFolderDetail 拉某个收藏夹的内容。fid 显式传入，不读 app.FolderID。
 func (c *controller) loadFolderDetail(fid int64, page int) {
-	list := c.app.ListFor("favorite")
-	c.app.Win.Update(func() { list.Loading = true })
+	a := c.app
+	list := a.ListFor("favorite")
+	ctx := a.ListContext("favorite")
+	firstPage := page <= 1
+	var gen int
+	if firstPage {
+		gen = list.BeginFirstPage(ctx)
+	} else {
+		var ok bool
+		gen, ok = list.BeginNextPage(ctx)
+		if !ok {
+			return
+		}
+	}
+	browseGen := a.BrowseGeneration
+	c.update(func() {})
 
 	go func() {
 		items, err := c.bl.GetBLFavFolderListDetail(int(fid), page)
-		c.app.Win.Update(func() {
-			list.Loading = false
+		c.update(func() {
+			if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
+				return
+			}
 			if err != nil {
 				list.LoadErr = page > 1
-				c.app.NotifyType("error", actionFailText("加载", err))
+				a.NotifyType("error", actionFailText("加载", err))
 				return
 			}
 			added := setCards(list, toCardsFromRaw(items), page <= 1)
@@ -2468,7 +2672,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 			// 不足一页说明到底了；接口重复返回同一页（added=0）也停住。
 			list.HasMore = len(items) >= 21 && added > 0
 			list.LoadErr = false
-			c.app.Status = fmt.Sprintf("%d 条", len(list.Cards))
+			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
 	}()
 }
@@ -2490,7 +2694,7 @@ func (c *controller) loadMore() {
 		if a.UpTab == view.UpTabSeries {
 			return
 		}
-		c.loadUpVideos(a.UpMid, a.UpOffset)
+		c.loadUpVideos(a.UpMid, a.UpOffset, false)
 	case view.DrawerSeries:
 		c.loadSeriesVideos(a.SeriesID, a.ListFor(view.DrawerSeries).Page+1)
 	default:
@@ -2595,15 +2799,16 @@ func (c *controller) search(query string) {
 	a := c.app
 	q := strings.TrimSpace(query)
 	// 空关键词：清结果并关抽屉（原版 handleSearch 的空值分支）。
+	// 这里必须同时让在途搜索作废，否则上一个词的慢响应会把结果塞回来，
+	// 抽屉关着却留下 Loading / 旧卡片。
 	if q == "" {
 		a.Query = ""
-		list := a.ListFor(view.DrawerSearch)
-		list.Cards, list.HasMore, list.Loading = nil, false, false
-		list.LoadErr = false
+		a.SearchRequestID++
+		a.ListFor(view.DrawerSearch).Invalidate()
 		// 走统一入口：清搜索时若正停在选集（从搜索列表点进来的），
 		// 也一并把 DrawerBack 收干净（issue #37 ①）。
 		a.CloseDrawer()
-		a.Win.Update(func() {})
+		c.update(func() {})
 		return
 	}
 	a.Query = q
@@ -2614,13 +2819,11 @@ func (c *controller) search(query string) {
 
 	list := a.ListFor(view.DrawerSearch)
 	list.ResetScroll()
-	list.Loading = true
+	ctx := a.ListContext(view.DrawerSearch)
+	gen := list.BeginFirstPage(ctx)
 	list.LoadErr = false
-	// 新搜索/换排序期间先关掉翻页闸门：旧的 HasMore 属于上一批结果，
-	// 若用户在响应回来前滚到底，会带着旧页码去请求新关键词。
-	list.HasMore = false
 	a.Drawer = view.DrawerSearch
-	a.Win.Update(func() {})
+	c.update(func() {})
 
 	// 搜索排序（表头的「综合 / 最多播放 / 最新发布」）。
 	order := a.SortOrder
@@ -2630,11 +2833,11 @@ func (c *controller) search(query string) {
 
 	go func() {
 		results, hasMore, err := c.bl.SearchVideoPage(q, order, 1)
-		a.Win.Update(func() {
-			if a.SearchRequestID != reqID {
-				return // 已经发起了更新的搜索
+		c.update(func() {
+			// 已经发起了更新的搜索 / 换账号：旧响应连 Loading 都不能碰。
+			if !c.acceptSearchResult(reqID, list, ctx, gen, true, err == nil) {
+				return
 			}
-			list.Loading = false
 			if err != nil {
 				list.LoadErr = false // 首屏失败仍走空态，不显示翻页重试行
 				list.HasMore = false
@@ -2693,7 +2896,7 @@ func metaDateUnixValue(raw string) any {
 // canvas：追加、失败可重试、换关键词/排序后旧响应作废。
 func (c *controller) searchMore(page int) {
 	a := c.app
-	if page < 2 || a.Drawer != view.DrawerSearch {
+	if page < 2 {
 		return
 	}
 	q := a.Query
@@ -2701,7 +2904,18 @@ func (c *controller) searchMore(page int) {
 		return
 	}
 	list := a.ListFor(view.DrawerSearch)
-	if list.Loading || !list.HasMore {
+	ctx := a.ListContext(view.DrawerSearch)
+	if !list.HasMore {
+		return
+	}
+	// 注意：不能因为抽屉已经关掉就丢弃这一页。用户关掉搜索抽屉去做别的，
+	// 在途的翻页仍属于这次搜索，回来后应该已经加载好；旧实现直接 return，
+	// 结果 Loading 永远停在 true，再打开搜索就再也不会翻页。
+	if list.Context != ctx {
+		return
+	}
+	gen, ok := list.BeginNextPage(ctx)
+	if !ok {
 		return
 	}
 	reqID := a.SearchRequestID
@@ -2709,19 +2923,16 @@ func (c *controller) searchMore(page int) {
 	if order == "" {
 		order = view.SortTotal
 	}
-	// loadMore 由渲染帧调用，已经在主线程：直接置 Loading，下一帧的自动
-	// 翻页判定就会停住，不会一帧内重复发请求。
-	list.Loading = true
 	list.LoadErr = false
 
 	go func() {
 		results, hasMore, err := c.bl.SearchVideoPage(q, order, page)
-		a.Win.Update(func() {
-			// 期间换了关键词 / 排序，或关掉了搜索抽屉：这一页作废。
-			if a.SearchRequestID != reqID || a.Drawer != view.DrawerSearch {
+		c.update(func() {
+			// 期间换了关键词 / 排序 / 账号：list.Gen + reqID 挡住旧响应。
+			// Drawer 是否还开着与这一页是否仍然有效无关。
+			if !c.acceptSearchResult(reqID, list, ctx, gen, false, err == nil) {
 				return
 			}
-			list.Loading = false
 			if err != nil {
 				list.LoadErr = true
 				a.NotifyType("error", actionFailText("加载", err))

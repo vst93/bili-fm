@@ -138,6 +138,102 @@ func TestConcurrentSameURLOnceNoPanic(t *testing.T) {
 	}
 }
 
+// TestFetchIgnoresSupersededEntry 钉住 fetch 使用「发起它的那个 entry」：
+// Purge 后同 key 立刻重开新请求时，旧 goroutine 若再按 key 去 map 里查，
+// 会把新 entry 当成自己的、对同一 URL 重复抓一遍。传 entry 做身份校验后，
+// 旧 goroutine 必须直接退出，不能碰新 entry、也不能发 HTTP。
+func TestFetchIgnoresSupersededEntry(t *testing.T) {
+	srv, hits := countServer(t)
+	c := New(nil)
+	c.Client = srv.Client()
+	u := srv.URL + "/superseded.png"
+	k := key{u, WidthCard}
+
+	old := &entry{pending: true}
+	c.mu.Lock()
+	c.items[k] = old
+	c.order = append(c.order, k)
+	c.loading = 1
+	c.mu.Unlock()
+
+	// 旧请求还在排队时窗口隐藏：Purge 作废它，随后同 key 重开一个新 entry。
+	c.Purge()
+	cur := &entry{pending: true}
+	c.mu.Lock()
+	c.items[k] = cur
+	c.order = append(c.order, k)
+	c.loading = 1
+	c.mu.Unlock()
+
+	// 旧 goroutine 这时才真正开始跑。
+	c.fetch(u, WidthCard, old)
+
+	if n := hits("/superseded.png"); n != 0 {
+		t.Fatalf("过期的 fetch 仍发了 HTTP：%d 次", n)
+	}
+	c.mu.Lock()
+	got := c.items[k]
+	pending, loading, cancel := cur.pending, c.loading, cur.cancel
+	c.mu.Unlock()
+	if got != cur || !pending || loading != 1 || cancel != nil {
+		t.Fatalf("过期 fetch 改动了新 entry：got=%p cur=%p pending=%v loading=%d cancel=%v",
+			got, cur, pending, loading, cancel)
+	}
+	c.Purge()
+}
+
+// TestPurgeRaceKeepsNewEntryPendingAndQueueClean 钉住 Purge 与旧 fetch 的
+// acquire 赛跑时按 entry 身份结账：Purge 作废旧 entry 后同 key 立刻重开新
+// 请求，旧 goroutine 的 acquire/dropPending 不得污染等待队列、也不得扣掉
+// 新 entry 的 pending/loading 计数。
+func TestPurgeRaceKeepsNewEntryPendingAndQueueClean(t *testing.T) {
+	old := maxConcurrentFetches
+	maxConcurrentFetches = 1
+	t.Cleanup(func() { maxConcurrentFetches = old })
+
+	c := New(nil)
+	u := "purge-race-entry"
+	k := key{u, WidthCard}
+	oldEntry := &entry{pending: true}
+	c.mu.Lock()
+	c.items[k] = oldEntry
+	c.order = append(c.order, k)
+	c.loading = 1
+	c.mu.Unlock()
+
+	// 旧 fetch 已完成身份校验、刚解锁；此时 Purge，随后同 key 重开新 entry。
+	c.Purge()
+	cur := &entry{pending: true}
+	c.mu.Lock()
+	c.items[k] = cur
+	c.order = append(c.order, k)
+	c.loading = 1
+	c.mu.Unlock()
+
+	// 旧 goroutine 这时才走到 acquire：必须看到 cancelled 后直接放弃，
+	// 不进入等待队列、不加 waitHi/waitLo。
+	if release := c.acquire(oldEntry, true); release != nil {
+		release()
+		t.Fatal("Purge 后旧 entry 不应拿到名额")
+	}
+	c.dropPending(k, oldEntry) // 旧请求收尾不能删掉新 entry
+
+	c.mu.Lock()
+	got := c.items[k]
+	pending := cur.pending
+	loading := c.loading
+	hi, lo, slots := c.waitHi, c.waitLo, c.slots
+	c.mu.Unlock()
+	if got != cur || !pending || loading != 1 {
+		t.Fatalf("旧 fetch 影响新 entry：got=%p cur=%p pending=%v loading=%d",
+			got, cur, pending, loading)
+	}
+	if hi != 0 || lo != 0 || slots != 0 {
+		t.Fatalf("旧 fetch 污染等待队列：waitHi=%d waitLo=%d slots=%d", hi, lo, slots)
+	}
+	c.Purge()
+}
+
 // TestAmbientFetchesOwnWidth 钉住：氛围光源图按**自己的宽度**（320）抓取，
 // 与播放器封面的 480 是两个缓存条目、两次请求（原版是独立的两张图）。
 // 曾经 Ambient 只读 (url, width) 的源缓存，而播放器按 480 取图，(url, 320)
