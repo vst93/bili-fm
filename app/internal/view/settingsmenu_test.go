@@ -251,6 +251,33 @@ func TestIncognitoToggleA11y(t *testing.T) {
 	}
 }
 
+// TestSettingsMenuClickThroughToggle 钉住设置菜单里的「字幕鼠标穿透」开关。
+//
+// mygo 0.8.2 起 Linux 的 SetIgnoreMouseEvents 不再是空实现（见 app/lyrics.go），
+// 而主窗菜单是这条开关的**唯一入口** —— 穿透后字幕窗自己收不到鼠标，齿轮
+// 与拖动都不响应，不能再把关闭入口放在它身上。
+func TestSettingsMenuClickThroughToggle(t *testing.T) {
+	a, tst := settingsProbe(t, 12)
+	got := 0
+	a.Act.ToggleLyricsClickThrough = func() { got++ }
+	if err := tst.Click("设置"); err != nil {
+		t.Fatalf("点设置键失败：%v", err)
+	}
+	tst.Frame()
+	if _, ok := tst.Find("设置：字幕鼠标穿透"); !ok {
+		t.Fatal("设置菜单里找不到「字幕鼠标穿透」开关")
+	}
+	if err := tst.Click("设置：字幕鼠标穿透"); err != nil {
+		t.Fatalf("点字幕鼠标穿透开关失败：%v", err)
+	}
+	if got != 1 {
+		t.Fatalf("穿透开关回调 %d 次，应为 1", got)
+	}
+	if !a.ShowSettings {
+		t.Fatal("切换穿透开关后设置菜单不应收起")
+	}
+}
+
 // TestSettingsMenuPlaybackToggles 钉住设置菜单里的三个播放偏好开关：
 // 默认值来自 App，点击后回调触发、菜单不收起，方便连续调整。
 func TestSettingsMenuPlaybackToggles(t *testing.T) {

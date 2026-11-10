@@ -415,3 +415,51 @@ func TestLyricsWindowShadowFollowsBackground(t *testing.T) {
 		}
 	}
 }
+
+// TestLyricsIgnoreMouse 钉住「穿透 vs 设置页」的优先级：设置页永远不穿透。
+// 设置页是字幕窗里唯一需要点的地方（滑块 / 颜色 / 完成），一旦穿透就只能回
+// 主窗菜单才能关掉 —— 那正是我们把开关入口放在主窗的原因，但仍要保证设置页
+// 本身可交互。
+func TestLyricsIgnoreMouse(t *testing.T) {
+	cases := []struct {
+		click, config, want bool
+	}{
+		{false, false, false},
+		{false, true, false},
+		{true, false, true}, // 显示页按开关穿透
+		{true, true, false}, // 设置页必须可点
+	}
+	for _, c := range cases {
+		if got := lyricsIgnoreMouse(c.click, c.config); got != c.want {
+			t.Errorf("clickThrough=%v config=%v: got %v, want %v", c.click, c.config, got, c.want)
+		}
+	}
+}
+
+// TestLyricsClickThroughPrefRoundTrip 钉住「字幕鼠标穿透」跨重启保留。切换
+// 只取反 + 落盘 + 同步窗口；测试里没有窗口，同步是 no-op（见 singer 里的守卫）。
+func TestLyricsClickThroughPrefRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	kv, err := store.Open(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &controller{kv: kv, app: view.NewApp(func() {})}
+	c.toggleLyricsClickThrough()
+	if !c.app.LyricsClickThrough {
+		t.Fatal("切换一次后 LyricsClickThrough 应为 true")
+	}
+	c.kv, err = store.Open(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.app = view.NewApp(func() {})
+	c.loadPrefs()
+	if !c.app.LyricsClickThrough {
+		t.Fatal("穿透开关没有跨重启保留")
+	}
+	c.toggleLyricsClickThrough()
+	if c.app.LyricsClickThrough {
+		t.Fatal("再切换一次应回到 false")
+	}
+}

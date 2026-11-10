@@ -608,6 +608,8 @@ type Actions struct {
 	ToggleRadio func()
 	// ToggleDesktopLyrics 开启 / 关闭桌面字幕悬浮窗。
 	ToggleDesktopLyrics func()
+	// ToggleLyricsClickThrough 开启 / 关闭桌面字幕的鼠标穿透。
+	ToggleLyricsClickThrough func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
 	// PersistFollow 把弹幕/字幕跟随开关落盘（手动滚动自动关闭时也调用）。
@@ -888,6 +890,11 @@ type App struct {
 	// 时再自动显示。LyricsConfig 为真时同一个窗口切换到设置页。
 	LyricsEnabled bool
 	LyricsOn      bool
+	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口
+	//（mygo 0.8.2 起 Linux 也真的生效，见 lyrics.go 的 syncLyricsClickThrough）。
+	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗自己点不动，
+	// 不能再把「关掉穿透」的入口放在它身上。
+	LyricsClickThrough bool
 	// LyricsConfigAbove 为真时设置面板画在预览上方（窗口贴近屏幕底部时
 	// 向上展开），否则画在下方。
 	LyricsConfigAbove bool

@@ -4,10 +4,25 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
-- **依赖 mygo v0.8.0**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
+- **依赖 mygo v0.8.3**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
   评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 / v0.7.1 /
-  v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 各一节），当轮的坑与门槛写进
+  v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 各一节），当轮的坑与门槛写进
   `.pending-bugs.md`。**先读这两处再动依赖。**
+
+- **桌面字幕的「鼠标穿透」入口只在主窗**（标题栏设置下拉 + macOS 原生菜单，
+  `App.LyricsClickThrough` / `lyricsIgnoreMouse`）：穿透后字幕窗收不到鼠标，
+  齿轮与拖动都不响应，把关闭入口放在它自己身上等于锁死。设置页永不穿透。
+  这条依赖 mygo 0.8.2 才真正生效的 Linux `SetIgnoreMouseEvents`（空 input
+  shape；X11 与 Wayland 的 layer surface 都吃）。
+
+- **「跳到下一个高能」的选点规则只有一份**（`view.NextHighlightPoint`）：
+  控制器真 seek、进度条右键菜单写副标题都从这里取。菜单副标题靠 0.8.1 的
+  `MenuItem.Subtitle`（**系统菜单也显示**：macOS 14 第二行，其余平台跟在
+  标签后成「标签 — 副标题」）。别再在菜单里抄一份阈值。
+
+- **0.8.3 起应用内更新会删掉「旧版装过、新版没有」的文件**（updater 按
+  `mygo build` 写进安装目录的 `.mygo-files` 清单；老安装第一次更新不删任何
+  东西）。产物必须由 `go tool mygo build` 生成，别手工拼安装目录。
 
 - **0.8.0 起禁用态用 `DimDisabled(false)`**（`app/internal/view/disabled.go`）：
   框架不再自动给禁用节点乘 0.5，禁用元素的不透明度就是**原版 CSS 的绝对值**

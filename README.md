@@ -17,7 +17,7 @@ Bili FM 是一款通过音频收听 B 站视频内容的跨平台桌面应用，
 - 通过音频收听 B 站视频：搜索、订阅、收藏、推荐一站式浏览
 - 社区广告分段自动跳过（基于 SponsorBlock，可选开启）
 - 0.5x ~ 3.0x 倍速、音量均衡（EQ）、弹幕列表与弹幕热力时间轴
-- 章节导航、字幕文稿（多语言/多版本切换）、时间点跳转与可配置桌面字幕
+- 章节导航、字幕文稿（多语言/多版本切换）、时间点跳转与可配置桌面字幕（颜色/字号/宽度/透明度，可开鼠标穿透让点击穿过字幕窗）
 - 「顺着听」相关推荐电台；UP 主合集与个人播放列表独立管理，自动保存恢复
 - 当前观看人数：右栏以一行小字显示此刻正在看这一集的人数（每 30 秒刷新）
 - 点赞、投币等常用互动，全局媒体键与 Windows 系统媒体中心随时控制播放
@@ -236,7 +236,7 @@ Current stable release: **3.1.16** (mygo native build). Users on the old Tauri b
 - Listen to Bilibili videos as audio: search, subscriptions, favorites, and recommendations in one place
 - Community-powered sponsor segment auto-skip (based on SponsorBlock, opt-in)
 - 0.5x–3.0x playback speed, loudness equalizer (EQ), danmaku list and danmaku heat timeline
-- Chapter navigation, subtitle transcript, timestamp seeking and desktop lyrics
+- Chapter navigation, subtitle transcript, timestamp seeking and configurable desktop lyrics (color/size/width/opacity, with an optional click-through mode)
 - “Flow” related-video radio; creator series and personal playlists managed separately
 - Live viewer count: a small line in the right panel shows how many people are watching this episode right now (refreshed every 30 seconds)
 - Like, coin, and other interactions; global media keys and Windows system media controls

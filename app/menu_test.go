@@ -104,7 +104,7 @@ func TestAppMenuTemplate(t *testing.T) {
 	}
 	_ = toggles
 	// macOS 用系统菜单：三个播放偏好必须是原生复选框，且初始状态取自 App。
-	for _, label := range []string{"桌面字幕", "弹幕热力", "顺着听"} {
+	for _, label := range []string{"桌面字幕", "字幕鼠标穿透", "弹幕热力", "顺着听"} {
 		it := toggles[label]
 		if it == nil {
 			t.Errorf("macOS 设置菜单缺 %q 复选框", label)
@@ -159,6 +159,43 @@ func TestMenuToggleIncognito(t *testing.T) {
 	for _, it := range settings {
 		if it.Label == "隐身模式" && !it.Checked {
 			t.Error("菜单初始 Checked 应取自 app.Incognito=true")
+		}
+	}
+}
+
+// TestMenuToggleLyricsClickThrough 钉住原生菜单的「字幕鼠标穿透」复选框：
+// 框架在调 Click 前已翻转 Checked，回调要把它读成真值并落盘（菜单打开时的
+// 初始 Checked 取自 app.LyricsClickThrough）。
+func TestMenuToggleLyricsClickThrough(t *testing.T) {
+	kv, err := store.Open(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("建 KV 失败：%v", err)
+	}
+	a := &view.App{}
+	c := &controller{app: a, kv: kv}
+
+	it := &mygo.MenuItem{Type: mygo.MenuItemCheckbox, Label: "字幕鼠标穿透", Checked: true}
+	c.menuToggleLyricsClickThrough(it)
+	if !a.LyricsClickThrough {
+		t.Error("勾选后 app.LyricsClickThrough 应为 true")
+	}
+	if got := kv.String("desktopSubtitlesClickThrough"); got != "true" {
+		t.Errorf("落盘 desktopSubtitlesClickThrough = %q，应为 true", got)
+	}
+	it.SetChecked(false)
+	c.menuToggleLyricsClickThrough(it)
+	if a.LyricsClickThrough {
+		t.Error("取消勾选后 app.LyricsClickThrough 应为 false")
+	}
+	if got := kv.String("desktopSubtitlesClickThrough"); got != "false" {
+		t.Errorf("落盘 desktopSubtitlesClickThrough = %q，应为 false", got)
+	}
+	// 菜单初始 Checked 与 app.LyricsClickThrough 同源。
+	a.LyricsClickThrough = true
+	settings := menuTemplate(t, c)[2].Submenu
+	for _, it := range settings {
+		if it.Label == "字幕鼠标穿透" && !it.Checked {
+			t.Error("菜单初始 Checked 应取自 app.LyricsClickThrough=true")
 		}
 	}
 }

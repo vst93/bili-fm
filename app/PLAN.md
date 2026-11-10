@@ -1366,3 +1366,73 @@ Range 请求上撞到 30 秒超时后报「音频格式不支持或加载失败�
 - 只支持 `reference_type=0` 的 sidx；层级 sidx、无 sidx、损坏 box 一律退回
   go-m4a（慢但不错）。单个分片上限 32MB；B 站 5 秒分片约 50–130KB。
 - 初始化段仍要求 go-m4a 能解析（`mvex` 去掉后）；解析失败同样退回旧路径。
+
+## mygo v0.8.1 – v0.8.3 升级评估（2026-11-10）
+
+`app/go.mod` 从 v0.8.0 升到 **v0.8.3**（`go.sum` 删 v0.8.0 两行、加 v0.8.3
+两行）。0.8.1 / 0.8.2 / 0.8.3 之间共 26 个提交，绝大多数是框架内部的渲染与
+内存修复；**公共 API 只增不减**（逐函数名 diff：ui 包只多了
+`MenuItem.Danger/Subtitle/Trailing/Content/ID/Highlighted/IconColor`、
+`Menu.MaxWidth`、`ListState.HoldPlace`、`SVG.Image`、`PopoverMenuButtonOptions`，
+mygo 包多了 `NewMenuIconSVG` 与 `Page.GPUProcessID`；没有任何我们用到的 API
+被删），`go build` / `go vet` 直接过，需要改写的调用点为零。
+
+本轮在升级之外落了两处「用得上」的改动（下详）：菜单条目副标题写落点时刻、
+桌面字幕「鼠标穿透」。其余都是升级即生效的无条件收益。
+
+### 逐 PR 能不能用上
+
+| PR | 内容 | 本项目情况 | 结论 |
+|---|---|---|---|
+| #1388 / #1421 | tsgen 两处修正（保留内建类型名、不遮蔽 runtime 调用） | 本仓库没有 TypeScript 产物（`mygo.json` 的 `bindings` 只是历史遗留壳） | 不适用 |
+| #1390 | `ListState.FollowEnd` 每次布局重读；新增 `HoldPlace` | 本仓库**没有一处**设 `FollowEnd`（逐文件 grep 0 处）：弹幕/字幕的跟随是自建状态机 + `ScrollTo`（drawer.go 的 `danmakuScrollPending` 一整套） | 不适用（已核对） |
+| #1391 | 手绘菜单条目加 `Danger` / `Subtitle` / `Trailing` / `Content` / `ID` / `Highlighted`；`Menu.MaxWidth` | 本仓库的菜单是自绘面板或系统原生，只有 `Subtitle` 在**系统菜单**上也显示（macOS 14 第二行，其余平台「标签 — 副标题」）→ 用在进度条右键的「跳到下一个高能」上 | **采用（采用 1）** |
+| #1392 | `PopoverMenuButton` 的 `At/Self/Open`、`NewMenuIconSVG`、`MenuItem.IconColor` | 本仓库菜单要么是手绘（设置 / 合作 UP / 外观），要么是系统原生（托盘 / macOS 菜单栏）；没有 `PopoverMenuButton` 调用点，菜单图标也不在原版设计里 | 不采用 |
+| #1393 / #1394 | macOS / Windows 渲染器改成「距上次清扫过了 120 帧」就清扫空闲纹理（原来只在帧号是 120 的倍数时扫，动画帧常常错过，纹理越攒越多） | 视频弹窗、桌面字幕、悬停动画都产生持续帧 —— 纯内存收益（macOS 的 Metal 位图，见 memory.go） | 自动收益 |
+| #1400 | 升级器按安装目录里的 `.mygo-files` 删掉「旧版装过、新版没有」的文件 | 与 `mygo build` 同源：release workflow 用 `go tool mygo build`，包/安装器/归档里自带清单，无需改代码。**老安装第一次更新不会删任何东西**（它们没有清单） | 自动收益（记入发布说明） |
+| #1401 | `Page.GPUProcessID`（macOS/Windows 的 WebView GPU 进程） | 本仓库只有视频弹窗一个 webview，音频由自研引擎（oto）输出，不做进程级音频抓取 | 不适用 |
+| #1404 | macOS 上输入法提交后补发被扣下的按键（韩文 2-Set 的 Return） | 搜索框在 macOS 上用中文/日文输入法时走同一条 `doCommandBySelector:` 路径 | 自动收益 |
+| #1405 | 韩文按词断行（CSS `word-break: keep-all`），别在音节间断 | 本仓库界面是中文/拉丁，没有韩文文案，也没有 `Lang("ko")` 的文本 | 不适用 |
+| #1408 / #1428 | 空闲裁剪遮罩的内存预算按 `cap(Pix)` 计；**增长的裁剪框复用上一帧的遮罩**，不再每帧新分配（一张「从封面抽出到满窗」的卡片 40 帧要 190MB） | 卡片抽出 / 抽屉 lift 动画正是「圆角裁剪逐帧变大」的形状；linebox.go 那套「负内边距替代 transform」的规避仍然是省遮罩的好办法，不必回退 | 自动收益（省 CPU + 内存） |
+| #1409 | 透视变换在「窗口原点落在转向平面之后」时不再翻转符号、把整块内容丢掉 | 本仓库没有 `Perspective` / 3D 转头动画 | 不适用 |
+| #1411 | 焦点在「取文本的控件」里时，空格不再翻页滚动视图（Shift+Space 同理） | 本仓库两个文本输入（主搜索、选集搜索）都不在 `Scroll` 容器里，且编辑器本来就先吃掉可打印字符 | 不影响（已核对） |
+| #1415 | 分栏 diff 的 hunk 头不再越过中线 | 没有代码编辑器 / diff | 不适用 |
+| #1416 | `Tester.RightClick` 能命中「行内容」上挂的菜单 | 测试面收益：进度条右键菜单的接线现在可以无头断言（本轮用上了，见 highlight_test.go） | 采用（测试） |
+| #1420 | 嵌套的裁剪框伸进外层圆角时改用外层遮罩（GPU 之前会把内层内容画到圆角外面） | 本仓库大量「圆角面板 + 内部裁剪列」的结构，属于被修好的那类视觉缺陷；不用改代码 | 自动收益 |
+| #1423 | markdown 支持 GitHub alerts / mentions / issue references | 本仓库简介是纯文本 `ui.Text`，没有 `ui.Markdown` | 不适用 |
+| #1424 | 官网 showcase | 与代码无关 | 不适用 |
+| #1425 + 0.8.3 回退 | 原生模块（Go 接口用 Swift 实现）在 0.8.3 被整体 revert | 不涉及 | 不适用 |
+| #1419 | **Linux 的 `SetIgnoreMouseEvents` 从空实现变成真的生效**（给窗口一个空 input shape；X11 与 Wayland 的 layer surface 都吃） | 桌面字幕窗是三平台置顶的 Panel，一直挡着下面的鼠标手势；这条 API 在 Linux 上现在才真的能用 | **采用（采用 2）** |
+
+### 采用 1：进度条右键菜单写出「下一个高能」的落点
+
+- 选点规则原本只有控制器里一份（`player_extras.go` 的 `nextHighlight`：
+  `At > pos+1 && Value >= 0.25`）。抽成 `view.NextHighlightPoint`
+  （`internal/view/highlight.go`），控制器与菜单共用 —— 菜单显示的落点与
+  真正 `seek` 的落点从此不可能漂开。
+- 菜单项的副标题用 `MenuItem.Subtitle`（0.8.1）：有落点写 `m:ss` /
+  `h:mm:ss`，没有则写「后面没有更多高能」。此前用户点下去才知道白点
+  （等 toast）。主窗与迷你窗共用 `nextHighlightMenu`，两边文案/动作一致。
+- 测试：`highlight_test.go`（选点规则的边界：`pos+1`、0.25 阈值、空数据、
+  副标题两种文案；无头右键进度条 → 菜单里有该项 → 选中真的调到
+  `Act.NextHighlight`）。
+
+### 采用 2：桌面字幕「鼠标穿透」
+
+- 桌面字幕窗压在别的窗口上，鼠标手势会被它整块吃掉。0.8.2 起 Linux 的
+  `SetIgnoreMouseEvents` 真的生效（此前是空实现），于是这条开关三平台一致。
+- `App.LyricsClickThrough` + 落盘键 `desktopSubtitlesClickThrough`；控制器
+  `syncLyricsClickThrough` 把它应用到窗口，`lyricsIgnoreMouse(click, config)`
+  保证**设置页永不穿透**（那是窗口里唯一需要点的地方）。
+- **入口只在主窗**：标题栏设置下拉的「字幕鼠标穿透」行 + macOS 原生菜单里
+  同一个复选框。穿透后字幕窗收不到鼠标，齿轮、拖动都不响应 —— 把关闭入口
+  放在它自己身上等于锁死。窗口创建、重新显示、显示页/设置页切换时都会重新
+  同步一次。
+- 测试：`lyrics_test.go` 的纯函数优先级表与跨重启保留；`settingsmenu_test.go`
+  的开关回调；`menu_test.go` 的原生复选框 + 勾选回调落盘。
+
+### 门槛
+
+`./check.sh`（vet + 全包测试 + linux/windows/darwin × amd64/arm64 六平台编译）
+与 HEAD 对比：`internal/view` 失败清单逐条一致（HEAD 既有失败）。升级本身
+不需要改任何调用点。

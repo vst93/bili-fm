@@ -609,15 +609,14 @@ func buildDanmakuHeat(items []bilibili.DanmakuItem) []view.HeatPoint {
 	return out
 }
 
-// nextHighlight 跳到当前时间之后第一个足够明显的弹幕热区。
+// nextHighlight 跳到当前时间之后第一个足够明显的弹幕热区。选点规则由
+// view.NextHighlightPoint 给出（进度条右键菜单显示同一个落点，见
+// internal/view/highlight.go）。
 func (c *controller) nextHighlight() {
 	a := c.app
-	pos := a.Pos
-	for _, p := range a.DanmakuHeat {
-		if p.At > pos+1 && p.Value >= 0.25 {
-			c.seek(p.At)
-			return
-		}
+	if at, ok := view.NextHighlightPoint(a.DanmakuHeat, a.Pos); ok {
+		c.seek(at)
+		return
 	}
 	a.Notify("后面没有更多高能片段")
 }

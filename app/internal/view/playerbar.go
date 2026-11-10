@@ -2315,12 +2315,9 @@ func (a *App) progress(c *ui.Context) {
 	// 只用 Dur <= 0 判：无视频时 Dur 通常为 0，已覆盖原版的 !src 分支。
 	s.Disabled(a.Dur <= 0)
 	// 高能跳转放在进度条右键菜单：不占播放栏的定宽列，也不改变原版布局。
-	// 热力条只负责“看见”，右键负责“跳过去”。
-	s.ContextMenu(func(m *ui.Menu) {
-		if m.Item("跳到下一个高能").Chosen() && a.Act.NextHighlight != nil {
-			a.Act.NextHighlight()
-		}
-	})
+	// 热力条只负责“看见”，右键负责“跳过去”；副标题写出落点时刻
+	//（见 highlight.go）。
+	a.nextHighlightMenu(s)
 	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
 	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
 	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
@@ -3047,11 +3044,8 @@ func (a *App) miniProgress(c *ui.Context) {
 	// 与主窗 progress 同一条原版规则：`disabled={!src || !duration}`。
 	// 只用 Dur <= 0 判，理由同主窗 progress 的注释。
 	s.Disabled(a.Dur <= 0)
-	s.ContextMenu(func(m *ui.Menu) {
-		if m.Item("跳到下一个高能").Chosen() && a.Act.NextHighlight != nil {
-			a.Act.NextHighlight()
-		}
-	})
+	// 与主窗同一条菜单（同一份副标题与动作，见 highlight.go）。
+	a.nextHighlightMenu(s)
 	// mini 的进度条也是 `#player input[type="range"]`（`#player` 在迷你窗里
 	// 照样存在），同一条 `:focus-visible` 规则。
 	focusOutline(s, 0, focusStudio)

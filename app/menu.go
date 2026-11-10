@@ -61,6 +61,11 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			{Label: "检查更新", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuCheckUpdate() }},
 			mygo.Separator(),
 			c.menuCheckbox("桌面字幕", c.app != nil && c.app.LyricsEnabled, c.menuToggleLyrics),
+			// 鼠标穿透：桌面字幕窗挡住下面窗口的鼠标手势时用得上。入口
+			// 必须在主窗 —— 穿透后字幕窗自己的齿轮与拖动都不响应。
+			// mygo 0.8.2 起 Linux 的 SetIgnoreMouseEvents 真的生效（见
+			// lyrics.go 的 syncLyricsClickThrough）。
+			c.menuCheckbox("字幕鼠标穿透", c.app != nil && c.app.LyricsClickThrough, c.menuToggleLyricsClickThrough),
 			c.menuCheckbox("弹幕热力", c.app != nil && c.app.HeatOn, c.menuToggleHeat),
 			c.menuCheckbox("顺着听", c.app != nil && c.app.RadioOn, c.menuToggleRadio),
 			mygo.Separator(),
@@ -84,6 +89,8 @@ func (c *controller) menuCheckbox(label string, checked bool, click func(*mygo.M
 	switch label {
 	case "桌面字幕":
 		c.menuLyrics = it
+	case "字幕鼠标穿透":
+		c.menuLyricsClickThrough = it
 	case "弹幕热力":
 		c.menuHeat = it
 	case "顺着听":
@@ -101,6 +108,9 @@ func (c *controller) syncMenuToggles() {
 	if c.menuLyrics != nil {
 		c.menuLyrics.SetChecked(c.app.LyricsEnabled)
 	}
+	if c.menuLyricsClickThrough != nil {
+		c.menuLyricsClickThrough.SetChecked(c.app.LyricsClickThrough)
+	}
 	if c.menuHeat != nil {
 		c.menuHeat.SetChecked(c.app.HeatOn)
 	}
@@ -109,9 +119,10 @@ func (c *controller) syncMenuToggles() {
 	}
 }
 
-// menuToggleLyrics / menuToggleHeat / menuToggleRadio 是 macOS 原生菜单
-// 复选框的点击回调。框架在调用 Click 前已翻转 Checked，所以以 want 为准；
-// 动作失败（例如没播放时开电台）再把勾选态拉回真实状态。
+// menuToggleLyrics / menuToggleLyricsClickThrough / menuToggleHeat /
+// menuToggleRadio 是 macOS 原生菜单复选框的点击回调。框架在调用 Click 前已
+// 翻转 Checked，所以以 want 为准；动作失败（例如没播放时开电台）再把勾选态
+// 拉回真实状态。
 func (c *controller) menuToggleLyrics(it *mygo.MenuItem) {
 	if c.app == nil || it == nil {
 		return
@@ -121,6 +132,17 @@ func (c *controller) menuToggleLyrics(it *mygo.MenuItem) {
 		c.toggleDesktopLyrics()
 	}
 	it.SetChecked(c.app.LyricsEnabled)
+}
+
+func (c *controller) menuToggleLyricsClickThrough(it *mygo.MenuItem) {
+	if c.app == nil || it == nil {
+		return
+	}
+	want := it.IsChecked()
+	if c.app.LyricsClickThrough != want {
+		c.toggleLyricsClickThrough()
+	}
+	it.SetChecked(c.app.LyricsClickThrough)
 }
 
 func (c *controller) menuToggleHeat(it *mygo.MenuItem) {

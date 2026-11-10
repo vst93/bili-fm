@@ -156,6 +156,8 @@ type controller struct {
 	menuLyrics *mygo.MenuItem
 	menuHeat   *mygo.MenuItem
 	menuRadio  *mygo.MenuItem
+	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
+	menuLyricsClickThrough *mygo.MenuItem
 }
 
 func main() {
@@ -795,6 +797,8 @@ func (c *controller) wireActions() {
 		ToggleDanmaku:       c.toggleDanmaku,
 		ToggleRadio:         c.toggleRadio,
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
+		// 穿透（mygo 0.8.2 起 Linux 也生效；入口只在主窗，见 lyrics.go）。
+		ToggleLyricsClickThrough: c.toggleLyricsClickThrough,
 		ToggleHeat:          c.toggleHeat,
 		PersistFollow:       c.persistFollowPrefs,
 		ToggleLyricsConfig:  c.toggleLyricsConfig,

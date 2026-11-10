@@ -75,6 +75,44 @@ func (c *controller) toggleDesktopLyrics() {
 	a.Win.Update(func() {})
 }
 
+// lyricsIgnoreMouse 报告桌面字幕窗此刻是否要把指针事件穿透给下面的窗口。
+//
+// 设置页打开时永远不穿透：那是窗口里唯一需要点的地方（滑块 / 颜色 / 完成），
+// 穿透了就只能靠主窗菜单重新关掉。抽成纯函数便于无头断言（窗口本身在测试里
+// 建不出来）。
+func lyricsIgnoreMouse(clickThrough, config bool) bool { return clickThrough && !config }
+
+// syncLyricsClickThrough 把「鼠标穿透」开关应用到字幕窗。窗口没建 / 已销毁时
+// 什么都不做（openDesktopLyricsIfReady / toggleLyricsConfig 会在窗口存在时
+// 再同步）。
+//
+// mygo 0.8.2 起 Linux 的 SetIgnoreMouseEvents 不再是空实现（给窗口一个空
+// input shape，X11 与 Wayland 的 layer surface 都生效）：此前这个调用在 Linux
+// 上是静默无效的，所以这条开关现在才是三平台一致的行为。
+func (c *controller) syncLyricsClickThrough() {
+	if c.lyricsWin == nil || c.app == nil {
+		return
+	}
+	c.lyricsWin.SetIgnoreMouseEvents(lyricsIgnoreMouse(c.app.LyricsClickThrough, c.app.LyricsConfig))
+}
+
+// toggleLyricsClickThrough 切换桌面字幕的鼠标穿透并落盘。
+//
+// 入口只在主窗（标题栏设置菜单 / macOS 原生菜单）：穿透打开后字幕窗收不到
+// 鼠标，齿轮与拖动都不响应，不能在它自己身上放关闭入口。
+func (c *controller) toggleLyricsClickThrough() {
+	a := c.app
+	a.LyricsClickThrough = !a.LyricsClickThrough
+	if c.kv != nil {
+		_ = c.kv.SetString(prefLyricsClickThrough, strconv.FormatBool(a.LyricsClickThrough))
+	}
+	c.syncLyricsClickThrough()
+	c.syncMenuToggles()
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
+}
+
 // openDesktopLyricsIfReady 在字幕正文就绪后创建窗口（主线程）。
 func (c *controller) openDesktopLyricsIfReady() {
 	a := c.app
@@ -110,6 +148,8 @@ func (c *controller) openDesktopLyricsIfReady() {
 			c.lyricsWin.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 			c.lyricsWin.ShowInactive()
 			c.syncLyricsAt(a.Pos)
+			// 重新显示时把穿透状态追上：隐藏期间用户可能在主窗里改过开关。
+			c.syncLyricsClickThrough()
 			c.lyricsWin.Update(func() {})
 		}
 		return
@@ -201,6 +241,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 	c.syncLyricsWindowShadow()
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
+	// 穿透要在窗口真存在之后才设得上（未 realize 的窗口由框架在 realize /
+	// map 时补上，见 mygo 的 applyIgnoreMouseEvents）。
+	c.syncLyricsClickThrough()
 	// Alt+F4 等用户关闭路径：不销毁窗口，只隐藏并关掉开关。Wayland 上
 	// 销毁 toplevel 会丢掉合成器记住的位置，复用同一个 toplevel 才能让
 	// 下次开关回到用户拖到的地方。真正退出应用时 c.quitting 为真，放行。
@@ -585,6 +628,8 @@ func (c *controller) toggleLyricsConfig() {
 			X: x, Y: y, Width: w, Height: displayH,
 		})
 	}
+	// 设置页可点、显示页按开关穿透（lyricsIgnoreMouse）。
+	c.syncLyricsClickThrough()
 	c.lyricsWin.Update(func() {})
 }
 

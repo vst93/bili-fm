@@ -39,6 +39,7 @@ const (
 	prefLyricsBgOpacity      = "lyricsBgOpacity"
 	prefLyricsTextOpacity    = "lyricsTextOpacity"
 	prefLyricsEnabled        = "desktopSubtitles"
+	prefLyricsClickThrough   = "desktopSubtitlesClickThrough"
 	prefLyricsX              = "desktopSubtitlesX"
 	prefLyricsY              = "desktopSubtitlesY"
 	prefLyricsPosValid       = "desktopSubtitlesPosValid"
@@ -125,6 +126,9 @@ func (c *controller) loadPrefs() {
 	}
 	if c.kv.String(prefLyricsEnabled) == "true" {
 		a.LyricsEnabled = true
+	}
+	if c.kv.String(prefLyricsClickThrough) == "true" {
+		a.LyricsClickThrough = true
 	}
 	if v := c.kv.String(prefHeatOn); v != "" {
 		a.HeatOn = v != "false"
