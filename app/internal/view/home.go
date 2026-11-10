@@ -295,20 +295,14 @@ func (a *App) userButton(c *ui.Context) {
 		if bmp := a.Images.Bitmap(a.Face, imagecache.WidthAvatar); bmp != nil {
 			ui.Image(c, bmp).Fill().Fit(ui.Cover)
 		} else if !a.LoggedIn {
-			// 未登录：原版 HeroUI Avatar 的默认 fallback 是人形剪影，不是首字
-			//（未登录 UName 为空，从前这里画出一个 "?"）。
+			// 未登录：画一枚**描边人形图标**（iconPerson，与界面其它图标同一套
+			// 自绘语言）。
 			//
-			// 剪影是**本元素自己的 Draw**，而 mygo 的 `Element.Clip()` 只裁
-			// 子元素（"Clip hides what the children draw outside the element"）：
-			// 人形的肩部底边本来就撑到方盒下缘、两角落在圆外，不自己裁就
-			// 会露出一小截 —— 用户 2026-11-10 报「未登录的登录图标超出背景
-			// 的圆框」（无头实测：圆外最暗差 142 灰阶，位置就是左肩下角）。
-			b.Draw(func(p *ui.Painter, r ui.Rect) {
-				rad := min(r.W, r.H) / 2
-				p.Clip(ui.Rect{X: r.X + r.W/2 - rad, Y: r.Y + r.H/2 - rad, W: 2 * rad, H: 2 * rad}, rad, func() {
-					userAvatarSilhouetteFn(p, r, t.Faint)
-				})
-			})
+			// 此前是手绘的实心剪影（原版 HeroUI Avatar 的 fallback 形状）：头与
+			// 肩之间空出 8px、肩部又撞满圆框下缘，用户 2026-11-10 说「剪切之
+			// 后更丑」，换成图标。它是**子元素**，所以头像键的 `Clip()` 直接
+			// 把他裁进正圆（自己 Draw 的元素不受 Clip 影响，别再画回去）。
+			ui.Icon(c, iconPerson).Size(20, 20).TextColor(t.Faint)
 		} else {
 			ui.Text(c, avatarInitial(a.UName)).FontSize(13).Bold().TextColor(t.Muted)
 		}
@@ -322,37 +316,13 @@ func (a *App) userButton(c *ui.Context) {
 }
 
 // avatarInitial 是已登录但头像还没就绪时显示的字（用户名首字）。未登录不
-// 走这里：原版 HeroUI Avatar 的默认 fallback 是人形剪影（见
-// userAvatarSilhouette），从前未登录 UName 为空会画出一个 "?"。
+// 走这里：未登录画的是描边人形图标（见 userButton 与 iconPerson），从前
+// 未登录 UName 为空会画出一个 "?"。
 func avatarInitial(name string) string {
 	for _, r := range name {
 		return string(r)
 	}
 	return "?"
-}
-
-// userAvatarSilhouette 画原版 @heroui/avatar 默认 fallback 的人形剪影：
-// 一个头 + 一段肩（灰色 currentColor，`AvatarIcon`/`AvatarFallback` 里的
-// person 图形）。未登录时画它，替代从前的 "?" 首字。
-// userAvatarSilhouetteFn 是剪影的绘制入口（测试可换空桩，验证它不会画出圆外）。
-var userAvatarSilhouetteFn = userAvatarSilhouette
-
-func userAvatarSilhouette(p *ui.Painter, r ui.Rect, col ui.Color) {
-	s := min(r.W, r.H)
-	if s <= 0 {
-		return
-	}
-	cx := r.X + r.W/2
-	// 头：半径约 0.18·边长，圆心落在上 35% 处。
-	var head ui.Path
-	head.Circle(cx, r.Y+r.H*0.35, s*0.18)
-	p.FillPath(&head, col)
-	// 肩：底边贴盒底、跨度 0.72·边长，顶点半高，用二次曲线收成圆肩。
-	var body ui.Path
-	body.MoveTo(cx-s*0.36, r.Y+r.H)
-	body.QuadTo(cx, r.Y+r.H*0.56, cx+s*0.36, r.Y+r.H)
-	body.Close()
-	p.FillPath(&body, col)
 }
 
 // ---------------------------------------------------------------- 正在播放

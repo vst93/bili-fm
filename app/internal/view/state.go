@@ -1653,6 +1653,14 @@ var (
 	// 「对齐原版」把它换回 iconPark(parkEqualizer)（parkEqualizer 常量仍留
 	// 在下面，有反证测试钉住两枚图不同）。
 	iconEQ = icon(`<path d="M3 11V5M6.5 13V3M10 10V6M13.5 12V4"/>`)
+	// 未登录头像里的人形（16 画布、1.4 描边，与 iconEQ / iconSparkles 同一套
+	// 自绘风格）：一个头圈 + 一段肩弧，缩到 20px 放进 36px 的圆里头像键。
+	// 原版的 HeroUI Avatar fallback 也是「人」的形状，但那是实心剪影；实心
+	// 剪影在 36px 圆里比例很难看（头肩之间空 8px、肩又撞满圆框），用户
+	// 2026-11-10 要求换一个更合适的 —— 换成与界面其它图标同样的描边风格。
+	// 头肩之间留 1~2px 空隙（画布上 4.1+2.9=7.0 到肩弧顶点 9.3）：贴在一起会
+	// 糊成一团（反证时渲染成 ASCII 逐行看过三种配比）。
+	iconPerson = icon(`<circle cx="8" cy="4.1" r="2.9"/><path d="M2.6 15.3c0-3.5 2.4-6 5.4-6s5.4 2.5 5.4 6"/>`)
 	// 恰饭跳过：icon-park 的 Ad（圆圈 + 「广」）。
 	iconSponsor = iconPark(parkAd)
 

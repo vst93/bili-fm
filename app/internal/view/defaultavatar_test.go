@@ -112,11 +112,12 @@ func TestOwnerFacePlaceholderWhileLoading(t *testing.T) {
 	}
 }
 
-// TestUserButtonSilhouetteWhenLoggedOut 钉住未登录时药丸右端画人形剪影
-// （原版 HeroUI Avatar 的 showFallback 默认图形），而不是从前的 "?" 首字。
+// TestUserButtonSilhouetteWhenLoggedOut 钉住未登录时药丸右端画**人形图标**
+// （原版 HeroUI Avatar 的 showFallback 也是「人」的形状），而不是从前的 "?" 首字。
 //
-// 结构断言：渲染树里不该再出现 "?" 文本；像素断言：按钮中心偏上有一条实心
-// 的「头」——未登录时画上去的数字 "?" 在 36px 圆里留不出这么饱满的一团。
+// 结构断言：渲染树里不该再出现 "?" 文本；像素断言：按钮中心偏上有图标墨迹 ——
+// 现在的 iconPerson 是**描边**图标（头圈 + 肩弧），只求区域内墨迹明显多于
+// 「什么都没画」（阈值放到 1/8：实测描边 40/192，空背景 0）。
 func TestUserButtonSilhouetteWhenLoggedOut(t *testing.T) {
 	a := NewApp(func() {})
 	a.Theme = ThemeFor(PeriodAt(12))
@@ -150,8 +151,8 @@ func TestUserButtonSilhouetteWhenLoggedOut(t *testing.T) {
 		}
 	}
 	area := (x1 - x0) * (y1 - y0)
-	if dark < area/4 {
-		t.Fatalf("未登录药丸头像区域应有人形剪影（头部实心块）：暗像素 %d / %d", dark, area)
+	if dark < area/8 {
+		t.Fatalf("未登录药丸头像区域应有人形图标墨迹：暗像素 %d / %d", dark, area)
 	}
 }
 

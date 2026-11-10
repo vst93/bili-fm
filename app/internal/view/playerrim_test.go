@@ -932,8 +932,8 @@ func TestPlayerChromaticFringe(t *testing.T) {
 		t.Error("色散边没有按 CSS 的 rgba(...，.5 / .2) 取小数 alpha")
 	}
 	// 源码链：paintPlayerRim 在 clip 之前调用色散边（画在描边之外）。
-	if !strings.Contains(flat, "paintPlayerChromaticFn(p,r,radius)") {
-		t.Error("paintPlayerRim 没有调用色散边绘制")
+	if !strings.Contains(flat, "paintPlayerChromaticFn(p,r,radius,opacity)") {
+		t.Error("paintPlayerRim 没有把 `::after` 的 opacity 传给色散边")
 	}
 
 	orig := paintPlayerChromaticFn
@@ -942,7 +942,7 @@ func TestPlayerChromaticFringe(t *testing.T) {
 	render := func(stub bool) *ui.Tester {
 		paintPlayerChromaticFn = orig
 		if stub {
-			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius, opacity float32) {}
 		}
 		_, tst := playerBarProbe(t, nil)
 		return tst
@@ -985,7 +985,7 @@ func TestPlayerChromaticFringeFollowsCorners(t *testing.T) {
 	render := func(stub bool) *image.RGBA {
 		paintPlayerChromaticFn = orig
 		if stub {
-			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius, opacity float32) {}
 		}
 		tst := ui.NewTester(func(c *ui.Context) {
 			ui.Box(c).Absolute().Left(100).Top(100).Width(side).Height(side).Radius(radius).
@@ -1061,10 +1061,10 @@ func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
 		case "on":
 			paintPlayerChromaticFn = orig
 		case "off":
-			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {}
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius, opacity float32) {}
 		case "noclip":
 			// 反证用：退回两条不裁圆角的整宽直线。
-			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius float32) {
+			paintPlayerChromaticFn = func(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 				p.Fill(ui.Rect{X: r.X, Y: r.Y + r.H, W: r.W, H: 1}, playerChromaticWarm(), 0)
 				p.Fill(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: 1}, playerChromaticCool(), 0)
 			}
@@ -1112,5 +1112,55 @@ func TestPlayerChromaticFringeDrawerTop(t *testing.T) {
 		t.Errorf("反证失败：不裁圆角时圆角段只有 %d（应 > 3）—— 判法分不开两种画法", bad)
 	} else {
 		t.Logf("反证：不裁圆角 → 圆角段 %d（> 3，判法有效）", bad)
+	}
+}
+
+// TestPlayerChromaticFollowsRimOpacity 钉住色散边跟着 `::after` 的 opacity 缩放。
+//
+// 原版这两条 box-shadow 与聚光描边同在同一个 `::after` 上：工具键
+// `opacity: .52`、搜索框常态 `.5`、烟熏玻璃时段 `.3`。此前原生版按 100% 画，
+// 等于把 0.5px 的阴影画成一条满不透明的 1px 白线 —— 用户 2026-11-10 第二轮
+// 反馈「浅色模式下底部那条高光线还是很突兀」。
+//
+// 判法：同一颗盒子分别按 opacity 1 / 0.5 画色散边，量上缘外那一行冷边的压暗量
+//（255 − R），后者应约为前者的一半。反证：把 scaleAlpha 去掉 → 两个值相等。
+func TestPlayerChromaticFollowsRimOpacity(t *testing.T) {
+	const side, radius = 40, 10
+	darken := func(opacity float32) float64 {
+		tst := ui.NewTester(func(c *ui.Context) {
+			c.Root().Background(ui.Hex("#ffffff"))
+			ui.Box(c).Absolute().Left(10).Top(10).Width(side).Height(side).Radius(radius).
+				Draw(func(p *ui.Painter, r ui.Rect) { paintPlayerChromatic(p, r, radius, opacity) })
+		}, side+20, side+20)
+		tst.Frame()
+		img := tst.Image()
+		return 255 - float64(img.RGBAAt(10+side/2, 10-1).R)
+	}
+	full, half := darken(1), darken(0.5)
+	t.Logf("冷边压暗量：opacity=1 → %.1f；opacity=0.5 → %.1f", full, half)
+	if full < 5 {
+		t.Fatalf("冷边没画出来（压暗量 %.1f）", full)
+	}
+	if ratio := half / full; ratio < 0.4 || ratio > 0.6 {
+		t.Errorf("opacity 缩放的比值 = %.2f，应约为 0.5（色散边没跟着 `::after` 的 opacity 缩放）", ratio)
+	}
+}
+
+// TestPlayerChromaticHalfPixelAlpha 钉住色散边的**半像素补偿**：原版是
+// `box-shadow: 0 ±0.5px 0`，只露出半个像素（约一半曝光量），而框架只能画整
+// 1px 带 —— 所以画的 alpha 必须是令牌的一半。判法：纯黑底上画一颗无背景的盒子，
+// 量下缘外那一行（暖边）的 R 通道：半像素补偿后 ≈ 64，不乘就是 ≈ 128。
+func TestPlayerChromaticHalfPixelAlpha(t *testing.T) {
+	const side, radius = 40, 10
+	tst := ui.NewTester(func(c *ui.Context) {
+		c.Root().Background(ui.Hex("#000000"))
+		ui.Box(c).Absolute().Left(10).Top(10).Width(side).Height(side).Radius(radius).
+			Draw(func(p *ui.Painter, r ui.Rect) { paintPlayerChromatic(p, r, radius, 1) })
+	}, side+20, side+20)
+	tst.Frame()
+	got := int(tst.Image().RGBAAt(10+side/2, 10+side).R)
+	t.Logf("暖边在纯黑底上的 R = %d（半像素补偿应 ≈64，不乘则 ≈128）", got)
+	if got < 40 || got > 90 {
+		t.Errorf("暖边 R = %d，超出半像素补偿后的范围（40~90）", got)
 	}
 }

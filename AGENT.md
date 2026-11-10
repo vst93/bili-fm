@@ -16,10 +16,12 @@
   不写 `SubtitleError`。章节（view_points）不需要登录，别一起挡掉。
 - **隐身模式 = 不续播**：`resolveResume` 在隐身时返回 0（云端不读、本地断点也
   不跳）。本地断点仍然照写，关掉隐身后能续上。用户 2026-11-10 明确要求。
-- **`--liquid-chromatic` 色散边（下暖 / 上冷）只画到圆角切点**
-  （`paintPlayerChromatic`）：带的两端收进 `[x+radius, x+W-radius]`，裁剪矩形
-  只向两端各外 1px 且半径不变。外扩 1px + 半径 +1 的写法会让带在圆角处多探出
-  ~2.5px 的直线（Linux/Windows 的硬边裁剪下尤其扎眼，用户 2026-11-10 ⑧）。
+- **`--liquid-chromatic` 色散边（下暖 / 上冷）**（`paintPlayerChromatic`）：
+  带只画到圆角**切点**（`[x+radius, x+W-radius]`），裁剪矩形只向两端各外 1px
+  且半径不变（外扩 1px + 半径 +1 的写法会让带在圆角处多探出 ~2.5px 的直线）；
+  alpha = 令牌 × `chromaticHalfPixel`(0.5，补「框架画不出 0.5px」) × **宿主
+  `::after` 的 opacity**（工具键 .52 / 抽屉选集搜索框 .5 / 主搜索药丸与播放键
+  1.0）。三样缺一样都会被用户看出来（2026-11-10 两轮反馈都是这条）。
 - **主窗的 `TitleBarStyle` 只在 Windows/macOS 给 `TitleBarHidden`，Linux 给
   default**（`titleBarStyleFor`）：Linux 上那是「隐藏标题栏但保留 GTK 自己的
   窗口按钮」，与两颗自绘键冲突。窗框剩下的部分由 mygo 对 `Frameless` /

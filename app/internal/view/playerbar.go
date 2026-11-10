@@ -1390,7 +1390,9 @@ func paintPlayerRim(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 		return
 	}
 	// 色散边画在描边之外（clip 之前）：暖边紧贴下缘外、冷边紧贴上缘外。
-	paintPlayerChromaticFn(p, r, radius)
+	// opacity 也要传下去：原版这两条和聚光描边同在 `::after` 上，跟着它的
+	// opacity 一起缩放（工具键 .52、搜索框常态 .5、烟熏玻璃时段 .3）。
+	paintPlayerChromaticFn(p, r, radius, opacity)
 	if opacity <= 0 {
 		return
 	}
@@ -1476,7 +1478,7 @@ var (
 // 画不出半像素；用「整 1px 带 × 半不透明度」近似 —— 观感上是紧贴边缘、比主描边
 // 更暗的一线暖/冷色，落在元素外侧（box-shadow 不带 spread、偏移半像素时只在
 // 边缘外露出那半条）。裁到 r 的圆角外一圈。
-func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius float32) {
+func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius, opacity float32) {
 	if r.W < 2 || r.H < 2 {
 		return
 	}
@@ -1503,10 +1505,38 @@ func paintPlayerChromatic(p *ui.Painter, r ui.Rect, radius float32) {
 	if x1-x0 < 1 {
 		x0, x1 = r.X, r.X+r.W
 	}
+	// 两条带还要跟着 `::after` 的 opacity 缩放（见 paintPlayerRim 的调用点）：
+	// 不缩放就等于把 0.5px 的 box-shadow 按**满不透明**画成一条 1px 白线 ——
+	// 工具键本该是 52%、搜索框常态 50%，于是浅色下那条「底部高光线」看着就是
+	// 凭空多出来的一条实线（用户 2026-11-10 第二轮反馈）。
+	warm := scaleAlpha(playerChromaticWarm(), opacity*chromaticHalfPixel)
+	cool := scaleAlpha(playerChromaticCool(), opacity*chromaticHalfPixel)
 	p.Clip(ui.Rect{X: r.X, Y: r.Y - 1, W: r.W, H: r.H + 2}, radius, func() {
-		p.Fill(ui.Rect{X: x0, Y: r.Y + r.H, W: x1 - x0, H: 1}, playerChromaticWarm(), 0)
-		p.Fill(ui.Rect{X: x0, Y: r.Y - 1, W: x1 - x0, H: 1}, playerChromaticCool(), 0)
+		p.Fill(ui.Rect{X: x0, Y: r.Y + r.H, W: x1 - x0, H: 1}, warm, 0)
+		p.Fill(ui.Rect{X: x0, Y: r.Y - 1, W: x1 - x0, H: 1}, cool, 0)
 	})
+}
+
+// chromaticHalfPixel 是「框架画不出半像素」的补偿系数。
+//
+// 原版那两条是 box-shadow 的半像素偏移（`0 0.5px 0` / `0 -0.5px 0`）：露出一条
+// **半个像素**高的边，也就是约一半的曝光量。原生版只能画整 1px 带，所以 alpha
+// 要乘这个系数 —— 不乘就是按双倍亮度画出去，浅色下就是用户 2026-11-10 两轮都
+// 提到的「底部多出来一条很突兀的高光线」。2× 屏上按设备像素看会比原版略淡
+// 一点（原版那 0.5px 在 2× 屏正好是一整颗设备像素），但绝不会比原版更亮。
+const chromaticHalfPixel = 0.5
+
+// scaleAlpha 把颜色的不透明度按 f（0..1）缩放，用于「同一条令牌跟着宿主
+// `::after` 的 opacity 一起淡」的场合（色散边 / 玻璃洗光等）。
+func scaleAlpha(c ui.Color, f float32) ui.Color {
+	if f >= 1 {
+		return c
+	}
+	if f < 0 {
+		f = 0
+	}
+	c.A = uint8(float32(c.A)*f + 0.5)
+	return c
 }
 
 // paintPlayerChromaticFn 是视图取色散边绘制的入口（测试可换桩关掉做反证）。
