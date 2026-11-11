@@ -258,8 +258,30 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -e
-          # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 .MTREE
-          sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools
+          # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 .MTREE。
+          #
+          # apt 源会 DNS 抖成 "Temporary failure resolving
+          # azure.archive.ubuntu.com"（2026-11-11 发 3.1.17 时连红两次，全部
+          # 卡在这一步），所以重试三次；镜像里已经带了 libarchive-tools 时
+          # 直接跳过，不白跑一趟 apt。
+          if command -v bsdtar >/dev/null 2>&1; then
+            echo "bsdtar 已在：$(command -v bsdtar)"
+          else
+            ok=0
+            for i in 1 2 3; do
+              if sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools; then
+                ok=1
+                break
+              fi
+              echo "apt 第 $i 次失败，15s 后重试" >&2
+              sudo apt-get clean || true
+              sleep 15
+            done
+            if [ "$ok" != 1 ]; then
+              echo "::error::装 libarchive-tools 连续三次失败（runner 网络问题，不是代码回归）"
+              exit 1
+            fi
+          fi
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           for PAIR in "amd64:x86_64" "arm64:aarch64"; do
             GOARCH="${PAIR%%:*}"
