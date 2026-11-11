@@ -346,7 +346,7 @@ func TestSavedLyricsPosIgnoresLegacyZero(t *testing.T) {
 // 阴影：Windows 的 DWM 阴影按窗口矩形画，背景透明度 0（纯文字浮在桌面）时
 // 会留一圈方框影 + 1px 描边，所以创建时先 DisableShadow，再由
 // syncLyricsWindowShadow 按背景透明度打开；DWM 那圈**边框**和圆角裁剪则由
-// lyricsTuneWindowFrame 关掉（DwmSetWindowAttribute 的 DWMWA_BORDER_COLOR =
+// tuneWindowFrame 关掉（DwmSetWindowAttribute 的 DWMWA_BORDER_COLOR =
 // DWMWA_COLOR_NONE、DWMWA_WINDOW_CORNER_PREFERENCE = DoNotRound）。
 func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 	src, err := os.ReadFile("lyrics.go")
@@ -358,7 +358,7 @@ func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 		"Panel: true,",
 		"DisableShadow:     runtime.GOOS == \"windows\"",
 		"c.syncLyricsWindowShadow()",
-		"lyricsTuneWindowFrame(win.NativeHandle())",
+		"tuneWindowFrame(win.NativeHandle())",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("桌面字幕窗缺少 %q（层级/阴影设置被改回去了）", want)
@@ -369,16 +369,16 @@ func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 	}
 }
 
-// TestLyricsWindowFrameTuningWired 钉住 Windows 上「去掉 DWM 边框与圆角裁剪」
+// TestWindowFrameTuningWired 钉住 Windows 上「去掉 DWM 边框与圆角裁剪」
 // 这一步真的接上了：属性常量与调用点都在（Win11 给每个顶层窗口画 1px 边框，
-// mygo 对 Panel 又请求了圆角偏好，于是背景透明的字幕窗外面永远有一道框）。
+// 而本应用所有窗口都是透明无边框窗，那 1px 正好压在内容半透明的边缘上）。
 //
 // 这两个属性 mygo 没有公开接口，只能走 NativeHandle() + DwmSetWindowAttribute；
 // 常量写错（例如把 DWMWA_COLOR_NONE 写成 0）会静默变成「用黑色画边框」。
-func TestLyricsWindowFrameTuningWired(t *testing.T) {
-	src, err := os.ReadFile("lyrics_windows.go")
+func TestWindowFrameTuningWired(t *testing.T) {
+	src, err := os.ReadFile("windowframe_windows.go")
 	if err != nil {
-		t.Fatalf("读 lyrics_windows.go 失败：%v", err)
+		t.Fatalf("读 windowframe_windows.go 失败：%v", err)
 	}
 	s := string(src)
 	for _, want := range []string{
@@ -389,11 +389,34 @@ func TestLyricsWindowFrameTuningWired(t *testing.T) {
 		`"DwmSetWindowAttribute"`,
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("lyrics_windows.go 缺少 %q", want)
+			t.Errorf("windowframe_windows.go 缺少 %q", want)
 		}
 	}
 	if strings.Contains(s, "dwmColorNone = 0x") && !strings.Contains(s, "0xFFFFFFFE") {
 		t.Error("DWMWA_COLOR_NONE 必须是 0xFFFFFFFE（0 会被 DWM 当成黑色边框）")
+	}
+}
+
+// TestMainWindowFrameTuned 钉住**主窗**也接上了窗口框调整。
+//
+// 用户 2026-11-11：「窗口最外层有一圈深色的边」，深色模式尤其明显。
+// 之前只给桌面字幕窗调了（那边先暴露出来），主窗与迷你窗漏了 —— 而主窗是
+// 透明窗，DWM 那 1px 正好压在内容半透明的边缘上。三个窗口走同一个函数。
+func TestMainWindowFrameTuned(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	if !strings.Contains(flat, "tuneWindowFrame(app.Win.NativeHandle())") {
+		t.Error("主窗没有调 tuneWindowFrame：DWM 会给透明无边框窗画一圈 1px 边框，" +
+			"深色主题下就是用户报的「最外层深色边」")
+	}
+	// 调用必须紧跟在 NewWindow 之后：再晚一点首帧就已经带着那圈边框显示了。
+	newIdx := strings.Index(flat, "app.Win=mygo.NewWindow(opts)")
+	tuneIdx := strings.Index(flat, "tuneWindowFrame(app.Win.NativeHandle())")
+	if newIdx >= 0 && tuneIdx >= 0 && tuneIdx < newIdx {
+		t.Error("tuneWindowFrame 写在了 NewWindow 之前：那时还没有窗口句柄")
 	}
 }
 

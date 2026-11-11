@@ -16,6 +16,22 @@
   （只改状态、**不请求帧**）。判定读 `App.Hidden()`（`WindowHidden` 的原子镜像，
   `noteHidden` 在 Shell/MiniShell 每帧一起写），别读裸字段（UI 线程写、后台
   goroutine 读 = 数据竞争）。实测：不可见时一帧 1.02ms → 0.015ms。
+- **起播不关抽屉**（`keepDrawerOnPlay`）：切歌 / 自动续播 / 播完下一集时，
+  用户正在浏览的抽屉（动态 / 历史 / 搜索 / UP 空间 / 合集 / 收藏 / 播放列表 /
+  选集…）**一律保留** —— 起播不是「离开浏览」的动作。唯一例外是弹幕 / 评论抽屉
+  （内容跟着正在播放的那一集走，`startCurrent` 紧接着就清空 `a.Danmaku`）。
+  点卡片换抽屉由 `openCard` / `BrowseTo` 负责；手动从选集点一集仍由 `playIndex`
+  起播后 `CloseDrawer()`（issue #37 ①：从列表进来的要回到那个列表）。
+  **所有起播路径必须经过 `runStartPlayback(c)`**（`step` / `handleEnded` /
+  `playIndex` 两条分支 / `playPlaylist`）—— 它是行为测试唯一的替身入口，
+  绕过去就会在测试里真起播（`c.bl` 为 nil → 后台 goroutine panic）。
+- **透明窗在 Windows 上要去掉 DWM 的 1px 边框**：Win11 给每个顶层窗口画
+  `DWMWA_BORDER_COLOR` 边框并按圆角偏好裁剪，不透明窗的内容能盖住，**透明窗
+  盖不住**（深色主题下就是「最外层一圈深色边」）。`tuneWindowFrame(hwnd)`
+  （`app/windowframe_windows.go`）把边框色设 `DWMWA_COLOR_NONE`（`0xFFFFFFFE`，
+  不是 0）、圆角设 `DoNotRound`；主窗 / 迷你窗 / 桌面字幕窗三个窗口都要在
+  `NewWindow` 之后立刻调。Linux 不用管（mygo 的 `useCSD` 排除透明窗，走
+  `gtk_window_set_decorated(false)`）。
 - **登录过期要能自愈**：接口回 `-101`（账号未登录）时 `bilibili.apiError` 会给
   `ErrNotLoggedIn`，app 侧 `controller.listLoadFailed` 静默调 `expireLogin()`
   （清登录态 + 失效 cookie + KV 里的资料，抽屉空态提示去登录），其余错误才 toast。

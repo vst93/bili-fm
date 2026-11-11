@@ -832,6 +832,73 @@ func TestRelTimeLadder(t *testing.T) {
 // 自动切歌不关（handlePlaylistVideoSelect 的 preserveUi），选集自动续播/播完
 // 切集也不关（原版 handleVideoSelect 直接调用）；其余抽屉起播时关掉。
 // 手动从选集面板点一集由 playIndex 先关面板，见
+// TestKeepDrawerOnPlay 钉住起播时的抽屉判据：**开着就留着**（用户 2026-11-11
+// 「在抽屉里翻东西，按一下下一首整个抽屉就没了」）。
+//
+// 只有两种抽屉不留：空抽屉（本来没开）与弹幕 / 评论抽屉（内容跟着正在播放的
+// 那一集走，换集后旧内容已经不对了，startCurrent 会清空 a.Danmaku）。
+func TestKeepDrawerOnPlay(t *testing.T) {
+	keep := []string{
+		view.DrawerPlaylist, view.DrawerParts, view.DrawerSearch,
+		view.DrawerUp, view.DrawerSeries,
+	}
+	// 分区列表（动态 / 热门与推荐 / 收藏 / 历史 / 稍后再看…）的 key 都是
+	// 数据驱动的，这里拿真实 Sections 的 key 逐个验，而不是写死字符串。
+	for _, s := range view.Sections {
+		keep = append(keep, s.Key)
+	}
+	for _, d := range keep {
+		if !keepDrawerOnPlay(d) {
+			t.Errorf("抽屉 %q 在起播时被关掉了：切歌不该打断用户正在浏览的列表", d)
+		}
+	}
+	for _, d := range []string{"", view.DrawerDanmaku} {
+		if keepDrawerOnPlay(d) {
+			t.Errorf("抽屉 %q 不该保留：空抽屉没东西可留，弹幕/评论的内容属于上一集", d)
+		}
+	}
+}
+
+// TestPlaybackKeepsDrawerOpen 是行为测试：用户在历史 / 搜索 / UP 空间里翻着，
+// 按下一首（或播完自动切下一集）之后，抽屉必须还在。
+//
+// 这里直接调 step()，把起点播那一步换成替身（真起播要播放器与网络），
+// 替身忠实复刻 startCurrent 对抽屉的副作用。
+func TestPlaybackKeepsDrawerOpen(t *testing.T) {
+	orig := startPlaybackStub
+	t.Cleanup(func() { startPlaybackStub = orig })
+	startPlaybackStub = func(c *controller) {
+		if !keepDrawerOnPlay(c.app.Drawer) {
+			c.app.Drawer = ""
+		}
+	}
+
+	for _, drawer := range []string{"history", view.DrawerSearch, view.DrawerUp, "feed"} {
+		a := view.NewApp(func() {})
+		a.Drawer = drawer
+		a.Queue = []view.Track{{Bvid: "BV1", Cid: 1}, {Bvid: "BV2", Cid: 2}}
+		a.Index = 0
+		c := &controller{app: a}
+		c.step(1)
+		if a.Index != 1 {
+			t.Fatalf("抽屉 %q：step(1) 应切到第 2 条，Index = %d", drawer, a.Index)
+		}
+		if a.Drawer != drawer {
+			t.Errorf("抽屉 %q：切下一首后被关成 %q —— 用户正在这个列表里翻东西", drawer, a.Drawer)
+		}
+	}
+
+	// 反证：弹幕抽屉跟着上一集的内容，换集后必须让位（否则显示的是别的集的弹幕）。
+	a := view.NewApp(func() {})
+	a.Drawer = view.DrawerDanmaku
+	a.Queue = []view.Track{{Bvid: "BV1", Cid: 1}, {Bvid: "BV2", Cid: 2}}
+	c := &controller{app: a}
+	c.step(1)
+	if a.Drawer != "" {
+		t.Errorf("弹幕抽屉在换集后仍开着（%q）：它的内容属于上一集", a.Drawer)
+	}
+}
+
 // TestPlayIndexClosesPartsDrawerOnSelect 钉住「手动从选集面板点一集会关面板」，
 // 且**从列表点进来的那条要回到列表**（issue #37 ①）。
 //
@@ -839,10 +906,13 @@ func TestRelTimeLadder(t *testing.T) {
 // startCurrent 对抽屉的唯一副作用（keepDrawerOnPlay）。顺序写反（先 CloseDrawer
 // 再 startCurrent）时，从列表恢复的抽屉会被 startCurrent 再关掉，这条会红 ——
 // 那正是审计抓到的缺陷。
+//
+// 注意：起播本身现在**不再关抽屉**（见 TestPlaybackKeepsDrawerOpen），
+// 所以这里的「关」全部来自 playIndex 自己那行 CloseDrawer。
 func TestPlayIndexClosesPartsDrawerOnSelect(t *testing.T) {
 	orig := startPlaybackStub
 	t.Cleanup(func() { startPlaybackStub = orig })
-	// 忠实复刻 startCurrent 的那一行：非选集 / 非播放列表就关抽屉。
+	// 忠实复刻 startCurrent 的那一行（现在只在空抽屉 / 弹幕抽屉时清空）。
 	startPlaybackStub = func(c *controller) {
 		if !keepDrawerOnPlay(c.app.Drawer) {
 			c.app.Drawer = ""

@@ -387,6 +387,13 @@ func main() {
 		}
 		app.Win = mygo.NewWindow(opts)
 
+		// Windows：去掉 DWM 给每个顶层窗口画的那圈 1px 边框（与它的圆角
+		// 裁剪）。主窗是**透明**窗，内容在四边本来就半透，DWM 那 1px 正好压在
+		// 边缘上 —— 深色主题下就是用户 2026-11-11 报的「最外层一圈深色的边」。
+		// 无头渲染逐点采过四条边，内容层自己是连续的，所以问题只在窗口层。
+		// 见 windowframe_windows.go。
+		tuneWindowFrame(app.Win.NativeHandle())
+
 		// 恢复上次的主窗位置：浮窗应用被用户摆到屏幕一侧后，下次启动
 		// 应该回到原地，而不是又重新居中。-window-pos 调试参数优先。
 		// 首次运行 / 老版本升级（没有记录）才交给 mygo 居中。
@@ -989,7 +996,7 @@ func audioErrorMessage(err error) string {
 func (c *controller) handleEnded() {
 	// 单曲循环：直接重播当前曲目（不管选集/列表）。
 	if c.app.PlayMode == view.PlayModeSingle {
-		c.startCurrent()
+		runStartPlayback(c)
 		return
 	}
 	// 顺着听：队列里还有下一条就直接走；没有就等一批相关推荐回来再接。
@@ -3128,7 +3135,7 @@ func (c *controller) playIndex(index int) {
 	c.app.Index = index
 	// 从普通列表进入：退出「播放列表模式」。
 	c.app.PlayingPlaylist = ""
-	c.startCurrent()
+	runStartPlayback(c)
 }
 
 // openParts 打开选集抽屉时把分集当作播放队列（旧版：进详情后上一首/下一首
@@ -3256,15 +3263,24 @@ func resolvePlaybackCid(info *view.Info, cid int64) int64 {
 	return cid
 }
 
-// keepDrawerOnPlay 报告 startCurrent 起播时该保留哪个抽屉。它服务的是
-// **自动/后台起播**路径：播放列表模式下手动/自动切歌不关
-// （handlePlaylistVideoSelect 的 preserveUi），选集自动续播/播完切集也不关
-// （原版 handleVideoSelect 直接调用，不经 PageList 的 handleOpenChange）。
-// 手动从选集面板点一集由 playIndex 先关面板（对齐 PageList.handleVideoSelect
-// 的 handleOpenChange(false)），不经过这里的判断。其余抽屉（搜索/分区/UP 空间…）
-// 点卡片会先被换成选集抽屉，起播时再关掉。
+// keepDrawerOnPlay 报告 startCurrent 起播时该保留哪个抽屉。
+//
+// 用户 2026-11-11：**「我在抽屉里翻东西，按一下下一首，整个抽屉就没了」**。
+// 起播本身不该是「离开浏览」的动作 —— 切歌、自动续播、播完下一集，用户眼睛
+// 还停在那个列表上（动态 / 历史 / 搜索 / UP 空间 / 合集 / 播放列表 / 选集），
+// 把抽屉收掉等于强行打断他正在做的事。所以判据从「只保留选集和播放列表」
+// 放宽成「**开着就留着**」。
+//
+// 例外只有两条，都不是「起播」引起的：
+//   - 空抽屉（本来就没开）：无抽屉可留；
+//   - 弹幕 / 评论抽屉：它的内容跟着**正在播放**的那一集走，换集后旧弹幕、旧
+//     评论已经不是这一集的，留着就是错的（起播会清空 a.Danmaku，见下面）。
+//
+// 点卡片换抽屉（搜索 → 选集）由 openCard / BrowseTo 负责，与起播无关；
+// 手动从选集面板点一集由 playIndex 先起播再 CloseDrawer（issue #37 ①，
+// 从列表进来的要回到那个列表），也不经过这里的判断。
 func keepDrawerOnPlay(drawer string) bool {
-	return drawer == view.DrawerPlaylist || drawer == view.DrawerParts
+	return drawer != "" && drawer != view.DrawerDanmaku
 }
 
 // startCurrent 起播当前队列项：取播放地址 → 起播 → 拉弹幕与跳过分段。
@@ -3286,9 +3302,9 @@ func (c *controller) startCurrent() {
 	c.app.Buffering = true
 	c.app.Buffered = 0
 	c.app.Status = "起播中…"
-	// 从选集、搜索结果等进入时关掉抽屉；选集/播放列表模式下要保留面板——
-	// 原版在选集里点一集（handleVideoSelect）不会关选集面板，播放列表模式下
-	// 手动/自动切歌也不关（handlePlaylistVideoSelect 的 preserveUi）。
+	// 起播时**不关抽屉**（用户 2026-11-11：在抽屉里翻东西时按下一首，整个抽屉
+	// 被收掉）。例外只有弹幕 / 评论抽屉：它的内容跟着正在播放的那一集走，
+	// 下面会把 a.Danmaku 清空，留着旧内容反而错。判据见 keepDrawerOnPlay。
 	if !keepDrawerOnPlay(c.app.Drawer) {
 		c.app.Drawer = ""
 	}
@@ -3670,7 +3686,7 @@ func (c *controller) step(delta int) {
 		next = 0
 	}
 	c.app.Index = next
-	c.startCurrent()
+	runStartPlayback(c)
 }
 
 func (c *controller) seek(seconds float64) {
