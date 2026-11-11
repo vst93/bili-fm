@@ -68,9 +68,12 @@ func (t Theme) darkControl(b ui.Element, active, hovered bool) ui.Element {
 // 深色那一档比浅色**再透一大截**：用户 2026-11-11 反馈「深色模式下搜索栏和
 // 底部播放栏影响通透性」，浅色还好。深色底本身够暗，veil 薄一点不会伤可读性，
 // 而厚一点就会把背后的渐变整块盖成一块深色板。
+// 2026-11-11（三）：用户要求「深色再透一些，各档位下至少再透 40%」。veil 与
+// 洗光两处一起按 0.6 倍收（0.06 → 0.036、0.05 → 0.03），所以**每一档窗口透明度**
+// 下的实际不透明量都同比减少 40%，不是只改默认档。
 const (
 	glassPaneVeil     float32 = 0.40
-	glassPaneVeilDark float32 = 0.06
+	glassPaneVeilDark float32 = 0.036
 )
 
 // glassPaneSheenBase / glassPaneSheenBaseDark 是两块大面板在**零窗口
@@ -80,7 +83,7 @@ const (
 // 抽屉面板不走这个值（见 glassSheenFade），保持原有玻璃质感。
 const (
 	glassPaneSheenBase     float32 = 0.72
-	glassPaneSheenBaseDark float32 = 0.05
+	glassPaneSheenBaseDark float32 = 0.03
 )
 
 // glassPaneOpacity 是两块大面板跟随窗口背景透明度的系数。窗口越透，它们

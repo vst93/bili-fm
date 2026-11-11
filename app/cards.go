@@ -219,18 +219,22 @@ func toFeedCards(items []any) []view.Card { return upCards(items, true) }
 //
 // 白名单而不是黑名单：B 站以后新增任何来源分类文案都会被挡掉，只有明确
 // 认为是「特殊」的才会显示。
-var specialBadges = map[string]bool{
-	"充电专属": true,
-	"合作视频": true,
-	"联合投稿": true,
+// badgeLabels 把 B 站的长徽标文案压成卡片上更短的样子（用户 2026-11-11：
+// 「标签文字是不是也可以精简下，比如这个改为 合作」）。值同样是白名单：表里没有
+// 的（「投稿视频」「动态视频」这类来源分类）一律不打标签。
+//
+// 为什么精简：「合作视频」「联合投稿」在 14px 的标题行里要占掉 5~6 个字宽，
+// 而卡片标题本身空间紧张；「充电专属」保留 —— 它表达的是「这集要充电才能看」，
+// 少了「专属」两个字就读不出这个意思。
+var badgeLabels = map[string]string{
+	"充电专属": "充电专属",
+	"合作视频": "合作",
+	"联合投稿": "合作",
 }
 
-// specialBadge 只在 text 是白名单里的特殊徽标时返回它，否则返回空串。
+// specialBadge 只在 text 是白名单里的特殊徽标时返回**精简后的**文案，否则空串。
 func specialBadge(text string) string {
-	if specialBadges[text] {
-		return text
-	}
-	return ""
+	return badgeLabels[text]
 }
 
 func upCards(items []any, withBadge bool) []view.Card {

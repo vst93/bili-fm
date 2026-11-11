@@ -2008,9 +2008,12 @@ func cardFooterBG(hovered bool) ui.Color {
 	return ui.Hex("#ffffff").Alpha(0.22)
 }
 
-// cardTitleBadgePadY 是卡片标题前胶囊的上下内边距。原版 feedList.tsx 的
-// titlePrefix span 是 `px-1 py-0.5`，py-0.5 = 2px。声明成常量便于测试钉值。
-const cardTitleBadgePadY = 2
+// cardTitleBadgeRadius 是卡片标题前胶囊的圆角（原版 feedList.tsx 的
+// titlePrefix span 是 `rounded-lg` = 8px）。
+//
+// 上下内边距不再是常量：胶囊里是中文，行盒由回退字体决定，写死 py-0.5 的 2px
+// 会让字形贴在下沿（见 renderCard 里的 badgeShift）。
+const cardTitleBadgeRadius float32 = 8
 
 func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	t := a.Theme
@@ -2201,11 +2204,27 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 					ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
 						// 原版胶囊是 `py-0.5`（上下 2px）+ 行盒；mygo 这里是 border-box
 						// 且盒高锁在标题行盒 th 上（胶囊是 inline span，内边距不撑高
-						// 行盒，见 cardfooter_test.go 的 TestCardTitleBadgeLineBox），
-						// 所以只在盒内补 2px 上下内边距，盒高保持 th。
+						// 行盒，见 cardfooter_test.go 的 TestCardTitleBadgeLineBox）。
+						//
+						// 字形必须**上下居中**。原版是 inline span：行盒 20px，浏览器按
+						// **字体自己的** ascent/descent 在行盒里做 half-leading。原生版
+						// 此前写死 `Padding(cardTitleBadgePadY+tsh, …)`，那个 tsh 是**拉丁**
+						// 字体的 half-leading，而徽标是中文（自然行盒 22 > 拉丁 20），
+						// 于是字形被顶到胶囊下沿（用户 2026-11-11 报「标签文字没有上下
+						// 居中」）。
+						//
+						// 这里按**这段文字实际的自然行盒**算 half-leading（中文用中文
+						// 度量、拉丁用拉丁度量，见 linebox.go 的 halfLeading）：盒高仍是
+						// 标题行盒 th，字形上下各留 (th − 自然行盒)/2。
+						//
+						// 再补一个负位移把字形往下压 1px：汉字的**墨迹**在行盒里并不居中
+						// （字面框的下沿比 ascent 浅），按行盒居中后视觉上仍偏上。无头实测
+						// 「合作 / 充电专属」上留白 4、下留白 2 —— 往下 1px 后 3 / 3。
+						_, badgeShift := halfLeading(textLineBoxFor(spec.Badge, 14), th)
+						badgeShift -= 1
 						ui.Text(c, spec.Badge).FontSize(14).FontWeight(700).
-							TextColor(ui.Hex("#ffffff")).Height(th).
-							Padding(cardTitleBadgePadY+tsh, 4, cardTitleBadgePadY, 4).Radius(8).
+							TextColor(ui.Hex("#ffffff")).Height(th).SingleLine().
+							Padding(badgeShift, 4, 0, 4).Radius(cardTitleBadgeRadius).
 							Background(ui.Hex("#f87171")).Margin(0, 4, 0, 0).Shrink(0)
 						ui.Text(c, spec.Title).FontSize(14).FontWeight(700).
 							TextColor(t.Ink).SingleLine().Height(th).Padding(tsh, 0, 0, 0).

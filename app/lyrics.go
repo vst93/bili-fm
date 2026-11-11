@@ -9,7 +9,6 @@ package main
 // 透明度 / 时间微调），设置存本地 KV，重启后继续生效。
 
 import (
-	"math"
 	"runtime"
 	"strconv"
 	"time"
@@ -188,28 +187,71 @@ func (c *controller) lyricsGearHotNow() bool {
 	return lyricsGearHot(mygo.Screen.CursorScreenPoint(), c.lyricsWin.Bounds())
 }
 
-// dragLyricsWindow 让桌面字幕窗跟着指针拖动（设置键按住拖动时由视图调用）。
+// beginLyricsDrag 在设置键被按住时调一次：记下「指针相对窗口左上角的偏移」，
+// 之后每帧按指针的绝对位置摆窗口 —— 窗口就严格跟着指针走。
+//
+// 为什么不按位移累加：视图拿到的 `Dragged()` 是**每帧**的增量（mygo 在
+// forgetInput 里把 dragX 清零），逐帧累加会丢掉第一帧之后的落点、也吃不住
+// 事件合并；而「指针屏幕坐标 − 按下时的偏移」是绝对值，怎么抖都能对齐。
 //
 // 为什么不给设置键挂 mygo 的 `DragWindow()`：那条路径要求元素**没有**其它交互
-// 标志（input.go 的 `interactive&^flagDragWindow == 0`），而设置键本身是按钮。
-// 所以视图在 `Dragged()` 报「移动超过阈值」时调这里，由我们向合成器发起窗口
-// 拖动（`Window.StartDrag` 就是标题栏拖拽用的那条 API）。
-func (c *controller) dragLyricsWindow(dx, dy float32) {
+// 标志（ui/input.go 的 `interactive&^flagDragWindow == 0`），而设置键是按钮。
+//
+// 能原生拖的平台（Linux 的 GTK begin_move_drag）交给合成器，之后不再自己摆
+// （否则会和系统拖动打架）；其余平台（Windows / macOS）逐帧 SetPosition。
+func (c *controller) beginLyricsDrag() {
 	if c.lyricsWin == nil || c.lyricsDragging {
 		return
 	}
+	// 先试原生拖动：交给合成器之后指针与窗口的关系由它维护。
 	if lyricsBeginWindowDrag(c.lyricsWin) {
-		// 交给合成器了：后续的逐帧位移不再自己算（否则会和系统拖动打架）。
 		c.lyricsDragging = true
 		return
 	}
-	// 兜底：自己按指针位移挪窗口（Windows / macOS，或 GTK 符号缺失时）。
+	// 兜底：记下指针在窗口里的位置，后续每帧让窗口跟着指针。
+	//
+	// 基准位置优先 `Position()`；Wayland 上普通顶层窗口常常恒返回 (0,0)
+	// （见 saveLyricsPos 的同一条注释），那时才退回 KV 里记的坐标 —— 拿 (0,0)
+	// 当基准会让第一次 SetPosition 把窗口甩到屏幕左上角。
+	cursor := mygo.Screen.CursorScreenPoint()
 	x, y := c.lyricsWin.Position()
-	c.lyricsWin.SetPosition(x+int(math.Round(float64(dx))), y+int(math.Round(float64(dy))))
+	if x == 0 && y == 0 {
+		if kx, ky, ok := c.savedLyricsPos(c.lyricsDisplayHeight()); ok {
+			x, y = kx, ky
+		}
+	}
+	c.lyricsDragDX = cursor.X - x
+	c.lyricsDragDY = cursor.Y - y
+	c.lyricsDragging = true
+	c.lyricsDraggingOwn = true
+	// 逐帧摆位时把设置页/显示页的「窗口位置 → 落盘」逻辑压住：拖动中每一帧
+	// 都改位置，OnMove 会把中间坐标写进 KV（Wayland 上 Position() 还恒为
+	// (0,0)，那就直接把有效坐标覆盖成 0）。松手时 endLyricsDrag 统一存一次。
+	c.lyricsDragSuspended = true
 }
 
-// endLyricsDrag 在一次拖动结束时清掉「已交给合成器」的闩锁（视图每帧在松手后调）。
-func (c *controller) endLyricsDrag() { c.lyricsDragging = false }
+// moveLyricsDrag 是拖动中的每帧：把窗口摆到「指针位置 − 按下时的偏移」。
+// 只在 app 自己拖（lyricsDraggingOwn）时生效 —— 交给合成器的那种不用管。
+func (c *controller) moveLyricsDrag() {
+	if c.lyricsWin == nil || !c.lyricsDraggingOwn {
+		return
+	}
+	cursor := mygo.Screen.CursorScreenPoint()
+	c.lyricsWin.SetPosition(cursor.X-c.lyricsDragDX, cursor.Y-c.lyricsDragDY)
+}
+
+// endLyricsDrag 在一次拖动结束时清掉闩锁（视图松手后每帧调，幂等）。
+func (c *controller) endLyricsDrag() {
+	if !c.lyricsDragging {
+		return
+	}
+	c.lyricsDragging, c.lyricsDraggingOwn = false, false
+	c.lyricsDragSuspended = false
+	// 拖动结束：把落点写回 KV，下次打开/重启还在用户放的地方。
+	if c.lyricsWin != nil {
+		c.saveLyricsPos(c.lyricsWin)
+	}
+}
 
 // lyricsWantsClickThrough 报告字幕窗此刻该不该穿透：开关打开、不在设置页、
 // 且指针**不在齿轮上**（齿轮永远可点，见 lyricsGearHot）。
@@ -427,6 +469,11 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// mygo 的 OnMove 在用户拖动和程序化 SetBounds 后都会触发；这里只存
 	// 可见窗口，避免初始化 / 隐藏收尺寸时的中间坐标覆盖已保存的位置。
 	win.OnMove(func() {
+		// 逐帧拖动期间不写 KV：每一帧都会触发 OnMove，中间坐标（以及 Wayland
+		// 上恒返回的 0,0）会把有效位置覆盖掉。松手时 endLyricsDrag 存最终落点。
+		if c.lyricsDragSuspended {
+			return
+		}
 		if c.lyricsWin == win && win.IsVisible() {
 			c.saveLyricsPos(win)
 		}

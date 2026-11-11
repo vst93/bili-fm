@@ -158,9 +158,17 @@ type controller struct {
 	menuRadio  *mygo.MenuItem
 	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
 	menuLyricsClickThrough *mygo.MenuItem
-	// lyricsDragging 表示这次拖动已经交给合成器（GTK begin_move_drag），
-	// 后续逐帧位移不再自己算。见 lyrics.go 的 dragLyricsWindow。
-	lyricsDragging bool
+	// lyricsDragging 表示正在拖动字幕窗（按下设置键后）；lyricsDraggingOwn
+	// 表示窗口由我们自己逐帧摆（而不是交给了合成器的原生拖动）。
+	// lyricsDragDX / lyricsDragDY 是按下时「指针 − 窗口左上角」的偏移。
+	// 见 lyrics.go 的 beginLyricsDrag / moveLyricsDrag / endLyricsDrag。
+	lyricsDragging    bool
+	lyricsDraggingOwn bool
+	// lyricsDragSuspended 在逐帧拖动期间为真：此时不要用 OnMove 写 KV
+	// （中间坐标 / Wayland 恒返回的 0,0 会覆盖有效坐标）。
+	lyricsDragSuspended bool
+	lyricsDragDX        int
+	lyricsDragDY        int
 	// lyricsPollStop 是「指针在不在字幕设置键上」轮询的停止信号；
 	// lyricsIgnoring 是字幕窗**当前**的穿透状态（避免每个 tick 重复设同一个值）。
 	lyricsPollStop chan struct{}
@@ -833,7 +841,8 @@ func (c *controller) wireActions() {
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		// 穿透（mygo 0.8.2 起 Linux 也生效；入口只在主窗，见 lyrics.go）。
 		ToggleLyricsClickThrough: c.toggleLyricsClickThrough,
-		DragLyricsWindow:         c.dragLyricsWindow,
+		BeginLyricsDrag:          c.beginLyricsDrag,
+		MoveLyricsDrag:           c.moveLyricsDrag,
 		EndLyricsDrag:            c.endLyricsDrag,
 		ToggleHeat:               c.toggleHeat,
 		PersistFollow:            c.persistFollowPrefs,

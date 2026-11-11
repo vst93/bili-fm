@@ -610,12 +610,13 @@ type Actions struct {
 	ToggleDesktopLyrics func()
 	// ToggleLyricsClickThrough 开启 / 关闭桌面字幕的鼠标穿透。
 	ToggleLyricsClickThrough func()
-	// DragLyricsWindow 让桌面字幕窗跟着指针拖动（设置键按住拖动时调用，dx/dy
-	// 是这一帧的指针位移）。mygo 的 DragWindow 只在元素没有其它交互标志时生效，
-	// 按钮拿不到，所以由 app 侧在 Dragged() 超过阈值后发起：能原生拖的平台上
-	// 交给合成器，其余平台逐帧移动窗口。
-	DragLyricsWindow func(dx, dy float32)
-	// EndLyricsDrag 在一次拖动结束时清掉拖动闩锁（视图在松手后每帧调，幂等）。
+	// BeginLyricsDrag 在设置键被按住超过拖动阈值时调一次：app 记下指针相对
+	// 窗口的偏移（能原生拖的平台直接交给合成器）。
+	BeginLyricsDrag func()
+	// MoveLyricsDrag 是拖动中的每帧：app 按指针的**绝对**位置摆窗口
+	// （mygo 的 Dragged() 是每帧增量，累加会漂，所以不用它算位移）。
+	MoveLyricsDrag func()
+	// EndLyricsDrag 在一次拖动结束时清掉拖动闩锁并落盘位置（松手后每帧调，幂等）。
 	EndLyricsDrag func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
@@ -899,9 +900,10 @@ type App struct {
 	// 窗口收不到鼠标事件（`PointerPosition` 的 over 读不到），由 app 侧的指针
 	// 轮询维护它，设置键据此显形 —— 否则键会常显（用户 2026-11-11 的回归）。
 	LyricsGearHot bool
-	// lyricsDragDX / lyricsDragDY 是上一次交给 DragLyricsWindow 的**累积**位移
-	// （mygo 的 Dragged 报累积量，这里存下来算增量，见 lyrics.go 的设置键）。
-	lyricsDragDX, lyricsDragDY float32
+	// lyricsDragging 表示设置键这次按下已经算拖动（越过阈值）；越过之前仍是
+	// 一次普通点击（进设置页）。mygo 的 Dragged() 是**每帧**增量，所以这里
+	// 只存一个标志，位移由 app 按指针绝对坐标算。
+	lyricsDragging bool
 	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口
 	//（mygo 0.8.2 起 Linux 也真的生效，见 lyrics.go 的 syncLyricsClickThrough）。
 	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗自己点不动，

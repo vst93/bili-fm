@@ -39,12 +39,14 @@
   mygo 的整窗穿透），Windows/macOS 是整窗穿透 + 指针轮询（`lyricsPollNeeded`）。
   设置页（字幕自己的面板）与主窗设置菜单 / macOS 原生菜单里各有一个开关，同源；
   设置页打开时永不穿透。
-- **设置键既是按钮又是拖动手柄**（`Act.DragLyricsWindow`）：mygo 的
-  `Element.DragWindow()` 只在元素**没有**其它交互标志时生效（`ui/input.go` 的
-  `interactive&^flagDragWindow == 0`），按钮拿不到 —— 所以视图在 `Dragged()` 的
-  **累积**位移超过 4 DIP 后把**增量**交给 app：Linux 用
-  `gtk_window_begin_move_drag`（purego），其余平台退回逐帧 `SetPosition`。
-  `Dragged` 是累积量，逐帧移动必须存上次的值算增量，否则窗口会飞出去。
+- **设置键既是按钮又是拖动手柄**（`Act.BeginLyricsDrag` / `MoveLyricsDrag` /
+  `EndLyricsDrag`）：mygo 的 `Element.DragWindow()` 只在元素**没有**其它交互标志
+  时生效（`ui/input.go` 的 `interactive&^flagDragWindow == 0`），按钮拿不到。
+  **`Dragged()` 报的是每帧增量**（`forgetInput` 每帧清零），绝不能拿它累加位移
+  —— 只用它判「越过 4 DIP 起步阈值」；位置按**指针绝对坐标**算（Begin 记
+  「指针 − 窗口左上角」偏移，Move 每帧摆窗口）。原生拖动（Linux
+  `begin_move_drag`）只在**非 layer surface** 时采用（gtk-layer-shell 里是空操作），
+  拖动期间不写 KV（逐帧 OnMove 会把中间坐标/0,0 写进去），松手统一落盘。
 - 设置键的显隐条件只能是 `over || a.LyricsGearHot`：**别**写成
   `|| LyricsClickThrough`（那会让它常显，用户 2026-11-11 报过这条回归）。
 

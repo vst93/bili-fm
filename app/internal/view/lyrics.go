@@ -199,7 +199,10 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 				// Linux 用输入区域，指针一进那块区域窗口就重新收到事件、`over`
 				// 自然为真。两条都只表示「指针在设置键附近」，**不会**让键常显
 				// —— 用户 2026-11-11 报「开启穿透后设置键不再自动隐藏」。
-				if gear && (over || a.LyricsGearHot) {
+				// 拖动中必须继续建出这颗键：`over` 只表示「指针在窗内」，而拖动时
+				// 指针可能短暂跑到窗外（窗口还没跟上），那时若把键从树里拿掉，
+				// `Dragged()` 就没人读了 —— 拖动会中断、松手也收不到 End。
+				if gear && (over || a.LyricsGearHot || a.lyricsDragging) {
 					ui.Box(c).Absolute().Right(LyricsGearInset).Top(LyricsGearInset).Children(func() {
 						b := ui.ButtonBase(c.Key("lyrics-config")).Size(LyricsGearSize, LyricsGearSize).Radius(7).Center().
 							Label("桌面字幕设置").Tooltip("桌面字幕设置（可按住拖动整个字幕窗）")
@@ -218,18 +221,25 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 						if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
 							a.Act.ToggleLyricsConfig()
 						}
-						// 按住拖动 = 拖动整个字幕窗。Dragged 报的是**累积**位移
-						// （mygo 每帧 `s.dragX += dx`，forgetInput 才清零），所以
-						// 交给 app 的是「自上次以来新增的那段」，逐帧移动窗口才不
-						// 会按累积量叠加成飞出去。
+						// 按住拖动 = 拖动整个字幕窗。
+						//
+						// mygo 的 `Dragged()` 报的是**每帧**增量（forgetInput 把
+						// dragX 清零），所以**不能**拿它累加位移（上一版就是这么
+						// 写的：窗口只动一帧然后就不跟手了）。这里只用它判「越没
+						// 越过起步阈值」；真正的位置由 app 按指针的绝对屏幕坐标算
+						// （beginLyricsDrag 记偏移、moveLyricsDrag 每帧摆窗口）。
 						if dx, dy, held := b.Dragged(); held {
-							if lyricsDragExceeded(dx, dy) && a.Act.DragLyricsWindow != nil {
-								a.Act.DragLyricsWindow(dx-a.lyricsDragDX, dy-a.lyricsDragDY)
-								a.lyricsDragDX, a.lyricsDragDY = dx, dy
+							if !a.lyricsDragging && lyricsDragExceeded(dx, dy) {
+								a.lyricsDragging = true
+								if a.Act.BeginLyricsDrag != nil {
+									a.Act.BeginLyricsDrag()
+								}
+							}
+							if a.lyricsDragging && a.Act.MoveLyricsDrag != nil {
+								a.Act.MoveLyricsDrag()
 							}
 						} else {
-							// 松手（或没按）：清掉增量基准与「已交给合成器」的闩锁。
-							a.lyricsDragDX, a.lyricsDragDY = 0, 0
+							a.lyricsDragging = false
 							if a.Act.EndLyricsDrag != nil {
 								a.Act.EndLyricsDrag()
 							}

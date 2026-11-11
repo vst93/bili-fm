@@ -507,22 +507,19 @@ func TestCardTitleBadge(t *testing.T) {
 		t.Fatal("没有 Badge 的卡片不该画出胶囊")
 	}
 
-	// 原版 titlePrefix 是 `py-0.5`（上下 2px）。mygo 是 border-box，且胶囊盒高
-	// 锁在标题行盒 th 上（内边距不撑高行盒，见 cardfooter_test.go 的
-	// TestCardTitleBadgeLineBox），所以「有上下内边距」只能钉常量 + 确认它真的
-	// 接在胶囊上：只加 Padding 不改常量、或改了常量没接上都该红。
-	if cardTitleBadgePadY != 2 {
-		t.Errorf("胶囊上下内边距 = %d，应为 2（原版 py-0.5）", cardTitleBadgePadY)
-	}
+	// 胶囊的上下居中不再靠「原版 py-0.5 的 2px 内边距」：那样字形会贴在盒沿
+	// （用户 2026-11-11 报「标签文字没有上下居中」）。现在按**这段文字自己的**
+	// 自然行盒算 half-leading（见 cardfooter_test.go 的
+	// TestCardTitleBadgeTextCentered，逐像素量上/下留白相等）。
 	src, err := os.ReadFile("drawer.go")
 	if err != nil {
 		t.Fatalf("读 drawer.go 失败：%v", err)
 	}
-	// 2026-10 内存排查后，胶囊的「负 half-leading」由**负的上内边距**实现
-	// （不再是 Translate，见 linebox.go 文件头），所以上内边距是
-	// cardTitleBadgePadY+tsh、下内边距仍是常量 cardTitleBadgePadY。
-	if !bytes.Contains(src, []byte("Padding(cardTitleBadgePadY+tsh, 4, cardTitleBadgePadY, 4)")) {
-		t.Error("标题前胶囊没接上 cardTitleBadgePadY（上下内边距）")
+	if !bytes.Contains(src, []byte("Padding(badgeShift, 4, 0, 4)")) {
+		t.Error("标题前胶囊没按文字自身的行盒做垂直居中（找不到 Padding(badgeShift, 4, 0, 4)）")
+	}
+	if !bytes.Contains(src, []byte("halfLeading(textLineBoxFor(spec.Badge, 14), th)")) {
+		t.Error("标题前胶囊的位移不是按这段文字的自然行盒算的")
 	}
 }
 

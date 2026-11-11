@@ -110,3 +110,57 @@ func TestCardTitleBadgeLineBox(t *testing.T) {
 		t.Errorf("胶囊与标题不在同一行：胶囊 Y=%v 标题 Y=%v", badge.Y, title.Y)
 	}
 }
+
+// TestCardTitleBadgeTextCentered 钉住标题前胶囊里的文字**上下居中**。
+//
+// 用户 2026-11-11 报「类似『合作视频』这类标签文字没有上下居中」。根因是上一版
+// 给胶囊写死了 `Padding(cardTitleBadgePadY+tsh, …)` —— 那个 tsh 是**拉丁**字体的
+// half-leading，而徽标是中文（自然行盒 22 > 拉丁 20），字形于是被顶到胶囊下沿。
+// 现在按**这段文字自己的**自然行盒算 half-leading（halfLeading(textLineBoxFor(...))）。
+//
+// 判法：只看胶囊**中间那一列**（避开四角圆角外的底色），量白字墨迹的最上/最下
+// 一行，两者到盒边的留白应相等（允许 1px 的字形不对称）。
+func TestCardTitleBadgeTextCentered(t *testing.T) {
+	for _, badge := range []string{"合作", "充电专属"} {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.ListFor("feed").Cards = []Card{{Bvid: "BV1", Title: "标题", Badge: badge, Up: "UP主"}}
+		a.Drawer = "feed"
+		tt := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
+		b, ok := tt.Find(badge)
+		if !ok {
+			t.Fatalf("%s：找不到标题前胶囊", badge)
+		}
+		img := tt.Image()
+		// 只看胶囊**内部**（躲开圆角外的卡片底色与盒边那一行）：胶囊底是
+		// #f87171，白字三通道都接近 255。
+		x0, x1 := int(b.X)+4, int(b.X+b.W)-4
+		y0, y1 := int(b.Y)+2, int(b.Y+b.H)-2
+		top, bot := -1, -1
+		for y := y0; y < y1; y++ {
+			ink := false
+			for x := x0; x < x1; x++ {
+				p := img.RGBAAt(x, y)
+				if p.R > 200 && p.G > 200 && p.B > 200 {
+					ink = true
+					break
+				}
+			}
+			if ink {
+				if top < 0 {
+					top = y
+				}
+				bot = y
+			}
+		}
+		if top < 0 {
+			t.Fatalf("%s：胶囊中间那一列没有字形墨迹", badge)
+		}
+		above, below := top-int(b.Y), int(b.Y+b.H)-1-bot
+		t.Logf("%s：盒 %.0f..%.0f（高 %.0f），墨迹 %d..%d，上留白 %d / 下留白 %d",
+			badge, b.Y, b.Y+b.H, b.H, top, bot, above, below)
+		if d := above - below; d > 1 || d < -1 {
+			t.Errorf("%s：字形没有上下居中（上留白 %d / 下留白 %d，差 %d）", badge, above, below, d)
+		}
+	}
+}

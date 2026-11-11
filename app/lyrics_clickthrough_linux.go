@@ -190,5 +190,20 @@ func lyricsBeginWindowDrag(win *mygo.Window) bool {
 	cursor := mygo.Screen.CursorScreenPoint()
 	lyricsGTKWindowBeginMoveDrag(handle, device, 1,
 		int32(cursor.X), int32(cursor.Y), lyricsGTKGetCurrentEventTime())
-	return true
+	// 交给合成器后由它接管指针。但**带 gtk-layer-shell 的 Wayland 合成器**
+	// （Sway/Hyprland/KDE/COSMIC）里字幕窗是 overlay 层 surface，
+	// begin_move_drag 是空操作 —— 那里必须退回 app 自己的逐帧摆位，否则拖动
+	// 完全没反应（用户 2026-11-11 报「没有跟着鼠标动」）。
+	return !lyricsLayerSurface()
+}
+
+// lyricsLayerSurface 报告字幕窗是不是 layer surface（Wayland + gtk-layer-shell）。
+// 这条路径下 GTK 的窗口拖动不生效，必须由 app 自己摆位置。
+func lyricsLayerSurface() bool {
+	if !lyricsShapeAvailable() {
+		return false
+	}
+	// 面板窗（WindowOptions.Panel）在 Wayland 上就是 layer surface；app 侧
+	// 用同一个判据（lyrics.go 的 openDesktopLyricsIfReady 里 Panel: true）。
+	return waylandSession()
 }
