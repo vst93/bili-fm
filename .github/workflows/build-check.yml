@@ -54,29 +54,30 @@ jobs:
       # （font.go 的 fontStack 在 Linux 上以 Noto Sans CJK SC 作中文回退）。
       # ubuntu-latest（现在是 ubuntu-26.04）不带 Noto CJK：缺字时中文退成
       # 豆腐块，几十条像素断言会集体假红 —— 2026-11 的 main 就一直红在这。
-      # 装上字体，让 CI 的门槛与开发机的 ./check.sh 同口径。
-      - name: Install CJK fonts (host)
+      #
+      # **不再走 apt**：这台 runner 的 apt 源会 DNS 抖成
+      # 「Temporary failure resolving security.ubuntu.com」，重试三次跨 15 分钟
+      # 全部失败（实测）。raw.githubusercontent.com 反而是稳的（checkout 就靠它），
+      # 直接从 noto-cjk 官方仓库拿**同一个字体族**的 Regular 合集，
+      # 再用 actions/cache 缓存，常态下零下载。
+      - name: Cache CJK font
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        uses: actions/cache@v4
+        with:
+          path: ~/.fonts/NotoSansCJK-Regular.ttc
+          key: noto-cjk-regular-ttc-v1
+
+      - name: Install CJK font (host)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: |
-          # runner 的 apt 源偶发 DNS 抖动（"Temporary failure resolving
-          # security.ubuntu.com"），一次失败就整条 job 红。重试三次，
-          # 每次都先把不完整的下载清掉。
-          ok=0
-          for i in 1 2 3; do
-            if sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk; then
-              ok=1
-              break
-            fi
-            echo "apt 第 $i 次失败，10s 后重试" >&2
-            sudo apt-get clean || true
-            sleep 10
-          done
-          if [ "$ok" != 1 ]; then
-            echo "装 fonts-noto-cjk 连续三次失败（runner 网络问题，不是代码回归）" >&2
-            exit 1
+          mkdir -p ~/.fonts
+          if [ ! -s ~/.fonts/NotoSansCJK-Regular.ttc ]; then
+            curl -fsSL --retry 3 --retry-delay 5 --max-time 180 \
+              -o ~/.fonts/NotoSansCJK-Regular.ttc \
+              https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTC/NotoSansCJK-Regular.ttc
           fi
           fc-cache -f >/dev/null
-          fc-match "Noto Sans CJK SC"
+          fc-match "Noto Sans CJK SC" | grep -q "Noto Sans CJK SC"
 
       - name: Test (host)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
