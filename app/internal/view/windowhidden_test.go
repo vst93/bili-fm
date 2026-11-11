@@ -67,3 +67,64 @@ func TestWindowHiddenSameInMiniShell(t *testing.T) {
 		t.Fatal("迷你模式隐藏后 App.WindowHidden 仍是 false（MiniShell 漏了读取）")
 	}
 }
+
+// TestShellSkipsBuildWhenWindowHidden 钉住「看不见就别建树」：窗口被别的窗口挡住 /
+// 切到别的桌面（框架的 WindowHidden，而不是 OnHide 那条 Background）时，Shell
+// 必须整棵早退。
+//
+// 为什么值得测：框架会把不可见窗口的**绘制**按下去（ui/runtime.go 的 holdFrame），
+// 但**构建**照跑 —— 实测不可见时一帧 1.02ms（可见 21.97ms）。那 1ms 是纯浪费，
+// 而这只有我们自己早退才省得掉（用户 2026-11-11 要求「看不见就别渲染」）。
+func TestShellSkipsBuildWhenWindowHidden(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Track = &Track{Bvid: "BV1", Title: "标题", Up: "UP"}
+	a.Info = &Info{Bvid: "BV1", Cid: 2, Title: "标题"}
+	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, 600)
+	tst.Frame()
+	if _, ok := tst.Find("设置"); !ok {
+		t.Fatal("窗口可见时应画出标题栏设置键")
+	}
+
+	// 只让窗口「不可见」，**不动** Background —— 正是「被盖住 / 在别的桌面」那种。
+	tst.SetWindowHidden(true)
+	BackdropLayers() // 丢掉轮询期的计数
+	tst.Frame()
+	if !a.WindowHidden {
+		t.Fatal("App.WindowHidden 没跟上（早退位置在读取之前？）")
+	}
+	if got := BackdropLayers(); got != 0 {
+		t.Errorf("不可见时仍在建树：backdrop 层数 = %d，应为 0（Shell 应整棵早退）", got)
+	}
+	for _, label := range []string{"设置", "标题", "播放"} {
+		if _, ok := tst.Find(label); ok {
+			t.Errorf("不可见时仍在建树：找得到 %q", label)
+		}
+	}
+
+	// 恢复显示：框架会再构建一次，树必须回来（不能停在空界面上）。
+	tst.SetWindowHidden(false)
+	tst.Frame()
+	if _, ok := tst.Find("设置"); !ok {
+		t.Fatal("重新显示后 Shell 没有重新建树")
+	}
+}
+
+// TestHiddenAtomicMirror 钉住 WindowHidden 的原子镜像：Shell（UI 线程）写它，
+// 播放器的上报 goroutine 读它来决定「这次更新要不要顺带请求一帧」。
+//
+// 读裸字段会是数据竞争，所以 App 里另存一份 atomic.Bool，由 noteHidden 一起写。
+func TestHiddenAtomicMirror(t *testing.T) {
+	a := NewApp(func() {})
+	if a.Hidden() {
+		t.Error("默认应可见")
+	}
+	a.noteHidden(true)
+	if !a.WindowHidden || !a.Hidden() {
+		t.Error("noteHidden(true) 应同时写字段与原子量")
+	}
+	a.noteHidden(false)
+	if a.WindowHidden || a.Hidden() {
+		t.Error("noteHidden(false) 应同时清字段与原子量")
+	}
+}

@@ -889,11 +889,33 @@ func (c *controller) wireActions() {
 	}
 }
 
+// runOnUI 把 fn 丢到界面线程执行。visible 为真时走 `Win.Update`（顺带请求
+// 一帧重绘），否则走 `mygo.RunOnMain`：
+//
+//   - `Win.Update` = 「改状态 + 请一帧」。窗口不可见时那一帧的**绘制**会被框架
+//     按下去（ui/runtime.go 的 holdFrame），但**构建**照跑 —— 实测不可见时
+//     一帧 1.02ms，可见时 21.97ms，那 1ms 纯属白建。
+//   - `mygo.RunOnMain` 只跑回调，不请求帧。回到可见时框架会自己再构建一次
+//     （它记得视图问过 WindowHidden），所以不会停在旧内容上。
+//
+// 注意 RunOnMain 是**同步**的（等界面线程跑完），只在不可见时用：那时界面线程
+// 本来就闲，而调用方（每 500ms 的上报 goroutine）也没有别的事要做。
+func runOnUI(a *view.App, visible bool, fn func()) {
+	if a == nil || a.Win == nil {
+		return
+	}
+	if visible {
+		a.Win.Update(fn)
+		return
+	}
+	mygo.RunOnMain(fn)
+}
+
 func (c *controller) wirePlayer() {
 	// 这三个回调都跑在播放器的上报 goroutine 上，而它们读写的是界面状态，
-	// 所以统一丢到 Win.Update（主线程）里执行，避免数据竞争。
+	// 所以统一丢到界面线程执行（可见时顺带请求一帧重绘），避免数据竞争。
 	c.mp.OnProgress(func(pos, dur float64) {
-		c.app.Win.Update(func() {
+		runOnUI(c.app, !c.app.Hidden(), func() {
 			// 视频弹窗打开时进度由 video.OnState 回传；音频引擎虽然暂停，
 			// 它的 reportLoop 仍每 500ms 报一次旧位置，会把进度条拽回去，
 			// 与视频时间来回跳。这里直接跳过。
@@ -916,6 +938,8 @@ func (c *controller) wirePlayer() {
 		})
 	})
 	c.mp.OnEnded(func() {
+		// 播完这一笔必须让界面知道（要续播下一集 / 切歌），所以无条件走
+		// Win.Update：它每集只发生一次，不差这一帧。
 		c.app.Win.Update(func() {
 			// 自然播完：补一次「已看完」（progress = -1）并清掉本地断点，与
 			// 原版 <audio> 的 onEnded 一致。不补这一笔的话每条视频都会停在最后
@@ -3919,7 +3943,9 @@ func (c *controller) wireVideo() {
 	// 弹窗回调跑在窗口事件 goroutine 上，而它们读写界面状态，所以统一
 	// 丢到 Win.Update（主线程）执行。
 	c.vid.OnState(func(st video.State) {
-		c.app.Win.Update(func() {
+		// 与音频进度同一套：主窗不可见时只更新状态、不请求重绘（视频弹窗
+		// 每秒回传一次，主窗在后台时那些重绘都是白建）。
+		runOnUI(c.app, !c.app.Hidden(), func() {
 			if c.app.VideoOpen {
 				if st.Duration > 0 {
 					c.app.Dur = st.Duration

@@ -1052,6 +1052,11 @@ type App struct {
 	// 由 Shell / MiniShell 每帧记录（在 Background 提前返回**之前**，否则框架
 	// 不知道有人在看这个状态，隐藏时就不会再给一次构建）。
 	WindowHidden bool
+	// hidden 是 WindowHidden 给**别的 goroutine** 读的那一份（原子量）。
+	// 播放器的进度上报 goroutine 每 500ms 要决定「这次更新要不要顺带请求一帧」，
+	// 读 a.WindowHidden 会和 UI 线程写它构成数据竞争；Shell / MiniShell 每帧
+	// 通过 noteHidden 同时写这两份。
+	hidden atomic.Bool
 	// shownCoverBmp 是当前正在显示的封面位图。新封面未加载完时先沿用旧的
 	// （原版「先预载、后换源」），避免切歌闪一下空白。
 	shownCoverBmp *ui.Bitmap
@@ -1267,6 +1272,20 @@ func (a *App) AppearancePref() string {
 func (a *App) refreshAppearance(th Theme, transparency float64) Theme {
 	return th.withAppearance(a.AppearancePref(), transparency)
 }
+
+// noteHidden 记录本帧的「窗口什么都没显示」，同时写一份给其它 goroutine 读的
+// 原子量（见 App.hidden）。UI 线程专用。
+func (a *App) noteHidden(h bool) {
+	a.WindowHidden = h
+	a.hidden.Store(h)
+}
+
+// Hidden 报告窗口此刻什么都没显示（最小化 / 托盘 / 另一个桌面 / 被别的窗口盖住），
+// **可以从任意 goroutine 调用**。
+//
+// 后台循环用它决定要不要请求重绘：不可见时的重绘等于白建一次视图
+// （框架会把绘制 hold 住，但构建照跑，实测 ~1ms/帧）。
+func (a *App) Hidden() bool { return a.hidden.Load() }
 
 // SetBackground 切换「窗口在后台」：进入后台时清掉界面持有的封面位图，
 // 并清空图片缓存（隐藏时的位图没人看，留着只会占 Go 堆 + GPU 纹理）；

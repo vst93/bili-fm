@@ -9,6 +9,13 @@
   v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 各一节），当轮的坑与门槛写进
   `.pending-bugs.md`。**先读这两处再动依赖。**
 
+- **看不见就别渲染**：`Shell` / `MiniShell` 在 `a.Background` **或**
+  `a.WindowHidden`（框架的 `Context.WindowHidden`：最小化 / 托盘 / 别的桌面 /
+  被别的窗口盖住）时整棵早退；后台周期性更新（播放器进度、视频弹窗状态）一律
+  走 `runOnUI(c.app, !c.app.Hidden(), fn)` —— 不可见时用 `mygo.RunOnMain`
+  （只改状态、**不请求帧**）。判定读 `App.Hidden()`（`WindowHidden` 的原子镜像，
+  `noteHidden` 在 Shell/MiniShell 每帧一起写），别读裸字段（UI 线程写、后台
+  goroutine 读 = 数据竞争）。实测：不可见时一帧 1.02ms → 0.015ms。
 - **登录过期要能自愈**：接口回 `-101`（账号未登录）时 `bilibili.apiError` 会给
   `ErrNotLoggedIn`，app 侧 `controller.listLoadFailed` 静默调 `expireLogin()`
   （清登录态 + 失效 cookie + KV 里的资料，抽屉空态提示去登录），其余错误才 toast。

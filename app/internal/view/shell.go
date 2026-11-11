@@ -22,11 +22,19 @@ func (a *App) Shell(c *ui.Context) {
 	// **必须在 Background 提前返回之前**：框架的规矩是「视图在隐藏时构建一次、
 	// 重新显示时再构建一次，从它第一次问这个状态开始」。在这里问，隐藏/重现
 	// 各有一帧构建，后台轮询就能准确地停下来/恢复；放在返回之后就永远不会被问。
-	a.WindowHidden = c.WindowHidden()
-	// 隐藏到托盘 / 最小化：不再构建界面。这样唱片旋转、氛围光、卡片动画与
-	// 悬停层都停住，既省 CPU，也让上一帧的 GPU 纹理/遮罩有机会释放；OnShow/
-	// OnRestore 会把 Background 置回 false 并触发重绘。
-	if a.Background {
+	a.noteHidden(c.WindowHidden())
+	// 窗口什么都没显示（最小化 / 隐藏到托盘 / 在别的 Space / 被别的窗口盖住）：
+	// **整棵树都不建**。框架本来就会把不可见窗口的绘制 hold 住（ui/runtime.go 的
+	// next/holdFrame），所以省下的是「建树」这一笔 —— 实测不可见时一帧 1.02ms
+	//（可见时 21.97ms），而这 1ms 是纯浪费：画出来的东西没人看。
+	//
+	// 为什么把 `WindowHidden` 也并进来（用户 2026-11-11 的要求「看不见就别渲染」）：
+	// `a.Background` 只在 OnHide/OnMinimize 时置位，而**被别的窗口盖住、切到别的
+	// 桌面**这些情况只有框架的 WindowHidden 知道。两者都是「没人看」。
+	//
+	// 恢复显示时框架会再构建一次（它在第一次问 WindowHidden 的那一帧之后，
+	// 每次状态翻转都重建），所以这里提前返回不会让界面停在旧内容上。
+	if a.Background || a.WindowHidden {
 		return
 	}
 	// 图片缓存的「常驻」标记按帧登记：先清掉上一帧的，再由本帧的 Retain

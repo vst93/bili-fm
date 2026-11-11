@@ -2169,3 +2169,52 @@ func TestTitleBarStyleForLinux(t *testing.T) {
 		}
 	}
 }
+
+// TestBackdropUpdatesGateOnHidden 钉住「窗口看不见时不请求重绘」。
+//
+// 播放器的进度上报（500ms）与视频弹窗的状态回传（1s）都会写界面状态。走
+// `Win.Update` 时它会**顺带请求一帧**：框架虽然把不可见窗口的绘制按下去
+// （ui/runtime.go 的 holdFrame），构建照跑 —— 实测不可见时一帧 1.02ms，
+// 可见时 21.97ms，那 1ms 纯属白建（用户 2026-11-11：「看不见就停掉渲染」）。
+//
+// 所以这两条回调必须过 runOnUI：可见走 Win.Update、不可见走 mygo.RunOnMain
+// （只跑回调，不请求帧）。这里做源码级契约 —— 无头测试造不出真窗口，
+// 而漏接的表现（后台每 500ms 白建一帧）在别处也看不出来。
+func TestBackdropUpdatesGateOnHidden(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	// 两个周期性回调都必须走这道门。
+	if n := strings.Count(flat, "runOnUI(c.app,!c.app.Hidden(),func(){"); n != 2 {
+		t.Errorf("周期性界面更新走 runOnUI 的次数 = %d，应为 2（音频进度 + 视频状态）", n)
+	}
+	for _, want := range []string{
+		// 门本身：可见时 Update（要一帧），不可见时 RunOnMain（不要帧）。
+		"ifvisible{a.Win.Update(fn)return}",
+		"mygo.RunOnMain(fn)",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("缺少接线：%s", want)
+		}
+	}
+	// 判定读的是 App 里的**原子镜像**，不是裸字段（裸字段由 UI 线程写，
+	// 后台 goroutine 读它就是数据竞争）。那两份在 view 包里。
+	state := flattenCode(t, "internal/view/state.go")
+	for _, want := range []string{
+		"func(a*App)Hidden()bool{returna.hidden.Load()}",
+		"func(a*App)noteHidden(hbool){a.WindowHidden=ha.hidden.Store(h)}",
+		"hiddenatomic.Bool",
+	} {
+		if !strings.Contains(state, want) {
+			t.Errorf("view/state.go 缺少原子镜像：%s", want)
+		}
+	}
+	// 视图在**读 WindowHidden 的那一帧**就把它写进镜像（Shell 与迷你两条路）。
+	for _, file := range []string{"internal/view/shell.go", "internal/view/mini.go"} {
+		if src := flattenCode(t, file); !strings.Contains(src, "a.noteHidden(c.WindowHidden())") {
+			t.Errorf("%s 没有把 WindowHidden 写进原子镜像", file)
+		}
+	}
+	// 反证：进度回调内部不能再出现裸的 `c.app.Win.Update(func(){`（那是老写法）。
+	if strings.Contains(flat, "c.mp.OnProgress(func(pos,durfloat64){c.app.Win.Update(") {
+		t.Error("音频进度回调仍在无条件请求重绘")
+	}
+}

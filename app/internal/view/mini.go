@@ -66,7 +66,7 @@ var (
 // 迷你模式保留原浅色渐变，并跟随全应用的主题与透明度。
 func (a *App) MiniShell(c *ui.Context) {
 	// 同 Shell：先记下框架报的隐藏状态（后台轮询据此暂停，见 state.go）。
-	a.WindowHidden = c.WindowHidden()
+	a.noteHidden(c.WindowHidden())
 	t := a.Theme
 	c.SetTheme(t.uiTheme())
 	a.drainToasts(c)
