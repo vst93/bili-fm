@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// 桌面字幕悬浮窗：显示当前句 + 下一句，右上角齿轮切换到设置页。
+// 桌面字幕悬浮窗：显示当前句 + 下一句，右上角的设置键切换到设置页。
 // 整个窗口是原生 mygo UI，不是 WebView。
 //
 // 设置页不是把显示页替换掉：上方保留一块与显示窗等高的实时预览，下方才是
@@ -31,16 +31,27 @@ const (
 	lyricsNextMinFontSize  = float32(11)
 )
 
-// LyricsGearInset / LyricsGearSize 是桌面字幕右上角「设置」齿轮（齿轮键）的位置
-// 与边长：离窗口右上角的内边距 / 键的边长。
+// LyricsGearInset / LyricsGearSize 是桌面字幕右上角**设置键**的位置与边长：
+// 离窗口右上角的内边距 / 键的边长。（名字沿用 LyricsGear*，但它画的是设置图标，
+// 不是齿轮 —— 用户 2026-11-11 指出过这一点，界面文案一律叫「设置键」。）
 //
-// **app 侧的鼠标穿透热区读同一组数**（app/lyrics.go 的 lyricsGearHot）：穿透
-// 打开时指针一进这块区域就临时取消穿透，齿轮永远可点（用户 2026-11-11 的要求）。
+// **app 侧的鼠标穿透热区读同一组数**（app/lyrics.go 的 lyricsGearShapeRect）：
+// 穿透打开时这块区域仍然接收指针，设置键永远可点（用户 2026-11-11 的要求）。
 // 这两处必须同源，别再各写一份魔数。
 const (
 	LyricsGearInset float32 = 4
 	LyricsGearSize  float32 = 26
 )
+
+// lyricsDragStart 是「按住设置键拖动」的起步阈值（DIP）。与 mygo 内部的
+// dragStart（4）同一档：手指/鼠标轻微抖动不该把窗口拖走，超过它才算拖动。
+const lyricsDragStart float32 = 4
+
+// lyricsDragExceeded 报告这次按下是否已经算「拖动」（而不是点一下）。
+// 抽成纯函数便于单测：设置键既是按钮又是拖动手柄，阈值是两者唯一的分界。
+func lyricsDragExceeded(dx, dy float32) bool {
+	return dx*dx+dy*dy >= lyricsDragStart*lyricsDragStart
+}
 
 // LyricsConfigPanelHeight 是设置面板本身需要的高度（不含预览）。控制器用它
 // 算设置窗高度；面板是固定的 9 行控件 + 标题 + 说明，改布局时要一起改。
@@ -176,20 +187,29 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 					if next != "" {
 						nextSize := lyricsNextFontSize(size)
 						ui.Text(c, next).FontSize(nextSize).
-							TextColor(textColor.Alpha(textOpacity * 0.62)).
+							TextColor(textColor.Alpha(textOpacity*0.62)).
 							TextAlign(ui.Center).SingleLine().
 							TextShadow(0, 1, lyricsTextShadowBlur, lyricsTextShadowInk(textColor, bgOpacity, textOpacity*0.62))
 					}
 				})
-				// 齿轮（设置键）：指针在窗内时出现；**穿透打开时一直显示** ——
-				// 穿透窗收不到鼠标事件（over 读不到），而那正是用户要从这里进
-				// 设置页的时刻（user 2026-11-11：齿轮固定不穿透）。
-				if gear && (over || a.LyricsClickThrough) {
+				// 设置键：指针在窗内（或指针正压在设置键热区上）时出现。
+				//
+				// 穿透打开时 `over` 读不到（窗口收不到鼠标事件），所以另有一条
+				// `LyricsGearHot`：整窗穿透的平台由 app 侧的指针轮询维护它；
+				// Linux 用输入区域，指针一进那块区域窗口就重新收到事件、`over`
+				// 自然为真。两条都只表示「指针在设置键附近」，**不会**让键常显
+				// —— 用户 2026-11-11 报「开启穿透后设置键不再自动隐藏」。
+				if gear && (over || a.LyricsGearHot) {
 					ui.Box(c).Absolute().Right(LyricsGearInset).Top(LyricsGearInset).Children(func() {
 						b := ui.ButtonBase(c.Key("lyrics-config")).Size(LyricsGearSize, LyricsGearSize).Radius(7).Center().
-							Label("桌面字幕设置").Tooltip("桌面字幕设置")
+							Label("桌面字幕设置").Tooltip("桌面字幕设置（可按住拖动整个字幕窗）")
+						// 按住拖动 = 拖动整个字幕窗：设置键本身是按钮（可点击进设置页），
+						// 拖动由 app 侧在 `Dragged()` 报「移动超过阈值」时调
+						// `Window.StartDrag` 交给合成器 —— mygo 的 `DragWindow()`
+						// 只在元素**没有**其它交互标志时生效（input.go 的
+						// `interactive&^flagDragWindow == 0`），按钮拿不到它。
 						b.Background(ui.Hex("#ffffff").Alpha(0.18))
-						if b.Hovered() {
+						if b.Hovered() || b.Pressed() {
 							b.Background(ui.Hex("#ffffff").Alpha(0.30))
 						}
 						b.Children(func() {
@@ -197,6 +217,22 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 						})
 						if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
 							a.Act.ToggleLyricsConfig()
+						}
+						// 按住拖动 = 拖动整个字幕窗。Dragged 报的是**累积**位移
+						// （mygo 每帧 `s.dragX += dx`，forgetInput 才清零），所以
+						// 交给 app 的是「自上次以来新增的那段」，逐帧移动窗口才不
+						// 会按累积量叠加成飞出去。
+						if dx, dy, held := b.Dragged(); held {
+							if lyricsDragExceeded(dx, dy) && a.Act.DragLyricsWindow != nil {
+								a.Act.DragLyricsWindow(dx-a.lyricsDragDX, dy-a.lyricsDragDY)
+								a.lyricsDragDX, a.lyricsDragDY = dx, dy
+							}
+						} else {
+							// 松手（或没按）：清掉增量基准与「已交给合成器」的闩锁。
+							a.lyricsDragDX, a.lyricsDragDY = 0, 0
+							if a.Act.EndLyricsDrag != nil {
+								a.Act.EndLyricsDrag()
+							}
 						}
 					})
 				}
@@ -441,8 +477,8 @@ func (a *App) lyricsRememberRow(c *ui.Context) {
 // 「穿透设置在它的设置页面也要有」）。
 //
 // 行为与主窗设置菜单 / macOS 原生菜单里的那一项同源（同一个
-// Act.ToggleLyricsClickThrough）：穿透打开时**齿轮仍然可点**（见 app/lyrics.go
-// 的 lyricsGearHot 与轮询），所以从字幕窗本身就能把它关掉，不必绕回主窗。
+// Act.ToggleLyricsClickThrough）：穿透打开时**设置键仍然可点**（见 app/lyrics.go
+// 的 lyricsGearShapeRect 与输入区域 / 轮询），所以从字幕窗本身就能把它关掉。
 func (a *App) lyricsClickThroughRow(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("lyrics-click-through")).FillWidth().Height(30).
 		Radius(6).Role(ui.RoleSwitch).Label("鼠标穿透").Tooltip("鼠标穿透").
@@ -454,7 +490,7 @@ func (a *App) lyricsClickThroughRow(c *ui.Context) {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Text(c, "鼠标穿透 · 默认关").FontSize(11).
 				TextColor(ui.Hex("#ffffff").Alpha(0.54)).Width(112).Shrink(0)
-			ui.Text(c, "打开后字幕窗不吃鼠标，齿轮仍可点").FontSize(11).
+			ui.Text(c, "打开后字幕窗不吃鼠标，设置键仍可点").FontSize(11).
 				TextColor(ui.Hex("#ffffff").Alpha(0.38)).Grow(1)
 			incognitoTrack(c, a.LyricsClickThrough)
 		})

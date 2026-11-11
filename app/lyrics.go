@@ -5,10 +5,11 @@ package main
 // 它不是常驻窗口：字幕页里打开才创建；没有字幕的视频不创建；关闭视频 /
 // 退出应用时销毁。窗口只画文本，不加载图片，不启动 webview。
 //
-// 窗口右上角的齿轮把同一个窗口切换到设置页（颜色 / 字号 / 屏幕宽度比例 /
+// 窗口右上角的设置键把同一个窗口切换到设置页（颜色 / 字号 / 屏幕宽度比例 /
 // 透明度 / 时间微调），设置存本地 KV，重启后继续生效。
 
 import (
+	"math"
 	"runtime"
 	"strconv"
 	"time"
@@ -83,17 +84,17 @@ func (c *controller) toggleDesktopLyrics() {
 // 建不出来）。
 func lyricsIgnoreMouse(clickThrough, config bool) bool { return clickThrough && !config }
 
-// lyricsGearSlop 是齿轮热区的外扩：指针贴到按钮外 6px 也算「在齿轮上」，
-// 否则从按钮边缘移出/移入时穿透状态会来回跳。
+// lyricsGearSlop 是设置键热区的外扩：指针贴到按钮外 6px 也算「在设置键上」，
+// 否则从按钮边缘移出/移入时穿透状态与设置键显隐会来回跳。
 //
-// 齿轮本身的位置与边长读 view 的 LyricsGearInset / LyricsGearSize（绘制与热区
+// 设置键本身的位置与边长读 view 的 LyricsGearInset / LyricsGearSize（绘制与热区
 // 同源，见 internal/view/lyrics.go），这里只多这一项。
 const lyricsGearSlop float32 = 6
 
 // lyricsGearShapeRect 返回「穿透时仍然可交互」的矩形（**窗口坐标**，左上为原点）：
-// 右上角的齿轮键再向外放一圈 slop，并夹进窗口内。
+// 右上角的设置键再向外放一圈 slop，并夹进窗口内。
 //
-// 它是齿轮热区的唯一几何来源：Linux 用同一块矩形当窗口的输入区域
+// 它是设置键热区的唯一几何来源：Linux 用同一块矩形当窗口的输入区域
 // （lyrics_clickthrough_linux.go），Windows / macOS 用它做指针判定
 // （lyricsGearHot）。这样「哪里能点」与「哪里不穿透」永远一致。
 func lyricsGearShapeRect(w, h float32) (x, y, rw, rh float32) {
@@ -125,10 +126,10 @@ func lyricsGearShapeRect(w, h float32) (x, y, rw, rh float32) {
 	return x, y, rw, rh
 }
 
-// lyricsGearHot 报告指针是否在**齿轮（设置键）**上 —— 在它上面时不穿透。
+// lyricsGearHot 报告指针是否在**设置键**上 —— 在它上面时不穿透。
 //
 // 用户 2026-11-11 要求：「把桌面字幕模块中的设置按钮固定为不穿透」—— 穿透
-// 打开后依然能直接点字幕窗里的齿轮进设置页，不必先去主窗菜单里关穿透。
+// 打开后依然能直接点字幕窗里的设置键进设置页，不必先去主窗菜单里关穿透。
 //
 // 坐标系：cursor 是**屏幕坐标**（mygo.Screen.CursorScreenPoint），bounds 是
 // 窗口在屏幕上的矩形（mygo.Window.Bounds）：先换成窗口坐标，再与
@@ -146,7 +147,7 @@ func lyricsGearHot(cursor mygo.Point, bounds mygo.Rectangle) bool {
 	return cx >= float64(x) && cx <= float64(x+w) && cy >= float64(y) && cy <= float64(y+h)
 }
 
-// lyricsClickThroughPollEvery 是「指针是否在齿轮上」的轮询间隔。
+// lyricsClickThroughPollEvery 是「指针是否在设置键上」的轮询间隔。
 //
 // 为什么不用鼠标事件：穿透窗收不到鼠标事件（那正是穿透的定义），只能用屏幕
 // 坐标轮询。mygo.Screen.CursorScreenPoint 在三平台都可用（Linux 走
@@ -174,10 +175,41 @@ func (c *controller) syncLyricsClickThrough() {
 	c.lyricsIgnoring = click
 }
 
-// lyricsPollNeeded 报告要不要跑「指针在不在齿轮上」的轮询：只有在**整窗穿透**
-// 的平台（Windows / macOS）上才需要 —— Linux 用输入区域把齿轮固定成可点，
-// 连系统调用都不用打。
+// lyricsPollNeeded 报告要不要跑「指针在不在设置键上」的轮询：只有在**整窗穿透**
+// 的平台（Windows / macOS）上才需要 —— Linux 用输入区域把设置键固定成可点，
+// 指针一进那块区域窗口就重新收到事件（`over` 自然为真），不用轮询。
 func lyricsPollNeeded() bool { return !lyricsClickThroughShape() }
+
+// lyricsGearHotNow 报告指针此刻是否压在设置键热区上（**主线程**）。
+func (c *controller) lyricsGearHotNow() bool {
+	if c.app == nil || c.lyricsWin == nil {
+		return false
+	}
+	return lyricsGearHot(mygo.Screen.CursorScreenPoint(), c.lyricsWin.Bounds())
+}
+
+// dragLyricsWindow 让桌面字幕窗跟着指针拖动（设置键按住拖动时由视图调用）。
+//
+// 为什么不给设置键挂 mygo 的 `DragWindow()`：那条路径要求元素**没有**其它交互
+// 标志（input.go 的 `interactive&^flagDragWindow == 0`），而设置键本身是按钮。
+// 所以视图在 `Dragged()` 报「移动超过阈值」时调这里，由我们向合成器发起窗口
+// 拖动（`Window.StartDrag` 就是标题栏拖拽用的那条 API）。
+func (c *controller) dragLyricsWindow(dx, dy float32) {
+	if c.lyricsWin == nil || c.lyricsDragging {
+		return
+	}
+	if lyricsBeginWindowDrag(c.lyricsWin) {
+		// 交给合成器了：后续的逐帧位移不再自己算（否则会和系统拖动打架）。
+		c.lyricsDragging = true
+		return
+	}
+	// 兜底：自己按指针位移挪窗口（Windows / macOS，或 GTK 符号缺失时）。
+	x, y := c.lyricsWin.Position()
+	c.lyricsWin.SetPosition(x+int(math.Round(float64(dx))), y+int(math.Round(float64(dy))))
+}
+
+// endLyricsDrag 在一次拖动结束时清掉「已交给合成器」的闩锁（视图每帧在松手后调）。
+func (c *controller) endLyricsDrag() { c.lyricsDragging = false }
 
 // lyricsWantsClickThrough 报告字幕窗此刻该不该穿透：开关打开、不在设置页、
 // 且指针**不在齿轮上**（齿轮永远可点，见 lyricsGearHot）。
@@ -232,6 +264,13 @@ func (c *controller) lyricsPollTick() {
 		a := c.app
 		if a == nil || c.lyricsWin == nil || !a.LyricsOn {
 			return
+		}
+		// 设置键显隐：穿透窗读不到 over，用这块热区判定代替（见
+		// view.App.LyricsGearHot）。只在变化时重画。
+		hot := c.lyricsGearHotNow()
+		if hot != a.LyricsGearHot {
+			a.LyricsGearHot = hot
+			c.lyricsWin.Update(func() {})
 		}
 		want := c.lyricsWantsClickThrough()
 		if want == c.lyricsIgnoring {
@@ -425,6 +464,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 			c.lyricsWin = nil
 		}
 		c.lyricsIgnoring = false
+		a.LyricsGearHot = false
 		c.stopLyricsClickThroughPoll()
 		a.LyricsOn = false
 		a.LyricsConfig = false

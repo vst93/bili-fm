@@ -28,12 +28,22 @@ var (
 	lyricsGTK, lyricsGDK, lyricsCairo uintptr
 	lyricsShapeOnce                   sync.Once
 	lyricsShapeOK                     bool
+	lyricsDragOK                      bool
 
 	lyricsGTKWidgetGetWindow         func(w uintptr) uintptr
 	lyricsGTKWidgetQueueDraw         func(w uintptr)
 	lyricsGDKInputShapeCombineRegion func(w, region uintptr, x, y int32)
 	lyricsCairoRegionCreateRectangle func(r *lyricsGdkRectangle) uintptr
 	lyricsCairoRegionDestroy         func(region uintptr)
+	// 拖动窗口（设置键按住拖动）。GTK 的 gtk_window_begin_move_drag 要一个
+	// 触发拖动的事件时间戳，我们用 gtk_get_current_event_time 拿当前事件时间；
+	// 拿不到（0）时退 0，GTK 仍会开始拖动。
+	lyricsGTKWindowBeginMoveDrag   func(w, device uintptr, button, xRoot, yRoot int32, time uint32)
+	lyricsGTKGetCurrentEventTime   func() uint32
+	lyricsGDKSeatGetPointer        func(seat uintptr) uintptr
+	lyricsGDKDisplayGetDefaultSeat func(display uintptr) uintptr
+	lyricsGDKDisplayGetDefault     func() uintptr
+	lyricsGTKWidgetGetDisplay      func(w uintptr) uintptr
 )
 
 // lyricsGdkRectangle 是 cairo 的 gdk_rectangle_t（GdkRectangle）：4×int32。
@@ -113,7 +123,72 @@ func lyricsShapeAvailable() bool {
 			}
 			purego.RegisterFunc(s.fn, sym)
 		}
+		// 拖动相关的符号**可选**：缺了只是拖不动（退回 app 侧的 SetPosition
+		// 兜底），不该把「穿透时设置键可点」这条主功能一起废掉。
+		dragSyms := []struct {
+			lib  uintptr
+			fn   any
+			name string
+		}{
+			{lyricsGTK, &lyricsGTKWindowBeginMoveDrag, "gtk_window_begin_move_drag"},
+			{lyricsGTK, &lyricsGTKGetCurrentEventTime, "gtk_get_current_event_time"},
+			{lyricsGTK, &lyricsGTKWidgetGetDisplay, "gtk_widget_get_display"},
+			{lyricsGDK, &lyricsGDKDisplayGetDefault, "gdk_display_get_default"},
+			{lyricsGDK, &lyricsGDKDisplayGetDefaultSeat, "gdk_display_get_default_seat"},
+			{lyricsGDK, &lyricsGDKSeatGetPointer, "gdk_seat_get_pointer"},
+		}
+		lyricsDragOK = true
+		for _, s := range dragSyms {
+			sym, symErr := purego.Dlsym(s.lib, s.name)
+			if symErr != nil || sym == 0 {
+				log.Printf("桌面字幕拖动：符号 %s 不可用（退回逐帧移动窗口）", s.name)
+				lyricsDragOK = false
+				break
+			}
+			purego.RegisterFunc(s.fn, sym)
+		}
 		lyricsShapeOK = true
 	})
 	return lyricsShapeOK
+}
+
+// lyricsBeginWindowDrag 在 Linux 上用 GTK 的窗口拖动开始一次拖拽，返回是否已经
+// 交给合成器（true 时 app 侧不再逐帧移动窗口）。
+//
+// mygo 没有导出 `Window.StartDrag`（它的 platform.Window.StartDrag 只给 WebView
+// 的拖拽区用），而设置键既是按钮又要能拖动 —— mygo 的 `DragWindow()` 只在元素
+// **没有**其它交互标志时生效。所以这里直接调 GTK：
+//
+//	gtk_window_begin_move_drag(win, seat 的指针 device, 1, rootX, rootY, eventTime)
+//
+// 已知限制（与面板本身的拖拽同一条，见 AGENTS.md）：Wayland 上带 gtk-layer-shell
+// 的合成器（Sway/Hyprland/KDE/COSMIC）里字幕窗是 overlay 层 surface，
+// begin_move_drag 不生效 —— 那里拖不动，位置仍由 KV 记忆。
+func lyricsBeginWindowDrag(win *mygo.Window) bool {
+	if !lyricsShapeAvailable() || !lyricsDragOK || win == nil {
+		return false
+	}
+	handle := win.NativeHandle()
+	if handle == 0 {
+		return false
+	}
+	display := lyricsGTKWidgetGetDisplay(handle)
+	if display == 0 {
+		display = lyricsGDKDisplayGetDefault()
+	}
+	if display == 0 {
+		return false
+	}
+	seat := lyricsGDKDisplayGetDefaultSeat(display)
+	if seat == 0 {
+		return false
+	}
+	device := lyricsGDKSeatGetPointer(seat)
+	if device == 0 {
+		return false
+	}
+	cursor := mygo.Screen.CursorScreenPoint()
+	lyricsGTKWindowBeginMoveDrag(handle, device, 1,
+		int32(cursor.X), int32(cursor.Y), lyricsGTKGetCurrentEventTime())
+	return true
 }

@@ -610,6 +610,13 @@ type Actions struct {
 	ToggleDesktopLyrics func()
 	// ToggleLyricsClickThrough 开启 / 关闭桌面字幕的鼠标穿透。
 	ToggleLyricsClickThrough func()
+	// DragLyricsWindow 让桌面字幕窗跟着指针拖动（设置键按住拖动时调用，dx/dy
+	// 是这一帧的指针位移）。mygo 的 DragWindow 只在元素没有其它交互标志时生效，
+	// 按钮拿不到，所以由 app 侧在 Dragged() 超过阈值后发起：能原生拖的平台上
+	// 交给合成器，其余平台逐帧移动窗口。
+	DragLyricsWindow func(dx, dy float32)
+	// EndLyricsDrag 在一次拖动结束时清掉拖动闩锁（视图在松手后每帧调，幂等）。
+	EndLyricsDrag func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
 	// PersistFollow 把弹幕/字幕跟随开关落盘（手动滚动自动关闭时也调用）。
@@ -888,6 +895,13 @@ type App struct {
 	// 时再自动显示。LyricsConfig 为真时同一个窗口切换到设置页。
 	LyricsEnabled bool
 	LyricsOn      bool
+	// LyricsGearHot 为真表示指针正压在字幕窗的**设置键热区**上。穿透打开时
+	// 窗口收不到鼠标事件（`PointerPosition` 的 over 读不到），由 app 侧的指针
+	// 轮询维护它，设置键据此显形 —— 否则键会常显（用户 2026-11-11 的回归）。
+	LyricsGearHot bool
+	// lyricsDragDX / lyricsDragDY 是上一次交给 DragLyricsWindow 的**累积**位移
+	// （mygo 的 Dragged 报累积量，这里存下来算增量，见 lyrics.go 的设置键）。
+	lyricsDragDX, lyricsDragDY float32
 	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口
 	//（mygo 0.8.2 起 Linux 也真的生效，见 lyrics.go 的 syncLyricsClickThrough）。
 	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗自己点不动，

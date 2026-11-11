@@ -18,3 +18,9 @@ func lyricsClickThroughShape() bool { return false }
 func setLyricsClickThrough(win *mygo.Window, clickThrough bool) {
 	win.SetIgnoreMouseEvents(clickThrough)
 }
+
+// lyricsBeginWindowDrag 在 Windows / macOS 上没有原生的「开始拖动」入口（mygo
+// 也没导出 StartDrag），返回 false —— app 侧退回逐帧 `SetPosition` 移动窗口
+// （见 app/lyrics.go 的 dragLyricsWindow）。这两条平台的窗口位置完全由客户端
+// 说了算，逐帧移动是可靠的。
+func lyricsBeginWindowDrag(win *mygo.Window) bool { return false }

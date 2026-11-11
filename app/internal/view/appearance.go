@@ -65,9 +65,12 @@ func (t Theme) darkControl(b ui.Element, active, hovered bool) ui.Element {
 // 底色令牌的比例。原版是白 .22 / --player-surface .36；整份照铺时用户仍觉得
 // “不够透”，这里只留四成，让背后的渐变与封面真正读得出来。小的控件面
 // （按钮、抽屉、弹层）不走这两个值，仍按各自令牌给足对比。
+// 深色那一档比浅色**再透一大截**：用户 2026-11-11 反馈「深色模式下搜索栏和
+// 底部播放栏影响通透性」，浅色还好。深色底本身够暗，veil 薄一点不会伤可读性，
+// 而厚一点就会把背后的渐变整块盖成一块深色板。
 const (
 	glassPaneVeil     float32 = 0.40
-	glassPaneVeilDark float32 = 0.09
+	glassPaneVeilDark float32 = 0.06
 )
 
 // glassPaneSheenBase / glassPaneSheenBaseDark 是两块大面板在**零窗口

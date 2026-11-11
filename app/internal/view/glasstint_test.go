@@ -63,7 +63,7 @@ func TestCSSGlassShowsBackdropThrough(t *testing.T) {
 //   - 烘焙的静态洗光是固定位图，窗口透明度升高时必须一起淡下去，
 //     否则 veil 已经变薄、白色反射仍是面上一块不透明的纱。
 func TestGlassPaneVeilThinAndSheenFollows(t *testing.T) {
-	if glassPaneVeil > .45 || glassPaneVeilDark > .18 {
+	if glassPaneVeil > .45 || glassPaneVeilDark > .12 {
 		t.Fatalf("大面积玻璃的 veil 比例仍偏实：light=%v dark=%v", glassPaneVeil, glassPaneVeilDark)
 	}
 	light := ThemeFor(PeriodAt(12))
@@ -76,8 +76,14 @@ func TestGlassPaneVeilThinAndSheenFollows(t *testing.T) {
 		t.Errorf("播放栏底色 alpha = %d，应约为 37（.36 × .4）", bar.A)
 	}
 	dark := light.withAppearance("dark", 0)
-	if got, want := dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A, uint8(23); got > want+1 {
-		t.Errorf("深色搜索药丸 alpha = %d，应约为 %d（#18273b .09 × 四成）", got, want)
+	// 深色：搜索药丸 alpha 只剩 ~15（#18273b .06 × 四成）—— 比浅色更透，
+	// 用户 2026-11-11 明确要求「深色下再透一点」。
+	if got, want := dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A, uint8(15); got > want+1 {
+		t.Errorf("深色搜索药丸 alpha = %d，应约为 %d（#18273b .06 × 四成）", got, want)
+	}
+	if dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A >=
+		light.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A {
+		t.Error("深色大面积玻璃应比浅色更透")
 	}
 	if got := light.glassPaneSheenFade(); math.Abs(float64(got-glassPaneSheenBase)) > .001 {
 		t.Errorf("默认外观的大面积洗光 = %v，应约为 %v", got, glassPaneSheenBase)
@@ -103,8 +109,8 @@ func TestGlassPaneVeilThinAndSheenFollows(t *testing.T) {
 	if got := darkPane.withAppearance("dark", .4).glassPaneSheenFade(); math.Abs(float64(got)-.018) > .001 {
 		t.Errorf("深色 40%% 透明度下大面积洗光 = %v，应约为 .018", got)
 	}
-	if got := darkPane.withAppearance("dark", .4).glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A; got > 9 {
-		t.Errorf("深色 40%% 透明度下搜索药丸 alpha = %d，应约为 8", got)
+	if got := darkPane.withAppearance("dark", .4).glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A; got > 6 {
+		t.Errorf("深色 40%% 透明度下搜索药丸 alpha = %d，应约为 5", got)
 	}
 	if got := light.withAppearance("light", .4).withPreferences(false, true).glassPaneSheenFade(); got != 1 {
 		t.Errorf("减少透明度下大面积洗光不应淡出，got %v", got)

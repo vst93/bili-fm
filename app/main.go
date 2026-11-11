@@ -158,7 +158,10 @@ type controller struct {
 	menuRadio  *mygo.MenuItem
 	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
 	menuLyricsClickThrough *mygo.MenuItem
-	// lyricsPollStop 是「指针在不在字幕齿轮上」轮询的停止信号；
+	// lyricsDragging 表示这次拖动已经交给合成器（GTK begin_move_drag），
+	// 后续逐帧位移不再自己算。见 lyrics.go 的 dragLyricsWindow。
+	lyricsDragging bool
+	// lyricsPollStop 是「指针在不在字幕设置键上」轮询的停止信号；
 	// lyricsIgnoring 是字幕窗**当前**的穿透状态（避免每个 tick 重复设同一个值）。
 	lyricsPollStop chan struct{}
 	lyricsIgnoring bool
@@ -830,6 +833,8 @@ func (c *controller) wireActions() {
 		ToggleDesktopLyrics: c.toggleDesktopLyrics,
 		// 穿透（mygo 0.8.2 起 Linux 也生效；入口只在主窗，见 lyrics.go）。
 		ToggleLyricsClickThrough: c.toggleLyricsClickThrough,
+		DragLyricsWindow:         c.dragLyricsWindow,
+		EndLyricsDrag:            c.endLyricsDrag,
 		ToggleHeat:               c.toggleHeat,
 		PersistFollow:            c.persistFollowPrefs,
 		ToggleLyricsConfig:       c.toggleLyricsConfig,

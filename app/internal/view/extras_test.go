@@ -144,3 +144,60 @@ func TestLyricsShellRenders(t *testing.T) {
 		t.Fatalf("设置页在预览上方时标题 Y=%.1f，预览 Y=%.1f", title.Y, preview.Y)
 	}
 }
+
+// TestLyricsDragExceeded 钉住「设置键按住拖动」的起步阈值：轻微抖动不算拖动
+// （否则点一下设置键会把窗口挪走），超过阈值才算。设置键既是按钮又是拖动手柄，
+// 这个阈值是两者唯一的分界。
+func TestLyricsDragExceeded(t *testing.T) {
+	cases := []struct {
+		dx, dy float32
+		want   bool
+	}{
+		{0, 0, false},
+		{1, 1, false},
+		{3, 0, false}, // 阈值内：仍是点击
+		{0, -3, false},
+		{4, 0, true}, // 恰好到阈值
+		{0, 5, true},
+		{-6, 0, true}, // 方向无关
+		{3, 3, true},  // 欧氏距离 4.24 > 4
+	}
+	for _, c := range cases {
+		if got := lyricsDragExceeded(c.dx, c.dy); got != c.want {
+			t.Errorf("lyricsDragExceeded(%v,%v) = %v，应为 %v", c.dx, c.dy, got, c.want)
+		}
+	}
+}
+
+// TestLyricsGearHiddenUnlessHot 钉住设置键的显隐：**只在指针压在上面（或指针在
+// 窗内）时出现**，不因为「穿透打开」就常显 —— 用户 2026-11-11 报「开启穿透后
+// 设置键不再自动隐藏」。穿透时窗口收不到 over，改由 LyricsGearHot 判定。
+func TestLyricsGearHiddenUnlessHot(t *testing.T) {
+	build := func(clickThrough, hot bool) *ui.Tester {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		a.LyricCurrent, a.LyricNext = "第一句", "第二句"
+		a.LyricsClickThrough = clickThrough
+		a.LyricsGearHot = hot
+		return ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, LyricsDisplayHeight(a.LyricsFontSize))
+	}
+	// 穿透打开、指针不在设置键上：键必须**不可见**（这是那条回归的反证）。
+	tst := build(true, false)
+	tst.Frame()
+	if _, ok := tst.Find("桌面字幕设置"); ok {
+		t.Error("穿透打开且指针不在设置键上时，设置键不该显示（应自动隐藏）")
+	}
+	// 指针压在上面：出现。
+	tst = build(true, true)
+	tst.Frame()
+	if _, ok := tst.Find("桌面字幕设置"); !ok {
+		t.Error("指针压在设置键热区上时应显示设置键")
+	}
+	// 未穿透：指针在窗内（测试里默认 hover 视口中心）就显示。
+	tst = build(false, false)
+	tst.Move(280, 40)
+	tst.Frame()
+	if _, ok := tst.Find("桌面字幕设置"); !ok {
+		t.Error("未穿透时指针在窗内应显示设置键")
+	}
+}
