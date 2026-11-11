@@ -144,3 +144,36 @@ func TestLyricsPanelDrawsNoOuterShadow(t *testing.T) {
 		t.Error("鼠标进入时的选中蓝边不见了")
 	}
 }
+
+// TestLyricsConfigPanelFitsRows 钉住设置面板高度装得下所有行：面板高度是常量
+//（LyricsConfigPanelHeight），行数一变就得同步加高，否则最后一行（说明文字 /
+//「记住微调」）会被窗口裁掉。用户 2026-11-11 加了「鼠标穿透」一行。
+func TestLyricsConfigPanelFitsRows(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.LyricsConfig = true
+	a.LyricCurrent, a.LyricNext = "第一句", "第二句"
+	h := LyricsDisplayHeight(a.LyricsFontSize) + LyricsConfigPanelHeight
+	tt := ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, h)
+	tt.Frame()
+	panelTop := float32(h - LyricsConfigPanelHeight)
+	// 面板里每一行的底边都必须落在面板内（面板上下各 14px 内边距也算进去）。
+	rows := []string{
+		"桌面字幕设置", "文字 · #ffffff", "背景 · #0f172a", "字号 · 20",
+		"宽度 · 30%", "文字透明度 · 1.0", "背景透明度 · 0.55", "微调 · 0.0s",
+		"鼠标穿透 · 默认关", "记住微调 · 默认关",
+	}
+	for _, label := range rows {
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Errorf("设置页看不到 %q（面板装不下？）", label)
+			continue
+		}
+		if r.Y+r.H > float32(h) {
+			t.Errorf("%q 底边 %.1f 超出窗口高 %d", label, r.Y+r.H, h)
+		}
+		if r.Y < panelTop {
+			t.Errorf("%q 上缘 %.1f 跑到面板上方（面板从 %.1f 开始）", label, r.Y, panelTop)
+		}
+	}
+}

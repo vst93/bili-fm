@@ -110,6 +110,10 @@ func TestLyricsShellRenders(t *testing.T) {
 	if _, ok := cfg.Find("记住微调"); !ok {
 		t.Fatal("设置页看不到「记住微调」")
 	}
+	// 鼠标穿透开关也在这个页面里（用户 2026-11-11：穿透设置在它的设置页面也要有）
+	if _, ok := cfg.Find("鼠标穿透"); !ok {
+		t.Fatal("设置页看不到「鼠标穿透」开关")
+	}
 	if err := cfg.Click("恢复默认"); err != nil {
 		t.Fatalf("设置页恢复默认按钮不可点：%v", err)
 	}

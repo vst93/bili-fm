@@ -9,6 +9,11 @@
   v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 各一节），当轮的坑与门槛写进
   `.pending-bugs.md`。**先读这两处再动依赖。**
 
+- **登录过期要能自愈**：接口回 `-101`（账号未登录）时 `bilibili.apiError` 会给
+  `ErrNotLoggedIn`，app 侧 `controller.listLoadFailed` 静默调 `expireLogin()`
+  （清登录态 + 失效 cookie + KV 里的资料，抽屉空态提示去登录），其余错误才 toast。
+  启动时 `verifySessionAsync` 用 nav 校验一次（`SessionValid` / `sessionVerdict`：
+  只有 0 / -101 算结论，风控 -352 不登出）。**别再让列表直接吃 -101**。
 - **「需要登录才行」的动作一律静默限制**：字幕（字幕轨 + `aisubtitle` 正文）
   与云端进度读写（`x/v2/history/report` / `GetPlayProgress`）都要登录。判据只有
   两处：`controller.subtitlesAvailable()` 与 `controller.cloudProgressOn()`
@@ -27,11 +32,13 @@
   窗口按钮」，与两颗自绘键冲突。窗框剩下的部分由 mygo 对 `Frameless` /
   透明窗的处理决定，应用侧没有别的开关（见 `.pending-bugs.md` 2026-11-10 ⑤）。
 
-- **桌面字幕的「鼠标穿透」入口只在主窗**（标题栏设置下拉 + macOS 原生菜单，
-  `App.LyricsClickThrough` / `lyricsIgnoreMouse`）：穿透后字幕窗收不到鼠标，
-  齿轮与拖动都不响应，把关闭入口放在它自己身上等于锁死。设置页永不穿透。
-  这条依赖 mygo 0.8.2 才真正生效的 Linux `SetIgnoreMouseEvents`（空 input
-  shape；X11 与 Wayland 的 layer surface 都吃）。
+- **桌面字幕的「鼠标穿透」是「穿透，但齿轮固定可点」**（`App.LyricsClickThrough`）：
+  齿轮的位置/尺寸见 `view.LyricsGearInset` / `LyricsGearSize`（绘制与热区同源），
+  热区几何是 `lyricsGearShapeRect`。Linux 把窗口的 **input shape 设成齿轮那一块**
+  （`app/lyrics_clickthrough_linux.go`，purego 直调 GDK/cairo；符号缺失时退回
+  mygo 的整窗穿透），Windows/macOS 是整窗穿透 + 指针轮询（`lyricsPollNeeded`）。
+  设置页（字幕自己的面板）与主窗设置菜单 / macOS 原生菜单里各有一个开关，同源；
+  设置页打开时永不穿透。穿透打开时窗口**不能拖动**（点击都让给下面了）。
 
 - **「跳到下一个高能」的选点规则只有一份**（`view.NextHighlightPoint`）：
   控制器真 seek、进度条右键菜单写副标题都从这里取。菜单副标题靠 0.8.1 的

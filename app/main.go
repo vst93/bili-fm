@@ -158,6 +158,10 @@ type controller struct {
 	menuRadio  *mygo.MenuItem
 	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
 	menuLyricsClickThrough *mygo.MenuItem
+	// lyricsPollStop 是「指针在不在字幕齿轮上」轮询的停止信号；
+	// lyricsIgnoring 是字幕窗**当前**的穿透状态（避免每个 tick 重复设同一个值）。
+	lyricsPollStop chan struct{}
+	lyricsIgnoring bool
 }
 
 // titleBarStyleFor 返回主窗该用的 TitleBarStyle。
@@ -700,6 +704,12 @@ func main() {
 		// 当前观看人数的 30s 轮询（右栏 UP 主行行尾那行字，见 viewers.go）。
 		// 起播那一枪另打在 startCurrent 里，这里只负责后续的周期刷新。
 		c.startOnlineViewersPoll()
+
+		// 启动时校验一次登录态：本地只用 KV 里的 uname 当「已登录」的证据，
+		// SESSDATA 过期后会一直错着（每个列表各自撞一次 -101、用户看到一串
+		// 「加载失败」，见 .pending-bugs.md 2026-11-11 的「动态列表报错」）。
+		// 只把确定的结论当结论（网络不通不登出，见 SessionValid）。
+		c.verifySessionAsync()
 
 		// 后台自动检查更新（原版每日一次）：启动约 10s 后静默检查，只在
 		// 发现新版本时弹应用内对话框（是最新版 / 检查失败都不打扰）。
@@ -1698,8 +1708,7 @@ func (c *controller) loadUpVideos(mid int64, offset string, fresh bool) {
 				return
 			}
 			if err != nil {
-				list.LoadErr = !fresh
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, !fresh, "加载", err)
 				return
 			}
 			cards := toUpCards(l.Items)
@@ -1751,7 +1760,7 @@ func (c *controller) loadUpSeries(mid int64) {
 				return
 			}
 			if err != nil {
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, false, "加载", err)
 				return
 			}
 			c.completeUpSeries(mid, list, ctx, gen, browseGen, out)
@@ -1798,8 +1807,7 @@ func (c *controller) loadSeriesVideos(id int64, page int) {
 				return
 			}
 			if err != nil {
-				list.LoadErr = page > 1
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, page > 1, "加载", err)
 				return
 			}
 			cards := make([]view.Card, 0, len(archives))
@@ -2320,6 +2328,74 @@ func (c *controller) acceptListResult(list *view.List, ctx string, gen, browseGe
 	return c.app.BrowseGeneration == browseGen && list.FinishLoad(ctx, gen, firstPage, ok)
 }
 
+// verifySessionAsync 在启动后台校验一次登录态：cookie 已失效就收起登录态并
+// 提示重新扫码（见 expireLogin / bilibili.SessionValid）。
+//
+// 异步：nav 是一次网络请求，不能拖住启动；结论回落到界面线程再改状态。
+func (c *controller) verifySessionAsync() {
+	a := c.app
+	if a == nil || !a.LoggedIn || c.bl == nil {
+		return
+	}
+	go func() {
+		valid, checked := c.bl.SessionValid()
+		if !checked || valid {
+			return
+		}
+		c.update(func() { c.expireLogin() })
+	}()
+}
+
+// listLoadFailed 统一处理「列表加载失败」。
+//
+// 登录态过期（bilibili.ErrNotLoggedIn，即 B 站 code -101）单独一路：**静默**
+// 把本地登录态收起来（见 expireLogin），tap 失败提示就不弹了 —— 用户看到的
+// 是抽屉空态里的「这个分区需要登录，点右上角头像扫码登录」，比「加载失败：请
+// 稍后重试」准确得多（用户 2026-11-11 报「动态列表加载报错，登录了也还是
+// 报错」：SESSDATA 早就过期了，本地却因为 KV 里有 uname 而一直认为已登录）。
+//
+// 其它错误照旧：retryable 决定要不要进「加载失败，点击重试」态（首屏失败走
+// 空态，翻页失败才可重试），并给一条 toast。
+func (c *controller) listLoadFailed(list *view.List, retryable bool, action string, err error) {
+	if errors.Is(err, bilibili.ErrNotLoggedIn) {
+		list.LoadErr = false
+		c.expireLogin()
+		return
+	}
+	list.LoadErr = retryable
+	c.app.NotifyType("error", actionFailText(action, err))
+}
+
+// expireLogin 把本地登录态收起来：SESSDATA 已经无效（接口回了 -101），继续
+// 装作已登录只会让每个需要登录的列表都失败一次。
+//
+// 清掉的是**已经失效的** cookie 与 KV 里的用户资料：之后 GetSESSDATA() 为空，
+// 各接口直接走「未登录」的静默分支（feed 等返回空列表 → 空态提示去登录），
+// 字幕与云端进度也自动进入静默模式（cloudProgressOn / subtitlesAvailable 都
+// 看 LoggedIn）。
+func (c *controller) expireLogin() {
+	a := c.app
+	if a == nil || !a.LoggedIn {
+		return
+	}
+	a.LoggedIn = false
+	a.UName, a.Face = "", ""
+	c.bl.SetSESSDATA("")
+	c.bl.SetLoginStatus(false)
+	if c.kv != nil {
+		_ = c.kv.SetString("uname", "")
+		_ = c.kv.SetString("face", "")
+		_ = c.kv.SetString("mid", "")
+	}
+	// 旧账号的浏览数据全部作废，并按新（未登录）状态重拉当前列表。
+	c.invalidateBrowsingForAccount()
+	c.reloadBrowsingAfterAccountChange()
+	a.NotifyType("warning", "登录已过期，请重新扫码登录")
+	if a.Win != nil {
+		a.Win.Update(func() {})
+	}
+}
+
 // acceptSearchResult 是搜索结果的验收：在列表代号之外还要确认 SearchRequestID
 // 没被新的搜索 / 清空 / 换账号推进。抽屉是否还开着不影响在途页落地（见
 // searchMore），所以这里不看 Drawer。
@@ -2374,8 +2450,7 @@ func (c *controller) loadSection(section string, page int) {
 				}
 				if err != nil {
 					// 只有「翻页」失败才进入可重试的错误态；首屏失败仍走空态。
-					list.LoadErr = page > 1
-					a.NotifyType("error", actionFailText("加载", err))
+					c.listLoadFailed(list, page > 1, "加载", err)
 					return
 				}
 				added := setCards(list, toFeedCards(l.Items), page <= 1)
@@ -2432,8 +2507,7 @@ func (c *controller) loadSection(section string, page int) {
 				return
 			}
 			if err != nil {
-				list.LoadErr = page > 1
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, page > 1, "加载", err)
 				return
 			}
 			added := setCards(list, cards, page <= 1)
@@ -2628,7 +2702,7 @@ func (c *controller) loadFolders() {
 				if !c.acceptListResult(fav, ctx, gen, browseGen, true, false) {
 					return
 				}
-				a.NotifyType("error", actionFailText("收藏夹加载", err))
+				c.listLoadFailed(fav, false, "收藏夹加载", err)
 			})
 			return
 		}
@@ -2687,8 +2761,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 				return
 			}
 			if err != nil {
-				list.LoadErr = page > 1
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, page > 1, "加载", err)
 				return
 			}
 			added := setCards(list, toCardsFromRaw(items), page <= 1)
@@ -2958,8 +3031,7 @@ func (c *controller) searchMore(page int) {
 				return
 			}
 			if err != nil {
-				list.LoadErr = true
-				a.NotifyType("error", actionFailText("加载", err))
+				c.listLoadFailed(list, true, "加载", err)
 				return
 			}
 			added := setCards(list, searchResultCards(results), false)

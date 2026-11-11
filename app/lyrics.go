@@ -11,6 +11,7 @@ package main
 import (
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
@@ -82,6 +83,77 @@ func (c *controller) toggleDesktopLyrics() {
 // 建不出来）。
 func lyricsIgnoreMouse(clickThrough, config bool) bool { return clickThrough && !config }
 
+// lyricsGearSlop 是齿轮热区的外扩：指针贴到按钮外 6px 也算「在齿轮上」，
+// 否则从按钮边缘移出/移入时穿透状态会来回跳。
+//
+// 齿轮本身的位置与边长读 view 的 LyricsGearInset / LyricsGearSize（绘制与热区
+// 同源，见 internal/view/lyrics.go），这里只多这一项。
+const lyricsGearSlop float32 = 6
+
+// lyricsGearShapeRect 返回「穿透时仍然可交互」的矩形（**窗口坐标**，左上为原点）：
+// 右上角的齿轮键再向外放一圈 slop，并夹进窗口内。
+//
+// 它是齿轮热区的唯一几何来源：Linux 用同一块矩形当窗口的输入区域
+// （lyrics_clickthrough_linux.go），Windows / macOS 用它做指针判定
+// （lyricsGearHot）。这样「哪里能点」与「哪里不穿透」永远一致。
+func lyricsGearShapeRect(w, h float32) (x, y, rw, rh float32) {
+	if w <= 0 || h <= 0 {
+		return 0, 0, 0, 0
+	}
+	x = w - view.LyricsGearInset - view.LyricsGearSize - lyricsGearSlop
+	y = view.LyricsGearInset - lyricsGearSlop
+	rw = view.LyricsGearSize + 2*lyricsGearSlop
+	rh = view.LyricsGearSize + 2*lyricsGearSlop
+	// 夹进窗口：cairo 区域允许负坐标，但窗口外的部分没有意义，夹掉更清楚。
+	if x < 0 {
+		rw += x
+		x = 0
+	}
+	if y < 0 {
+		rh += y
+		y = 0
+	}
+	if x+rw > w {
+		rw = w - x
+	}
+	if y+rh > h {
+		rh = h - y
+	}
+	if rw <= 0 || rh <= 0 {
+		return 0, 0, 0, 0
+	}
+	return x, y, rw, rh
+}
+
+// lyricsGearHot 报告指针是否在**齿轮（设置键）**上 —— 在它上面时不穿透。
+//
+// 用户 2026-11-11 要求：「把桌面字幕模块中的设置按钮固定为不穿透」—— 穿透
+// 打开后依然能直接点字幕窗里的齿轮进设置页，不必先去主窗菜单里关穿透。
+//
+// 坐标系：cursor 是**屏幕坐标**（mygo.Screen.CursorScreenPoint），bounds 是
+// 窗口在屏幕上的矩形（mygo.Window.Bounds）：先换成窗口坐标，再与
+// lyricsGearShapeRect 比 —— 与 Linux 的输入区域同源。
+func lyricsGearHot(cursor mygo.Point, bounds mygo.Rectangle) bool {
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return false
+	}
+	x, y, w, h := lyricsGearShapeRect(float32(bounds.Width), float32(bounds.Height))
+	if w <= 0 || h <= 0 {
+		return false
+	}
+	cx := float64(cursor.X - bounds.X)
+	cy := float64(cursor.Y - bounds.Y)
+	return cx >= float64(x) && cx <= float64(x+w) && cy >= float64(y) && cy <= float64(y+h)
+}
+
+// lyricsClickThroughPollEvery 是「指针是否在齿轮上」的轮询间隔。
+//
+// 为什么不用鼠标事件：穿透窗收不到鼠标事件（那正是穿透的定义），只能用屏幕
+// 坐标轮询。mygo.Screen.CursorScreenPoint 在三平台都可用（Linux 走
+// gdk_device_get_position，Windows GetCursorPos，macOS NSEvent.mouseLocation），
+// 而且只在**穿透打开**时轮询 —— 关掉穿透的常态下一次都不跑。
+const lyricsClickThroughPollEvery = 80 * time.Millisecond
+
 // syncLyricsClickThrough 把「鼠标穿透」开关应用到字幕窗。窗口没建 / 已销毁时
 // 什么都不做（openDesktopLyricsIfReady / toggleLyricsConfig 会在窗口存在时
 // 再同步）。
@@ -93,7 +165,90 @@ func (c *controller) syncLyricsClickThrough() {
 	if c.lyricsWin == nil || c.app == nil {
 		return
 	}
-	c.lyricsWin.SetIgnoreMouseEvents(lyricsIgnoreMouse(c.app.LyricsClickThrough, c.app.LyricsConfig))
+	click := lyricsIgnoreMouse(c.app.LyricsClickThrough, c.app.LyricsConfig)
+	if click && !lyricsClickThroughShape() {
+		// 整窗穿透的平台：齿轮靠轮询临时取消穿透，先在主线程问一次当前指针。
+		click = c.lyricsWantsClickThrough()
+	}
+	setLyricsClickThrough(c.lyricsWin, click)
+	c.lyricsIgnoring = click
+}
+
+// lyricsPollNeeded 报告要不要跑「指针在不在齿轮上」的轮询：只有在**整窗穿透**
+// 的平台（Windows / macOS）上才需要 —— Linux 用输入区域把齿轮固定成可点，
+// 连系统调用都不用打。
+func lyricsPollNeeded() bool { return !lyricsClickThroughShape() }
+
+// lyricsWantsClickThrough 报告字幕窗此刻该不该穿透：开关打开、不在设置页、
+// 且指针**不在齿轮上**（齿轮永远可点，见 lyricsGearHot）。
+//
+// 只在穿透打开时才去问屏幕坐标：关掉穿透是常态，那条路径一次系统调用都不该有。
+// **主线程调用**（mygo.Screen.CursorScreenPoint / Window.Bounds 都要在主线程）。
+func (c *controller) lyricsWantsClickThrough() bool {
+	a := c.app
+	if a == nil || !lyricsIgnoreMouse(a.LyricsClickThrough, a.LyricsConfig) {
+		return false
+	}
+	if c.lyricsWin == nil {
+		return false
+	}
+	return !lyricsGearHot(mygo.Screen.CursorScreenPoint(), c.lyricsWin.Bounds())
+}
+
+// startLyricsClickThroughPoll 起「指针是否在齿轮上」的轮询，由
+// openDesktopLyricsIfReady 在窗口建好后调一次（整个进程只起一次）。
+//
+// 为什么需要轮询（只在整窗穿透的平台）：穿透窗收不到任何鼠标事件（那正是穿透
+// 的定义），要「齿轮固定不穿透」就只能读屏幕坐标。Linux 不用这条路径（输入区域
+// 里齿轮本来就是可点的）。
+func (c *controller) startLyricsClickThroughPoll() {
+	if c.lyricsPollStop != nil || !lyricsPollNeeded() {
+		return
+	}
+	stop := make(chan struct{})
+	c.lyricsPollStop = stop
+	go func() {
+		t := time.NewTicker(lyricsClickThroughPollEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				c.lyricsPollTick()
+			}
+		}
+	}()
+}
+
+// lyricsPollTick 是轮询的一个 tick：把「这一刻该不该穿透」推给窗口。
+//
+// 整段都在主线程跑（mygo.RunOnMain）：字幕窗状态、缓存的上一次判定、
+// Screen.CursorScreenPoint 与 Window.Bounds 都是主线程的东西，放主线程就没有
+// 数据竞争，也不必给它们加锁。只在**状态真的变了**时才调
+// SetIgnoreMouseEvents（那是跨进程的窗口属性，每 80ms 白设一次没必要）。
+func (c *controller) lyricsPollTick() {
+	mygo.RunOnMain(func() {
+		a := c.app
+		if a == nil || c.lyricsWin == nil || !a.LyricsOn {
+			return
+		}
+		want := c.lyricsWantsClickThrough()
+		if want == c.lyricsIgnoring {
+			return
+		}
+		c.lyricsIgnoring = want
+		setLyricsClickThrough(c.lyricsWin, want)
+	})
+}
+
+// stopLyricsClickThroughPoll 在退出 / 销毁字幕窗时停掉轮询。
+func (c *controller) stopLyricsClickThroughPoll() {
+	if c.lyricsPollStop == nil {
+		return
+	}
+	close(c.lyricsPollStop)
+	c.lyricsPollStop = nil
 }
 
 // toggleLyricsClickThrough 切换桌面字幕的鼠标穿透并落盘。
@@ -106,6 +261,7 @@ func (c *controller) toggleLyricsClickThrough() {
 	if c.kv != nil {
 		_ = c.kv.SetString(prefLyricsClickThrough, strconv.FormatBool(a.LyricsClickThrough))
 	}
+	c.lyricsIgnoring = c.lyricsWantsClickThrough()
 	c.syncLyricsClickThrough()
 	c.syncMenuToggles()
 	if a.Win != nil {
@@ -244,6 +400,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	// 穿透要在窗口真存在之后才设得上（未 realize 的窗口由框架在 realize /
 	// map 时补上，见 mygo 的 applyIgnoreMouseEvents）。
 	c.syncLyricsClickThrough()
+	// 「指针在不在齿轮上」的轮询：齿轮永远可点（用户 2026-11-11 的要求），
+	// 而穿透窗收不到鼠标事件，只能靠屏幕坐标轮询。
+	c.startLyricsClickThroughPoll()
 	// Alt+F4 等用户关闭路径：不销毁窗口，只隐藏并关掉开关。Wayland 上
 	// 销毁 toplevel 会丢掉合成器记住的位置，复用同一个 toplevel 才能让
 	// 下次开关回到用户拖到的地方。真正退出应用时 c.quitting 为真，放行。
@@ -265,6 +424,8 @@ func (c *controller) openDesktopLyricsIfReady() {
 		if c.lyricsWin == win {
 			c.lyricsWin = nil
 		}
+		c.lyricsIgnoring = false
+		c.stopLyricsClickThroughPoll()
 		a.LyricsOn = false
 		a.LyricsConfig = false
 		a.LyricsConfigAbove = false
@@ -629,6 +790,7 @@ func (c *controller) toggleLyricsConfig() {
 		})
 	}
 	// 设置页可点、显示页按开关穿透（lyricsIgnoreMouse）。
+	c.lyricsIgnoring = c.lyricsWantsClickThrough()
 	c.syncLyricsClickThrough()
 	c.lyricsWin.Update(func() {})
 }

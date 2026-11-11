@@ -463,3 +463,138 @@ func TestLyricsClickThroughPrefRoundTrip(t *testing.T) {
 		t.Fatal("再切换一次应回到 false")
 	}
 }
+
+// TestLyricsGearHot 钉住「指针在不在齿轮上」的判定：穿透打开时这一小块永远
+// 不穿透（用户 2026-11-11：把设置按钮固定为不穿透），所以它的边界直接决定
+// 齿轮点不点得到。
+//
+// 几何：窗口 560×100 摆在 (100, 200)；齿轮贴右上角、内边距 4、边长 26
+// （view.LyricsGearInset / LyricsGearSize）⇒ 热区是以 (660-4, 204) 为右上角、
+// 外扩 6px 的一块。
+func TestLyricsGearHot(t *testing.T) {
+	b := mygo.Rectangle{X: 100, Y: 200, Width: 560, Height: 100}
+	cases := []struct {
+		name string
+		at   mygo.Point
+		want bool
+	}{
+		{"齿轮正中", mygo.Point{X: 643, Y: 217}, true},
+		{"齿轮左上角", mygo.Point{X: 630, Y: 204}, true},
+		{"热区外扩：窗口右缘内 2px", mygo.Point{X: 658, Y: 202}, true},
+		{"齿轮左下角", mygo.Point{X: 630, Y: 236}, true},
+		{"窗口中部（字幕文字上）", mygo.Point{X: 300, Y: 240}, false},
+		{"齿轮左边 10px", mygo.Point{X: 619, Y: 217}, false},
+		{"齿轮下方 10px", mygo.Point{X: 643, Y: 247}, false},
+		{"窗口外（右下）", mygo.Point{X: 663, Y: 301}, false},
+		// 热区夹在窗口内：窗口右缘之外不再算「在齿轮上」—— 那里指针本来也
+		// 进不了我们的窗口，判 true 只会把穿透白关掉。
+		{"窗口右缘外 2px", mygo.Point{X: 662, Y: 217}, false},
+	}
+	for _, c := range cases {
+		if got := lyricsGearHot(c.at, b); got != c.want {
+			t.Errorf("%s：lyricsGearHot(%v) = %v，应为 %v", c.name, c.at, got, c.want)
+		}
+	}
+	// 窗口还没布局（宽高为 0）：不认作「在齿轮上」，否则穿透会一直关着。
+	if lyricsGearHot(mygo.Point{X: 100, Y: 200}, mygo.Rectangle{}) {
+		t.Error("空边界不该判定为在齿轮上")
+	}
+}
+
+// TestLyricsClickThroughKeepsGearClickable 钉住串起来的那条判据：
+// 「打开穿透 + 显示页」时，指针在齿轮上就不穿透、移开才穿透。
+func TestLyricsClickThroughKeepsGearClickable(t *testing.T) {
+	b := mygo.Rectangle{X: 0, Y: 0, Width: 560, Height: 100}
+	onGear := mygo.Point{X: 560 - 4 - 13, Y: 4 + 13}
+	away := mygo.Point{X: 280, Y: 60}
+	// 基准：穿透开关与设置页的优先级（设置页永不穿透）。
+	if lyricsIgnoreMouse(false, false) || lyricsIgnoreMouse(false, true) {
+		t.Error("穿透关闭时任何情况都不该穿透")
+	}
+	if !lyricsIgnoreMouse(true, false) {
+		t.Error("穿透 + 显示页应穿透")
+	}
+	if lyricsIgnoreMouse(true, true) {
+		t.Error("设置页永不穿透")
+	}
+	// 齿轮上：即使穿透打开也不穿透。
+	if !lyricsGearHot(onGear, b) {
+		t.Fatal("前置：测试点应在齿轮热区内")
+	}
+	if lyricsGearHot(away, b) {
+		t.Fatal("前置：测试点应在齿轮热区外")
+	}
+}
+
+// TestLyricsGearShapeRect 钉住「穿透时仍可交互」的矩形本身（窗口坐标）：
+// 右上角齿轮 + slop，并夹进窗口内。Linux 直接拿它当窗口输入区域。
+func TestLyricsGearShapeRect(t *testing.T) {
+	// 560×100：x = 560-4-26-6 = 524，宽 38 → 524+38 = 562 > 560，夹到 36；
+	// y = 4-6 = -2 → 夹到 0，高 38-2 = 36。
+	x, y, w, h := lyricsGearShapeRect(560, 100)
+	if x != 524 || y != 0 || w != 36 || h != 36 {
+		t.Errorf("560×100 的热区 = (%v,%v,%v,%v)，应为 (524,0,36,36)", x, y, w, h)
+	}
+	// 宽窗：上边与右边的 slop 都落在窗口外（齿轮贴上缘 4px、离右缘 4px），
+	// 夹掉后是 36×36。
+	x, y, w, h = lyricsGearShapeRect(900, 200)
+	if x != 900-4-26-6 || y != 0 || w != 36 || h != 36 {
+		t.Errorf("900×200 的热区 = (%v,%v,%v,%v)，应为 (864,0,36,36)", x, y, w, h)
+	}
+	// 比齿轮还小的窗口：不产生负宽高。
+	if _, _, w, h := lyricsGearShapeRect(20, 10); w <= 0 || h <= 0 {
+		t.Errorf("小窗口的热区 = %v×%v，应为正数", w, h)
+	}
+	// 还没布局：全零。
+	if x, y, w, h := lyricsGearShapeRect(0, 0); x != 0 || y != 0 || w != 0 || h != 0 {
+		t.Errorf("零尺寸的热区 = (%v,%v,%v,%v)，应全为 0", x, y, w, h)
+	}
+}
+
+// TestExpireLogin 钉住「登录过期」的收敛：接口回 -101 时把本地登录态、已失效的
+// cookie 与 KV 里的用户资料一起清掉 —— 只把 LoggedIn 置假不够，下次启动还会因为
+// KV 里有 uname 而认为已登录（用户 2026-11-11 报「登录了也还是报错」）。
+func TestExpireLogin(t *testing.T) {
+	probe := bilibili.NewBL()
+	savedStatus, savedCookie := bilibili.LoginStatus, probe.GetSESSDATA()
+	defer func() {
+		bilibili.LoginStatus = savedStatus
+		probe.SetSESSDATA(savedCookie)
+	}()
+
+	dir := t.TempDir()
+	kv, err := store.Open(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := view.NewApp(func() {})
+	a.LoggedIn = true
+	a.UName, a.Face = "阿绫", "face.png"
+	c := &controller{app: a, kv: kv, bl: bilibili.NewBL()}
+	c.bl.SetSESSDATA("SESSDATA=expired")
+	c.bl.SetLoginStatus(true)
+	_ = kv.SetString("uname", "阿绫")
+	_ = kv.SetString("face", "face.png")
+
+	c.expireLogin()
+
+	if a.LoggedIn {
+		t.Error("登录过期后 app.LoggedIn 应为 false")
+	}
+	if a.UName != "" || a.Face != "" {
+		t.Errorf("用户资料应清空，得到 %q / %q", a.UName, a.Face)
+	}
+	if got := c.bl.GetSESSDATA(); got != "" {
+		t.Errorf("失效的 cookie 应清掉，得到 %q", got)
+	}
+	if c.bl.GetLoginStatus() {
+		t.Error("bilibili.LoginStatus 应为 false")
+	}
+	for _, k := range []string{"uname", "face", "mid"} {
+		if got := kv.String(k); got != "" {
+			t.Errorf("KV %q 应清空，得到 %q", k, got)
+		}
+	}
+	// 幂等：已登出时再调一次不 panic、不重复清。
+	c.expireLogin()
+}

@@ -26,6 +26,35 @@ import (
 
 var LoginStatus = false
 var SESSDATA_KEY = "SESSDATA"
+
+// ErrNotLoggedIn 表示「账号未登录 / 登录已过期」：B 站的接口都用 code -101 表示
+// 这件事（cookie 缺失、SESSDATA 过期、被踢下线都一样）。app 层靠它把本地登录态
+// 收起来并提示重新扫码，而不是弹一句笼统的「加载失败」。
+//
+// 用户 2026-11-11 报「动态列表加载报错，登录了也还是报错」：根因就是 SESSDATA
+// 早就过期，而本地只看 KV 里的 uname 就认为「已登录」，于是每个列表都去请求、
+// 每个都拿 -101。
+var ErrNotLoggedIn = errors.New("登录已过期，请重新登录")
+
+// apiError 把接口返回的非 0 code 翻成一个错误：
+//
+//	-101（账号未登录）        → ErrNotLoggedIn（调用方据此清登录态）
+//	其它 code                 → 带上 code 与上游文案（B 站的 message 基本是中文，
+//	                            failReason 会原样透给用户）
+//
+// 此前这些位置一律 errors.New("API returned non-zero code")：既丢掉了 -101 这个
+// 关键信号，用户看到的也只是「请稍后重试」。
+func apiError(code int, message string) error {
+	if code == -101 {
+		return ErrNotLoggedIn
+	}
+	message = strings.TrimSpace(message)
+	if message != "" {
+		return fmt.Errorf("接口返回 %d：%s", code, message)
+	}
+	return fmt.Errorf("接口返回 %d", code)
+}
+
 var Ticket = ""
 var QrCocdeKey = ""
 
@@ -278,8 +307,9 @@ func (bl *BL) SearchVideoPage(keyword, order string, page int) ([]SearchResult, 
 	}
 
 	var apiResponse struct {
-		Code int `json:"code"`
-		Data struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
 			Result []struct {
 				Pic   string `json:"pic"`
 				Bvid  string `json:"bvid"`
@@ -773,6 +803,59 @@ func (bl *BL) GetBLUserInfo() *UserInfo {
 
 // ----------- end - getBLUserInfo -----------
 
+// SessionValid 用 nav 接口确认当前 cookie 还在不在有效期。
+//
+// 返回 (valid, checked)：checked 为假表示**没能得到结论**（网络不通 / 响应坏），
+// 调用方不应据此改动登录态；checked 为真且 valid 为假时，cookie 一定是失效了
+// （nav 回 -101，即账号未登录）。
+//
+// 为什么要它：本地只在 KV 里存了 uname，启动时拿它当「已登录」的证据。SESSDATA
+// 过期后这个假设一直错着 —— 用户 2026-11-11 报「动态列表加载报错，登录了也还是
+// 报错」，就是启动时没校验、每个列表各自撞一次 -101。
+func (bl *BL) SessionValid() (valid, checked bool) {
+	cookie := bl.GetSESSDATA()
+	if cookie == "" {
+		return false, true // 没有 cookie 就是没登录，这是个确定的结论
+	}
+	req, err := http.NewRequest("GET", "https://api.bilibili.com/x/web-interface/nav", nil)
+	if err != nil {
+		return false, false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Cookie", cookie)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return false, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, false
+	}
+	var apiResponse struct {
+		Code int `json:"code"`
+	}
+	if err := json.Unmarshal(body, &apiResponse); err != nil {
+		return false, false
+	}
+	return sessionVerdict(apiResponse.Code)
+}
+
+// sessionVerdict 把 nav 的 code 折成 (valid, checked)：
+//
+//	0      有效
+//	-101   已失效（账号未登录 / cookie 过期）
+//	其它   不当作结论（风控 -352、-400 之类都可能是暂时的）
+func sessionVerdict(code int) (valid, checked bool) {
+	switch code {
+	case 0:
+		return true, true
+	case -101:
+		return false, true
+	}
+	return false, false
+}
+
 // ----------- begin - getBLFeedList -----------
 type FeedList struct {
 	Items   []interface{} `json:"items"`
@@ -818,8 +901,9 @@ func (bl *BL) GetBLFeedList(offset string) (*FeedList, error) {
 	}
 
 	var apiResponse struct {
-		Code int `json:"code"`
-		Data struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
 			Items   []interface{} `json:"items"`
 			HasMore bool          `json:"has_more"`
 			Offset  string        `json:"offset"`
@@ -832,7 +916,7 @@ func (bl *BL) GetBLFeedList(offset string) (*FeedList, error) {
 	}
 
 	if apiResponse.Code != 0 {
-		return nil, errors.New("API returned non-zero code")
+		return nil, apiError(apiResponse.Code, apiResponse.Message)
 	}
 
 	feedList := &FeedList{
@@ -888,8 +972,9 @@ func (bl *BL) GetBLRCMDList(page int) (*RCMDList, error) {
 	}
 
 	var apiResponse struct {
-		Code int `json:"code"`
-		Data struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
 			Item []interface{} `json:"item"`
 		} `json:"data"`
 	}
@@ -900,7 +985,7 @@ func (bl *BL) GetBLRCMDList(page int) (*RCMDList, error) {
 	}
 
 	if apiResponse.Code != 0 {
-		return nil, errors.New("API returned non-zero code")
+		return nil, apiError(apiResponse.Code, apiResponse.Message)
 	}
 
 	rcmdList := &RCMDList{
@@ -916,8 +1001,9 @@ func (bl *BL) GetBLRCMDList(page int) (*RCMDList, error) {
 
 // ----------- begin - getBLFavFolderList -----------
 type FolderListResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		List []interface{} `json:"list"`
 	} `json:"data"`
 }
@@ -961,7 +1047,7 @@ func (bl *BL) GetBLFavFolderList() ([]interface{}, error) {
 	}
 
 	if folderListResponse.Code != 0 {
-		return nil, errors.New("failed to fetch folder list")
+		return nil, apiError(folderListResponse.Code, folderListResponse.Message)
 	}
 
 	return folderListResponse.Data.List, nil
@@ -971,8 +1057,9 @@ func (bl *BL) GetBLFavFolderList() ([]interface{}, error) {
 
 // ----------- begin - getBLFavFolderListDetail -----------
 type FolderDetailResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		Medias []interface{} `json:"medias"`
 	} `json:"data"`
 }
@@ -1017,7 +1104,7 @@ func (bl *BL) GetBLFavFolderListDetail(fid int, page int) ([]interface{}, error)
 	}
 
 	if folderDetailResponse.Code != 0 {
-		return nil, errors.New("failed to fetch folder detail")
+		return nil, apiError(folderDetailResponse.Code, folderDetailResponse.Message)
 	}
 
 	return folderDetailResponse.Data.Medias, nil
@@ -1329,8 +1416,9 @@ func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
 	}
 
 	var apiResponse struct {
-		Code int `json:"code"`
-		Data struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
 			Items   []interface{} `json:"items"`
 			HasMore bool          `json:"has_more"`
 			Offset  string        `json:"offset"`
@@ -1343,7 +1431,7 @@ func (bl *BL) GetUpVideoList(host_mid int, offset string) (*FeedList, error) {
 	}
 
 	if apiResponse.Code != 0 {
-		return nil, errors.New("API returned non-zero code")
+		return nil, apiError(apiResponse.Code, apiResponse.Message)
 	}
 
 	feedList := &FeedList{
@@ -1528,8 +1616,9 @@ func (bl *BL) GetBLHistoryList(max int, viewAt int, business string, ps int) (*H
 	}
 
 	var apiResponse struct {
-		Code int `json:"code"`
-		Data struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
 			List   []interface{} `json:"list"`
 			Cursor struct {
 				Max      int    `json:"max"`
@@ -1545,7 +1634,7 @@ func (bl *BL) GetBLHistoryList(max int, viewAt int, business string, ps int) (*H
 	}
 
 	if apiResponse.Code != 0 {
-		return nil, errors.New("API returned non-zero code")
+		return nil, apiError(apiResponse.Code, apiResponse.Message)
 	}
 
 	historyList := &HistoryList{
@@ -1560,8 +1649,9 @@ func (bl *BL) GetBLHistoryList(max int, viewAt int, business string, ps int) (*H
 
 // ----------- begin - getSeriesList -----------
 type SeriesListResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		ItemsLists struct {
 			SeasonsList []struct {
 				Meta struct {
@@ -1617,7 +1707,7 @@ func (bl *BL) GetSeriesList(mid int) ([]interface{}, error) {
 	}
 
 	if seriesListResponse.Code != 0 {
-		return nil, errors.New("failed to fetch series list")
+		return nil, apiError(seriesListResponse.Code, seriesListResponse.Message)
 	}
 
 	var result []interface{}
@@ -1644,8 +1734,9 @@ type SeriesVideosResponse_Archive struct {
 }
 
 type SeriesVideosResponse struct {
-	Code int `json:"code"`
-	Data struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
 		Archives []SeriesVideosResponse_Archive `json:"archives"`
 	} `json:"data"`
 }
@@ -1693,7 +1784,7 @@ func (bl *BL) GetSeriesVideos(mid int, seriesId int, pageNum int) ([]SeriesVideo
 	}
 
 	if seriesVideosResponse.Code != 0 {
-		return nil, errors.New("failed to fetch series videos")
+		return nil, apiError(seriesVideosResponse.Code, seriesVideosResponse.Message)
 	}
 
 	result := make([]SeriesVideosResponse_Archive, len(seriesVideosResponse.Data.Archives))

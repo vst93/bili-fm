@@ -31,10 +31,24 @@ const (
 	lyricsNextMinFontSize  = float32(11)
 )
 
+// LyricsGearInset / LyricsGearSize 是桌面字幕右上角「设置」齿轮（齿轮键）的位置
+// 与边长：离窗口右上角的内边距 / 键的边长。
+//
+// **app 侧的鼠标穿透热区读同一组数**（app/lyrics.go 的 lyricsGearHot）：穿透
+// 打开时指针一进这块区域就临时取消穿透，齿轮永远可点（用户 2026-11-11 的要求）。
+// 这两处必须同源，别再各写一份魔数。
+const (
+	LyricsGearInset float32 = 4
+	LyricsGearSize  float32 = 26
+)
+
 // LyricsConfigPanelHeight 是设置面板本身需要的高度（不含预览）。控制器用它
-// 算设置窗高度；面板是固定的 8 行控件 + 标题 + 说明，改布局时要一起改。
-// 400 与原 500−100 的有效高度一致，实测 30px 字号下内容仍有余量。
-const LyricsConfigPanelHeight = 400
+// 算设置窗高度；面板是固定的 9 行控件 + 标题 + 说明，改布局时要一起改。
+//
+// 逐行算：标题 26 + 9×30（颜色 2 行 / 字号 / 宽度 / 透明度 2 行 / 微调 /
+// 鼠标穿透 / 记住微调）+ 9×8 间距 + 说明行 ≈ 420（含 14px 上下内边距），
+// 所以 440 留了 ~20px 余量。加行时同步加高，否则最后一行会被窗口裁掉。
+const LyricsConfigPanelHeight = 440
 
 // lyricsLayoutFontSize 把配置里的字号夹到实际可用的范围。0 / 未设置时用默认
 // 20，与 lyricsPreview 的兜底一致；设置页与控制器都用它，窗口高度才不会和
@@ -167,9 +181,12 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 							TextShadow(0, 1, lyricsTextShadowBlur, lyricsTextShadowInk(textColor, bgOpacity, textOpacity*0.62))
 					}
 				})
-				if gear && over {
-					ui.Box(c).Absolute().Right(4).Top(4).Children(func() {
-						b := ui.ButtonBase(c.Key("lyrics-config")).Size(26, 26).Radius(7).Center().
+				// 齿轮（设置键）：指针在窗内时出现；**穿透打开时一直显示** ——
+				// 穿透窗收不到鼠标事件（over 读不到），而那正是用户要从这里进
+				// 设置页的时刻（user 2026-11-11：齿轮固定不穿透）。
+				if gear && (over || a.LyricsClickThrough) {
+					ui.Box(c).Absolute().Right(LyricsGearInset).Top(LyricsGearInset).Children(func() {
+						b := ui.ButtonBase(c.Key("lyrics-config")).Size(LyricsGearSize, LyricsGearSize).Radius(7).Center().
 							Label("桌面字幕设置").Tooltip("桌面字幕设置")
 						b.Background(ui.Hex("#ffffff").Alpha(0.18))
 						if b.Hovered() {
@@ -293,6 +310,7 @@ func (a *App) lyricsConfigPanel(c *ui.Context) {
 				a.lyricsSliderRow(c, "背景透明度", fmt.Sprintf("%.2f", DefaultLyricsBgOpacity),
 					&a.LyricsBgOpacity, 0, 1, 0.05)
 				a.lyricsOffsetRow(c)
+				a.lyricsClickThroughRow(c)
 				a.lyricsRememberRow(c)
 				ui.Text(c, "正数提前、负数延后；上方预览会实时更新。").FontSize(11).
 					TextColor(ui.Hex("#ffffff").Alpha(0.45))
@@ -416,6 +434,33 @@ func (a *App) lyricsRememberRow(c *ui.Context) {
 		if a.Act.UpdateLyricsConfig != nil {
 			a.Act.UpdateLyricsConfig()
 		}
+	}
+}
+
+// lyricsClickThroughRow 是设置页里的「鼠标穿透」开关（用户 2026-11-11 要求
+// 「穿透设置在它的设置页面也要有」）。
+//
+// 行为与主窗设置菜单 / macOS 原生菜单里的那一项同源（同一个
+// Act.ToggleLyricsClickThrough）：穿透打开时**齿轮仍然可点**（见 app/lyrics.go
+// 的 lyricsGearHot 与轮询），所以从字幕窗本身就能把它关掉，不必绕回主窗。
+func (a *App) lyricsClickThroughRow(c *ui.Context) {
+	b := ui.ButtonBase(c.Key("lyrics-click-through")).FillWidth().Height(30).
+		Radius(6).Role(ui.RoleSwitch).Label("鼠标穿透").Tooltip("鼠标穿透").
+		Checked(a.LyricsClickThrough)
+	if b.Hovered() {
+		b.Background(ui.Hex("#ffffff").Alpha(0.10))
+	}
+	b.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, "鼠标穿透 · 默认关").FontSize(11).
+				TextColor(ui.Hex("#ffffff").Alpha(0.54)).Width(112).Shrink(0)
+			ui.Text(c, "打开后字幕窗不吃鼠标，齿轮仍可点").FontSize(11).
+				TextColor(ui.Hex("#ffffff").Alpha(0.38)).Grow(1)
+			incognitoTrack(c, a.LyricsClickThrough)
+		})
+	})
+	if b.Clicked() && a.Act.ToggleLyricsClickThrough != nil {
+		a.Act.ToggleLyricsClickThrough()
 	}
 }
 
