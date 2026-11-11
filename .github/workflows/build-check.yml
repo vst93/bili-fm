@@ -58,8 +58,23 @@ jobs:
       - name: Install CJK fonts (host)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fonts-noto-cjk
+          # runner 的 apt 源偶发 DNS 抖动（"Temporary failure resolving
+          # security.ubuntu.com"），一次失败就整条 job 红。重试三次，
+          # 每次都先把不完整的下载清掉。
+          ok=0
+          for i in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk; then
+              ok=1
+              break
+            fi
+            echo "apt 第 $i 次失败，10s 后重试" >&2
+            sudo apt-get clean || true
+            sleep 10
+          done
+          if [ "$ok" != 1 ]; then
+            echo "装 fonts-noto-cjk 连续三次失败（runner 网络问题，不是代码回归）" >&2
+            exit 1
+          fi
           fc-cache -f >/dev/null
           fc-match "Noto Sans CJK SC"
 
