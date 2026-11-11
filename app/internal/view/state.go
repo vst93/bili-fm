@@ -904,6 +904,11 @@ type App struct {
 	// 一次普通点击（进设置页）。mygo 的 Dragged() 是**每帧**增量，所以这里
 	// 只存一个标志，位移由 app 按指针绝对坐标算。
 	lyricsDragging bool
+	// lyricsDragMoved 表示「这次按下拖动过」：松手那一帧 `Clicked()` 也会为真，
+	// 用它把那次点击吞掉 —— 拖完窗口不该再弹设置页（用户 2026-11-11 的要求）。
+	// lyricsDragIdle 数松手后已经过了几帧，到 2 就清掉标记（见 lyrics.go）。
+	lyricsDragMoved bool
+	lyricsDragIdle  int
 	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口
 	//（mygo 0.8.2 起 Linux 也真的生效，见 lyrics.go 的 syncLyricsClickThrough）。
 	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗自己点不动，

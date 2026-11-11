@@ -47,6 +47,10 @@
   「指针 − 窗口左上角」偏移，Move 每帧摆窗口）。原生拖动（Linux
   `begin_move_drag`）只在**非 layer surface** 时采用（gtk-layer-shell 里是空操作），
   拖动期间不写 KV（逐帧 OnMove 会把中间坐标/0,0 写进去），松手统一落盘。
+  **拖动后必须吞掉那次 `Clicked()`**：mygo 的 `Released()` 只在元素调过
+  `Draggable()` 时才算拖动，用 `Dragged()` 时松手照样给 click —— 判定要写在
+  `Clicked()` 之前，且「吞点击」标记只能活到松手后两帧（拖到按钮外松手根本
+  没有 click，靠「读到 click 才清」会把键永久点不开）。
 - 设置键的显隐条件只能是 `over || a.LyricsGearHot`：**别**写成
   `|| LyricsClickThrough`（那会让它常显，用户 2026-11-11 报过这条回归）。
 

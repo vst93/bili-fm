@@ -301,12 +301,13 @@ func TestAppearanceGlassTransmitsBackground(t *testing.T) {
 				return luma(transparency, "#dce5f0") - luma(transparency, "#17263b")
 			}
 			solid, clear := spread(0), spread(.4)
-			// 深色的大面积 veil 已经收到 0.06×0.40 ≈ .024（用户 2026-11-11
-			// 要求「深色再透一点」），滑块拉满能再加的余量本来就小，所以
-			// 增量门槛按比例放松；**单调性**（clear > solid）仍然钉死。
+			// 深色的大面积 veil 已经收到 .018（用户 2026-11-11 两轮要求「再透
+			// 40%」「再透一半」），默认档就已经几乎全透 —— 滑块拉满能再加的余量
+			// 只剩一点点，所以门槛放到「不能变差」；**单调性**（clear > solid）
+			// 仍然钉死，veil 要是被加厚回来这里立刻红。
 			minGain := 8.0
 			if mode == "dark" {
-				minGain = 3
+				minGain = 1
 			}
 			if clear < 75 || clear < solid+minGain {
 				t.Fatalf("%s %s: backdrop variation %.1f -> %.1f; transparency should make the pane lighter", mode, pane, solid, clear)

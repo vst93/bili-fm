@@ -218,9 +218,6 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 						b.Children(func() {
 							ui.Icon(c, iconLyricsGear).Size(15, 15).TextColor(ui.Hex("#ffffff").Alpha(0.9))
 						})
-						if b.Clicked() && a.Act.ToggleLyricsConfig != nil {
-							a.Act.ToggleLyricsConfig()
-						}
 						// 按住拖动 = 拖动整个字幕窗。
 						//
 						// mygo 的 `Dragged()` 报的是**每帧**增量（forgetInput 把
@@ -228,9 +225,17 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 						// 写的：窗口只动一帧然后就不跟手了）。这里只用它判「越没
 						// 越过起步阈值」；真正的位置由 app 按指针的绝对屏幕坐标算
 						// （beginLyricsDrag 记偏移、moveLyricsDrag 每帧摆窗口）。
-						if dx, dy, held := b.Dragged(); held {
+						//
+						// 顺序也很关键：拖动判定必须写在 `Clicked()` **之前** ——
+						// 松手那一帧两者同时为真，要先把「这次按下是拖动」记下来，
+						// 才吞得掉那一次点击（否则拖完窗口还会弹设置页，用户
+						// 2026-11-11 明确要求不要）。
+						dx, dy, held := b.Dragged()
+						if held {
+							a.lyricsDragIdle = 0
 							if !a.lyricsDragging && lyricsDragExceeded(dx, dy) {
 								a.lyricsDragging = true
+								a.lyricsDragMoved = true
 								if a.Act.BeginLyricsDrag != nil {
 									a.Act.BeginLyricsDrag()
 								}
@@ -242,6 +247,20 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 							a.lyricsDragging = false
 							if a.Act.EndLyricsDrag != nil {
 								a.Act.EndLyricsDrag()
+							}
+						}
+						if b.Clicked() && !a.lyricsDragMoved && a.Act.ToggleLyricsConfig != nil {
+							a.Act.ToggleLyricsConfig()
+						}
+						// 「这次按下是拖动」的标记只活到松手后的**两帧**：
+						//   - mygo 的 click 在 build 之后的 applyInputs 里落，
+						//     视图最早在松手那一帧或下一帧读到 `Clicked()`；
+						//   - 指针拖到按钮外再松手时**根本不会有 click**，只按
+						//     「读到 click 就清标记」会把标记永久留着，于是拖过
+						//     一次之后设置键就再也点不开（实测过）。
+						if !held {
+							if a.lyricsDragIdle++; a.lyricsDragIdle >= 2 {
+								a.lyricsDragMoved = false
 							}
 						}
 					})

@@ -76,9 +76,9 @@ func TestGlassPaneVeilThinAndSheenFollows(t *testing.T) {
 		t.Errorf("播放栏底色 alpha = %d，应约为 37（.36 × .4）", bar.A)
 	}
 	dark := light.withAppearance("dark", 0)
-	// 深色：搜索药丸 alpha 只剩 ~9（#18273b .036 × 四成）—— 比浅色更透，
-	// 用户 2026-11-11 要求「深色各档位再透 40%」。
-	if got, want := dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A, uint8(9); got > want+1 {
+	// 深色：搜索药丸 alpha 只剩 ~5（#18273b 的 .018 绝对 alpha）—— 比浅色透得多，
+	// 用户 2026-11-11 前后两轮要求「深色各档位再透 40%」「再透一半」。
+	if got, want := dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A, uint8(5); got > want+1 {
 		t.Errorf("深色搜索药丸 alpha = %d，应约为 %d（#18273b .036 × 四成）", got, want)
 	}
 	if dark.glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A >=
@@ -106,11 +106,11 @@ func TestGlassPaneVeilThinAndSheenFollows(t *testing.T) {
 	if got := darkPane.glassPaneSheenFade(); math.Abs(float64(got-glassPaneSheenBaseDark)) > .001 {
 		t.Errorf("深色默认大面积洗光 = %v，应约为 %v", got, glassPaneSheenBaseDark)
 	}
-	if got := darkPane.withAppearance("dark", .4).glassPaneSheenFade(); math.Abs(float64(got)-.0108) > .001 {
-		t.Errorf("深色 40%% 透明度下大面积洗光 = %v，应约为 .0108", got)
+	if got := darkPane.withAppearance("dark", .4).glassPaneSheenFade(); math.Abs(float64(got)-.0054) > .001 {
+		t.Errorf("深色 40%% 透明度下大面积洗光 = %v，应约为 .0054", got)
 	}
-	if got := darkPane.withAppearance("dark", .4).glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A; got > 4 {
-		t.Errorf("深色 40%% 透明度下搜索药丸 alpha = %d，应约为 3", got)
+	if got := darkPane.withAppearance("dark", .4).glassPaneTint(searchPillVeil().Alpha(glassPaneVeil), "#18273b", glassPaneVeilDark).A; got > 2 {
+		t.Errorf("深色 40%% 透明度下搜索药丸 alpha = %d，应约为 2", got)
 	}
 	if got := light.withAppearance("light", .4).withPreferences(false, true).glassPaneSheenFade(); got != 1 {
 		t.Errorf("减少透明度下大面积洗光不应淡出，got %v", got)
