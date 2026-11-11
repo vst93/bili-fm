@@ -258,28 +258,33 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -e
-          # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 .MTREE。
+          # bsdtar 在 Ubuntu 上由 libarchive-tools 提供，用来生成 pacman 的 .MTREE。
           #
           # apt 源会 DNS 抖成 "Temporary failure resolving
-          # azure.archive.ubuntu.com"（2026-11-11 发 3.1.17 时连红两次，全部
-          # 卡在这一步），所以重试三次；镜像里已经带了 libarchive-tools 时
-          # 直接跳过，不白跑一趟 apt。
+          # azure.archive.ubuntu.com"（2026-11-11 发 3.1.17 时连红三次，三次
+          # 重试跨 15 分钟全部失败），所以：
+          #   1. 镜像里已经有 bsdtar 就直接用，不白跑 apt；
+          #   2. 没有就重试三次；
+          #   3. 还是拿不到时**只降级、不阻断发版** —— .MTREE 是 pacman 用来
+          #      校验文件完整性的清单，缺了只会让 pacman 打一行警告，
+          #      包本身照常安装。为了一个警告卡住整个 release 不值得。
+          BSDTAR=""
           if command -v bsdtar >/dev/null 2>&1; then
-            echo "bsdtar 已在：$(command -v bsdtar)"
+            BSDTAR="$(command -v bsdtar)"
+            echo "bsdtar 已在：$BSDTAR"
           else
-            ok=0
             for i in 1 2 3; do
               if sudo apt-get update -qq && sudo apt-get install -y -qq libarchive-tools; then
-                ok=1
+                BSDTAR="$(command -v bsdtar || true)"
                 break
               fi
               echo "apt 第 $i 次失败，15s 后重试" >&2
               sudo apt-get clean || true
               sleep 15
             done
-            if [ "$ok" != 1 ]; then
-              echo "::error::装 libarchive-tools 连续三次失败（runner 网络问题，不是代码回归）"
-              exit 1
+            if [ -z "$BSDTAR" ]; then
+              echo "::warning::拿不到 bsdtar（apt 源不可达），pacman 包不带 .MTREE；" \
+                   "pacman 会提示缺清单，但包仍可安装"
             fi
           fi
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
@@ -343,12 +348,17 @@ jobs:
               echo "depend = webkit2gtk-4.1"
               echo "depend = gtk3"
             } > "$ROOT/.PKGINFO"
-            # .MTREE 是 pacman 用来校验文件完整性的清单，缺了会警告。
-            # 参数照 makepkg 的用法。
-            ( cd "$ROOT" && LANG=C bsdtar -czf .MTREE --format=mtree \
-                --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' \
-                .PKGINFO opt usr )
-            ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO .MTREE opt usr )
+            # .MTREE 是 pacman 用来校验文件完整性的清单，缺了只会警告。
+            # 参数照 makepkg 的用法。拿不到 bsdtar 时就跳过（包仍可安装），
+            # 不要因此卡住整个发版。
+            if [ -n "$BSDTAR" ]; then
+              ( cd "$ROOT" && LANG=C "$BSDTAR" -czf .MTREE --format=mtree \
+                  --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256,link' \
+                  .PKGINFO opt usr )
+              ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO .MTREE opt usr )
+            else
+              ( cd "$ROOT" && tar --zstd -cf "$OLDPWD/$SRC/bili-FM-$VERSION-linux-$PKGARCH.pkg.tar.zst" .PKGINFO opt usr )
+            fi
             rm -rf "$ROOT"
           done
 
