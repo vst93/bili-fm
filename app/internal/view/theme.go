@@ -207,18 +207,30 @@ var (
 	tbTrayRim    = ui.Hex("#ffffff").Alpha(0.12)
 )
 
-// tbTrayRadius 返回托盘下沿的圆角：原版是 `border-radius: 0 0
-// var(--app-window-radius) var(--app-window-radius)`，而 --app-window-radius
-// 跟着平台走 —— Windows 对齐 DWM 的 8px，Linux 由 `body.platform-linux #root`
-// 置 0（窗口管理器画不出外层圆角）。macOS 走原生红绿灯，不画这个托盘。
+// trayRadius 是窗口控制键组（原版 `#wds-handle-group`）托盘**下沿**的圆角。
 //
-// 它是变量是为了让测试能换桩（测试进程的 runtime.GOOS 改不了）。
-var tbTrayRadius = func() float32 {
-	if viewGOOS == "windows" {
-		return 8
-	}
-	return 0
-}
+// 原版是 `border-radius: 0 0 var(--app-window-radius) var(--app-window-radius)`，
+// 而 --app-window-radius 在**内容层**跟着平台走（Windows 8 / Linux 0 / mini 12）。
+// 但那是 WebView 的写法：原版 Linux 置 0 是因为窗口由 GTK 装饰、内容层画圆角
+// 会与窗口方角错位。原生版不是这个模型 ——
+//
+//   - Windows：内容铺满整窗，圆角由 DWM 裁（`tuneWindowFrame` 保留 DWM 圆角），
+//     托盘下沿必须跟窗圆角对齐；
+//   - Linux：窗口是 Frameless 透明窗，GTK 不画装饰（`useCSD` 排除透明窗），
+//     内容铺满整窗且**自己就是圆的**（窗口本身方角，但视觉上内容自己负责形状）。
+//     用户 2026-11-11 实测「Linux 下主窗这颗托盘的左下/右下角没有圆角，而
+//     Windows 下明明有」—— 两平台本就该是同一样式，分叉只应该来自窗口圆角
+//     的实际半径，不应该来自「有没有」。
+//
+// 所以三平台统一给 8（Win11 给无边框窗的默认圆角就是 8；Linux 没有 DWM，
+// 8 就是内容层自己的圆角）。**macOS 不画这颗托盘**（走原生红绿灯），不涉及。
+//
+// 主窗与迷你窗共用这一个值（用户问的「难道还是分别写的一套？」）：窗控按钮组
+// 从托盘到两颗键本来就是同一套实现（`titleBarCtrlTray` +
+// `windowControlButtonSized`），差异只在尺寸（30/14 与 20/12）。
+//
+// 声明成变量是为了让测试能换桩（测试进程的 runtime.GOOS 改不了）。
+var trayRadius = func() float32 { return 8 }
 
 // ThemeAt 返回某个时刻的视觉令牌。
 func ThemeAt(t time.Time) Theme {

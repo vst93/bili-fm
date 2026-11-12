@@ -32,6 +32,36 @@
   不是 0）、圆角设 `DoNotRound`；主窗 / 迷你窗 / 桌面字幕窗三个窗口都要在
   `NewWindow` 之后立刻调。Linux 不用管（mygo 的 `useCSD` 排除透明窗，走
   `gtk_window_set_decorated(false)`）。
+- **「减少透明度」是系统偏好，不是本应用的开关**：Windows 关闭「透明效果」
+  （`Personalize\EnableTransparency == 0`）会让 mygo 报 `ReduceTransparency`。
+  正确的兼容方式是「功能照常可用 + 说清为什么暂时看不出效果」，**不是**跟着
+  禁用功能（用户 2026-11-11 实测后被这一点坑了三处）。三个已知落点：
+  1. **播放栏边缘那层不许用 `glass.ScrollEdge`**：它在 `ReduceTransparency` 下
+     会把背景 alpha 拉成 255 并铺满**整块**（mygo `plugins/glass/edge.go`），而
+     那块绝对定位、绘制顺序在播放栏之后 —— 整条栏（含按钮）被刷成实色
+     （实测 `#475569`、亮度极差 0）。走 `playerBarEdgeLayer` 的自绘渐变分支，
+     主窗与迷你窗共用。测试 `TestPlayerBarVisibleUnderReducedTransparency`。
+  2. **透明度滑块 / 预设不许 `Disabled(t.ReducedTransparency)`**：值要能先设好，
+     系统开关恢复后立即生效；旁边那句提示必须写出「设置 › 个性化 › 颜色」。
+  3. **卡片指针光晕不受 `reduceMotion` 限制**：Windows「关闭动画效果」会被读成
+     `ReduceMotion`，用户只想少动画、不是想删掉静态高亮。做法是光晕照画、只把
+     淡入淡出时长收到 0（`cardGlowLayer`）。
+- **窗口圆角与 DWM 边框是两个开关，别一起关**：`tuneWindowFrame(hwnd)` 只去
+  Win11 那圈 1px 边框、**保留** DWM 圆角（主窗 / 迷你窗的内容铺满整窗，圆角必须
+  由 DWM 裁）；`flatWindowFrame(hwnd)` 才连圆角一起关（桌面字幕窗的内容自己画
+  14px 圆角面板）。上一轮把两者合成一个，直接把主窗的圆角干掉了。
+- **窗控按钮组只有一套实现，圆角也只有一个来源**（`trayRadius() = 8`）：主窗
+  （`titleBarCtrlTray` + `windowControlButtonSized`，30/14）与迷你窗（同函数，
+  20/12）**共用**，差异只在尺寸。别按 `viewGOOS` 给圆角分叉 —— 原版那个
+  `body.platform-linux #root { --app-window-radius: 0 }` 是 WebView 模型的产物
+  （窗口由 GTK 装饰），原生版 Linux 是 Frameless 透明窗，内容自己负责形状。
+- **桌面字幕：面板不画任何描边 / 投影**（`TestLyricsPanelHasNoBorder` 用「背景与
+  文字全透明 → 整片 alpha 必须 0」做判据）。「窗口在哪儿」的提示由设置键承担：
+  指针进字幕区就浮出。齿轮显隐判据是
+  `over || a.LyricsHover || a.LyricsGearHot || a.lyricsDragging` ——
+  **只有 `LyricsGearHot` 是不够的**（那只是设置键那一小块热区，穿透时用户得去
+  猜位置）。`lyricsPollNeeded()` 三平台都返回 true：Linux 的输入区域同样让窗口
+  在其余部分收不到 motion 事件，效果与整窗穿透一样。
 - **登录过期要能自愈**：接口回 `-101`（账号未登录）时 `bilibili.apiError` 会给
   `ErrNotLoggedIn`，app 侧 `controller.listLoadFailed` 静默调 `expireLogin()`
   （清登录态 + 失效 cookie + KV 里的资料，抽屉空态提示去登录），其余错误才 toast。

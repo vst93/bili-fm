@@ -125,12 +125,19 @@ func TestLyricsDisplayHeightFitsActualText(t *testing.T) {
 	}
 }
 
-// TestLyricsPanelDrawsNoOuterShadow 钉住「内容层不画外投影」：面板铺满整个
-// 窗口，外投影只能在窗口矩形内绘制，被裁掉的那一半全落在窗口内侧 —— 四边各
-// 出现一圈由深到浅的暗边，背景透明度 0 时就是用户报的「最外围还有边框和阴影感」。
+// TestLyricsPanelDrawsNoOuterShadow 钉住「内容层不画外投影、也不画描边」。
 //
-// 反证：源码里出现 `panel.Shadow(` 就报红。窗口的系统投影由控制器按背景透明度
-// 开关（app/lyrics.go 的 syncLyricsWindowShadow），不在这里。
+// 两条来源不同、结论相同：
+//   - 外投影：面板铺满整个窗口，投影只能在窗口矩形内绘制，被裁掉的那一半全
+//     落在窗口内侧 —— 四边各出现一圈由深到浅的暗边，背景透明度 0 时就是用户
+//     报的「最外围还有边框和阴影感」；
+//   - 描边：曾经在鼠标进入时画一圈选中蓝边（本意是「透明时也能看出窗口位置」），
+//     但 Linux 上它被合成器衬成一圈灰边、像「未选中的默认边框」。用户
+//     2026-11-11 明确要求「桌面字幕这一块不要有多余的边框」，并要求三平台统一。
+//     「窗口在哪儿」的提示改由设置键承担（指针进字幕区就浮出设置键）。
+//
+// 反证：源码里出现 `panel.Shadow(` 或 `panel.Border(` 就报红。窗口的系统投影
+// 由控制器按背景透明度开关（app/lyrics.go 的 syncLyricsWindowShadow），不在这里。
 func TestLyricsPanelDrawsNoOuterShadow(t *testing.T) {
 	src, err := os.ReadFile("lyrics.go")
 	if err != nil {
@@ -139,9 +146,9 @@ func TestLyricsPanelDrawsNoOuterShadow(t *testing.T) {
 	if strings.Contains(string(src), "panel.Shadow(") {
 		t.Error("桌面字幕面板又画了外投影：面板铺满窗口，投影会在窗口内侧留下一圈暗边")
 	}
-	// 鼠标进入时的选中蓝边仍要保留（背景透明时靠它看出窗口位置）。
-	if !strings.Contains(string(src), `panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62))`) {
-		t.Error("鼠标进入时的选中蓝边不见了")
+	if strings.Contains(string(src), "panel.Border(") {
+		t.Error("桌面字幕面板又画了描边：用户 2026-11-11 要求不要多余边框，" +
+			"Linux 上那圈线会被合成器衬成灰边")
 	}
 }
 

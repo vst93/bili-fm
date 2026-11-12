@@ -253,7 +253,7 @@ func (a *App) titleBar(c *ui.Context) {
 			// 组高 = 键 30 + py-0.5 4 = 34（下边框 1px 由框架画在高度之外，
 			// 合计 35 —— 与原版内容撑高同值）。36px 的栏里居中后上下各留 0.5。
 			wc.Height(tbWinCtrlSize + 2*tbWinCtrlPadY)
-			titleBarCtrlTray(wc, tbTrayRadius())
+			titleBarCtrlTray(wc, trayRadius())
 			// 与 actions 行同一层探用 titleBarFade 走 0.32 ↔ 0.82 的
 			// hover-to-reveal（原版 `.app-title-bar > *`）；按钮自身那层
 			// 0.72 ↔ 1 由 titleBarButtonStyle 给（`.app-title-bar-btn`）。
@@ -397,8 +397,8 @@ func (a *App) windowControlButton(c *ui.Context, key, label string, ic *ui.SVG, 
 //	box-shadow: inset 0 2px 4px rgba(15,23,42,.08), inset 0 -1px 0 rgba(255,255,255,.12);
 //
 // 上边**没有**边框、上面两个角**不**圆：托盘是从窗顶挂下来的凹槽，不是一颗
-// 浮起的键。radius 由调用点给（主窗 tbTrayRadius()，迷你窗 0 —— 原生版迷你窗
-// 的内容层没有圆角，见 miniwindowradius_test.go）。
+// 浮起的键。radius 由调用点给（主窗与迷你窗共用 trayRadius() —— 两处本就是
+// 同一套窗控按钮组，只有键尺寸不同）。
 func titleBarCtrlTray(el ui.Element, radius float32) {
 	el.Background(tbTrayBg).
 		BorderWidth(0, 1, 1, 1).BorderColor(tbTrayBorder).

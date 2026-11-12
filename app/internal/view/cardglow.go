@@ -231,9 +231,15 @@ func cardSurface(box ui.Element, pressed bool, px, py, glow float32) {
 // 只给「最后悬停的那一张」挂 Draw/动画通道：原版也只给 activeCard 设
 // --hover-x/--hover-y，其余卡片上那层 ::before 的 opacity 恒为 0。
 //
-// 原版 pointerEffectsEnabled 还要求 `(prefers-reduced-motion: no-preference)`：
-// 桌面要求减少动态效果时，App.tsx 直接 clearAll()，光晕整层不画 —— 这里同样
-// 在 reduceMotion 下把目标压成 0（悬停的底/边/上浮不受影响，它们是静态状态）。
+// **与 reduceMotion 的关系**（用户 2026-11-11 报「Windows 下卡片的鼠标跟随
+// 高亮聚光效果丢失」）：原版 `pointerEffectsEnabled` 确实要求
+// `(prefers-reduced-motion: no-preference)`，在 reduce 时 App.tsx 直接
+// clearAll()。但那个开关在 Windows 上是「关闭动画效果」，用户只是想少点
+// 动画，**不是**想把「鼠标下面那张卡亮起来」这个静态反馈也去掉 —— 关掉之后
+// 卡片没有任何指针反馈，看起来像功能坏了。
+//
+// 所以这里只把「渐显 / 渐隐」的**时长**收到 0（当帧到位，符合「减少动态效果」
+// 的本意），光晕本身照画。这比原版保守一点，但符合用户明确的诉求。
 func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, pressed, locked bool) {
 	// 滚动锁期间不给新卡挂层：只保留进入滚动前最后悬停的那张，让它按
 	// 120ms 渐隐；否则卡片在指针下滑过时会逐张亮/灭。
@@ -254,10 +260,15 @@ func (a *App) cardGlowLayer(c *ui.Context, box ui.Element, key string, hovered, 
 		box.Jump("card-glow", 0)
 	}
 	want := float32(0)
-	if hovered && !locked && !reduceMotion(c) {
+	if hovered && !locked {
 		want = cardGlowOpacity
 	}
-	glow := box.AnimateTo("card-glow", want, cardGlowFadeAnim)
+	// 减少动态效果：淡入淡出当帧到位（不播 120ms 动画），但光晕照画。
+	anim := cardGlowFadeAnim
+	if reduceMotion(c) {
+		anim = ui.Animation{}
+	}
+	glow := box.AnimateTo("card-glow", want, anim)
 	if want == 0 && glow < 0.01 {
 		// 淡出结束：放掉这条记录，这张卡不再挂 Draw，也不再请帧。
 		a.cardGlowKey = ""

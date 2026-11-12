@@ -375,9 +375,13 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 			ui.Row(c).FillWidth().Gap(4).Children(func() {
 				for _, preset := range transparencyPresets {
 					selected := math.Abs(a.Theme.Transparency-preset.Value) < 0.00001
+					// **不再禁用**（用户 2026-11-11：「透明背景的设置无法点击，
+					// 也就是无法配置」）：减少透明度是**系统级**偏好，本应用只是
+					// 尊重它；用户仍应能把偏好先调好，等系统开关恢复后立即生效。
+					// 禁用只能让他「不知道该去哪儿改」，并不能真的改掉那个值。
 					b := ui.ButtonBase(c.Key(fmt.Sprintf("opacity-%g", preset.Value))).Grow(1).Basis(0).
 						Height(42).Radius(7).Column().Center().Label(fmt.Sprintf("透明度 %.0f%%", preset.Value*100)).
-						Role(ui.RoleToggleButton).Checked(selected).Disabled(t.ReducedTransparency)
+						Role(ui.RoleToggleButton).Checked(selected)
 					if selected || b.Hovered() {
 						b.Background(t.Blue.Alpha(pick[float32](selected, 0.14, 0.07)))
 					}
@@ -393,7 +397,9 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 			})
 			hint := "拖动自由调整 · 靠近推荐刻度自动吸附"
 			if t.ReducedTransparency {
-				hint = "系统已开启减少透明度，当前使用实色背景"
+				// 说清楚两件事：①为什么调了看起来没变；②去哪儿关。
+				// 用户 2026-11-11 就是被「调了没反应」弄糊涂的。
+				hint = "系统已关闭透明效果，背景暂为实色；到「设置 › 个性化 › 颜色」开启透明效果后，这里的设置就会生效"
 			} else if pref == "auto" {
 				hint = fmt.Sprintf("自动 · 当前%s（%s）· 拖动调整",
 					pick(t.Mode == "dark", "深色", "浅色"),
@@ -401,7 +407,7 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 			}
 			// 这一行始终只有一个固定位置：自动提示替换原有拖动提示，
 			// 不再额外加一行，切换自动时弹层高度不会跳。
-			ui.Text(c, hint).FontSize(10).TextColor(t.Faint).SingleLine()
+			ui.Text(c, hint).FontSize(10).TextColor(t.Faint).MaxLines(2)
 		})
 	})
 	if wasOpen && !a.ShowAppearance && a.appearanceHeld {
@@ -413,11 +419,16 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 func (a *App) transparencySlider(c *ui.Context) {
 	t := a.Theme
 	value := t.Transparency
+	// **不再禁用**（用户 2026-11-11：「透明背景的设置无法点击，也就是无法配置」）。
+	// 「减少透明度」是系统级偏好，不是本应用的开关：禁用滑块只能让用户
+	// 「调不了也不知道为什么」，而值本来就该能先设好。
+	//
+	// 调了之后**画面暂时不变**（主题里 backgroundOpacity 仍返回 1），所以滑块
+	// 旁边那句提示必须说清「系统已关闭透明效果」+「去哪儿开」。
 	s := ui.SliderBase(c.Key("appearance-transparency"), &value, 0, appearanceTransparencyMax).
-		FillWidth().Height(24).PaddingX(8).Label("调整背景透明度").Disabled(t.ReducedTransparency)
+		FillWidth().Height(24).PaddingX(8).Label("调整背景透明度")
 	_, _, held := s.Dragged()
-	held = held && !t.ReducedTransparency
-	if !t.ReducedTransparency && s.Changed() {
+	if s.Changed() {
 		if held || s.Pressed() {
 			value = snapTransparency(value)
 		}
@@ -435,13 +446,19 @@ func (a *App) transparencySlider(c *ui.Context) {
 		x, width, y := r.X+8, r.W-16, r.Y+r.H/2
 		frac := float32(a.Theme.Transparency / appearanceTransparencyMax)
 		p.Fill(ui.Rect{X: x, Y: y - 2, W: width, H: 4}, t.Line, 2)
-		p.Fill(ui.Rect{X: x, Y: y - 2, W: width * frac, H: 4}, t.Blue, 2)
+		// 减少透明度下已设的值照常画（用户能看到自己调到哪儿），但整条轨道
+		// 调淡一档并转灰，提示「已生效的仍然是实色」。
+		fill := t.Blue
+		if t.ReducedTransparency {
+			fill = t.Faint
+		}
+		p.Fill(ui.Rect{X: x, Y: y - 2, W: width * frac, H: 4}, fill, 2)
 		for _, preset := range transparencyPresets {
 			tickX := x + width*float32(preset.Value/appearanceTransparencyMax)
 			p.Fill(ui.Rect{X: tickX - 1, Y: y + 5, W: 2, H: 3}, t.Faint.Alpha(0.6), 1)
 		}
 		p.Shadow(ui.Rect{X: x + width*frac - 7, Y: y - 7, W: 14, H: 14}, 7, 0, 1, 4, 0, shadowInk.Alpha(0.2))
-		p.Fill(ui.Rect{X: x + width*frac - 7, Y: y - 7, W: 14, H: 14}, t.Blue, 7)
+		p.Fill(ui.Rect{X: x + width*frac - 7, Y: y - 7, W: 14, H: 14}, fill, 7)
 		p.Fill(ui.Rect{X: x + width*frac - 3, Y: y - 3, W: 6, H: 6}, ui.Hex("#ffffff"), 3)
 	})
 }

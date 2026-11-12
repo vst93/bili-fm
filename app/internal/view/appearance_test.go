@@ -316,6 +316,16 @@ func TestAppearanceGlassTransmitsBackground(t *testing.T) {
 	}
 }
 
+// TestAppearanceReducedTransparencyControls 钉住「减少透明度」下外观设置仍可操作。
+//
+// 用户 2026-11-11：「透明背景的设置无法点击，也就是无法配置」。此前滑块与四个
+// 预设都被 `Disabled(t.ReducedTransparency)` 禁用 —— 用户既调不了、也不知道
+// 该去哪儿改。「减少透明度」是**系统级**偏好，本应用只是尊重它，不该因此把
+// 自己的设置项锁死：值要能先设好，系统开关恢复后立即生效。
+//
+// 两个契约：
+//   - 预设与滑块**可点**（偏好真的变、也真的落盘）；
+//   - 但画面**暂时仍是实色**（backgroundOpacity 仍为 1）—— 那由系统偏好决定。
 func TestAppearanceReducedTransparencyControls(t *testing.T) {
 	a := NewApp(func() {})
 	a.SetAppearance("dark", .25)
@@ -324,17 +334,39 @@ func TestAppearanceReducedTransparencyControls(t *testing.T) {
 	saved := 0
 	a.Act.PersistAppearance = func() { saved++ }
 	tt := shellTester(t, a)
-	for _, label := range []string{"透明度 40%", "调整背景透明度"} {
-		r, ok := tt.Find(label)
-		if !ok {
-			t.Fatalf("missing %s", label)
-		}
-		tt.ClickAt(r.X+r.W*.8, r.Y+r.H/2)
-		tt.Frame()
+
+	// ① 四个预设之一：点了必须真的改掉偏好并落盘（不再被禁用）。
+	r, ok := tt.Find("透明度 40%")
+	if !ok {
+		t.Fatal("missing 透明度 40%")
 	}
-	if a.Theme.Transparency != .25 || saved != 0 {
-		t.Fatalf("disabled controls changed preference: value=%v saves=%d rt=%v", a.Theme.Transparency, saved, a.Theme.ReducedTransparency)
+	tt.ClickAt(r.X+r.W*.5, r.Y+r.H/2)
+	tt.Frame()
+	if a.Theme.Transparency != .40 {
+		t.Fatalf("减少透明度下点「40%%」没生效：Transparency = %v（用户要求这些设置仍然可配置）", a.Theme.Transparency)
 	}
+	if saved == 0 {
+		t.Error("改了偏好却没落盘")
+	}
+
+	// ② 滑块：同样可点。
+	before := a.Theme.Transparency
+	sl, ok := tt.Find("调整背景透明度")
+	if !ok {
+		t.Fatal("missing 调整背景透明度")
+	}
+	tt.ClickAt(sl.X+sl.W*.2, sl.Y+sl.H/2)
+	tt.Frame()
+	if a.Theme.Transparency == before {
+		t.Error("减少透明度下滑块点不动（用户报的正是这个）")
+	}
+
+	// ③ 但画面仍是实色：减少透明度是系统偏好，本应用只尊重、不覆盖。
+	if got := a.Theme.backgroundOpacity(); got != 1 {
+		t.Errorf("减少透明度下 backgroundOpacity = %v，应为 1（系统要求实色）", got)
+	}
+
+	// ④ 外观（浅色 / 深色 / 自动）照常工作。
 	if err := tt.Click("浅色主题"); err != nil {
 		t.Fatal(err)
 	}

@@ -172,12 +172,49 @@ func (c *controller) syncLyricsClickThrough() {
 	}
 	setLyricsClickThrough(c.lyricsWin, click)
 	c.lyricsIgnoring = click
+	if !click {
+		// 穿透关掉 / 进了设置页：窗口重新收到真实鼠标事件，`over` 可信 ——
+		// 两个轮询来的状态必须立刻清掉，否则齿轮会一直挂着（`over` 只在
+		// 指针真的在里面时才为真，这两条残留会让它常显）。
+		c.app.LyricsHover, c.app.LyricsGearHot = false, false
+	}
 }
 
-// lyricsPollNeeded 报告要不要跑「指针在不在设置键上」的轮询：只有在**整窗穿透**
-// 的平台（Windows / macOS）上才需要 —— Linux 用输入区域把设置键固定成可点，
-// 指针一进那块区域窗口就重新收到事件（`over` 自然为真），不用轮询。
-func lyricsPollNeeded() bool { return !lyricsClickThroughShape() }
+// lyricsPollNeeded 报告要不要跑「指针在不在字幕窗上」的轮询。
+//
+// **三平台都要**（用户 2026-11-11 Windows 实测后要求统一）：
+//
+//   - Windows / macOS 是整窗穿透，窗口一个鼠标事件都收不到；
+//   - Linux 虽然用输入区域（只有设置键那块可交互），但正是这个区域让窗口在
+//     其余部分**照样收不到 motion 事件** —— 效果与整窗穿透一样：鼠标扫过字幕
+//     区什么都不会发生。
+//
+// 所以轮询不是某一平台的补丁，而是「穿透期间读不到鼠标，只能读屏幕坐标」这件
+// 事的统一实现。穿透关着的时候窗口事件是准的，轮询在 tick 里直接跳过。
+func lyricsPollNeeded() bool { return true }
+
+// lyricsHoverNow 报告指针此刻是否在字幕窗**范围内**（主线程）。
+//
+// 与 lyricsGearHotNow 的区别：那个只算设置键那一小块热区，这个算整个窗口。
+// 齿轮的显示要的是后者 —— 「鼠标进字幕区就浮出设置键」；前者只用来决定要不要
+// 临时取消穿透（让键能点）。
+func (c *controller) lyricsHoverNow() bool {
+	if c.app == nil || c.lyricsWin == nil {
+		return false
+	}
+	return lyricsHoverAt(mygo.Screen.CursorScreenPoint(), c.lyricsWin.Bounds())
+}
+
+// lyricsHoverAt 是 lyricsHoverNow 的纯函数版：指针是否落在窗口矩形内。
+//
+// 单独抽出来便于无头断言（这里是穿透体验的核心判据，不能只靠真机试）。
+func lyricsHoverAt(cursor mygo.Point, bounds mygo.Rectangle) bool {
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return false
+	}
+	return float64(cursor.X) >= float64(bounds.X) && float64(cursor.X) < float64(bounds.X+bounds.Width) &&
+		float64(cursor.Y) >= float64(bounds.Y) && float64(cursor.Y) < float64(bounds.Y+bounds.Height)
+}
 
 // lyricsGearHotNow 报告指针此刻是否压在设置键热区上（**主线程**）。
 func (c *controller) lyricsGearHotNow() bool {
@@ -307,11 +344,21 @@ func (c *controller) lyricsPollTick() {
 		if a == nil || c.lyricsWin == nil || !a.LyricsOn {
 			return
 		}
-		// 设置键显隐：穿透窗读不到 over，用这块热区判定代替（见
-		// view.App.LyricsGearHot）。只在变化时重画。
-		hot := c.lyricsGearHotNow()
-		if hot != a.LyricsGearHot {
-			a.LyricsGearHot = hot
+		// 设置键显隐：穿透窗读不到 over，只能用屏幕坐标。
+		//
+		// 两条都要维护（见 view.App.LyricsHover / LyricsGearHot）：
+		//   hover  指针在字幕区 → 浮出设置键（用户 2026-11-11：不能只让
+		//          指针正好压在键上才显形，那样等于要用户去猜位置）；
+		//   hot    指针在设置键热区 → 临时取消穿透，让键能点。
+		// 穿透关着时窗口事件是准的（`over` 为真），这两条必须清掉，
+		// 否则齿轮会永远挂着。
+		var hover, hot bool
+		if lyricsIgnoreMouse(a.LyricsClickThrough, a.LyricsConfig) {
+			hover = c.lyricsHoverNow()
+			hot = c.lyricsGearHotNow()
+		}
+		if hover != a.LyricsHover || hot != a.LyricsGearHot {
+			a.LyricsHover, a.LyricsGearHot = hover, hot
 			c.lyricsWin.Update(func() {})
 		}
 		want := c.lyricsWantsClickThrough()
@@ -463,7 +510,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 	c.lyricsAutoHide = false
 	// Windows：去掉 DWM 给顶层窗口画的那圈 1px 边框与圆角裁剪（背景透明时
 	// 它会露在内容外面，看起来就是个空边框）。见 lyrics_windows.go。
-	tuneWindowFrame(win.NativeHandle())
+	flatWindowFrame(win.NativeHandle())
 	// 拖动后立刻落盘。只在隐藏 / 退出时保存的话，系统注销、断电或进程
 	// 被结束时用户最后一次拖动就丢了 —— 隔天重开看起来像「位置被重置」。
 	// mygo 的 OnMove 在用户拖动和程序化 SetBounds 后都会触发；这里只存
@@ -512,6 +559,7 @@ func (c *controller) openDesktopLyricsIfReady() {
 		}
 		c.lyricsIgnoring = false
 		a.LyricsGearHot = false
+		a.LyricsHover = false
 		c.stopLyricsClickThroughPoll()
 		a.LyricsOn = false
 		a.LyricsConfig = false
@@ -981,7 +1029,7 @@ func (c *controller) syncLyricsWindowShadow() {
 		return
 	}
 	c.lyricsWin.SetHasShadow(lyricsWindowShadowOn(c.app.LyricsBgOpacity))
-	tuneWindowFrame(c.lyricsWin.NativeHandle())
+	flatWindowFrame(c.lyricsWin.NativeHandle())
 }
 
 // lyricsWindowShadowOn 判断某个背景透明度下要不要系统窗口阴影：完全透明时

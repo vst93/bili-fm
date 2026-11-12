@@ -3,7 +3,6 @@ package view
 import (
 	"fmt"
 
-	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -119,11 +118,11 @@ func (a *App) MiniShell(c *ui.Context) {
 				// 键尺寸，背景与 inset 阴影不变）。高度 = 20 + 2×1 = 22，加上下边框
 				// 1px 合计 23（原版内容撑高后同值，在 24px 的迷你标题栏里居中）。
 				//
-				// 圆角取 0（而原版 mini 是 12）：原生版迷你窗的内容层**没有**圆角
-				//（窗口圆角交给系统，见 miniwindowradius_test.go），托盘下沿再画
-				// 12px 圆角就与窗口方角错位。
+				// 圆角与主窗共用 trayRadius()：两处窗控按钮组是同一套实现，只有
+				// 键尺寸不同（20/12 与 30/14）。此前迷你窗写死 0，于是底部是直角
+				//（用户 2026-11-11 报「迷你窗两颗键所在的整体布局没有底部圆角」）。
 				wc.Height(miniWinCtrlSize + 2*miniWinCtrlPadY)
-				titleBarCtrlTray(wc, 0)
+				titleBarCtrlTray(wc, trayRadius())
 				wc.Children(func() {
 					a.windowControlButtonSized(c, "mini-min", "最小化", iconMinus, false, miniWinCtrlSize, miniWinCtrlIcon, func() {
 						if a.Act.Minimize != nil {
@@ -244,8 +243,7 @@ func (a *App) MiniShell(c *ui.Context) {
 		// 一条硬切线（1px 亮描边直接切在信息区上）。盒子与主窗同一手法：
 		// 「栏高 + 10」的 Absolute 层、Bottom: true（效果自栏向上生），
 		// 必须画在播放栏**之前**（在下层），并且 PassThrough 不挡指针。
-		ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(miniPlayerH + 10).
-			PassThrough().Material(glass.ScrollEdge{Background: miniPlayerEdgeFade(t), Bottom: true})
+		playerBarEdgeLayer(c, miniPlayerH, 10, miniPlayerEdgeFade(t))
 
 		// 播放栏：切曲 / 当前时间 / 进度 / 时长 / 音量。
 		volAnchor := a.miniPlayerBar(c)
@@ -468,12 +466,12 @@ func miniPlayShadowSpecs(t Theme, playing, hovered, pressed bool) (inset, outer 
 	case hovered && playing:
 		// [data-playing]:hover（1,4,0）。
 		return []shadowSpec{
-			{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
-			{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
-		}, []shadowSpec{
-			{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
-			{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
-		}
+				{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.88)},
+				{0, -2, 5, 0, ui.Hex("#0284c7").Alpha(0.12)},
+			}, []shadowSpec{
+				{0, 0, 0, 1, ui.Hex("#0ea5e9").Alpha(0.06)},
+				{0, 5, 14, 0, ui.Hex("#0284c7").Alpha(0.14)},
+			}
 	case hovered:
 		// :hover（1,3,0）。
 		return []shadowSpec{{0, 1, 1, 0, ui.Hex("#ffffff").Alpha(0.90)}},

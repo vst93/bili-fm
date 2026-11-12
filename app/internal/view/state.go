@@ -900,6 +900,12 @@ type App struct {
 	// 窗口收不到鼠标事件（`PointerPosition` 的 over 读不到），由 app 侧的指针
 	// 轮询维护它，设置键据此显形 —— 否则键会常显（用户 2026-11-11 的回归）。
 	LyricsGearHot bool
+	// LyricsHover 为真表示指针在**字幕窗范围内**（不只是设置键那一小块）。
+	//
+	// 与 LyricsGearHot 同理：穿透打开时窗口收不到 motion 事件，`over` 恒为假，
+	// 于是「鼠标进字幕区 → 浮出设置键」这个反馈整个消失，用户只能去猜键的位置
+	//（2026-11-11 Windows 实测反馈）。穿透时由 app 侧轮询整窗包围盒维护它。
+	LyricsHover bool
 	// lyricsDragging 表示设置键这次按下已经算拖动（越过阈值）；越过之前仍是
 	// 一次普通点击（进设置页）。mygo 的 Dragged() 是**每帧**增量，所以这里
 	// 只存一个标志，位移由 app 按指针绝对坐标算。

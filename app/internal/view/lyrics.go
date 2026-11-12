@@ -164,21 +164,20 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 				Background(bgColor.Alpha(bgOpacity)).
 				DragWindow().
 				Padding(lyricsPanelPadY, lyricsPanelPadX).Center()
-			// 面板铺满整个窗口，**不能给它画外投影**：投影只能在窗口矩形内绘制，
-			// 被裁掉的那一半全落在窗口内侧 —— 四边各出现一圈由深到浅的暗边，
-			// 背景透明度调到 0 时尤其明显（用户报的「最外围还有边框和阴影感」）。
-			// 窗口本身的系统投影由控制器按背景透明度开关（Windows 上的 DWM 边框
-			// 也由 tuneWindowFrame 关掉），内容层这里一律不画。
+			// 面板铺满整个窗口，**不画任何描边 / 投影**：
 			//
-			// 常态也不画描边/内高光：Wayland 下这圈白线会被合成器衬成一圈灰边，
-			// 看起来像未选中的默认边框。只在鼠标进入时画选中蓝边（提示字幕窗的
-			// 位置和可设置区域，背景透明时也能看见）。
-			if over {
-				// 鼠标进入窗口时给一圈选中边框；背景透明度调到 0 时也能看出
-				// 字幕窗的位置和可设置区域。
-				panel.Border(1, ui.Hex("#7dd3fc").Alpha(0.62)).
-					InsetShadow(0, 0, 0, 1, ui.Hex("#7dd3fc").Alpha(0.28))
-			}
+			//   - 外投影：投影只能在窗口矩形内绘制，被裁掉的那一半全落在窗口
+			//     内侧 —— 四边各出现一圈由深到浅的暗边，背景透明度调到 0 时尤其
+			//     明显（用户报的「最外围还有边框和阴影感」）；
+			//   - 描边：曾经在鼠标进入时画一圈选中蓝边（提示窗口位置与可设置
+			//     区域），但 Linux 上那圈线会被合成器衬成一圈灰边，看起来像
+			//     「未选中的默认边框」。用户 2026-11-11 明确要求**三平台统一、
+			//     不要这圈多余的边框**。
+			//
+			// 窗口本身的系统投影由控制器按背景透明度开关（Windows 上的 DWM 边框
+			// 由 flatWindowFrame 关掉），内容层一律不画。
+			//
+			// 「窗口在哪儿」的提示改由设置键承担：指针进字幕区就浮出设置键。
 			panel.Children(func() {
 				ui.Column(c).FillWidth().Gap(lyricsLineGap).Center().Children(func() {
 					ui.Text(c, cur).FontSize(size).FontWeight(700).
@@ -194,15 +193,21 @@ func (a *App) lyricsPreview(c *ui.Context, height float32, gear bool) {
 				})
 				// 设置键：指针在窗内（或指针正压在设置键热区上）时出现。
 				//
-				// 穿透打开时 `over` 读不到（窗口收不到鼠标事件），所以另有一条
-				// `LyricsGearHot`：整窗穿透的平台由 app 侧的指针轮询维护它；
-				// Linux 用输入区域，指针一进那块区域窗口就重新收到事件、`over`
-				// 自然为真。两条都只表示「指针在设置键附近」，**不会**让键常显
-				// —— 用户 2026-11-11 报「开启穿透后设置键不再自动隐藏」。
-				// 拖动中必须继续建出这颗键：`over` 只表示「指针在窗内」，而拖动时
-				// 指针可能短暂跑到窗外（窗口还没跟上），那时若把键从树里拿掉，
-				// `Dragged()` 就没人读了 —— 拖动会中断、松手也收不到 End。
-				if gear && (over || a.LyricsGearHot || a.lyricsDragging) {
+				// 显示条件三条来源，都是「指针在字幕区」的不同测法：
+				//
+				//	over          穿透关闭时的真实鼠标事件（三平台都可靠）
+				//	LyricsHover   穿透打开时 app 侧的整窗包围盒轮询
+				//	LyricsGearHot 同上，但只算设置键那一小块热区
+				//
+				// 只算热区是不够的：穿透时窗口收不到 motion 事件，`over` 恒为假，
+				// 于是鼠标扫过整个字幕区都不会有反应，必须正好摸到键上才显形
+				//（用户 2026-11-11 Windows 实测）。`LyricsHover` 把「进入字幕区」
+				// 这一层补上，三平台因此行为一致。
+				//
+				// 拖动中必须继续建出这颗键：指针可能短暂跑到窗外（窗口还没跟上），
+				// 那时若把键从树里拿掉，`Dragged()` 就没人读了 —— 拖动会中断、
+				// 松手也收不到 End。
+				if gear && (over || a.LyricsHover || a.LyricsGearHot || a.lyricsDragging) {
 					ui.Box(c).Absolute().Right(LyricsGearInset).Top(LyricsGearInset).Children(func() {
 						b := ui.ButtonBase(c.Key("lyrics-config")).Size(LyricsGearSize, LyricsGearSize).Radius(7).Center().
 							Label("桌面字幕设置").Tooltip("桌面字幕设置（可按住拖动整个字幕窗）")

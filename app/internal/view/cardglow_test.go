@@ -222,18 +222,27 @@ func TestCardGlowFadesOut(t *testing.T) {
 	}
 }
 
-// TestCardGlowReduceMotion 钉住原版 pointerEffectsEnabled 里的
-// `(prefers-reduced-motion: no-preference)`：桌面要求减少动态效果时，
-// App.tsx 直接 clearAll()，那层径向光晕整层不画（悬停的底/边/上浮是静态
-// 状态，照旧）。用 radialPaint 计数做判据，不去猜某个像素色。
+// TestCardGlowReduceMotion 钉住「减少动态效果」下光晕**照画、但不播动画**。
 //
-// 反证：把 cardGlowLayer 里的 `!reduceMotion(c)` 去掉 → 第二条报红。
+// 用户 2026-11-11 在 Windows 上实测「卡片的鼠标跟随高亮聚光效果丢失」——
+// 根因就是这里：原版 pointerEffectsEnabled 要求
+// `(prefers-reduced-motion: no-preference)`，而 Windows 的「关闭动画效果」
+// 会被读成 ReduceMotion，于是整层光晕被压成 0。用户只想少点动画，**不是**
+// 想删掉「鼠标下面那张卡亮起来」这个静态反馈。
+//
+// 现在的契约：
+//   - 常态：悬停即画（radialPaint 被调用），且 120ms 渐显；
+//   - ReduceMotion：**照样画**，只是当帧到位（不播渐显）。
+//
+// 反证：把 cardGlowLayer 里的 want 重新加回 `!reduceMotion(c)` → 第二条红。
 func TestCardGlowReduceMotion(t *testing.T) {
 	old := radialPaint
 	t.Cleanup(func() { radialPaint = old })
 	var painted int
+	var lastOpacity float32
 	radialPaint = func(p *ui.Painter, box ui.Rect, spec *radialSpec, cx, cy, radius, opacity float32) {
 		painted++
+		lastOpacity = opacity
 		old(p, box, spec, cx, cy, radius, opacity)
 	}
 	tst, box := cardGlowProbe(t)
@@ -243,11 +252,17 @@ func TestCardGlowReduceMotion(t *testing.T) {
 		t.Fatal("常态悬停时没画光晕（radialPaint 未被调用）")
 	}
 
+	// ReduceMotion：光晕必须仍然出现，而且**当帧就到位**（不再等 120ms 渐显）。
 	painted = 0
 	tst.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tst.Frame()
-	if painted != 0 {
-		t.Errorf("ReduceMotion 下仍画了 %d 次光晕（原版 pointerEffectsEnabled 要求 no-preference）", painted)
+	if painted == 0 {
+		t.Fatal("ReduceMotion 下光晕整层不见了 —— 用户 2026-11-11 报的正是这个" +
+			"（Windows「关闭动画效果」被读成 ReduceMotion）；减少动态效果只该关动画，不该关静态高亮")
+	}
+	if lastOpacity < cardGlowOpacity-0.01 {
+		t.Errorf("ReduceMotion 下光晕不透明度 = %.3f，应当帧就是满值 %.3f（不播渐显）",
+			lastOpacity, cardGlowOpacity)
 	}
 }
 

@@ -27,19 +27,8 @@ func (a *App) playerBar(c *ui.Context) {
 	t := a.Theme
 	// 后四列里音量 / 倍速两列的句柄：弹层要挂在它们上面（见 playerBar 末尾）。
 	var volumeSlot, speedSlot ui.Element
-	// 栏顶的滚动边缘效果（原版 #player::before 那条 10px 渐变就是在手搓这个）：
-	// 内容滚到栏下时淡出/结霜，栏体上沿才不会是一条硬切线。
-	// 框架的 ScrollEdge 就是 macOS 26+ 的这个效果；软边缘淡出、硬边缘结霜。
-	// 高度按框架的约定 = 栏高 + 10（软边缘多出的那 10 DIP）。
-	// Background 必须显式给：主题的 Background 被我们设成了透明。
-	ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).Height(PlayerBarHeight + PlayerBarPad).Shrink(0).
-		PassThrough(). // 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
-		// 后者是个不透明的蓝灰，淡出来是一条明显的灰带。
-		// 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
-		// 后者是不透明的蓝灰，淡出来是一条明显的灰带。
-		// Bottom: true = 「栏在元素的底部、效果好从栏向上生」；
-		// 元素是「栏 56 + 上方 10DIP」，方向搞反会变成向下淡出（一条硬边）。
-		Material(glass.ScrollEdge{Background: t.PlayerEdgeFade, Bottom: true})
+	playerBarEdge(t, c)
+
 	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
 	// （原版那套 inset 亮线/暗线是在手搓同一件事）。深色时段还要给玻璃染上
@@ -94,6 +83,60 @@ func (a *App) playerBar(c *ui.Context) {
 	if a.ShowVolume {
 		a.volumePopover(c, volumeSlot)
 	}
+}
+
+// playerBarEdge 画播放栏上沿那 10px 的滚动边缘效果（原版 `#player::before`
+// 那条 `linear-gradient(to bottom, transparent, var(--player-edge-fade))`）。
+//
+// 常态走框架的 `glass.ScrollEdge`（macOS 26+ 的软边缘淡出）：它会在背后内容
+// 滚到栏下时淡出/结霜，栏体上沿才不会是一条硬切线。
+//
+// **但「减少透明度」下不能用它**（用户 2026-11-11 实测「底部播放器栏的按钮
+// 完全看不见颜色」）：`glass.ScrollEdge.PaintMaterial` 在
+// `Preferences().ReduceTransparency` 下直接把 `Background` 的 alpha 拉成 255
+// 并 `FillRadii` 铺满**整块**（plugins/glass/edge.go），而这一块的高度是
+// 「栏高 + 10」、又是绝对定位、在绘制顺序上排在播放栏**之后** —— 于是它把
+// 整条播放栏（含所有按钮）盖成一块不透明色（实测 `#475569`）。
+//
+// 这个分支的本质是「原版用渐变让背后透出来」，而「减少透明度」的语义正是
+// 不要透出来 —— 两者本来就矛盾。所以那里改回**自绘一条真正的渐变**：效果比
+// 框架的淡出弱（没有背景采样），但不会遮住任何东西 —— 用户明确说「效果差点
+// 没问题，但是完全看不见肯定不对」。
+func playerBarEdge(t Theme, c *ui.Context) {
+	playerBarEdgeLayer(c, PlayerBarHeight, PlayerBarPad, t.PlayerEdgeFade)
+}
+
+// playerBarEdgeLayer 是上面那个效果的**共用实现**：主窗与迷你窗各给一组
+// 「栏高 / 上方留出的淡出高度 / 淡出色」，其余完全一致。
+//
+// 抽出来是因为两处踩的是同一个坑（见 playerBarEdge 的说明）：迷你播放栏也
+// 用了 glass.ScrollEdge，在「减少透明度」下同样会被整块刷成不透明，盖住
+// 迷你窗的切曲 / 音量键。
+func playerBarEdgeLayer(c *ui.Context, barHeight, pad float32, ink ui.Color) {
+	edge := ui.Box(c).Absolute().Left(0).Right(0).Bottom(0).
+		Height(barHeight + pad).Shrink(0).PassThrough()
+	if !c.Preferences().ReduceTransparency {
+		// 淡出色用 --player-edge-fade（浅蓝 24%），不是 --player-surface ——
+		// 后者是个不透明的蓝灰，淡出来是一条明显的灰带。
+		// Bottom: true = 「栏在元素的底部、效果好从栏向上生」；
+		// 方向搞反会变成向下淡出（一条硬边）。
+		edge.Material(glass.ScrollEdge{Background: ink, Bottom: true})
+		return
+	}
+	// 减少透明度：自绘「上透明 → 下 edge-fade」的渐变，只占顶部 pad 那一段。
+	// 高度仍取「栏高 + pad」，但渐变只在顶端 pad 内完成，下面全透明。
+	// 原版这一层很淡；实底上再压一道更淡的，保持「栏顶不是硬切线」。
+	ink.A = uint8(float32(ink.A) * 0.6)
+	edge.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: pad},
+			ui.LinearGradient{
+				Angle: 180,
+				Stops: []ui.GradientStop{
+					{At: 0, Color: ink.Alpha(0)},
+					{At: 1, Color: ink},
+				},
+			}, 0)
+	})
 }
 
 // playerBarTint keeps the original time-of-day hue with a thinner veil.

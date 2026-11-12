@@ -358,7 +358,7 @@ func TestDesktopLyricsWindowPinnedAbove(t *testing.T) {
 		"Panel: true,",
 		"DisableShadow:     runtime.GOOS == \"windows\"",
 		"c.syncLyricsWindowShadow()",
-		"tuneWindowFrame(win.NativeHandle())",
+		"flatWindowFrame(win.NativeHandle())",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("桌面字幕窗缺少 %q（层级/阴影设置被改回去了）", want)
@@ -521,6 +521,37 @@ func TestLyricsGearHot(t *testing.T) {
 	// 窗口还没布局（宽高为 0）：不认作「在齿轮上」，否则穿透会一直关着。
 	if lyricsGearHot(mygo.Point{X: 100, Y: 200}, mygo.Rectangle{}) {
 		t.Error("空边界不该判定为在齿轮上")
+	}
+}
+
+// TestLyricsHoverAt 钉住「指针在不在字幕窗范围内」的判定。
+//
+// 这是穿透体验的核心：穿透时窗口收不到 motion 事件，齿轮的显隐全靠这份包围盒
+// 判定（用户 2026-11-11：「关闭穿透效果后鼠标悬浮到字幕区不会有任何选中动画，
+// 甚至连设置按钮都不会出来」）。半开区间与窗口坐标系的边界都要钉住。
+func TestLyricsHoverAt(t *testing.T) {
+	b := mygo.Rectangle{X: 100, Y: 200, Width: 560, Height: 100}
+	cases := []struct {
+		name string
+		at   mygo.Point
+		want bool
+	}{
+		{"窗口正中", mygo.Point{X: 380, Y: 250}, true},
+		{"左上角（含）", mygo.Point{X: 100, Y: 200}, true},
+		{"右下角前一像素", mygo.Point{X: 659, Y: 299}, true},
+		{"右缘（不含）", mygo.Point{X: 660, Y: 250}, false},
+		{"下缘（不含）", mygo.Point{X: 380, Y: 300}, false},
+		{"左外 1px", mygo.Point{X: 99, Y: 250}, false},
+		{"上外 1px", mygo.Point{X: 380, Y: 199}, false},
+	}
+	for _, c := range cases {
+		if got := lyricsHoverAt(c.at, b); got != c.want {
+			t.Errorf("%s：lyricsHoverAt(%v) = %v，应为 %v", c.name, c.at, got, c.want)
+		}
+	}
+	// 窗口还没布局（宽高为 0）：不认作「在窗内」，否则齿轮会一直显示。
+	if lyricsHoverAt(mygo.Point{X: 100, Y: 200}, mygo.Rectangle{}) {
+		t.Error("空边界不该判定为在窗内")
 	}
 }
 

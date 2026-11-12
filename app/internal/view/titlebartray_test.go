@@ -37,14 +37,14 @@ import (
 // 垂直渐变（顶 224 → 底 234）抢那几级灰阶。
 func trayProbe(t *testing.T) (*ui.Tester, func(x, y int) (int, int, int), ui.Rect, ui.Rect) {
 	t.Helper()
-	oldBg, oldBorder, oldInk, oldRim, oldRadius := tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, tbTrayRadius
+	oldBg, oldBorder, oldInk, oldRim, oldRadius := tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, trayRadius
 	tbTrayBg = ui.Hex("#ff0000")
 	tbTrayBorder = ui.Hex("#00ff00")
 	tbTrayInk = ui.Hex("#0000ff").Alpha(0.5)
 	tbTrayRim = ui.Hex("#ff00ff")
-	tbTrayRadius = func() float32 { return 8 }
+	trayRadius = func() float32 { return 8 }
 	t.Cleanup(func() {
-		tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, tbTrayRadius = oldBg, oldBorder, oldInk, oldRim, oldRadius
+		tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, trayRadius = oldBg, oldBorder, oldInk, oldRim, oldRadius
 	})
 	return renderTitleBarProbe(t)
 }
@@ -106,12 +106,12 @@ func TestTitleBarCtrlTrayPaint(t *testing.T) {
 		radius               float32
 	}
 	render := func(st stub) func(x, y int) (int, int, int) {
-		old := [5]any{tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, tbTrayRadius}
+		old := [5]any{tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim, trayRadius}
 		tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim = st.bg, st.border, st.ink, st.rim
-		tbTrayRadius = func() float32 { return st.radius }
+		trayRadius = func() float32 { return st.radius }
 		t.Cleanup(func() {
 			tbTrayBg, tbTrayBorder, tbTrayInk, tbTrayRim = old[0].(ui.Color), old[1].(ui.Color), old[2].(ui.Color), old[3].(ui.Color)
-			tbTrayRadius = old[4].(func() float32)
+			trayRadius = old[4].(func() float32)
 		})
 		_, px, _, _ := renderTitleBarProbe(t)
 		return px

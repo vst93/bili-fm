@@ -169,32 +169,48 @@ func TestLyricsDragExceeded(t *testing.T) {
 	}
 }
 
-// TestLyricsGearHiddenUnlessHot 钉住设置键的显隐：**只在指针压在上面（或指针在
-// 窗内）时出现**，不因为「穿透打开」就常显 —— 用户 2026-11-11 报「开启穿透后
-// 设置键不再自动隐藏」。穿透时窗口收不到 over，改由 LyricsGearHot 判定。
+// TestLyricsGearHiddenUnlessHot 钉住设置键的显隐。
+//
+// 两条相反的要求都得满足（用户 2026-11-11 两轮反馈）：
+//
+//   - 「开启穿透后设置键不再自动隐藏」→ 指针不在字幕区时必须**不可见**；
+//   - 「开启穿透后鼠标扫过字幕区没有任何反馈，必须摸到键上才显形」→
+//     指针在字幕区（哪怕不正好在键上）时必须**出现**。
+//
+// 所以判据是「指针在字幕区」而不是「指针在键上」：穿透时窗口收不到 motion
+// 事件，这两条都由 app 侧轮询给出（LyricsHover / LyricsGearHot）。
 func TestLyricsGearHiddenUnlessHot(t *testing.T) {
-	build := func(clickThrough, hot bool) *ui.Tester {
+	build := func(clickThrough, hover, hot bool) *ui.Tester {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
 		a.LyricCurrent, a.LyricNext = "第一句", "第二句"
 		a.LyricsClickThrough = clickThrough
+		a.LyricsHover = hover
 		a.LyricsGearHot = hot
 		return ui.NewTester(func(c *ui.Context) { a.LyricsShell(c) }, 560, LyricsDisplayHeight(a.LyricsFontSize))
 	}
-	// 穿透打开、指针不在设置键上：键必须**不可见**（这是那条回归的反证）。
-	tst := build(true, false)
+	// 穿透打开、指针完全不在字幕区：键必须**不可见**（那是「不自动隐藏」回归的反证）。
+	tst := build(true, false, false)
 	tst.Frame()
 	if _, ok := tst.Find("桌面字幕设置"); ok {
-		t.Error("穿透打开且指针不在设置键上时，设置键不该显示（应自动隐藏）")
+		t.Error("穿透打开且指针不在字幕区时，设置键不该显示（应自动隐藏）")
 	}
-	// 指针压在上面：出现。
-	tst = build(true, true)
+	// 穿透打开、指针在字幕区但**不在**键上（用户报的那条）：
+	// 键必须出现，否则用户得去猜位置。
+	tst = build(true, true, false)
+	tst.Frame()
+	if _, ok := tst.Find("桌面字幕设置"); !ok {
+		t.Error("穿透打开、指针在字幕区内（不在键上）时也应显示设置键 —— " +
+			"用户 2026-11-11 报的正是「必须摸索到按钮位置上方才显示」")
+	}
+	// 指针正压在键上：出现。
+	tst = build(true, true, true)
 	tst.Frame()
 	if _, ok := tst.Find("桌面字幕设置"); !ok {
 		t.Error("指针压在设置键热区上时应显示设置键")
 	}
 	// 未穿透：指针在窗内（测试里默认 hover 视口中心）就显示。
-	tst = build(false, false)
+	tst = build(false, false, false)
 	tst.Move(280, 40)
 	tst.Frame()
 	if _, ok := tst.Find("桌面字幕设置"); !ok {
