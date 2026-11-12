@@ -1,0 +1,45 @@
+name: gitee issue reply (temp)
+
+# 临时工作流：本地没有 GITEE_TOKEN，用仓库 secret 回一条 Gitee issue 并关闭。
+# 跑完即删，不要留在仓库里。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment and close on Gitee
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          token = os.environ["GITEE_TOKEN"]
+          api = "https://gitee.com/api/v5/repos/vst93/bili-fm/issues/IKILM7"
+          body = """深色模式和背景透明度 3.1.19 已加上：外观面板可选浅色 / 深色 / 自动，透明度有滑块和四档预设，选择会记住；毛玻璃原生版一直有，配合透明度可半透明置顶。
+
+          跟随系统深色还没做（现在「自动」按时间走），下个版本补上。"""
+
+          def call(url, payload, method):
+              data = json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  url + "?access_token=" + token,
+                  data=data,
+                  method=method,
+                  headers={"Content-Type": "application/json"},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, r.read().decode()[:200]
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:200]
+
+          print("comment:", call(api + "/comments", {"body": body}, "POST"))
+          print("close:", call(api, {"state": "closed"}, "PATCH"))
+          PY
