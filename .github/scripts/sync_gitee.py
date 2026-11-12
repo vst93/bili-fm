@@ -4,6 +4,7 @@
 import os
 import sys
 import json
+import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests_toolbelt import MultipartEncoder
@@ -17,6 +18,9 @@ GITEE_OWNER = os.environ["GITEE_OWNER"]
 GITEE_REPO = os.environ["GITEE_REPO"]
 GITEE_TOKEN = os.environ["GITEE_TOKEN"]
 MAX_WORKERS = int(os.environ.get("MAX_WORKERS", "4"))
+# 单个资产的上传重试次数：Gitee 收大文件时偶发连接被重置，一次失败会让整批
+# 同步作废（已传的会跳过，但重跑仍要重新传失败的那个）。
+UPLOAD_ATTEMPTS = int(os.environ.get("UPLOAD_ATTEMPTS", "3"))
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads")
 # CORE_ONLY: 只同步应用内更新必需的资产（各平台 update-*.json + 原生归档/
 # delta）。Gitee 的上传带宽是整套镜像里唯一的慢点：全量约 170MB 要 30-40
@@ -85,22 +89,48 @@ def download_asset(url, filename):
 
 
 def upload_asset(release_id, local_path, filename):
-    """Upload a single file to a Gitee release."""
-    with open(local_path, "rb") as f:
-        encoder = MultipartEncoder(
-            fields={
-                "access_token": GITEE_TOKEN,
-                "file": (filename, f, "application/octet-stream"),
-            }
-        )
-        resp = requests.post(
-            f"{GITEE_API}/{GITEE_OWNER}/{GITEE_REPO}/releases/{release_id}/attach_files",
-            data=encoder,
-            headers={"Content-Type": encoder.content_type},
-        )
-    if resp.status_code >= 300:
-        raise Exception(f"Upload {filename} failed: {resp.status_code} {resp.text}")
-    return resp.json()
+    """Upload a single file to a Gitee release.
+
+    大文件（dmg / setup.exe，几十到上百 MB）上传到 Gitee 时常被中途掐断
+    （`ConnectionResetError: Connection reset by peer`），一次失败就让整批
+    同步作废、重跑要从头再传一遍。这里对网络类异常和 5xx 做有限重试：每次
+    重试都重新打开文件、重建 encoder（MultipartEncoder 是一次性的）。
+    """
+    url = f"{GITEE_API}/{GITEE_OWNER}/{GITEE_REPO}/releases/{release_id}/attach_files"
+    last_error = None
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        try:
+            with open(local_path, "rb") as f:
+                encoder = MultipartEncoder(
+                    fields={
+                        "access_token": GITEE_TOKEN,
+                        "file": (filename, f, "application/octet-stream"),
+                    }
+                )
+                resp = requests.post(
+                    url,
+                    data=encoder,
+                    headers={"Content-Type": encoder.content_type},
+                    timeout=(30, 1800),
+                )
+            if resp.status_code >= 500:
+                raise Exception(f"Upload {filename} failed: {resp.status_code} {resp.text}")
+            if resp.status_code >= 300:
+                # 4xx 是请求本身的问题（权限 / 重复名 / 超限），重试没有意义
+                raise Exception(f"Upload {filename} failed: {resp.status_code} {resp.text}")
+            return resp.json()
+        except Exception as e:  # noqa: BLE001 —— 网络类异常都要重试
+            last_error = e
+            if attempt == UPLOAD_ATTEMPTS:
+                break
+            wait = 15 * attempt
+            print(
+                f"    ↻ {filename} 第 {attempt} 次上传失败（{e}），{wait}s 后重试",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+    raise Exception(f"Upload {filename} failed after {UPLOAD_ATTEMPTS} attempts: {last_error}")
+
 
 
 def sync_release(github_release, gitee_release_info):
