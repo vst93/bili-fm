@@ -433,6 +433,19 @@ rotate 传给 `drawIcon`，`kindImage`（位图）走 `p.image()` 完全不带�
 
 ## 还没做的（已知缺口）
 
+- **外观「跟随系统」深色（已对用户承诺，下个版本补）**：外观面板现在只有浅色 /
+  深色 / 自动三档，其中「自动」按时间走（18:00–06:00 深色）。Gitee issue
+  `IKILM7` 要的是**跟随系统**（Windows 11 已设深色，界面仍是白的），2026-11-13
+  已回复「下个版本补上」—— 这个承诺要兑现。
+  **做法**：mygo v0.8.3 已有 `Theme.IsDark()` / `Theme.Source()` /
+  `Theme.SetSource(ThemeSystem)` 和 `Theme.OnUpdated(fn)`，加第四档「系统」即可：
+  `SetAppearance` 落盘偏好 `system`，解析深浅时读 `mygo.Theme.IsDark()`，
+  在 `OnUpdated` 里重推一次主题。**落盘的是 `system` 而不是解析出的 light/dark**
+  （与 auto 同一条规矩，`TestAppearanceAutoPreserved` 已钉住这个模式）。
+  **验证**：解析函数单测（IsDark 两态 + 偏好仍是 system）、面板第四档存在且可点、
+  `OnUpdated` 回调后主题真的换了；真机要看三处 —— Windows 切系统深浅、macOS 切
+  外观、Linux 换 GTK 主题。
+
 - **系统媒体中心**：**Linux 已接**（`internal/mediactl`，MPRIS：桌面「正在播放」卡片、
   媒体键、锁屏控件，用 `godbus/dbus`）。macOS Now Playing / Windows SMTC 还是
   no-op，接口已留好（`Callbacks`/`Controller`），接上层不用改。
