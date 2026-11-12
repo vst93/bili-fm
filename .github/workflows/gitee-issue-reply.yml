@@ -1,7 +1,11 @@
 name: gitee issue reply (temp)
 
-# 临时工作流：本地没有 GITEE_TOKEN，用仓库 secret 回一条 Gitee issue 并关闭。
+# 临时工作流：本地没有 GITEE_TOKEN，用仓库 secret 关闭 Gitee issue。
 # 跑完即删，不要留在仓库里。
+#
+# 注意：Gitee 的「更新 Issue」是 PATCH /v5/repos/{owner}/issues/{number}
+# （路径里**没有** repo 段，repo 走表单参数）——照搬仓库级路径会 404
+# "project or enterprise"。
 
 on:
   workflow_dispatch:
@@ -13,33 +17,24 @@ jobs:
   reply:
     runs-on: ubuntu-latest
     steps:
-      - name: Comment and close on Gitee
+      - name: Close on Gitee
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           python3 - <<'PY'
-          import json, os, urllib.request, urllib.error
+          import os, urllib.parse, urllib.request, urllib.error
 
           token = os.environ["GITEE_TOKEN"]
-          api = "https://gitee.com/api/v5/repos/vst93/bili-fm/issues/IKILM7"
-          body = """深色模式和背景透明度 3.1.19 已加上：外观面板可选浅色 / 深色 / 自动，透明度有滑块和四档预设，选择会记住；毛玻璃原生版一直有，配合透明度可半透明置顶。
-
-          跟随系统深色还没做（现在「自动」按时间走），下个版本补上。"""
-
-          def call(url, payload, method):
-              data = json.dumps(payload).encode()
-              req = urllib.request.Request(
-                  url + "?access_token=" + token,
-                  data=data,
-                  method=method,
-                  headers={"Content-Type": "application/json"},
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=60) as r:
-                      return r.status, r.read().decode()[:200]
-              except urllib.error.HTTPError as e:
-                  return e.code, e.read().decode()[:200]
-
-          print("comment:", call(api + "/comments", {"body": body}, "POST"))
-          print("close:", call(api, {"state": "closed"}, "PATCH"))
+          url = "https://gitee.com/api/v5/repos/vst93/issues/IKILM7"
+          form = urllib.parse.urlencode({
+              "access_token": token,
+              "repo": "bili-fm",
+              "state": "closed",
+          }).encode()
+          req = urllib.request.Request(url, data=form, method="PATCH")
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  print(r.status, r.read().decode()[:200])
+          except urllib.error.HTTPError as e:
+              print("HTTPError", e.code, e.read().decode()[:200])
           PY
