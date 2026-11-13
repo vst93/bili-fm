@@ -1441,3 +1441,67 @@ mygo 包多了 `NewMenuIconSVG` 与 `Page.GPUProcessID`；没有任何我们用�
 `./check.sh`（vet + 全包测试 + linux/windows/darwin × amd64/arm64 六平台编译）
 与 HEAD 对比：`internal/view` 失败清单逐条一致（HEAD 既有失败）。升级本身
 不需要改任何调用点。
+
+## mygo v0.9.0 升级评估（2026-11-13）
+
+`app/go.mod` 从 v0.8.3 升到 **v0.9.0**（go-aac 0.7.0 → 0.7.1；新增间接依赖
+`mewkiz/flac`、`klauspost/compress`、`ulikunitz/xz`、`digitalxero/rpm`、
+`x/crypto` 等）。**公共 API 只增不减**（逐函数名 diff：ui 包与根包一个导出函数
+都没少），`go build` / `go vet` 直接过，需要改写的调用点为零 —— 但 0.9.0 有一批
+**行为变更**，逐条核对如下，随后两处「用得上」的新能力在同轮落地。
+
+本轮落地的两件事：外观第四档「跟随系统」（`daf0c7f`）、桌面字幕穿透统一改用
+`Window.SetInputRegion`（`87cfce9`，删掉 Linux 自拼的 GDK 输入形状与
+Windows/macOS 逐 tick 的 `SetIgnoreMouseEvents`）。
+
+### Breaking changes 与行为变更（逐条核对的结论）
+
+| 变更 | 内容 | 本项目受影响点 | 结论 |
+|---|---|---|---|
+| sqlite 插件 | **`sqlite.LibraryPath` 与 `MYGO_SQLITE_LIBRARY` 移除**（改用 `MYGO_NATIVE_SQLITECORE`） | 本仓库**没有** sqlite 插件：`app/**/*.go` 与 `mygo.json` 里 grep 不到任何 `sqlite` / `MYGO_SQLITE` 引用。 | **无影响（已核对）** |
+| `Focus()` 滚入视野 | **元素获得键盘焦点时，框架会把包住它的滚动容器滚到刚好露出它**（同 web 的 `focus()`；按住指针键时不滚） | 本仓库的 `Element.Focus()` 只有两处：① 抽屉 tab 箭头选择（`tabArrowSelect`）—— 抽屉表头的 tab 排在普通 `Row` 里、**不在滚动体**；但**收藏夹胶囊那一排在 `ui.ScrollHorizontal` 里**，左右方向键移到屏外的胶囊时会被自动滚进来；② 主搜索框点内腔聚焦（`home.go`）—— 搜索药丸在主区 `homeStage` 的 `Column` 里（窄窗的滚动只在它下面的 `nowPlaying`），不在滚动体。 | **收藏夹胶囊排「受影响且是收益」**（键盘换夹子不再需要先点左/右键）；其余两处不受影响 |
+| 会话结束退出语义 | **注销 / 关机时 `OnBeforeQuit` / `OnClose` / `OnWillQuit` 也会被调用且不可取消**，监听器必须**同步完成**（不能弹窗 / 不能等 goroutine）；`OnQuit` 改到窗口状态保存**之后** | 本仓库 `OnBeforeQuit` 只置 `c.quitting = true`（同步、无对话框、无 goroutine）—— 正是要求的形状。主窗 `OnClose` 在 `quitting` 时直接放行；字幕窗 `OnClose` 在 `quitting` 时同步 `saveLyricsPos`（KV 原子写，小且快）。`OnQuit` 我们**没注册**；窗口位置自己用 KV + 轮询管，不用 `StateKey` → 顺序变化无关。 | **无影响（已核对）**。已知代价：系统结束会话不走 `c.quit()`，所以最后不到 5s 的本地断点可能丢（`trackResume` 每 5s 落盘）、云端那一笔不上报 —— 注销场景可接受，见下「后续跟进」 |
+| #1542 | **macOS 最小化算可见**（`IsVisible()` 在最小化窗口上返回 true） | 本仓库读 `IsVisible()` 的地方：`OnActivate`（Dock 点击恢复主窗）、进迷你前存位置、字幕窗 `OnMove` 存位置、`viewers` 的轮询闸门、`taskbar`（Windows-only）。最小化现在算「可见」，`OnActivate` 会早退 —— 而 macOS 的 Dock 图标点击本来就会还原最小化窗口，不需要我们再 `Show`/`Focus`。轮询闸门以 `Context.WindowHidden` 为主判据，不受影响。 | **采用（升级即生效）**；macOS「最小化后点 Dock 图标」的实际手感列入真机确认 |
+| macOS popover 跟随外观 | 状态栏 popover 用应用的 `effectiveAppearance`（不再跟系统菜单栏的对比度） | 本仓库的菜单要么自绘（液态玻璃面板），要么是 macOS 原生菜单栏 / 托盘右键临时菜单，**没有系统 popover**。 | **不适用** |
+| #1591（隐藏窗立即绘制） | 通过 DirectComposition 显示的窗，首帧要等 DWM 真的合成完再 uncloak（用 `DwmFlush` 等，不再直接显示） | 主窗正是「`Hidden: true` 建 → `setupTaskbar` 装好消息钩子 → `Show`」，这条修掉的正是「Show 之后先露一帧黑/底层像素」的启动闪烁。 | **采用（升级即生效）** |
+| Windows 透明窗渲染策略 | 透明窗的内容透明处不再被不透明 redirection bitmap 盖住；并且对「无边框 + 透明 + 无材质 / 无阴影」的窗口设 `DWMNCRP_DISABLED`，DWM/GDI 不再往它上面画 NC 装饰 | ① 唯一的 webview 是视频弹窗 —— 独立的普通窗口、**不是透明窗**，所以「透明 WebView 背景」那条碰不到我们；② 主窗正是 `Transparent + Frameless + 无 Vibrancy/Shadow`（Windows），会命中新的 `plainTransparentFrame` 策略 —— 与我们对 `DwmSetWindowAttribute` 的 `tuneWindowFrame`（边框 `COLOR_NONE` + `DoNotRound`）是同一件事的框架侧收口。 | **采用（升级即生效，与 `windowframe_windows.go` 互补）** |
+| Windows 中文单字体 | DirectWrite 路径上，没有语言写汉字的 Han 字符仍取用户区域语言的那一套字体（此前逐字回退会把中文拆成多套字体混排） | 本仓库是全中文自绘界面（文字都走 mygo 的文本引擎）。 | **采用（升级即生效，中文观感更统一）** |
+| Linux 托盘模板图标 | `IconIsTemplate` 的模板图在深色桌面自动染白（此前 Linux 不处理模板） | 本仓库 Linux/Windows 用的是**彩色** `tray.png`，`trayIconFor` 只对 macOS 传模板标（`IconIsTemplate: false`）。 | **不适用（Linux 不走模板图路径）**；以后若给 Linux 换模板图，这条才生效 |
+
+### 新能力：采用
+
+| 能力 | 内容 | 本项目用点 | 结论 |
+|---|---|---|---|
+| **`Theme.IsDark()` + `Theme.OnUpdated`** | 读桌面当前是否为深色外观；外观变化时回调 | 外观面板第四档 **`system`「跟随系统」**（`daf0c7f`）：`main` 启动读一次 `IsDark()`，之后只在 `OnUpdated` 回调里再读一次；`App.SetSystemDark` 值没变返回 false 且不重建主题。**只读值 + 订阅，不调 `SetSource`**（那会把 `IsDark()` 变成我们自己选的值）。落盘的是档位名 `system`，不是解析出的 light/dark；系统读数未知时退回 `auto` 的按时间行为。 | **采用（已落地）**；验证：`app/appearance_test.go` 三档 round-trip（含新增 `TestAppearancePrefsSystemRoundTrip`）、`internal/view/appearance_test.go` 的 `TestAppearanceSystemResolves` / `TestAppearanceSystemDarkUpdatesTheme` / `TestAppearanceSystemSurvivesRebuilds` / 四档弹层高度稳定 |
+| **`Window.SetInputRegion`** | 窗口只在给定矩形里收鼠标，其余部分把指针让给下面的窗口（三平台统一） | 桌面字幕穿透（`87cfce9`）：输入区域矩形 = `lyricsInputRegionRects(lyricsGearShapeRect(...))`，与画出来的设置键同源；删掉 Linux 自拼的 cairo/GDK 输入形状与 Windows/macOS 逐 tick 的 `SetIgnoreMouseEvents`（它优先级高于 `SetInputRegion`，留着新 API 会失效）。窗口尺寸变化用 `OnResize` 重新下发，不再只设一次。**带回退**：`lyricsClickThroughRouteFor` 在区域不可用（Linux dlopen 不到 libgtk-3/libgdk-3、窗口未 realize）时退回整窗穿透 + 指针轮询。 | **采用（已落地）**；验证：`lyrics_clickthrough_test.go` 七条（矩形随缩放/夹窗/最小尺寸、选路两态、首选/回退路径、未布局回退、重下发判据、与设置键热区同源）。真机确认 Windows/macOS 的穿透手感 |
+
+### 新能力：评估后不采用
+
+| 能力 | 内容 | 本项目情况 | 结论 |
+|---|---|---|---|
+| **音频 AAC / FLAC / ALAC 解码** | 0.9.0 的 `audio` 包把解码内建了：`audio.Decoder`（float32 交错样本 + 按帧 `SetPosition`）、`audio.OpenStream` / `NewPlayer`（自带 WSOLA `SetPreservesPitch` + 变速 + 混音）、`audio/mp4` 的 `ReadTrack` 与 packet 级 `Codec.Decode(dst, packet)`、`audio/aac.NewCodec/NewADTSDecoder`、`audio/flac.NewDecoder` | 核过导出面：**有 packet 级解码，但没有把 packet 交给调用方的 demux** —— `mp4.ReadTrack` 只给 codec / config / duration（样本表、分片与 Range 拉取都在框架内部），也没有 EQ、`Buffered()`（缓冲条要）、HE-AAC 探测（`audio/aac` 明确不解 SBR）。这些 `internal/media` 全有（EQ + WSOLA 变速 + `Buffered()` + `ErrHEAAC` + sidx 流式 fMP4），接过去等于把自己的引擎拆掉且拿不到 packet 来源。 | **不采用（替不掉 `internal/media`）**；上游需要 packet 级 demux API（把 access unit 交给调用方）才谈得上替换 |
+| `ListState.Choose` | 程序化选中某一行 | 本仓库列表不用 `ListState.Selected`（选中态是自绘的 `headerState` / 状态字段）。 | **不适用** |
+| `SplitButton` | 主键 + 下拉的主次按钮 | 原版界面没有这种组件（设置/合集都是独立键 + 自绘面板）。 | **不适用（无对应原版设计）** |
+| 滚动条新样式 / `ScrollbarAxes` 分轴隐藏 | 逐容器改滚动条外观；单独隐藏水平/垂直条 | 长列表已用 `KeepScrollbars(true)`；观感走主题令牌（与原版对齐），没有需要逐容器改样式或只隐一轴的场景。 | **不采用（现状够用）** |
+| `FocusOptions.PreventScroll` | 移动焦点但保持容器滚动位置 | 我们唯一聚焦到滚动体内的调用（收藏夹胶囊）**要的正是滚入视野**；搜索框不在滚动体。 | **不采用（语义相反）** |
+| `App.Relaunch` | 重启应用（0.9.0 多了 `Relaunch(args ...string)`） | 0.8.x 就在用（更新装好后「立即重启」）；带参数重启用不上（我们不需要换命令行参数重启）。 | **不采用（参数版用不上）** |
+| `App.ClearWindowStates` | 忘掉框架记的窗口状态 | 本仓库窗口位置/尺寸自己用 KV 管，**不设 `StateKey`**。 | **不适用** |
+| `App.ChosenLocale` | 用户在系统里选的语言 | 界面只有中文，没有语言设置。 | **不适用** |
+| `Power.KeepRunning` | 无窗口显示时也保持满速（防 App Nap 等） | 音频是自研 oto 输出，不是 mygo 的音频引擎；隐藏到托盘时我们**主动**停帧省电，没有需要保活的后台计算。 | **不采用（与省电设计冲突）** |
+| `ClipboardOptions.Concealed` | 剪贴板内容标记为机密（macOS / Linux 剪贴板管理器尊重） | 只复制视频链接，没有密码类内容。 | **不适用** |
+| `Shell.DefaultApp` / `PreviewItem` | 查默认打开程序 / Quick Look 预览 | 没有「用默认程序打开」「快速预览」入口（只 `Shell.OpenExternal` 开浏览器）。 | **不适用** |
+| 终端 `Options.OnDrop` | 拖文件到终端 | 本仓库没有终端。 | **不适用** |
+| 更新器改进 | HTTP 429/5xx 按 `Retry-After` 重试、盘符根目录（`D:\`）的工作目录命名（#1529） | 我们走 `mygo.Updater`，这些是升级即生效的健壮性修复。 | **自动收益（无需改代码）** |
+| native modules（实验性） | Go 接口用 Swift/Rust/Zig 实现 | 本仓库没有需要跨语言实现的原生模块，也不引入额外工具链。 | **不采用（实验性、无需求）** |
+
+`ui/video` 原生视频替代 webview —— **下一轮独立评估**。
+
+### 门槛与后续跟进
+
+- `./check.sh`（vet + 全包测试 + linux/windows/darwin × amd64/arm64 六平台编译）
+  与 HEAD 对比无新增失败；升级本身不改任何调用点。
+- 需要真机确认：① 收藏夹胶囊排键盘换夹子的自动滚动手感；② Windows/macOS
+  字幕窗「设置键可点、其余穿透」的实际手感（`87cfce9` 记录里已列）；
+  ③ macOS 最小化主窗后点 Dock 图标的恢复。
+- 已知代价（记录在案，本轮不改）：系统注销/关机路径不走 `c.quit()`，
+  最多丢不到 5s 的本地断点，云端进度那一笔不上报。

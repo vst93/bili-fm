@@ -4,10 +4,10 @@
 
 ## 项目现状（2026-10 起：纯 mygo 原生版）
 
-- **依赖 mygo v0.8.3**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
+- **依赖 mygo v0.9.0**（`app/go.mod`）。每次升级都写一份「逐 PR 能不能用上」的
   评估表到 `app/PLAN.md`（v0.4.6 / v0.4.7 / v0.6.3 / v0.7.0 / v0.7.1 /
-  v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 各一节），当轮的坑与门槛写进
-  `.pending-bugs.md`。**先读这两处再动依赖。**
+  v0.7.2+v0.7.3 / v0.7.4 / v0.8.0 / v0.8.1–v0.8.3 / v0.9.0 各一节），当轮的坑与
+  门槛写进 `.pending-bugs.md`。**先读这两处再动依赖。**
 
 - **看不见就别渲染**：`Shell` / `MiniShell` 在 `a.Background` **或**
   `a.WindowHidden`（框架的 `Context.WindowHidden`：最小化 / 托盘 / 别的桌面 /
@@ -243,6 +243,18 @@
 ## 硬性约束（每份 spec 都带）
 
 - 禁止启动应用、禁止 GUI 自动化（研究靠读代码 + 无头 `-shot` 截图）。
+- **升级依赖时 `GOPROXY=off` 不够**：新版本会带来缓存里没有的新依赖，`go mod tidy`
+  会直接失败；给那一条命令临时加代理（如 `GOPROXY=https://proxy.golang.org,direct
+  go mod tidy`），**不要全局 export** —— pi 的模型请求走本地网关，全局代理会把它掐死。
+- **外观偏好落盘的是档位名**（`light` / `dark` / `auto` / `system`），**永远不落解析后的
+  深浅**：落盘 light/dark 等于把「跟随系统」（或按时段）冻结成那一刻的值，重启后系统
+  改了界面不再跟（`auto` 就是这么定的，`system` 同一条规矩）。
+- **「跟随系统」只读不写**：只用 `mygo.Theme.IsDark()` 读值 + `mygo.Theme.OnUpdated`
+  订阅变化，**不调 `SetSource`** —— 那会把 `IsDark()` 变成「本应用自己的选择」，
+  「跟随系统」名存实亡。
+- **输入区域 / 穿透这类平台实现替换必须保留回退**：新 API 不可用时（库缺失、窗口
+  未 realize、后端没实现）要退回旧实现（如 `SetInputRegion` → 整窗 `SetIgnoreMouseEvents`
+  + 指针轮询），用纯函数选路（`lyricsClickThroughRouteFor`）把「走哪条」做成可无头断言的两态。
 - 不新增依赖需克制；验证 = 仓库根的 **`./check.sh`**（vet + 全包测试 +
   linux/windows/darwin × amd64/arm64 六平台编译，与 CI 门禁同口径；`./check.sh fast`
   只跑 vet+test）。改动 `internal/view` 另用 `-shot` 截图对照。
