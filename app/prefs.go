@@ -59,6 +59,10 @@ func (c *controller) loadPrefs() {
 	if err != nil {
 		transparency = 0
 	}
+	// 外观偏好四档：light / dark / auto / system。空值或未知值由 SetAppearance
+	// （normalizeAppearance）归一成 light，所以老版本写的键、或将来新增的档位
+	// 删掉，都只会退回默认，不会报错。system 落盘的仍是 "system"，不是
+	// 解析后的 light/dark。
 	a.SetAppearance(c.kv.String(prefTheme), transparency)
 	if v := parseFloat(c.kv.String(prefSpeed)); v > 0 {
 		a.Speed = v

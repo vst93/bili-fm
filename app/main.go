@@ -416,13 +416,25 @@ func main() {
 		// ui.Preferences 没有这一项，只在根包的 mygo.Theme.Preferences()
 		// 里（v0.5.0 起）；启动时读一次，之后靠 OnUpdated 跟进。
 		app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency)
+		// 桌面外观（深色模式 / 系统外观 / 桌面主题）：外观偏好的「跟随系统」
+		// 靠它解析。只**读** mygo.Theme.IsDark() + 订阅 OnUpdated，故意不调
+		// mygo.Theme.SetSource：那会把 IsDark() 变成我们自己选的值，
+		// 「跟随系统」就失去意义了。没读到之前（已知为假）主题退回按时间。
+		app.SetSystemDark(mygo.Theme.IsDark())
 		// 注意：这里**故意不读** mygo 0.8.0 的 `Theme.WindowButtons` 来决定
 		// 「要不要自绘最小化 / 关闭」。那个 API 描述的是**桌面自己标题栏**里有
 		// 哪些键，而本仓库的窗口是 Frameless（合成器不提供标题栏）：Linux 平铺
 		// 合成器（Hyprland / Sway）会返回「一个键都没有」，跟着不画就是用户
 		// 2026-10-17 报告 ③ 的回归（关闭/最小化消失）。评估见 app/PLAN.md。
 		mygo.Theme.OnUpdated(func() {
-			if app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency) {
+			changed := app.SetReduceTransparency(mygo.Theme.Preferences().ReduceTransparency)
+			// 桌面深浅变了：重推主题（外观为 system 时才真正换档，其余档位
+			// 只是把读数记下）。窗口不可见时不必额外请求帧：Shell 本来就会
+			// 早退，恢复显示时框架会重建一次。
+			if app.SetSystemDark(mygo.Theme.IsDark()) {
+				changed = true
+			}
+			if changed {
 				app.Win.Update(func() {})
 			}
 		})

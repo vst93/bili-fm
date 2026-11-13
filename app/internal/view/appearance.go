@@ -297,6 +297,15 @@ func (t Theme) text(light ui.Color) ui.Color {
 
 var iconAppearance = icon(`<circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" stroke="none"/>`)
 
+// appearanceOptions 是外观面板的四档，顺序即按钮顺序。四颗 Grow(1) 平分
+// 同一行：切到哪一档，弹层高度都不变（此前只有三档时就钉过这条）。
+var appearanceOptions = []struct{ Mode, Label string }{
+	{"light", "浅色"},
+	{"dark", "深色"},
+	{"auto", "自动"},
+	{"system", "跟随系统"},
+}
+
 func (a *App) appearanceButton(c *ui.Context) ui.Element {
 	t := a.Theme
 	b := ui.ButtonBase(c.Key("cover-appearance")).Size(28, 28).Radius(RadiusPill).
@@ -331,7 +340,7 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 	t := a.Theme
 	wasOpen := a.ShowAppearance
 	ui.PopoverBase(c, anchor, &a.ShowAppearance, func(panel ui.Element) {
-		panel.Width(280).Padding(16).Gap(12).Radius(14).Margin(8, 0, 0, 0).
+		panel.Width(320).Padding(16).Gap(12).Radius(14).Margin(8, 0, 0, 0).
 			Background(t.floatingFill()).Border(1, t.GlassBorder).
 			Shadow(0, 12, 32, 0, shadowInk.Alpha(0.20)).
 			Label("外观设置").Children(func() {
@@ -349,13 +358,16 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 			})
 			pref := a.AppearancePref()
 			ui.Row(c).FillWidth().Gap(6).Children(func() {
-				for _, mode := range []string{"light", "dark", "auto"} {
-					label := pick(mode == "light", "浅色", pick(mode == "auto", "自动", "深色"))
+				for _, opt := range appearanceOptions {
+					mode, label := opt.Mode, opt.Label
 					selected := pref == mode
 					b := ui.ButtonBase(c.Key("appearance-" + mode)).Grow(1).Basis(0).Height(36).
 						Radius(8).Center().Label(label + "主题").Role(ui.RoleToggleButton).Checked(selected)
-					if mode == "auto" {
+					switch mode {
+					case "auto":
 						b.Tooltip("跟随系统时间自动切换（18:00–06:00 深色，06:00–18:00 浅色）")
+					case "system":
+						b.Tooltip("跟随系统深色模式")
 					}
 					b.Background(pick(selected, t.Blue.Alpha(0.14), t.Glass)).
 						Border(1, pick(selected, t.Blue.Alpha(0.6), t.Line))
@@ -404,6 +416,15 @@ func (a *App) appearancePopover(c *ui.Context, anchor ui.Element) {
 				hint = fmt.Sprintf("自动 · 当前%s（%s）· 拖动调整",
 					pick(t.Mode == "dark", "深色", "浅色"),
 					pick(t.Mode == "dark", "18:00–06:00", "06:00–18:00"))
+			} else if pref == "system" {
+				// 说清「跟随系统」到底跟随到了什么：读到了就跟桌面，没读到
+				//（后端不提供读数）就说明白「暂按时间」，不让用户以为选错了。
+				if t.SystemKnown {
+					hint = fmt.Sprintf("跟随系统 · 当前%s（系统外观）· 拖动调整",
+						pick(t.Mode == "dark", "深色", "浅色"))
+				} else {
+					hint = "跟随系统 · 未读到系统外观，暂按时间切换"
+				}
 			}
 			// 这一行始终只有一个固定位置：自动提示替换原有拖动提示，
 			// 不再额外加一行，切换自动时弹层高度不会跳。

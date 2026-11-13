@@ -699,9 +699,10 @@ type ImageStore interface {
 type App struct {
 	Win   *mygo.Window
 	Theme Theme
-	// Appearance is the user preference: "light", "dark" or "auto".
+	// Appearance is the user preference: "light", "dark", "auto" or "system".
 	// Theme.Mode is always the resolved light/dark that is painted; with
-	// "auto" RefreshTheme re-resolves it from the time-of-day every minute.
+	// "auto" RefreshTheme re-resolves it from the time-of-day every minute,
+	// with "system" SetSystemDark re-resolves it when the desktop changes.
 	Appearance string
 	Images     ImageStore
 	Act        Actions
@@ -1190,6 +1191,14 @@ type App struct {
 	// 无头测试里 mygo 后端未初始化，根包调用会阻塞。
 	rt bool
 
+	// sysDark / sysKnown 是桌面外观的读数（Windows 深色模式 / macOS 外观 /
+	// Linux 桌面主题）：main 启动时读一次 mygo.Theme.IsDark()，之后在
+	// mygo.Theme.OnUpdated 回调里跟进。**故意不调 mygo.Theme.SetSource**：
+	// 那会把 IsDark() 变成「本应用自己的选择」，跟随系统就失去意义了 ——
+	// 我们只读值 + 订阅变化。未知（sysKnown 为假）时「system」退回按时间。
+	sysDark  bool
+	sysKnown bool
+
 	// toasts 是待弹出的 toast：后台线程通过 Notify 入队，下一帧由 Shell
 	// 用 c.AddToast 弹出来（toast 只能在构建帧时添加）。
 	toastMu sync.Mutex
@@ -1254,12 +1263,16 @@ func NewApp(repaint func()) *App {
 }
 
 // SetAppearance updates the app-wide appearance and transparency tokens.
-// mode is the user preference ("light", "dark" or "auto"); with "auto" it
-// resolves against the current time-of-day period (see appearanceForPeriod).
+// mode is the user preference ("light", "dark", "auto" or "system");
+// "auto" resolves against the current time-of-day period (appearanceForPeriod)
+// and "system" against the desktop's reading, falling back to the time of day
+// when it is not known yet (see resolveAppearance). The stored preference stays
+// "system" — resolving it to light/dark before saving would freeze the app on
+// whichever appearance the desktop happened to have at that moment.
 func (a *App) SetAppearance(mode string, transparency float64) {
 	a.Appearance = normalizeAppearance(mode)
 	base := ThemeFor(a.Theme.Period).withPreferences(a.Theme.HighContrast, a.rt)
-	a.Theme = base.withAppearance(a.Appearance, transparency)
+	a.Theme = a.refreshAppearance(base, transparency)
 }
 
 // AppearancePref returns the stored preference, falling back to the resolved
@@ -1274,9 +1287,11 @@ func (a *App) AppearancePref() string {
 
 // refreshAppearance re-applies the stored preference to a theme that was
 // rebuilt from a period base. withPreferences copies the old resolved Mode,
-// so auto must be resolved again from the new Period.
+// so auto must be resolved again from the new Period, and system again from
+// the desktop reading — carrying it here is what keeps a rebuilt theme
+// following the desktop instead of falling back to the time of day.
 func (a *App) refreshAppearance(th Theme, transparency float64) Theme {
-	return th.withAppearance(a.AppearancePref(), transparency)
+	return th.withSystem(a.sysKnown, a.sysDark).withAppearance(a.AppearancePref(), transparency)
 }
 
 // noteHidden 记录本帧的「窗口什么都没显示」，同时写一份给其它 goroutine 读的
@@ -1450,6 +1465,27 @@ func (a *App) SetReduceTransparency(rt bool) bool {
 	}
 	a.rt = rt
 	a.Theme = a.refreshAppearance(a.Theme.withPreferences(a.Theme.HighContrast, rt), a.Theme.Transparency)
+	return true
+}
+
+// SetSystemDark 记录桌面是否处于深色外观（Windows 深色模式 / macOS 外观 /
+// Linux 桌面主题）。由 main 在启动时读一次 mygo.Theme.IsDark()，并在
+// mygo.Theme.OnUpdated 回调里再调一次。**不调 mygo.Theme.SetSource**：那会把
+// IsDark() 变成我们自己选的值，「跟随系统」就名存实亡。
+//
+// 值没变时（包括首次读到 false 之后的重复 false）返回 false，也不重建主题；
+// 第一次调用总是重建一次（从「未知」变成「已知浅色」本身是一次变化 —— 此
+// 前「system」在按时间表走，此刻要改成跟桌面）。
+func (a *App) SetSystemDark(dark bool) bool {
+	if a.sysKnown && a.sysDark == dark {
+		return false
+	}
+	a.sysKnown, a.sysDark = true, dark
+	// 必须从**时段基态**重建（与 SetAppearance 同一条路）：withAppearance 只会
+	// 把浅色令牌换成深色，不会反方向还原 —— 直接拿当前主题重推，系统从深色
+	// 转浅色时 Mode 变了、令牌却还停在深色。
+	base := ThemeFor(a.Theme.Period).withPreferences(a.Theme.HighContrast, a.rt)
+	a.Theme = a.refreshAppearance(base, a.Theme.Transparency)
 	return true
 }
 

@@ -75,6 +75,15 @@ type Theme struct {
 	// 不透明兜底面，并让键面 / 弹层的 `::before` 光泽整条撤掉。**只影响播放栏**。
 	ReducedTransparency bool
 
+	// SystemDark / SystemKnown 是桌面外观（Windows 深色模式 / macOS 外观 /
+	// Linux 桌面主题）的读数：SystemDark 为真表示桌面此刻是深色，
+	// SystemKnown 为假表示还没读到（无头测试、或框架后端未提供）。外观偏好
+	// 「system」按它解析；**未知时退回按时间（auto）**，因为「不知道」不该
+	// 让界面卡在某一档上。由 App.SetSystemDark 写入，重建路径必须原样带上
+	//（见 withPreferences / withHighContrast / withReduceTransparency）。
+	SystemDark  bool
+	SystemKnown bool
+
 	// 进度条 / 音量条那一对变量（原版 --player-track-border /
 	// --player-track-rest）：亮色时段是白 .68 / 白 .32，烟熏玻璃时段收成
 	// 白 .28 / 白 .20——轨道在深色玻璃上再铺原来那么亮就会糊成一条白带。
@@ -96,11 +105,11 @@ func clampAppearanceTransparency(v float64) float64 {
 	return v
 }
 
-// normalizeAppearance keeps the three user-selectable appearance modes and
+// normalizeAppearance keeps the four user-selectable appearance modes and
 // turns empty or unknown stored values into the historical default, light.
 func normalizeAppearance(mode string) string {
 	switch mode {
-	case "auto", "dark":
+	case "auto", "dark", "system":
 		return mode
 	}
 	return "light"
@@ -118,15 +127,46 @@ func appearanceForPeriod(p Period) string {
 	return "light"
 }
 
-// withAppearance applies the explicit app appearance after the time-of-day
-// and accessibility tokens. "auto" resolves against t.Period, so callers can
-// pass the user preference straight through. Keeping it as a final layer
-// means every glass surface gets the same dark/light decision.
-func (t Theme) withAppearance(mode string, transparency float64) Theme {
-	mode = normalizeAppearance(mode)
-	if mode == "auto" {
-		mode = appearanceForPeriod(t.Period)
+// resolveAppearance 把用户偏好解析成实际画出来的 light / dark。它是纯函数：
+// 输入偏好、桌面深浅（已知与否）与当前时段，输出模式，不读任何全局状态。
+//
+//   - "light" / "dark"：原样；
+//   - "auto"：按时间（18:00–06:00 深色）；
+//   - "system"：按桌面深浅；**系统信息未知时退回 auto 的时间表** —— 宁可
+//     按老规矩走，也不能让界面停在某一档不动（无头测试、后端不提供读数时
+//     都会走到这里）。
+func resolveAppearance(mode string, systemKnown, systemDark bool, p Period) string {
+	switch normalizeAppearance(mode) {
+	case "dark":
+		return "dark"
+	case "auto":
+		return appearanceForPeriod(p)
+	case "system":
+		if !systemKnown {
+			return appearanceForPeriod(p)
+		}
+		if systemDark {
+			return "dark"
+		}
+		return "light"
 	}
+	return "light"
+}
+
+// withSystem 记下桌面的深浅读数（不改 Mode：重新解析由 withAppearance 做，
+// 那里是唯一的解析点）。known 为假时表示还没读到。
+func (t Theme) withSystem(known, dark bool) Theme {
+	t.SystemKnown, t.SystemDark = known, dark
+	return t
+}
+
+// withAppearance applies the explicit app appearance after the time-of-day
+// and accessibility tokens. "auto" resolves against t.Period and "system"
+// against the desktop's reading (see resolveAppearance), so callers can pass
+// the user preference straight through. Keeping it as a final layer means
+// every glass surface gets the same dark/light decision.
+func (t Theme) withAppearance(mode string, transparency float64) Theme {
+	mode = resolveAppearance(mode, t.SystemKnown, t.SystemDark, t.Period)
 	t.Mode = mode
 	t.Transparency = clampAppearanceTransparency(transparency)
 	if mode == "dark" {
@@ -314,7 +354,7 @@ func (t Theme) withHighContrast(hc bool) Theme {
 		if t.ReducedTransparency {
 			base = base.withReduceTransparency(true)
 		}
-		return base
+		return base.withSystem(t.SystemKnown, t.SystemDark)
 	}
 	t.HighContrast = true
 	t.PlayerTime = ui.Hex("#334155")
@@ -354,7 +394,7 @@ func (t Theme) withReduceTransparency(rt bool) Theme {
 		if t.HighContrast {
 			base = base.withHighContrast(true)
 		}
-		return base
+		return base.withSystem(t.SystemKnown, t.SystemDark)
 	}
 	t.ReducedTransparency = true
 	t.PlayerSurface = ui.Hex("#e6edf4")
@@ -378,7 +418,9 @@ func (t Theme) withPreferences(hc, rt bool) Theme {
 	if hc {
 		base = base.withHighContrast(true)
 	}
-	return base.withAppearance(t.Mode, t.Transparency)
+	// 桌面深浅读数必须跟着走：漏一条重建路径，「system」就会在偏好重推后
+	// 悄悄退回按时间（面板选着 system，主题却不跟系统）。
+	return base.withSystem(t.SystemKnown, t.SystemDark).withAppearance(t.Mode, t.Transparency)
 }
 
 // CoverPlaceholder 是封面还没加载出来时的底色。

@@ -1,11 +1,13 @@
 package view
 
 import (
+	"bytes"
 	"fmt"
 	"image/png"
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -518,7 +520,187 @@ func TestAppearancePopoverHeightStableForAuto(t *testing.T) {
 		return r.H
 	}
 	light, dark, auto := height("light"), height("dark"), height("auto")
-	if abs32(light-dark) > .5 || abs32(light-auto) > .5 {
-		t.Fatalf("popover height changes with mode: light=%v dark=%v auto=%v", light, dark, auto)
+	system := height("system")
+	if abs32(light-dark) > .5 || abs32(light-auto) > .5 || abs32(light-system) > .5 {
+		t.Fatalf("popover height changes with mode: light=%v dark=%v auto=%v system=%v", light, dark, auto, system)
+	}
+}
+
+// TestAppearanceSystemTooltip 钉住第四颗键的 tooltip 写明「跟随系统深色模式」：
+// 无头 Tester 拿不到悬浮时钟，这里直接看源码里 .Tooltip 真的接上了
+// （写了常量不接等于没写）。
+func TestAppearanceSystemTooltip(t *testing.T) {
+	src, err := os.ReadFile("appearance.go")
+	if err != nil {
+		t.Fatalf("读 appearance.go 失败：%v", err)
+	}
+	if !bytes.Contains(src, []byte(`.Tooltip("跟随系统深色模式")`)) {
+		t.Error("「跟随系统」那颗键没有接 tooltip「跟随系统深色模式」")
+	}
+}
+
+// TestAppearanceSystemResolves 钉住纯函数 resolveAppearance：系统深色 → dark、
+// 系统浅色 → light，**系统信息未知时退回按时间（auto）**。未知不能 panic、
+// 也不能停在某一档不动：无头测试与后端不提供读数的桌面都会走到那里。
+func TestAppearanceSystemResolves(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		known, dark bool
+		hour        int
+		want        string
+	}{
+		{"系统深色·白天", true, true, 12, "dark"},
+		{"系统深色·夜里", true, true, 21, "dark"},
+		{"系统浅色·白天", true, false, 12, "light"},
+		{"系统浅色·夜里", true, false, 21, "light"},
+		{"系统未知·白天按时间", false, false, 12, "light"},
+		{"系统未知·夜里按时间", false, false, 21, "dark"},
+		// 未知时连「读到的 dark」都不该信：按时间表走。
+		{"系统未知·带读值也按时间", false, true, 12, "light"},
+	} {
+		p := PeriodAt(tc.hour)
+		if got := resolveAppearance("system", tc.known, tc.dark, p); got != tc.want {
+			t.Errorf("%s: resolveAppearance = %s, want %s", tc.name, got, tc.want)
+		}
+	}
+	// 其余三档不受系统读数影响。
+	for _, mode := range []string{"light", "dark"} {
+		if got := resolveAppearance(mode, true, mode == "light", PeriodAt(21)); got != mode {
+			t.Errorf("显式 %s 被系统读数改成了 %s", mode, got)
+		}
+	}
+	if got := resolveAppearance("auto", true, false, PeriodAt(21)); got != "dark" {
+		t.Errorf("auto 应按时间（21 点深色），得到 %s", got)
+	}
+}
+
+// TestAppearanceSystemDarkUpdatesTheme 钉住 App.SetSystemDark：真换了主题，
+// 值没变时返回 false 且**不重建**主题（调用方靠返回值决定要不要重画一帧）。
+func TestAppearanceSystemDarkUpdatesTheme(t *testing.T) {
+	a := NewApp(func() {})
+	a.SetAppearance("system", .25)
+	// 还没读到系统外观：退回按时间。
+	want := appearanceForPeriod(PeriodAt(time.Now().Hour()))
+	if a.Theme.Mode != want || a.Theme.SystemKnown {
+		t.Fatalf("未知系统时应按时间：mode=%s known=%v", a.Theme.Mode, a.Theme.SystemKnown)
+	}
+	if !a.SetSystemDark(true) {
+		t.Fatal("第一次读系统外观（未知 → 已知）必须算变化")
+	}
+	if !a.Theme.SystemKnown || !a.Theme.SystemDark || a.Theme.Mode != "dark" {
+		t.Fatalf("系统深色没生效：%+v", a.Theme)
+	}
+	if a.AppearancePref() != "system" {
+		t.Fatalf("落盘偏好被解析值覆盖了：%s", a.AppearancePref())
+	}
+	// 值没变：返回 false，主题一模一样（不重建）。
+	before := a.Theme
+	if a.SetSystemDark(true) {
+		t.Fatal("值没变却返回 true")
+	}
+	if !reflect.DeepEqual(before, a.Theme) {
+		t.Fatal("值没变却重建了主题")
+	}
+	if !a.SetSystemDark(false) {
+		t.Fatal("系统转浅色必须算变化")
+	}
+	if a.Theme.Mode != "light" || a.Theme.SystemDark || a.Theme.Transparency != .25 {
+		t.Fatalf("系统浅色没生效：%+v", a.Theme)
+	}
+	// 令牌也得真回到浅色：只把 Mode 改回 light、把深色令牌留在原地是
+	// 「面板选了 system 但主题不跟」的另一半。
+	if light := ThemeFor(a.Theme.Period).withAppearance("light", .25); a.Theme.Ink != light.Ink || a.Theme.PlayerSurface != light.PlayerSurface {
+		t.Fatalf("系统转浅色后仍是深色令牌：ink=%v want %v", a.Theme.Ink, light.Ink)
+	}
+	// 其它档位不吃系统读数：选浅色后系统转深色，主题仍是浅色。
+	a.SetAppearance("light", .25)
+	if !a.SetSystemDark(true) || a.Theme.Mode != "light" {
+		t.Fatalf("显式浅色被系统读数改掉了：%s", a.Theme.Mode)
+	}
+}
+
+// TestAppearanceSystemSurvivesRebuilds 钉住「面板选了 system 但主题不跟」那个
+// 坑：减少透明度 / 高对比 / RefreshTheme 这些重建路径都必须把系统读数带上。
+func TestAppearanceSystemSurvivesRebuilds(t *testing.T) {
+	a := NewApp(func() {})
+	a.SetAppearance("system", .25)
+	a.SetSystemDark(true)
+	if a.Theme.Mode != "dark" {
+		t.Fatalf("system 深色没生效：%s", a.Theme.Mode)
+	}
+	for _, step := range []struct {
+		name string
+		run  func()
+	}{
+		{"减少透明度", func() { a.SetReduceTransparency(true) }},
+		{"高对比", func() { a.Theme = a.Theme.withPreferences(true, true) }},
+		{"RefreshTheme", func() { a.RefreshTheme() }},
+		{"重设外观", func() { a.SetAppearance("system", .25) }},
+	} {
+		step.run()
+		if a.Theme.Mode != "dark" || !a.Theme.SystemKnown || !a.Theme.SystemDark {
+			t.Fatalf("%s 之后 system 读数丢了：mode=%s known=%v dark=%v",
+				step.name, a.Theme.Mode, a.Theme.SystemKnown, a.Theme.SystemDark)
+		}
+	}
+}
+
+// TestAppearanceSystemControl 走真实面板：第四颗按钮「跟随系统」存在、可点，
+// 点了之后偏好是 system 并落盘（落盘的仍是 system，不是解析出的 light/dark）。
+func TestAppearanceSystemControl(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12)) // 白天，未知系统时 system 会解析成浅色
+	saved := 0
+	a.Act.PersistAppearance = func() { saved++ }
+	tt := shellTester(t, a)
+	trigger, ok := tt.Find("外观")
+	if !ok {
+		t.Fatal("missing appearance trigger")
+	}
+	tt.Move(trigger.X+trigger.W/2, trigger.Y+trigger.H/2)
+	tt.Advance(250 * time.Millisecond)
+	if err := tt.Click("外观"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	button, ok := tt.Find("跟随系统主题")
+	if !ok {
+		t.Fatalf("第四档「跟随系统」不存在：%v", tt.Texts())
+	}
+	// 四档同一行：四颗按钮的纵向中心一致。
+	for _, label := range []string{"浅色主题", "深色主题", "自动主题"} {
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("missing %s", label)
+		}
+		if abs32((r.Y+r.H/2)-(button.Y+button.H/2)) > .5 {
+			t.Fatalf("%s 与「跟随系统」不在同一行：%v / %v", label, r, button)
+		}
+	}
+	if err := tt.Click("跟随系统主题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.AppearancePref() != "system" || saved != 1 {
+		t.Fatalf("点「跟随系统」：pref=%s saved=%d", a.AppearancePref(), saved)
+	}
+	if a.Theme.Mode != "light" {
+		t.Fatalf("未知系统 + 白天应解析成浅色，得到 %s", a.Theme.Mode)
+	}
+	if _, ok := tt.Find("跟随系统 · 未读到系统外观，暂按时间切换"); !ok {
+		t.Fatalf("system 档提示没写清「跟随系统」：%v", tt.Texts())
+	}
+	// 读到系统深色之后，同一档立刻变深，提示也换成「当前深色」。
+	a.SetSystemDark(true)
+	tt.Frame()
+	if a.Theme.Mode != "dark" {
+		t.Fatalf("读到系统深色后主题没换：%s", a.Theme.Mode)
+	}
+	if _, ok := tt.Find("跟随系统 · 当前深色（系统外观）· 拖动调整"); !ok {
+		t.Fatalf("system 深色提示缺失：%v", tt.Texts())
+	}
+	// 落盘再读：偏好仍是 system（不是 dark）。
+	if a.AppearancePref() != "system" {
+		t.Fatalf("落盘偏好应为 system，得到 %s", a.AppearancePref())
 	}
 }
