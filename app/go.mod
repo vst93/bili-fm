@@ -15,7 +15,7 @@ require (
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
-	github.com/cloudflare/circl v1.6.2 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
