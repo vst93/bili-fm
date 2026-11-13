@@ -35,6 +35,9 @@ const (
 	prefLyricsOffsetRemember = "lyricsOffsetRemember"
 	prefLyricsWidthRatio     = "lyricsWidthRatio"
 	prefHeatOn               = "danmakuHeat"
+	// prefNativeVideo 是「视频弹窗走系统媒体框架（ui/video）」的开关，默认开。
+	// 关掉即固定走 webview（见 internal/video 的 SetNativeEnabled）。
+	prefNativeVideo = "nativeVideoPlayer"
 	prefLyricsBgColor        = "lyricsBgColor"
 	prefLyricsBgOpacity      = "lyricsBgOpacity"
 	prefLyricsTextOpacity    = "lyricsTextOpacity"
@@ -137,6 +140,13 @@ func (c *controller) loadPrefs() {
 	if v := c.kv.String(prefHeatOn); v != "" {
 		a.HeatOn = v != "false"
 	}
+	// 原生视频默认开：只有明确写过 "false" 才关（老版本没有这个键）。
+	a.NativeVideo = c.kv.String(prefNativeVideo) != "false"
+	// c.vid 在部分单测里没有（只构造 controller 的子集），与 c.media 一样
+	// 判空后再下发。
+	if c.vid != nil {
+		c.vid.SetNativeEnabled(a.NativeVideo)
+	}
 	c.subtitleLangPref = c.kv.String(prefSubtitleLang)
 }
 
@@ -205,6 +215,12 @@ func (c *controller) setVolume(v float64) {
 	c.applyVolume()
 	if c.media != nil {
 		c.media.SetVolume(v)
+	}
+	// 原生视频窗开着时把音量/静音一起下发（webview 页面自己管自己的音量，
+	// 见 frontend/video.html 的起播策略）。不写这一句，主窗静音后弹窗还在
+	// 出声 —— 与 webview 路径的行为就不一致了。
+	if c.app.VideoOpen {
+		c.vid.SetMuted(a.Muted)
 	}
 }
 

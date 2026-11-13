@@ -620,6 +620,10 @@ type Actions struct {
 	EndLyricsDrag func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
+	// ToggleNativeVideo 开启 / 关闭原生视频播放（ui/video）。关掉后视频弹窗
+	// 走 webview：给「系统有 GStreamer 但播得不好」或需要浏览器画中画的用户
+	// 一条明确退路。
+	ToggleNativeVideo func()
 	// PersistFollow 把弹幕/字幕跟随开关落盘（手动滚动自动关闭时也调用）。
 	PersistFollow func()
 	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
@@ -946,6 +950,9 @@ type App struct {
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
 	HeatOn      bool
+	// NativeVideo 是「视频弹窗用系统媒体框架（ui/video）播放」的开关，
+	// 默认开。关掉、或本机判定不可用（缺 GStreamer 等）时走 webview。
+	NativeVideo bool
 	// HeatVersion 在热力数据变化时递增。0.7.0 起窗口只重绘变化的区域，
 	// 热力是播放栏 Draw 里的一段绘制，数据到达时不一定被算进损伤矩形；
 	// 绘制层看到版本变化就请求一次整窗重绘，保证新热力一定显示。
@@ -1256,6 +1263,7 @@ func NewApp(repaint func()) *App {
 		LyricsBgOpacity:   DefaultLyricsBgOpacity,
 		LyricsTextOpacity: DefaultLyricsTextOpacity,
 		HeatOn:            true,
+		NativeVideo:       true,
 		Appearance:        "light",
 	}
 	a.Theme = a.Theme.withAppearance("light", 0)

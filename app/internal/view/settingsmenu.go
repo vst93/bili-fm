@@ -151,6 +151,15 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.Act.ToggleRadio()
 				}
 			})
+			// 原生视频播放：默认开（系统媒体框架解码 + 出声，音画同步由框架
+			// 保证，Windows 上省掉一整套 WebView2）。关掉即回到 webview ——
+			// 这是「原生路径在本机播得不好」时用户可自己动手的唯一开关；
+			// 缺 GStreamer 的机器不需要手动关（判定失败会自动回退并提示）。
+			a.settingsToggle(c, "原生视频播放", a.NativeVideo, func() {
+				if a.Act.ToggleNativeVideo != nil {
+					a.Act.ToggleNativeVideo()
+				}
+			})
 		})
 	})
 }

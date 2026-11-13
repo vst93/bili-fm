@@ -2252,9 +2252,11 @@ func TestTitleBarStyleForLinux(t *testing.T) {
 // 而漏接的表现（后台每 500ms 白建一帧）在别处也看不出来。
 func TestBackdropUpdatesGateOnHidden(t *testing.T) {
 	flat := flattenCode(t, "main.go")
-	// 两个周期性回调都必须走这道门。
-	if n := strings.Count(flat, "runOnUI(c.app,!c.app.Hidden(),func(){"); n != 2 {
-		t.Errorf("周期性界面更新走 runOnUI 的次数 = %d，应为 2（音频进度 + 视频状态）", n)
+	// 三道都必须走这道门：音频进度（500ms）、视频弹窗状态（1s）、以及原生
+	// 视频不可用时那一次「已改用内置播放器」的 toast —— 它虽然只弹一次，但
+	// 窗口在后台时同样不该为它白建一帧。
+	if n := strings.Count(flat, "runOnUI(c.app,!c.app.Hidden(),func(){"); n != 3 {
+		t.Errorf("界面更新走 runOnUI 的次数 = %d，应为 3（音频进度 + 视频状态 + 回退提示）", n)
 	}
 	for _, want := range []string{
 		// 门本身：可见时 Update（要一帧），不可见时 RunOnMain（不要帧）。

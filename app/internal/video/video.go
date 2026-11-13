@@ -73,10 +73,50 @@ type Manager struct {
 	// Close / 窗口关闭时清空。抽成字段便于单测验证 Service.Minimize 的接线
 	// （测试里没有真实窗口，注入一个计数函数即可）。
 	minimize func()
+
+	// native 是当前的原生视频窗（ui/video）；nil 表示走 webview 那条路径。
+	// 两条路径互斥：同一时刻只有一个弹窗，State/Seek/SetSpeed 等都要按它分派。
+	native *nativeWindow
+
+	// nativeOK 是「本机还能不能试原生路径」的闩锁：一旦判定不可用（缺
+	// GStreamer / 系统没有媒体框架 / 起播失败），本次运行不再反复重试，
+	// 直接走 webview，避免每次开视频都先黑一下再回退。
+	nativeOK      bool
+	nativeChecked bool
+
+	// onFallback 在原生路径不可用、已经落回 webview 时调用（主窗据此 toast）。
+	onFallback func(reason string)
 }
 
 // New 建一个管理器。
-func New() *Manager { return &Manager{} }
+func New() *Manager { return &Manager{nativeOK: true} }
+
+// SetNativeEnabled 开关原生视频路径（设置项「原生视频播放」）。
+// 关掉后所有 Open 直接走 webview —— 给「GStreamer 装是装了但播得不好」或
+// 需要弹幕覆盖层 / 画中画的用户一条明确的退路，而不是只能靠失败回退。
+func (m *Manager) SetNativeEnabled(on bool) {
+	m.mu.Lock()
+	m.nativeOK, m.nativeChecked = on, true
+	m.mu.Unlock()
+}
+
+// NativeEnabled 报告设置项当前是否允许走原生路径。
+func (m *Manager) NativeEnabled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nativeOK
+}
+
+// OnFallback 设置「原生视频不可用，已落回 webview」的回调。
+// reason 是给用户看的一句话原因（例如「系统缺少 GStreamer」）。
+func (m *Manager) OnFallback(fn func(reason string)) { m.onFallback = fn }
+
+// NativeActive 报告当前弹窗是否走原生路径（供设置/状态展示与测试）。
+func (m *Manager) NativeActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.native != nil
+}
 
 // OnState 设置状态回调（约每秒一次）。
 func (m *Manager) OnState(fn func(State)) { m.onState = fn }
@@ -94,7 +134,7 @@ func (m *Manager) OnQuit(fn func()) { m.onQuit = fn }
 func (m *Manager) IsOpen() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.win != nil
+	return m.win != nil || m.native != nil
 }
 
 // State 返回最近一次回传的状态。
@@ -115,8 +155,16 @@ func (m *Manager) Ended() bool {
 func (m *Manager) Replay() {
 	m.mu.Lock()
 	m.ended = false
-	w := m.win
+	w, n := m.win, m.native
 	m.mu.Unlock()
+	if n != nil {
+		n.apply(func() {
+			n.endedFired = false
+			n.pl.Seek(0)
+			n.pl.Play()
+		})
+		return
+	}
 	if w != nil {
 		w.Page().Eval("(()=>{const v=document.getElementById('v');if(v){try{v.currentTime=0}catch(_){ }const p=v.play();if(p&&p.catch)p.catch(()=>{});}})()")
 	}
@@ -164,13 +212,22 @@ func (m *Manager) Open(o Options) error {
 		return nil
 	}
 	m.opening = true
-	w := m.win
+	w, n := m.win, m.native
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
 		m.opening = false
 		m.mu.Unlock()
 	}()
+
+	// 原生窗还开着：原地换集（换播放器、不换窗口）。原生窗没有浏览器进程
+	// 那套开销，但也没有理由每次换集都重建窗口（窗口位置、尺寸会跳）。
+	if n != nil {
+		if err := m.switchNative(n, o); err == nil {
+			return nil
+		}
+		m.CloseNative()
+	}
 
 	// 复用路径：弹窗还在，只换源。这是内存上最关键的一条 —— 见 switchTo。
 	//
@@ -186,9 +243,24 @@ func (m *Manager) Open(o Options) error {
 
 	m.Close()
 
+	// 原生优先：ui/video 用系统媒体框架解码 + 出声，音画同步由框架保证，
+	// 没有 WebView2 那套进程开销。判定不可用（缺媒体框架 / 起播失败）就
+	// 落回 webview，并把原因告诉用户 —— 不能因为这条链路让人看不了视频。
+	if reason, ok := m.tryNative(o); ok {
+		return nil
+	} else if reason != "" {
+		m.reportFallback(reason)
+	}
+
+	return m.openWebView(o)
+}
+
+// openWebView 是原来的 webview 弹窗路径（回退用，也是唯一能播 webm / 弹幕
+// 覆盖层 / 画中画的路径）。
+func (m *Manager) openWebView(o Options) error {
 	page := pageURL(o)
 
-	w = mygo.NewWindow(mygo.WindowOptions{
+	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:     o.Title,
 		URL:       page,
 		Width:     960,
@@ -205,7 +277,7 @@ func (m *Manager) Open(o Options) error {
 	}
 
 	m.mu.Lock()
-	m.win, m.minimize = w, w.Minimize
+	m.win, m.native, m.minimize = w, nil, w.Minimize
 	m.st = State{Speed: o.Speed}
 	m.mu.Unlock()
 
@@ -222,6 +294,192 @@ func (m *Manager) Open(o Options) error {
 		}
 	})
 	return nil
+}
+
+// tryNative 尝试用原生路径打开 o。ok 表示「原生窗已经开起来了」；
+// 否则 reason 非空时表示「试过但不可用」，调用方据此 toast + 走 webview。
+//
+// 判定顺序（每一步都能省掉一次黑窗）：
+//  1. 上次已判定不可用（nativeChecked && !nativeOK）→ 直接跳过，不返回 reason
+//     （用户已经被告知过一次，不必每次开视频都弹）。
+//  2. 地址不是 http(s)/file → 跳过（不是故障，不 toast）。
+//  3. ui/video.OpenURL 返回 ErrUnsupported → 记闩锁 + 给出原因。
+//  4. 播放器起来了，但起播失败（Err 非空 / 一直不 Ready）→ 由 onFailed 关窗
+//     回退。这里不阻塞等待，避免开窗卡住界面。
+func (m *Manager) tryNative(o Options) (reason string, ok bool) {
+	m.mu.Lock()
+	ok = m.nativeOK
+	checked := m.nativeChecked
+	m.mu.Unlock()
+	if checked && !ok {
+		return "", false
+	}
+	if !nativeEligible(o) {
+		return "", false
+	}
+
+	pl, err := openPlayer(o.Src)
+	if err != nil {
+		m.mu.Lock()
+		m.nativeOK, m.nativeChecked = false, true
+		m.mu.Unlock()
+		return nativeFailText(err), false
+	}
+
+	n := newNativeWindow(o, pl)
+	if n == nil {
+		m.mu.Lock()
+		m.nativeOK, m.nativeChecked = false, true
+		m.mu.Unlock()
+		return "创建视频窗口失败", false
+	}
+	n.onState = func(st State) {
+		m.mu.Lock()
+		m.st = st
+		cb := m.onState
+		m.mu.Unlock()
+		if cb != nil {
+			cb(st)
+		}
+	}
+	n.onClose = func(st State) {
+		m.mu.Lock()
+		if m.native == n {
+			m.native = nil
+		}
+		cb := m.onClose
+		m.mu.Unlock()
+		if cb != nil {
+			cb(st)
+		}
+	}
+	n.onEnded = func() {
+		m.mu.Lock()
+		m.ended = true
+		cb := m.onEnded
+		m.mu.Unlock()
+		if cb != nil {
+			cb()
+		}
+	}
+	n.onMin = func() {
+		m.mu.Lock()
+		fn := m.minimize
+		m.mu.Unlock()
+		if fn != nil {
+			fn()
+		}
+	}
+	n.onQuit = func() {
+		m.mu.Lock()
+		cb := m.onQuit
+		m.mu.Unlock()
+		if cb != nil {
+			cb()
+		}
+	}
+	// 起播失败（解码器缺失 / 流断了）：关掉原生窗，落回 webview 播同一集。
+	//
+	// 这段回调是在视图构建（主线程）里被 n.report 触发的，而关窗 + 建窗都会
+	// 再进主线程消息循环 —— 直接做会嵌套。丢到 goroutine 上，顺序仍然确定
+	// （先关后建）。
+	n.onFailed = func(err error) {
+		m.mu.Lock()
+		m.nativeOK, m.nativeChecked = false, true
+		m.mu.Unlock()
+		reason := nativeFailText(err)
+		n.suppressClose = true
+		go func() {
+			m.CloseNative()
+			m.reportFallback(reason)
+			if openErr := m.openWebView(o); openErr != nil {
+				// webview 也开不起来：这是真的失败，交给主窗提示。
+				m.mu.Lock()
+				cb := m.onFallback
+				m.mu.Unlock()
+				if cb != nil {
+					cb(actionFallbackText(openErr))
+				}
+			}
+		}()
+	}
+
+	m.mu.Lock()
+	m.native, m.win, m.minimize = n, nil, n.minimize
+	m.st = State{Speed: n.speed}
+	m.ended = false
+	m.mu.Unlock()
+
+	// 起播参数：位置 / 倍速 / 静音全部在回调接好之后下发一次（播放器默认从
+	// 0 起播、1 倍速、不静音）。放在最后，保证这一帧的状态回传有人接。
+	n.win.Update(func() {
+		pl.SetRate(n.speed)
+		pl.SetMuted(n.muted)
+		pl.SetVolume(n.volume)
+		if o.StartAt > 0 {
+			pl.Seek(time.Duration(o.StartAt * float64(time.Second)))
+		}
+		n.reported = time.Time{} // 下一帧立刻回传一次
+	})
+	return "", true
+}
+
+// switchNative 在已开着的原生窗里原地换集。
+func (m *Manager) switchNative(n *nativeWindow, o Options) error {
+	if n.win == nil || n.win.IsDestroyed() {
+		return fmt.Errorf("video: 原生视频窗已消失")
+	}
+	pl, err := openPlayer(o.Src)
+	if err != nil {
+		return err
+	}
+	n.win.Update(func() {
+		old := n.pl
+		n.pl = pl
+		n.title, n.startAt = o.Title, o.StartAt
+		n.speed = max(o.Speed, 0.5)
+		n.muted = o.Muted
+		n.endedFired = false
+		n.reported = time.Time{}
+		pl.SetRate(n.speed)
+		pl.SetMuted(n.muted)
+		pl.SetVolume(n.volume)
+		if o.StartAt > 0 {
+			pl.Seek(time.Duration(o.StartAt * float64(time.Second)))
+		}
+		if old != nil {
+			old.Close()
+		}
+	})
+	n.win.SetTitle(o.Title)
+	n.focus()
+	m.mu.Lock()
+	m.st = State{Speed: o.Speed}
+	m.ended = false
+	m.mu.Unlock()
+	return nil
+}
+
+// CloseNative 关掉原生窗（若有）。
+func (m *Manager) CloseNative() {
+	m.mu.Lock()
+	n := m.native
+	m.native, m.minimize = nil, nil
+	m.ended = false
+	m.mu.Unlock()
+	if n != nil {
+		n.close()
+	}
+}
+
+// reportFallback 告诉主窗「原生不可用，已落回 webview」。
+func (m *Manager) reportFallback(reason string) {
+	m.mu.Lock()
+	cb := m.onFallback
+	m.mu.Unlock()
+	if cb != nil {
+		cb(reason)
+	}
 }
 
 // switchTo 在已开着的弹窗里原地换集（不新建 webview 窗口）。
@@ -254,31 +512,59 @@ func (m *Manager) switchTo(w *mygo.Window, o Options) error {
 	return nil
 }
 
-// Close 关闭弹窗（若开着）。
+// Close 关闭弹窗（若开着）。两条路径都收：原生窗与 webview 互斥，但
+// 回退过程中可能短暂同时存在（原生刚关、webview 正在建），所以都清。
 func (m *Manager) Close() {
 	m.mu.Lock()
-	w := m.win
-	m.win, m.minimize = nil, nil
+	w, n := m.win, m.native
+	m.win, m.native, m.minimize = nil, nil, nil
 	m.ended = false
 	m.mu.Unlock()
+	if n != nil {
+		n.close()
+	}
 	if w != nil {
 		w.Close()
 	}
 }
 
-// SetSpeed 同步倍速到弹窗。
+// SetSpeed 同步倍速到弹窗（原生 / webview 两条路径都支持：原生走
+// VideoPlayer.SetRate，webview 走 playbackRate）。
 func (m *Manager) SetSpeed(v float64) {
 	m.mu.Lock()
-	w := m.win
+	w, n := m.win, m.native
 	m.mu.Unlock()
+	if n != nil {
+		n.setRate(v)
+		return
+	}
 	if w != nil {
 		w.Page().Eval(fmt.Sprintf("(()=>{const v=document.getElementById('v');if(v)v.playbackRate=%f;})()", v))
 	}
 }
 
 // Pause / Resume 供主窗控制弹窗（例如主窗按了空格）。
-func (m *Manager) Pause()  { m.eval("document.getElementById('v')?.pause()") }
-func (m *Manager) Resume() { m.eval("document.getElementById('v')?.play()") }
+func (m *Manager) Pause() {
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.pause()
+		return
+	}
+	m.eval("document.getElementById('v')?.pause()")
+}
+
+func (m *Manager) Resume() {
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.play()
+		return
+	}
+	m.eval("document.getElementById('v')?.play()")
+}
 
 // Seek 让弹窗跳到指定秒数。主窗底部进度条在视频弹窗打开时也要控制视频，
 // 而不是去 seek 已经暂停的音频引擎。
@@ -286,7 +572,24 @@ func (m *Manager) Seek(seconds float64) {
 	if seconds < 0 {
 		seconds = 0
 	}
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.seek(seconds)
+		return
+	}
 	m.eval(fmt.Sprintf("(()=>{const v=document.getElementById('v');if(v){v.currentTime=%f;}})()", seconds))
+}
+
+// SetMuted 同步静音（主窗静音时原生视频也要静音；webview 页面自己管）。
+func (m *Manager) SetMuted(muted bool) {
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.setMuted(muted)
+	}
 }
 
 func (m *Manager) eval(js string) {

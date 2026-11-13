@@ -114,6 +114,13 @@ sudo apt install ./bili-FM-3.1.19-linux-x86_64.deb
 
 > 需要 Ubuntu 24.04+（webkit2gtk-4.1）。Ubuntu 22.04 仅有 4.0 版本，不兼容预编译包。
 
+> **视频播放（可选）**：视频弹窗默认用系统媒体框架播放（Linux 上是 GStreamer），
+> 比内置 webview 省内存、音画同步由系统保证。要让它工作，Linux 需要
+> `gstreamer1.0-plugins-base`（`playbin`/`appsink`）与一个 H.264 解码器
+> （`gstreamer1.0-libav`，或 `gstreamer1.0-plugins-bad` 的 openh264）。
+> **没装也不影响看视频**：应用会自动回退到内置播放器并提示一次；也可以在
+> 「设置 → 原生视频播放」里手动关掉。
+
 ##### Fedora / RHEL / openSUSE
 
 一键安装脚本会自动使用 dnf、yum 或 zypper。手动安装示例：

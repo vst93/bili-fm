@@ -1494,7 +1494,7 @@ Windows/macOS 逐 tick 的 `SetIgnoreMouseEvents`）。
 | 更新器改进 | HTTP 429/5xx 按 `Retry-After` 重试、盘符根目录（`D:\`）的工作目录命名（#1529） | 我们走 `mygo.Updater`，这些是升级即生效的健壮性修复。 | **自动收益（无需改代码）** |
 | native modules（实验性） | Go 接口用 Swift/Rust/Zig 实现 | 本仓库没有需要跨语言实现的原生模块，也不引入额外工具链。 | **不采用（实验性、无需求）** |
 
-`ui/video` 原生视频替代 webview —— **下一轮独立评估**。
+`ui/video` 原生视频替代 webview —— **已评估并落地**，见下一节。
 
 ### 门槛与后续跟进
 
@@ -1505,3 +1505,124 @@ Windows/macOS 逐 tick 的 `SetIgnoreMouseEvents`）。
   ③ macOS 最小化主窗后点 Dock 图标的恢复。
 - 已知代价（记录在案，本轮不改）：系统注销/关机路径不走 `c.quit()`，
   最多丢不到 5s 的本地断点，云端进度那一笔不上报。
+
+## `ui/video` 原生视频评估（微轮 D，2026-11-14）
+
+**结论：可行，且已实施「原生为主 + webview 回退」。** 本机无头实测（Linux +
+GStreamer 1.x）跑通真实 B 站流：起播 368ms、seek 到 60s 落地、2 倍速生效、
+640×360 非黑像素 225998/230400（99.7%）、音量/静音可下发。
+
+### 关键发现：不需要 mux DASH
+
+`internal/bilibili` 的 `GetUrlByCid` 走的是 playurl 的 **`platform=html5`**
+分支，返回 `data.durl[]` —— 这是 **渐进式 MP4**（视频 + 音频复用在一个
+`mdat` 里），不是 DASH。ffprobe 核实（BV1bkW86bEij / cid 43466689456）：
+
+```
+video h264 High 30 640x360 30/1
+audio aac  LC        2ch
+format mov,mp4,m4a,3gp,3g2,mj2 152.996s 9634640B
+```
+
+也就是说：现在 webview 里 `<video src=...>` 播的就是「自带音轨的单一媒体源」，
+正好是 `ui/video` 吃的形状。**音视频分离只发生在 `internal/media`（纯 Go 音频
+引擎，走 DASH 音轨）**，与视频弹窗是两条独立的路。
+
+所以 §2 里的三条路径，实际只在「拿不到 durl、只能拿到 DASH」时才需要：
+
+| 路径 | 音画同步 | seek | 倍速 | 音量/静音 | 结论 |
+|---|---|---|---|---|---|
+| **A. durl 渐进式 MP4 直接交给 `ui/video`**（本轮采用） | 框架内建（单一时间轴，一个引擎既解码又出声） | `VideoPlayer.Seek`，Range 续传 | `SetRate`（GStreamer 挂 `scaletempo` 保音高；MF 设 `PlaybackRate`；AVF 设 `rate`） | `SetVolume` / `SetMuted`，三平台原生实现 | **采用**：零 mux 成本，四行为全由框架保证 |
+| B. 自己 mux 成 fMP4 再交给 `ui/video` | 同 A（mux 后仍单一时间轴），但 **mux 本身要重写时间戳**：DASH 两条轨的 `sidx` 起点不一致，必须按 `tfdt`/`baseMediaDecodeTime` 对齐，错一帧就是长期唇音不同步 | 要先在临时文件里建索引，否则 seek 只能从头解 | 同 A | 同 A | **不采用**：`internal/media/fmp4.go` 只解**音轨**（AAC access unit + `sidx`），没有视频轨解析，也没有 muxer；补一套「视频轨解析 + muxer + 时间戳对齐」是数千行 + 一类新的 A/V 漂移 bug，换来的只是「在 durl 拿不到时也能原生播」这个罕见场景 |
+| C. 视频 `ui/video` + 音频继续走 oto | **两条时钟**：GStreamer/MF/AVF 各有自己的播放时钟，oto 是另一个。要同步只能「以视频位置为准，每 N 帧把音频引擎 `Seek` 一次」——每次 seek 都会断音（`internal/media` 的 seek 要重建解码位置），实测这类补偿在倍速下必然产生周期性咔哒 | 两边都要 seek，且要重新对齐 | 两边都要变速，且 WSOLA 与 `scaletempo` 的相位不同 → 持续漂移 | 两套音量，静音要下发两次 | **不采用**：同步是「猜」出来的，而 A 是框架保证的 |
+
+结论一句话：**B 站这条链路根本不需要 mux**，A 是唯一既正确又便宜的路径。
+
+### 回退（必须，且用户可感知）
+
+四道闸门，任一命中就走原来的 webview：
+
+1. **设置项**：设置菜单新增「原生视频播放」开关（默认开，键
+   `nativeVideoPlayer`，只有明确写 `"false"` 才关 —— 老版本没有这个键，
+   升级后不会被静默降级）。关掉立即生效（`Manager.SetNativeEnabled`），不用重启。
+2. **缺媒体框架**：`ui/video.OpenURL` 返回 `ErrUnsupported`（Linux 缺
+   GStreamer 1.x / `gst-plugins-base` 的 playbin+appsink，或系统版本太老）
+   → 闩锁 + toast：*「系统缺少视频播放组件（Linux 需要 GStreamer 1.x +
+   gst-plugins-base），已改用内置播放器」*。
+3. **起播失败**（解码器缺失 / 流断了 / 起播超时）→ `onFailed` 关原生窗、
+   toast 带原因、**同一集**在 webview 里重开（`suppressClose` 保证主窗不会
+   误做「关窗→音视接力」）。
+4. **地址不合法**（空 / 自定义协议）→ 静默走 webview（不是故障，不 toast）。
+
+闩锁（`nativeOK`/`nativeChecked`）保证一次判定失败后本次运行不再反复「先黑
+一下再回退」。**代价**：修好 GStreamer 后要重启应用才会重试原生路径 ——
+设置项开关可以立即重置闩锁，这就是那条手动通道。
+
+### 代价
+
+| 项 | 值 |
+|---|---|
+| 新增 Go 依赖 | **0**（`ui/video` 在 mygo v0.9.0 里，已依赖；不 import 的包不链接任何代码） |
+| 新增运行时依赖 | **仅 Linux**：`libgstreamer-1.0.so.0` + `libgstapp-1.0.so.0` + `libgstvideo-1.0.so.0` + 插件 `playbin`/`appsink`（`gst-plugins-base`）+ 实际解码器（`gst-libav` 或 `gst-plugins-bad` 的 `openh264`/VA-API）。纯 dlopen，**不需要 CGO、不需要编译期头文件** |
+| 安装包体积 | **不变**（不静态链接 GStreamer，只是运行时 dlopen）。用户机器上没装 = 回退，不是启动失败 |
+| 启动路径复杂度 | +1 次 dlopen 探测（只在第一次开视频时）+ 一次 `OpenURL`（异步，不阻塞界面） |
+| 内存 | 原生窗无 WebView2 那套进程（Windows 实测 webview 弹窗 ~450MB 增量）。原生窗只有解码器 + 一帧纹理。**这是本轮的第二个动机**（第一个是音画同步由框架保证） |
+| 平台退化 | Linux：GNOME 默认不装 gst-libav → 能起播但**没有 H.264 解码器** → 命中闸门 3 回退（可感知，不是黑屏）。Ubuntu 24.04 的 `gstreamer1.0-libav` 不在默认安装里，README 的 Linux 依赖说明需要补一句（见下「需要跟进」） |
+
+### 已无头验证 / 需要真机确认
+
+**已无头验证**（`go test ./internal/video/`，Linux + GStreamer）：
+
+- `TestNativeEligible` / `TestSpeedStep` / `TestSeekTarget` / `TestClockText` /
+  `TestNativeFailText`：地址判据、倍速档位循环（与主窗 `speedOptions` 同值）、
+  进度条夹取、时间文案、两种失败文案。
+- `TestManagerFallbackLatch` / `TestManagerFallbackNotifies` /
+  `TestManagerNativeActive`：回退闩锁、用户提示回调、状态查询。
+- `TestNativePlaysRGB`：**真解码**（mygo 的 rgb.mp4，H.264 + AAC）——
+  起播、首帧像素为红、seek 到 0.9s 落地、`SetRate`/`SetVolume`/`SetMuted`
+  真的下发（不是空实现）、时长非零。
+- `TestNativeViewControls` / `TestNativeViewSeek` / `TestNativeViewEndedReplaysFromZero`：
+  渲染原生窗视图（`ui.NewTester`），点「暂停」/「倍速」/「静音」/进度条都真的
+  调到播放器；播完再点播放先 `Seek(0)`（否则 AVF 停在末尾是空操作）。
+- `TestNativePlaysRealBili`（`BILI_FM_TEST_VIDEO_URL=…` 时启用）：**真实 B 站流**
+  —— 640×360、时长 2m33s、seek 到 60s 落地。
+- `TestSettingsMenuNativeVideoToggle`（`internal/view`）：设置项存在、点击回调、
+  菜单不收起、默认开。
+- `TestPrefNativeVideoDefaultOn`（根包）：`""`/`"true"` → 开，`"false"` → 关。
+
+**需要真机确认**：
+
+1. **Windows / macOS 的音画同步与起播**：本机只有 Linux，Media Foundation 与
+   AVFoundation 的引擎只做了交叉编译验证。
+2. **Linux 上的实际解码器覆盖**：本机 `gst-inspect-1.0` 有 `avdec_h264` /
+   `openh264dec` / `vah264dec`（274 插件）。GNOME/KDE 默认安装可能只有
+   `gst-plugins-base` → 命中回退。需要在「干净 Ubuntu 24.04」「干净 Fedora」
+   各跑一次。
+3. **倍速下的音高**：Linux 用 `scaletempo`（框架内建），macOS 的
+   `AVPlayer.rate` 在 0.5x/2x 的音高行为、Windows 的 `PlaybackRate` 是否需要
+   `MFPROPERTY` 才保音高 —— 都要人耳听。
+4. **视频窗的观感**：标题栏悬停唤出（顶部 36px）、控件条的玻璃/暗底、拖动区、
+   三平台的窗口阴影与圆角。无头测试只能证明控件存在且接线正确。
+5. **全屏 / 画中画 / 系统媒体键**：本轮**没有**接（webview 路径靠浏览器自带，
+   原生路径需要自己接 `SetFullScreen` 与系统媒体中心）。这是已知功能差集，
+   见下。
+
+### 功能差集（相对 webview，明确不做）
+
+| 功能 | webview | 原生 | 说明 |
+|---|---|---|---|
+| 弹幕覆盖层 | 页面 CSS 可叠 | 无 | 本轮不做（需求里明确排除「弹幕叠加优化」） |
+| 画中画 / 系统媒体键 | 浏览器自带 | 无 | 后续：接 `SetFullScreen` + `mediacenter`（主窗已有） |
+| WebM / VP9 | 有 | 视系统解码器 | 本仓库只播 B 站 MP4，不受影响 |
+| 内嵌字幕轨 | 浏览器渲染 | 无 | B 站字幕走 `player_extra.go` 的独立字幕窗，与弹窗无关 |
+
+### 上游需要补什么（如果要继续收敛）
+
+1. `ui/video` 目前**没有**「播放中切换音轨 / 字幕轨」与「全屏」API。前者我们
+   不需要（音轨在 `internal/media`），后者要自己调 `Window.SetFullScreen` +
+   自绘控件（已做）。
+2. `VideoPlayer` 没有暴露 `Buffering`（`ui.VideoPlayer` 有 `Buffering()`，但
+   `ui/video` 的引擎把 `media.Buffering` 状态吞在内部）。缓冲条只能靠
+   `Ready()` 的翻转近似 —— 本轮没画缓冲条。
+3. GStreamer 的 `appsink` 路径是「拉 NV12 到 Go 内存再交给渲染器」，**没有**
+   用 `GLMemory`/`dmabuf`。4K 下会有一次全帧拷贝；360P 无感。

@@ -317,3 +317,37 @@ func TestSettingsMenuPlaybackToggles(t *testing.T) {
 		t.Fatal("切换播放偏好后设置菜单不应收起")
 	}
 }
+
+// TestSettingsMenuNativeVideoToggle 钉住「原生视频播放」开关：
+//
+//   - 默认开（老版本没有这个键时也必须是开，否则升级后所有人被静默降级）；
+//   - 点一下回调触发、菜单不收起（与另外三个播放偏好同一套交互）；
+//   - 关掉后 App.NativeVideo 为假 —— 主程序据此调 vid.SetNativeEnabled。
+func TestSettingsMenuNativeVideoToggle(t *testing.T) {
+	a, tst := settingsProbe(t, 12)
+	if !a.NativeVideo {
+		t.Fatal("原生视频播放应默认开启")
+	}
+	got := 0
+	a.Act.ToggleNativeVideo = func() { got++; a.NativeVideo = !a.NativeVideo }
+	if err := tst.Click("设置"); err != nil {
+		t.Fatalf("点设置键失败：%v", err)
+	}
+	tst.Frame()
+	if _, ok := tst.Find("设置：原生视频播放"); !ok {
+		t.Fatalf("设置菜单里找不到「原生视频播放」开关（现有：%v）", tst.Texts())
+	}
+	if err := tst.Click("设置：原生视频播放"); err != nil {
+		t.Fatalf("点原生视频播放开关失败：%v", err)
+	}
+	tst.Frame()
+	if got != 1 {
+		t.Fatalf("开关回调 %d 次，应为 1", got)
+	}
+	if a.NativeVideo {
+		t.Error("点一次后 NativeVideo 应为假")
+	}
+	if !a.ShowSettings {
+		t.Error("切换原生视频开关后设置菜单不应收起")
+	}
+}

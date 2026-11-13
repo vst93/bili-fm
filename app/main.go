@@ -872,6 +872,7 @@ func (c *controller) wireActions() {
 		MoveLyricsDrag:           c.moveLyricsDrag,
 		EndLyricsDrag:            c.endLyricsDrag,
 		ToggleHeat:               c.toggleHeat,
+		ToggleNativeVideo:        c.toggleNativeVideo,
 		PersistFollow:            c.persistFollowPrefs,
 		ToggleLyricsConfig:       c.toggleLyricsConfig,
 		UpdateLyricsConfig:       c.updateLyricsConfig,
@@ -4032,6 +4033,17 @@ func (c *controller) wireVideo() {
 	// 弹窗页面调 Video.Quit 回到这里。回调跑在窗口事件 goroutine 上，丢回主线程。
 	c.vid.OnQuit(func() {
 		c.app.Win.Update(func() { c.quit() })
+	})
+	// 原生视频（ui/video）不可用时回退到 webview：必须让用户可感知 —— 否则
+	// 「为什么这台机器内存高 / 为什么这次是另一个界面」会变成玄学。用现有
+	// 的 toast 风格提示一次（Manager 里已闩锁，本次运行不会反复弹）。
+	c.vid.OnFallback(func(reason string) {
+		if reason == "" {
+			return
+		}
+		runOnUI(c.app, !c.app.Hidden(), func() {
+			c.app.NotifyType("info", reason)
+		})
 	})
 }
 
