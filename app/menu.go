@@ -62,9 +62,9 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			mygo.Separator(),
 			c.menuCheckbox("桌面字幕", c.app != nil && c.app.LyricsEnabled, c.menuToggleLyrics),
 			// 鼠标穿透：桌面字幕窗挡住下面窗口的鼠标手势时用得上。入口
-			// 必须在主窗 —— 穿透后字幕窗自己的齿轮与拖动都不响应。
-			// mygo 0.8.2 起 Linux 的 SetIgnoreMouseEvents 真的生效（见
-			// lyrics.go 的 syncLyricsClickThrough）。
+			// 必须在主窗 —— 穿透后字幕窗自己的设置键之外都不响应。
+			// 三平台统一走 mygo 的 Window.SetInputRegion（见
+			// lyrics_clickthrough.go 的 lyricsApplyClickThrough）。
 			c.menuCheckbox("字幕鼠标穿透", c.app != nil && c.app.LyricsClickThrough, c.menuToggleLyricsClickThrough),
 			c.menuCheckbox("弹幕热力", c.app != nil && c.app.HeatOn, c.menuToggleHeat),
 			c.menuCheckbox("顺着听", c.app != nil && c.app.RadioOn, c.menuToggleRadio),

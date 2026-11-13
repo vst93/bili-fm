@@ -128,9 +128,9 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 				}
 			})
 			// 鼠标穿透：字幕窗盖住下面窗口的鼠标手势时用得上。入口只放在
-			// 主窗（穿透后字幕窗只剩设置键可点）。mygo 0.8.2
-			// 起 Linux 的 SetIgnoreMouseEvents 不再是空实现，这条开关在三
-			// 平台一致生效（见 app/lyrics.go）。
+			// 主窗（穿透后字幕窗只剩设置键可点）。三平台统一走 mygo 的
+			// Window.SetInputRegion：窗口只在设置键那一块收点击，其余部分
+			// 让给下面的窗口（见 app/lyrics_clickthrough.go）。
 			a.settingsToggle(c, "字幕鼠标穿透", a.LyricsClickThrough, func() {
 				if a.Act.ToggleLyricsClickThrough != nil {
 					a.Act.ToggleLyricsClickThrough()

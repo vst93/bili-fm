@@ -169,10 +169,18 @@ type controller struct {
 	lyricsDragSuspended bool
 	lyricsDragDX        int
 	lyricsDragDY        int
-	// lyricsPollStop 是「指针在不在字幕设置键上」轮询的停止信号；
-	// lyricsIgnoring 是字幕窗**当前**的穿透状态（避免每个 tick 重复设同一个值）。
+	// lyricsPollStop 是「指针在不在字幕设置键上」轮询的停止信号。
 	lyricsPollStop chan struct{}
+	// lyricsIgnoring 是字幕窗**当前**的整窗穿透状态（回退路径用；避免每个
+	// tick 重复设同一个值）。
 	lyricsIgnoring bool
+	// lyricsRegionOn 表示字幕窗此刻走的是**输入区域**那条路径（mygo 的
+	// SetInputRegion），而不是整窗穿透 + 轮询的回退路径。
+	// lyricsRegionW / lyricsRegionH 是上一次下发区域时的窗口尺寸：尺寸变了要
+	// 重算（设置键跟着右上角走）。
+	lyricsRegionOn bool
+	lyricsRegionW  float32
+	lyricsRegionH  float32
 }
 
 // titleBarStyleFor 返回主窗该用的 TitleBarStyle。

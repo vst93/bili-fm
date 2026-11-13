@@ -916,10 +916,11 @@ type App struct {
 	// lyricsDragIdle 数松手后已经过了几帧，到 2 就清掉标记（见 lyrics.go）。
 	lyricsDragMoved bool
 	lyricsDragIdle  int
-	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口
-	//（mygo 0.8.2 起 Linux 也真的生效，见 lyrics.go 的 syncLyricsClickThrough）。
-	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗自己点不动，
-	// 不能再把「关掉穿透」的入口放在它身上。
+	// LyricsClickThrough 为真时桌面字幕窗把指针事件穿透给下面的窗口，只有
+	// 设置键那一块仍收点击（mygo 的 Window.SetInputRegion，三平台同一个 API；
+	// 见 app/lyrics_clickthrough.go）。
+	// 开关放在主窗的设置菜单 / macOS 原生菜单里：穿透后字幕窗只有设置键可点，
+	// 不宜把「关掉穿透」的唯一入口放在它身上。
 	LyricsClickThrough bool
 	// LyricsConfigAbove 为真时设置面板画在预览上方（窗口贴近屏幕底部时
 	// 向上展开），否则画在下方。

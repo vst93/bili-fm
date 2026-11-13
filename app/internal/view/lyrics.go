@@ -512,7 +512,7 @@ func (a *App) lyricsRememberRow(c *ui.Context) {
 //
 // 行为与主窗设置菜单 / macOS 原生菜单里的那一项同源（同一个
 // Act.ToggleLyricsClickThrough）：穿透打开时**设置键仍然可点**（见 app/lyrics.go
-// 的 lyricsGearShapeRect 与输入区域 / 轮询），所以从字幕窗本身就能把它关掉。
+// 的 lyricsGearShapeRect 与穿透时的输入区域），所以从字幕窗本身就能把它关掉。
 func (a *App) lyricsClickThroughRow(c *ui.Context) {
 	b := ui.ButtonBase(c.Key("lyrics-click-through")).FillWidth().Height(30).
 		Radius(6).Role(ui.RoleSwitch).Label("鼠标穿透").Tooltip("鼠标穿透").

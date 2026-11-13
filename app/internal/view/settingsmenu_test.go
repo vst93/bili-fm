@@ -256,9 +256,9 @@ func TestIncognitoToggleA11y(t *testing.T) {
 
 // TestSettingsMenuClickThroughToggle 钉住设置菜单里的「字幕鼠标穿透」开关。
 //
-// mygo 0.8.2 起 Linux 的 SetIgnoreMouseEvents 不再是空实现（见 app/lyrics.go），
-// 而主窗菜单是这条开关的**唯一入口** —— 穿透后字幕窗自己收不到鼠标，齿轮
-// 与拖动都不响应，不能再把关闭入口放在它身上。
+// 穿透三平台统一走 mygo 的 Window.SetInputRegion（见 app/lyrics_clickthrough.go），
+// 而主窗菜单是这条开关的**唯一入口** —— 穿透后字幕窗只有设置键收鼠标，不宜把
+// 关闭入口只放在它身上。
 func TestSettingsMenuClickThroughToggle(t *testing.T) {
 	a, tst := settingsProbe(t, 12)
 	got := 0
