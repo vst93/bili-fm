@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // Options 描述要打开的视频。
@@ -36,6 +38,9 @@ type Options struct {
 	Speed float64
 	// Muted 表示主窗是静音状态。
 	Muted bool
+	// Theme 是主窗这一帧的主题令牌：原生窗的标题栏与控件条按它画（深浅两态、
+	// 高对比、减少透明度都跟着主窗走），见 internal/view/videochrome.go。
+	Theme view.Theme
 	// Parent 是主窗，用于让弹窗跟随。
 	Parent *mygo.Window
 }

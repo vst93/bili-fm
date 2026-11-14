@@ -33,39 +33,6 @@ func TestNativeEligible(t *testing.T) {
 	}
 }
 
-// TestSpeedStep 钉住倍速键的循环档位：与主窗 speedOptions 一致，末档回到
-// 首档；未命中的值落回首档（而不是原地不动，否则按键像没反应）。
-func TestSpeedStep(t *testing.T) {
-	opts := []float64{0.5, 0.75, 1, 1.25, 1.5, 2, 3}
-	for i, v := range opts {
-		want := opts[(i+1)%len(opts)]
-		if got := speedStep(v, opts); got != want {
-			t.Errorf("speedStep(%v)=%v，想要 %v", v, got, want)
-		}
-	}
-	if got := speedStep(1.9, opts); got != 0.5 {
-		t.Errorf("未命中档位应回到首档，得到 %v", got)
-	}
-	if got := speedStep(1, nil); got != 1 {
-		t.Errorf("空档位应回 1，得到 %v", got)
-	}
-	if !slicesEqual(nativeSpeeds, opts) {
-		t.Errorf("原生窗档位 %v 与主窗 %v 不一致", nativeSpeeds, opts)
-	}
-}
-
-func slicesEqual(a, b []float64) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // TestSeekTarget 钉住进度条取值夹取：负值归 0、超出时长夹到时长、时长未知
 // 时原样（不能把「还没读到 duration」当成 0 秒把人拽回开头）。
 func TestSeekTarget(t *testing.T) {
@@ -79,20 +46,6 @@ func TestSeekTarget(t *testing.T) {
 	for _, c := range cases {
 		if got := seekTarget(c.v, c.dur); got != c.want {
 			t.Errorf("seekTarget(%v,%v)=%v，想要 %v", c.v, c.dur, got, c.want)
-		}
-	}
-}
-
-// TestClockText 钉住时间文案（与 webview 页面/主窗播放栏同一种 m:ss）。
-func TestClockText(t *testing.T) {
-	cases := map[float64]string{
-		0: "0:00", 9.9: "0:09", 61: "1:01", 599: "9:59",
-		3600: "1:00:00", 3725: "1:02:05",
-		-1: "0:00",
-	}
-	for in, want := range cases {
-		if got := clockText(in); got != want {
-			t.Errorf("clockText(%v)=%q，想要 %q", in, got, want)
 		}
 	}
 }
@@ -306,16 +259,17 @@ func TestNativePlaysRealBili(t *testing.T) {
 // stubPlayer 是 playerAPI 的纯逻辑桩：无头测试不碰系统媒体框架，也能验证
 // 视图把「播放/暂停/倍速/静音/seek」都真的下发到了播放器。
 type stubPlayer struct {
-	playing bool
-	ended   bool
-	ready   bool
-	dur     time.Duration
-	pos     time.Duration
-	rate    float64
-	vol     float64
-	muted   bool
-	seeks   []time.Duration
-	closed  bool
+	playing   bool
+	ended     bool
+	ready     bool
+	buffering bool
+	dur       time.Duration
+	pos       time.Duration
+	rate      float64
+	vol       float64
+	muted     bool
+	seeks     []time.Duration
+	closed    bool
 }
 
 func (s *stubPlayer) Play()                   { s.playing, s.ended = true, false }
@@ -323,6 +277,7 @@ func (s *stubPlayer) Pause()                  { s.playing = false }
 func (s *stubPlayer) Playing() bool           { return s.playing }
 func (s *stubPlayer) Ended() bool             { return s.ended }
 func (s *stubPlayer) Ready() bool             { return s.ready }
+func (s *stubPlayer) Buffering() bool         { return s.buffering }
 func (s *stubPlayer) Err() error              { return nil }
 func (s *stubPlayer) Duration() time.Duration { return s.dur }
 func (s *stubPlayer) Position() time.Duration { return s.pos }
@@ -342,7 +297,7 @@ func TestNativeViewControls(t *testing.T) {
 	tt := ui.NewTester(n.view, 640, 360)
 	tt.Frame()
 
-	for _, want := range []string{"暂停", "倍速", "静音", "关闭视频", "1x"} {
+	for _, want := range []string{"暂停", "静音", "关闭视频", "1x", "弹幕", "全屏", "音量"} {
 		if !tt.HasText(want) {
 			t.Errorf("控件条缺少 %q（现有：%v）", want, tt.Texts())
 		}
@@ -362,7 +317,8 @@ func TestNativeViewControls(t *testing.T) {
 		t.Error("点了暂停，播放器仍在播放")
 	}
 
-	if err := tt.Click("倍速"); err != nil {
+	// 倍速键的文案就是档位本身（1x），点它循环到下一档。
+	if err := tt.Click("1x"); err != nil {
 		t.Fatalf("点倍速失败：%v", err)
 	}
 	tt.Frame()
@@ -386,8 +342,8 @@ func TestNativeViewSeek(t *testing.T) {
 	n := &nativeWindow{pl: pl, title: "x", speed: 1, volume: 1}
 	tt := ui.NewTester(n.view, 640, 360)
 	tt.Frame()
-	// 在进度条上按下（中点略偏右）再松手：SliderBase 的拖拽输入会改
-	// n.seekValue，Changed 时视图里 seek 一次。
+	// 在进度条上按下（中点略偏右）再松手：SliderBase 的拖拽输入会改外壳的
+	// seek 值，Changed 时 seek 一次。
 	rect, ok := tt.Find("播放进度")
 	if !ok {
 		t.Fatalf("找不到进度条（现有：%v）", tt.Texts())
@@ -411,6 +367,8 @@ func TestNativeViewSeek(t *testing.T) {
 func TestNativeViewEndedReplaysFromZero(t *testing.T) {
 	pl := &stubPlayer{playing: false, ended: true, ready: true, dur: 60 * time.Second, pos: 60 * time.Second, rate: 1, vol: 1}
 	n := &nativeWindow{pl: pl, title: "x", speed: 1, volume: 1}
+	// 已经报过播完：重播必须把这个闩复位，否则重播到结尾不会再报一次。
+	n.endedFired = true
 	tt := ui.NewTester(n.view, 640, 360)
 	tt.Frame()
 	if !tt.HasText("播放") {
@@ -425,5 +383,8 @@ func TestNativeViewEndedReplaysFromZero(t *testing.T) {
 	}
 	if !pl.playing {
 		t.Error("播完再点播放应重新开始播放")
+	}
+	if n.endedFired {
+		t.Error("重播后 endedFired 没有复位，重播到结尾不会再报播完")
 	}
 }

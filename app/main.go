@@ -4154,6 +4154,10 @@ func (c *controller) openVideo() {
 	c.audio().Pause()
 	c.app.Playing = c.audioPlaying()
 	c.app.Win.Update(func() {})
+	// 主题令牌在 UI 线程上取一份快照交给弹窗：a.Theme 由 RefreshTheme 在 UI
+	// 线程改写，后台 goroutine 直接读就是数据竞争（与 Pos/Speed 那几项同一
+	// 处理方式）。
+	theme := c.app.Theme
 	go func() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
@@ -4175,6 +4179,9 @@ func (c *controller) openVideo() {
 			// 见 frontend/video.html 的起播策略）。
 			Muted:  c.app.Muted || c.app.Volume <= 0,
 			Parent: c.app.Win,
+			// 原生窗的标题栏与控件条按主窗这一帧的令牌画（深浅两态、高对比、
+			// 减少透明度都跟着主窗走），见 internal/view/videochrome.go。
+			Theme: theme,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			runOnUI(c.app, !c.app.Hidden(), func() {

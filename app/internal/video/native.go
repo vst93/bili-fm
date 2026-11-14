@@ -21,12 +21,13 @@ package video
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
+
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // playerAPI 是原生窗驱动播放器所需的最小面：*ui.VideoPlayer 满足它，测试里
@@ -37,6 +38,7 @@ type playerAPI interface {
 	Playing() bool
 	Ended() bool
 	Ready() bool
+	Buffering() bool
 	Err() error
 	Duration() time.Duration
 	Position() time.Duration
@@ -55,6 +57,7 @@ func (u uiPlayer) Pause()                  { u.p.Pause() }
 func (u uiPlayer) Playing() bool           { return u.p.Playing() }
 func (u uiPlayer) Ended() bool             { return u.p.Ended() }
 func (u uiPlayer) Ready() bool             { return u.p.Ready() }
+func (u uiPlayer) Buffering() bool         { return u.p.Buffering() }
 func (u uiPlayer) Err() error              { return u.p.Err() }
 func (u uiPlayer) Duration() time.Duration { return u.p.Duration() }
 func (u uiPlayer) Position() time.Duration { return u.p.Position() }
@@ -69,6 +72,11 @@ type nativeWindow struct {
 	win *mygo.Window
 	pl  playerAPI
 
+	// chrome 是窗口外壳（标题栏 / 控件条 / 全屏 / 快捷键），与主窗播放栏
+	// 共用同一套键族与令牌，见 internal/view/videochrome.go。
+	chrome *view.VideoChrome
+	theme  view.Theme
+
 	title   string
 	startAt float64
 	speed   float64
@@ -76,8 +84,6 @@ type nativeWindow struct {
 	volume  float64
 
 	// 界面态（只在主线程 / 视图构建里读写）。
-	seekValue  float64
-	dragging   bool
 	reported   time.Time
 	endedFired bool
 	// suppressClose 关窗时不回传 onClose（回退到 webview 时用：那一集马上要在
@@ -113,27 +119,6 @@ func nativeEligible(o Options) bool {
 	return false
 }
 
-// speedStep 返回 speed 在倍速档位里的下一档（循环），没有命中时回 1.0。
-// 抽成纯函数便于无头测试（倍速按钮的行为完全由它决定）。
-func speedStep(speed float64, options []float64) float64 {
-	if len(options) == 0 {
-		return 1
-	}
-	for i, v := range options {
-		if abs(v-speed) < 0.001 {
-			return options[(i+1)%len(options)]
-		}
-	}
-	return options[0]
-}
-
-func abs(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
 // seekTarget 把进度条的值夹进 [0, dur]，dur 未知时原样返回（秒）。
 func seekTarget(value, dur float64) float64 {
 	if value < 0 {
@@ -143,19 +128,6 @@ func seekTarget(value, dur float64) float64 {
 		return dur
 	}
 	return value
-}
-
-// clockText 把秒格式化成播放器的时间文本（m:ss / h:mm:ss）。
-func clockText(sec float64) string {
-	if sec < 0 || sec != sec {
-		sec = 0
-	}
-	t := int(sec)
-	h, m, s := t/3600, (t%3600)/60, t%60
-	if h > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
-	}
-	return fmt.Sprintf("%d:%02d", m, s)
 }
 
 // openPlayer 在主线程上打开一个播放器：ui/video 的引擎要在应用主线程上建
@@ -186,6 +158,7 @@ func openPlayer(src string) (playerAPI, error) {
 func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 	n := &nativeWindow{
 		pl:      pl,
+		theme:   o.Theme,
 		title:   o.Title,
 		startAt: o.StartAt,
 		speed:   max(o.Speed, 0.5),
@@ -209,6 +182,12 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		pl.Close()
 		return nil
 	}
+	// 全屏是异步的（macOS 的 toggleFullScreen 动画、GTK 的 window-state-event、
+	// Wayland 合成器的答复）。用户也可能用系统手势进出，所以状态以窗口为准，
+	// 变化时补一帧让外壳按新的全屏状态重排（见 view.VideoChrome 的
+	// videoFullScreen.observe）。
+	n.win.OnEnterFullScreen(func() { n.invalidate() })
+	n.win.OnLeaveFullScreen(func() { n.invalidate() })
 	n.win.OnClosed(func() {
 		// 先取状态再关播放器：关掉之后 Position/Duration 都归零，主窗拿到
 		// 的「关窗时停在几秒」就成了 0（关窗后要继续听这一集，见 main.go
@@ -222,6 +201,13 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		}
 	})
 	return n
+}
+
+// invalidate 让窗口重画一帧（外壳每帧读 IsFullScreen 校正状态）。
+func (n *nativeWindow) invalidate() {
+	if n.win != nil {
+		n.win.Invalidate()
+	}
 }
 
 // closeState 关窗收尾：取这一刻的播放状态，再关掉**当前**播放器。
@@ -352,164 +338,69 @@ func (n *nativeWindow) focus() {
 
 // ---------------------------------------------------------------- 视图
 
-// 控件尺寸（DIP）。与主窗播放栏的风格一致：小键 28、进度条 6、底栏 44。
-const (
-	nativeBarH      float32 = 36
-	nativeControlsH float32 = 44
-	nativeKey       float32 = 28
-	nativeSeekH     float32 = 18
-)
-
-// view 画出原生视频窗：画面铺满，顶部自绘标题栏（悬停顶部条唤出，与原版
-// playerVideo.tsx 的 48px 热区同一意图），底部一条控件（播放/暂停、时间、
-// 进度、倍速、静音、音量、关闭）。
+// view 画出原生视频窗。界面全在 view.VideoChrome 里：那里与主窗播放栏共用
+// 同一套键族（28×28、圆角、悬停/按下/激活、tooltip、主题令牌）、同一份进度条
+// 绘制代码、以及自动隐藏 / 全屏 / 快捷键三套状态机。这里只做两件事：
 //
-// 为什么标题栏要「隐去」：视频窗是无边框的，常驻一条深色栏会压住画面顶部
-// （原版也是默认隐去、鼠标进入顶部热区才唤回）。这里靠「栏自己在静置时不透明度
-// 为 0、但仍参与命中测试」实现唤出 —— 指针进到顶部 36px 就 Hovered() 为真。
+//  1. 把窗口自己持有的状态（播放器、倍速、音量、静音）同步给外壳 —— 主窗的
+//     音量键 / 倍速菜单也会改它们，两边必须同源；
+//  2. 每帧把状态回传主窗（约每秒一次，见 report）。
 func (n *nativeWindow) view(c *ui.Context) {
-	c.SetTheme(ui.DarkTheme())
-	root := c.Root()
-	root.Background(ui.Hex("#000000"))
-	n.bindKeys(c)
-
-	dur := n.pl.Duration().Seconds()
-	pos := n.pl.Position().Seconds()
-	if !n.dragging {
-		n.seekValue = pos
+	ch := n.chromeFor()
+	ch.Title = n.title
+	// 注意别把 nil 装进接口：`ch.Win = n.win` 在 n.win 为 nil 时会得到一个
+	// 「非 nil 的接口装着 nil 指针」，外壳的 `w == nil` 判据就失效了，
+	// 接着调 IsFullScreen 会直接卡死（测试里没有真窗口）。
+	if n.pl != nil {
+		ch.Pl = n.pl
 	}
-
-	ui.Column(c).Fill().Children(func() {
-		ui.Video(c, n.player()).Fill().Fit(ui.Contain)
-
-		// 顶部标题栏：拖动区（DragWindow）+ 标题 + 关闭键。静置时全透明，
-		// 指针进来（栏自身命中）才显形。
-		bar := ui.Row(c).Absolute().Left(0).Right(0).Top(0).Height(nativeBarH).
-			Padding(0, 10).AlignItems(ui.Center).Gap(10).DragWindow()
-		shown := bar.Hovered()
-		if shown {
-			bar.Background(ui.Hex("#0c1420").Alpha(0.72))
-		} else {
-			bar.Opacity(0)
-		}
-		bar.Children(func() {
-			ui.Text(c, n.title).FontSize(12).Grow(1).TextColor(ui.Hex("#e8eef7"))
-			if shown {
-				closeKey(c, "关闭", func() { n.close() })
-			}
-		})
-
-		// 底部控件条：原生窗没有浏览器的原生控件，全靠这一条，所以常驻。
-		ui.Row(c).Absolute().Left(0).Right(0).Bottom(0).Height(nativeControlsH).
-			Padding(8, 12).AlignItems(ui.Center).Gap(10).
-			Background(ui.Hex("#0c1420").Alpha(0.82)).Children(func() {
-			label := "播放"
-			if n.pl.Playing() {
-				label = "暂停"
-			}
-			if b := ui.Button(c, label).Size(52, nativeKey).FontSize(12); b.Clicked() {
-				switch {
-				case n.pl.Playing():
-					n.pl.Pause()
-				case n.pl.Ended():
-					n.endedFired = false
-					n.pl.Seek(0)
-					n.pl.Play()
-				default:
-					n.pl.Play()
-				}
-			}
-			ui.Text(c, clockText(pos)).FontSize(11).TextColor(ui.Hex("#cbd5e1"))
-			// 进度条：拖拽 / 方向键都改 n.seekValue，Changed 时 seek 一次。
-			// 拖住期间不用回传位置覆盖滑块（否则滑块会被拽回去）。
-			s := ui.SliderBase(c, &n.seekValue, 0, max(dur, 0.1)).
-				Grow(1).Height(nativeSeekH).Label("播放进度").Step(0.1)
-			s.Disabled(dur <= 0)
-			_, _, held := s.Dragged()
-			n.dragging = held
-			if s.Changed() {
-				n.pl.Seek(time.Duration(seekTarget(n.seekValue, dur) * float64(time.Second)))
-			}
-			ui.Text(c, clockText(dur)).FontSize(11).TextColor(ui.Hex("#94a3b8"))
-			if b := ui.Button(c, speedLabel(n.speed)).Size(48, nativeKey).FontSize(12).
-				Label("倍速"); b.Clicked() {
-				n.speed = speedStep(n.speed, nativeSpeeds)
-				n.pl.SetRate(n.speed)
-			}
-			mute := "静音"
-			if n.muted || n.volume <= 0 {
-				mute = "取消静音"
-			}
-			if b := ui.Button(c, mute).Size(72, nativeKey).FontSize(12).Label(mute); b.Clicked() {
-				n.muted = !n.muted
-				n.pl.SetMuted(n.muted)
-			}
-			vol := ui.SliderBase(c, &n.volume, 0, 1).Width(80).Height(nativeSeekH).
-				Label("音量").Step(0.05)
-			if vol.Changed() {
-				n.pl.SetVolume(n.volume)
-				if n.volume > 0 && n.muted {
-					n.muted = false
-					n.pl.SetMuted(false)
-				}
-			}
-			closeKey(c, "关闭视频", func() { n.close() })
-		})
-	})
+	if n.win != nil {
+		ch.Win = n.win
+	}
+	ch.Speed, ch.Volume, ch.Muted = n.speed, n.volume, n.muted
+	ch.View(c)
+	n.speed, n.volume, n.muted = ch.Speed, ch.Volume, ch.Muted
 	n.report()
 }
 
-// speedLabel 是倍速键上的文案：3 位有效数字就够（0.5x / 1x / 1.25x / 3x），
-// 与主窗倍速弹层显示的档位一致。
-func speedLabel(v float64) string {
-	s := strconv.FormatFloat(v, 'g', 3, 64)
-	return s + "x"
+// chromeFor 惰性建出外壳（测试里直接构造 nativeWindow 时也走这条）。
+func (n *nativeWindow) chromeFor() *view.VideoChrome {
+	if n.chrome != nil {
+		return n.chrome
+	}
+	n.chrome = &view.VideoChrome{
+		Theme: n.theme,
+		Title: n.title,
+		// 回调都在调用时读字段：Manager 在 newNativeWindow 之后才接上
+		// onMin / onQuit，闭包里捕获字段才能拿到后来的值。
+		OnClose: n.close,
+		OnMinimize: func() {
+			if cb := n.onMin; cb != nil {
+				cb()
+			}
+		},
+		OnQuit: func() {
+			if cb := n.onQuit; cb != nil {
+				cb()
+			}
+		},
+		// 「播完再点播放」要把「已报过播完」的闩复位（见 VideoChrome.OnReplay）。
+		OnReplay: func() { n.endedFired = false },
+		Content: func(c *ui.Context) ui.Element {
+			return ui.Video(c, n.player()).Fill().Fit(ui.Contain)
+		},
+		// 弹幕开关的状态由外壳自己持有（本轮只留开关位，下一轮接覆盖层）。
+	}
+	return n.chrome
 }
 
-// nativeSpeeds 与主窗播放栏的档位一致（playerbar.go 的 speedOptions）。
-var nativeSpeeds = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0}
-
+// player 把播放器交给 ui.Video。测试里的纯逻辑桩不是 *ui.VideoPlayer，返回
+// nil（ui.Video 对 nil 播放器只画黑底）。
 func (n *nativeWindow) player() *ui.VideoPlayer {
 	if u, ok := n.pl.(uiPlayer); ok {
 		return u.p
 	}
 	return nil
-}
-
-// closeKey 是一颗小键（标题栏 / 控件条共用），带无障碍标签。
-func closeKey(c *ui.Context, label string, fn func()) {
-	b := ui.ButtonBase(c.Key("native-"+label)).Size(nativeKey*2.4, nativeKey).
-		Center().Radius(6).Label(label)
-	b.Children(func() { ui.Text(c, label).FontSize(12).TextColor(ui.Hex("#e8eef7")) })
-	if b.Clicked() {
-		fn()
-	}
-}
-
-// bindKeys 注册视频窗的快捷键：Esc 关闭、空格播放/暂停、Ctrl/Cmd+W 最小化、
-// Ctrl/Cmd+Q 退出 —— 与 webview 弹窗页面的 keydown listener 一一对应。
-func (n *nativeWindow) bindKeys(c *ui.Context) {
-	c.OnShortcut(0, ui.KeyEscape, func() { n.close() })
-	c.OnShortcut(0, ui.KeySpace, func() {
-		if c.ShortcutRepeated() {
-			return
-		}
-		if n.pl.Playing() {
-			n.pl.Pause()
-		} else {
-			n.pl.Play()
-		}
-	})
-	c.OnShortcut(ui.Cmd, ui.KeyW, func() {
-		if cb := n.onMin; cb != nil {
-			cb()
-		}
-	})
-	c.OnShortcut(ui.Cmd, ui.KeyQ, func() {
-		if cb := n.onQuit; cb != nil {
-			go cb()
-		}
-	})
 }
 
 // nativeFailText 把原生路径的失败翻成一句给用户看的中文原因。
