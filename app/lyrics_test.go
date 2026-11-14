@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
@@ -35,7 +36,7 @@ func TestLyricLines(t *testing.T) {
 }
 
 func TestBuildDanmakuHeat(t *testing.T) {
-	items := []bilibili.DanmakuItem{
+	items := []danmaku.Item{
 		{Time: 0.1}, {Time: 1}, {Time: 2},
 		{Time: 11}, {Time: 12},
 	}

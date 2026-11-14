@@ -29,6 +29,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 )
 
 // 尺寸（DIP）。VideoChromeKey 与主窗播放栏的工具键同尺寸（28×28）。
@@ -147,9 +149,17 @@ type VideoChrome struct {
 	// 就不会再报一次播完（主窗的自动下一集 / 看完标记都不会触发）。
 	OnReplay func()
 
-	// Danmaku 是弹幕开关的状态。本轮**不接数据**（下一轮做覆盖层）：
-	// 键、状态、tooltip 都在，点击只翻转这个字段。
+	// Danmaku 是弹幕总开关。与主窗设置菜单的「弹幕」是同一个事实源：
+	// 在这里点一下会走 OnDanmakuToggle 回到主窗落盘，再由 internal/video
+	// 把状态同步回来。
 	Danmaku bool
+	// DanmakuOverlay 是这一集的弹幕层（轨道分配 / 滑窗 / 时间轴都在
+	// internal/danmaku）。nil 表示没有数据（webview 回退 / 测试桩）。
+	DanmakuOverlay *danmaku.Overlay
+	// DanmakuSettings 是主窗落盘的基本设置（不透明度 / 字号 / 区域 / 上限）。
+	DanmakuSettings danmaku.Settings
+	// OnDanmakuToggle 在视频窗内点弹幕键时调用（参数是点击后的开关值）。
+	OnDanmakuToggle func(on bool)
 
 	// Speed / Volume / Muted 与播放器同源。internal/video 每帧把窗口自己的
 	// 字段同步进来、再同步回去，所以主窗改倍速 / 静音时这里跟着变。
@@ -163,6 +173,12 @@ type VideoChrome struct {
 	fs       videoFullScreen
 	seek     videoSeek
 	barHover bool
+
+	// dmFrame 是上一帧的时间点：弹幕本地时钟按它推进（暂停时不动）。
+	dmFrame time.Time
+	// danmakuDrawn 是上一帧真正建出的弹幕文字元素数（无头测试的渲染点
+	// 计数；开关关掉时应为 0）。
+	danmakuDrawn int
 }
 
 // ---------------------------------------------------------------- 自动隐藏
@@ -538,6 +554,10 @@ func (v *VideoChrome) View(c *ui.Context) {
 		ui.Box(c).Fill().Background(ui.Hex("#000000"))
 	}
 
+	// 弹幕覆盖层画在画面上、控件条之下。它自己 IgnoreInput，点击照常穿到
+	// 下面那块「视频画面」上。
+	v.danmaku(c)
+
 	// 画面上的单击 / 双击。它铺满整窗、在控件条之下：控件条可见时点键不会
 	// 落到这里，控件条收起时（IgnoreInput）点击正好穿到画面上。
 	pic := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Label("视频画面")
@@ -573,6 +593,11 @@ func (v *VideoChrome) View(c *ui.Context) {
 	}
 	if v.Pl.Buffering() {
 		// 缓冲中的呼吸描边要逐帧重画。
+		c.AnimationFrame()
+	}
+	// 弹幕在播放时是连续运动：不请求逐帧重绘的话，只有别的动画（控件条
+	// 过渡、缓冲描边）带着画面刷新时弹幕才动一下。
+	if v.Danmaku && v.DanmakuOverlay != nil && v.DanmakuOverlay.HasItems() && v.Pl.Playing() {
 		c.AnimationFrame()
 	}
 }
@@ -875,7 +900,8 @@ func (v *VideoChrome) speedKey(c *ui.Context, t Theme) {
 	}
 }
 
-// danmakuKey 是弹幕开关位。本轮只留键与状态（下一轮接数据）。
+// danmakuKey 是弹幕总开关（视频窗内的入口）。状态回到主窗落盘，再经
+// internal/video 同步回这个窗口；这里先翻转本地状态，点完这一帧就见效。
 func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	tip := "弹幕 · 已开"
 	if !v.Danmaku {
@@ -884,6 +910,69 @@ func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	b := t.videoKey(c, "video-danmaku", "弹幕", tip, iconDanmaku, false, v.Danmaku)
 	if b.Clicked() {
 		v.Danmaku = !v.Danmaku
+		if v.OnDanmakuToggle != nil {
+			v.OnDanmakuToggle(v.Danmaku)
+		}
+	}
+}
+
+// DanmakuDrawn 是上一帧真正画出的弹幕文字元素数。无头测试用它断言
+// 「关掉开关后渲染点为 0」。
+func (v *VideoChrome) DanmakuDrawn() int { return v.danmakuDrawn }
+
+// danmaku 推进并画出弹幕层。时间轴以播放器位置为准，本地时钟按 dt*倍速
+// 前进（见 danmaku.Overlay.Sync）；宽度用 ui 的真实字形测量，轨道间距才
+// 与屏幕上的字对得上。
+func (v *VideoChrome) danmaku(c *ui.Context) {
+	v.danmakuDrawn = 0
+	o := v.DanmakuOverlay
+	if o == nil {
+		return
+	}
+	w, h := c.Size()
+	now := c.Now()
+	var dt time.Duration
+	if !v.dmFrame.IsZero() {
+		dt = now.Sub(v.dmFrame)
+	}
+	v.dmFrame = now
+
+	// 播完（自然结束）：清掉可视集，画面停在最后一帧时不再挂着弹幕。
+	// 重播时 Ended 变回假，下一帧按新位置重建（SetItems 没动，条目还在）。
+	if v.Pl.Ended() {
+		o.Clear()
+		return
+	}
+
+	s := v.DanmakuSettings
+	s.On = s.On && v.Danmaku
+	o.SetMeasure(func(text string, size float32) float32 {
+		tw, _ := c.MeasureText(0, ui.Span{Text: text, Size: size})
+		return tw
+	})
+	// 缓冲中位置不动，但 Playing() 可能仍为真：这时按暂停处理，弹幕不能
+	// 自己往前跑（否则每次缓冲回来都要被 resync 拽回去）。
+	playing := v.Pl.Playing() && !v.Pl.Buffering()
+	o.Sync(v.Pl.Position().Seconds(), playing, v.Speed, dt.Seconds(), float32(w), float32(h), s)
+	if !s.On {
+		return
+	}
+	size := s.FontSize()
+	for _, sp := range o.Sprites() {
+		// 还没从右沿进场 / 已经完全从左边出去：不建元素（渲染点计数只算
+		// 真正可见的条目）。
+		if sp.X >= float32(w) || sp.X+sp.W <= 0 {
+			continue
+		}
+		el := ui.Text(c, sp.Text).FontSize(size).SingleLine().
+			TextColor(danmakuInk(sp.Color, true)).
+			// 视频画面明暗不可控：一层淡影保证白字在亮画面上也能读。
+			TextShadow(0, 1, 2, ui.RGBA(0, 0, 0, 0.55)).
+			Absolute().Left(sp.X).Top(sp.Y).IgnoreInput(true)
+		if s.Opacity < 1 {
+			el.Opacity(float32(s.Opacity))
+		}
+		v.danmakuDrawn++
 	}
 }
 

@@ -1,10 +1,13 @@
 package view
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 )
 
 // ---------------------------------------------------------------- 设置菜单
@@ -29,7 +32,7 @@ import (
 // 原版没有的分隔线（退出应用前）。本轮换成照原版手搓的 PopoverBase 面板：
 // 面板由框架放进 Overlay（画在最上层），并自带「点外部关 / Esc 关 / 焦点归还」。
 const (
-	settingsMenuMinW   = 208 // 设置菜单含开关行后的宽度（原版 120 只够纯文字条目）
+	settingsMenuMinW   = 268 // 设置菜单含开关行与弹幕档位按钮后的宽度（原版 120 只够纯文字条目）
 	settingsMenuPadY   = 4   // py-1
 	settingsMenuRadius = 8   // rounded-lg
 	settingsMenuGap    = 4   // 面板距设置键 4px（原版 menuPos.top = rect.bottom + 4）
@@ -68,6 +71,7 @@ func settingsItemPaint(t Theme, hovered, pressed bool) (bg ui.Color, inset bool,
 // Esc 关与焦点归还，面板本身由这里照原版上材质。
 func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 	t := a.Theme
+	wasOpen := a.ShowSettings
 	ui.PopoverBase(c, anchor, &a.ShowSettings, func(panel ui.Element) {
 		// 原版 #settings-menu：min-w 120、圆角 8、py-1、玻璃底 + 白边 + 两层投影。
 		// 材质用框架玻璃（与原版同一种液态玻璃，自带边缘聚光），外投影按原版
@@ -94,6 +98,12 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
 			Shadow(0, 18, 44, 0, ui.Hex("#0f172a").Alpha(0.10))
 		panel.Children(func() {
+			// 子面板：同一块玻璃面板里换内容（不新开一层浮层）。返回后回到
+			// 主菜单，菜单收起时由下面的复位逻辑回到主菜单。
+			if a.SettingsDanmaku {
+				a.danmakuSettingsPanel(c)
+				return
+			}
 			// 动作条目保持原版顺序；三个播放偏好接在下面，用一条淡线隔开。
 			// 开关行不关闭菜单，方便连续调整。
 			for _, label := range settingsItems() {
@@ -160,8 +170,155 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 					a.Act.ToggleNativeVideo()
 				}
 			})
+			// 视频窗弹幕总开关：与视频窗控件条那颗键、macOS 原生菜单里的
+			// 「弹幕」是同一个事实源（danmakuOn）。
+			a.settingsToggle(c, "弹幕", a.DanmakuStyle.On, func() {
+				s := a.DanmakuStyle
+				s.On = !s.On
+				a.applyDanmakuStyle(s)
+			})
+			ui.Box(c).FillWidth().Height(1).Margin(4, 0).Shrink(0).
+				Background(ui.Hex("#64748b").Alpha(0.16))
+			// 基本设置（不透明度 / 字号 / 显示区域 / 同屏上限）收在子面板里：
+			// 主菜单已经够长，全摊开会让 600px 高的窗口放不下。
+			a.settingsLink(c, "弹幕设置", func() { a.SettingsDanmaku = true })
 		})
 	})
+	if wasOpen && !a.ShowSettings {
+		a.SettingsDanmaku = false
+	}
+}
+
+// settingsLink 是打开子面板的一行：与动作条目同高同内边距，右端一个 ›。
+func (a *App) settingsLink(c *ui.Context, label string, onClick func()) {
+	item := ui.ButtonBase(c.Key("settings-link-"+label)).
+		FillWidth().Height(34).Padding(0, settingsItemPadX).
+		Justify(ui.Start).Radius(0).Label(label)
+	bg, inset, scale := settingsItemPaint(a.Theme, item.Hovered(), item.Pressed())
+	item.Background(bg)
+	if inset {
+		item.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+	}
+	p := ui.Pose{}
+	if scale != 1 {
+		p.Scale = scale
+	}
+	item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+	item.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+			ui.Text(c, label).FontSize(13).TextColor(a.Theme.text(settingsItemInk)).Grow(1)
+			ui.Text(c, "›").FontSize(13).TextColor(a.Theme.Faint)
+		})
+	})
+	if item.Clicked() {
+		onClick()
+	}
+}
+
+// danmakuSettingsPanel 是设置菜单里的「弹幕设置」子面板。
+//
+// 交互语言只有两种，都是设置菜单已有的：开关行（settingsToggle）与档位
+// 按钮（与外观弹层的透明度预设同款：选中蓝底、悬停浅蓝）。改一下立刻走
+// Act.SetDanmakuStyle 落盘并同步给已开着的视频窗，不需要重开。
+func (a *App) danmakuSettingsPanel(c *ui.Context) {
+	s := a.DanmakuStyle
+	back := ui.ButtonBase(c.Key("settings-danmaku-back")).
+		FillWidth().Height(30).Padding(0, settingsItemPadX).
+		Justify(ui.Start).Radius(0).Label("返回设置")
+	bg, inset, scale := settingsItemPaint(a.Theme, back.Hovered(), back.Pressed())
+	back.Background(bg)
+	if inset {
+		back.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+	}
+	p := ui.Pose{}
+	if scale != 1 {
+		p.Scale = scale
+	}
+	back.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+	back.Children(func() {
+		ui.Text(c, "‹ 弹幕设置").FontSize(13).TextColor(a.Theme.text(settingsItemInk))
+	})
+	if back.Clicked() {
+		a.SettingsDanmaku = false
+	}
+
+	a.settingsChoices(c, "不透明度", []settingsChoice{
+		{Key: "opacity-30", Label: "30%", On: math.Abs(s.Opacity-0.3) < 0.01,
+			Pick: func() { s.Opacity = 0.3; a.applyDanmakuStyle(s) }},
+		{Key: "opacity-50", Label: "50%", On: math.Abs(s.Opacity-0.5) < 0.01,
+			Pick: func() { s.Opacity = 0.5; a.applyDanmakuStyle(s) }},
+		{Key: "opacity-70", Label: "70%", On: math.Abs(s.Opacity-0.7) < 0.01,
+			Pick: func() { s.Opacity = 0.7; a.applyDanmakuStyle(s) }},
+		{Key: "opacity-100", Label: "100%", On: math.Abs(s.Opacity-1) < 0.01,
+			Pick: func() { s.Opacity = 1; a.applyDanmakuStyle(s) }},
+	})
+	a.settingsChoices(c, "字号", []settingsChoice{
+		{Key: "size-small", Label: "小", On: s.Size == 0,
+			Pick: func() { s.Size = 0; a.applyDanmakuStyle(s) }},
+		{Key: "size-medium", Label: "中", On: s.Size == 1,
+			Pick: func() { s.Size = 1; a.applyDanmakuStyle(s) }},
+		{Key: "size-large", Label: "大", On: s.Size == 2,
+			Pick: func() { s.Size = 2; a.applyDanmakuStyle(s) }},
+	})
+	a.settingsChoices(c, "显示区域", []settingsChoice{
+		{Key: "area-full", Label: "铺满整屏", On: s.Area > 0.75,
+			Pick: func() { s.Area = 1; a.applyDanmakuStyle(s) }},
+		{Key: "area-half", Label: "上方 1/2", On: s.Area <= 0.75,
+			Pick: func() { s.Area = 0.5; a.applyDanmakuStyle(s) }},
+	})
+	a.settingsChoices(c, "同屏上限", []settingsChoice{
+		{Key: "max-30", Label: "30", On: s.Max == danmaku.MaxOnScreen(0),
+			Pick: func() { s.Max = danmaku.MaxOnScreen(0); a.applyDanmakuStyle(s) }},
+		{Key: "max-60", Label: "60", On: s.Max == danmaku.MaxOnScreen(1),
+			Pick: func() { s.Max = danmaku.MaxOnScreen(1); a.applyDanmakuStyle(s) }},
+		{Key: "max-100", Label: "100", On: s.Max == danmaku.MaxOnScreen(2),
+			Pick: func() { s.Max = danmaku.MaxOnScreen(2); a.applyDanmakuStyle(s) }},
+	})
+	ui.Text(c, "同屏上限也是性能护栏：超出后新弹幕丢弃，不重排已有弹幕。").
+		FontSize(10).TextColor(a.Theme.Faint).MaxLines(2).
+		Padding(0, settingsItemPadX).Margin(2, 0, 4, 0)
+}
+
+// settingsChoice 是档位行里的一颗按钮。
+type settingsChoice struct {
+	Key   string
+	Label string
+	On    bool
+	Pick  func()
+}
+
+// settingsChoices 画一行「标题 + 等宽档位按钮」。
+func (a *App) settingsChoices(c *ui.Context, title string, choices []settingsChoice) {
+	t := a.Theme
+	ui.Text(c, title).FontSize(11).TextColor(t.text(settingsItemInk.Alpha(0.8))).
+		Padding(0, settingsItemPadX).Margin(6, 0, 2, 0)
+	ui.Row(c).FillWidth().Padding(0, settingsItemPadX).Gap(4).Margin(0, 0, 4, 0).Children(func() {
+		for _, ch := range choices {
+			ch := ch
+			b := ui.ButtonBase(c.Key("settings-danmaku-" + ch.Key)).
+				Grow(1).Basis(0).Height(26).Radius(6).Center().
+				Label("弹幕设置：" + title + " " + ch.Label).
+				Role(ui.RoleToggleButton).Checked(ch.On)
+			if ch.On || b.Hovered() {
+				b.Background(t.Blue.Alpha(pick[float32](ch.On, 0.14, 0.07)))
+			}
+			b.Children(func() {
+				ui.Text(c, ch.Label).FontSize(11).TextColor(pick(ch.On, t.Blue, t.text(settingsItemInk)))
+			})
+			if b.Clicked() {
+				ch.Pick()
+			}
+		}
+	})
+}
+
+// applyDanmakuStyle 先落本地（这一帧就按新设置画），再交给上层落盘 +
+// 同步视频窗。
+func (a *App) applyDanmakuStyle(s danmaku.Settings) {
+	a.DanmakuStyle = s.Normalize()
+	if a.Act.SetDanmakuStyle != nil {
+		a.Act.SetDanmakuStyle(a.DanmakuStyle)
+	}
 }
 
 // incognitoToggle 是标题栏右侧的常驻「隐身模式」开关（用户 2026-10-17 报告）。

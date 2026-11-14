@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -555,13 +556,16 @@ func (c *controller) startDanmakuHeat(cid int64) {
 	a := c.app
 	c.heatReqID++
 	reqID := c.heatReqID
+	if c.dm == nil {
+		return
+	}
 	go func() {
-		d, err := c.bl.GetDanmakuList(int(cid))
-		if err != nil || d == nil {
+		items, err := c.dm.Get(cid)
+		if err != nil || items == nil {
 			log.Printf("弹幕热力: cid=%d 拉取失败: %v", cid, err)
 			return
 		}
-		pts := buildDanmakuHeat(d.Items)
+		pts := buildDanmakuHeat(items)
 		a.Win.Update(func() {
 			if c.heatReqID != reqID {
 				return
@@ -579,7 +583,7 @@ func (c *controller) startDanmakuHeat(cid int64) {
 
 // buildDanmakuHeat 把弹幕按 10 秒聚合成 0..1 的热力点。只保存聚合结果，
 // 不把完整弹幕文本长期留在内存里。
-func buildDanmakuHeat(items []bilibili.DanmakuItem) []view.HeatPoint {
+func buildDanmakuHeat(items []danmaku.Item) []view.HeatPoint {
 	if len(items) == 0 {
 		return nil
 	}

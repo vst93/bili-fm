@@ -35,21 +35,29 @@ const (
 	prefLyricsOffsetRemember = "lyricsOffsetRemember"
 	prefLyricsWidthRatio     = "lyricsWidthRatio"
 	prefHeatOn               = "danmakuHeat"
+	// 视频窗弹幕的基本设置（只增不改）：总开关 / 不透明度 / 字号档 / 显示
+	// 区域 / 同屏上限。字号存档位 0~2、区域存 full|half，都是可读的稳定值，
+	// 不存像素或布尔，换档位时旧值仍能退回默认。
+	prefDanmakuOn          = "danmakuOn"
+	prefDanmakuOpacity     = "danmakuOpacity"
+	prefDanmakuFontSize    = "danmakuFontSize"
+	prefDanmakuArea        = "danmakuArea"
+	prefDanmakuMaxOnScreen = "danmakuMaxOnScreen"
 	// prefNativeVideo 是「视频弹窗走系统媒体框架（ui/video）」的开关，默认开。
 	// 关掉即固定走 webview（见 internal/video 的 SetNativeEnabled）。
-	prefNativeVideo = "nativeVideoPlayer"
-	prefLyricsBgColor        = "lyricsBgColor"
-	prefLyricsBgOpacity      = "lyricsBgOpacity"
-	prefLyricsTextOpacity    = "lyricsTextOpacity"
-	prefLyricsEnabled        = "desktopSubtitles"
-	prefLyricsClickThrough   = "desktopSubtitlesClickThrough"
-	prefLyricsX              = "desktopSubtitlesX"
-	prefLyricsY              = "desktopSubtitlesY"
-	prefLyricsPosValid       = "desktopSubtitlesPosValid"
-	prefLyricsOpacityLegacy  = "lyricsOpacity"
-	prefSubtitleLang         = "subtitleLanguage"
-	prefSubtitleFollow       = "subtitleFollow"
-	prefDanmakuFollow        = "danmakuFollow"
+	prefNativeVideo         = "nativeVideoPlayer"
+	prefLyricsBgColor       = "lyricsBgColor"
+	prefLyricsBgOpacity     = "lyricsBgOpacity"
+	prefLyricsTextOpacity   = "lyricsTextOpacity"
+	prefLyricsEnabled       = "desktopSubtitles"
+	prefLyricsClickThrough  = "desktopSubtitlesClickThrough"
+	prefLyricsX             = "desktopSubtitlesX"
+	prefLyricsY             = "desktopSubtitlesY"
+	prefLyricsPosValid      = "desktopSubtitlesPosValid"
+	prefLyricsOpacityLegacy = "lyricsOpacity"
+	prefSubtitleLang        = "subtitleLanguage"
+	prefSubtitleFollow      = "subtitleFollow"
+	prefDanmakuFollow       = "danmakuFollow"
 	// prefMainPos 是主窗位置（浮窗应用：用户把它摆到哪，下次启动 / 从迷你窗
 	// 回来就回到哪）。此前只记住迷你窗位置，主窗每次都居中。
 	prefMainPos = "mainWindowPosition"
@@ -142,6 +150,8 @@ func (c *controller) loadPrefs() {
 	}
 	// 原生视频默认开：只有明确写过 "false" 才关（老版本没有这个键）。
 	a.NativeVideo = c.kv.String(prefNativeVideo) != "false"
+	// 视频窗弹幕：键不存在（老版本）时用默认值（开 / 100% / 中 / 整屏 / 60）。
+	c.loadDanmakuPrefs()
 	// c.vid 在部分单测里没有（只构造 controller 的子集），与 c.media 一样
 	// 判空后再下发。
 	if c.vid != nil {

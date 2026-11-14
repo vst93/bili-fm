@@ -12,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/view"
@@ -240,9 +241,9 @@ func TestToCardsFavoriteAndWatchLater(t *testing.T) {
 }
 
 func TestToDanmakuListCaps(t *testing.T) {
-	items := make([]bilibili.DanmakuItem, maxDanmaku+50)
+	items := make([]danmaku.Item, maxDanmaku+50)
 	for i := range items {
-		items[i] = bilibili.DanmakuItem{Content: fmt.Sprintf("dm%d", i), Time: float64(i), Color: 0xff0000}
+		items[i] = danmaku.Item{Text: fmt.Sprintf("dm%d", i), Time: float64(i), Color: 0xff0000}
 	}
 	got := toDanmakuList(items)
 	if len(got) != maxDanmaku {

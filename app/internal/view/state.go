@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 )
 
@@ -620,6 +621,9 @@ type Actions struct {
 	EndLyricsDrag func()
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
+	// SetDanmakuStyle 把视频窗弹幕的基本设置（含总开关）落盘并同步给已开着
+	// 的视频窗。设置菜单里的每一档、视频窗控件条的开关都走它。
+	SetDanmakuStyle func(s danmaku.Settings)
 	// ToggleNativeVideo 开启 / 关闭原生视频播放（ui/video）。关掉后视频弹窗
 	// 走 webview：给「系统有 GStreamer 但播得不好」或需要浏览器画中画的用户
 	// 一条明确退路。
@@ -950,6 +954,10 @@ type App struct {
 	DanmakuHeat []HeatPoint
 	HeatCid     int64
 	HeatOn      bool
+	// DanmakuStyle 是视频窗弹幕的基本设置（开关 / 不透明度 / 字号 / 显示
+	// 区域 / 同屏上限）。主窗设置菜单与视频窗控件条共用这一个事实源，
+	// 落盘键见 app/prefs.go 的 danmaku* 一组。
+	DanmakuStyle danmaku.Settings
 	// NativeVideo 是「视频弹窗用系统媒体框架（ui/video）播放」的开关，
 	// 默认开。关掉、或本机判定不可用（缺 GStreamer 等）时走 webview。
 	NativeVideo bool
@@ -1130,6 +1138,9 @@ type App struct {
 	ShowSettings   bool
 	ShowAppearance bool
 	appearanceHeld bool
+	// SettingsDanmaku 表示设置下拉里切到了「弹幕设置」子面板。菜单收起时
+	// 复位，下次打开仍从主菜单开始。
+	SettingsDanmaku bool
 
 	// Mini 表示处于迷你模式（400×155 置顶小窗）。
 	Mini bool
@@ -1263,6 +1274,7 @@ func NewApp(repaint func()) *App {
 		LyricsBgOpacity:   DefaultLyricsBgOpacity,
 		LyricsTextOpacity: DefaultLyricsTextOpacity,
 		HeatOn:            true,
+		DanmakuStyle:      danmaku.DefaultSettings(),
 		NativeVideo:       true,
 		Appearance:        "light",
 	}

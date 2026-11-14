@@ -27,6 +27,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
 
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -82,6 +83,14 @@ type nativeWindow struct {
 	speed   float64
 	muted   bool
 	volume  float64
+
+	// 弹幕层：条目 / 开关 / 基本设置与视频管理器同源（Manager 每次变化都
+	// 通过 win.Update 落到这里）。dm 永远非 nil，关掉开关时只是不画。
+	dm              *danmaku.Overlay
+	dmCid           int64
+	dmOn            bool
+	dmSettings      danmaku.Settings
+	onDanmakuToggle func(bool)
 
 	// 界面态（只在主线程 / 视图构建里读写）。
 	reported   time.Time
@@ -157,14 +166,19 @@ func openPlayer(src string) (playerAPI, error) {
 // newNativeWindow 建窗并开始播放。调用方（Manager）保证 pl 已在主线程打开。
 func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 	n := &nativeWindow{
-		pl:      pl,
-		theme:   o.Theme,
-		title:   o.Title,
-		startAt: o.StartAt,
-		speed:   max(o.Speed, 0.5),
-		muted:   o.Muted,
-		volume:  1,
+		pl:         pl,
+		theme:      o.Theme,
+		title:      o.Title,
+		startAt:    o.StartAt,
+		speed:      max(o.Speed, 0.5),
+		muted:      o.Muted,
+		volume:     1,
+		dm:         &danmaku.Overlay{},
+		dmCid:      o.DanmakuCid,
+		dmOn:       true,
+		dmSettings: danmaku.DefaultSettings(),
 	}
+	n.dm.SetItems(o.Danmaku)
 	n.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:     o.Title,
 		Width:     960,
@@ -358,8 +372,12 @@ func (n *nativeWindow) view(c *ui.Context) {
 		ch.Win = n.win
 	}
 	ch.Speed, ch.Volume, ch.Muted = n.speed, n.volume, n.muted
+	// 弹幕状态以窗口为准同步进外壳（外壳自己也会在点击时翻转它）。
+	ch.Danmaku = n.dmOn
+	ch.DanmakuSettings = n.dmSettings
 	ch.View(c)
 	n.speed, n.volume, n.muted = ch.Speed, ch.Volume, ch.Muted
+	n.dmOn = ch.Danmaku
 	n.report()
 }
 
@@ -389,9 +407,29 @@ func (n *nativeWindow) chromeFor() *view.VideoChrome {
 		Content: func(c *ui.Context) ui.Element {
 			return ui.Video(c, n.player()).Fill().Fit(ui.Contain)
 		},
-		// 弹幕开关的状态由外壳自己持有（本轮只留开关位，下一轮接覆盖层）。
+		// 弹幕：条目层由 internal/danmaku 管，外壳只负责按 Sprites 画字。
+		Danmaku:         n.dmOn,
+		DanmakuOverlay:  n.dm,
+		DanmakuSettings: n.dmSettings,
+		OnDanmakuToggle: func(on bool) {
+			n.dmOn = on
+			if cb := n.onDanmakuToggle; cb != nil {
+				cb(on)
+			}
+		},
 	}
 	return n.chrome
+}
+
+// setDanmaku 换这一集的弹幕（cid 不匹配说明是上一集的迟到响应，丢掉）。
+func (n *nativeWindow) setDanmaku(cid int64, items []danmaku.Item) {
+	if n.dmCid != 0 && cid != n.dmCid {
+		return
+	}
+	n.dmCid = cid
+	if n.dm != nil {
+		n.dm.SetItems(items)
+	}
 }
 
 // player 把播放器交给 ui.Video。测试里的纯逻辑桩不是 *ui.VideoPlayer，返回

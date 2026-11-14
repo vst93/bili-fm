@@ -21,6 +21,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/view"
 )
 
@@ -43,6 +44,13 @@ type Options struct {
 	Theme view.Theme
 	// Parent 是主窗，用于让弹窗跟随。
 	Parent *mygo.Window
+
+	// DanmakuCid 是这一集的弹幕 cid（0 表示没有，覆盖层保持空）。
+	DanmakuCid int64
+	// Danmaku 是这一集的弹幕条目（可以为空：数据还在路上，随后由
+	// Manager.SetDanmaku 补上）。只给原生窗用；webview 回退路径本轮不注入
+	// 覆盖层（见 PLAN.md 的取舍）。
+	Danmaku []danmaku.Item
 }
 
 // State 是弹窗回传的播放状态。
@@ -117,10 +125,78 @@ type Manager struct {
 
 	// onFallback 在原生路径不可用、已经落回 webview 时调用（主窗据此 toast）。
 	onFallback func(reason string)
+
+	// 弹幕：当前这一集的 cid / 条目 / 开关 / 基本设置。设置是主窗的
+	// 事实源（落盘后经 SetDanmakuSettings 下发），窗口只读。
+	dmCid      int64
+	dmItems    []danmaku.Item
+	dmOn       bool
+	dmSettings danmaku.Settings
+	// onDanmakuToggle 在视频窗控件条点弹幕键时调用（主窗落盘并同步回来）。
+	onDanmakuToggle func(bool)
 }
 
 // New 建一个管理器。
-func New() *Manager { return &Manager{nativeOK: true} }
+func New() *Manager {
+	return &Manager{nativeOK: true, dmOn: true, dmSettings: danmaku.DefaultSettings()}
+}
+
+// SetDanmaku 更新当前这一集的弹幕条目（按 cid 匹配才落到窗口上：快速换集
+// 时旧响应不能画到新一集）。
+func (m *Manager) SetDanmaku(cid int64, items []danmaku.Item) {
+	m.mu.Lock()
+	m.dmCid, m.dmItems = cid, items
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.apply(func() { n.setDanmaku(cid, items) })
+	}
+}
+
+// SetDanmakuOn 开关弹幕层（视频窗内那颗键与主窗设置共用这个状态）。
+func (m *Manager) SetDanmakuOn(on bool) {
+	m.mu.Lock()
+	m.dmOn = on
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.apply(func() { n.dmOn = on })
+	}
+}
+
+// SetDanmakuSettings 下发基本设置（不透明度 / 字号 / 区域 / 上限）。
+// 视频窗下一帧就按新值重排，不需要重开。
+func (m *Manager) SetDanmakuSettings(s danmaku.Settings) {
+	s = s.Normalize()
+	m.mu.Lock()
+	m.dmSettings = s
+	n := m.native
+	m.mu.Unlock()
+	if n != nil {
+		n.apply(func() { n.dmSettings = s })
+	}
+}
+
+// DanmakuSettings 返回当前下发中的设置（测试 / 状态展示）。
+func (m *Manager) DanmakuSettings() danmaku.Settings {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.dmSettings
+}
+
+// DanmakuState 返回当前 cid、条目数与开关（测试用；条目本身不复制）。
+func (m *Manager) DanmakuState() (cid int64, items int, on bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.dmCid, len(m.dmItems), m.dmOn
+}
+
+// OnDanmakuToggle 设置视频窗内弹幕键的回调。
+func (m *Manager) OnDanmakuToggle(fn func(bool)) {
+	m.mu.Lock()
+	m.onDanmakuToggle = fn
+	m.mu.Unlock()
+}
 
 // SetNativeEnabled 开关原生视频路径（设置项「原生视频播放」）。
 // 关掉后所有 Open 直接走 webview —— 给「GStreamer 装是装了但播得不好」或
@@ -364,6 +440,15 @@ func (m *Manager) tryNative(o Options) (reason string, ok bool) {
 		m.mu.Unlock()
 		return "创建视频窗口失败", false
 	}
+	// 弹幕状态以管理器为准：设置可能在窗口创建期间被改过；条目只在 cid
+	// 对得上时才套用（上一集的缓存不能画到这一集）。
+	m.mu.Lock()
+	n.dmOn, n.dmSettings = m.dmOn, m.dmSettings
+	n.onDanmakuToggle = m.onDanmakuToggle
+	if m.dmCid == o.DanmakuCid {
+		n.dm.SetItems(m.dmItems)
+	}
+	m.mu.Unlock()
 	n.onState = func(st State) {
 		m.mu.Lock()
 		m.st = st
@@ -472,6 +557,9 @@ func (m *Manager) switchNative(n *nativeWindow, o Options) error {
 		n.muted = o.Muted
 		n.endedFired = false
 		n.reported = time.Time{}
+		// 换集先清掉上一集的弹幕；这一集的条目由主窗随后 SetDanmaku 补上。
+		n.dmCid = o.DanmakuCid
+		n.dm.SetItems(o.Danmaku)
 		pl.SetRate(n.speed)
 		pl.SetMuted(n.muted)
 		pl.SetVolume(n.volume)

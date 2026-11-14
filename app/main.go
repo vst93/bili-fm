@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
+	"github.com/vst93/bili-fm/app/internal/danmaku"
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/mediactl"
@@ -58,7 +60,10 @@ var audioHeaders = map[string]string{
 }
 
 type controller struct {
-	bl  *bilibili.BL
+	bl *bilibili.BL
+	// dm 是弹幕的可复用数据层：抽屉 / 热力条 / 视频覆盖层共用同一次请求
+	// 与同一份缓存（见 internal/danmaku.Store）。
+	dm  *danmaku.Store
 	kv  *store.KV
 	app *view.App
 	mp  *media.Player
@@ -102,6 +107,9 @@ type controller struct {
 	// 视频的重复请求才挡（见 startDanmakuFetch）。
 	danmakuReqID       int
 	danmakuInflightCid int64
+	// videoDmReqID 保护「给视频窗换这一集弹幕」的异步结果：快速换集时旧
+	// 响应不得盖到新一集上。openVideo 在 goroutine 里起播，所以用原子量。
+	videoDmReqID atomic.Int64
 
 	// extrasReqID / subtitleReqID 分别保护章节+字幕轨 / 字幕正文的异步结果：
 	// 换集或重新打开抽屉时，旧响应不得覆盖新视频的数据。
@@ -156,9 +164,10 @@ type controller struct {
 	tray *mygo.Tray
 	// macOS 原生「设置」菜单里的三个播放偏好复选框。保存指针是为了让
 	// 抽屉 / 标题栏 / 快捷键等其它入口切换状态时，菜单勾选状态不会变旧。
-	menuLyrics *mygo.MenuItem
-	menuHeat   *mygo.MenuItem
-	menuRadio  *mygo.MenuItem
+	menuLyrics  *mygo.MenuItem
+	menuHeat    *mygo.MenuItem
+	menuRadio   *mygo.MenuItem
+	menuDanmaku *mygo.MenuItem
 	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
 	menuLyricsClickThrough *mygo.MenuItem
 	// lyricsDragging 表示正在拖动字幕窗（按下设置键后）；lyricsDraggingOwn
@@ -272,8 +281,10 @@ func main() {
 	// 由包管理器装的（deb/rpm/pacman 装到 /opt）不行 —— Updater.Enabled()
 	// 会返回 false，用户点检查更新时会看到原因。
 
+	bl := bilibili.NewBL()
 	c := &controller{
-		bl:      bilibili.NewBL(),
+		bl:      bl,
+		dm:      danmaku.NewStore(bl),
 		kv:      kv,
 		mp:      media.NewPlayer(),
 		vid:     video.New(),
@@ -875,6 +886,7 @@ func (c *controller) wireActions() {
 		MoveLyricsDrag:           c.moveLyricsDrag,
 		EndLyricsDrag:            c.endLyricsDrag,
 		ToggleHeat:               c.toggleHeat,
+		SetDanmakuStyle:          c.setDanmakuStyle,
 		ToggleNativeVideo:        c.toggleNativeVideo,
 		PersistFollow:            c.persistFollowPrefs,
 		ToggleLyricsConfig:       c.toggleLyricsConfig,
@@ -3879,12 +3891,17 @@ func (c *controller) toggleDanmaku() {
 // 与在途 cid（同一条视频的重复请求才挡）。
 func (c *controller) startDanmakuFetch(cid int64) {
 	a := c.app
+	if c.dm == nil {
+		return
+	}
 	c.danmakuReqID++
 	reqID := c.danmakuReqID
 	c.danmakuInflightCid = cid
 	a.Win.Update(func() { a.DanmakuLoading = true })
 	go func() {
-		d, err := c.bl.GetDanmakuList(int(cid))
+		// 与热力条 / 视频覆盖层共用 Store：同一条 cid 并发只发一次请求，
+		// 切来切去命中缓存。
+		items, err := c.dm.Get(cid)
 		// 不管成败都要清 loading，否则表头刷新键会永远转圈。
 		c.app.Win.Update(func() {
 			if c.danmakuReqID != reqID {
@@ -3892,10 +3909,10 @@ func (c *controller) startDanmakuFetch(cid int64) {
 			}
 			c.danmakuInflightCid = 0
 			c.app.DanmakuLoading = false
-			if err != nil || d == nil {
+			if err != nil || items == nil {
 				return
 			}
-			c.app.Danmaku = toDanmakuList(d.Items)
+			c.app.Danmaku = toDanmakuList(items)
 			c.app.DanmakuCid = cid
 		})
 	}()
@@ -3918,15 +3935,15 @@ const (
 	maxComments = 240
 )
 
-// toDanmakuList 把接口弹幕转成视图弹幕，并裁到上限。
-func toDanmakuList(items []bilibili.DanmakuItem) []view.Danmaku {
+// toDanmakuList 把弹幕条目转成视图弹幕，并裁到上限。
+func toDanmakuList(items []danmaku.Item) []view.Danmaku {
 	n := len(items)
 	if n > maxDanmaku {
 		n = maxDanmaku
 	}
 	out := make([]view.Danmaku, 0, n)
 	for _, it := range items[:n] {
-		out = append(out, view.Danmaku{Time: it.Time, Text: it.Content, Color: it.Color})
+		out = append(out, view.Danmaku{Time: it.Time, Text: it.Text, Color: it.Color})
 	}
 	return out
 }
@@ -4127,6 +4144,15 @@ func (c *controller) wireVideo() {
 	// 原生视频（ui/video）不可用时回退到 webview：必须让用户可感知 —— 否则
 	// 「为什么这台机器内存高 / 为什么这次是另一个界面」会变成玄学。用现有
 	// 的 toast 风格提示一次（Manager 里已闩锁，本次运行不会反复弹）。
+	// 视频窗内点弹幕键：落盘并同步回所有入口（主窗设置菜单 / macOS 菜单）。
+	// 回调跑在窗口事件 goroutine 上，统一丢到界面线程。
+	c.vid.OnDanmakuToggle(func(on bool) {
+		runOnUI(c.app, !c.app.Hidden(), func() {
+			s := c.app.DanmakuStyle
+			s.On = on
+			c.setDanmakuStyle(s)
+		})
+	})
 	c.vid.OnFallback(func(reason string) {
 		if reason == "" {
 			return
@@ -4182,6 +4208,9 @@ func (c *controller) openVideo() {
 			// 原生窗的标题栏与控件条按主窗这一帧的令牌画（深浅两态、高对比、
 			// 减少透明度都跟着主窗走），见 internal/view/videochrome.go。
 			Theme: theme,
+			// 视频窗知道自己是哪一集：弹幕条目随后由 startVideoDanmaku
+			// 从 Store 取（可能与抽屉 / 热力共用缓存）。
+			DanmakuCid: t.Cid,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			runOnUI(c.app, !c.app.Hidden(), func() {
@@ -4190,6 +4219,7 @@ func (c *controller) openVideo() {
 			})
 			return
 		}
+		c.startVideoDanmaku(t.Cid)
 		runOnUI(c.app, !c.app.Hidden(), c.videoOpened)
 	}()
 }
