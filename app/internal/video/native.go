@@ -80,9 +80,12 @@ type nativeWindow struct {
 
 	title   string
 	startAt float64
-	speed   float64
-	muted   bool
-	volume  float64
+	// settings 是主窗与视频窗共享的音频设置（音量/静音/倍速/均衡/广告
+	// 跳过）。由 Options.Shared 注入；没有时建一份本窗口自己的。
+	settings *view.PlayerSettings
+	// segments 是当前这一集的恰饭分段（主窗查询后同步进来）：进度条画标记，
+	// 开关打开时视频窗也会真的跳过。
+	segments []view.Segment
 
 	// 弹幕层：条目 / 开关 / 基本设置与视频管理器同源（Manager 每次变化都
 	// 通过 win.Update 落到这里）。dm 永远非 nil，关掉开关时只是不画。
@@ -165,14 +168,27 @@ func openPlayer(src string) (playerAPI, error) {
 
 // newNativeWindow 建窗并开始播放。调用方（Manager）保证 pl 已在主线程打开。
 func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
+	set := o.Shared
+	if set == nil {
+		// 没有注入共享设置（测试 / 独立使用）：按 Options 建一份本窗口的。
+		set = &view.PlayerSettings{
+			Speed:      max(o.Speed, 0.5),
+			Volume:     1,
+			LastVolume: 1,
+			Muted:      o.Muted,
+		}
+		if o.Muted {
+			set.Volume = 0
+		}
+	}
+	set.Ensure()
 	n := &nativeWindow{
 		pl:         pl,
 		theme:      o.Theme,
 		title:      o.Title,
 		startAt:    o.StartAt,
-		speed:      max(o.Speed, 0.5),
-		muted:      o.Muted,
-		volume:     1,
+		settings:   set,
+		segments:   o.SponsorSegments,
 		dm:         &danmaku.Overlay{},
 		dmCid:      o.DanmakuCid,
 		dmOn:       true,
@@ -197,6 +213,10 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		pl.Close()
 		return nil
 	}
+	// 起播参数按共享设置来（主窗静音 / 倍速在这一刻是什么，视频窗就是什么）。
+	pl.SetVolume(set.Volume)
+	pl.SetMuted(set.Muted)
+	pl.SetRate(set.Speed)
 	// 全屏是异步的（macOS 的 toggleFullScreen 动画、GTK 的 window-state-event、
 	// Wayland 合成器的答复）。用户也可能用系统手势进出，所以状态以窗口为准，
 	// 变化时补一帧让外壳按新的全屏状态重排（见 view.VideoChrome 的
@@ -204,6 +224,7 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 	n.win.OnEnterFullScreen(func() { n.invalidate() })
 	n.win.OnLeaveFullScreen(func() { n.invalidate() })
 	n.win.OnClosed(func() {
+		n.chromeDetach()
 		// 先取状态再关播放器：关掉之后 Position/Duration 都归零，主窗拿到
 		// 的「关窗时停在几秒」就成了 0（关窗后要继续听这一集，见 main.go
 		// 的 OnClose 接力）。closeState 关的是 n.pl —— 不是建窗时捕获的那个
@@ -240,14 +261,26 @@ func (n *nativeWindow) closeState() State {
 	return st
 }
 
+// ensureSettings 给直接构造的 nativeWindow（测试）补一份设置，并保证监听
+// 还没挂上时也有可读的倍速/音量。
+func (n *nativeWindow) ensureSettings() *view.PlayerSettings {
+	if n.settings == nil {
+		n.settings = &view.PlayerSettings{Volume: 1, LastVolume: 1, Speed: 1}
+		n.settings.Ensure()
+	}
+	n.settings.Ensure()
+	return n.settings
+}
+
 // state 是给主窗回传的播放状态（与 webview 路径同一结构）。
 func (n *nativeWindow) state() State {
+	n.ensureSettings()
 	st := State{
 		Duration: n.pl.Duration().Seconds(),
 		Time:     n.pl.Position().Seconds(),
 		Paused:   !n.pl.Playing(),
-		Muted:    n.muted,
-		Speed:    n.speed,
+		Muted:    n.settings.Muted,
+		Speed:    n.settings.Speed,
 		Ready:    1,
 	}
 	if !n.pl.Ready() {
@@ -305,26 +338,25 @@ func (n *nativeWindow) seek(seconds float64) {
 	})
 }
 
+// setRate / setMuted / setVolume 改的是共享设置；外壳注册的监听会把新值
+// 落到这个窗口的播放器上（与视频窗内点音量键走同一条路）。
 func (n *nativeWindow) setRate(v float64) {
-	n.apply(func() {
-		n.speed = max(v, 0.5)
-		n.pl.SetRate(n.speed)
-	})
+	n.apply(func() { n.settings.SetSpeed(max(v, 0.5)) })
 }
 
 func (n *nativeWindow) setMuted(m bool) {
-	n.apply(func() {
-		n.muted = m
-		n.pl.SetMuted(m)
-	})
+	n.apply(func() { n.settings.SetMuted(m) })
 }
 
 func (n *nativeWindow) setVolume(v float64) {
-	n.apply(func() {
-		n.volume = v
-		n.pl.SetVolume(v)
-		n.pl.SetMuted(n.muted || v <= 0)
-	})
+	n.apply(func() { n.settings.SetVolume(v) })
+}
+
+// chromeDetach 注销视频窗外壳挂在共享设置上的监听（关窗 / 退出播放时调）。
+func (n *nativeWindow) chromeDetach() {
+	if n.chrome != nil {
+		n.chrome.Detach()
+	}
 }
 
 func (n *nativeWindow) close() {
@@ -380,24 +412,26 @@ func (n *nativeWindow) view(c *ui.Context) {
 	if n.win != nil {
 		ch.Win = n.win
 	}
-	ch.Speed, ch.Volume, ch.Muted = n.speed, n.volume, n.muted
-	// 弹幕状态以窗口为准同步进外壳（外壳自己也会在点击时翻转它）。
+	// 设置是共享的（同一个指针），不需要每帧拷贝；弹幕状态以窗口为准同步
+	// 进外壳（外壳自己也会在点击时翻转它）。
 	ch.Danmaku = n.dmOn
 	ch.DanmakuSettings = n.dmSettings
+	ch.SponsorSegments = n.segments
 	ch.View(c)
-	n.speed, n.volume, n.muted = ch.Speed, ch.Volume, ch.Muted
 	n.dmOn = ch.Danmaku
 	n.report()
 }
 
 // chromeFor 惰性建出外壳（测试里直接构造 nativeWindow 时也走这条）。
 func (n *nativeWindow) chromeFor() *view.VideoChrome {
+	n.ensureSettings()
 	if n.chrome != nil {
 		return n.chrome
 	}
 	n.chrome = &view.VideoChrome{
 		Theme: n.theme,
 		Title: n.title,
+		Set:   n.settings,
 		// 回调都在调用时读字段：Manager 在 newNativeWindow 之后才接上
 		// onMin / onQuit，闭包里捕获字段才能拿到后来的值。
 		//
@@ -407,7 +441,10 @@ func (n *nativeWindow) chromeFor() *view.VideoChrome {
 		// 在主线程上是同步的（onMain 直接调用 → destroy → OnClosed → 关播放器）；
 		// 在窗口自己的帧里拆掉自己，会让同一个帧继续用一个已销毁的窗口
 		// （native.go 的 onFailed 出于同一个原因丢到 goroutine 上）。
-		OnClose: func() { go n.close() },
+		OnClose: func() {
+			n.chromeDetach()
+			go n.close()
+		},
 		OnMinimize: func() {
 			if cb := n.onMin; cb != nil {
 				cb()

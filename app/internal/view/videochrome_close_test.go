@@ -48,8 +48,6 @@ func videoChromeCloseProbe(t *testing.T, w, h int) (*VideoChrome, *videoStubPlay
 		Title:      "测试稿件",
 		Pl:         pl,
 		Win:        newVideoStubWindow(),
-		Speed:      1,
-		Volume:     1,
 		OnClose:    func() { calls.close.Add(1) },
 		OnMinimize: func() { calls.min.Add(1) },
 		OnQuit:     func() { calls.quit.Add(1) },
@@ -147,8 +145,8 @@ func TestVideoChromeMinimizeKeepsPlayback(t *testing.T) {
 	if !pl.playing || pl.pauses != before.pauses {
 		t.Errorf("恢复后播放状态变了：playing=%v pauses=%d", pl.playing, pl.pauses)
 	}
-	if ch.Speed != 1 || ch.Volume != 1 {
-		t.Errorf("恢复后倍速/音量变了：%v / %v", ch.Speed, ch.Volume)
+	if set := ch.settings(); set.Speed != 1 || set.Volume != 1 {
+		t.Errorf("恢复后倍速/音量变了：%v / %v", set.Speed, set.Volume)
 	}
 }
 

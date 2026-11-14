@@ -43,26 +43,32 @@ import (
 	"github.com/vst93/bili-fm/app/internal/danmaku"
 )
 
-// 尺寸（DIP）。VideoChromeKey 与主窗播放栏的工具键同尺寸（28×28）。
+// 尺寸（DIP）。控件条与主窗播放栏同一套节奏：播放键 42、工具键 32、
+// 倍速列 40、均衡/恰饭列 34、进度条 24、时间列 56、间距 8。顶栏三颗键
+// 与主窗标题栏动作键同尺寸（30×30、图标 15）。
 const (
-	VideoChromeKey    float32 = 28
+	VideoChromeKey    float32 = 30
 	videoChromePad    float32 = 10
-	videoChromeGap    float32 = 6
-	videoChromeTitleH float32 = 34
-	videoChromeBarH   float32 = 44
+	videoChromeGap    float32 = 8
+	videoChromeTitleH float32 = 36
+	videoChromeBarH   float32 = PlayerBarHeight
 	videoChromeRadius float32 = 12
-	videoChromeTimeW  float32 = 42
+	videoChromeTimeW  float32 = 56
 	videoChromeVolW   float32 = 68
-	// videoChromeTextKeyW 是文字键（倍速）的宽度：28×28 装不下 "1.25x"
-	// （11px Inter 约 30px），文字键单独放宽，高度仍是 28。
-	videoChromeTextKeyW float32 = 40
-	// videoChromeBarTwoH 是窄窗两行控件条的高度（4 + 24 + 2 + 28 + 4）：
-	// 第一行放进度条（高 timelineH=24），第二行放键（28）。
-	videoChromeBarTwoH float32 = 62
-	// videoChromeNarrow 以下进度条独占一行（一行里它只剩不到 80px）。
-	videoChromeNarrow float32 = 440
-	// videoChromeWide 以上才出现音量滑块（静音键始终在）。
-	videoChromeWide float32 = 620
+	// videoChromeBarTwoH 是窄窗两行控件条的高度（4 + 24 + 2 + 42 + 4）：
+	// 第一行放进度条（高 timelineH=24），第二行放键（播放键 42）。
+	videoChromeBarTwoH float32 = 76
+	// 渐进收纳的宽度档（从宽到窄）：
+	//   < 900 收起音量滑块（滑块搬进共享音量弹层，键始终在）
+	//   < 720 收起总时长
+	//   < 560 收起下一集 / 均衡 / 跳过广告（下一集在视频窗本来就没有目标）
+	//   < 520 进度条独占一行（两行布局）
+	//   < 400 收起当前时间（只留进度条）
+	videoChromeVolumeBar  float32 = 900
+	videoChromeTimeDur    float32 = 720
+	videoChromeKeysNarrow float32 = 560
+	videoChromeTwoRows    float32 = 520
+	videoChromeTimePos    float32 = 400
 )
 
 // 计时。视频窗的控件条自动隐藏与全屏过渡都按这几个值走。
@@ -97,7 +103,7 @@ const (
 
 // VideoSpeeds 是倍速键的循环档位，与主窗播放栏的 speedOptions 完全一致
 // （playerbar.go）。两处若漂开，同一个视频在两个窗口里会给出不同的档位。
-var VideoSpeeds = []float64{0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0}
+var VideoSpeeds = speedOptions
 
 // VideoPlayer 是外壳驱动播放器所需的最小面。*ui.VideoPlayer 的方法带返回值
 // （SetRate 返回 *VideoPlayer），不满足它；internal/video 的 uiPlayer 适配器
@@ -177,11 +183,14 @@ type VideoChrome struct {
 	// OnDanmakuToggle 在视频窗内点弹幕键时调用（参数是点击后的开关值）。
 	OnDanmakuToggle func(on bool)
 
-	// Speed / Volume / Muted 与播放器同源。internal/video 每帧把窗口自己的
-	// 字段同步进来、再同步回去，所以主窗改倍速 / 静音时这里跟着变。
-	Speed  float64
-	Volume float64
-	Muted  bool
+	// Set 是主窗与视频窗共享的设置（音量 / 静音 / 倍速 / 均衡 / 广告跳过）。
+	// internal/video 把主窗的 &App.PlayerSettings 传进来，两边是同一份内存：
+	// 这里改音量，主窗立刻看见；主窗改倍速，这里下一帧就按新值播。
+	// nil 时用本窗口自己的一份（无头测试 / 独立使用），见 settings()。
+	Set *PlayerSettings
+	// SponsorSegments 是当前这一集的恰饭分段（主窗查询后同步进来）。
+	// 视频窗的进度条会画出这些段，开关打开时还会真的跳过。
+	SponsorSegments []Segment
 
 	inited   bool
 	idle     videoChromeIdle
@@ -189,6 +198,18 @@ type VideoChrome struct {
 	fs       videoFullScreen
 	seek     videoSeek
 	barHover bool
+
+	// 控件条上的两个弹层（与主窗同一份实现）与音量拖动提交的上一帧状态。
+	showVolume bool
+	showSpeed  bool
+	wasVolHeld bool
+	// bubble 是进度条的悬停时间气泡（与主窗共用 seekBubbleState.draw）。
+	bubble seekBubbleState
+	// detachSettings 注销共享设置监听（关窗时调用，避免闭包挂在设置对象上）。
+	detachSettings func()
+	// lastSponsorSeek 是上一次自动跳过恰饭段的时间：避免 seek 还没落地时
+	// 连续几帧重复下发（与主窗的 skipped 表同一个目的，视频窗用时间闩）。
+	lastSponsorSeek time.Time
 
 	// dmFrame 是上一帧的时间点：弹幕本地时钟按它推进（暂停时不动）。
 	dmFrame time.Time
@@ -529,22 +550,37 @@ func videoKeyFor(mods ui.Modifiers, key ui.Key, full bool) videoKeyAction {
 // ---------------------------------------------------------------- 视图
 
 // videoChromeLayout 是一帧的排布结论（纯函数，测试直接钉）。
+//
+// 收纳顺序按用户要求：窄了先收起**滑块**（音量条搬进共享弹层，键始终在），
+// 再收起**文字时间**（先总时长、后当前时间），中间按宽度收掉次要的设置键。
+// 任何一档都不允许控件溢出窗口或被裁切。
 type videoChromeLayout struct {
 	// TwoRows 表示进度条独占一行（窄窗）。
 	TwoRows bool
-	// VolumeBar 表示控件条里带音量滑块（静音键始终在）。
+	// VolumeBar 表示控件条里带内联音量滑块（只在最宽的一档出现）。
 	VolumeBar bool
+	// TimePos / TimeDur 是两枚时间标签是否显示。
+	TimePos bool
+	TimeDur bool
+	// Next / EQ / Sponsor 是次要键是否显示。
+	Next    bool
+	EQ      bool
+	Sponsor bool
 }
 
 func videoChromeLayoutFor(w float32) videoChromeLayout {
-	switch {
-	case w < videoChromeNarrow:
-		return videoChromeLayout{TwoRows: true}
-	case w < videoChromeWide:
-		return videoChromeLayout{}
-	default:
-		return videoChromeLayout{VolumeBar: true}
+	lo := videoChromeLayout{
+		TimePos:   w >= videoChromeTimePos,
+		TimeDur:   w >= videoChromeTimeDur,
+		Next:      w >= videoChromeKeysNarrow,
+		EQ:        w >= videoChromeKeysNarrow,
+		Sponsor:   w >= videoChromeKeysNarrow,
+		VolumeBar: w >= videoChromeVolumeBar,
+		TwoRows:   w < videoChromeTwoRows,
 	}
+	// 两行布局里进度条独占一行，当前时间到 400 才收起；一行布局在
+	// 520..560 之间时时间列已收，进度条拿到全部余量。
+	return lo
 }
 
 // View 画出整个视频窗：画面铺满，标题栏与控件条浮在画面上，按自动隐藏的
@@ -557,6 +593,12 @@ func (v *VideoChrome) View(c *ui.Context) {
 
 	root := c.Root()
 	root.Background(ui.Hex("#000000"))
+
+	// 广告跳过是共享设置：主窗开着它时，视频窗也按同一份分段真的跳过。
+	// 只在播放中判（暂停在恰饭段上不应该自己跳走）。
+	if v.Pl.Playing() {
+		v.skipSponsor(now)
+	}
 
 	// 全屏状态以窗口为准（用户也可能用系统手势 / F11 进出）。
 	v.fs.observe(now, v.Win)
@@ -633,11 +675,49 @@ func (v *VideoChrome) init(now time.Time) {
 	if v.Theme.Mode == "" && v.Theme.Ink.A == 0 {
 		v.Theme = ThemeAt(now)
 	}
-	if v.Speed <= 0 {
-		v.Speed = 1
-	}
 	if v.Pl == nil {
 		v.Pl = nopVideoPlayer{}
+	}
+	set := v.settings()
+	set.Ensure()
+	// 共享设置一变就落到这个窗口的播放器上：主窗改音量 / 倍速，下一帧
+	// 视频窗就是新值；视频窗自己改，也是同一条路。EQ / 广告跳过没有
+	// 视频引擎可落（主窗的监听负责），这里只跟着状态走。
+	v.detachSettings = set.OnChange(func(k PlayerSettingKind) {
+		switch k {
+		case SettingVolume:
+			if v.Pl != nil {
+				v.Pl.SetVolume(set.Volume)
+				v.Pl.SetMuted(set.Muted)
+			}
+		case SettingSpeed:
+			if v.Pl != nil {
+				v.Pl.SetRate(set.Speed)
+			}
+		}
+	})
+	// 起播前把共享设置先下发一次（播放器可能带着默认 1.0 起播）。
+	v.Pl.SetVolume(set.Volume)
+	v.Pl.SetMuted(set.Muted)
+	v.Pl.SetRate(set.Speed)
+}
+
+// settings 返回共享设置；没有注入时建一份本窗口自己的（无头测试 / 独立
+// 使用）。生产路径由 internal/video 注入主窗的 &App.PlayerSettings。
+func (v *VideoChrome) settings() *PlayerSettings {
+	if v.Set == nil {
+		v.Set = &PlayerSettings{}
+		v.Set.Ensure()
+	}
+	return v.Set
+}
+
+// Detach 注销共享设置监听。关窗时由 internal/video 调用：不注销的话，
+// 每开一次视频窗就多挂一个闭包，还会往已经关掉的播放器上下发设置。
+func (v *VideoChrome) Detach() {
+	if v.detachSettings != nil {
+		v.detachSettings()
+		v.detachSettings = nil
 	}
 }
 
@@ -664,7 +744,8 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	switch {
 	case v.Pl == nil:
 		return true
-	case !v.Pl.Playing(), v.Pl.Buffering(), v.seek.drag, v.barHover, v.fs.inFlight:
+	case !v.Pl.Playing(), v.Pl.Buffering(), v.seek.drag, v.barHover,
+		v.showVolume, v.showSpeed, v.fs.inFlight:
 		return true
 	}
 	return false
@@ -695,33 +776,38 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 		// macOS 菜单 / 这里三处一致），只是位置搬到了顶栏。
 		v.danmakuKey(c, t)
 		if !full {
-			if b := t.videoKey(c, "video-min", "最小化", "最小化", iconMinus, false, false); b.Clicked() {
+			if b := playerBarTitleKey(c, t, "video-min", "最小化", "最小化", iconMinus, false); b.Clicked() {
 				v.minimize()
 			}
 		}
 		// 退出视频播放：关窗回主窗，**不是**退出应用（见 OnClose 的注释）。
-		if b := t.videoKey(c, "video-exit", "退出视频播放", "退出视频播放", iconClose, false, false); b.Clicked() {
+		if b := playerBarTitleKey(c, t, "video-exit", "退出视频播放", "退出视频播放", iconClose, false); b.Clicked() {
 			v.close()
 		}
 	})
 	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
 }
 
-// controlBar 是底部那条：播放 / 时间 / 进度 / 倍速 / 音量 / 全屏。
+// controlBar 是底部那条：与主窗播放栏**同一份控件代码**（playerbar_shared.go
+// 的 playerTransportItems / playerTimelineItems / playerSettingsItems），
+// 绑定目标是这个窗口的播放器（videoPlayerBind）。
 //
 // 没有关闭键：关闭只在顶栏有一颗（用户报的「上下各有一个关闭按钮」）。
 // 也没有弹幕键：它已按用户要求移进顶栏那三颗里，同一个开关不做两处入口。
+//
+// 宽度不够时按 videoChromeLayout 渐进收纳：先收内联音量滑块、再收总时长、
+// 再收次要键、最后收当前时间；520 以下进度条独占一行。
 func (v *VideoChrome) controlBar(c *ui.Context, t Theme, alpha float32, full bool) {
 	w, _ := c.Size()
 	lo := videoChromeLayoutFor(w)
 	var bar ui.Element
 	if lo.TwoRows {
 		bar = ui.Column(c).Absolute().Left(videoChromePad).Right(videoChromePad).Bottom(videoChromePad).
-			Height(videoChromeBarTwoH).Padding(4, 10).Radius(videoChromeRadius).
+			Height(videoChromeBarTwoH).Padding(4, 12).Radius(videoChromeRadius).
 			Gap(2)
 	} else {
 		bar = ui.Row(c).Absolute().Left(videoChromePad).Right(videoChromePad).Bottom(videoChromePad).
-			Height(videoChromeBarH).Padding(0, 10).Radius(videoChromeRadius).
+			Height(videoChromeBarH).Padding(0, 12).Radius(videoChromeRadius).
 			AlignItems(ui.Center).Gap(videoChromeGap)
 	}
 	bar = t.videoBar(bar)
@@ -729,202 +815,159 @@ func (v *VideoChrome) controlBar(c *ui.Context, t Theme, alpha float32, full boo
 	if alpha <= 0.01 {
 		bar.IgnoreInput(true)
 	}
+
+	b := v.videoPlayerBind(c, t, lo)
+	var volumeSlot, speedSlot ui.Element
 	bar.Children(func() {
 		if lo.TwoRows {
-			v.controlRows(c, t, full)
-			return
+			ui.Row(c).FillWidth().Height(timelineH).AlignItems(ui.Center).
+				Gap(videoChromeGap).Children(func() {
+				playerTimelineItems(c, b)
+			})
+			ui.Row(c).FillWidth().Height(42).AlignItems(ui.Center).
+				Gap(videoChromeGap).Children(func() {
+				playerTransportItems(c, b)
+				playerSettingsItems(c, b, &volumeSlot, &speedSlot)
+				if lo.VolumeBar {
+					v.volumeSlider(c, t)
+				}
+				ui.Box(c).Grow(1)
+				v.fullScreenKey(c, t, full)
+			})
+		} else {
+			ui.Row(c).FillWidth().Grow(1).AlignItems(ui.Center).
+				Gap(videoChromeGap).Children(func() {
+				playerTransportItems(c, b)
+				playerTimelineItems(c, b)
+				playerSettingsItems(c, b, &volumeSlot, &speedSlot)
+				if lo.VolumeBar {
+					v.volumeSlider(c, t)
+				}
+				v.fullScreenKey(c, t, full)
+			})
 		}
-		v.controlRow(c, t, lo, full)
+		// 弹层与主窗同一份实现：倍速用 4 列网格（视频窗窄，7 个档位一行
+		// 放不下），音量是 184×42 的横条。
+		if v.showSpeed {
+			playerSpeedPopover(c, t, b.Set, &v.showSpeed, speedSlot, 4, !b.ShowSpeed)
+		}
+		if v.showVolume {
+			playerVolumePopover(c, t, b.Set, &v.showVolume, volumeSlot, &v.wasVolHeld,
+				!b.ShowVolume, func() { b.Set.PersistVolume() })
+		}
 	})
 	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
 }
 
-// controlRow 是宽窗的一行排布：所有控件在同一行。
-func (v *VideoChrome) controlRow(c *ui.Context, t Theme, lo videoChromeLayout, full bool) {
-	v.playKey(c, t)
-	v.timeText(c, t, v.Pl.Position().Seconds(), videoChromeTimeW)
-	v.progress(c, t)
-	v.timeText(c, t, v.Pl.Duration().Seconds(), videoChromeTimeW)
-	v.speedKey(c, t)
-	v.volumeKey(c, t)
-	if lo.VolumeBar {
-		v.volumeSlider(c, t)
-	}
-	v.fullScreenKey(c, t, full)
-}
-
-// controlRows 是窄窗的两行排布：进度独占一行，键在第二行。
-func (v *VideoChrome) controlRows(c *ui.Context, t Theme, full bool) {
-	ui.Row(c).FillWidth().Height(timelineH).AlignItems(ui.Center).Gap(videoChromeGap).Children(func() {
-		v.timeText(c, t, v.Pl.Position().Seconds(), videoChromeTimeW)
-		v.progress(c, t)
-		v.timeText(c, t, v.Pl.Duration().Seconds(), videoChromeTimeW)
-	})
-	ui.Row(c).FillWidth().Height(VideoChromeKey).AlignItems(ui.Center).Gap(videoChromeGap).Children(func() {
-		v.playKey(c, t)
-		v.speedKey(c, t)
-		v.volumeKey(c, t)
-		ui.Box(c).Grow(1)
-		v.fullScreenKey(c, t, full)
-	})
-}
-
-// playKey 是播放 / 暂停键（主键，与主窗一样用实心玻璃 + 强调色）。
-func (v *VideoChrome) playKey(c *ui.Context, t Theme) {
-	ic := iconPlayOne
-	tip := "播放"
-	if v.Pl.Playing() {
-		ic, tip = iconPause, "暂停"
-	}
-	b := t.videoKey(c, "video-play", tip, tip, ic, true, false)
-	if b.Clicked() {
-		v.togglePlay()
-	}
-}
-
-// progress 是进度条：已播 + 缓冲状态 + 可拖动。外观与主窗播放栏的进度条
-// **同一份绘制代码**（paintTimeline），尺寸与交互（SliderBase 的拖动 / 方向键）
-// 也一致。
-func (v *VideoChrome) progress(c *ui.Context, t Theme) {
+// videoPlayerBind 把视频窗的控件条绑到视频播放器：播放/暂停、进度、时间
+// 各走各的；设置类键读写共享的 PlayerSettings。
+func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayout) PlayerBarBind {
+	set := v.settings()
 	dur := v.Pl.Duration().Seconds()
 	pos := v.Pl.Position().Seconds()
-	if !v.seek.drag {
-		v.seek.value = clampF(pos, 0, maxF64(dur, 0))
+	shown := pos
+	if v.seek.drag {
+		shown = v.seek.value
 	}
-	hi := maxF64(dur, 0.1)
-	s := ui.SliderBase(c, &v.seek.value, 0, hi).Grow(1).Height(timelineH).
-		PaddingX(timelineInset).Label("播放进度").Step(0.1)
-	s.Disabled(dur <= 0).DimDisabled(false)
-	if dur <= 0 {
-		s.Opacity(progressDisabledOpacity)
+	colors := videoRangeColors(t)
+	return PlayerBarBind{
+		Theme:      t,
+		Set:        set,
+		Playing:    v.Pl.Playing(),
+		OnPlay:     v.togglePlay,
+		HasSrc:     true,
+		Pos:        shown,
+		Dur:        dur,
+		SeekValue:  &v.seek.value,
+		OnFrame:    v.seekFrame(dur),
+		OnSeek:     v.seekTo,
+		Segments:   v.SponsorSegments,
+		NextTip:    "视频窗没有换集：回主窗用播放列表",
+		CanNext:    false,
+		ShowVolume: v.showVolume,
+		ShowSpeed:  v.showSpeed,
+		OnVolumeKey: func() {
+			v.showVolume = !v.showVolume
+			v.showSpeed = false
+			v.idle.touch(c.Now())
+		},
+		OnSpeedKey: func() {
+			v.showSpeed = !v.showSpeed
+			v.showVolume = false
+			v.idle.touch(c.Now())
+		},
+		ShowPos:        lo.TimePos,
+		ShowDur:        lo.TimeDur,
+		ShowNext:       lo.Next,
+		ShowEQ:         lo.EQ,
+		ShowSponsor:    lo.Sponsor,
+		OnPanel:        true,
+		TimelineColors: &colors,
+		TimelineSkinFor: func(hovered bool) rangeSkin {
+			return videoRangeSkin(t, hovered)
+		},
+		TimelineOverlay: func(p *ui.Painter, r ui.Rect, rp rangePaint) {
+			if pulse := videoBufferingPulse(c.Now(), v.Pl.Buffering()); pulse > 0 {
+				p.Stroke(rangeTrackRect(r, rp.Geom), t.Blue.Alpha(pulse), timelineTrackH/2, 1)
+			}
+		},
+		Bubble: &v.bubble,
 	}
+}
+
+// seekFrame 是视频窗的进度条状态机：拖动中停在目标值，松手跟随播放位置。
+// 与主窗的 progressPlan 不同（那边有 seek 未落地 / 拖动预览的等待），
+// 但输入接线与绘制是同一份 playerTimeline。
+func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, float64) {
+	return func(in PlayerTimelineInput) (bool, float64) {
+		v.seek.drag = in.Held
+		if in.Changed {
+			return true, v.seek.value
+		}
+		if !in.Held {
+			return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+		}
+		return false, v.seek.value
+	}
+}
+
+// volumeSlider 是宽窗（>=900）的内联音量条：与主窗音量弹层里的那条同一份
+// 绘制（paintRangeBar），窄了先收起它（键仍在，弹层里还能调）。
+func (v *VideoChrome) volumeSlider(c *ui.Context, t Theme) {
+	set := v.settings()
+	val := clampF(set.Volume, 0, 1)
+	s := ui.SliderBase(c, &val, 0, 1).Width(videoChromeVolW).Height(timelineH).
+		Label("音量滑块").Step(videoVolumeStep)
 	focusOutline(s, 0, focusStudio)
 	_, _, held := s.Dragged()
-	v.seek.drag = held
 	if s.Changed() {
-		v.seekTo(v.seek.value)
-	}
-	frac := float32(0)
-	if dur > 0 {
-		frac = float32(clampF(v.seek.value/dur, 0, 1))
-	}
-	rp := rangePaint{
-		Frac:       frac,
-		Hovered:    s.Hovered(),
-		Held:       held,
-		Dark:       t.Dark,
-		Colors:     videoRangeColors(t),
-		Geom:       timelineGeom,
-		ThumbScale: s.AnimateTo("video-thumb", rangeThumbScale(s.Hovered(), held), thumbScaleAnim),
+		set.SetVolume(val)
 	}
 	skin := videoRangeSkin(t, s.Hovered())
-	pulse := videoBufferingPulse(c.Now(), v.Pl.Buffering())
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintVideoTimeline(p, r, rp, skin, pulse, t.Blue)
+		paintRangeBar(p, r, rangePaint{
+			Frac:       float32(clampF(val, 0, 1)),
+			Hovered:    s.Hovered(),
+			Held:       held,
+			Dark:       t.Dark,
+			Colors:     videoRangeColors(t),
+			Geom:       volumeGeom,
+			ThumbScale: rangeThumbScale(s.Hovered(), held),
+			Skin:       &skin,
+		})
 	})
 }
 
-// videoRangeColors 是视频窗进度条 / 音量条这一帧的（描边, 底色）。
-//
-// 主窗那对令牌（--player-track-border / --player-track-rest）是**给半透明
-// 玻璃**的：浅色时段是白 .68 / 白 .32，压在视频窗这块白面板（Panel，白 .88）
-// 上就是白上白 —— 轨道整个看不见。所以浅色下换成墨色的低透明度；深色时段
-// 面板本来就是深的，直接用原令牌。
-func videoRangeColors(t Theme) rangeColors {
-	if t.Dark {
-		return rangeColorsFor(t)
+// fullScreenKey 是全屏键（全屏时换成「退出全屏」的四角内收图标）。与顶栏
+// 三颗键同一套形状；它是控件条里唯一不属于主窗播放栏的键（窗口动作）。
+func (v *VideoChrome) fullScreenKey(c *ui.Context, t Theme, full bool) {
+	ic, tip := iconFullScreen, "全屏"
+	if full {
+		ic, tip = iconExitFullScreen, "退出全屏"
 	}
-	return rangeColors{Border: t.Ink.Alpha(0.20), Rest: t.Ink.Alpha(0.10)}
-}
-
-// videoRangeSkin 是视频窗那条输入条的材质（轨道内影 / 滑块描边底色高光）。
-// 与主窗共用同一份绘制代码（paintRangeFill / paintRangeThumb），只把浅色那套
-// 白描边换成能压在白面板上的值：滑块底加深到 #bae6fd 实色、描边转白 .95、
-// 外投影加重（否则 14px 的滑块在白面板上像一块没边的白斑）。
-func videoRangeSkin(t Theme, hovered bool) rangeSkin {
-	s := rangeSkinFor(t.Dark, hovered)
-	if t.Dark {
-		return s
-	}
-	s.TrackTop = ui.Hex("#ffffff").Alpha(0.92)
-	s.TrackBottom = shadowInk.Alpha(0.05)
-	s.ThumbBorder = ui.Hex("#ffffff").Alpha(0.95)
-	s.ThumbFill = ui.Hex("#bae6fd").Alpha(0.96)
-	s.ThumbGlow = ui.Hex("#0284c7").Alpha(0.32)
-	s.ThumbBottom = ui.Hex("#0284c7").Alpha(0.16)
-	return s
-}
-
-// paintVideoTimeline 画视频窗的进度条：轨道 + 已播 + 滑块（+ 缓冲呼吸环）。
-//
-// 与主窗的 paintTimeline 共用轨道 / 填充 / 滑块三块绘制，但**没有**章节刻线、
-// 恰饭段与预读缓冲层 —— 那三样数据 ui/video 一个都不提供（只有 Buffering()
-// 一个布尔），画出来就是编的。皮肤也单独调过（见 videoRangeSkin）。
-func paintVideoTimeline(p *ui.Painter, r ui.Rect, rp rangePaint, s rangeSkin, buffering float32, accent ui.Color) {
-	track := rangeTrackRect(r, rp.Geom)
-	paintRangeShadow(p, track, rp.Hovered, s)
-	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
-	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, rp.ThumbScale, s)
-	if buffering > 0 {
-		// 缓冲中：轨道上叠一圈呼吸的强调色。ui/video 只给 Buffering() 一个
-		// 布尔（没有可预读的字节范围），所以这里画的是「正在缓冲」的状态，
-		// 不是第二段进度 —— 不假装有一份我们拿不到的数据。
-		p.Stroke(track, accent.Alpha(buffering), timelineTrackH/2, 1)
-	}
-}
-
-// videoBufferingPulse 是缓冲描边的呼吸不透明度（0.25 ~ 0.60，约 1.4s 一周期）。
-func videoBufferingPulse(now time.Time, buffering bool) float32 {
-	if !buffering {
-		return 0
-	}
-	phase := float64(now.UnixNano()%int64(1400*time.Millisecond)) / float64(1400*time.Millisecond)
-	return 0.25 + 0.35*float32(0.5+0.5*math.Sin(phase*2*math.Pi))
-}
-
-// volumeKey 是静音键（音量 0 / 静音时显示带斜杠的喇叭，与主窗同一条判据）。
-func (v *VideoChrome) volumeKey(c *ui.Context, t Theme) {
-	muted := v.Muted || v.Volume <= 0
-	tip := "静音"
-	if muted {
-		tip = "取消静音"
-	}
-	b := t.videoKey(c, "video-volume", tip, tip, volumeIconFor(muted), false, muted)
+	b := playerBarTitleKey(c, t, "video-fullscreen", tip, tip, ic, full)
 	if b.Clicked() {
-		v.toggleMute()
-	}
-}
-
-// volumeSlider 是音量滑块（与主窗的音量条同一份绘制代码）。
-func (v *VideoChrome) volumeSlider(c *ui.Context, t Theme) {
-	val := clampF(v.Volume, 0, 1)
-	s := ui.SliderBase(c, &val, 0, 1).Width(videoChromeVolW).Height(timelineH).
-		Label("音量").Step(videoVolumeStep)
-	focusOutline(s, 0, focusStudio)
-	_, _, held := s.Dragged()
-	if s.Changed() {
-		v.setVolume(val)
-	}
-	rp := rangePaint{
-		Frac:       float32(clampF(val, 0, 1)),
-		Hovered:    s.Hovered(),
-		Held:       held,
-		Dark:       t.Dark,
-		Colors:     videoRangeColors(t),
-		Geom:       volumeGeom,
-		ThumbScale: rangeThumbScale(s.Hovered(), held),
-	}
-	skin := videoRangeSkin(t, s.Hovered())
-	s.Draw(func(p *ui.Painter, r ui.Rect) { paintVideoTimeline(p, r, rp, skin, 0, t.Blue) })
-}
-
-// speedKey 是倍速键：点一下循环到下一档（与主窗的档位一致），文案 3 位有效数字。
-func (v *VideoChrome) speedKey(c *ui.Context, t Theme) {
-	label := videoSpeedLabel(v.Speed)
-	b := t.videoTextKey(c, "video-speed", label, "倍速 · "+label, false)
-	if b.Clicked() {
-		v.Speed = videoSpeedStep(v.Speed, VideoSpeeds)
-		v.Pl.SetRate(v.Speed)
+		v.toggleFullScreen(c.Now())
 	}
 }
 
@@ -936,7 +979,7 @@ func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	if !v.Danmaku {
 		tip = "弹幕 · 已关"
 	}
-	b := t.videoKey(c, "video-danmaku", "弹幕", tip, iconDanmaku, false, v.Danmaku)
+	b := playerBarTitleKey(c, t, "video-danmaku", "弹幕", tip, iconDanmaku, v.Danmaku)
 	if b.Clicked() {
 		v.Danmaku = !v.Danmaku
 		if v.OnDanmakuToggle != nil {
@@ -982,7 +1025,7 @@ func (v *VideoChrome) danmaku(c *ui.Context) {
 	// 缓冲中位置不动，但 Playing() 可能仍为真：这时按暂停处理，弹幕不能
 	// 自己往前跑（否则每次缓冲回来都要被 resync 拽回去）。
 	playing := v.Pl.Playing() && !v.Pl.Buffering()
-	o.Sync(v.Pl.Position().Seconds(), playing, v.Speed, dt.Seconds(), float32(w), float32(h), s)
+	o.Sync(v.Pl.Position().Seconds(), playing, v.settings().Speed, dt.Seconds(), float32(w), float32(h), s)
 	if !s.On {
 		return
 	}
@@ -1005,22 +1048,76 @@ func (v *VideoChrome) danmaku(c *ui.Context) {
 	}
 }
 
-// fullScreenKey 是全屏键（全屏时换成「退出全屏」的四角内收图标）。
-func (v *VideoChrome) fullScreenKey(c *ui.Context, t Theme, full bool) {
-	ic, tip := iconFullScreen, "全屏"
-	if full {
-		ic, tip = iconExitFullScreen, "退出全屏"
+// videoRangeColors 是视频窗进度条 / 音量条这一帧的（描边, 底色）。
+//
+// 主窗那对令牌（--player-track-border / --player-track-rest）是**给半透明
+// 玻璃**的：浅色时段是白 .68 / 白 .32，压在视频窗这块白面板（Panel，白 .88）
+// 上就是白上白 —— 轨道整个看不见。所以浅色下换成墨色的低透明度；深色时段
+// 面板本来就是深的，直接用原令牌。
+func videoRangeColors(t Theme) rangeColors {
+	if t.Dark {
+		return rangeColorsFor(t)
 	}
-	b := t.videoKey(c, "video-fullscreen", tip, tip, ic, false, full)
-	if b.Clicked() {
-		v.toggleFullScreen(c.Now())
-	}
+	return rangeColors{Border: t.Ink.Alpha(0.20), Rest: t.Ink.Alpha(0.10)}
 }
 
-// timeText 是一枚时间标签。定宽，避免秒数进位时整条控件条跟着抖。
-func (v *VideoChrome) timeText(c *ui.Context, t Theme, sec float64, width float32) {
-	ui.Text(c, clockText(sec)).FontSize(11).Width(width).Shrink(0).
-		TextAlign(ui.Center).TextColor(t.Muted)
+// videoRangeSkin 是视频窗那条输入条的材质（轨道内影 / 滑块描边底色高光）。
+// 与主窗共用同一份绘制代码（paintRangeFill / paintRangeThumb），只把浅色那套
+// 白描边换成能压在白面板上的值：滑块底加深到 #bae6fd 实色、描边转白 .95、
+// 外投影加重（否则 14px 的滑块在白面板上像一块没边的白斑）。
+func videoRangeSkin(t Theme, hovered bool) rangeSkin {
+	s := rangeSkinFor(t.Dark, hovered)
+	if t.Dark {
+		return s
+	}
+	s.TrackTop = ui.Hex("#ffffff").Alpha(0.92)
+	s.TrackBottom = shadowInk.Alpha(0.05)
+	s.ThumbBorder = ui.Hex("#ffffff").Alpha(0.95)
+	s.ThumbFill = ui.Hex("#bae6fd").Alpha(0.96)
+	s.ThumbGlow = ui.Hex("#0284c7").Alpha(0.32)
+	s.ThumbBottom = ui.Hex("#0284c7").Alpha(0.16)
+	return s
+}
+
+// videoBufferingPulse 是缓冲描边的呼吸不透明度（0.25 ~ 0.60，约 1.4s 一周期）。
+func videoBufferingPulse(now time.Time, buffering bool) float32 {
+	if !buffering {
+		return 0
+	}
+	phase := float64(now.UnixNano()%int64(1400*time.Millisecond)) / float64(1400*time.Millisecond)
+	return 0.25 + 0.35*float32(0.5+0.5*math.Sin(phase*2*math.Pi))
+}
+
+// skipSponsor 按共享设置里的广告跳过开关与主窗同步来的分段，把播放位置
+// 推过恰饭段。判据与主窗 maybeSkipSponsor 同一套（时长容差、提前量、片尾
+// 余量）；区别是这里没有 toast（视频窗不抢画面的提示），用一个 1s 的时间闩
+// 防止 seek 未落地时连发。
+func (v *VideoChrome) skipSponsor(now time.Time) {
+	set := v.settings()
+	if !set.Sponsor || len(v.SponsorSegments) == 0 || v.Pl == nil || !v.Pl.Ready() {
+		return
+	}
+	if !v.lastSponsorSeek.IsZero() && now.Sub(v.lastSponsorSeek) < time.Second {
+		return
+	}
+	pos := v.Pl.Position().Seconds()
+	dur := v.Pl.Duration().Seconds()
+	const (
+		// 与主窗 maybeSkipSponsor 的两个值一致：提前 0.25s 触发、落到
+		// 片尾后 0.05s（避免停在分段边界上又被判一次）。
+		lead = 0.25
+		pad  = 0.05
+	)
+	for _, seg := range v.SponsorSegments {
+		if seg.VideoDuration > 0 && dur > 0 && math.Abs(seg.VideoDuration-dur) > sponsorTolerance {
+			continue
+		}
+		if pos >= seg.Start-lead && pos < seg.End {
+			v.lastSponsorSeek = now
+			v.seekTo(seg.End + pad)
+			return
+		}
+	}
 }
 
 // ---------------------------------------------------------------- 材质
@@ -1040,98 +1137,6 @@ func (t Theme) videoBar(bar ui.Element) ui.Element {
 	}
 	bar.Shadow(0, 8, 24, 0, shadowInk.Alpha(0.22))
 	return bar
-}
-
-// videoKeyPaint 是一颗键在一态下的材质。
-type videoKeyPaint struct {
-	Fill   ui.Color
-	Border ui.Color
-	Inset  ui.Color
-	Ink    ui.Color
-	Shadow ui.Color
-}
-
-// videoKeyPaintFor 解析键的材质。四态：常态 / 悬停 / 按下 / 激活（弹幕开、
-// 静音、全屏中）。浅色外观用深墨的低透明度填充（白面板上白玻璃看不见），
-// 深色外观用 Glass 三档 + Highlight 内高光 —— 与抽屉表头 / 播放栏的键族
-// 同一套思路，只是底色换成面板。
-func (t Theme) videoKeyPaintFor(hovered, pressed, active bool) videoKeyPaint {
-	if t.Dark {
-		p := videoKeyPaint{Fill: t.Glass, Border: t.GlassBorder, Inset: t.Highlight, Ink: t.Ink}
-		switch {
-		case active:
-			p.Fill, p.Border, p.Ink = t.Blue.Alpha(0.22), t.Blue.Alpha(0.60), t.Blue
-		case hovered:
-			p.Fill, p.Border, p.Ink = t.GlassHover, t.GlassBorderBright, t.Blue
-		}
-		if pressed {
-			p.Fill, p.Ink = t.GlassActive, t.Blue
-		}
-		return p
-	}
-	p := videoKeyPaint{Fill: t.Ink.Alpha(0.06), Border: t.Line, Ink: t.Muted}
-	switch {
-	case active:
-		p.Fill, p.Border, p.Ink = t.Blue.Alpha(0.14), t.Blue.Alpha(0.45), t.Blue
-	case hovered:
-		p.Fill, p.Border, p.Ink = t.Blue.Alpha(0.10), t.Blue.Alpha(0.32), t.Blue
-		p.Shadow = shadowInk.Alpha(0.06)
-	}
-	if pressed {
-		p.Fill, p.Ink = t.Ink.Alpha(0.10), t.Blue
-	}
-	return p
-}
-
-// videoKey 画一颗 28×28 的图标键：主窗那套形状（圆角 8、1px 描边、悬停 /
-// 按下 / 激活三档、140ms 过渡、按压 0.94、tooltip、焦点环）。primary 为真时
-// 用强调色的实心键（播放键）。
-func (t Theme) videoKey(c *ui.Context, key any, label, tip string, ic *ui.SVG, primary, active bool) ui.Element {
-	return t.videoKeyInto(c, key, label, tip, primary, active, func(ink ui.Color) {
-		ui.Icon(c, ic).Size(15, 15).TextColor(ink)
-	})
-}
-
-// videoTextKey 是同一套形状的文字键（倍速）。
-func (t Theme) videoTextKey(c *ui.Context, key any, text, tip string, active bool) ui.Element {
-	return t.videoKeySized(c, key, text, tip, videoChromeTextKeyW, false, active, func(ink ui.Color) {
-		ui.Text(c, text).FontSize(11).TextColor(ink)
-	})
-}
-
-func (t Theme) videoKeyInto(c *ui.Context, key any, label, tip string, primary, active bool, build func(ink ui.Color)) ui.Element {
-	return t.videoKeySized(c, key, label, tip, VideoChromeKey, primary, active, build)
-}
-
-func (t Theme) videoKeySized(c *ui.Context, key any, label, tip string, width float32, primary, active bool, build func(ink ui.Color)) ui.Element {
-	b := ui.ButtonBase(c.Key(key)).Size(width, VideoChromeKey).Radius(Radius).Center().
-		Label(label).Tooltip(tip)
-	st := headerStateOf(b, active)
-	p := t.videoKeyPaintFor(st.Hovered, st.Pressed, st.Selected)
-	if primary {
-		// 播放键是控件条上的主键：常态就用强调色的淡底 + 蓝边，悬停再加一档。
-		p.Fill, p.Border = t.Blue.Alpha(0.16), t.Blue.Alpha(0.42)
-		p.Ink = t.Blue
-		if st.Hovered {
-			p.Fill, p.Border = t.Blue.Alpha(0.26), t.Blue.Alpha(0.60)
-		}
-		if st.Pressed {
-			p.Fill = t.Blue.Alpha(0.12)
-		}
-	}
-	b.Background(headerFade(c, b, "video-key-fill", p.Fill, headerAnim)).
-		Border(1, headerFade(c, b, "video-key-border", p.Border, headerAnim))
-	if p.Inset.A > 0 {
-		b.InsetShadow(0, 1, 1, 0, p.Inset)
-	}
-	if p.Shadow.A > 0 {
-		b.Shadow(0, 2, 6, 0, p.Shadow)
-	}
-	pressScale(b)
-	focusOutline(b, Radius, t.headerFocusRing())
-	ink := headerFade(c, b, "video-key-ink", p.Ink, headerAnim)
-	b.Children(func() { build(ink) })
-	return b
 }
 
 // ---------------------------------------------------------------- 动作
@@ -1175,28 +1180,14 @@ func (v *VideoChrome) nudge(delta float64) {
 	v.seekTo(target)
 }
 
-func (v *VideoChrome) toggleMute() {
-	v.Muted = !v.Muted
-	if v.Pl != nil {
-		v.Pl.SetMuted(v.Muted)
-	}
-}
+// toggleMute / setVolume 改的是共享设置；本窗口的监听会把新值落到播放器，
+// 主窗的监听会把同一个值落到音频引擎 —— 两边不各写一套。
+func (v *VideoChrome) toggleMute() { v.settings().ToggleMute() }
 
-func (v *VideoChrome) setVolume(x float64) {
-	v.Volume = clampF(x, 0, 1)
-	if v.Pl != nil {
-		v.Pl.SetVolume(v.Volume)
-	}
-	if v.Volume > 0 && v.Muted {
-		v.Muted = false
-		if v.Pl != nil {
-			v.Pl.SetMuted(false)
-		}
-	}
-}
+func (v *VideoChrome) setVolume(x float64) { v.settings().SetVolume(x) }
 
 func (v *VideoChrome) nudgeVolume(delta float64) {
-	v.setVolume(v.Volume + delta)
+	v.setVolume(v.settings().Volume + delta)
 }
 
 func (v *VideoChrome) toggleFullScreen(now time.Time) {

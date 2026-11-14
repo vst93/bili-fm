@@ -296,7 +296,7 @@ func TestPlayerControlIconWiring(t *testing.T) {
 		want string
 		why  string
 	}{
-		{"playerbar.go", "pick(a.Playing, iconPause, iconPlayOne)", "主窗播放/暂停键"},
+		{"playerbar_shared.go", "pick(b.Playing, iconPause, iconPlayOne)", "播放栏播放/暂停键（主窗与视频窗共用）"},
 		{"mini.go", "pick(a.Playing, iconPause, iconPlayOne)", "迷你窗播放/暂停键"},
 		{"drawer.go", "icon := iconViews", "列表卡片 meta 的播放量图标"},
 		{"home.go", "pick(a.Faved, iconStarFilled, iconStar)", "收藏键的实心星"},

@@ -51,6 +51,14 @@ type Options struct {
 	// Manager.SetDanmaku 补上）。只给原生窗用；webview 回退路径本轮不注入
 	// 覆盖层（见 PLAN.md 的取舍）。
 	Danmaku []danmaku.Item
+
+	// Shared 是主窗与视频窗共享的音频设置（音量 / 静音 / 倍速 / 均衡 /
+	// 广告跳过）。原生窗拿到的是 &App.PlayerSettings，两边同一份内存：
+	// 任一侧改了，另一侧立刻看见（见 view.PlayerSettings）。
+	// webview 回退路径仍用 Speed / Muted 起播。
+	Shared *view.PlayerSettings
+	// SponsorSegments 是当前这一集的恰饭分段（进度条标记 + 视频窗跳过）。
+	SponsorSegments []view.Segment
 }
 
 // State 是弹窗回传的播放状态。
@@ -151,6 +159,23 @@ func (m *Manager) SetDanmaku(cid int64, items []danmaku.Item) {
 	if n != nil {
 		n.apply(func() { n.setDanmaku(cid, items) })
 	}
+}
+
+// SetSponsorSegments 把当前这一集的恰饭分段同步给视频窗（进度条标记 +
+// 开关打开时的跳过）。主窗查询完成 / 换集清空时调用。
+func (m *Manager) SetSponsorSegments(segs []view.Segment) {
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n == nil || n.win == nil {
+		return
+	}
+	n.win.Update(func() {
+		n.segments = segs
+		if n.chrome != nil {
+			n.chrome.SponsorSegments = segs
+		}
+	})
 }
 
 // SetDanmakuOn 开关弹幕层（视频窗内那颗键与主窗设置共用这个状态）。
@@ -522,16 +547,16 @@ func (m *Manager) tryNative(o Options) (reason string, ok bool) {
 
 	m.mu.Lock()
 	m.native, m.win, m.minimize = n, nil, n.minimize
-	m.st = State{Speed: n.speed}
+	m.st = State{Speed: n.settings.Speed}
 	m.ended = false
 	m.mu.Unlock()
 
 	// 起播参数：位置 / 倍速 / 静音全部在回调接好之后下发一次（播放器默认从
 	// 0 起播、1 倍速、不静音）。放在最后，保证这一帧的状态回传有人接。
 	n.win.Update(func() {
-		pl.SetRate(n.speed)
-		pl.SetMuted(n.muted)
-		pl.SetVolume(n.volume)
+		pl.SetRate(n.settings.Speed)
+		pl.SetMuted(n.settings.Muted)
+		pl.SetVolume(n.settings.Volume)
 		if o.StartAt > 0 {
 			pl.Seek(time.Duration(o.StartAt * float64(time.Second)))
 		}
@@ -553,16 +578,16 @@ func (m *Manager) switchNative(n *nativeWindow, o Options) error {
 		old := n.pl
 		n.pl = pl
 		n.title, n.startAt = o.Title, o.StartAt
-		n.speed = max(o.Speed, 0.5)
-		n.muted = o.Muted
+		n.segments = o.SponsorSegments
 		n.endedFired = false
 		n.reported = time.Time{}
 		// 换集先清掉上一集的弹幕；这一集的条目由主窗随后 SetDanmaku 补上。
 		n.dmCid = o.DanmakuCid
 		n.dm.SetItems(o.Danmaku)
-		pl.SetRate(n.speed)
-		pl.SetMuted(n.muted)
-		pl.SetVolume(n.volume)
+		// 倍速 / 静音 / 音量跟着共享设置走（换集不该把用户刚调的值重置）。
+		pl.SetRate(n.settings.Speed)
+		pl.SetMuted(n.settings.Muted)
+		pl.SetVolume(n.settings.Volume)
 		if o.StartAt > 0 {
 			pl.Seek(time.Duration(o.StartAt * float64(time.Second)))
 		}
@@ -644,6 +669,18 @@ func (m *Manager) Close() {
 	}
 	if w != nil {
 		w.Close()
+	}
+}
+
+// Invalidate 让原生视频窗重画一帧。主窗改了共享设置（音量 / 视频窗里
+// 只有 EQ / 广告跳过这类没有引擎可落的项）时，视频窗可能正暂停、没有自己的
+// 动画帧，需要显式叫它重画才能立刻看到新状态。
+func (m *Manager) Invalidate() {
+	m.mu.Lock()
+	n := m.native
+	m.mu.Unlock()
+	if n != nil && n.win != nil {
+		n.win.Update(func() {})
 	}
 }
 

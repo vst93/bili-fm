@@ -89,12 +89,10 @@ func videoChromeProbe(t *testing.T, w, h int) (*VideoChrome, *videoStubPlayer, *
 	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 30 * time.Second, rate: 1, vol: 1}
 	win := newVideoStubWindow()
 	ch := &VideoChrome{
-		Theme:  ThemeFor(PeriodAt(12)),
-		Title:  "测试稿件 · 第一部分",
-		Pl:     pl,
-		Win:    win,
-		Speed:  1,
-		Volume: 1,
+		Theme: ThemeFor(PeriodAt(12)),
+		Title: "测试稿件 · 第一部分",
+		Pl:    pl,
+		Win:   win,
 	}
 	tt := ui.NewTester(func(c *ui.Context) { ch.View(c) }, w, h)
 	tt.Frame()
@@ -513,7 +511,7 @@ func TestVideoFullScreenKeepsPlayback(t *testing.T) {
 // 不能 panic（无头测试与「窗口刚好关掉」的竞态都会走到这里）。
 func TestVideoChromeWithoutWindow(t *testing.T) {
 	ch := &VideoChrome{Theme: ThemeFor(PeriodAt(12)), Title: "x",
-		Pl: &videoStubPlayer{playing: true, ready: true, dur: 10 * time.Second}, Speed: 1, Volume: 1}
+		Pl: &videoStubPlayer{playing: true, ready: true, dur: 10 * time.Second}}
 	tt := ui.NewTester(func(c *ui.Context) { ch.View(c) }, 480, 270)
 	tt.Frame()
 	tt.Key(0, ui.KeyF)
@@ -527,30 +525,64 @@ func TestVideoChromeWithoutWindow(t *testing.T) {
 
 // ---------------------------------------------------------------- 布局
 
-// TestVideoChromeNarrowLayout 钉住小窗（480×270）的布局：关键控件都在、
-// 互不重叠、都在窗口内。窄窗（<440）改成两行，进度条不被挤成一条线。
+// TestVideoChromeNarrowLayout 钉住小窗（320×200 起）的布局：关键控件都在、
+// 互不重叠、都在窗口内，并按宽度渐进收纳。
+//
+// 收纳阶梯（见 videoChromeLayoutFor）：
+//
+//	< 900 收起内联音量滑块（键仍在，弹层里能调）
+//	< 720 收起总时长
+//	< 560 收起下一集 / 均衡 / 跳过广告
+//	< 520 进度条独占一行
+//	< 400 收起当前时间
 func TestVideoChromeNarrowLayout(t *testing.T) {
-	for _, size := range []struct{ w, h int }{{480, 270}, {420, 240}, {320, 200}, {900, 500}} {
-		ch, _, _, tt := videoChromeProbe(t, size.w, size.h)
+	cases := []struct {
+		w, h  int
+		want  []string
+		avoid []string
+	}{
+		{320, 200,
+			[]string{"暂停", "播放进度", "音量", "1.0x", "全屏", "弹幕", "最小化", "退出视频播放"},
+			[]string{"0:30", "1:40", "音量均衡: 关", "自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "音量滑块"}},
+		{480, 270,
+			[]string{"暂停", "播放进度", "0:30", "音量", "1.0x", "全屏"},
+			[]string{"1:40", "音量均衡: 关", "自动跳过恰饭片段（SponsorBlock）", "音量滑块"}},
+		{720, 400,
+			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x", "音量均衡: 关",
+				"自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "全屏"},
+			[]string{"音量滑块"}},
+		{900, 500,
+			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x", "音量均衡: 关",
+				"自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "全屏", "音量滑块"},
+			nil},
+	}
+	for _, tc := range cases {
+		ch, _, _, tt := videoChromeProbe(t, tc.w, tc.h)
 		_ = ch
 		tt.Frame()
-		want := []string{"播放", "暂停", "播放进度", "0:30", "1:40", "1x", "弹幕", "最小化", "静音", "全屏", "退出视频播放"}
 		rects := map[string]ui.Rect{}
-		for _, s := range want {
+		all := append(append([]string{}, tc.want...), tc.avoid...)
+		for _, s := range all {
 			r, ok := tt.Find(s)
 			if !ok {
-				// 「播放」与「暂停」只有一个存在。
-				if s == "播放" || s == "暂停" {
-					continue
-				}
-				t.Fatalf("%dx%d 缺少控件 %q（现有：%v）", size.w, size.h, s, tt.Texts())
-			}
-			if r.X < 0 || r.Y < 0 || r.X+r.W > float32(size.w)+0.5 || r.Y+r.H > float32(size.h)+0.5 {
-				t.Errorf("%dx%d 的 %q 超出窗口：%+v", size.w, size.h, s, r)
+				continue
 			}
 			rects[s] = r
+			if r.X < 0 || r.Y < 0 || r.X+r.W > float32(tc.w)+0.5 || r.Y+r.H > float32(tc.h)+0.5 {
+				t.Errorf("%dx%d 的 %q 超出窗口：%+v", tc.w, tc.h, s, r)
+			}
 		}
-		// 两两不重叠。
+		for _, s := range tc.want {
+			if _, ok := rects[s]; !ok {
+				t.Errorf("%dx%d 缺少控件 %q（现有：%v）", tc.w, tc.h, s, tt.Texts())
+			}
+		}
+		for _, s := range tc.avoid {
+			if r, ok := rects[s]; ok {
+				t.Errorf("%dx%d 不该出现 %q（%+v）", tc.w, tc.h, s, r)
+			}
+		}
+		// 两两不重叠（同一文案的键与滑块已用不同标签区分）。
 		names := make([]string, 0, len(rects))
 		for n := range rects {
 			names = append(names, n)
@@ -559,29 +591,36 @@ func TestVideoChromeNarrowLayout(t *testing.T) {
 			for j := i + 1; j < len(names); j++ {
 				a, b := rects[names[i]], rects[names[j]]
 				if a.X < b.X+b.W && b.X < a.X+a.W && a.Y < b.Y+b.H && b.Y < a.Y+a.H {
-					t.Errorf("%dx%d 的 %q 与 %q 重叠：%+v / %+v", size.w, size.h, names[i], names[j], a, b)
+					t.Errorf("%dx%d 的 %q 与 %q 重叠：%+v / %+v", tc.w, tc.h, names[i], names[j], a, b)
 				}
 			}
 		}
-		// 标题栏与控件条不重叠（240 高也不许压在一起）。
+		// 标题栏与控件条不重叠（200 高也不许压在一起）。
 		title, ok1 := tt.Find("测试稿件 · 第一部分")
 		bar, ok2 := tt.Find("播放进度")
 		if ok1 && ok2 && title.Y+title.H > bar.Y {
-			t.Errorf("%dx%d 标题栏与控件条重叠：标题底 %v > 进度顶 %v", size.w, size.h, title.Y+title.H, bar.Y)
+			t.Errorf("%dx%d 标题栏与控件条重叠：标题底 %v > 进度顶 %v", tc.w, tc.h, title.Y+title.H, bar.Y)
 		}
 	}
 }
 
-// TestVideoChromeLayoutRules 钉住排布的纯函数：窄窗两行、宽窗才有音量滑块。
+// TestVideoChromeLayoutRules 钉住排布的纯函数：收纳阶梯与两行阈值。
 func TestVideoChromeLayoutRules(t *testing.T) {
-	if lo := videoChromeLayoutFor(480); lo.TwoRows || lo.VolumeBar {
-		t.Errorf("480 宽应是一行且不带音量滑块，得到 %+v", lo)
+	lo := videoChromeLayoutFor(480)
+	if !lo.TwoRows || lo.VolumeBar || lo.TimeDur || !lo.TimePos || lo.Next || lo.EQ || lo.Sponsor {
+		t.Errorf("480 宽应从宽到窄收掉滑块/总时长/次要键，保留当前时间与两行，得到 %+v", lo)
 	}
-	if lo := videoChromeLayoutFor(380); !lo.TwoRows {
-		t.Error("380 宽应是两行")
+	lo = videoChromeLayoutFor(380)
+	if !lo.TwoRows || lo.TimePos || lo.TimeDur {
+		t.Errorf("380 宽应两行且两枚时间都收起，得到 %+v", lo)
 	}
-	if lo := videoChromeLayoutFor(900); !lo.VolumeBar || lo.TwoRows {
-		t.Errorf("900 宽应带音量滑块且一行，得到 %+v", lo)
+	lo = videoChromeLayoutFor(600)
+	if lo.TwoRows || lo.TimeDur || !lo.TimePos || !lo.Next || !lo.EQ || !lo.Sponsor {
+		t.Errorf("600 宽应一行、总时长收起、次要键保留，得到 %+v", lo)
+	}
+	lo = videoChromeLayoutFor(900)
+	if !lo.VolumeBar || lo.TwoRows || !lo.TimeDur || !lo.TimePos || !lo.Next || !lo.EQ || !lo.Sponsor {
+		t.Errorf("900 宽应是完整一档，得到 %+v", lo)
 	}
 }
 
@@ -624,7 +663,7 @@ func TestVideoChromePaintsChrome(t *testing.T) {
 			th = th.withAppearance("dark", 0)
 		}
 		ch := &VideoChrome{Theme: th, Title: "标题", Pl: &videoStubPlayer{playing: true, ready: true,
-			dur: 100 * time.Second, pos: 30 * time.Second}, Speed: 1, Volume: 1}
+			dur: 100 * time.Second, pos: 30 * time.Second}}
 		tt := ui.NewTester(func(c *ui.Context) { ch.View(c) }, 640, 360)
 		tt.Frame()
 		img := tt.Image()

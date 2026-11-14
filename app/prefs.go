@@ -188,18 +188,9 @@ func parseFloat(s string) float64 {
 
 // setSpeed 设置倍速并落盘。
 func (c *controller) setSpeed(v float64) {
-	dbgSlow("setSpeed", func() { c.mp.SetSpeed(v) })
-	c.app.Speed = v
-	// 视频弹窗开着时同步倍速。
-	if c.app.VideoOpen {
-		dbgSlow("vid.SetSpeed", func() { c.vid.SetSpeed(v) })
-	}
-	if c.media != nil {
-		dbgSlow("media.SetRate", func() { c.media.SetRate(v) })
-	}
-	dbgSlow("kv.SetString", func() {
-		_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(v, 'f', -1, 64))
-	})
+	// 只改共享设置：引擎 / 媒体中心 / 落盘 / 视频窗都在 applyPlayerSetting
+	// （以及视频窗自己的监听）里，一处落点。
+	c.app.PlayerSettings.SetSpeed(v)
 }
 
 // dbgSlow 打印耗时超过 30ms 的步骤（排查界面卡顿用）。
@@ -211,27 +202,10 @@ func dbgSlow(name string, fn func()) {
 	}
 }
 
-// setVolume 设置音量并落盘（按原版语义：音量与静音是同一个事实）。
+// setVolume 设置音量（按原版语义：音量与静音是同一个事实）。实际下发见
+// applyPlayerSetting：主窗引擎、媒体中心、视频窗、webview 回退都在那里。
 func (c *controller) setVolume(v float64) {
-	a := c.app
-	a.Volume = v
-	// 原版 handleVolumeChange：`audio.volume = value; audio.muted = value === 0;`
-	// 且 `if (value > 0) lastVolumeRef.current = value;` —— 音量 > 0 时记住它
-	// （解除静音要用），音量 0 即静音。
-	if v > 0 {
-		a.LastVolume = v
-	}
-	a.Muted = v <= 0
-	c.applyVolume()
-	if c.media != nil {
-		c.media.SetVolume(v)
-	}
-	// 原生视频窗开着时把音量/静音一起下发（webview 页面自己管自己的音量，
-	// 见 frontend/video.html 的起播策略）。不写这一句，主窗静音后弹窗还在
-	// 出声 —— 与 webview 路径的行为就不一致了。
-	if c.app.VideoOpen {
-		c.vid.SetMuted(a.Muted)
-	}
+	c.app.PlayerSettings.SetVolume(v)
 }
 
 // persistVolume 只把音量写盘。单独拆出来是因为拖滑杆时每帧都会调
@@ -251,12 +225,11 @@ func (c *controller) persistVolume(v float64) {
 // 也随音量一起落盘（重启后仍是静音）。此前原生版用独立的 Muted 布尔：静音时
 // 音量/滑杆停在原值，且不落盘 —— 两处都与原版对不上。
 func (c *controller) toggleMute() {
-	a := c.app
-	v, last := muteToggleState(a.Volume, a.LastVolume)
-	a.LastVolume = last
-	c.setVolume(v)
-	c.persistVolume(v)
-	a.Win.Update(func() {})
+	// ToggleMute 内部走 SetVolume（0 ↔ 上次音量），并调用共享设置的落盘钩子；
+	// 这里再显式写一次：单元测试直接构造 controller 时没有 wireVideo 注册的
+	// 钩子，静音仍要落盘（原版 persistVolume(0)）。
+	c.app.PlayerSettings.ToggleMute()
+	c.persistVolume(c.app.Volume)
 }
 
 // muteToggleState 计算点一次静音键之后的（音量, 记住的上次音量）。纯函数，

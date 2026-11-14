@@ -303,11 +303,9 @@ func videoExitProbe(t *testing.T, st video.State, enginePlaying bool) (*controll
 	pl := &stubChromePlayer{playing: !st.Paused, pos: time.Duration(st.Time * float64(time.Second)),
 		dur: time.Duration(st.Duration * float64(time.Second))}
 	ch := &view.VideoChrome{
-		Theme:  view.ThemeFor(view.PeriodAt(12)),
-		Title:  "测试稿件",
-		Pl:     pl,
-		Speed:  1,
-		Volume: 1,
+		Theme: view.ThemeFor(view.PeriodAt(12)),
+		Title: "测试稿件",
+		Pl:    pl,
 	}
 	calls := &videoExitCalls{}
 	ch.OnClose = func() { calls.close.Add(1); c.applyVideoClose(st) }

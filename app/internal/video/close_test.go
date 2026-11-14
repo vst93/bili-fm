@@ -115,7 +115,7 @@ func TestNativeCloseStateUsesCurrentPlayer(t *testing.T) {
 	cur := &stubPlayer{playing: false, ready: true, dur: 300 * time.Second, pos: 42 * time.Second}
 	old.closed = true // 已经换集：旧播放器在 switchNative 里关过了
 
-	n := &nativeWindow{pl: cur, title: "第二集", speed: 1, volume: 1}
+	n := &nativeWindow{pl: cur, title: "第二集"}
 	st := n.closeState()
 
 	if !cur.closed {

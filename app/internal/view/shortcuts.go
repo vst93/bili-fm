@@ -148,7 +148,10 @@ func (a *App) nudgeVolume(delta float64) {
 	if v > 1 {
 		v = 1
 	}
-	a.Volume = v
+	// 先写共享设置（引擎由监听落到），再走 Act 兜底（测试里只接了 Act 的
+	// 桩也能拿到新值）。反过来先写 a.Volume 再调 SetVolume 会因「值没变」
+	// 早退，引擎收不到。
+	a.PlayerSettings.SetVolume(v)
 	if a.Act.SetVolume != nil {
 		a.Act.SetVolume(v)
 	}

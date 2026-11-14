@@ -292,14 +292,15 @@ func (s *stubPlayer) Close()                  { s.closed = true }
 //  1. 顶栏三颗键（弹幕 / 最小化 / 退出视频播放）与控件条的播放/倍速/音量/全屏
 //     都在（原生窗没有浏览器原生控件兜底）；控件条**不再**有关闭键；
 //  2. 点「暂停」真的把 Pause 下发到播放器；
-//  3. 点倍速键按档位循环（与主窗一致）。
+//  3. 倍速 / 音量走与主窗同一套弹层。
 func TestNativeViewControls(t *testing.T) {
 	pl := &stubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 30 * time.Second, rate: 1, vol: 1}
-	n := &nativeWindow{pl: pl, title: "测试稿件", speed: 1, volume: 1}
-	tt := ui.NewTester(n.view, 640, 360)
+	n := &nativeWindow{pl: pl, title: "测试稿件"}
+	// 900 宽是完整一档：两枚时间、均衡 / 跳过广告、内联音量滑块都在。
+	tt := ui.NewTester(n.view, 900, 400)
 	tt.Frame()
 
-	for _, want := range []string{"暂停", "静音", "退出视频播放", "最小化", "1x", "弹幕", "全屏", "音量"} {
+	for _, want := range []string{"暂停", "音量", "退出视频播放", "最小化", "1.0x", "弹幕", "全屏"} {
 		if !tt.HasText(want) {
 			t.Errorf("控件条缺少 %q（现有：%v）", want, tt.Texts())
 		}
@@ -326,15 +327,24 @@ func TestNativeViewControls(t *testing.T) {
 		t.Error("点了暂停，播放器仍在播放")
 	}
 
-	// 倍速键的文案就是档位本身（1x），点它循环到下一档。
-	if err := tt.Click("1x"); err != nil {
+	// 倍速键打开共享弹层，选 1.25x。
+	if err := tt.Click("1.0x"); err != nil {
 		t.Fatalf("点倍速失败：%v", err)
 	}
 	tt.Frame()
+	if err := tt.Click("1.25x"); err != nil {
+		t.Fatalf("点 1.25x 档位失败：%v", err)
+	}
+	tt.Frame()
 	if pl.rate != 1.25 {
-		t.Errorf("倍速从 1x 点一下应为 1.25x，得到 %v", pl.rate)
+		t.Errorf("倍速选 1.25x 后播放器 rate = %v", pl.rate)
 	}
 
+	// 音量键打开共享弹层，点里面的静音键。
+	if err := tt.Click("音量"); err != nil {
+		t.Fatalf("点音量键失败：%v", err)
+	}
+	tt.Frame()
 	if err := tt.Click("静音"); err != nil {
 		t.Fatalf("点静音失败：%v", err)
 	}
@@ -348,7 +358,7 @@ func TestNativeViewControls(t *testing.T) {
 // 进度条是同一语义：改的是视频位置，不是音频引擎）。
 func TestNativeViewSeek(t *testing.T) {
 	pl := &stubPlayer{playing: true, ready: true, dur: 200 * time.Second, pos: 10 * time.Second, rate: 1, vol: 1}
-	n := &nativeWindow{pl: pl, title: "x", speed: 1, volume: 1}
+	n := &nativeWindow{pl: pl, title: "x"}
 	tt := ui.NewTester(n.view, 640, 360)
 	tt.Frame()
 	// 在进度条上按下（中点略偏右）再松手：SliderBase 的拖拽输入会改外壳的
@@ -375,7 +385,7 @@ func TestNativeViewSeek(t *testing.T) {
 // Play() 对已结束的引擎是空操作（AVFoundation 停在末尾），必须先 Seek(0)。
 func TestNativeViewEndedReplaysFromZero(t *testing.T) {
 	pl := &stubPlayer{playing: false, ended: true, ready: true, dur: 60 * time.Second, pos: 60 * time.Second, rate: 1, vol: 1}
-	n := &nativeWindow{pl: pl, title: "x", speed: 1, volume: 1}
+	n := &nativeWindow{pl: pl, title: "x"}
 	// 已经报过播完：重播必须把这个闩复位，否则重播到结尾不会再报一次。
 	n.endedFired = true
 	tt := ui.NewTester(n.view, 640, 360)

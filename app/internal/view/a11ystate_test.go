@@ -35,19 +35,21 @@ func flatten(t *testing.T, path string) string {
 // 也只对这种角色给 ExpandCollapsePattern。上一版静音键只加了 Checked 没给角色，
 // 在 Windows/macOS 上等于没接。
 func TestPlayerBarA11yStatesWired(t *testing.T) {
-	flat := flatten(t, "playerbar.go")
+	// 控件实现本轮搬到了 playerbar_shared.go（主窗与视频窗共用同一份），
+	// 所以两处源码一起匹配。
+	flat := flatten(t, "playerbar.go") + flatten(t, "playerbar_shared.go")
 	cases := []struct {
 		name  string
 		chain string
 	}{
 		{"音量键（aria-expanded）",
-			`ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(a.ShowVolume)`},
+			`ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(b.ShowVolume)`},
 		{"倍速键（aria-expanded）",
-			`ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed)).Expanded(a.ShowSpeed)`},
+			`ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label(tip).Tooltip(tip).Expanded(b.ShowSpeed)`},
 		{"均衡键（aria-pressed）",
-			`ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ)).Checked(a.EQ)`},
+			`ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(eqTip(set.EQ)).Tooltip(eqTip(set.EQ)).Checked(set.EQ)`},
 		{"恰饭键（aria-pressed）",
-			`ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(a.Sponsor)`},
+			`ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(set.Sponsor)`},
 		{"静音键（aria-pressed）",
 			`Center().Role(ui.RoleToggleButton).Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)`},
 	}
@@ -63,13 +65,13 @@ func TestPlayerBarA11yStatesWired(t *testing.T) {
 // + Expanded），不是 Checked；均衡/恰饭是保持型切换（ToggleButton + Checked），
 // 不是 Expanded。两种角色接反了屏幕阅读器会把「展开」读成「按下」或反之。
 func TestPlayerBarA11yRolesNotSwapped(t *testing.T) {
-	flat := flatten(t, "playerbar.go")
+	flat := flatten(t, "playerbar.go") + flatten(t, "playerbar_shared.go")
 
 	// 均衡 / 恰饭键不得带 Expanded（它们不是弹层开关）。
 	for _, key := range []string{`ui.ButtonBase(c.Key("eq"))`, `ui.ButtonBase(c.Key("sponsor"))`} {
 		i := strings.Index(flat, strings.Join(strings.Fields(key), ""))
 		if i < 0 {
-			t.Fatalf("playerbar.go 里找不到 %s", key)
+			t.Fatalf("playerbar.go / playerbar_shared.go 里找不到 %s", key)
 		}
 		seg := flat[i:min(len(flat), i+320)]
 		if strings.Contains(seg, ".Expanded(") {
@@ -81,7 +83,7 @@ func TestPlayerBarA11yRolesNotSwapped(t *testing.T) {
 	for _, key := range []string{`ui.ButtonBase(c.Key("volume"))`, `ui.ButtonBase(c.Key("speed"))`} {
 		i := strings.Index(flat, strings.Join(strings.Fields(key), ""))
 		if i < 0 {
-			t.Fatalf("playerbar.go 里找不到 %s", key)
+			t.Fatalf("playerbar.go / playerbar_shared.go 里找不到 %s", key)
 		}
 		seg := flat[i:min(len(flat), i+320)]
 		if strings.Contains(seg, ".Checked(") {

@@ -807,28 +807,12 @@ type App struct {
 	// Buffered 是已预读到本地的媒体秒数（进度条上的缓冲段，原版
 	// audio.buffered；0 表示未知/未开始）。
 	Buffered float64
-	Speed    float64
-	EQ       bool
-	Sponsor  bool
-	Volume   float64
-	// LastVolume 是「静音前」记住的音量。原版没有独立的静音布尔：静音就是
-	// 把音量归零（player.tsx 的 handleVolumeChange 里 `audio.muted = value === 0`），
-	// lastVolumeRef 记住最后一次 >0 的音量，解除静音时恢复。这里用同一个事实
-	// （Volume==0 即静音），LastVolume 只负责恢复值。
-	LastVolume float64
-	// Muted 是静音状态。它**恒等于 Volume <= 0**（见 setVolume / toggleMute），
-	// 保留这个字段只是让视图与视频弹窗少算一次比较。
-	Muted bool
+	// PlayerSettings 是音量 / 静音 / 倍速 / 均衡 / 广告跳过这组「设置类」
+	// 状态。匿名嵌入是为了让 a.Volume / a.Speed 这些既有调用点保持原样；
+	// 视频窗拿到的是 &a.PlayerSettings，两边是**同一份内存**（见
+	// playersettings.go 与 PLAN.md 的「视频窗控件分工」）。
+	PlayerSettings
 
-	// SponsorStatus 是 SponsorBlock 查询状态：off/loading/ok/empty/error，
-	// 用于播放栏按钮上的状态点（原版解 SponsorStatusInfo）。
-	SponsorStatus string
-	// SponsorCount 是本次查询拿到（或确认没有）的分段数；ok 时进状态点
-	// 的 tooltip（原版 sponsorStatus.count）。
-	SponsorCount int
-	// SponsorReason 是查询失败的原因，进状态点的 tooltip
-	//（原版 sponsorStatus.reason，error 时显示）。
-	SponsorReason string
 	// SponsorSegments 是当前曲目的跳过分段（进度条上的广告段标记）。
 	SponsorSegments []Segment
 	// Buffering 表示正在起播（网络 + 解码初始化）。
@@ -1116,14 +1100,12 @@ type App struct {
 	// SeekStableAt 是最近一次「滑块交接点」的时间（按下/松手/seek 完成）：
 	// 此后一小段时间不跟随播放位置，等引擎追上。
 	SeekStableAt time.Time
-	// seekBubbleLabel / seekBubbleLeft / seekBubbleWidth 是悬停时间气泡（原版
-	// .player-seek-bubble）最后一次悬停时定下的文案、左边界与盒宽。原版只在
-	// handleTimelineHover 里写 textContent / style.left，移开指针后仅翻
-	// data-visible，气泡停在原处淡出；缓存这几个值就是为了复刻这一点。宽度
-	// 由实测文字宽算出（原版 CSS 是 auto 宽度），一并缓存供无头测试断言。
-	seekBubbleLabel string
-	seekBubbleLeft  float32
-	seekBubbleWidth float32
+	// seekBubble 是悬停时间气泡（原版 .player-seek-bubble）最后一次悬停时
+	// 定下的文案、左边界与盒宽。原版只在 handleTimelineHover 里写
+	// textContent / style.left，移开指针后仅翻 data-visible，气泡停在原处
+	// 淡出；缓存这几个值就是为了复刻这一点。主窗与视频窗共用同一份绘制
+	// （seekBubbleState.draw），各自持一份状态。
+	seekBubbleState
 	// PendingSeek/HasPendingSeek 是「等待执行的跳转目标」：
 	// 起播（Buffering）期间、或上一次 seek 还在跑时，用户的请求
 	// 记在这里，等条件允许后执行一次（排队而不是丢弃）——
@@ -1244,11 +1226,13 @@ type App struct {
 // NewApp 建一个用当前时段主题的应用。
 func NewApp(repaint func()) *App {
 	a := &App{
-		Theme:      ThemeAt(time.Now()),
-		Speed:      1,
-		Volume:     1,
-		LastVolume: 1,
-		Images:     imagecache.New(repaint),
+		Theme: ThemeAt(time.Now()),
+		PlayerSettings: PlayerSettings{
+			Speed:      1,
+			Volume:     1,
+			LastVolume: 1,
+		},
+		Images: imagecache.New(repaint),
 		// 抽屉表头的默认 tab（与原版一致：搜索按综合、热门与推荐默认热门、
 		// 历史默认观看历史）。
 		SortOrder: SortTotal,

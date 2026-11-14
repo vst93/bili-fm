@@ -1,7 +1,6 @@
 package view
 
 import (
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -34,6 +33,8 @@ type rangePaint struct {
 	Dur      float64
 	// ChapterMarks 只给进度条：章节分界，画在轨道下面。
 	ChapterMarks []float64
+	// Skin 非 nil 时用它替代按主题取的那套材质（视频窗的白面板要换滑块底色）。
+	Skin *rangeSkin
 }
 
 // rangeGeom 是一条输入条的几何：TrackInset 是轨道相对外层矩形两端的内缩，
@@ -314,6 +315,9 @@ func paintRangeThumb(p *ui.Painter, cx, cy float32, hovered, held bool, scale fl
 func paintRangeBar(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	track := rangeTrackRect(r, rp.Geom)
 	s := rangeSkinFor(rp.Dark, rp.Hovered)
+	if rp.Skin != nil {
+		s = *rp.Skin
+	}
 	paintRangeShadow(p, track, rp.Hovered, s)
 	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
 	// 音量条没有外部动画状态，用内部计算的瞬时 scale。

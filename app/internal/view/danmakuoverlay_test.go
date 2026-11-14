@@ -28,8 +28,6 @@ func danmakuChrome(t *testing.T, pos float64, playing bool, items []danmaku.Item
 		Title:           "测试稿件",
 		Pl:              pl,
 		Win:             win,
-		Speed:           1,
-		Volume:          1,
 		Danmaku:         s.On,
 		DanmakuOverlay:  o,
 		DanmakuSettings: s,

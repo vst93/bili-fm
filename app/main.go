@@ -3590,6 +3590,8 @@ func (c *controller) startCurrent() {
 				c.app.SponsorStatus = status
 				c.app.SponsorCount = len(segs)
 				c.app.SponsorReason = sponsorReason(err)
+				// 视频窗可能同时开着这一集：把分段同步过去（标记 + 跳过）。
+				c.vid.SetSponsorSegments(c.app.SponsorSegments)
 			})
 		}
 	}()
@@ -3810,17 +3812,63 @@ func (c *controller) runSeek(seconds float64) {
 }
 
 func (c *controller) toggleEQ() {
-	c.app.EQ = !c.app.EQ
-	c.mp.SetEQ(c.app.EQ)
-	_ = c.kv.SetString(prefEQ, strconv.FormatBool(c.app.EQ))
-	c.app.Win.Update(func() {})
+	c.app.PlayerSettings.SetEQ(!c.app.EQ)
 }
 
 func (c *controller) toggleSponsor() {
+	c.app.PlayerSettings.SetSponsor(!c.app.Sponsor)
+}
+
+// applyPlayerSetting 是共享设置（主窗播放栏 / 视频窗控件条）的落点。
+//
+// 两个窗口改的是同一份 PlayerSettings；这里把它落到音频引擎、媒体中心、
+// KV 与 webview 回退路径上。视频窗自己的播放器由 view.VideoChrome 注册的
+// 监听落（同一个设置对象），所以这里对原生窗不再重复下发。
+func (c *controller) applyPlayerSetting(k view.PlayerSettingKind) {
 	a := c.app
-	a.Sponsor = !a.Sponsor
-	c.sponsorOn = a.Sponsor
-	if a.Sponsor {
+	switch k {
+	case view.SettingVolume:
+		c.applyVolume()
+		if c.media != nil {
+			c.media.SetVolume(a.Volume)
+		}
+		// webview 回退路径页面自己管音量，主窗静音时要显式同步过去；
+		// 原生窗共享同一份设置，不需要。
+		if a.VideoOpen && !c.vid.NativeActive() {
+			c.vid.SetMuted(a.Muted)
+		}
+		a.Win.Update(func() {})
+	case view.SettingSpeed:
+		dbgSlow("setSpeed", func() { c.mp.SetSpeed(a.Speed) })
+		if c.media != nil {
+			dbgSlow("media.SetRate", func() { c.media.SetRate(a.Speed) })
+		}
+		if a.VideoOpen && !c.vid.NativeActive() {
+			dbgSlow("vid.SetSpeed", func() { c.vid.SetSpeed(a.Speed) })
+		}
+		_ = c.kv.SetString(prefSpeed, strconv.FormatFloat(a.Speed, 'f', -1, 64))
+		a.Win.Update(func() {})
+	case view.SettingEQ:
+		c.mp.SetEQ(a.EQ)
+		_ = c.kv.SetString(prefEQ, strconv.FormatBool(a.EQ))
+		a.Win.Update(func() {})
+	case view.SettingSponsor:
+		c.sponsorChanged(a.Sponsor)
+	}
+	// 视频窗可能正暂停、没有自己的动画帧：主窗改了共享设置后叫它重画一帧，
+	// 音量/倍速/均衡/跳过广告的视觉状态（含 SponsorStatus 状态点）才立刻
+	// 同步。放在 switch 之后，状态已经写完。
+	if a.VideoOpen && c.vid.NativeActive() {
+		c.vid.Invalidate()
+	}
+}
+
+// sponsorChanged 是广告跳过开关的副作用（查询 / 清空 / 落盘 / 状态点）。
+// 开关本身已经由 PlayerSettings.SetSponsor 翻好，这里不再翻转。
+func (c *controller) sponsorChanged(on bool) {
+	a := c.app
+	c.sponsorOn = on
+	if on {
 		_ = c.kv.SetString("sponsor_skip", "1")
 		a.SponsorStatus = "loading"
 		a.SponsorCount = 0
@@ -3842,14 +3890,19 @@ func (c *controller) toggleSponsor() {
 					a.SponsorStatus = status
 					a.SponsorCount = len(segs)
 					a.SponsorReason = sponsorReason(err)
+					// 视频窗的进度条标记与「真的跳过」用同一份分段。
+					c.vid.SetSponsorSegments(a.SponsorSegments)
 				})
 			}()
 		}
 	} else {
 		_ = c.kv.SetString("sponsor_skip", "0")
+		c.sponsor, c.skipped = nil, map[int]bool{}
+		a.SponsorSegments = nil
 		a.SponsorStatus = "off"
 		a.SponsorCount = 0
 		a.SponsorReason = ""
+		c.vid.SetSponsorSegments(nil)
 	}
 	a.Win.Update(func() {})
 }
@@ -4147,6 +4200,16 @@ func (c *controller) syncPlayingFromEngine() {
 //     暂停/播完/退出都不续播（语义见 video.RelayOnClose）；
 //   - 弹窗自然播完按播放模式续播。
 func (c *controller) wireVideo() {
+	// 共享设置（主窗播放栏 / 视频窗控件条同一份）的唯一落点：音频引擎、
+	// 媒体中心、落盘、webview 回退路径。视频窗自己的播放器由它注册的
+	// 监听落到（见 view.VideoChrome.init）。
+	c.app.PlayerSettings.OnChange(c.applyPlayerSetting)
+	c.app.PlayerSettings.SetPersist(func(k view.PlayerSettingKind) {
+		if k == view.SettingVolume {
+			_ = c.kv.SetString(prefVolume, strconv.FormatFloat(c.app.Volume, 'f', -1, 64))
+		}
+	})
+
 	// 弹窗回调跑在窗口事件 goroutine 上，而它们读写界面状态，所以统一
 	// 丢到 Win.Update（主线程）执行。
 	c.vid.OnState(func(st video.State) {
@@ -4233,6 +4296,8 @@ func (c *controller) openVideo() {
 	// 线程改写，后台 goroutine 直接读就是数据竞争（与 Pos/Speed 那几项同一
 	// 处理方式）。
 	theme := c.app.Theme
+	// 恰饭分段也在界面线程上取一份快照（c.sponsor 由 UI 线程改写）。
+	sponsorSegs := toViewSegments(c.sponsor)
 	go func() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
@@ -4260,6 +4325,11 @@ func (c *controller) openVideo() {
 			// 视频窗知道自己是哪一集：弹幕条目随后由 startVideoDanmaku
 			// 从 Store 取（可能与抽屉 / 热力共用缓存）。
 			DanmakuCid: t.Cid,
+			// 设置类状态与主窗**同一份内存**：视频窗里调音量/倍速/均衡/
+			// 广告跳过，主窗立刻看见；反之亦然。
+			Shared: &c.app.PlayerSettings,
+			// 恰饭分段：视频窗进度条画标记，开关打开时也按它跳过。
+			SponsorSegments: sponsorSegs,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			runOnUI(c.app, !c.app.Hidden(), func() {

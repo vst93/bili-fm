@@ -56,32 +56,31 @@ func (a *App) playerBar(c *ui.Context) {
 	// 的时间胶囊（Absolute，挂在进度条滑块下）向上伸出栏顶 10px，正好被
 	// Absolute 的顶边切在胶囊腰部（用户报「时间文字腰部被一条线分割」）。
 	// Draw 同样不占布局，内容区保持完整 56px。
+	// 控件本身来自 playerbar_shared.go：与视频窗控件条是同一份代码，
+	// 只是这里的绑定目标是音频引擎（见 appPlayerBind）。
+	b := a.appPlayerBind()
 	bar.Children(func() {
 		ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 			AlignItems(ui.Center).Children(func() {
-			a.transport(c)
-			// 拖动中/seek 未落地时，左侧时间显示预览位置
-			//（原版 updateSeekPreviewUi 会一起更新时间标签）。
-			a.timeText(c, a.shownPos())
-			a.progress(c)
-			a.timeText(c, a.Dur)
+			playerTransportItems(c, b)
+			playerTimelineItems(c, b)
 			// 后四列：列宽 34/40/34/40，按钮 32×32（原版 grid 列）。
-			// 音量 / 倍速这两列记下句柄：弹层挂在这两列上（原版
-			// .player-volume / .player-speed 就是弹层的定位上下文）。
-			volumeSlot = playerSlot(c, 34, func() { a.volumeButton(c) })
-			speedSlot = playerSlot(c, 40, func() { a.speedButton(c) })
-			playerSlot(c, 34, func() { a.eqButton(c) })
-			playerSlot(c, 40, func() { a.sponsorButton(c) })
+			// 音量 / 倍速这两列记下句柄：弹层挂在这两列上。
+			playerSettingsItems(c, b, &volumeSlot, &speedSlot)
 		})
 	})
 
-	// 倍速 / 音量弹层：从播放栏上方向上弹，锚点是各自的列容器（见
-	// popoverEdgeGap 与 speedPopover / volumePopover 的注释）。
+	// 倍速 / 音量弹层：与视频窗共用同一份弹层实现。
 	if a.ShowSpeed {
-		a.speedPopover(c, speedSlot)
+		playerSpeedPopover(c, a.Theme, &a.PlayerSettings, &a.ShowSpeed, speedSlot, 0, !b.ShowSpeed)
 	}
 	if a.ShowVolume {
-		a.volumePopover(c, volumeSlot)
+		playerVolumePopover(c, a.Theme, &a.PlayerSettings, &a.ShowVolume, volumeSlot,
+			&a.wasVolHeld, !b.ShowVolume, func() {
+				if a.Act.PersistVolume != nil {
+					a.Act.PersistVolume(a.Volume)
+				}
+			})
 	}
 }
 
@@ -2050,61 +2049,76 @@ func playerIconShadow(b ui.Element, svg *ui.SVG, dx, dy, opacity float32) ui.Ele
 }
 
 // transport 是第 1 列（80px）：播放/暂停（42） + 下一集（32）。
-func (a *App) transport(c *ui.Context) {
-	src := a.hasSource()
-	ui.Row(c).Width(80).Shrink(0).Gap(6).AlignItems(ui.Center).Children(func() {
-		// 原版 .player-play-button：42×42 正圆，播放中 #0369a1、暂停态 #475569，
-		// 图标 size 24（见 playerPlaySurface 的三态材质）。
-		play := ui.ButtonBase(c.Key("play")).Size(42, 42).Radius(RadiusPill).Center().
-			Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
-		// 原版 disabled={!src}：还没有曲目时整个播放栏是禁用态。
-		disablePlayerButton(play, !src)
-		// 原版 .player-play-button::before 只有 background-color/background-image，
-		// **没有** backdrop-filter——按键浮在已有 blur 的播放栏之上。之前误用了
-		// Interactive 真玻璃，于是每个播放键每帧多一个 backdrop。这里改回填充；
-		// 按下手感交给 playerPressPose（原版 :active 是 scale(.93)、悬停不上浮）。
-		// 三态（播放/悬停/常态）见 playerPlaySurface。
-		playerPlaySurface(a.Theme, play, a.Playing, play.Hovered(), play.Pressed())
-		playerPressPose(play)
-		// 原版播放键的 ::after 不吃 .52 覆写（整圈 opacity 1）；深色时段压 .3。
-		// ::before 的光泽随播放态/悬停切换（见 playerSheenFor）。
-		playerRim(a.Theme, play, RadiusPill, false, sheenKindPlay, a.Playing, play.Hovered())
-		play.Children(func() {
-			// 原版播放键图标 size 24（暂停态 #0369a1、暂停图 #475569，悬停转 #0284c7）。
-			// 禁用时 svg 再乘 .34（原版 `:disabled svg`）。
-			ic := pick(a.Playing, iconPause, iconPlayOne)
-			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
-				TextColor(playerFadeColor(c, play, "player-play-ink", playerPlayInk(a.Theme, a.Playing, play.Hovered()))).
-				Opacity(playerDisabledIconOpacityFor(!src)).
-				// 原版 .player-play-button svg { transform: translateX(.5px) }。
-				Translate(0.5, 0)
-			playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
-		})
-		if play.Clicked() && a.Act.TogglePlay != nil {
-			a.Act.TogglePlay()
-		}
+// appPlayerBind 把主窗的播放栏绑到音频引擎：传输键走 App 的播放状态与
+// Actions，设置类键走与视频窗共享的 PlayerSettings。视频窗那边是
+// videochrome.go 的 videoPlayerBind —— 同一组 player*Items，两个绑定。
+func (a *App) appPlayerBind() PlayerBarBind {
+	a.PlayerSettings.Ensure()
+	return PlayerBarBind{
+		Theme:     a.Theme,
+		Set:       &a.PlayerSettings,
+		Playing:   a.Playing,
+		OnPlay:    a.Act.TogglePlay,
+		HasSrc:    a.hasSource(),
+		Pos:       a.shownPos(),
+		Dur:       a.Dur,
+		Buffered:  a.Buffered,
+		SeekValue: &a.SeekValue,
+		OnSeek: func(sec float64) {
+			if a.Act.Seek != nil {
+				a.Act.Seek(sec)
+			}
+		},
+		OnFrame:    a.seekFrame,
+		Segments:   a.SponsorSegments,
+		Chapters:   a.chapterMarks(),
+		NextTip:    nextTip(),
+		CanNext:    a.canNavigate(),
+		OnNext:     a.Act.Next,
+		ShowVolume: a.ShowVolume,
+		ShowSpeed:  a.ShowSpeed,
+		OnVolumeKey: func() {
+			a.ShowVolume = !a.ShowVolume
+			a.ShowSpeed = false
+		},
+		OnSpeedKey: func() {
+			a.ShowSpeed = !a.ShowSpeed
+			a.ShowVolume = false
+		},
+		ShowPos: true, ShowDur: true, ShowNext: true, ShowEQ: true, ShowSponsor: true,
+		Bubble: &a.seekBubbleState,
+	}
+}
 
-		next := ui.ButtonBase(c.Key("next")).Size(32, 32).Radius(RadiusPill).Center().
-			Label(nextTip()).Tooltip(nextTip())
-		// 原版 .player-button:disabled 是 opacity .42（disablePlayerButton 会补上
-		// mygo 禁用节点的减半）。
-		disablePlayerButton(next, !a.canNavigate())
-		playerToolSurface(c, a.Theme, toolNext, next, false, next.Hovered(), next.Pressed())
-		playerPressPose(next)
-		// 下一集是工具键：原版 ::after opacity .52。
-		playerRim(a.Theme, next, RadiusPill, true, sheenKindStatic, false, false)
-		next.Children(func() {
-			// 原版下一集图标 size 18；颜色沿用 .player-button 的 #334155（未被
-			// tool 规则覆盖），悬停转蓝；深色常态转 Theme.PlayerButton。
-			icon := ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
-				TextColor(playerFadeColor(c, next, "player-next-ink", playerButtonInk(a.Theme, next.Hovered()))).
-				Opacity(playerDisabledIconOpacityFor(!a.canNavigate()))
-			playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
-		})
-		if next.Clicked() && a.Act.Next != nil {
-			a.Act.Next()
+// seekFrame 是主窗进度条的状态机：拖动中停在目标值、seek 未落地时等、
+// 松手后回落（progressPlan）。视频窗的 OnFrame 是直通播放器，两者共用
+// playerTimeline 的输入接线，只有这一段不同。
+func (a *App) seekFrame(in PlayerTimelineInput) (bool, float64) {
+	if in.Held != a.wasHeld {
+		a.SeekStableAt = time.Now() // 交接点：按下 / 松手
+	}
+	seek, next := progressPlan(progressInput{
+		held:    in.Held,
+		changed: in.Changed,
+		cancel:  in.Cancel,
+		busy:    a.SeekBusy,
+		settle:  time.Since(a.SeekStableAt),
+		pos:     a.Pos,
+	}, a.SeekValue, a.wasHeld, seekSettle)
+	a.SeekValue = next
+	a.wasHeld = in.Held
+	return seek, next
+}
+
+// chapterMarks 是进度条上的章节分界（0 秒那一条不画）。
+func (a *App) chapterMarks() []float64 {
+	var marks []float64
+	for _, ch := range a.Chapters {
+		if ch.From > 0 {
+			marks = append(marks, ch.From)
 		}
-	})
+	}
+	return marks
 }
 
 // shownPos 是进度条左侧时间该显示的位置：操作中显示滑块停的值，
@@ -2137,10 +2151,7 @@ func (a *App) timeText(c *ui.Context, sec float64) { a.timeTextAt(c, sec, 11, 56
 // 正是 LineHeight() 能放大的方向（linebox.go 的显式盒高 + 位移是为「压矮」
 // 准备的，把字形推到半像素上会摊薄墨迹）；这里直接给行高倍数 18/字号。
 func (a *App) timeTextAt(c *ui.Context, sec float64, size, width float32) {
-	numericText(c, fmtTime(sec)).FontSize(size).FontWeight(playerTimeWeight).
-		TextColor(playerTimeInk(a.Theme)).Width(width).Shrink(0).
-		LineHeight(18 / size).
-		TextAlign(ui.Center).Center()
+	playerTimeText(c, a.Theme, sec, size, width)
 }
 
 // playerTimeInk 是 #player .player-time 的墨色，即原版
@@ -2330,6 +2341,9 @@ func heatAt(points []HeatPoint, frac float64) float32 {
 func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	track := rangeTrackRect(r, rp.Geom)
 	s := rangeSkinFor(rp.Dark, rp.Hovered)
+	if rp.Skin != nil {
+		s = *rp.Skin
+	}
 	paintRangeShadow(p, track, rp.Hovered, s)
 
 	buffered := clamp01(rp.Buffered)
@@ -2379,78 +2393,6 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, rp.ThumbScale, s)
 }
 
-func (a *App) progress(c *ui.Context) {
-	hi := a.Dur
-	if hi <= 0 {
-		hi = 1
-	}
-	// 进度条 = 原版 <input type=range>，既显示也是输入。
-	//
-	// *value 有两个写入方，靠「指针是否按住」分开：
-	//   框架（sliderInput，在每帧构建之后的 applyInputs 里跑）——
-	//         指针按住时按指针位置写（点击与拖动是同一件事）；
-	//   应用——无人操作时写播放位置（滑块跟随播放）。
-	//
-	// held 用 Dragged() 的 ok：它就是 st.pressed，**与元素矩形无关**。
-	// 不能用 Pressed()——指针一旦移出细轨道它就返回 false，拖动会被误判
-	// 成松手（这是「拖到一半失效」的原因）。
-	//
-	// PaddingX(7) 让取值区间两端各缩进一个滑块半径，滑块的圆心才能走到
-	// 轨道的两个端点（原生 range 的行为）。
-	s := ui.SliderBase(c, &a.SeekValue, 0, hi).FillWidth().Height(timelineH).
-		PaddingX(timelineInset).Label("播放进度").Step(0.1).Bind(&a.progressHandle)
-	// 原版（player.tsx）进度条 `disabled={!src || !duration}`：没有视频或时长
-	// 还没到时，进度条既不能拖也不能用方向键改值。mygo 的 SliderBase 默认
-	// 不设禁用，此前无视频时也能把 SeekValue 拖出一串数字（拖了又弹回）。
-	// 只用 Dur <= 0 判：无视频时 Dur 通常为 0，已覆盖原版的 !src 分支。
-	s.Disabled(a.Dur <= 0)
-	// 进度条**不挂右键菜单**：此前有一条「跳到下一个高能」的右键项（本仓库
-	// 自己加的，原版没有），用户 2026-11-10 报它过于突兀，整条去掉
-	//（`Act.NextHighlight` / `view.NextHighlightPoint` 一并删）。热力条只负责
-	// 「看见」，不再提供跳转入口。
-	// 原版 `#player input[type="range"]:focus-visible`：`outline: 2px solid
-	// var(--studio-blue); outline-offset: 2px`（输入条自身无圆角，所以半径 0）。
-	// 框架默认环是「3px 偏移 + 主题 Focus 色」，与原版对不上，关掉换自绘。
-	focusOutline(s, 0, focusStudio)
-	// 禁用态 opacity 对齐原版：原版 `#player input[type="range"]:disabled
-	// { opacity: 0.42; }`。`DimDisabled(false)` 关掉框架对禁用节点的减半，
-	// 这里写的就是最终值（见 disabled.go 的总说明）。
-	if a.Dur <= 0 {
-		s.DimDisabled(false).Opacity(progressDisabledOpacity)
-	}
-	_, _, held := s.Dragged()
-	canceled := s.PressCanceled()
-	changed := s.Changed() // 应用框架本帧的输入（键盘改值也走这里）
-
-	if held != a.wasHeld {
-		a.SeekStableAt = time.Now() // 交接点：按下 / 松手
-	}
-	seek, next := progressPlan(progressInput{
-		held:    held,
-		changed: changed,
-		cancel:  canceled,
-		busy:    a.SeekBusy,
-		settle:  time.Since(a.SeekStableAt),
-		pos:     a.Pos,
-	}, a.SeekValue, a.wasHeld, seekSettle)
-	if seek && a.Act.Seek != nil {
-		a.Act.Seek(a.SeekValue) // 用用户放下的值提交
-	}
-	a.SeekValue = next
-	a.wasHeld = held
-
-	// 滑块 scale 过渡（原版 `transition: transform 100ms ease`）：
-	// 目标 scale 由悬停/按下态决定，用 AnimateTo 逐帧逼近，不再瞬时跳变。
-	targetScale := rangeThumbScale(s.Hovered(), held)
-	thumbScale := s.AnimateTo("progress-thumb-scale", targetScale, thumbScaleAnim)
-
-	frac := float32(a.SeekValue / hi)
-	s.Draw(func(p *ui.Painter, r ui.Rect) {
-		paintTimeline(p, r, a.timelinePaint(s, frac, held, thumbScale))
-	})
-	a.seekBubble(c, s, a.Dur)
-}
-
 // bufferedFrac 把「已预读的媒体秒数」换算成进度轨道的 0..1 比例。
 func bufferedFrac(buffered, dur float64) float32 {
 	if dur <= 0 || buffered <= 0 {
@@ -2494,119 +2436,6 @@ func playerSlot(c *ui.Context, width float32, build func()) ui.Element {
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
-func (a *App) volumeButton(c *ui.Context) {
-	// 原版这颗键是弹层开关：`aria-expanded={isVolumeOpen}`（没有 aria-haspopup）。
-	// mygo 里对应的无障碍语义是 RoleDisclosure（「显示/隐藏内容的按钮，打开时
-	// expanded」，CollapsibleBase 用的就是它）+ Expanded：macOS 发
-	// setAccessibilityExpanded、Linux 加 GTK_STATE_FLAG_EXPANDED、Windows 才会
-	// 给出 ExpandCollapsePattern（只对 disclosure/popup 等角色暴露）。
-	b := ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().
-		Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(a.ShowVolume)
-	// 原版 disabled={!src}。
-	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(c, a.Theme, toolVolume, b, a.ShowVolume, b.Hovered(), b.Pressed())
-	playerPressPose(b)
-	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
-	// 原版：音量键图标随音量变化（0 视为静音）；颜色同工具键（#526174）。
-	muted := a.Muted || a.Volume <= 0
-	b.Children(func() {
-		ic := volumeIconFor(muted)
-		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
-			TextColor(playerFadeColor(c, b, "player-volume-ink", playerToolInk(a.Theme, toolVolume, a.ShowVolume, b.Hovered()))).
-			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
-		playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
-	})
-	if b.Clicked() {
-		a.ShowVolume = !a.ShowVolume
-		a.ShowSpeed = false
-	}
-}
-
-// speedButton 是第 6 列（40px）：显示当前倍速，点开档位菜单。
-func (a *App) speedButton(c *ui.Context) {
-	// 原版 .player-speed-button：40×32（列宽同为 40）。
-	// tooltip 是「播放速度 X 倍」（用原始数值，不是 1.0x 的标签）。
-	// 同音量键：原版 `aria-expanded={isSpeedOpen}` 的弹层开关。
-	b := ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().
-		Role(ui.RoleDisclosure).Label(speedTip(a.Speed)).Tooltip(speedTip(a.Speed)).Expanded(a.ShowSpeed)
-	// 原版 disabled={!src}。
-	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(c, a.Theme, toolSpeed, b, a.ShowSpeed, b.Hovered(), b.Pressed())
-	playerPressPose(b)
-	// 倍速键是文字不是 svg，只吃聚光描边（不吃图标压印）。
-	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
-	b.Children(func() {
-		// 原版 .player-speed-button：11px / 700 / tabular-nums / #526174。
-		numericText(c, speedLabel(a.Speed)).FontSize(11).FontWeight(700).
-			TextColor(playerFadeColor(c, b, "player-speed-ink", playerToolInk(a.Theme, toolSpeed, a.ShowSpeed, b.Hovered())))
-	})
-	if b.Clicked() {
-		a.ShowSpeed = !a.ShowSpeed
-		a.ShowVolume = false
-	}
-}
-
-// eqButton 是第 7 列（34px）：均衡开关。
-func (a *App) eqButton(c *ui.Context) {
-	// 原版 .player-eq-button：34×32（列宽 34），tooltip「音量均衡: 开/关」。
-	// 原版 `aria-pressed={isLoudnessEq}`：这是一颗「按下后保持」的切换键，
-	// 无障碍角色应是 toggle button（RoleToggleButton），Checked 才在各平台读作
-	// 「已按下」（Windows 只对 check/switch/toggle 等角色给 IToggleProvider，
-	// macOS 只对 toggle 角色把 Checked 放进 value）。
-	b := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
-		Role(ui.RoleToggleButton).Label(eqTip(a.EQ)).Tooltip(eqTip(a.EQ)).Checked(a.EQ)
-	// 原版 disabled={!src}。
-	disablePlayerButton(b, !a.hasSource())
-	playerToolSurface(c, a.Theme, toolEq, b, a.EQ, b.Hovered(), b.Pressed())
-	playerPressPose(b)
-	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
-	b.Children(func() {
-		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(c, b, "player-eq-ink", playerToolInk(a.Theme, toolEq, a.EQ, b.Hovered()))).
-			Opacity(playerDisabledIconOpacityFor(!a.hasSource()))
-		playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
-	})
-	if b.Clicked() && a.Act.ToggleEQ != nil {
-		a.Act.ToggleEQ()
-	}
-}
-
-// sponsorButton 是第 8 列（40px）：跳过赞助片段开关。
-func (a *App) sponsorButton(c *ui.Context) {
-	// 原版 .player-sponsor-button：34×32（列宽 40，留 6px 余量）。
-	// 这个键**不随「无视频」禁用**（原版没给它 disabled）。
-	// 同均衡键：原版 `aria-pressed={sponsorSkip}` 的保持型切换键。
-	b := ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().
-		Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(a.Sponsor)
-	// 原版恰饭键**不在**工具键的 :hover 名单里（globals.css 那条 next/volume/
-	// speed/eq:hover 不含 sponsor，也没有通用的 .player-button:hover）——悬停
-	// 完全不变色；也**不在** :active 特殊名单（play/next/volume/speed/eq）里，
-	// 按下只有通用 `.player-button:active` 的 scale(.93)：没有内压阴影、不换
-	// 底色。所以表面与墨色恒按基态走，缩放手感交给 playerPressPose。
-	playerToolSurface(c, a.Theme, toolSponsor, b, a.Sponsor, false, false)
-	playerPressPose(b)
-	// 恰饭开关是工具键：原版 ::after opacity .52。
-	playerRim(a.Theme, b, Radius, true, sheenKindStatic, false, false)
-	b.Children(func() {
-		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
-			TextColor(playerFadeColor(c, b, "player-sponsor-ink", playerToolInk(a.Theme, toolSponsor, a.Sponsor, false)))
-		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
-		// 状态点（原版 .player-sponsor-status）：**常显**（未启用时也是灰点），
-		// 6px + 1px 白边 + 右上角 3px，绿=有分段、黄=查询中、红=失败、灰=无/未启用。
-		// tooltip 是原版那串状态文案（ok 时带段数、有原因时附在冒号后）。
-		dot := ui.Box(c).Size(6, 6).Radius(RadiusPill).Absolute().Right(3).Top(3).
-			Background(sponsorDotColor(a.SponsorStatus)).
-			Border(1, ui.Hex("#ffffff").Alpha(0.75)).
-			Tooltip(sponsorStatusTitle(a.SponsorStatus,
-				pick(a.Sponsor, a.SponsorCount, 0), a.SponsorReason))
-		// 纯视觉，不能吃掉按钮的点击。
-		dot.PassThrough()
-	})
-	if b.Clicked() && a.Act.ToggleSponsor != nil {
-		a.Act.ToggleSponsor()
-	}
-}
-
 // sponsorDotColor 把 SponsorBlock 状态映射成状态点颜色。
 func sponsorDotColor(status string) ui.Color {
 	switch status {
@@ -2878,73 +2707,6 @@ func playerSpeedOptionInk(t Theme) ui.Color {
 // 参与命中测试 —— 弹层开着时整窗的悬停照常（捕获层会把 hover 全吃掉）。
 // 按下锚点（倍速列）不算外部，所以「先开音量再点倍速」不会被当成点外部
 // 而关掉刚开的倍速弹层。
-func (a *App) speedPopover(c *ui.Context, anchor ui.Element) {
-	t := a.Theme
-	// 材质：近乎实白 rgba(255,255,255,.82) + 1px 白边 .72 + blur(10)，
-	// 与音量弹层的薄玻璃不同（倍速弹层要压住下面的内容）。
-	// 原版是近乎实白（rf.82）+ blur(10)；换成框架玻璃，抬一级投影
-	// 让它从播放栏上"浮起来"。
-	panel := ui.Row(c).AttachTo(anchor, ui.AnchorLeft, ui.AnchorRight).
-		Margin(0, speedPopoverEdgeGap, 0, 0).
-		Padding(4).Gap(2).Radius(speedPopoverRadius).
-		Shadow(0, pick[float32](t.Dark, 10, 8), 24, 0, ui.Hex("#0f172a").Alpha(pick[float32](t.Dark, 0.14, 0.12))).
-		AlignItems(ui.Center)
-	// 表面：默认框架玻璃（深色染烟熏色），减少透明度换成不透明 #e6edf4 实底。
-	panel = playerPopoverMaterial(t, panel,
-		playerPopoverBorder(t, ui.Hex("#ffffff").Alpha(0.72)),
-		playerPopoverVeil(t, ui.Hex("#ffffff").Alpha(0.82)), speedPopoverBlur)
-	// 烟熏玻璃时段原版 box-shadow 第一层是 `inset 0 1px 0 白 .26`（浅色那条
-	// --glass-specular 由玻璃折光近似），补在玻璃之上。
-	panel = applyInsetShadows(panel, playerPopoverInsets(t))
-	// 原版深色时段给倍速弹层补 `background-image: var(--player-sheen)`（浅色没有）。
-	panel = popoverGlass(panel, speedPopoverRadius, speedPopoverSheen(t))
-	if panel.PressedOutside() {
-		a.ShowSpeed = false
-	}
-	panel.Children(func() {
-		for _, opt := range speedOptions {
-			a.speedOption(c, opt)
-		}
-	})
-}
-
-// speedOption 画倍速弹层里的一颗档位胶囊（原版 .player-speed-option）：
-// min-width 36、padding 4px 8px（**auto 高度**——原版没有固定高，胶囊由
-// 内容行盒 + 上下内边距撑出来）、圆角 8、11px/650；激活蓝底 .16、悬停
-// 浅蓝 .10，墨色激活/悬停走 --studio-blue。
-func (a *App) speedOption(c *ui.Context, opt float64) {
-	t := a.Theme
-	active := abs(opt-a.Speed) < 0.001
-	b := ui.ButtonBase(c.Key(fmt.Sprintf("rate-%v", opt))).
-		MinWidth(36).Padding(4, 8).Radius(8).
-		Center().Label(speedLabel(opt))
-	switch {
-	case active:
-		b.Background(t.Blue.Alpha(0.16))
-	case b.Hovered():
-		b.Background(t.Blue.Alpha(0.10))
-	}
-	b.Children(func() {
-		numericText(c, speedLabel(opt)).FontSize(11).FontWeight(650).
-			TextColor(pick(active, t.Blue, playerSpeedOptionInk(t)))
-	})
-	if b.Clicked() {
-		a.Speed = opt
-		a.ShowSpeed = false
-		if a.Act.SetSpeed != nil {
-			a.Act.SetSpeed(opt)
-		}
-	}
-}
-
-// volumePopover 是音量滑块，从播放栏第 5 列上方弹出。
-func (a *App) volumePopover(c *ui.Context, anchor ui.Element) {
-	// 原版 .player-volume-popover 挂在音量按钮的列容器上（right: calc(100%+10px)、
-	// top: 50% + translateY(-50%)）：弹层在列**左侧 10px**、并与播放栏垂直居中。
-	a.volumePopoverAt(c, anchor, volumePopoverEdgeGap,
-		volumePopoverW, volumePopoverH, volumePopoverRadius)
-}
-
 // 音量弹层的几何（原版 .player-volume-popover）：184×42 / 圆角 14，内部
 // padding 0 10 0 8、gap 8、静音键 26×26；挂在音量列左侧（间距见
 // volumePopoverEdgeGap）并与播放栏垂直居中。抽成常量：视图与测试按同一份
@@ -3080,9 +2842,9 @@ func (a *App) volumePopoverAt(c *ui.Context, anchor ui.Element, edgeGap, w, h, r
 			})
 		})
 		if sl.Changed() {
-			a.Volume = v
-			// 拖动中只应用到音频，**不落盘**（原版注释：仅在拖动提交时写。
-			// 跟着每次 input 写的话，拖一次要写几十次盘）。
+			// 先写共享设置（监听落到引擎），再走 Act 兜底。不要先写
+			// a.Volume 再调 SetVolume：那样会因「值没变」早退。
+			a.PlayerSettings.SetVolume(v)
 			if a.Act.SetVolume != nil {
 				a.Act.SetVolume(v)
 			}

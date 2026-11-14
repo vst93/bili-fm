@@ -39,15 +39,16 @@ func TestThumbGlintValuesAligned(t *testing.T) {
 }
 
 func TestProgressUsesThumbScaleAnimationAndDisabledOpacity(t *testing.T) {
-	body, err := os.ReadFile("playerbar.go")
+	// 主窗与视频窗共用 playerTimeline（playerbar_shared.go）。
+	body, err := os.ReadFile("playerbar_shared.go")
 	if err != nil {
-		t.Fatalf("读取 playerbar.go 失败: %v", err)
+		t.Fatalf("读取 playerbar_shared.go 失败: %v", err)
 	}
 	src := string(body)
 
-	progressStart := strings.Index(src, "func (a *App) progress(")
+	progressStart := strings.Index(src, "func playerTimeline(")
 	if progressStart < 0 {
-		t.Fatal("找不到 progress 函数")
+		t.Fatal("找不到 playerTimeline 函数")
 	}
 	progressEnd := strings.Index(src[progressStart:], "\nfunc ")
 	progressBody := src[progressStart : progressStart+progressEnd]
@@ -62,6 +63,11 @@ func TestProgressUsesThumbScaleAnimationAndDisabledOpacity(t *testing.T) {
 		t.Error("progress 函数中缺少禁用态 opacity 设置")
 	}
 
+	miniBodySrc, err := os.ReadFile("playerbar.go")
+	if err != nil {
+		t.Fatalf("读取 playerbar.go 失败: %v", err)
+	}
+	src = string(miniBodySrc)
 	miniStart := strings.Index(src, "func (a *App) miniProgress(")
 	if miniStart < 0 {
 		t.Fatal("找不到 miniProgress 函数")
