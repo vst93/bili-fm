@@ -212,9 +212,9 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 	n.win.OnClosed(func() {
 		// 先取状态再关播放器：关掉之后 Position/Duration 都归零，主窗拿到
 		// 的「关窗时停在几秒」就成了 0（关窗后要继续听这一集，见 main.go
-		// 的 OnClose 接力）。
-		st := n.state()
-		pl.Close()
+		// 的 OnClose 接力）。closeState 关的是 n.pl —— 不是建窗时捕获的那个
+		// 播放器（原地换集后它是旧的），漏关会让视频声音在窗口消失后继续放。
+		st := n.closeState()
 		if !n.suppressClose {
 			if cb := n.onClose; cb != nil {
 				cb(st)
@@ -222,6 +222,21 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		}
 	})
 	return n
+}
+
+// closeState 关窗收尾：取这一刻的播放状态，再关掉**当前**播放器。
+//
+// 必须用 n.pl，不能用建窗时捕获的那个 pl：原地换集（switchNative）会把
+// n.pl 换成新播放器、旧的那个当场 Close 掉。用捕获值去关，真正在放的新
+// 播放器永远关不掉 —— 窗口没了声音还在（用户报的「关了视频窗，声音出来
+// 了、主窗却显示暂停」），而状态又是从 n.pl 取的，两边就此分叉。
+func (n *nativeWindow) closeState() State {
+	if n.pl == nil {
+		return State{}
+	}
+	st := n.state()
+	n.pl.Close()
+	return st
 }
 
 // state 是给主窗回传的播放状态（与 webview 路径同一结构）。

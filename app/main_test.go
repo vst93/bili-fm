@@ -2255,8 +2255,18 @@ func TestBackdropUpdatesGateOnHidden(t *testing.T) {
 	// 三道都必须走这道门：音频进度（500ms）、视频弹窗状态（1s）、以及原生
 	// 视频不可用时那一次「已改用内置播放器」的 toast —— 它虽然只弹一次，但
 	// 窗口在后台时同样不该为它白建一帧。
-	if n := strings.Count(flat, "runOnUI(c.app,!c.app.Hidden(),func(){"); n != 3 {
-		t.Errorf("界面更新走 runOnUI 的次数 = %d，应为 3（音频进度 + 视频状态 + 回退提示）", n)
+	if n := strings.Count(flat, "runOnUI(c.app,!c.app.Hidden(),func(){"); n < 3 {
+		t.Errorf("界面更新走 runOnUI 的次数 = %d，至少 3（音频进度 + 视频状态 + 回退提示）", n)
+	}
+	// 关视频窗 / 开视频窗的收尾也走同一道门：它们同样从后台 goroutine 写
+	// 界面状态（app.Playing 与引擎对齐），直写就是数据竞争。
+	for _, want := range []string{
+		"runOnUI(c.app,!c.app.Hidden(),func(){c.app.NotifyType(\"error\",\"取播放地址失败\")",
+		"runOnUI(c.app,!c.app.Hidden(),c.videoOpened)",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("视频窗收尾没走 runOnUI：%s", want)
+		}
 	}
 	for _, want := range []string{
 		// 门本身：可见时 Update（要一帧），不可见时 RunOnMain（不要帧）。

@@ -282,9 +282,9 @@ const onGesture = () => {
 document.addEventListener('pointerdown', onGesture, true);
 document.addEventListener('keydown', onGesture, true);
 
-// 每秒把状态回传给主窗，用于同步进度与播放状态。
+// 把这一刻的播放状态回传给主窗，用于同步进度与播放状态。
 // 正常情况下不显示调试信息，只在出错时显出来。
-setInterval(() => {
+const reportState = () => {
   call('Video.Report',
     v.currentTime || 0, v.duration || 0,
     !!v.paused, !!v.muted, v.playbackRate || 1, v.readyState || 0,
@@ -295,7 +295,20 @@ setInterval(() => {
   } else {
     state.style.display = 'none';
   }
-}, 1000);
+};
+
+// 每秒心跳兜底（进度推进时没有别的事件可挂）。
+setInterval(reportState, 1000);
+
+// 播放/暂停/播完**立刻**补报一次：主窗关窗时要按「最后一次回传」决定
+// 要不要音视接力（video.RelayOnClose）。只靠 1s 心跳的话，暂停后马上关窗
+// 会让主窗拿到旧的「在播」状态 → 自动续播（用户报的「暂停时关视频窗，
+// 声音出来了，主窗还显示暂停」）。这是行为差异，不是样式。
+v.addEventListener('play', reportState);
+v.addEventListener('pause', reportState);
+
+// 关窗前补报一次当前状态：覆盖「页面自己关自己」这条路径（Esc / 关闭键）。
+const closeVideo = () => { reportState(); call('Video.Close'); };
 
 // 视频模式下的键盘快捷键（原版 index.tsx 的 handleKeyPress，isPlayVideo 分支）：
 //   Esc        关闭视频浮层（原版 setIsPlayVideo(false)）
@@ -327,6 +340,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Escape') {
     e.preventDefault();
+    reportState();
     call('Video.Close');
   } else if (e.code === 'Space') {
     e.preventDefault();
@@ -334,8 +348,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-document.getElementById('close').addEventListener('click', () => call('Video.Close'));
-v.addEventListener('ended', () => call('Video.Ended'));
+document.getElementById('close').addEventListener('click', closeVideo);
+v.addEventListener('ended', () => { reportState(); call('Video.Ended'); });
 </script>
 </body>
 </html>

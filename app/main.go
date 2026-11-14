@@ -144,6 +144,9 @@ type controller struct {
 	winGate winGate
 	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
 	videoSilent bool
+	// audioStub 是关视频窗时断言「主窗状态 == 引擎实际状态」的测试替身；
+	// nil 时用真的 c.mp（见 audioCtl / video_close_test.go）。
+	audioStub audioCtl
 
 	// tray 是系统托盘的强引用。Linux（AppIndicator）的原生托盘不持有
 	// mygo 的 TrayHandler，mygo 的 Menu 只被 *Tray 强引用（点击派发走的是
@@ -1101,6 +1104,9 @@ func (c *controller) quit() {
 	}
 	c.vid.Close()
 	c.mp.Close()
+	// 退出路径也不允许「关窗后状态还挂着播放中」：两个引擎都已经关了，
+	// 主窗状态跟着落地（OnClose 可能已经写过一次，这里幂等收尾）。
+	c.app.Playing = false
 	mygo.App.Quit()
 }
 
@@ -3498,7 +3504,15 @@ func (c *controller) startCurrent() {
 
 		c.app.Win.Update(func() {
 			c.app.Buffering = false
-			c.app.Playing = true
+			// 视频窗在这一枪里被打开了：音频引擎不该出声。openVideo 的 Pause
+			// 可能落在 oto player 装上之前（那时是空操作），这一抢结束后引擎
+			// 才真正开始放 —— 所以这里看 VideoOpen 再钉一次，并把 Playing
+			// 从引擎读回来。否则主窗会显示「在播」而视频窗其实占着声音。
+			if c.app.VideoOpen {
+				c.audio().Pause()
+			}
+			// Playing 一律从引擎读回来，不手写：引擎真在放才是「播放中」。
+			c.app.Playing = c.audioPlaying()
 			c.app.Dur = c.mp.Duration()
 			c.app.Status = ""
 			c.syncMediaTrack()
@@ -3749,6 +3763,13 @@ func (c *controller) runSeek(seconds float64) {
 		c.app.Win.Update(func() {})
 		return
 	}
+	if c.mp == nil {
+		// 没有音频引擎（测试替身 / 启动极早期）：不 seek，状态机也不能停在
+		// SeekBusy 上（否则后续 seek 永远只会排队）。
+		c.app.SeekBusy = false
+		c.app.SeekStableAt = time.Now()
+		return
+	}
 	go func() {
 		err := c.mp.Seek(seconds)
 		c.app.Win.Update(func() {
@@ -3972,9 +3993,95 @@ func (c *controller) maybeSkipSponsor(pos float64) {
 
 // ---------------------------------------------------------------- 视频弹窗
 
+// audioCtl 是「关掉视频窗之后把音频引擎摆到哪个状态」需要的最小面：
+// *media.Player 满足它。抽出来是为了让关窗路径能无头断言「主窗 Playing
+// 与引擎实际状态一致」（测试注入桩替身，不依赖声卡）。
+type audioCtl interface {
+	Pause()
+	Resume()
+	Playing() bool
+}
+
+// silentAudio 在 c.mp 未初始化时兜底（测试 / 启动极早期）。
+type silentAudio struct{}
+
+func (silentAudio) Pause()        {}
+func (silentAudio) Resume()       {}
+func (silentAudio) Playing() bool { return false }
+
+// audio 返回音频引擎。测试可以用 audioStub 换掉。
+func (c *controller) audio() audioCtl {
+	if c.audioStub != nil {
+		return c.audioStub
+	}
+	if c.mp == nil {
+		return silentAudio{}
+	}
+	return c.mp
+}
+
+// audioPlaying 读引擎的实际播放状态。主窗的 Playing 是它在界面上的镜像，
+// 任何「离开视频窗」的路径都要从它读回来，而不是手写 true / false。
+func (c *controller) audioPlaying() bool { return c.audio().Playing() }
+
+// applyVideoClose 收尾一次「离开视频窗」。调用方在界面线程上执行。
+//
+// 不变式：执行完之后主窗的 Playing 必须等于音频引擎的实际状态。所以这里
+// **先决定引擎状态、再从引擎读回 Playing**，绝不手写 Playing 而让两边各说
+// 各话（用户报的「有声音在放、界面却显示暂停」就是这一步分叉造成的）。
+//
+// 覆盖的路径：
+//   - 暂停时关闭 / 播放中关闭 → video.RelayOnClose 判定（暂停不续播）；
+//   - 切歌时的静默关闭（videoSilent）→ 不接力，引擎归新起播管；
+//   - 弹窗里 Ctrl/Cmd+Q 退出（quitting）→ 引擎停在暂停；
+//   - 自然播完（位置停在片尾）→ 不接力；
+//   - 没有当前曲目 → 引擎停在暂停。
+func (c *controller) applyVideoClose(st video.State) {
+	a := c.app
+	a.VideoOpen = false
+	// 退出与切歌都不做音视接力：前者进程要没了，后者这一集马上被换掉。
+	// 但两者的引擎归属不一样，不能一起 Pause：
+	//
+	//   - 退出：两个引擎都要停，不留声音。
+	//   - 切歌：新一集已经在起播（甚至已经在放），这时 Pause 会把刚起来的
+	//     新曲目按停。引擎归新起播管，这里只把 Playing 与它对平。
+	if c.quitting {
+		c.videoSilent = false
+		c.audio().Pause()
+		a.Playing = c.audioPlaying()
+		return
+	}
+	if c.videoSilent {
+		c.videoSilent = false
+		a.Playing = c.audioPlaying()
+		return
+	}
+	if a.Current() == nil {
+		c.audio().Pause()
+		a.Playing = c.audioPlaying()
+		return
+	}
+	// 位置先接回来：即使不续播也要接（用户在暂停态关窗，再点播放应该从
+	// 视频停下的地方继续，而不是回到 0）。
+	c.flushProgress(st.Time)
+	if st.Time > 0 {
+		c.seek(st.Time)
+	}
+	if video.RelayOnClose(st) {
+		c.audio().Resume()
+	} else {
+		// 不接力时**显式**停引擎：视频占着出声的那段时间里，音频引擎可能
+		// 因为起播竞态（openVideo 的 Pause 落在 oto player 装上之前，是空
+		// 操作）已经在放。只「不 Resume」会留下 UI 暂停、声音还在的残留。
+		c.audio().Pause()
+	}
+	a.Playing = c.audioPlaying()
+}
+
 // wireVideo 把视频弹窗的回调接回来：
 //   - 弹窗播放时主区进度跟随它，并持续记断点/上报；
-//   - 弹窗关掉后把音频接回来（跳到弹窗停下的位置继续听）；
+//   - 弹窗关掉后把位置接回来；**播放中**关窗才把音频接着放（音视接力），
+//     暂停/播完/退出都不续播（语义见 video.RelayOnClose）；
 //   - 弹窗自然播完按播放模式续播。
 func (c *controller) wireVideo() {
 	// 弹窗回调跑在窗口事件 goroutine 上，而它们读写界面状态，所以统一
@@ -4002,25 +4109,8 @@ func (c *controller) wireVideo() {
 		})
 	})
 	c.vid.OnClose(func(st video.State) {
-		c.app.Win.Update(func() {
-			c.app.VideoOpen = false
-			if c.quitting || c.videoSilent {
-				c.videoSilent = false
-				return
-			}
-			if c.app.Current() == nil {
-				return
-			}
-			// 音视接力：跳到弹窗停下的位置继续听。
-			c.flushProgress(st.Time)
-			if st.Time > 0 {
-				c.seek(st.Time)
-			}
-			if !st.Paused {
-				c.mp.Resume()
-				c.app.Playing = true
-			}
-		})
+		// 关窗回调跑在窗口事件 goroutine 上，界面状态的收尾统一回主线程。
+		c.app.Win.Update(func() { c.applyVideoClose(st) })
 	})
 	c.vid.OnEnded(func() {
 		// 看完：同主窗音频引擎，补一次「已看完」并清掉本地断点（见 finishProgress）。
@@ -4057,16 +4147,21 @@ func (c *controller) openVideo() {
 	// 马上要多背一整套 WebView2：先把原生侧的闲页还给系统（见 memory.go）。
 	trimMemory()
 	// 弹窗自带声音：先把音频引擎停下来，避免双声。失败时再恢复。
-	wasPlaying := c.app.Playing
-	c.mp.Pause()
-	c.app.Playing = false
+	//
+	// wasPlaying 取引擎的**实际**状态而不是 app.Playing：两者可能隔着一次
+	// 没落地的映射（见 applyVideoClose 的不变式），以引擎为准才能原样还原。
+	wasPlaying := c.audioPlaying()
+	c.audio().Pause()
+	c.app.Playing = c.audioPlaying()
 	c.app.Win.Update(func() {})
 	go func() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
 		if u.URL == "" {
-			c.app.NotifyType("error", "取播放地址失败")
-			c.restoreAudioAfterVideo(wasPlaying)
+			runOnUI(c.app, !c.app.Hidden(), func() {
+				c.app.NotifyType("error", "取播放地址失败")
+				c.restoreAudioAfterVideo(wasPlaying)
+			})
 			return
 		}
 		opts := video.Options{
@@ -4082,20 +4177,44 @@ func (c *controller) openVideo() {
 			Parent: c.app.Win,
 		}
 		if err := c.vid.Open(opts); err != nil {
-			c.app.NotifyType("error", actionFailText("打开视频窗口", err))
-			c.restoreAudioAfterVideo(wasPlaying)
+			runOnUI(c.app, !c.app.Hidden(), func() {
+				c.app.NotifyType("error", actionFailText("打开视频窗口", err))
+				c.restoreAudioAfterVideo(wasPlaying)
+			})
 			return
 		}
-		c.app.Win.Update(func() { c.app.VideoOpen = true })
+		runOnUI(c.app, !c.app.Hidden(), c.videoOpened)
 	}()
 }
 
-// restoreAudioAfterVideo 弹窗没开成时把音频恢复回来。
+// videoOpened 把「视频窗已经开着」这段时间的状态钉住：音频引擎暂停，主窗
+// Playing 从引擎读回。
+//
+// 三条路径落到同一个状态：原生窗开成、原生不可用回退到 webview
+// （ErrUnsupported / 起播失败 / 地址不合法），以及 webview 弹窗新建。
+// 弹窗落定前可能有一次起播在后台把引擎拉起来了（openVideo 的 Pause 落在
+// oto player 装上之前是空操作）：这里再钉一次，让「视频窗开着」和「引擎不出声」
+// 保持一致而不靠运气。
+func (c *controller) videoOpened() {
+	if c.vid != nil && !c.vid.IsOpen() {
+		// 开窗结果落定之前用户已经把它关掉了（关窗回调可能已经跑过）：
+		// 不能再把 VideoOpen 置真，否则主窗永远以为视频还开着，
+		// 空格 / 进度条都会一直发给一个不存在的弹窗。
+		c.app.Playing = c.audioPlaying()
+		return
+	}
+	c.app.VideoOpen = true
+	c.audio().Pause()
+	c.app.Playing = c.audioPlaying()
+}
+
+// restoreAudioAfterVideo 弹窗没开成时把音频恢复回来。调用方在界面线程上。
+// 恢复之后同样从引擎读回 Playing，不手写。
 func (c *controller) restoreAudioAfterVideo(wasPlaying bool) {
 	if wasPlaying {
-		c.mp.Resume()
-		c.app.Win.Update(func() { c.app.Playing = true })
+		c.audio().Resume()
 	}
+	c.app.Playing = c.audioPlaying()
 }
 
 func (c *controller) closeVideo() {

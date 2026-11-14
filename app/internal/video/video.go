@@ -51,6 +51,32 @@ type State struct {
 	Err      string
 }
 
+// RelayOnClose 报告关掉视频窗之后要不要把音频引擎接回来接着听（音视接力）。
+//
+// 语义以原版为准（tauri 分支 src/components/playerVideo.tsx 的
+// closePlayerVideo）：
+//
+//   - **暂停时关窗不续播**。原版注释写明「不要在此恢复音频播放（isPlaying
+//     保持 false），由用户手动点击播放键继续收听，避免 macOS 上音频与视频
+//     抢播」—— 暂停是用户的明确意图，关窗不是「开始播放」的手势。
+//   - 播放中关窗才接回（本仓库 webview / 原生两条路径既有的音视接力）。
+//   - 没起来（Ready==0）、出错、或者自然播完（位置停在片尾）都不接：这时
+//     接回来只会得到一段静音、一段错误提示音，或者贴着片尾的一两声。
+//
+// webview 路径的 State 来自页面回传（play/pause 事件已经即时上报），原生
+// 路径来自关窗那一刻的播放器，两者判据一致。
+func RelayOnClose(st State) bool {
+	if st.Paused || st.Ready == 0 || st.Err != "" {
+		return false
+	}
+	// 自然播完：ended 之后页面不再每秒回传，缓存的 Paused 可能还是旧的
+	// 「在播」，但位置已经在末尾。用与主窗「播完再点播放」同一条判据。
+	if st.Duration > 0 && st.Time >= st.Duration-0.5 {
+		return false
+	}
+	return true
+}
+
 // Manager 管理唯一一个视频弹窗。
 type Manager struct {
 	mu  sync.Mutex
