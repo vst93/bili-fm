@@ -63,6 +63,12 @@ const (
 	prefMainPos = "mainWindowPosition"
 )
 
+// prefVideoPinned 是视频窗「置顶」键（顶栏最左那颗图钉）的落盘值：**新键，
+// 只增不改**。默认 false —— 与主窗迷你模式的固定一致（迷你模式默认不置顶）；
+// 迷你模式那颗本身不落盘（退出迷你模式就复位），视频窗是独立窗口、值应当
+// 跟用户走，所以两套语义各记各的，不复用同一个值。
+const prefVideoPinned = "videoPinned"
+
 // loadPrefs 启动时读回显示偏好（原版把这些存在 localStorage，这里存本地 KV）。
 func (c *controller) loadPrefs() {
 	a := c.app
@@ -150,6 +156,10 @@ func (c *controller) loadPrefs() {
 	}
 	// 原生视频默认开：只有明确写过 "false" 才关（老版本没有这个键）。
 	a.NativeVideo = c.kv.String(prefNativeVideo) != "false"
+	// 视频窗置顶：键不存在（老版本）时默认 false —— 与主窗迷你模式的固定
+	// 一致（迷你模式默认不置顶，那份状态本身也不落盘）。只有明确写过 "true"
+	// 才置顶，与 NativeVideo 同一个读法（布尔值只认字面量，不认其它字符串）。
+	a.VideoPinned = c.kv.String(prefVideoPinned) == "true"
 	// 视频窗弹幕：键不存在（老版本）时用默认值（开 / 100% / 中 / 整屏 / 60）。
 	c.loadDanmakuPrefs()
 	// c.vid 在部分单测里没有（只构造 controller 的子集），与 c.media 一样

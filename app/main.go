@@ -2262,6 +2262,21 @@ func (c *controller) togglePin() {
 	c.finishWinControl()
 }
 
+// setVideoPinned 记下视频窗的置顶状态并落盘（键 videoPinned）。
+//
+// 视频窗里的图钉已经在窗口侧把 always-on-top 改掉了（view.VideoChrome 的
+// togglePin），这里是同一个事实源的**主窗一侧**：与迷你模式的 Pinned 不同，
+// 视频窗的置顶要跟着用户走（下次开视频仍是置顶），所以它落盘；迷你模式那颗
+// 退出迷你模式就复位（主窗正常尺寸不该常驻置顶），不落盘，两套语义各记各的。
+func (c *controller) setVideoPinned(on bool) {
+	if c.app != nil {
+		c.app.VideoPinned = on
+	}
+	if c.kv != nil {
+		_ = c.kv.SetString(prefVideoPinned, strconv.FormatBool(on))
+	}
+}
+
 // winGate 是窗口操作的**在途闸门**：它一个东西干两件事，对应原版的两个状态——
 //
 //	防重入（原版 windowModeChangingRef）：已在途时再来的点击／第二次调用直接忽略
@@ -4265,6 +4280,13 @@ func (c *controller) wireVideo() {
 			c.setDanmakuStyle(s)
 		})
 	})
+	// 视频窗顶栏「置顶」键：落盘到新键 videoPinned（KV 只增不改）。
+	// 与主窗迷你模式的固定一致，默认 false；迷你模式那颗本身不落盘（退出
+	// 迷你模式就复位），所以这里不共用一个值，各记各的。回调跑在窗口
+	// 事件 goroutine 上，状态与落盘统一回主线程。
+	c.vid.OnPinToggle(func(on bool) {
+		runOnUI(c.app, !c.app.Hidden(), func() { c.setVideoPinned(on) })
+	})
 	c.vid.OnFallback(func(reason string) {
 		if reason == "" {
 			return
@@ -4330,6 +4352,9 @@ func (c *controller) openVideo() {
 			Shared: &c.app.PlayerSettings,
 			// 恰饭分段：视频窗进度条画标记，开关打开时也按它跳过。
 			SponsorSegments: sponsorSegs,
+			// 视频窗置顶：开窗时用主窗落盘的值（默认 false，与迷你模式的
+			// 固定一致），窗口里点图钉会经 OnPinToggle 落回同一键。
+			VideoPinned: c.app.VideoPinned,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			runOnUI(c.app, !c.app.Hidden(), func() {

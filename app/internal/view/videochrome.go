@@ -25,7 +25,7 @@ package view
 //
 // 视频窗的两种「离开」（语义见 PLAN.md 的「视频窗关闭语义」一节）：
 //
-//   - **退出视频播放**（顶栏第三颗键 / 窗口态 Esc）：关视频窗回主窗，是否
+//   - **退出视频播放**（顶栏第四颗键 / 窗口态 Esc）：关视频窗回主窗，是否
 //     续播音频按 video.RelayOnClose 判定。**不退应用。**
 //   - **最小化**（顶栏第二颗键 / Ctrl+W）：窗口最小化，播放与声音继续
 //     （最小化 ≠ 暂停），恢复后画面与进度接续。
@@ -44,7 +44,7 @@ import (
 )
 
 // 尺寸（DIP）。控件条与主窗播放栏同一套节奏：播放键 42、工具键 32、
-// 倍速列 40、均衡/恰饭列 34、进度条 24、时间列 56、间距 8。顶栏三颗键
+// 倍速列 40、均衡/恰饭列 34、进度条 24、时间列 56、间距 8。顶栏四颗键
 // 与主窗标题栏动作键同尺寸（30×30、图标 15）。
 const (
 	VideoChromeKey    float32 = 30
@@ -141,6 +141,9 @@ type VideoWindow interface {
 	IsFullScreen() bool
 	Bounds() mygo.Rectangle
 	SetBounds(mygo.Rectangle)
+	// SetAlwaysOnTop 是顶栏「置顶」键的目标，各平台都只是「尽力」（见
+	// applyPin）。它与全屏是两条独立的窗口属性，互不覆盖。
+	SetAlwaysOnTop(bool)
 }
 
 // VideoChrome 是原生视频窗的界面外壳。零值可用（主题按当前时段取）。
@@ -183,6 +186,14 @@ type VideoChrome struct {
 	// OnDanmakuToggle 在视频窗内点弹幕键时调用（参数是点击后的开关值）。
 	OnDanmakuToggle func(on bool)
 
+	// Pinned 是视频窗的「置顶」（顶栏最前面那颗图钉）。语义与主窗迷你模式
+	// 的 Pinned 完全一致：默认 false（迷你模式默认不置顶），切换只改窗口的
+	// always-on-top，不碰播放。落盘由调用方在 OnPinToggle 里做（新键
+	// videoPinned；迷你模式那颗不落盘，所以两边各记各的）。
+	Pinned bool
+	// OnPinToggle 在视频窗点「置顶」键时调用（参数是点击后的状态）。
+	OnPinToggle func(on bool)
+
 	// Set 是主窗与视频窗共享的设置（音量 / 静音 / 倍速 / 均衡 / 广告跳过）。
 	// internal/video 把主窗的 &App.PlayerSettings 传进来，两边是同一份内存：
 	// 这里改音量，主窗立刻看见；主窗改倍速，这里下一帧就按新值播。
@@ -192,7 +203,10 @@ type VideoChrome struct {
 	// 视频窗的进度条会画出这些段，开关打开时还会真的跳过。
 	SponsorSegments []Segment
 
-	inited   bool
+	inited bool
+	// pinFull 是上一次下发置顶时的全屏状态：全屏进出后要重新下发一次
+	// （见 View，DWM / AppKit / GTK 的顶层窗口等级在状态切换时可能被清）。
+	pinFull  bool
 	idle     videoChromeIdle
 	clicks   videoClickArbiter
 	fs       videoFullScreen
@@ -603,6 +617,15 @@ func (v *VideoChrome) View(c *ui.Context) {
 	// 全屏状态以窗口为准（用户也可能用系统手势 / F11 进出）。
 	v.fs.observe(now, v.Win)
 	full := v.fs.full
+	// 全屏进出后重新下发置顶：Windows 的全屏会重设窗口 style、macOS 的
+	// 独立全屏 Space 会重建窗口层级、GTK 的 keep-above hint 在 state 事件
+	// 之后可能被清掉 —— 只靠进全屏前那一次调用，退出全屏后就不一定还是
+	// 置顶。这里按**当前**状态再下发一次，置顶既不因进全屏被取消，也不因
+	// 出全屏被丢掉。
+	if full != v.pinFull {
+		v.pinFull = full
+		v.applyPin()
+	}
 
 	px, py, over := root.PointerPosition()
 	frame := v.idle.observe(now, px, py, over, v.holdChrome(full))
@@ -700,6 +723,10 @@ func (v *VideoChrome) init(now time.Time) {
 	v.Pl.SetVolume(set.Volume)
 	v.Pl.SetMuted(set.Muted)
 	v.Pl.SetRate(set.Speed)
+	// 置顶：开窗就按当前状态下发一次（用户上次把视频窗置顶了，这次打开
+	// 仍是置顶）。pinFull 与这一帧的全屏值对齐，免得第一帧重复下发。
+	v.applyPin()
+	v.pinFull = v.fs.full
 }
 
 // settings 返回共享设置；没有注入时建一份本窗口自己的（无头测试 / 独立
@@ -751,12 +778,13 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	return false
 }
 
-// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 三颗键。
+// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 四颗键。
 //
-// 三颗键从左到右：**弹幕 / 最小化 / 退出视频播放**。用户 2026-11 明确要求
-// 「顶栏需要且只需要这三颗」：弹幕是这一集最常用的开关（原版浮层里它在底部
-// 浏览器控件条上，原生版没有浏览器兜底，移到顶栏与标题同一行）；最小化与
-// 退出视频播放是窗口动作，位置与主窗的窗控键对齐。
+// 四颗键从左到右：**置顶 / 弹幕 / 最小化 / 退出视频播放**。置顶是窗口动作，
+// 排在整排最前面（用户本轮的要求），图标、键尺寸与激活态材质都用主窗迷你
+// 模式那颗固定键的同一份（见 pinKey）；弹幕是这一集最常用的开关（原版浮层
+// 里它在底部浏览器控件条上，原生版没有浏览器兜底，移到顶栏与标题同一行）；
+// 最小化与退出视频播放是窗口动作，位置与主窗的窗控键对齐。
 //
 // 全屏时只收掉最小化（全屏窗口没有「最小化」这回事，系统也不给），弹幕与
 // 退出视频播放仍在 —— 全屏里除了 Esc，还需要一条纯指针的出路。
@@ -772,6 +800,8 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 	bar.Children(func() {
 		ui.Text(c, v.Title).FontSize(12.5).TextColor(t.Ink).
 			Grow(1).SingleLine().Ellipsis("…")
+		// 置顶排第一（最左）：它是窗口级动作，与主窗迷你模式的固定键同源。
+		v.pinKey(c, t)
 		// 弹幕：与上一轮同一个开关（同一个事实源：主窗设置菜单 /
 		// macOS 菜单 / 这里三处一致），只是位置搬到了顶栏。
 		v.danmakuKey(c, t)
@@ -793,7 +823,7 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 // 绑定目标是这个窗口的播放器（videoPlayerBind）。
 //
 // 没有关闭键：关闭只在顶栏有一颗（用户报的「上下各有一个关闭按钮」）。
-// 也没有弹幕键：它已按用户要求移进顶栏那三颗里，同一个开关不做两处入口。
+// 也没有弹幕键：它已按用户要求移进顶栏那四颗里，同一个开关不做两处入口。
 //
 // 宽度不够时按 videoChromeLayout 渐进收纳：先收内联音量滑块、再收总时长、
 // 再收次要键、最后收当前时间；520 以下进度条独占一行。
@@ -959,7 +989,7 @@ func (v *VideoChrome) volumeSlider(c *ui.Context, t Theme) {
 }
 
 // fullScreenKey 是全屏键（全屏时换成「退出全屏」的四角内收图标）。与顶栏
-// 三颗键同一套形状；它是控件条里唯一不属于主窗播放栏的键（窗口动作）。
+// 四颗键同一套形状；它是控件条里唯一不属于主窗播放栏的键（窗口动作）。
 func (v *VideoChrome) fullScreenKey(c *ui.Context, t Theme, full bool) {
 	ic, tip := iconFullScreen, "全屏"
 	if full {
@@ -971,7 +1001,7 @@ func (v *VideoChrome) fullScreenKey(c *ui.Context, t Theme, full bool) {
 	}
 }
 
-// danmakuKey 是弹幕总开关（视频窗内的入口，画在顶栏那三颗里的第一颗）。
+// danmakuKey 是弹幕总开关（视频窗内的入口，紧跟在置顶后面）。
 // 状态回到主窗落盘，再经 internal/video 同步回这个窗口；这里先翻转本地
 // 状态，点完这一帧就见效。
 func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
@@ -986,6 +1016,52 @@ func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 			v.OnDanmakuToggle(v.Danmaku)
 		}
 	}
+}
+
+// pinKey 是顶栏最前面（最左）那颗「置顶」键：与主窗迷你模式的固定键
+// **同一个图标**（miniPinIcon：未置顶是 icon-park 描边图钉、置顶是实心变体）、
+// **同一个 30×30 键尺寸**、同一条激活态规则（playerBarTitleKey 的 Selected：
+// 蓝图标 + 淡蓝玻璃底 + 全不透明，浅深两态都跟随主题令牌）。键内字形按这一行
+// 的 15px 画（迷你窗那颗是 16px —— 顶栏四颗键同一行，单独抬 1px 会凸出来）。
+//
+// 它是保持型开关（原版置顶键是 aria-pressed 的 toggle button）：把 Pinned 作为
+// 按压态交给读屏。切换只动窗口的 always-on-top 与这个状态，不碰播放器。
+func (v *VideoChrome) pinKey(c *ui.Context, t Theme) {
+	tip := pick(v.Pinned, "取消置顶", "置顶")
+	b := playerBarTitleKey(c, t, "video-pin", tip, tip, miniPinIcon(v.Pinned), v.Pinned)
+	b.Role(ui.RoleToggleButton).Checked(v.Pinned)
+	if b.Clicked() {
+		v.togglePin()
+	}
+}
+
+// togglePin 切换视频窗的置顶：先翻本地状态并下发，再把新状态交给调用方
+// 落盘（internal/video → 主窗的 OnPinToggle）。
+func (v *VideoChrome) togglePin() {
+	v.Pinned = !v.Pinned
+	v.applyPin()
+	if v.OnPinToggle != nil {
+		v.OnPinToggle(v.Pinned)
+	}
+}
+
+// applyPin 把当前置顶状态下发给窗口。各平台都只是「尽力」，没有返回值可判：
+//
+//   - macOS：`setLevel:`（浮窗等级 / 复原），全屏是系统接管的独立 Space，
+//     值本身不会被拒；
+//   - Windows：SetWindowPos(HWND_TOPMOST)；另一个进程的独占全屏会压住它，
+//     但调用本身不失败；
+//   - Linux/GTK：gtk_window_set_keep_above；X11 下由 WM 采信，**Wayland 下
+//     合成器可能直接忽略**（xdg-toplevel 没有 keep-above 协议），框架因此
+//     只记住「请求过的状态」。
+//
+// 所以置顶失败**不影响**播放与其它键：那颗键翻的是一个窗口属性，画面、声音、
+// 进度与控件条都不依赖它，也没有任何状态机以 IsAlwaysOnTop 为闸。
+func (v *VideoChrome) applyPin() {
+	if v.Win == nil {
+		return
+	}
+	v.Win.SetAlwaysOnTop(v.Pinned)
 }
 
 // DanmakuDrawn 是上一帧真正画出的弹幕文字元素数。无头测试用它断言

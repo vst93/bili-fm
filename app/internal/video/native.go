@@ -95,6 +95,11 @@ type nativeWindow struct {
 	dmSettings      danmaku.Settings
 	onDanmakuToggle func(bool)
 
+	// pinned 是视频窗的置顶状态（顶栏最左那颗图钉）。它是窗口属性，不落盘在
+	// 这里：点一下就回到主窗存 videoPinned（见 chromeFor 的 OnPinToggle）。
+	pinned      bool
+	onPinToggle func(bool)
+
 	// 界面态（只在主线程 / 视图构建里读写）。
 	reported   time.Time
 	endedFired bool
@@ -193,6 +198,7 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		dmCid:      o.DanmakuCid,
 		dmOn:       true,
 		dmSettings: danmaku.DefaultSettings(),
+		pinned:     o.VideoPinned,
 	}
 	n.dm.SetItems(o.Danmaku)
 	n.win = mygo.NewWindow(mygo.WindowOptions{
@@ -202,7 +208,7 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		MinWidth:  320,
 		MinHeight: 200,
 		// 与 webview 弹窗同一套无边框外观：标题栏自绘（见 view），
-		// 顶栏三颗键：弹幕 / 最小化 / 退出视频播放；底部控件条没有关闭键。
+		// 顶栏四颗键：置顶 / 弹幕 / 最小化 / 退出视频播放；底部控件条没有关闭键。
 		// 顶部 34px 是拖动区。
 		Frameless: true,
 		// 起播前那一帧是黑的（视频自己的底色），显式给黑色避免白闪。
@@ -417,8 +423,10 @@ func (n *nativeWindow) view(c *ui.Context) {
 	ch.Danmaku = n.dmOn
 	ch.DanmakuSettings = n.dmSettings
 	ch.SponsorSegments = n.segments
+	ch.Pinned = n.pinned
 	ch.View(c)
 	n.dmOn = ch.Danmaku
+	n.pinned = ch.Pinned
 	n.report()
 }
 
@@ -464,6 +472,15 @@ func (n *nativeWindow) chromeFor() *view.VideoChrome {
 		Danmaku:         n.dmOn,
 		DanmakuOverlay:  n.dm,
 		DanmakuSettings: n.dmSettings,
+		// 置顶（顶栏最左那颗图钉，与迷你模式的固定键同源）：窗口那边翻
+		// 本地状态，这里再回主窗落盘（新键 videoPinned，默认 false）。
+		Pinned: n.pinned,
+		OnPinToggle: func(on bool) {
+			n.pinned = on
+			if cb := n.onPinToggle; cb != nil {
+				cb(on)
+			}
+		},
 		OnDanmakuToggle: func(on bool) {
 			n.dmOn = on
 			if cb := n.onDanmakuToggle; cb != nil {

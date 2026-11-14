@@ -59,6 +59,11 @@ type Options struct {
 	Shared *view.PlayerSettings
 	// SponsorSegments 是当前这一集的恰饭分段（进度条标记 + 视频窗跳过）。
 	SponsorSegments []view.Segment
+	// VideoPinned 是视频窗开窗时的置顶状态（主窗落盘的 videoPinned）。
+	// 默认 false：与主窗迷你模式的固定一致；窗口创建后那颗图钉可以改它。
+	// 只对原生窗生效 —— webview 回退路径没有自绘顶栏，也就没有改动它的
+	// 入口（不把一个退不回来的置顶强塞给用户）。
+	VideoPinned bool
 }
 
 // State 是弹窗回传的播放状态。
@@ -142,6 +147,8 @@ type Manager struct {
 	dmSettings danmaku.Settings
 	// onDanmakuToggle 在视频窗控件条点弹幕键时调用（主窗落盘并同步回来）。
 	onDanmakuToggle func(bool)
+	// onPinToggle 在视频窗顶栏点「置顶」键时调用（主窗落盘 videoPinned）。
+	onPinToggle func(bool)
 }
 
 // New 建一个管理器。
@@ -220,6 +227,13 @@ func (m *Manager) DanmakuState() (cid int64, items int, on bool) {
 func (m *Manager) OnDanmakuToggle(fn func(bool)) {
 	m.mu.Lock()
 	m.onDanmakuToggle = fn
+	m.mu.Unlock()
+}
+
+// OnPinToggle 设置视频窗内「置顶」键的回调（参数是点击后的状态）。
+func (m *Manager) OnPinToggle(fn func(bool)) {
+	m.mu.Lock()
+	m.onPinToggle = fn
 	m.mu.Unlock()
 }
 
@@ -470,6 +484,7 @@ func (m *Manager) tryNative(o Options) (reason string, ok bool) {
 	m.mu.Lock()
 	n.dmOn, n.dmSettings = m.dmOn, m.dmSettings
 	n.onDanmakuToggle = m.onDanmakuToggle
+	n.onPinToggle = m.onPinToggle
 	if m.dmCid == o.DanmakuCid {
 		n.dm.SetItems(m.dmItems)
 	}

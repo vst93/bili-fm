@@ -57,6 +57,12 @@ type videoStubWindow struct {
 	sets      int
 	restored  []mygo.Rectangle
 	setBounds []mygo.Rectangle
+	// 置顶：每次 SetAlwaysOnTop 都记一笔（含全屏进出后的重下发），topmost 是
+	// 窗口当前实际生效的值；ignore 模拟「Wayland 合成器忽略 keep-above」
+	// 的失败窗口（调用成功、状态不变）。
+	topmost  bool
+	topCalls []bool
+	ignore   bool
 }
 
 func newVideoStubWindow() *videoStubWindow {
@@ -73,6 +79,13 @@ func (w *videoStubWindow) SetFullScreen(v bool) {
 	}
 	if w.restore {
 		w.bounds = w.windowed
+	}
+}
+
+func (w *videoStubWindow) SetAlwaysOnTop(v bool) {
+	w.topCalls = append(w.topCalls, v)
+	if !w.ignore {
+		w.topmost = v
 	}
 }
 

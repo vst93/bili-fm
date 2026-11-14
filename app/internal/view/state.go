@@ -1079,6 +1079,11 @@ type App struct {
 
 	// 视频弹窗
 	VideoOpen bool
+	// VideoPinned 是视频窗的「置顶」（顶栏最左那颗图钉）落盘值，键
+	// videoPinned。默认 false —— 与主窗迷你模式的固定一致（那颗默认不置顶）。
+	// 迷你模式的固定本身不落盘（退出迷你模式就复位），视频窗是独立窗口、
+	// 值应当跟用户走，两套语义各记各的，不复用同一个字段。
+	VideoPinned bool
 
 	// 搜索
 	Query string

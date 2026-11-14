@@ -1882,3 +1882,78 @@ goroutine 上）。窗口消失得比主窗收尾还快，看起来就是整个�
 - 视频窗广告跳过的实际落点（seek 的音频/画面是否干净）；
 - 小窗 320×200 下弹层是否被合成器裁切；
 - 浅色桌面上视频面板的对比度与深色画面下的文字可读性。
+
+## 视频窗顶栏置顶键（微轮 5，2026-11-15）
+
+顶栏最前面（最左）加了一颗「置顶」键。上一轮「顶栏只需要三颗」（弹幕 /
+最小化 / 退出视频播放）是那一条的用户要求；本轮用户要求再加这颗并排在最前，
+所以现在是从左到右四颗：**置顶 / 弹幕 / 最小化 / 退出视频播放**。
+
+### 对齐主窗迷你模式的固定
+
+迷你模式的固定是 `controller.togglePin` → `App.Pinned` →
+`Win.SetAlwaysOnTop(Pinned)`（`main.go`），**默认 false**（`setMini(true)` 时
+`a.Win.SetAlwaysOnTop(a.Pinned)` 就是 false），退出迷你模式强制复位、**不落盘**。
+按钮是 `view.miniControl(...)`：30×30 键、`miniPinIcon(Pinned)`（未置顶是
+icon-park 描边图钉 `iconPin`、置顶是实心变体 `iconPinFilled`）、激活态走
+`titleBarButtonStyle`（--glass-bg-hover 底 + --studio-blue 图标 + 不透明度 1）。
+
+视频窗这颗：
+
+- **图标同一枚函数**：`miniPinIcon(v.Pinned)`，不另画；键尺寸同为 30×30
+  （`VideoChromeKey`）。字形按顶栏这一行的 15px 画（迷你窗那颗 16px —— 四颗
+  键同一行，单独抬 1px 会凸出来）。
+- **激活态**：复用顶栏键的 `playerBarTitleKey(..., active)`（浅色 蓝图标 +
+  蓝 .14 底、深色走 `titleBarButtonStyle`），并把 `Pinned` 作为
+  `RoleToggleButton + Checked` 交给读屏（原版置顶键是 `aria-pressed`）。
+- **tooltip / 名字**随状态切：「置顶」↔「取消置顶」。
+- **默认值与迷你模式一致**：false。落盘用**新键** `videoPinned`（只认字面量
+  `"true"`），`prefs.go` 的 `prefVideoPinned` 读回、`controller.setVideoPinned`
+  写入。**各记各的**：迷你模式的固定退出迷你模式就复位（主窗正常尺寸不该
+  常驻置顶）、本身也不落盘；视频窗是独立窗口，置顶要跟用户走（下次开视频仍
+  置顶）。所以不复用 `App.Pinned`，也不给迷你模式新增落盘。
+- webview 回退路径不接（那个窗口没有自绘顶栏，也就没有改动它的入口，不把
+  一个退不回来的置顶强塞给用户）。
+
+### 全屏关系（结论）
+
+置顶与全屏是两条**独立**的窗口属性：进全屏**保留**置顶（不取消），退出全屏
+**恢复**同一个置顶状态；并且每次全屏状态真的变化后都**重新下发**一次
+`SetAlwaysOnTop`（`VideoChrome.View` 用 `pinFull` 记住上次下发时的全屏值）。
+理由：Windows 的全屏会重设窗口 style、macOS 的独立全屏 Space 会重建层级、
+GTK 的 keep-above hint 在 window-state-event 之后可能被清掉 —— 只靠进全屏前
+那一次调用，退出全屏后不一定还是置顶。macOS 全屏 Space 里置顶本身没有可见
+作用，这是系统的语义，不是丢失状态。
+
+**兜底**：`SetAlwaysOnTop` 各平台都只是尽力（Linux/Wayland 合成器可能直接
+忽略 keep-above，框架只记住「请求过的状态」），没有返回值可判。置顶失败
+**不影响**播放与其它键：这颗键翻的是一个窗口属性，画面、声音、进度、控件条
+都不依赖它，也没有任何状态机以 `IsAlwaysOnTop` 为闸；键的按压态跟随用户的
+请求（不是窗口的回报），所以「点了没置顶」不会把界面置于自相矛盾的状态。
+
+### 测试
+
+- `TestVideoPinKeyTogglesWindow`（view）：点一下 `SetAlwaysOnTop(true)`、再点
+  一下 false（桩逐次记录），状态 / 名字 / `Checked` 同步切换。
+- `TestVideoPinStateIsVisible`（view）：两态在同一个键矩形里有足量像素差异；
+  置顶态是实心图钉（封闭空洞 0），把 `miniPinIcon` 换成描边图钉后空洞出现
+  —— 反证渲染链用的是迷你窗那枚图标。
+- `TestVideoPinKeyMatchesMini`（view）：键矩形与迷你窗固定键同为 30×30。
+- `TestVideoTitleBarKeyOrder`（view）：置顶是第一颗、四颗从左到右顺序固定，
+  且这一行**只有**这四颗键。
+- `TestVideoPinSurvivesFullScreen`（view）：置顶状态在进出全屏后保留，并在
+  全屏状态变化后重新下发；非置顶时任何一次下发都是 false。
+- `TestVideoPinRejectionKeepsPlayback`（view）：窗口忽略置顶时播放、弹幕、
+  暂停、最小化照常。
+- `TestNativeViewPinWiring`（video）：外壳状态 ↔ `nativeWindow.pinned` 同源，
+  点击一路回到 `Manager.OnPinToggle`。
+- `TestVideoPinnedPrefsRoundTrip` / `TestVideoPinnedDefaultMatchesMiniPin`
+  （main）：`videoPinned` 落盘并能读回、默认 false 与迷你模式一致、只有
+  `"true"` 算开。
+
+### 需真机确认
+
+- 三平台上置顶的实际效果与层级（尤其另一个进程的独占全屏）；
+- Linux/Wayland（Sway/Hyprland/GNOME）下 keep-above 是否被合成器接受；
+- macOS 全屏 Space 进出后浮窗等级是否如预期（代码里已补一次重下发）；
+- 深色画面 + 深色主题下这颗键的激活态是否够明显。
