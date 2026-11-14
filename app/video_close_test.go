@@ -2,7 +2,11 @@ package main
 
 import (
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
 
 	"github.com/vst93/bili-fm/app/internal/store"
 	"github.com/vst93/bili-fm/app/internal/video"
@@ -260,5 +264,269 @@ func TestVideoCloseUsesSingleRelayPath(t *testing.T) {
 	}
 	if strings.Contains(body, "c.mp.Resume()") {
 		t.Error("关窗路径仍在直接调 c.mp.Resume()：应走 c.audio() 以便与状态同步")
+	}
+}
+
+// ---------------------------------------------------------------- 真实点击路径
+
+// stubChromePlayer 是 view.VideoPlayer 的纯逻辑桩：只记「在放 / 暂停 / 位置」。
+type stubChromePlayer struct {
+	playing bool
+	ended   bool
+	pos     time.Duration
+	dur     time.Duration
+	pauses  int
+}
+
+func (s *stubChromePlayer) Play()                   { s.playing, s.ended = true, false }
+func (s *stubChromePlayer) Pause()                  { s.playing, s.pauses = false, s.pauses+1 }
+func (s *stubChromePlayer) Playing() bool           { return s.playing }
+func (s *stubChromePlayer) Ended() bool             { return s.ended }
+func (s *stubChromePlayer) Ready() bool             { return true }
+func (s *stubChromePlayer) Buffering() bool         { return false }
+func (s *stubChromePlayer) Duration() time.Duration { return s.dur }
+func (s *stubChromePlayer) Position() time.Duration { return s.pos }
+func (s *stubChromePlayer) Seek(d time.Duration)    { s.pos = d }
+func (s *stubChromePlayer) SetRate(float64)         {}
+func (s *stubChromePlayer) SetVolume(float64)       {}
+func (s *stubChromePlayer) SetMuted(bool)           {}
+
+// videoExitProbe 建一个真的原生视频窗外壳（无头 Tester），并把它的
+// 「退出视频播放」接到主窗真正的收尾函数 applyVideoClose 上 —— 与
+// internal/video 的 chromeFor 走同一条路（OnClose → 关窗 → 主窗收尾）。
+//
+// 这样断言的是**用户点那颗键**之后的主窗状态，而不是直接调 applyVideoClose：
+// 只测纯函数永远发现不了「按钮接错了动作链」这类错误（用户报的误退应用正是）。
+func videoExitProbe(t *testing.T, st video.State, enginePlaying bool) (*controller, *stubAudio, *view.VideoChrome, *ui.Tester, *videoExitCalls) {
+	t.Helper()
+	c, eng := newVideoCloseController(t, enginePlaying)
+	pl := &stubChromePlayer{playing: !st.Paused, pos: time.Duration(st.Time * float64(time.Second)),
+		dur: time.Duration(st.Duration * float64(time.Second))}
+	ch := &view.VideoChrome{
+		Theme:  view.ThemeFor(view.PeriodAt(12)),
+		Title:  "测试稿件",
+		Pl:     pl,
+		Speed:  1,
+		Volume: 1,
+	}
+	calls := &videoExitCalls{}
+	ch.OnClose = func() { calls.close.Add(1); c.applyVideoClose(st) }
+	ch.OnMinimize = func() { calls.min.Add(1) }
+	ch.OnQuit = func() { calls.quit.Add(1) }
+	tt := ui.NewTester(func(ctx *ui.Context) { ch.View(ctx) }, 640, 360)
+	tt.Frame()
+	return c, eng, ch, tt, calls
+}
+
+// videoExitCalls 记外壳三条动作链被触发几次（OnQuit 走 goroutine，用原子量）。
+type videoExitCalls struct {
+	close, min, quit atomic.Int32
+}
+
+// TestVideoExitClickLeavesMainWindowMatchingEngine 是本轮的重点不变式，走
+// **真实点击**：视频窗任何离开路径执行完之后，主窗播放按钮的状态（= app.Playing，
+// 播放栏的图标与 tooltip 都只读它）必须等于音频引擎的实际状态。
+//
+// 三条路径逐条断言：
+//
+//	播放中退出 → 接力续播 → 按钮为「播放中」；
+//	暂停中退出 → 不续播   → 按钮为「暂停」；
+//	自然播完退出 → 不续播 → 按钮为「暂停」。
+func TestVideoExitClickLeavesMainWindowMatchingEngine(t *testing.T) {
+	cases := []struct {
+		name          string
+		st            video.State
+		enginePlaying bool
+		wantPlaying   bool
+		wantResumes   int
+	}{
+		{
+			name:        "播放中退出：接力续播，按钮变播放中",
+			st:          video.State{Time: 42, Duration: 300, Paused: false, Ready: 4},
+			wantPlaying: true,
+			wantResumes: 1,
+		},
+		{
+			name:          "暂停中退出：不续播，按钮是暂停",
+			st:            video.State{Time: 42, Duration: 300, Paused: true, Ready: 4},
+			enginePlaying: true, // 起播竞态的残留
+			wantPlaying:   false,
+		},
+		{
+			name:        "自然播完退出：不续播，两边都是暂停",
+			st:          video.State{Time: 300, Duration: 300, Paused: false, Ready: 4},
+			wantPlaying: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, eng, _, tt, _ := videoExitProbe(t, tc.st, tc.enginePlaying)
+			if err := tt.Click("退出视频播放"); err != nil {
+				t.Fatalf("点「退出视频播放」失败：%v", err)
+			}
+			tt.Frame()
+
+			if c.app.Playing != eng.Playing() {
+				t.Fatalf("主窗 Playing=%v，引擎 Playing=%v：按钮与实际出声分叉", c.app.Playing, eng.Playing())
+			}
+			if c.app.Playing != tc.wantPlaying {
+				t.Errorf("主窗 Playing=%v，想要 %v", c.app.Playing, tc.wantPlaying)
+			}
+			if eng.resumes != tc.wantResumes {
+				t.Errorf("Resume 调用 %d 次，想要 %d", eng.resumes, tc.wantResumes)
+			}
+			if c.app.VideoOpen {
+				t.Error("退出视频播放之后 VideoOpen 仍为真（主窗以为视频还开着）")
+			}
+			// 接力那条路上，接下来几次引擎心跳还要继续把状态往引擎上对
+			//（Resume 是请求，引擎可能晚几十毫秒才真的出声）。
+			if tc.wantPlaying && !time.Now().Before(c.playingSettle) {
+				t.Error("接力之后没有记跟随窗口：引擎晚到的那一声没人管，按钮会停在暂停")
+			}
+		})
+	}
+}
+
+// TestVideoExitClickNeverQuitsApp 用桩钉死用户报的最严重那条：点视频窗的
+// 关闭**绝不能**退应用 —— quit / OnQuit / 主窗关闭回调一条都不许被踩到。
+func TestVideoExitClickNeverQuitsApp(t *testing.T) {
+	c, _, _, tt, calls := videoExitProbe(t, video.State{Time: 42, Duration: 300, Paused: false, Ready: 4}, false)
+	if err := tt.Click("退出视频播放"); err != nil {
+		t.Fatalf("点「退出视频播放」失败：%v", err)
+	}
+	tt.Frame()
+	if got := calls.quit.Load(); got != 0 {
+		t.Errorf("点视频窗的关闭触发了 OnQuit %d 次：视频窗里任何按钮都不许退应用", got)
+	}
+	if got := calls.close.Load(); got != 1 {
+		t.Errorf("OnClose 调用 %d 次，想要 1", got)
+	}
+	if got := calls.min.Load(); got != 0 {
+		t.Errorf("退出视频播放误触了最小化 %d 次", got)
+	}
+	if c.quitting {
+		t.Error("点视频窗的关闭把 quitting 置位了（等于走上退出流程）")
+	}
+}
+
+// TestVideoMinimizeKeepsStateAndEngine 钉住最小化：窗口最小化，播放继续、
+// 声音继续，主窗状态不变（最小化 ≠ 暂停，也不是「离开视频窗」）。
+func TestVideoMinimizeKeepsStateAndEngine(t *testing.T) {
+	c, eng, ch, tt, calls := videoExitProbe(t, video.State{Time: 42, Duration: 300, Paused: false, Ready: 4}, false)
+	if err := tt.Click("最小化"); err != nil {
+		t.Fatalf("点最小化失败：%v", err)
+	}
+	tt.Frame()
+	if !c.app.VideoOpen {
+		t.Error("最小化被当成了关闭：VideoOpen 变成假")
+	}
+	if c.app.Playing != eng.Playing() {
+		t.Errorf("最小化之后状态分叉：主窗=%v 引擎=%v", c.app.Playing, eng.Playing())
+	}
+	if eng.resumes != 0 || eng.pauses != 0 {
+		t.Errorf("最小化动了音频引擎：resume=%d pause=%d", eng.resumes, eng.pauses)
+	}
+	if got := calls.min.Load(); got != 1 {
+		t.Errorf("最小化：OnMinimize 调用 %d 次，想要 1", got)
+	}
+	if got := calls.quit.Load(); got != 0 {
+		t.Errorf("最小化触发了 OnQuit %d 次", got)
+	}
+	if got := calls.close.Load(); got != 0 {
+		t.Errorf("最小化被当成了退出视频播放（OnClose %d 次）", got)
+	}
+	// 「恢复」：再建几帧，画面与进度接续 —— 播放器状态与外壳状态都不许变。
+	for i := 0; i < 3; i++ {
+		tt.Advance(16 * time.Millisecond)
+	}
+	if ch.Pl.Playing() == false {
+		t.Error("恢复后视频播放器停在暂停")
+	}
+	if c.app.Playing != eng.Playing() {
+		t.Error("恢复之后主窗状态与引擎分叉")
+	}
+}
+
+// lateAudio 模拟「Resume 只是请求」：引擎在流水线重建期间先报一次「还没在放」，
+// 下一次心跳才报在放（用户听到声音时按钮还停在暂停，就是这一格）。
+type lateAudio struct {
+	playing bool
+	late    int
+	pauses  int
+	resumes int
+}
+
+func (s *lateAudio) Pause()  { s.pauses++; s.playing, s.late = false, 0 }
+func (s *lateAudio) Resume() { s.resumes++; s.playing, s.late = true, 1 }
+func (s *lateAudio) Playing() bool {
+	if s.late > 0 {
+		s.late--
+		return false
+	}
+	return s.playing
+}
+
+// TestVideoCloseFollowsLateEngineStart 钉住接力的**落地**：Resume 之后引擎
+// 晚一步才真的出声时，主窗按钮不能永远停在暂停 —— 跟随窗口里下一次引擎
+// 心跳（wirePlayer 的 OnProgress → syncPlayingFromEngine）要把它对平。
+func TestVideoCloseFollowsLateEngineStart(t *testing.T) {
+	c, _ := newVideoCloseController(t, false)
+	late := &lateAudio{}
+	c.audioStub = late
+
+	c.applyVideoClose(video.State{Time: 42, Duration: 300, Paused: false, Ready: 4})
+	if late.resumes != 1 {
+		t.Fatalf("接力没发生：Resume %d 次", late.resumes)
+	}
+	// 采样落在过渡态：这一刻按钮还是暂停（旧实现的最终状态，用户报的就是它）。
+	if c.app.Playing {
+		t.Fatal("过渡态采样不该直接写成播放中（应当从引擎读回）")
+	}
+	if !time.Now().Before(c.playingSettle) {
+		t.Fatal("没有记跟随窗口，晚到的引擎状态没人管")
+	}
+	// 下一次引擎心跳。
+	c.syncPlayingFromEngine()
+	if !c.app.Playing || c.app.Playing != late.Playing() {
+		t.Fatalf("跟随之后主窗 Playing=%v，引擎=%v：按钮与出声仍不一致", c.app.Playing, late.Playing())
+	}
+	// 窗口期过了就不再插手（平时 Playing 归播放键 / 起播收尾管）。
+	c.playingSettle = time.Now().Add(-time.Millisecond)
+	c.app.Playing = true
+	late.Pause()
+	c.syncPlayingFromEngine()
+	if !c.app.Playing {
+		t.Error("跟随窗口过期后仍在改写 Playing（会和播放键抢状态）")
+	}
+}
+
+// TestVideoCloseSyncWiredToEngineHeartbeat 是源码契约：跟随只能挂在音频引擎
+// 的心跳上（reportLoop 每 500ms 一次），不能另起定时器（测试里会留后台
+// goroutine，界面线程上也会和播放键抢）。
+func TestVideoCloseSyncWiredToEngineHeartbeat(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	if !strings.Contains(flat, "c.mp.OnProgress(func(pos,durfloat64){runOnUI(c.app,!c.app.Hidden(),func(){") {
+		t.Error("wirePlayer 的 OnProgress 形状变了：跟随窗口的挂点没了")
+	}
+	if !strings.Contains(flat, "c.syncPlayingFromEngine()") {
+		t.Error("OnProgress 里没有 syncPlayingFromEngine：引擎晚到的那一声没人管")
+	}
+	// 跟随窗口自己不许起定时器：只查这两个函数的函数体（main.go 别处
+	// 用 AfterFunc 是别的事）。
+	for _, fn := range []string{
+		"func(c*controller)applyVideoClose(",
+		"func(c*controller)syncPlayingFromEngine(",
+	} {
+		start := strings.Index(flat, fn)
+		if start < 0 {
+			t.Fatalf("找不到 %s", fn)
+		}
+		body := flat[start+1:]
+		if next := strings.Index(body, "func(c*controller)"); next >= 0 {
+			body = body[:next]
+		}
+		if strings.Contains(body, "time.AfterFunc") || strings.Contains(body, "go func()") {
+			t.Errorf("%s 里起了 goroutine / 定时器：跟随应挂在引擎心跳上", fn)
+		}
 	}
 }

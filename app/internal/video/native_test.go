@@ -3,6 +3,7 @@ package video
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,7 +289,8 @@ func (s *stubPlayer) SetMuted(m bool)         { s.muted = m }
 func (s *stubPlayer) Close()                  { s.closed = true }
 
 // TestNativeViewControls 渲染原生窗的视图，钉住三件事：
-//  1. 控件条上有播放/暂停、倍速、静音、关闭（原生窗没有浏览器原生控件兜底）；
+//  1. 顶栏三颗键（弹幕 / 最小化 / 退出视频播放）与控件条的播放/倍速/音量/全屏
+//     都在（原生窗没有浏览器原生控件兜底）；控件条**不再**有关闭键；
 //  2. 点「暂停」真的把 Pause 下发到播放器；
 //  3. 点倍速键按档位循环（与主窗一致）。
 func TestNativeViewControls(t *testing.T) {
@@ -297,10 +299,17 @@ func TestNativeViewControls(t *testing.T) {
 	tt := ui.NewTester(n.view, 640, 360)
 	tt.Frame()
 
-	for _, want := range []string{"暂停", "静音", "关闭视频", "1x", "弹幕", "全屏", "音量"} {
+	for _, want := range []string{"暂停", "静音", "退出视频播放", "最小化", "1x", "弹幕", "全屏", "音量"} {
 		if !tt.HasText(want) {
 			t.Errorf("控件条缺少 %q（现有：%v）", want, tt.Texts())
 		}
+	}
+	// 关闭键只此一颗（顶栏），控件条不再重复；旧文案「关闭视频」也不许回来。
+	if got := strings.Count(strings.Join(tt.Texts(), "\x00"), "退出视频播放"); got != 1 {
+		t.Errorf("「退出视频播放」出现 %d 次，想要 1（上下各一颗就是用户报的重复）", got)
+	}
+	if tt.HasText("关闭视频") {
+		t.Errorf("旧文案「关闭视频」还在：%v", tt.Texts())
 	}
 	if !tt.HasText("测试稿件") {
 		t.Error("标题栏没有显示标题")

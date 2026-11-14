@@ -152,6 +152,9 @@ type controller struct {
 	winGate winGate
 	// videoSilent 在「静默关弹窗」（切歌/退出）时置位，让 OnClose 不要接回音频。
 	videoSilent bool
+	// playingSettle 是「离开视频窗」之后跟随引擎的截止时刻（见
+	// applyVideoClose / syncPlayingFromEngine）。零值表示不跟随。
+	playingSettle time.Time
 	// audioStub 是关视频窗时断言「主窗状态 == 引擎实际状态」的测试替身；
 	// nil 时用真的 c.mp（见 audioCtl / video_close_test.go）。
 	audioStub audioCtl
@@ -965,6 +968,9 @@ func (c *controller) wirePlayer() {
 			if c.app.VideoOpen {
 				return
 			}
+			// 刚离开视频窗：用引擎的这声心跳把主窗 Playing 对平（见
+			// applyVideoClose 末尾的跟随窗口 / PLAN 的「接力状态怎么同步」）。
+			c.syncPlayingFromEngine()
 			// 拖动中：跳过全部进度副作用（原版 handleTimeUpdate 里
 			// isSeekingRef 直接 return 的语义）——只记 Pos，
 			// 不让 DBus/KV 写和 sponsor 判定挤占拖动的帧。
@@ -4041,6 +4047,15 @@ func (c *controller) audio() audioCtl {
 // 任何「离开视频窗」的路径都要从它读回来，而不是手写 true / false。
 func (c *controller) audioPlaying() bool { return c.audio().Playing() }
 
+// videoPlayingSettle 是「离开视频窗」之后跟随引擎的时长。
+//
+// 为什么要跟、不是只采一次：Resume() / Pause() 只是**请求**。音频引擎
+// 重建流水线时 p.op 还是 nil（与 openVideo 那次起播竞态同一个窗口），这一枪
+// 是空操作，而引擎会在几十~几百毫秒后自己开始出声；只采一次就会把「引擎
+// 已经在放、按钮还是暂停」写死在界面上（用户报的接力那条路）。2s 覆盖两次
+// 引擎心跳（reportLoop 每 500ms 一次），之后彻底退出跟随。
+const videoPlayingSettle = 2 * time.Second
+
 // applyVideoClose 收尾一次「离开视频窗」。调用方在界面线程上执行。
 //
 // 不变式：执行完之后主窗的 Playing 必须等于音频引擎的实际状态。所以这里
@@ -4093,6 +4108,37 @@ func (c *controller) applyVideoClose(st video.State) {
 		c.audio().Pause()
 	}
 	a.Playing = c.audioPlaying()
+	// 接力这条路上，上面那一次采样可能读到过渡态（引擎流水线还在重建 /
+	// oto player 还没装上）：记一段跟随窗口，接下来几次引擎心跳把 Playing
+	// 继续往引擎上对（见 syncPlayingFromEngine）。
+	c.playingSettle = time.Now().Add(videoPlayingSettle)
+}
+
+// syncPlayingFromEngine 在「刚离开视频窗」的过渡窗口里把主窗 Playing 与
+// 音频引擎对平。只在 applyVideoClose 之后的 videoPlayingSettle 内生效；
+// 窗口期过了就什么也不做（平时 Playing 由播放键 / 起播收尾各自维护）。
+//
+// 调用点：音频引擎的 reportLoop 心跳（wirePlayer 的 OnProgress，500ms 一次）。
+// 选择这条心跳而不是另起一个定时器：它只在引擎活着的时候跑，也不会在测试里
+// 留下后台 goroutine。
+func (c *controller) syncPlayingFromEngine() {
+	if c.app == nil || c.playingSettle.IsZero() {
+		return
+	}
+	if time.Now().After(c.playingSettle) {
+		c.playingSettle = time.Time{}
+		return
+	}
+	// 又开了一集：视频占着声音，Playing 归 videoOpened 钉。
+	if c.app.VideoOpen {
+		return
+	}
+	if p := c.audioPlaying(); p != c.app.Playing {
+		c.app.Playing = p
+		if c.app.Win != nil {
+			c.app.Win.Update(func() {})
+		}
+	}
 }
 
 // wireVideo 把视频弹窗的回调接回来：
@@ -4127,6 +4173,9 @@ func (c *controller) wireVideo() {
 	})
 	c.vid.OnClose(func(st video.State) {
 		// 关窗回调跑在窗口事件 goroutine 上，界面状态的收尾统一回主线程。
+		//
+		// 这里的「关窗」是**退出视频播放**（关视频窗回主窗），不是退出应用：
+		// 视频窗里没有任何一颗按钮能走到 c.quit()（退出应用只能从主窗发起）。
 		c.app.Win.Update(func() { c.applyVideoClose(st) })
 	})
 	c.vid.OnEnded(func() {
@@ -4241,6 +4290,8 @@ func (c *controller) videoOpened() {
 		return
 	}
 	c.app.VideoOpen = true
+	// 新的一次视频会话：上一次「离开视频窗」的跟随窗口到此为止。
+	c.playingSettle = time.Time{}
 	c.audio().Pause()
 	c.app.Playing = c.audioPlaying()
 }

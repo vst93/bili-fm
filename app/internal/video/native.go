@@ -186,7 +186,8 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		MinWidth:  320,
 		MinHeight: 200,
 		// 与 webview 弹窗同一套无边框外观：标题栏自绘（见 view），
-		// 关闭键常驻右下角控件条，顶部 36px 是拖动区。
+		// 顶栏三颗键：弹幕 / 最小化 / 退出视频播放；底部控件条没有关闭键。
+		// 顶部 34px 是拖动区。
 		Frameless: true,
 		// 起播前那一帧是黑的（视频自己的底色），显式给黑色避免白闪。
 		BackgroundColor: "#000000",
@@ -333,6 +334,14 @@ func (n *nativeWindow) close() {
 	n.win.Close()
 }
 
+// minimize 最小化视频窗（顶栏第二颗键 / Ctrl+W）。
+//
+// 最小化 ≠ 暂停：这里只动窗口，不碰播放器 —— 声音与进度照常往前走，
+// 恢复后画面从当前位置接上（player 是系统媒体框架，与窗口可见性无关）。
+// 走 mygo 的 Window.Minimize：macOS `miniaturize:`、Windows
+// `ShowWindow(SW_MINIMIZE)`、Linux `gtk_window_iconify`。Wayland 合成器
+// 没有 iconify 协议，GTK 下可能不响应；这里**不**退化成隐藏（视频窗没有
+// 托盘入口，藏了就回不来），窗口保持原样。
 func (n *nativeWindow) minimize() {
 	if n.win != nil {
 		n.win.Minimize()
@@ -391,7 +400,14 @@ func (n *nativeWindow) chromeFor() *view.VideoChrome {
 		Title: n.title,
 		// 回调都在调用时读字段：Manager 在 newNativeWindow 之后才接上
 		// onMin / onQuit，闭包里捕获字段才能拿到后来的值。
-		OnClose: n.close,
+		//
+		// OnClose 是「退出视频播放」（关视频窗回主窗），**不是**退出应用：
+		// 它只关这一个窗口，主窗与进程都留着。关窗延迟到这一帧之后 ——
+		// VideoChrome 的点击是在视图构建里读出来的，而 mygo 的 Window.Close
+		// 在主线程上是同步的（onMain 直接调用 → destroy → OnClosed → 关播放器）；
+		// 在窗口自己的帧里拆掉自己，会让同一个帧继续用一个已销毁的窗口
+		// （native.go 的 onFailed 出于同一个原因丢到 goroutine 上）。
+		OnClose: func() { go n.close() },
 		OnMinimize: func() {
 			if cb := n.onMin; cb != nil {
 				cb()

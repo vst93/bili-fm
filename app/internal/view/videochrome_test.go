@@ -360,8 +360,8 @@ func TestVideoKeyBindings(t *testing.T) {
 		{0, ui.KeyM, false, videoKeyMute},
 		{0, ui.KeyF, false, videoKeyFullScreen},
 		{0, ui.KeyF, true, videoKeyFullScreen},
-		// Esc 分层：全屏时先退全屏，窗口态才关窗。
-		{0, ui.KeyEscape, false, videoKeyClose},
+		// Esc 分层：全屏时先退全屏，窗口态才退出视频播放（关视频窗，不退应用）。
+		{0, ui.KeyEscape, false, videoKeyExit},
 		{0, ui.KeyEscape, true, videoKeyExitFullScreen},
 		{ui.Cmd, ui.KeyW, false, videoKeyMinimize},
 		{ui.Cmd, ui.KeyQ, false, videoKeyQuit},
@@ -397,7 +397,7 @@ func TestVideoKeyBindings(t *testing.T) {
 	if !videoKeyVolumeUp.repeats() || !videoKeyVolumeDown.repeats() {
 		t.Error("音量键应允许按住重复")
 	}
-	for _, a := range []videoKeyAction{videoKeyPlayPause, videoKeyFullScreen, videoKeyExitFullScreen, videoKeyClose, videoKeyBack} {
+	for _, a := range []videoKeyAction{videoKeyPlayPause, videoKeyFullScreen, videoKeyExitFullScreen, videoKeyExit, videoKeyBack} {
 		if a.repeats() {
 			t.Errorf("动作 %v 不该吃自动重复", a)
 		}
@@ -534,7 +534,7 @@ func TestVideoChromeNarrowLayout(t *testing.T) {
 		ch, _, _, tt := videoChromeProbe(t, size.w, size.h)
 		_ = ch
 		tt.Frame()
-		want := []string{"播放", "暂停", "播放进度", "0:30", "1:40", "1x", "弹幕", "静音", "全屏", "关闭视频"}
+		want := []string{"播放", "暂停", "播放进度", "0:30", "1:40", "1x", "弹幕", "最小化", "静音", "全屏", "退出视频播放"}
 		rects := map[string]ui.Rect{}
 		for _, s := range want {
 			r, ok := tt.Find(s)

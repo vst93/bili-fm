@@ -20,7 +20,17 @@ package view
 //     行为，WebKit 与 Chromium 一致）。这里照做，但双击的第一下不能又切一次
 //     播放 —— 单击动作延后 videoDoubleClick 提交，双击会把它撤销；
 //   - 原版关闭键是右上角 38px 圆形按钮；这里按本应用的键族（28×28）放进
-//     标题栏与控件条右端，位置与主窗的窗控键对齐。
+//     标题栏右端，位置与主窗的窗控键对齐。**只此一颗**：控件条不再有关闭键
+//     （用户 2026-11 报「上下各有一个关闭按钮」，重复且顶上那颗曾经退出应用）。
+//
+// 视频窗的两种「离开」（语义见 PLAN.md 的「视频窗关闭语义」一节）：
+//
+//   - **退出视频播放**（顶栏第三颗键 / 窗口态 Esc）：关视频窗回主窗，是否
+//     续播音频按 video.RelayOnClose 判定。**不退应用。**
+//   - **最小化**（顶栏第二颗键 / Ctrl+W）：窗口最小化，播放与声音继续
+//     （最小化 ≠ 暂停），恢复后画面与进度接续。
+//
+// 退出应用只能从主窗发起：视频窗里**没有任何一颗按钮**能走到 quit()。
 
 import (
 	"math"
@@ -140,7 +150,13 @@ type VideoChrome struct {
 	// 布局与命中测试仍照常工作（无头测试不需要真播放器）。
 	Content func(c *ui.Context) ui.Element
 
-	// OnClose / OnMinimize / OnQuit 是外壳要的窗口动作，nil 表示不提供。
+	// OnClose 是「退出视频播放」：关掉视频窗、回主窗（是否续播音频由
+	// video.RelayOnClose 决定）。它**不是**退出应用 —— 调用方必须把它接到
+	// 「关这个视频窗」，不能接到主窗的 quit() / OnQuit / 窗口关闭回调。
+	//
+	// OnMinimize 是「最小化」：窗口最小化，播放与声音继续（最小化 ≠ 暂停）。
+	// OnQuit 只由 Ctrl/Cmd+Q 触发（系统级退出，与 macOS 应用菜单同一个动作），
+	// **任何按钮都不走它**。
 	OnClose    func()
 	OnMinimize func()
 	OnQuit     func()
@@ -419,7 +435,8 @@ const (
 	videoKeyMute
 	videoKeyFullScreen
 	videoKeyExitFullScreen
-	videoKeyClose
+	// videoKeyExit 是「退出视频播放」（关窗回主窗），不是退出应用。
+	videoKeyExit
 	videoKeyMinimize
 	videoKeyQuit
 )
@@ -447,9 +464,13 @@ type VideoKeyBinding struct {
 //	↑ ↓         音量 ±5%              音量 ±5%（视频窗开着时主窗 return）
 //	M           静音                  无
 //	F           全屏                  无
-//	Esc         退全屏 / 关视频窗     关抽屉 / 关面板（视频窗开着时主窗转给 CloseVideo）
+//	Esc         退全屏 / 退出视频播放 关抽屉 / 关面板（视频窗开着时主窗转给 CloseVideo）
 //	Cmd/Ctrl+W  最小化视频窗          最小化主窗
 //	Cmd/Ctrl+Q  退出应用              退出应用
+//
+// 注意：表里唯一能退出应用的是 Cmd/Ctrl+Q（系统级，与 macOS 应用菜单同一个
+// 动作）。它是**键盘**，不是按钮 —— 视频窗里没有任何一颗按钮能走到 quit()
+// （退出应用只能从主窗发起，见 OnClose 的注释）。
 //
 // 结论：**焦点在视频窗时视频窗全胜**，因为主窗根本没收到这些键事件；唯一
 // 跨窗口的是 macOS 原生菜单里的 Cmd+Q 加速键（应用级），它与视频窗自己的
@@ -500,7 +521,7 @@ func videoKeyFor(mods ui.Modifiers, key ui.Key, full bool) videoKeyAction {
 		if full {
 			return videoKeyExitFullScreen
 		}
-		return videoKeyClose
+		return videoKeyExit
 	}
 	return videoKeyNone
 }
@@ -649,7 +670,15 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	return false
 }
 
-// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 最小化 / 关闭。
+// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 三颗键。
+//
+// 三颗键从左到右：**弹幕 / 最小化 / 退出视频播放**。用户 2026-11 明确要求
+// 「顶栏需要且只需要这三颗」：弹幕是这一集最常用的开关（原版浮层里它在底部
+// 浏览器控件条上，原生版没有浏览器兜底，移到顶栏与标题同一行）；最小化与
+// 退出视频播放是窗口动作，位置与主窗的窗控键对齐。
+//
+// 全屏时只收掉最小化（全屏窗口没有「最小化」这回事，系统也不给），弹幕与
+// 退出视频播放仍在 —— 全屏里除了 Esc，还需要一条纯指针的出路。
 func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool) {
 	bar := ui.Row(c).Absolute().Left(videoChromePad).Right(videoChromePad).Top(videoChromePad).
 		Height(videoChromeTitleH).Padding(0, 8).Radius(videoChromeRadius).
@@ -662,19 +691,26 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 	bar.Children(func() {
 		ui.Text(c, v.Title).FontSize(12.5).TextColor(t.Ink).
 			Grow(1).SingleLine().Ellipsis("…")
+		// 弹幕：与上一轮同一个开关（同一个事实源：主窗设置菜单 /
+		// macOS 菜单 / 这里三处一致），只是位置搬到了顶栏。
+		v.danmakuKey(c, t)
 		if !full {
 			if b := t.videoKey(c, "video-min", "最小化", "最小化", iconMinus, false, false); b.Clicked() {
 				v.minimize()
 			}
 		}
-		if b := t.videoKey(c, "video-close-title", "关闭视频", "关闭视频", iconClose, false, false); b.Clicked() {
+		// 退出视频播放：关窗回主窗，**不是**退出应用（见 OnClose 的注释）。
+		if b := t.videoKey(c, "video-exit", "退出视频播放", "退出视频播放", iconClose, false, false); b.Clicked() {
 			v.close()
 		}
 	})
 	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
 }
 
-// controlBar 是底部那条：播放 / 时间 / 进度 / 倍速 / 弹幕 / 音量 / 全屏 / 关闭。
+// controlBar 是底部那条：播放 / 时间 / 进度 / 倍速 / 音量 / 全屏。
+//
+// 没有关闭键：关闭只在顶栏有一颗（用户报的「上下各有一个关闭按钮」）。
+// 也没有弹幕键：它已按用户要求移进顶栏那三颗里，同一个开关不做两处入口。
 func (v *VideoChrome) controlBar(c *ui.Context, t Theme, alpha float32, full bool) {
 	w, _ := c.Size()
 	lo := videoChromeLayoutFor(w)
@@ -710,15 +746,11 @@ func (v *VideoChrome) controlRow(c *ui.Context, t Theme, lo videoChromeLayout, f
 	v.progress(c, t)
 	v.timeText(c, t, v.Pl.Duration().Seconds(), videoChromeTimeW)
 	v.speedKey(c, t)
-	v.danmakuKey(c, t)
 	v.volumeKey(c, t)
 	if lo.VolumeBar {
 		v.volumeSlider(c, t)
 	}
 	v.fullScreenKey(c, t, full)
-	if b := t.videoKey(c, "video-close", "关闭视频", "关闭视频", iconClose, false, false); b.Clicked() {
-		v.close()
-	}
 }
 
 // controlRows 是窄窗的两行排布：进度独占一行，键在第二行。
@@ -731,13 +763,9 @@ func (v *VideoChrome) controlRows(c *ui.Context, t Theme, full bool) {
 	ui.Row(c).FillWidth().Height(VideoChromeKey).AlignItems(ui.Center).Gap(videoChromeGap).Children(func() {
 		v.playKey(c, t)
 		v.speedKey(c, t)
-		v.danmakuKey(c, t)
 		v.volumeKey(c, t)
 		ui.Box(c).Grow(1)
 		v.fullScreenKey(c, t, full)
-		if b := t.videoKey(c, "video-close", "关闭视频", "关闭视频", iconClose, false, false); b.Clicked() {
-			v.close()
-		}
 	})
 }
 
@@ -900,8 +928,9 @@ func (v *VideoChrome) speedKey(c *ui.Context, t Theme) {
 	}
 }
 
-// danmakuKey 是弹幕总开关（视频窗内的入口）。状态回到主窗落盘，再经
-// internal/video 同步回这个窗口；这里先翻转本地状态，点完这一帧就见效。
+// danmakuKey 是弹幕总开关（视频窗内的入口，画在顶栏那三颗里的第一颗）。
+// 状态回到主窗落盘，再经 internal/video 同步回这个窗口；这里先翻转本地
+// 状态，点完这一帧就见效。
 func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	tip := "弹幕 · 已开"
 	if !v.Danmaku {
@@ -1174,6 +1203,9 @@ func (v *VideoChrome) toggleFullScreen(now time.Time) {
 	v.fs.toggle(now, v.Win)
 }
 
+// close 是「退出视频播放」：把动作交给调用方（关视频窗、回主窗、按
+// video.RelayOnClose 决定是否续播音频）。这里**不碰** OnQuit：视频窗的任何
+// 按钮都不能退出应用，退出应用只能从主窗发起。
 func (v *VideoChrome) close() {
 	if v.OnClose != nil {
 		v.OnClose()
@@ -1223,7 +1255,7 @@ func (v *VideoChrome) do(a videoKeyAction, now time.Time) {
 		v.toggleFullScreen(now)
 	case videoKeyExitFullScreen:
 		v.fs.exit(now, v.Win)
-	case videoKeyClose:
+	case videoKeyExit:
 		v.close()
 	case videoKeyMinimize:
 		v.minimize()

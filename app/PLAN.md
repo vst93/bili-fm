@@ -1692,3 +1692,126 @@ format mov,mp4,m4a,3gp,3g2,mj2 152.996s 9634640B
 - **webview 回退路径**没有弹幕覆盖层：只有原生窗有。没有媒体框架的机器
   仍然能看视频，但看不到弹幕。
 - 弹幕与字幕的避让、按用户等级/池类型过滤、按时间轴拖拽预览。
+
+## 视频窗关闭语义（微轮 4a，2026-11-14）
+
+用户实机报的四条（原生视频窗）：
+
+1. 上下各有一个关闭按钮 —— 重复；
+2. 右上角那个关闭会**退出整个应用**；
+3. 顶栏需要且只需要三颗：弹幕 / 最小化 / 退出视频播放；
+4. 播放中退出视频 → 音频接力续播（预期），但主窗播放按钮**没有变成「播放中」**。
+
+### 语义（定死，不再讨论）
+
+- 视频窗只有两种「离开」：
+  - **退出视频播放**（顶栏第三颗键 / 窗口态 Esc）：关视频窗 → 回主窗；是否
+    续播音频按既有 `video.RelayOnClose`（播放中→接力续播；暂停/播完→不续播）。
+    **不退应用。**
+  - **最小化**（顶栏第二颗键 / Ctrl+W）：窗口最小化，播放继续、声音继续
+    （**最小化 ≠ 暂停**），恢复后画面与进度接续。
+- **退出应用只能从主窗发起**。视频窗里任何按钮都不许走 `quit()` /
+  `OnQuit` / 主窗的窗口关闭回调；唯一能退出应用的还是键盘 Ctrl/Cmd+Q
+  （系统级，与 macOS 应用菜单同一个动作，不是按钮）。
+- 底部控件条**不再有关闭键**（与顶栏重复）；弹幕键按用户要求上移到顶栏，
+  同一个开关不做两处入口。控件条现在是：播放 / 时间 / 进度 / 倍速 / 音量 / 全屏。
+
+### 误退应用的根因
+
+顶栏那颗关闭键接的是**窗口拆除链**，不是「退出视频播放」这条语义链：
+
+```
+VideoChrome.close() → OnClose → nativeWindow.close() → mygo.Window.Close()
+   → 主线程上同步 destroy → OnClosed → 关播放器 → 主窗收尾（Win.Update）
+```
+
+也就是说，视频窗的关闭键走进了应用级的「关窗」链条（主窗的 `OnClose` 是
+「关窗=隐藏到托盘」，`App.OnWindowAllClosed` 是「别退出」的兜底）—— 而
+`Window.Close()` 在 mygo 里是**主线程同步**的，于是「在窗口自己的视图帧里
+把窗口拆掉」：帧还没画完，`native` 已经销毁，同一个帧继续用已销毁的窗口
+（`internal/video` 的 `onFailed` 早就因为这个原因把「关窗 + 建窗」丢到
+goroutine 上）。窗口消失得比主窗收尾还快，看起来就是整个应用没了。
+
+修法两条：
+
+1. **动作链改名换义**：顶栏第三颗键是「退出视频播放」（`video-exit`），只调
+   `close()` → `OnClose`；`OnQuit` 在 `videochrome.go` 里只剩 `do(videoKeyQuit)`
+   一处（键盘），按钮一个都碰不到。
+2. **关窗延迟到这一帧之后**：`chromeFor` 的 `OnClose` 改成 `go n.close()`。
+   点击是在视图构建里读出来的，先让这一帧画完再拆窗口。
+
+### 接力状态怎么同步（用户第 4 条）
+
+`applyVideoClose` 的判据没变（`video.RelayOnClose`），但**只采一次**引擎状态
+不够：`Resume()` 只是「请求」—— 音频引擎在重建流水线时 `p.op` 还是 `nil`
+（与 `openVideo` 那次起播竞态同一个窗口），这一枪是空操作，而引擎会在几十~
+几百毫秒后自己开始出声。采样落在过渡态，就把「引擎在放、按钮还是暂停」
+写死在了界面上（用户报的正是这一格）。
+
+所以离开视频窗之后记一段**跟随窗口**（`videoPlayingSettle` = 2s）：
+`syncPlayingFromEngine()` 在窗口期内把主窗 `Playing` 继续从引擎读回，挂点是
+音频引擎已有的心跳（`wirePlayer` 的 `OnProgress`，500ms 一次），不另起定时器
+（测试里会留后台 goroutine，界面线程上也会和播放键抢状态）。窗口期过了就
+彻底退出跟随，`Playing` 回到由播放键 / 起播收尾维护。
+
+不变式（测试逐条钉）：**任何离开路径执行完之后 `主窗 Playing` == 音频引擎的
+实际状态**。`app.Playing` 就是播放按钮的图标与 tooltip 的唯一来源
+（`playerbar.go` 的 `transport`），所以「按钮状态 == 引擎状态」是同一句话。
+
+### 视频窗开着时主窗播放栏显示什么（结论）
+
+**保持暂停态**，不新造「视频播放中」。
+
+- 原版（tauri）的视频是主窗内的浮层，`playerVideo` 盖住整窗、播放栏根本
+  不可见 —— 等价于「不显示」。原生版是两个窗口，主窗看得见，那就按**引擎的
+  真实状态**显示：视频占着声音时音频引擎确实在暂停，按钮显示暂停不撒谎。
+- 本轮钉死的不变式是「按钮 == 音频引擎」，显示「视频播放中」会立刻违反它
+  （引擎没在放）。要显示视频态，得先把 `Playing` 的语义改成「当前在响的那个
+  引擎」，那是控件条复用那一轮（4b）的事。
+- 已知取舍：视频窗开着时主窗的播放键图标是「播放」，但点它实际控制的是
+  视频（`togglePlay` 的 `VideoOpen` 分支）。4b 若给播放栏加「视频播放中」
+  标签，这条取舍就自然消掉。
+
+### 最小化（mygo API 与平台差异）
+
+`mygo.Window.Minimize()`（v0.9.0，`window.go:1043`）：
+
+| 平台 | 实现 | 备注 |
+|---|---|---|
+| macOS | `[window miniaturize:]` | 系统动画异步；`IsMinimized()` 读 `isMiniaturized` |
+| Windows | `ShowWindow(hwnd, SW_MINIMIZE)` | 同步 |
+| Linux/GTK | `gtk_window_iconify` | **Wayland 没有 iconify 协议**，合成器可能不响应 |
+
+最小化只动窗口、不碰播放器：声音与进度照常走（`ui/video` 用系统媒体框架，
+与窗口可见性无关），恢复后画面从当前位置接上。Wayland 上 iconify 无效时
+**不**退化成隐藏 —— 视频窗没有托盘入口，藏了就回不来，宁可窗口保持原样。
+
+### 测试
+
+| 测试 | 钉住什么 |
+|---|---|
+| `TestVideoChromeTitleBarHasThreeKeys`（view） | 顶栏恰好三颗；关闭键全窗只有一颗；320×200 窄窗也不丢键 |
+| `TestVideoChromeExitVideoDoesNotQuit`（view） | 真实点击「退出视频播放」→ `OnClose` 1 次、`OnQuit` **0** 次；Cmd+Q 仍走 `OnQuit`（证明这条不是空转） |
+| `TestVideoChromeMinimizeKeepsPlayback`（view） | 点最小化 → `OnMinimize` 1 次、播放器零动作、几帧后状态不变 |
+| `TestVideoChromeButtonsNeverReachQuit`（view） | 源码契约：`v.OnQuit` 只出现在 `do(videoKeyQuit)` |
+| `TestVideoExitClickLeavesMainWindowMatchingEngine`（main） | **真实点击** × 三条路径（播放中/暂停中/自然播完）→ 主窗 `Playing` == 引擎，且值符合接力规则 |
+| `TestVideoExitClickNeverQuitsApp`（main） | 点关闭 → `OnQuit` 0 次、`quitting` 不置位 |
+| `TestVideoMinimizeKeepsStateAndEngine`（main） | 最小化不是关闭：`VideoOpen` 仍真、引擎零调用、恢复后状态不变 |
+| `TestVideoCloseFollowsLateEngineStart`（main） | 引擎晚一步出声时，跟随窗口把它对平；窗口期过后不再插手 |
+| `TestVideoCloseSyncWiredToEngineHeartbeat`（main） | 跟随挂在 `OnProgress` 上，不起定时器 / goroutine |
+| `TestNativeViewControls`（video） | 原生窗整帧：三颗顶栏键 + 控件条无关闭键 |
+
+### 需真机确认
+
+- 三平台点「退出视频播放」后**主窗还在**（这是本轮的核心修复，无头测试只
+  能证明动作链走对了，不能证明窗口/进程层面的行为）。
+- macOS 最小化后再点 Dock 图标恢复视频窗，画面与进度接续。
+- Linux/Wayland（GNOME / Sway）：`gtk_window_iconify` 是否响应；不响应时
+  窗口保持原样（已知限制）。
+- Windows：`SW_MINIMIZE` 后任务栏点击恢复，视频解码不停。
+
+### 没做的（本轮明确不做）
+
+- **控件条复用**（与主窗播放栏共用一套控件）—— 下一轮 4b。
+- 视频窗开着时主窗播放栏的「视频播放中」标签（见上面的结论，等 4b）。
+- 视频窗的视觉重做（键位、间距、材质一律沿用上一轮）。
