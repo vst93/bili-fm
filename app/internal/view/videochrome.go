@@ -13,9 +13,11 @@ package view
 // `body.video-open` 块）：
 //
 //   - 画面满铺整窗，控件浮在画面上，**默认隐去**，指针进顶部热区才唤回
-//     （原版 TITLEBAR_HOTZONE_PX = 48，这里换成「指针一有移动就浮出，静止
-//     2.5s 淡出」的统一规则 —— 原版只有顶部热区，底部原生控件条是浏览器画的，
-//     原生版没有浏览器兜底，所以底部必须自己画，也就必须自己管自动隐藏）；
+//     （原版 TITLEBAR_HOTZONE_PX = 48，这里换成「指针一晃就当场浮出，静止
+//     2.5s 且鼠标不在栏上 / 不在拖动 / 不暂停 / 面板关着才淡出；指针离开
+//     窗口也当场淡出」的统一规则 —— 原版只有顶部热区，底部原生控件条是
+//     浏览器画的，原生版没有浏览器兜底，所以底部必须自己画，也就必须自己
+//     管自动隐藏）；
 //   - 原版单击画面 = 播放/暂停、双击 = 全屏（`<video controls>` 的浏览器默认
 //     行为，WebKit 与 Chromium 一致）。这里照做，但双击的第一下不能又切一次
 //     播放 —— 单击动作延后 videoDoubleClick 提交，双击会把它撤销；
@@ -82,9 +84,24 @@ const (
 	// 「静止 2.5s」而不是「离开热区」——2~3s 是播放器控件条的通行区间。
 	videoChromeIdleDelay = 2500 * time.Millisecond
 	// videoChromeShowFade / videoChromeHideFade 是浮出 / 淡出的时长。
-	// 浮出要快（手已经动了，界面要跟上），淡出慢一档（不抢画面的注意力）。
-	videoChromeShowFade = 140 * time.Millisecond
+	// 浮出要快（手已经动了，界面要跟上；用户 2026-11 报「动了鼠标要等」），
+	// 压到 110ms —— 人眼在这个量级里读作「立刻」。淡出慢一档（不抢画面
+	// 的注意力）。
+	videoChromeShowFade = 110 * time.Millisecond
 	videoChromeHideFade = 220 * time.Millisecond
+	// videoChromeSample 是**指针采样兜底**的周期：控件条收起之后，没有指针
+	// 事件的平台 / 场景靠它把坐标重读一遍（坐标一变就当场浮出）。
+	//
+	// mygo 没有 OnMouseMove 回调，但指针在窗内一动，框架就会因为 root 每帧
+	// 读了 PointerPosition（flagTrackPointer）而重建一帧 —— 那是「有事件」
+	// 的那条路，正常情况下坐标一变**这一帧**就唤醒，根本用不到下面的采样。
+	// 兜底覆盖的是：指针压在某个把 hover 抢走、又没请求重画的东西上，合成器
+	// 只报 leave 不报 move，等等 —— 那时引擎缓存里坐标已经变了，但没人重画。
+	//
+	// 33ms（30Hz）是要求区间 16~33ms 的上限：唤醒延迟 ≤ 一帧半；选它而不是
+	// 16ms，是因为收起状态可能持续整集，60Hz 会把没有指针事件的窗口也锁在
+	// 满帧重画上（播放中的画面本来就在逐帧重绘，30Hz 采样能被合并进同一批帧）。
+	videoChromeSample = 33 * time.Millisecond
 	// videoFullScreenFade 是全屏进出时那层黑幕的淡出时长：它盖住「窗口尺寸
 	// 突然变化 + 控件条重新布局」的那一下，原版没有（浏览器自己处理），
 	// 原生窗口需要这一层过渡。起点不是全黑（0.85）—— 一瞬间刷成纯黑像闪屏，
@@ -257,13 +274,26 @@ type VideoChrome struct {
 
 // videoChromeIdle 是控件条自动隐藏的状态机：指针一有移动（或任何交互）就
 // 记一次「刚活动过」，静止 videoChromeIdleDelay 后目标变成隐藏，不透明度按
-// 各自的方向匀速过渡。暂停 / 悬停在控件条上 / 拖动进度条时 hold 为真 ——
-// 这几种情况下用户正在跟控件打交道，藏起来就是跟他作对。
+// 各自的方向匀速过渡。暂停 / 悬停在控件条上 / 拖动进度条 / 设置面板与弹层
+// 开着 / 全屏还没落定时 hold 为真 —— 这几种情况下用户正在跟控件打交道，藏起来
+// 就是跟他作对。指针离开窗口时不等静置计时，直接朝隐藏走（left）。
+//
+// 「有事件用事件」这条路：mygo 的指针在窗内一动，框架就会重建一帧（root 每帧
+// 读 PointerPosition，见 ui/input.go 的 pointerMove）。所以 observe 每帧读一次
+// 指针就够了 —— 坐标一变就是**这一帧**唤醒，没有阈值、也没有「等下一个轮询
+// 拍」。videoChromeSample 是收起之后给没有指针事件的平台兜底的采样周期
+// （见 rest）。
 type videoChromeIdle struct {
-	seen  bool
-	px    float32
-	py    float32
-	over  bool
+	seen bool
+	px   float32
+	py   float32
+	// over 是上一帧指针是否在**窗口**内（root.PointerPosition 的 over）。
+	over bool
+	// left 记「指针刚离开窗口」：离开后跳过静置计时直接淡出，回到窗内一有
+	// 动作就清掉。平台能力：Windows 的 WM_MOUSELEAVE / macOS 的 mouseExited /
+	// GTK 的 leave-notify 都会让 mygo 发 PointerLeave → pointerIn=false；
+	// Wayland 与触屏上合成器可能不报，那就退回「坐标不再变化」的静置计时。
+	left  bool
 	last  time.Time
 	frame time.Time
 	alpha float32
@@ -279,36 +309,47 @@ type videoChromeFrame struct {
 	Wake time.Duration
 }
 
-// observe 推进一帧。指针位置每帧读一次（root.PointerPosition），位置变了就是
-// 「动过」；hold 是「不许淡出」的条件（暂停、悬停控件条、拖动进度条、全屏
-// 过渡中）。点击与按键另走 touch。
+// observe 推进一帧。指针位置每帧读一次（root.PointerPosition）：坐标一变就是
+// 「动过」，当场唤醒；指针从窗外回来也算。hold 是「不许淡出」的条件（暂停、
+// 悬停控件条、拖动进度条、设置面板 / 弹层打开、全屏过渡中），指针离开窗口
+// 则跳过静置计时直接淡出（见 left）。点击与按键另走 touch。
 func (s *videoChromeIdle) observe(now time.Time, px, py float32, over, hold bool) videoChromeFrame {
 	if !s.seen {
 		s.seen = true
 		s.px, s.py, s.over = px, py, over
 		s.last, s.frame, s.alpha = now, now, 1
-		return videoChromeFrame{Alpha: 1}
+		// 首帧就按「亮着等静置」排一次：不排的话，没有任何输入 / 画面帧时
+		// 控件条永远不会自己收。
+		return videoChromeFrame{Alpha: 1, Wake: videoChromeIdleDelay}
 	}
-	// 指针在窗内移动、或刚从外面进来，都算「动过」。指针在窗外时位置是
-	// 上一次的读数，不能拿它判静止（否则鼠标移到别的窗口上，控件条永远不藏）。
-	moving := over && (!s.over || px != s.px || py != s.py)
+	// 一帧里可能同时发生「动过」与「离开」，三个判断都用旧状态算完再落字段。
+	moved := px != s.px || py != s.py
+	entered := over && !s.over
+	left := s.over && !over
 	s.px, s.py, s.over = px, py, over
-	if moving || hold {
-		s.last = now
+	if moved || entered {
+		// 指针动 1px 也算：立刻浮出 + 重新计时。
+		s.last, s.left = now, false
+	}
+	if left {
+		s.left = true
 	}
 	dt := now.Sub(s.frame)
 	s.frame = now
 
 	target := float32(1)
-	if !hold && now.Sub(s.last) >= videoChromeIdleDelay {
+	switch {
+	case hold:
+		// 用户正在跟控件打交道（暂停 / 悬停 / 拖动 / 面板），一直亮着。
+		target = 1
+	case s.left:
+		// 指针离开窗口：不等静置计时。
+		target = 0
+	case now.Sub(s.last) >= videoChromeIdleDelay:
 		target = 0
 	}
 	if s.alpha == target {
-		if target == 1 && !hold {
-			// 还亮着、在等静置计时：到点前不必逐帧。
-			return videoChromeFrame{Alpha: 1, Wake: videoChromeIdleDelay - now.Sub(s.last)}
-		}
-		return videoChromeFrame{Alpha: s.alpha}
+		return s.rest(now, hold, target)
 	}
 	dur := videoChromeHideFade
 	if target > s.alpha {
@@ -324,17 +365,39 @@ func (s *videoChromeIdle) observe(now time.Time, px, py float32, over, hold bool
 		s.alpha = maxFloat32(s.alpha-step, 0)
 	}
 	if s.alpha == target {
-		if target == 1 && !hold {
-			return videoChromeFrame{Alpha: 1, Wake: videoChromeIdleDelay}
-		}
-		return videoChromeFrame{Alpha: s.alpha}
+		return s.rest(now, hold, target)
 	}
 	return videoChromeFrame{Alpha: s.alpha, Animating: true}
 }
 
-// touch 记一次用户交互（点击 / 按键）：控件条立刻浮出并重新计时。
+// rest 是不在过渡时的下一次唤醒。三条路：
+//
+//   - 亮着、在等静置到点：按剩余时间唤醒（时长变一变不重要，指针一动会
+//     立刻重建一帧，见 observe）；这里不排采样定时器 —— mygo 一个窗口只有
+//     一个 After 定时器（先到先得），排一个 16ms 的采样会把别人的定时器
+//     （双击窗口等）全量化到采样拍上；
+//   - 收起之后：按采样周期（videoChromeSample）兜一次 —— 没有指针事件的
+//     平台靠它把坐标重读一遍，一变就当场浮出；
+//   - hold（暂停 / 悬停 / 拖动 / 面板）：不排唤醒。这种状态只有输入能改变，
+//     输入自己会重建这一帧。
+func (s *videoChromeIdle) rest(now time.Time, hold bool, target float32) videoChromeFrame {
+	f := videoChromeFrame{Alpha: s.alpha}
+	switch {
+	case target == 0:
+		f.Wake = videoChromeSample
+	case hold:
+		// 一直亮着，等输入。
+	default:
+		f.Wake = videoChromeIdleDelay - now.Sub(s.last)
+	}
+	return f
+}
+
+// touch 记一次用户交互（点击 / 按键）：控件条立刻浮出并重新计时。键盘也算
+// 「有操作」—— 空格 / 方向键 / M / F / Esc 都是用户在跟这一集打交道，控件条
+// 这时候淡出就是把他刚按的键的回饋藏起来。
 func (s *videoChromeIdle) touch(now time.Time) {
-	s.last = now
+	s.last, s.left = now, false
 }
 
 // ---------------------------------------------------------------- 单击 / 双击
@@ -346,16 +409,27 @@ func (s *videoChromeIdle) touch(now time.Time) {
 type videoClickArbiter struct {
 	pending bool
 	at      time.Time
+	// quiet 记「双击已经按按下那一帧处理过」：mygo 的双击在**按下**那一帧报
+	// DoubleClicked，到**松开**那一帧还会以 quietClick 再报一次 Clicked
+	// （ui/input.go 的 pointerUp）。不吞掉它，双击就会留下一个挂起的单击，
+	// 300ms 后的下一帧顺带切一次播放/暂停。旧代码里这个挂起常常碰不到帧
+	// （控件条收起时不排唤醒）而没暴露；收起后按采样周期重画之后它必然触发。
+	quiet bool
 }
 
 func (s *videoClickArbiter) single(now time.Time) {
+	if s.quiet {
+		// 双击的第二下在松开帧的尾巴：已经在按下那一帧处理过了。
+		s.quiet = false
+		return
+	}
 	s.pending, s.at = true, now
 }
 
 // double 撤销挂起的单击并报告刚才有没有挂起。
 func (s *videoClickArbiter) double() bool {
 	had := s.pending
-	s.pending = false
+	s.pending, s.quiet = false, true
 	return had
 }
 
@@ -675,6 +749,8 @@ func (v *VideoChrome) View(c *ui.Context) {
 		v.clicks.single(now)
 	}
 	if v.clicks.due(now) {
+		// 点画面也是一次交互：控件条浮出并重新计时（和按空格同一条路）。
+		v.idle.touch(now)
 		v.togglePlay()
 	}
 
@@ -789,8 +865,17 @@ func (nopVideoPlayer) SetRate(float64)         {}
 func (nopVideoPlayer) SetVolume(float64)       {}
 func (nopVideoPlayer) SetMuted(bool)           {}
 
-// holdChrome 是「不许淡出」的条件：暂停 / 播完 / 缓冲中（用户在看状态）、
-// 指针停在控件条上、正在拖进度条、全屏切换还没落定。
+// holdChrome 是「不许淡出」的条件。用户 2026-11 要求的四条硬条件都在这里，
+// 加上两条过渡态：
+//
+//	暂停 / 播完 / 缓冲中  用户在看状态（暂停就藏等于把进度藏了）
+//	指针停在控件条上      barHover（两条栏及其内嵌弹层）
+//	正在拖进度条          seek.drag（松手后指针还在栏上，自然接 barHover）
+//	设置面板 / 弹层开着   showSettings / showVolume / showSpeed
+//
+// 再加全屏切换还没落定（fs.inFlight）：那一下尺寸在变，藏了就像闪一下。
+// hold 为真时静止计时不走，控件条一直亮着；hold 一解除，若已经静止超过 2.5s
+// 就立即淡出（touch 会重新计时，不会误伤）。
 func (v *VideoChrome) holdChrome(full bool) bool {
 	switch {
 	case v.Pl == nil:
@@ -960,10 +1045,14 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 	}
 	colors := videoRangeColors(t)
 	return PlayerBarBind{
-		Theme:      t,
-		Set:        set,
-		Playing:    v.Pl.Playing(),
-		OnPlay:     v.togglePlay,
+		Theme:   t,
+		Set:     set,
+		Playing: v.Pl.Playing(),
+		OnPlay: func() {
+			// 控件条上的播放键也算交互（暂停 → 播放时不让栏当场淡出）。
+			v.idle.touch(c.Now())
+			v.togglePlay()
+		},
 		HasSrc:     true,
 		Pos:        shown,
 		Dur:        dur,
@@ -1257,18 +1346,49 @@ func (v *VideoChrome) skipSponsor(now time.Time) {
 // videoBar 给一条浮在画面上的控件条铺材质：应用的面板令牌 + 1px 线 + 投影。
 //
 // 深浅两态都用 Theme 的令牌：浅色外观是白面板（Ink 深墨），深色外观是深
-// 面板（Ink 浅墨）。视频画面永远是深色，面板必须自己提供对比，所以它是不透明
-// 度较高的 Panel（白 .88 / #152238 .92）而不是播放栏那种薄玻璃。
+// 面板（Ink 浅墨）。视频画面背后可能是**任何一帧**（黑场与纯白高光都常见），
+// 所以这两条栏要的是「厚玻璃」而不是播放栏那种薄玻璃 —— 用户 2026-11 报
+// 「还是太透，字糊在视频上」，这里把底色的**不透明度下限**抬到 0.93 / 0.95
+// （见 videoBarFill / videoBarAlpha）。
+//
+// 为什么是下限而不是换一套颜色：色调层次（Panel 的色相）与描边都保留 ——
+// 1px 线 + 顶沿内高光 + 投影这套「玻璃三件套」一点没少（原生界面画不了
+// backdrop-filter，这就是本仓库的近似法），只是背后透出来的像素从 12% 降到
+// 5~7%，字与图标就落在面板上而不是压在画面上。没抬到 1.0：纯色块会把画面
+// 切成三条色带，层次感全失。
 func (t Theme) videoBar(bar ui.Element) ui.Element {
-	// 半透明面板 + 1px 线 + 顶沿内高光：原生界面画不了 backdrop-filter，
-	// 这就是本仓库「玻璃」的三件套（与抽屉面板 / 播放栏同一个近似法）。
-	bar.Background(t.Panel).Border(1, t.Line).InsetShadow(0, 1, 1, 0, t.Highlight)
+	bar.Background(videoBarFill(t)).Border(1, t.Line).InsetShadow(0, 1, 1, 0, t.Highlight)
 	if t.Dark {
 		bar.Shadow(0, 10, 28, 0, shadowInk.Alpha(0.42))
 		return bar
 	}
 	bar.Shadow(0, 8, 24, 0, shadowInk.Alpha(0.22))
 	return bar
+}
+
+// 上下两条栏的底材质不透明度下限（浅 / 深）。Panel 令牌只抬下限，色相层次
+// 照旧。原值：浅 #ffffff .88、深 #152238 .92。
+const (
+	videoBarAlpha     float32 = 0.93
+	videoBarAlphaDark float32 = 0.95
+)
+
+// videoBarFill 是上下两条栏的底色：Panel 令牌 + 不透明度下限。
+//
+// 它**不**跟着窗口透明度设置变薄：Theme.withAppearance 会按透明度把 Panel 的
+// alpha 降下来，这里按下限抬回去。理由：主窗的玻璃可以更透（背后是应用自己的
+// 背景），视频窗的栏不行 —— 背后是画面本身。系统「降低透明度」仍然完全生效
+// （Panel 在那里已经是 255，下限自然满足）。
+func videoBarFill(t Theme) ui.Color {
+	f := t.Panel
+	floor := videoBarAlpha
+	if t.Dark {
+		floor = videoBarAlphaDark
+	}
+	if a := float32(f.A) / 255; a < floor {
+		f.A = uint8(floor*255 + 0.5)
+	}
+	return f
 }
 
 // ---------------------------------------------------------------- 动作
