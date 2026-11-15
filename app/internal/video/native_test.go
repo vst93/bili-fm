@@ -51,27 +51,41 @@ func TestSeekTarget(t *testing.T) {
 	}
 }
 
-// TestNativeFailText 钉住两种失败的用户文案：缺媒体框架要明确指出
-// GStreamer（Linux 用户唯一能自己动手修的一条），其它错误要带上原因。
-func TestNativeFailText(t *testing.T) {
-	unsup := nativeFailText(video.ErrUnsupported)
-	if !contains(unsup, "GStreamer") || !contains(unsup, "已改用内置播放器") {
-		t.Errorf("ErrUnsupported 的文案不对：%q", unsup)
+// TestNativeFallbackPrompt 钉住询问文案的两部分：缺媒体框架要明确指出
+// GStreamer（Linux 用户唯一能自己动手修的一条），其它错误要带上原因；两块
+// 都必须以「当前系统无法使用原生视频播放」开头，且带上修复提示。
+func TestNativeFallbackPrompt(t *testing.T) {
+	unsup := nativeFallbackPrompt(video.ErrUnsupported)
+	if unsup == nil {
+		t.Fatal("ErrUnsupported 应给出询问")
+	}
+	if !contains(unsup.Reason, "当前系统无法使用原生视频播放") {
+		t.Errorf("原因没有以产品定调的那句开头：%q", unsup.Reason)
+	}
+	if !contains(unsup.Reason, "GStreamer") {
+		t.Errorf("缺媒体框架的文案没指出 GStreamer（只在 Linux 上成立，但这条判据是跨平台的既定文案）：%q", unsup.Reason)
+	}
+	// 不再有「已改用内置播放器」这种替用户做主的话。
+	if contains(unsup.Reason, "已改用") {
+		t.Errorf("文案仍在宣告自动回退：%q", unsup.Reason)
+	}
+	if unsup.Hint == "" {
+		t.Error("缺少「怎么修」的提示")
 	}
 	// 包装过的 ErrUnsupported（ui/video 会 fmt.Errorf("%w: …", ErrUnsupported)）
-	wrapped := nativeFailText(errWrap(video.ErrUnsupported))
-	if !contains(wrapped, "GStreamer") {
-		t.Errorf("包装后的 ErrUnsupported 没被识别：%q", wrapped)
+	wrapped := nativeFallbackPrompt(errWrap(video.ErrUnsupported))
+	if !contains(wrapped.Reason, "GStreamer") {
+		t.Errorf("包装后的 ErrUnsupported 没被识别：%q", wrapped.Reason)
 	}
-	other := nativeFailText(errors.New("decoder missing"))
-	if !contains(other, "decoder missing") || !contains(other, "已改用内置播放器") {
-		t.Errorf("其它失败的文案不对：%q", other)
+	other := nativeFallbackPrompt(errors.New("decoder missing"))
+	if !contains(other.Reason, "当前系统无法使用原生视频播放") || !contains(other.Reason, "decoder missing") {
+		t.Errorf("其它失败的文案不对：%q", other.Reason)
 	}
-	if nativeFailText(nil) != "" {
-		t.Error("nil 错误不该有文案")
+	if other.Hint == "" {
+		t.Error("其它失败也该给修复提示")
 	}
-	if !contains(actionFallbackText(errors.New("boom")), "boom") {
-		t.Error("webview 也失败时要把原因带上")
+	if nativeFallbackPrompt(nil) != nil {
+		t.Error("nil 错误不该给出询问")
 	}
 }
 
@@ -91,25 +105,56 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// TestManagerFallbackLatch 钉住回退闩锁：一旦判定原生不可用，后续 Open 不再
-// 反复尝试（否则每次开视频都先黑一下再回退）。
-func TestManagerFallbackLatch(t *testing.T) {
+// TestManagerWebViewChoiceRespected 钉住「开关是用户的」：用户选了 webview
+// （设置里关掉，或在询问里点了「切换到 WebView 播放」）之后，就算原生其实
+// 可用也不擅自改回来 —— tryNative 直接跳过、不问。
+func TestManagerWebViewChoiceRespected(t *testing.T) {
 	m := New()
-	m.nativeOK, m.nativeChecked = false, true
-	if reason, ok := m.tryNative(Options{Src: "http://x/y.mp4"}); ok || reason != "" {
-		t.Fatalf("闩锁后仍尝试原生：ok=%v reason=%q", ok, reason)
+	m.SetNativeEnabled(false)
+	if m.NativeEnabled() {
+		t.Fatal("SetNativeEnabled(false) 没生效")
+	}
+	tried := false
+	m.openNative = func(string) (playerAPI, error) {
+		tried = true
+		return &stubPlayer{}, nil
+	}
+	if prompt, ok := m.tryNative(Options{Src: "http://x/y.mp4"}); ok || prompt != nil {
+		t.Fatalf("开关=webview 时仍尝试原生/问了用户：ok=%v prompt=%v", ok, prompt)
+	}
+	if tried {
+		t.Error("开关=webview 时不该碰原生播放器")
+	}
+
+	// 走完整的 Open：仍然只能落 webview，且不弹询问。
+	webCalls := 0
+	m.openWebViewFn = func(Options) error { webCalls++; return nil }
+	if err := m.Open(Options{Src: "http://x/y.mp4", Title: "x", Speed: 1}); err != nil {
+		t.Fatalf("开关=webview 时 Open 不该失败：%v", err)
+	}
+	if webCalls != 1 {
+		t.Errorf("开关=webview 时走了 %d 次 webview，想要 1", webCalls)
+	}
+	if m.PendingFallback() {
+		t.Error("不该挂起任何请求（没有问用户）")
 	}
 }
 
-// TestManagerFallbackNotifies 钉住「回退要让用户可感知」：OnFallback 注册后
-// reportFallback 必须真的回调。
+// TestManagerFallbackNotifies 钉住「询问要让用户可感知」：OnFallback 注册后
+// reportFallback 必须真的回调，且带的是「为什么 + 怎么修」。
 func TestManagerFallbackNotifies(t *testing.T) {
 	m := New()
-	var got string
-	m.OnFallback(func(r string) { got = r })
-	m.reportFallback("缺少 GStreamer")
-	if got != "缺少 GStreamer" {
-		t.Fatalf("OnFallback 未收到原因：%q", got)
+	var got *FallbackPrompt
+	m.OnFallback(func(p *FallbackPrompt) { got = p })
+	m.reportFallback(&FallbackPrompt{Reason: "当前系统无法使用原生视频播放", Hint: "sudo apt install …"})
+	if got == nil || !contains(got.Reason, "当前系统无法使用原生视频播放") || got.Hint == "" {
+		t.Fatalf("OnFallback 未收到完整询问：%+v", got)
+	}
+	// nil 不该惊动主窗（避免在主窗弹一个空对话框）。
+	got = nil
+	m.reportFallback(nil)
+	if got != nil {
+		t.Error("nil 询问不该回调")
 	}
 }
 
@@ -271,6 +316,8 @@ type stubPlayer struct {
 	muted     bool
 	seeks     []time.Duration
 	closed    bool
+	// err 是「播放器报错了」：原生路径的起播失败靠它判定（见 nativeWindow.report）。
+	err error
 }
 
 func (s *stubPlayer) Play()                   { s.playing, s.ended = true, false }
@@ -279,7 +326,7 @@ func (s *stubPlayer) Playing() bool           { return s.playing }
 func (s *stubPlayer) Ended() bool             { return s.ended }
 func (s *stubPlayer) Ready() bool             { return s.ready }
 func (s *stubPlayer) Buffering() bool         { return s.buffering }
-func (s *stubPlayer) Err() error              { return nil }
+func (s *stubPlayer) Err() error              { return s.err }
 func (s *stubPlayer) Duration() time.Duration { return s.dur }
 func (s *stubPlayer) Position() time.Duration { return s.pos }
 func (s *stubPlayer) Seek(d time.Duration)    { s.seeks = append(s.seeks, d) }

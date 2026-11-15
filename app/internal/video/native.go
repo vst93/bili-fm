@@ -15,8 +15,9 @@ package video
 // 见 PLAN.md 的评估一节（成本与风险都写在那边）。
 //
 // 回退：没有媒体框架（Linux 缺 GStreamer、或系统版本太老）、格式不支持、
-// 起播失败 → 关掉原生窗，落回 webview 那条路径，并 toast 告知用户（由
-// Manager.OnFallback 接到主窗）。用户不会因为这条链路看不了视频。
+// 起播失败 → **不自己切 webview**，而是把「为什么 + 怎么修」交给主窗弹一个
+// 应用内对话框（Manager.OnFallback），由用户自己选「切换到 WebView 播放」
+// 还是「取消」—— 开关是用户的，不能被静默改掉（见 video.go 的 FallbackPrompt）。
 
 import (
 	"errors"
@@ -511,26 +512,24 @@ func (n *nativeWindow) player() *ui.VideoPlayer {
 	return nil
 }
 
-// nativeFailText 把原生路径的失败翻成一句给用户看的中文原因。
+// nativeFallbackPrompt 把原生路径的失败翻成一条给用户看的「为什么 + 怎么修」。
 //
 // 判据只有两类，都能在「用户看得懂」和「排查有用」之间取平衡：
 //   - 缺媒体框架（ui/video 的 ErrUnsupported，Linux 缺 GStreamer 1.x /
 //     gst-plugins-base 的 playbin+appsink，或系统版本太老）；
 //   - 其它（解码器缺失、流断了、起播超时）。
-func nativeFailText(err error) string {
+//
+// 平台相关的部分（缺什么、装哪个包）在 nativehint_<os>.go 里：这是三平台
+// 唯一的差异点，入口与文案骨架保持一致。
+func nativeFallbackPrompt(err error) *FallbackPrompt {
 	if err == nil {
-		return ""
+		return nil
 	}
+	reason := "当前系统无法使用原生视频播放"
 	if errors.Is(err, video.ErrUnsupported) {
-		return "系统缺少视频播放组件（Linux 需要 GStreamer 1.x + gst-plugins-base），已改用内置播放器"
+		reason += "：" + nativeMissingText()
+	} else {
+		reason += "（" + err.Error() + "）"
 	}
-	return "原生视频播放失败（" + err.Error() + "），已改用内置播放器"
-}
-
-// actionFallbackText 是「连 webview 都开不起来」时的提示。
-func actionFallbackText(err error) string {
-	if err == nil {
-		return "打开视频窗口失败"
-	}
-	return "打开视频窗口失败：" + err.Error()
+	return &FallbackPrompt{Reason: reason, Hint: nativeFixHint()}
 }

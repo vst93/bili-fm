@@ -1538,25 +1538,33 @@ format mov,mp4,m4a,3gp,3g2,mj2 152.996s 9634640B
 
 结论一句话：**B 站这条链路根本不需要 mux**，A 是唯一既正确又便宜的路径。
 
-### 回退（必须，且用户可感知）
+### 回退（必须，且由用户决定）
 
-四道闸门，任一命中就走原来的 webview：
+WebView 那条路、`frontend/video.html`、设置里的「原生视频播放」开关与 `nativeVideoPlayer` 键**全部保留**。命中下面几道闸门时，**不自动回退**：原生不可用就弹应用内对话框问用户，由用户自己选「切换到 WebView 播放」还是「取消」（`video_fallback.go`）。
 
-1. **设置项**：设置菜单新增「原生视频播放」开关（默认开，键
+1. **设置项**：设置菜单里「原生视频播放」开关（默认开，键
    `nativeVideoPlayer`，只有明确写 `"false"` 才关 —— 老版本没有这个键，
    升级后不会被静默降级）。关掉立即生效（`Manager.SetNativeEnabled`），不用重启。
+   开关=webview 时就算原生可用也老老实实走 webview（不擅自改用户的选择）。
 2. **缺媒体框架**：`ui/video.OpenURL` 返回 `ErrUnsupported`（Linux 缺
    GStreamer 1.x / `gst-plugins-base` 的 playbin+appsink，或系统版本太老）
-   → 闩锁 + toast：*「系统缺少视频播放组件（Linux 需要 GStreamer 1.x +
-   gst-plugins-base），已改用内置播放器」*。
-3. **起播失败**（解码器缺失 / 流断了 / 起播超时）→ `onFailed` 关原生窗、
-   toast 带原因、**同一集**在 webview 里重开（`suppressClose` 保证主窗不会
-   误做「关窗→音视接力」）。
-4. **地址不合法**（空 / 自定义协议）→ 静默走 webview（不是故障，不 toast）。
+   → `Open` 返回 `*FallbackPrompt`（此时连窗口都没开，不存在「先黑一下再弹」）。
+   对话框说明**为什么**（「当前系统无法使用原生视频播放：…」，平台文案在
+   `internal/video/nativehint_<os>.go`：Linux 写明缺哪些插件，macOS / Windows
+   给通用兜底文案）和**怎么修**（Linux 给可直接复制的 apt / dnf / pacman 命令，
+   包名覆盖 playbin/appsink、MP4 解复用与 H.264/AAC 解码器）。
+3. **起播失败**（解码器缺失 / 流断了 / 起播超时）→ `onFailed` 关原生窗
+   （走既有的「退出视频播放」收尾），再弹**同一个**询问。判据是播放器真的
+   `Err()`，还在加载 / 缓冲时不会弹。
+4. **地址不合法**（空 / 自定义协议）→ 静默走 webview（不是故障，不问）。
 
-闩锁（`nativeOK`/`nativeChecked`）保证一次判定失败后本次运行不再反复「先黑
-一下再回退」。**代价**：修好 GStreamer 后要重启应用才会重试原生路径 ——
-设置项开关可以立即重置闩锁，这就是那条手动通道。
+用户选「切换到 WebView 播放」→ `nativeVideoPlayer=false` 落盘 + `SetNativeEnabled(false)`，
+并用 webview **立即重开当前这一集**（进度取原生窗回传的位置，没有则用请求
+自带的续播点），此后不再问。用户选「取消」→ 不播（回主窗），开关保持原样，
+下次起播仍会再问。没有「不再询问」这类会悄悄吃掉用户选择的选项。
+
+这意味着**不再有「一次判定失败就本次运行不再重试」的闩锁**：修好 GStreamer
+之后下一集就会用上原生（不需要重启）。
 
 ### 代价
 
@@ -1567,17 +1575,28 @@ format mov,mp4,m4a,3gp,3g2,mj2 152.996s 9634640B
 | 安装包体积 | **不变**（不静态链接 GStreamer，只是运行时 dlopen）。用户机器上没装 = 回退，不是启动失败 |
 | 启动路径复杂度 | +1 次 dlopen 探测（只在第一次开视频时）+ 一次 `OpenURL`（异步，不阻塞界面） |
 | 内存 | 原生窗无 WebView2 那套进程（Windows 实测 webview 弹窗 ~450MB 增量）。原生窗只有解码器 + 一帧纹理。**这是本轮的第二个动机**（第一个是音画同步由框架保证） |
-| 平台退化 | Linux：GNOME 默认不装 gst-libav → 能起播但**没有 H.264 解码器** → 命中闸门 3 回退（可感知，不是黑屏）。Ubuntu 24.04 的 `gstreamer1.0-libav` 不在默认安装里，README 的 Linux 依赖说明需要补一句（见下「需要跟进」） |
+| 平台退化 | Linux：GNOME 默认不装 gst-libav → 能起播但**没有 H.264 解码器** → 命中闸门 3，弹对话框让用户选「切换到 WebView 播放」（可感知，不是黑屏）。Ubuntu 24.04 的 `gstreamer1.0-libav` 不在默认安装里，README 的 Linux 依赖说明需要补一句（见下「需要跟进」） |
 
 ### 已无头验证 / 需要真机确认
 
 **已无头验证**（`go test ./internal/video/`，Linux + GStreamer）：
 
 - `TestNativeEligible` / `TestSpeedStep` / `TestSeekTarget` / `TestClockText` /
-  `TestNativeFailText`：地址判据、倍速档位循环（与主窗 `speedOptions` 同值）、
-  进度条夹取、时间文案、两种失败文案。
-- `TestManagerFallbackLatch` / `TestManagerFallbackNotifies` /
-  `TestManagerNativeActive`：回退闩锁、用户提示回调、状态查询。
+  `TestNativeFallbackPrompt`：地址判据、倍速档位循环（与主窗 `speedOptions` 同值）、
+  进度条夹取、时间文案、询问文案（为什么 + 怎么修）。
+- `TestNativeUnavailableAsksInsteadOfFallingBack` /
+  `TestSwitchToWebViewReopensSameEpisode` / `TestCancelFallbackKeepsNativeChoice` /
+  `TestNativeStartFailureAsksUser` / `TestNativeReportWaitsForFailure` /
+  `TestNativeAvailableOpensNativeWithoutAsking` /
+  `TestManagerWebViewChoiceRespected` / `TestManagerFallbackNotifies` /
+  `TestManagerNativeActive`：询问式回退的两支（切换 / 取消）、不擅自改开关、
+  原生可用时不问、加载中不误判失败、状态查询。
+- `TestNativeFixHintLinuxCommands`（`nativehint_linux_test.go`）：Linux 安装命令
+  与包名覆盖实际解码需求。
+- `TestVideoFallbackPromptShowsDialogWithoutSwitching` /
+  `TestVideoFallbackSwitchPersistsWebView` / `TestVideoFallbackCancelKeepsNative` /
+  `TestVideoFallbackPromptNotStacked` / `TestVideoOpenErrorPromptMapping`（根包）：
+  对话框文案与两个按钮、「切换」落盘 webview、「取消」保持不变、同一条询问不叠层。
 - `TestNativePlaysRGB`：**真解码**（mygo 的 rgb.mp4，H.264 + AAC）——
   起播、首帧像素为红、seek 到 0.9s 落地、`SetRate`/`SetVolume`/`SetMuted`
   真的下发（不是空实现）、时长非零。

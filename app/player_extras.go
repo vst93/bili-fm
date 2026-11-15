@@ -690,14 +690,13 @@ func (c *controller) persistFollowPrefs() {
 
 // toggleNativeVideo 切换「视频弹窗用原生播放器（ui/video）」并落盘。
 //
-// 与热力开关不同，它要**立即**作用到 Manager 的闩锁上：用户关掉后马上开
-// 下一个视频就必须走 webview，而不是等重启。
+// 与热力开关不同，它要**立即**作用到 Manager 的开关上：用户关掉后马上开
+// 下一个视频就必须走 webview，而不是等重启。具体落盘见 setNativeVideo。
 func (c *controller) toggleNativeVideo() {
-	a := c.app
-	a.NativeVideo = !a.NativeVideo
-	c.vid.SetNativeEnabled(a.NativeVideo)
-	_ = c.kv.SetString(prefNativeVideo, strconv.FormatBool(a.NativeVideo))
-	a.Win.Update(func() {})
+	if c.app == nil {
+		return
+	}
+	c.setNativeVideo(!c.app.NativeVideo)
 }
 
 // toggleHeat 切换弹幕热力开关并落盘。菜单和弹幕页表头共用。

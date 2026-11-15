@@ -4268,9 +4268,12 @@ func (c *controller) wireVideo() {
 	c.vid.OnQuit(func() {
 		c.app.Win.Update(func() { c.quit() })
 	})
-	// 原生视频（ui/video）不可用时回退到 webview：必须让用户可感知 —— 否则
-	// 「为什么这台机器内存高 / 为什么这次是另一个界面」会变成玄学。用现有
-	// 的 toast 风格提示一次（Manager 里已闩锁，本次运行不会反复弹）。
+	// 原生视频（ui/video）不可用：**不再自动回退**，而是弹一个应用内对话框
+	// 问用户要不要改用 WebView 播放（开关归用户，见 video_fallback.go）。
+	// 回调跑在窗口事件 goroutine 上，丢回界面线程。
+	c.vid.OnFallback(func(p *video.FallbackPrompt) {
+		runOnUI(c.app, !c.app.Hidden(), func() { c.showVideoFallbackPrompt(p) })
+	})
 	// 视频窗内点弹幕键：落盘并同步回所有入口（主窗设置菜单 / macOS 菜单）。
 	// 回调跑在窗口事件 goroutine 上，统一丢到界面线程。
 	c.vid.OnDanmakuToggle(func(on bool) {
@@ -4286,14 +4289,6 @@ func (c *controller) wireVideo() {
 	// 事件 goroutine 上，状态与落盘统一回主线程。
 	c.vid.OnPinToggle(func(on bool) {
 		runOnUI(c.app, !c.app.Hidden(), func() { c.setVideoPinned(on) })
-	})
-	c.vid.OnFallback(func(reason string) {
-		if reason == "" {
-			return
-		}
-		runOnUI(c.app, !c.app.Hidden(), func() {
-			c.app.NotifyType("info", reason)
-		})
 	})
 }
 
@@ -4357,6 +4352,15 @@ func (c *controller) openVideo() {
 			VideoPinned: c.app.VideoPinned,
 		}
 		if err := c.vid.Open(opts); err != nil {
+			// 原生不可用（Linux 缺 GStreamer 等）：不替用户回退，问他要不要
+			// 改用 WebView。视频没开成，音频先接回主窗（用户还在听）。
+			if prompt := videoOpenErrorPrompt(err); prompt != nil {
+				runOnUI(c.app, !c.app.Hidden(), func() {
+					c.restoreAudioAfterVideo(wasPlaying)
+					c.showVideoFallbackPrompt(prompt)
+				})
+				return
+			}
 			runOnUI(c.app, !c.app.Hidden(), func() {
 				c.app.NotifyType("error", actionFailText("打开视频窗口", err))
 				c.restoreAudioAfterVideo(wasPlaying)

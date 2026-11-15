@@ -14,6 +14,7 @@ package video
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -77,6 +78,36 @@ type State struct {
 	Err      string
 }
 
+// FallbackPrompt 是「原生播放不可用，等你决定要不要改用 WebView」的询问。
+//
+// 它是 Manager.Open 的返回值（实现了 error）：主窗拿到后弹一个应用内对话框，
+// 由用户自己选「切换到 WebView 播放」还是「取消」。**不自动回退** —— 开关是
+// 用户的，替他从原生改到 webview 等于悄悄剥夺选择权（用户定调）。
+//
+// 起播失败（原生窗已经开出来了才发现解码器缺失）没法从 Open 返回，走的是
+// Manager.OnFallback 回调，但带的是同一个结构：两条路径在主窗那里汇成同一个
+// 对话框。
+type FallbackPrompt struct {
+	// Reason 是「为什么不能用」的一句话，平台相关（Linux 写明缺哪些
+	// GStreamer 插件）。
+	Reason string
+	// Hint 是「怎么修」：Linux 给可直接复制的安装命令，macOS / Windows
+	// 给通用兜底说明。
+	Hint string
+}
+
+// Error 让 FallbackPrompt 能当成 Open 的返回值用（errors.As 取回）。
+func (p *FallbackPrompt) Error() string {
+	if p == nil {
+		return ""
+	}
+	return p.Reason
+}
+
+// ErrNoPendingFallback 表示没有「等用户决定」的那一集可重开：主窗的
+// 「切换到 WebView 播放」只在真的挂起过一集时才该调 SwitchToWebView。
+var ErrNoPendingFallback = errors.New("video: 没有等待重开的视频")
+
 // RelayOnClose 报告关掉视频窗之后要不要把音频引擎接回来接着听（音视接力）。
 //
 // 语义以原版为准（tauri 分支 src/components/playerVideo.tsx 的
@@ -130,14 +161,27 @@ type Manager struct {
 	// 两条路径互斥：同一时刻只有一个弹窗，State/Seek/SetSpeed 等都要按它分派。
 	native *nativeWindow
 
-	// nativeOK 是「本机还能不能试原生路径」的闩锁：一旦判定不可用（缺
-	// GStreamer / 系统没有媒体框架 / 起播失败），本次运行不再反复重试，
-	// 直接走 webview，避免每次开视频都先黑一下再回退。
-	nativeOK      bool
-	nativeChecked bool
+	// nativeOK 是用户的选择（设置项「原生视频播放」，默认开）。
+	//
+	// 与从前不同，它**不再**在「判定不可用」时被置假：原生不可用要问用户
+	// （见 FallbackPrompt），不能替用户把开关改掉。只有两条路会置假 ——
+	// 用户在设置里关掉，或用户在上一条询问里点了「切换到 WebView 播放」。
+	nativeOK bool
 
-	// onFallback 在原生路径不可用、已经落回 webview 时调用（主窗据此 toast）。
-	onFallback func(reason string)
+	// pending 是「原生不可用、等用户决定」的那一次请求。用户选「切换」时用
+	// 它重开同一集（进度尽量接上）；选「取消」时清掉。
+	pending *Options
+
+	// onFallback 在原生路径不可用、等用户决定时调用（主窗据此弹询问对话框）。
+	onFallback func(p *FallbackPrompt)
+
+	// 下面三个是「起播 / 建窗」的接线口：默认是真实的 openPlayer /
+	// newNativeWindow / openWebView。无头测试换成桩，就能断言「不可用时
+	// 没有自动切 webview」「切换后这一集用 webview 重开」而不碰窗口与
+	// 系统媒体框架。
+	openNative    func(src string) (playerAPI, error)
+	newNativeWin  func(o Options, pl playerAPI) *nativeWindow
+	openWebViewFn func(o Options) error
 
 	// 弹幕：当前这一集的 cid / 条目 / 开关 / 基本设置。设置是主窗的
 	// 事实源（落盘后经 SetDanmakuSettings 下发），窗口只读。
@@ -239,10 +283,14 @@ func (m *Manager) OnPinToggle(fn func(bool)) {
 
 // SetNativeEnabled 开关原生视频路径（设置项「原生视频播放」）。
 // 关掉后所有 Open 直接走 webview —— 给「GStreamer 装是装了但播得不好」或
-// 需要弹幕覆盖层 / 画中画的用户一条明确的退路，而不是只能靠失败回退。
+// 需要弹幕覆盖层 / 画中画的用户一条明确的退路，也正好是「切换到 WebView
+// 播放」这一个动作的落点。
+//
+// 注意它**不**清 pending：用户的「切换」是先落盘再重开挂起的那一集，清掉就
+// 没得重开了。
 func (m *Manager) SetNativeEnabled(on bool) {
 	m.mu.Lock()
-	m.nativeOK, m.nativeChecked = on, true
+	m.nativeOK = on
 	m.mu.Unlock()
 }
 
@@ -253,9 +301,81 @@ func (m *Manager) NativeEnabled() bool {
 	return m.nativeOK
 }
 
-// OnFallback 设置「原生视频不可用，已落回 webview」的回调。
-// reason 是给用户看的一句话原因（例如「系统缺少 GStreamer」）。
-func (m *Manager) OnFallback(fn func(reason string)) { m.onFallback = fn }
+// OnFallback 设置「原生视频不可用，等用户决定」的回调。
+// 参数是给用户看的「为什么 + 怎么修」，主窗据此弹询问对话框（不自动回退）。
+func (m *Manager) OnFallback(fn func(p *FallbackPrompt)) { m.onFallback = fn }
+
+// PendingFallback 报告有没有「等用户决定」的那一集（测试 / 状态展示用）。
+func (m *Manager) PendingFallback() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pending != nil
+}
+
+// CancelFallback 清掉挂起的那一集（用户选了「取消」）。
+//
+// 开关**保持原样**：用户没说要用 webview，下一次起播仍会尝试原生，不可用时
+// 再问一次 —— 选择权始终在他手上。
+func (m *Manager) CancelFallback() {
+	m.mu.Lock()
+	m.pending = nil
+	m.mu.Unlock()
+}
+
+// SwitchToWebView 用 WebView 重开挂起的那一集（用户点了「切换到 WebView
+// 播放」）。
+//
+// 进度尽量接上：原生窗已经播过一段时用回传的位置，否则用请求自带的续播点
+// （StartAt）。没有挂起的请求时返回 ErrNoPendingFallback —— 这时候**不建窗**，
+// 用户看到一条错误提示，而不是莫名其妙弹一个视频窗。
+func (m *Manager) SwitchToWebView() error {
+	m.mu.Lock()
+	var o Options
+	ok := m.pending != nil
+	if ok {
+		o = *m.pending
+	}
+	m.pending = nil
+	m.mu.Unlock()
+	if !ok {
+		return ErrNoPendingFallback
+	}
+	if t := m.State().Time; t > o.StartAt {
+		o.StartAt = t
+	}
+	return m.openWeb(o)
+}
+
+// holdFallback 记下「原生不可用、等用户决定」的那一次请求。
+func (m *Manager) holdFallback(o Options) {
+	m.mu.Lock()
+	m.pending = &o
+	m.mu.Unlock()
+}
+
+// openNativePlayer 起一个原生播放器（默认 openPlayer，测试可换桩）。
+func (m *Manager) openNativePlayer(src string) (playerAPI, error) {
+	if fn := m.openNative; fn != nil {
+		return fn(src)
+	}
+	return openPlayer(src)
+}
+
+// makeNativeWindow 建原生视频窗（默认 newNativeWindow，测试可换桩）。
+func (m *Manager) makeNativeWindow(o Options, pl playerAPI) *nativeWindow {
+	if fn := m.newNativeWin; fn != nil {
+		return fn(o, pl)
+	}
+	return newNativeWindow(o, pl)
+}
+
+// openWeb 用 webview 打开 o（默认 openWebView，测试可换桩）。
+func (m *Manager) openWeb(o Options) error {
+	if fn := m.openWebViewFn; fn != nil {
+		return fn(o)
+	}
+	return m.openWebView(o)
+}
 
 // NativeActive 报告当前弹窗是否走原生路径（供设置/状态展示与测试）。
 func (m *Manager) NativeActive() bool {
@@ -366,6 +486,10 @@ func (m *Manager) Open(o Options) error {
 		m.mu.Unlock()
 	}()
 
+	// 新的一次起播：上一次「等用户决定」的询问到此作废（要被新一集替掉；
+	// 成功的话更不该再留着旧请求）。
+	m.CancelFallback()
+
 	// 原生窗还开着：原地换集（换播放器、不换窗口）。原生窗没有浏览器进程
 	// 那套开销，但也没有理由每次换集都重建窗口（窗口位置、尺寸会跳）。
 	if n != nil {
@@ -390,15 +514,16 @@ func (m *Manager) Open(o Options) error {
 	m.Close()
 
 	// 原生优先：ui/video 用系统媒体框架解码 + 出声，音画同步由框架保证，
-	// 没有 WebView2 那套进程开销。判定不可用（缺媒体框架 / 起播失败）就
-	// 落回 webview，并把原因告诉用户 —— 不能因为这条链路让人看不了视频。
-	if reason, ok := m.tryNative(o); ok {
+	// 没有 WebView2 那套进程开销。判定不可用（缺媒体框架）时**不自动回退**：
+	// 把这一集挂起，返回一条询问，由主窗弹对话框问用户要不要改用 WebView。
+	if prompt, ok := m.tryNative(o); ok {
 		return nil
-	} else if reason != "" {
-		m.reportFallback(reason)
+	} else if prompt != nil {
+		m.holdFallback(o)
+		return prompt
 	}
 
-	return m.openWebView(o)
+	return m.openWeb(o)
 }
 
 // openWebView 是原来的 webview 弹窗路径（回退用，也是唯一能播 webm / 弹幕
@@ -443,42 +568,38 @@ func (m *Manager) openWebView(o Options) error {
 }
 
 // tryNative 尝试用原生路径打开 o。ok 表示「原生窗已经开起来了」；
-// 否则 reason 非空时表示「试过但不可用」，调用方据此 toast + 走 webview。
+// 否则 prompt 非空时表示「试过但不可用」，调用方据此问用户要不要改用 WebView。
 //
-// 判定顺序（每一步都能省掉一次黑窗）：
-//  1. 上次已判定不可用（nativeChecked && !nativeOK）→ 直接跳过，不返回 reason
-//     （用户已经被告知过一次，不必每次开视频都弹）。
-//  2. 地址不是 http(s)/file → 跳过（不是故障，不 toast）。
-//  3. ui/video.OpenURL 返回 ErrUnsupported → 记闩锁 + 给出原因。
-//  4. 播放器起来了，但起播失败（Err 非空 / 一直不 Ready）→ 由 onFailed 关窗
-//     回退。这里不阻塞等待，避免开窗卡住界面。
-func (m *Manager) tryNative(o Options) (reason string, ok bool) {
+// 判定顺序（每一步都能省掉一次黑窗或一次多余询问）：
+//  1. 用户把开关关掉了（nativeVideoPlayer=false，或刚点了「切换到 WebView
+//     播放」）→ 直接走 webview，不问（用户的决定要一直被尊重）。
+//  2. 地址不是 http(s)/file → 跳过（不是故障，不问）。
+//  3. ui/video.OpenURL 返回 ErrUnsupported / 播放器建不起来 → 给出「为什么
+//     + 怎么修」的询问。此时**连窗口都没开**，所以不会有「先黑一下再问」。
+//  4. 播放器起来了，但起播失败（Err 非空）→ 由 onFailed 关窗并询问。
+//     这里不阻塞等待；也正因为判据是 pl.Err()，还在加载 / 缓冲时不会弹
+//     （见 nativeWindow.report）。
+func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	m.mu.Lock()
-	ok = m.nativeOK
-	checked := m.nativeChecked
+	allowed := m.nativeOK
 	m.mu.Unlock()
-	if checked && !ok {
-		return "", false
+	if !allowed {
+		return nil, false
 	}
 	if !nativeEligible(o) {
-		return "", false
+		return nil, false
 	}
 
-	pl, err := openPlayer(o.Src)
+	pl, err := m.openNativePlayer(o.Src)
 	if err != nil {
-		m.mu.Lock()
-		m.nativeOK, m.nativeChecked = false, true
-		m.mu.Unlock()
-		return nativeFailText(err), false
+		return nativeFallbackPrompt(err), false
 	}
 
-	n := newNativeWindow(o, pl)
+	n := m.makeNativeWindow(o, pl)
 	if n == nil {
-		m.mu.Lock()
-		m.nativeOK, m.nativeChecked = false, true
-		m.mu.Unlock()
-		return "创建视频窗口失败", false
+		return nativeFallbackPrompt(errors.New("创建视频窗口失败")), false
 	}
+	set := n.ensureSettings()
 	// 弹幕状态以管理器为准：设置可能在窗口创建期间被改过；条目只在 cid
 	// 对得上时才套用（上一集的缓存不能画到这一集）。
 	m.mu.Lock()
@@ -534,50 +655,44 @@ func (m *Manager) tryNative(o Options) (reason string, ok bool) {
 			cb()
 		}
 	}
-	// 起播失败（解码器缺失 / 流断了）：关掉原生窗，落回 webview 播同一集。
+	// 起播失败（解码器缺失 / 流断了）：关掉原生窗，**问用户**要不要改用
+	// WebView 播放（不自己切、也不改开关）。
 	//
-	// 这段回调是在视图构建（主线程）里被 n.report 触发的，而关窗 + 建窗都会
-	// 再进主线程消息循环 —— 直接做会嵌套。丢到 goroutine 上，顺序仍然确定
-	// （先关后建）。
+	// 这段回调是在视图构建（主线程）里被 n.report 触发的，而关窗 + 弹对话框
+	// 都会再进主线程消息循环 —— 直接做会嵌套。丢到 goroutine 上，顺序仍然
+	// 确定（先挂起、再关窗、再问）。
+	//
+	// 不设置 suppressClose：关窗走「退出视频播放」的既有收尾（主窗
+	// VideoOpen 复位、位置接回），用户就停在那里看到这条询问。
 	n.onFailed = func(err error) {
-		m.mu.Lock()
-		m.nativeOK, m.nativeChecked = false, true
-		m.mu.Unlock()
-		reason := nativeFailText(err)
-		n.suppressClose = true
+		p := nativeFallbackPrompt(err)
 		go func() {
+			m.holdFallback(o)
 			m.CloseNative()
-			m.reportFallback(reason)
-			if openErr := m.openWebView(o); openErr != nil {
-				// webview 也开不起来：这是真的失败，交给主窗提示。
-				m.mu.Lock()
-				cb := m.onFallback
-				m.mu.Unlock()
-				if cb != nil {
-					cb(actionFallbackText(openErr))
-				}
-			}
+			m.reportFallback(p)
 		}()
 	}
 
 	m.mu.Lock()
 	m.native, m.win, m.minimize = n, nil, n.minimize
-	m.st = State{Speed: n.settings.Speed}
+	m.st = State{Speed: set.Speed}
 	m.ended = false
 	m.mu.Unlock()
 
 	// 起播参数：位置 / 倍速 / 静音全部在回调接好之后下发一次（播放器默认从
 	// 0 起播、1 倍速、不静音）。放在最后，保证这一帧的状态回传有人接。
-	n.win.Update(func() {
-		pl.SetRate(n.settings.Speed)
-		pl.SetMuted(n.settings.Muted)
-		pl.SetVolume(n.settings.Volume)
+	// 用 n.apply（不是 n.win.Update）：测试里的桩窗没有 win，但还要验到
+	// 「起播参数下发」这条路径。
+	n.apply(func() {
+		pl.SetRate(set.Speed)
+		pl.SetMuted(set.Muted)
+		pl.SetVolume(set.Volume)
 		if o.StartAt > 0 {
 			pl.Seek(time.Duration(o.StartAt * float64(time.Second)))
 		}
 		n.reported = time.Time{} // 下一帧立刻回传一次
 	})
-	return "", true
+	return nil, true
 }
 
 // switchNative 在已开着的原生窗里原地换集。
@@ -585,7 +700,7 @@ func (m *Manager) switchNative(n *nativeWindow, o Options) error {
 	if n.win == nil || n.win.IsDestroyed() {
 		return fmt.Errorf("video: 原生视频窗已消失")
 	}
-	pl, err := openPlayer(o.Src)
+	pl, err := m.openNativePlayer(o.Src)
 	if err != nil {
 		return err
 	}
@@ -631,13 +746,16 @@ func (m *Manager) CloseNative() {
 	}
 }
 
-// reportFallback 告诉主窗「原生不可用，已落回 webview」。
-func (m *Manager) reportFallback(reason string) {
+// reportFallback 把「原生不可用，等用户决定」的询问交给主窗（弹对话框）。
+func (m *Manager) reportFallback(p *FallbackPrompt) {
+	if p == nil {
+		return
+	}
 	m.mu.Lock()
 	cb := m.onFallback
 	m.mu.Unlock()
 	if cb != nil {
-		cb(reason)
+		cb(p)
 	}
 }
 
