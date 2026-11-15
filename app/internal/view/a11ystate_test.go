@@ -46,8 +46,12 @@ func TestPlayerBarA11yStatesWired(t *testing.T) {
 			`ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(b.ShowVolume)`},
 		{"倍速键（aria-expanded）",
 			`ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label(tip).Tooltip(tip).Expanded(b.ShowSpeed)`},
+		// 均衡键的 label / 按压态不再是内联的 eqTip(set.EQ)：视频窗要按
+		// EQUnavailable 换成「不适用」说明，所以统一由 tip / on 两个变量接上。
+		// 这里钉的仍是「RoleToggleButton + Checked」这条无障碍接线（主窗
+		// 由 eqTip(set.EQ) / set.EQ 驱动，视频窗的 on 恒为 false）。
 		{"均衡键（aria-pressed）",
-			`ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(eqTip(set.EQ)).Tooltip(eqTip(set.EQ)).Checked(set.EQ)`},
+			`ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)`},
 		{"恰饭键（aria-pressed）",
 			`ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(set.Sponsor)`},
 		{"静音键（aria-pressed）",
@@ -57,6 +61,19 @@ func TestPlayerBarA11yStatesWired(t *testing.T) {
 		chain := strings.Join(strings.Fields(c.chain), "")
 		if !strings.Contains(flat, chain) {
 			t.Errorf("%s 的无障碍状态没接在元素链上：找不到 %q", c.name, chain)
+		}
+	}
+
+	// 反证 label 的来源没接反：主窗的均衡键仍用 eqTip(共享值)，视频窗的
+	// 不可用态走 eqVideoUnavailableTip(共享值) 并置灰（EQUnavailable）。
+	// 少了这条，「把视频窗那套接进主窗 / 把主窗那套接回视频窗」都不会报错。
+	for _, want := range []string{
+		`tip := eqTip(set.EQ)`,
+		`tip = eqVideoUnavailableTip(set.EQ)`,
+		`disablePlayerButton(btn, !b.HasSrc || b.EQUnavailable)`,
+	} {
+		if !strings.Contains(flat, strings.Join(strings.Fields(want), "")) {
+			t.Errorf("均衡键缺少 %q（主窗与视频窗的文案/可用性分叉）", want)
 		}
 	}
 }

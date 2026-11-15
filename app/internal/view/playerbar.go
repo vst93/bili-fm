@@ -2469,6 +2469,20 @@ func speedTip(rate float64) string { return fmt.Sprintf("播放速度 %g 倍", r
 // eqTip 是均衡键的文案（原版「音量均衡: 开/关」）。
 func eqTip(on bool) string { return pick(on, "音量均衡: 开", "音量均衡: 关") }
 
+// eqVideoUnavailableTip 是视频窗里音量均衡键的说明。
+//
+// 为什么不是 eqTip：原生视频的 PCM 在**系统媒体框架内部**就送去声卡了
+// （AVFoundation / Media Foundation / GStreamer），进程拿不到那路采样；
+// internal/media 的均衡器（Compressor）挂在 oto 解码后的自己的流水线上，
+// 只作用于主窗音频。ui/video 的导出面（Play/Pause/Seek/SetRate/SetVolume/
+// SetMuted/Position/Duration）没有任何音频数据钩子，所以这里没有能接上的
+// 实现路径 —— 与其让开关只改状态点，不如如实说「本窗口不适用」。
+// 主窗（以及关掉视频窗后的音视接力）照常生效，所以文案要写明这一点。
+func eqVideoUnavailableTip(on bool) string {
+	return "音量均衡不适用于原生视频：声音由系统媒体框架直接输出，不经过本应用的音频管线（主窗音频仍生效）· 主窗：" +
+		pick(on, "开", "关")
+}
+
 // sponsorTip 是恰饭跳过键的文案（原版「自动跳过恰饭片段（SponsorBlock）」）。
 func sponsorTip() string { return "自动跳过恰饭片段（SponsorBlock）" }
 

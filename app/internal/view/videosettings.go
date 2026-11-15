@@ -12,10 +12,10 @@ package view
 //
 //	弹幕      总开关 / 不透明度 / 字号 / 显示区域 / 同屏上限
 //	          （这 5 项从主窗设置菜单迁来，同一份事实源：App.DanmakuStyle）
-//	播放      倍速 / 音量均衡 / 广告跳过
+//	播放      倍速 / 音量均衡（原生视频不适用，置灰说明）/ 广告跳过
 //	          （共享设置：与主窗播放栏是**同一个 PlayerSettings 指针**，
 //	          改任一侧另一侧下一帧就是新值，文案用主窗那几条 speedTip /
-//	          eqTip / sponsorTip）
+//	          sponsorTip；音量均衡那一行不是开关，见 eqVideoUnavailableTip）
 //	播放引擎  原生视频播放（保留用户的自主选择权）
 //
 // 主窗设置菜单里这 8 项全部移除（用户明确不要两处入口），「原生视频播放」
@@ -184,8 +184,13 @@ func (v *VideoChrome) settingsBody(c *ui.Context, t Theme) {
 			})
 		}
 		settingsChoices(c, t, "video-speed", "倍速", speeds)
-		videoSettingsToggle(c, t, "video-settings-eq", "音量均衡", eqTip(set.EQ),
-			set.EQ, func() { set.SetEQ(!set.EQ) })
+		// 音量均衡对原生视频**不适用**：PCM 在系统媒体框架内部就送去声卡，
+		// 本仓库的均衡器拿不到那路采样（见 eqVideoUnavailableTip）。这一行
+		// 只说明、不给开关 —— 留一个能点的轨道就是伪造「点了会生效」。
+		videoSettingsUnavailable(c, t, "video-settings-eq", "音量均衡",
+			eqVideoUnavailableTip(set.EQ))
+		videoSettingsNote(c, t,
+			"音量均衡只作用于主窗的音频引擎；原生视频的声音由系统媒体框架直接输出，本窗口不适用。")
 		videoSettingsToggle(c, t, "video-settings-sponsor", "广告跳过", sponsorTip(),
 			set.Sponsor, func() { set.SetSponsor(!set.Sponsor) })
 
@@ -233,6 +238,27 @@ func videoSettingsToggle(c *ui.Context, t Theme, key, label, tip string, on bool
 	if row.Clicked() {
 		toggle()
 	}
+}
+
+// videoSettingsUnavailable 是一行「本窗口不支持」的项：标签在左、右侧写
+// 「不适用」而**不画开关轨道**，整行禁用并给 tooltip。
+//
+// 为什么不画轨道：轨道会让人以为它现在只是关着、点一下就能开 —— 这正是
+// 用户要求避免的「伪造状态」。禁用的 ButtonBase 不接收点击（ui 的 disabled
+// 节点不会进入命中），所以这里不需要额外的闸。
+func videoSettingsUnavailable(c *ui.Context, t Theme, key, label, tip string) {
+	row := ui.ButtonBase(c.Key(key)).FillWidth().Height(videoSettingsRowH).
+		Padding(0, videoSettingsRowPad).Justify(ui.Start).Radius(6).
+		Label("视频设置：" + label).Tooltip(tip)
+	setDisabledOpacity(row, true, playerButtonDisabledOpacity)
+	row.Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			ui.Text(c, label).FontSize(12.5).TextColor(t.text(settingsItemInk)).
+				Grow(1).SingleLine().Ellipsis("…")
+			ui.Text(c, "不适用").FontSize(10.5).Shrink(0).
+				TextColor(t.text(settingsItemInk.Alpha(0.62)))
+		})
+	})
 }
 
 // settingsChoice 是档位行里的一颗按钮。

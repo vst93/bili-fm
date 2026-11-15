@@ -804,8 +804,12 @@ func (v *VideoChrome) init(now time.Time) {
 	set := v.settings()
 	set.Ensure()
 	// 共享设置一变就落到这个窗口的播放器上：主窗改音量 / 倍速，下一帧
-	// 视频窗就是新值；视频窗自己改，也是同一条路。EQ / 广告跳过没有
-	// 视频引擎可落（主窗的监听负责），这里只跟着状态走。
+	// 视频窗就是新值；视频窗自己改，也是同一条路。
+	// 音量均衡（SettingEQ）**不**在这里下发：原生视频的音频由系统媒体
+	// 框架直接解码输出，ui/video 的导出面没有任何 PCM 钩子（见
+	// eqVideoUnavailableTip），下发了也没有东西可落。SettingSponsor 同理
+	// 由跳过逻辑直接读共享值（View → skipSponsor → 播放器 Seek），不需要
+	// 监听。
 	v.detachSettings = set.OnChange(func(k PlayerSettingKind) {
 		switch k {
 		case SettingVolume:
@@ -1078,6 +1082,10 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 		ShowDur:        lo.TimeDur,
 		ShowNext:       lo.Next,
 		ShowEQ:         lo.EQ,
+		// 音量均衡对原生视频**不生效**：PCM 在系统媒体框架内部就送去声卡，
+		// 本仓库的 oto 均衡器拿不到那路采样（见 eqVideoUnavailableTip）。
+		// 这颗键因此在视频窗里置灰并说明原因，而不是照抄主窗的开关状态。
+		EQUnavailable:  true,
 		ShowSponsor:    lo.Sponsor,
 		OnPanel:        true,
 		TimelineColors: &colors,

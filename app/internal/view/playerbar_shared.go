@@ -221,6 +221,12 @@ type PlayerBarBind struct {
 	ShowEQ      bool
 	ShowSponsor bool
 
+	// EQUnavailable 表示这个窗口的声音不经过本仓库的 DSP 管线（原生视频由
+	// 系统媒体框架直接解码出声）：音量均衡键置灰、不可点，tooltip 说明原因
+	// 并报出主窗那条链路的当前值。**不**把共享的 EQ 当成本窗口的「开」态
+	// 显示 —— 那会让人以为视频的声音真被均衡了（见 eqVideoUnavailableTip）。
+	EQUnavailable bool
+
 	// OnPanel 表示键压在视频窗的 Panel 上（浅色下换墨色淡底）。
 	OnPanel bool
 }
@@ -327,9 +333,12 @@ func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
 }
 
 // playerSettingsItems 画四颗「设置类」键：音量 / 倍速 / 均衡 / 跳过广告。
-// 音量与倍速两列的句柄回填给调用方（弹层挂在列上）。四颗键都只改
+// 音量与倍速两列的句柄回填给调用方（弹层挂在列上）。四颗键都读写
 // PlayerSettings，由各自窗口的监听把值下发到引擎 —— 这就是「改一边另一边
 // 立刻反映」的接线点。
+//
+// 例外：EQUnavailable（原生视频窗）时均衡键置灰不可点 —— 那一窗口的声音
+// 不经过本仓库的 DSP 管线，eqVideoUnavailableTip 写明了原因与主窗当前值。
 func playerSettingsItems(c *ui.Context, b PlayerBarBind, volumeSlot, speedSlot *ui.Element) {
 	*volumeSlot = playerSlot(c, 34, func() { playerVolumeKey(c, b) })
 	*speedSlot = playerSlot(c, 40, func() { playerSpeedKey(c, b) })
@@ -406,25 +415,38 @@ func playerSpeedKey(c *ui.Context, b PlayerBarBind) {
 
 // playerEQKey 是第 7 列（34px）：音量均衡开关。视频窗没有自己的 EQ 引擎，
 // 这颗键改的是共享设置，由主窗的监听落到音频引擎。
+//
+// 但「视频窗没有自己的 EQ 引擎」不是「视频的声音会被均衡」：原生视频的
+// 音频由系统媒体框架直接输出，本仓库拿不到那路 PCM。所以视频窗传
+// EQUnavailable=true —— 键置灰、点击不写共享设置，tooltip 说明不适用并报出
+// 主窗当前值。主窗的这颗键行为不变（照常读写共享设置与 internal/media）。
 func playerEQKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
 	set := b.Set
+	tip := eqTip(set.EQ)
+	// 不可用时**不**画成「已开」：共享值只以文字出现在 tooltip 里，避免把
+	// 主窗那条链路的开启态误读成「这个窗口的均衡已生效」。
+	on := set.EQ
+	if b.EQUnavailable {
+		tip = eqVideoUnavailableTip(set.EQ)
+		on = false
+	}
 	btn := ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().
-		Role(ui.RoleToggleButton).Label(eqTip(set.EQ)).Tooltip(eqTip(set.EQ)).Checked(set.EQ)
-	disablePlayerButton(btn, !b.HasSrc)
+		Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)
+	disablePlayerButton(btn, !b.HasSrc || b.EQUnavailable)
 	if b.OnPanel {
-		playerPanelToolSurface(c, t, toolEq, btn, set.EQ, btn.Hovered(), btn.Pressed())
+		playerPanelToolSurface(c, t, toolEq, btn, on, btn.Hovered(), btn.Pressed())
 	} else {
-		playerToolSurface(c, t, toolEq, btn, set.EQ, btn.Hovered(), btn.Pressed())
+		playerToolSurface(c, t, toolEq, btn, on, btn.Hovered(), btn.Pressed())
 	}
 	playerPressPose(btn)
 	if !b.OnPanel || t.Dark {
 		playerRim(t, btn, Radius, true, sheenKindStatic, false, false)
 	}
 	btn.Children(func() {
-		ink := playerToolInk(t, toolEq, set.EQ, btn.Hovered())
+		ink := playerToolInk(t, toolEq, on, btn.Hovered())
 		if b.OnPanel {
-			ink = playerPanelToolInk(t, toolEq, set.EQ, btn.Hovered())
+			ink = playerPanelToolInk(t, toolEq, on, btn.Hovered())
 		}
 		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(c, btn, "player-eq-ink", ink)).

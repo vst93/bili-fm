@@ -1976,3 +1976,91 @@ GTK 的 keep-above hint 在 window-state-event 之后可能被清掉 —— 只�
 - Linux/Wayland（Sway/Hyprland/GNOME）下 keep-above 是否被合成器接受；
 - macOS 全屏 Space 进出后浮窗等级是否如预期（代码里已补一次重下发）；
 - 深色画面 + 深色主题下这颗键的激活态是否够明显。
+
+## 原生视频里的广告跳过 / 音量均衡（微轮 6，2026-11-15）
+
+两个问题各一个结论、一条依据链：
+
+- **广告跳过：生效**（接入本来就在，缺的是断言）。
+- **音量均衡：不生效**，视频窗与设置面板里按「不可用」如实呈现。
+
+### 广告跳过：生效
+
+分段来源与主窗完全是同一条链：
+
+1. `internal/bilibili.FetchSponsorSegments`（SponsorBlock 镜像 `bsbsb.top`
+   的 `GET /api/skipSegments?videoID=BV..&cid=..`，社区标记的时间段，不是 B 站
+   自有接口）→ `controller.sponsor` → `toViewSegments`；
+2. 开窗时进 `video.Options.SponsorSegments`，之后查询完成走
+   `Manager.SetSponsorSegments` → `nativeWindow.segments` → 每帧写进
+   `VideoChrome.SponsorSegments`（`internal/video/native.go` 的 `view`）。
+
+跳过判据只写在一处：`view.VideoChrome.skipSponsor`（`videochrome.go`），与主窗
+`controller.maybeSkipSponsor` 同值 —— 提前 0.25s、落点 `end+0.05s`、时长容差
+2s、只在播放中判；视频窗多一个 1s 时间闩（没有主窗那张 `skipped` 表）。
+
+「有没有真的对 `ui/video` 播放器发起 seek」：`VideoChrome.Pl` 在原生窗里是
+`uiPlayer{*ui.VideoPlayer}`（`native.go` 的 `playerAPI` 适配），
+`skipSponsor → seekTo → Pl.Seek` → `ui.VideoPlayer.Seek` → `videoEngine.seek`
+→ `media.Engine.Seek`，即系统媒体引擎的 seek（音频与画面一起）。系统框架每来
+一帧会 `SetWake` 唤醒窗口重建视图，所以判据按帧跑，不是靠轮询。
+
+此前这条链路一个断言都没有（主窗路径有 `TestSponsor*` 四条）。本轮补的断言：
+
+- `internal/video/sponsor_test.go`：原生窗到点 `Seek(45.05s)`；开关关闭不 seek；
+  提前量 0.25s 的边界；时长偏差 >2s 丢弃；暂停不跳；`SetSponsorSegments`
+  后补的分段照样跳。
+- `internal/view/videoeq_test.go`：视频窗外壳路径到点 seek、关闭不 seek、
+  seek 不连发。
+- `main_test.go`：主窗路径开关关闭时不 seek、不标记（`TestSponsorOffNoSeek`）。
+
+### 音量均衡：不生效（PCM 不在进程里）
+
+1. 均衡器的实现层：`internal/media/eq.go` 的 `Compressor`（逐样本复刻 Web
+   Audio 的 `DynamicsCompressorNode`），挂在 `internal/media/player.go` 的
+   `pipeline.finish`：「oto 解码 → 变速/WSOLA → 重采样 → 均衡 → s16le →
+   声卡」。它拿到的输入是**本仓库自己解码出来的 PCM**。
+2. `ui/video` 的导出面（v0.9.0）：`Open/OpenURL/OpenData` 与
+   `ui.VideoPlayer` 的 `Play/Pause/Playing/Ended/Ready/Buffering/Err/
+   Duration/Position/Seek/SetRate/SetVolume/SetMuted/Close`。**没有**任何音频
+   数据、输出设备或滤波器钩子。`videoEngine.SetVolume` 只是把增益交给系统
+   播放器（GStreamer `volume` 属性 / MF `engineSetVolume` / `AVPlayer
+   setVolume:`），拿不到采样。
+3. 因此原生视频的 PCM 在 AVFoundation / Media Foundation / GStreamer 内部就
+   送去声卡了，进程拿不到那路数据 —— 不是「没接上」，是**没有可接的钩子**。
+   调 `set.SetEQ` 只会改主窗音频引擎，对视频声音零影响。
+
+**UI 呈现（不伪造状态）**：
+
+- 控件条：均衡键保留但 `Disabled`（`.42` 置灰，见 `disablePlayerButton`），
+  tooltip / 无障碍名字换成 `eqVideoUnavailableTip(主窗值)`：
+  「音量均衡不适用于原生视频：声音由系统媒体框架直接输出，不经过本应用的
+  音频管线（主窗音频仍生效）· 主窗：开/关」。键**不**画成「已开」——
+  `Checked(false)`，共享值只以文字出现在说明里，避免把主窗链路的开启态误读成
+  视频声音被均衡。
+- 设置面板：`videoSettingsUnavailable` 行 —— 标签 + 右侧「不适用」，**不画
+  开关轨道**（轨道会让人以为点一下能开），整行禁用；下面一行 note 写明
+  「只作用于主窗音频」。
+- 为什么不直接隐藏：用户在主窗开着均衡，到视频窗找不到这一项会以为设置被吞
+  了；置灰 + 说明才回答得了「为什么这里没有」。也不让点击改共享设置
+  （禁用节点不接收命中）——「拖了开关只改 UI 不改声音」正是要避免的伪造。
+
+### 上游需要什么能力才能支持
+
+`ui/video` 至少要给其中一种（当前都没有）：
+
+1. **音频输出钩子**：如 `VideoPlayer.SetAudioTap(func(pcm []float32, ch, rate int))`
+   （GStreamer `appsink` / MF 的音视频取样 / AVPlayerItem 的音频输出），本仓库
+   在那路 PCM 上跑 `media.Compressor` 再自己输出；或
+2. **引擎内滤波器**：如 `SetAudioFilter(...)`，把均衡下放给框架的音频链；或
+3. **音频轨交给应用**（视频只出画面），代价是打破框架内建的音画同步。
+
+在那之前，注释与文档都不要把「视频窗共享 EQ」写成「生效」：
+`PlayerSettings.EQ` 是**主窗音频链路**的设置，视频窗只是共享同一个值。
+
+### 测试口径
+
+`Loud|Eq` 一组断言主窗链路不变：`internal/media` 的 `TestCompressor*` /
+`TestPipelineEQSwitchLatency`；视频窗那侧断言「禁用 / 不 Checked / 点击不改
+共享值」（`TestVideoEQKeyUnavailable`、`TestVideoSettingsSharedPlayback`、
+`TestPlayerBindTargetsSharedSettings`）。倍速与广告跳过的双向同步保持原样。

@@ -5,8 +5,9 @@ package view
 //   - 齿轮键开合：再点一次 / Esc / 点面板外都能关，Esc 只关面板不关窗口；
 //   - 弹幕 5 项：点一下立刻落到 VideoChrome 的弹幕设置（同一帧就影响渲染
 //     参数）并回传主窗落盘（OnDanmakuSettings / OnDanmakuToggle）；
-//   - 播放 3 项：倍速 / 音量均衡 / 广告跳过读写的是**共享的 PlayerSettings**
-//     —— 面板改主窗读到、主窗改面板读到（双向同步）；
+//   - 播放 3 项：倍速 / 广告跳过读写的是**共享的 PlayerSettings**（面板改
+//     主窗读到、主窗改面板读到）；音量均衡在原生视频里**不适用**（PCM 在系统
+//     媒体框架内部），面板里是不可用行，只能报出主窗当前值，不能改它；
 //   - 播放引擎：原生视频播放开关仍在面板里，翻转回传主窗；
 //   - 面板打开时控件条不自动隐藏，关闭后恢复原来的 2.5s 静默淡出；
 //   - 320×200 最小窗口：面板不撑破窗口、内部可滚、关闭键始终可达。
@@ -14,6 +15,7 @@ package view
 // 播放器与窗口都是纯逻辑桩（见 videochrome_test.go），不碰媒体框架。
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -252,17 +254,27 @@ func TestVideoSettingsSharedPlayback(t *testing.T) {
 	if pl.rate != 1.5 {
 		t.Errorf("播放器倍速 = %v，想要 1.5", pl.rate)
 	}
+	// 音量均衡：原生视频的 PCM 在系统媒体框架内部，这一行是「不适用」——
+	// 点了不许改共享设置（否则就是「只改状态、不改声音」的伪造）。
 	clickVideoSetting(t, tt, "视频设置：音量均衡")
-	if !set.EQ {
-		t.Error("音量均衡没有打开（共享设置）")
+	if set.EQ {
+		t.Error("「音量均衡」在原生视频里不适用，点击却改了共享 EQ")
+	}
+	if !tt.HasText("不适用") {
+		t.Errorf("面板里没有写清音量均衡不适用：%v", tt.Texts())
+	}
+	if info, ok := tt.Access("视频设置：音量均衡"); !ok || !info.Disabled || info.Checked {
+		t.Errorf("音量均衡行应为「禁用且未按下」：ok=%v info=%+v", ok, info)
+	} else if !strings.Contains(info.Description, "不适用于原生视频") {
+		t.Errorf("音量均衡行的说明没有讲原因：%q", info.Description)
 	}
 	clickVideoSetting(t, tt, "视频设置：广告跳过")
 	if !set.Sponsor {
 		t.Error("广告跳过没有打开（共享设置）")
 	}
-	// 面板里的按压态 / 选中态跟着共享状态走。
+	// 面板里的按压态 / 选中态跟着共享状态走（音量均衡不在其中：它没有
+	// 可按压的开关，主窗当前值以 tooltip 文字报出）。
 	for label, want := range map[string]bool{
-		"视频设置：音量均衡":    true,
 		"视频设置：广告跳过":    true,
 		"视频设置：倍速 1.5x": true,
 	} {
@@ -276,7 +288,7 @@ func TestVideoSettingsSharedPlayback(t *testing.T) {
 
 	// ---- 主窗 → 面板
 	set.SetSpeed(2)
-	set.SetEQ(false)
+	set.SetEQ(true)
 	set.SetSponsor(false)
 	tt.Frame()
 	if pl.rate != 2 {
@@ -288,11 +300,25 @@ func TestVideoSettingsSharedPlayback(t *testing.T) {
 	if info, ok := tt.AccessByRole(ui.RoleToggleButton, "视频设置：倍速 1.5x"); !ok || info.Checked {
 		t.Errorf("主窗改成 2x 后面板仍勾着 1.5x（ok=%v）", ok)
 	}
-	for _, label := range []string{"视频设置：音量均衡", "视频设置：广告跳过"} {
-		if info, ok := tt.AccessByRole(ui.RoleSwitch, label); !ok || info.Checked {
-			t.Errorf("主窗关掉 %q 后面板的按压态没跟上（ok=%v info=%+v）", label, ok, info)
+	if info, ok := tt.AccessByRole(ui.RoleSwitch, "视频设置：广告跳过"); !ok || info.Checked {
+		t.Errorf("主窗关掉「视频设置：广告跳过」后面板的按压态没跟上（ok=%v info=%+v）", ok, info)
+	}
+	// 音量均衡：主窗打开后，面板仍然没有可按压的开关 —— 不把共享 EQ
+	// 画成这个窗口的「开」；主窗当前值只出现在禁用行的说明里。
+	if info, ok := tt.Access("视频设置：音量均衡"); !ok {
+		t.Error("面板里找不到音量均衡行")
+	} else {
+		if info.Checked {
+			t.Error("主窗打开音量均衡后，视频窗把它报成了本窗口已开（伪造状态）")
+		}
+		if !info.Disabled {
+			t.Error("音量均衡行应始终禁用（原生视频不适用）")
+		}
+		if !strings.Contains(info.Description, "主窗：开") {
+			t.Errorf("音量均衡行没有报出主窗当前值：%q", info.Description)
 		}
 	}
+	set.SetEQ(false)
 }
 
 // TestVideoSettingsNativeToggle 钉住「原生视频播放」仍然可选，且入口在面板里：

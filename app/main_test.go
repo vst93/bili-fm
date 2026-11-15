@@ -1492,6 +1492,10 @@ func TestSetVolumeZeroMutes(t *testing.T) {
 //   2. 落点 padding=0.05s：seek 到 end+pad
 //   3. 时长容差 2s：videoDuration 与 Dur 偏差超过则丢弃
 //   4. toast 频控 10s
+//
+// 这是**主窗音频路径**的断言（c.seek → 音频引擎）。原生视频窗是另一条
+// 路径（view.VideoChrome.skipSponsor → ui/video 的 Seek），断言在
+// internal/video/sponsor_test.go 与 internal/view/videoeq_test.go。
 
 // newTestController 创建一个最小化的 controller 用于 sponsor 测试。
 // SeekBusy=true 让 seek 只记 PendingSeek 不实际执行（避免依赖 mp）。
@@ -1569,6 +1573,23 @@ func TestSponsorDurationWithinTolerance(t *testing.T) {
 	c.maybeSkipSponsor(15)
 	if c.app.PendingSeek != 20.05 {
 		t.Errorf("容差内的分段应正常跳过，seek=%v", c.app.PendingSeek)
+	}
+}
+
+// TestSponsorOffNoSeek 钉住主窗路径也受共享开关控制：关掉后到点不 seek、
+// 不标记（与原生视频窗那条开关共用 PlayerSettings.Sponsor）。
+func TestSponsorOffNoSeek(t *testing.T) {
+	c := newTestController([]bilibili.SponsorSegment{
+		{Category: "sponsor", Start: 10, End: 20},
+	}, 100)
+	c.sponsorOn = false
+
+	c.maybeSkipSponsor(15)
+	if c.app.PendingSeek != 0 {
+		t.Errorf("广告跳过关闭时不该 seek，实际 %v", c.app.PendingSeek)
+	}
+	if c.skipped[0] {
+		t.Error("广告跳过关闭时不该标记分段（下次打开仍应能跳）")
 	}
 }
 
