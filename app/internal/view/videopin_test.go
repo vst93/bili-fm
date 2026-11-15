@@ -9,7 +9,7 @@ package view
 //   - 激活 / 非激活两态**画出来**有可见差异（像素差异 + 无障碍按压态 +
 //     tooltip 文案），且置顶时用的是迷你窗那颗的实心图钉（不是另画一枚）；
 //   - 键尺寸与迷你窗那颗完全一致（30×30）；
-//   - 顶栏顺序：置顶是第一颗，且这一行仍然只有四颗键；
+//   - 顶栏顺序：置顶是第一颗，设置（齿轮）排在弹幕之后、窗口动作之前；
 //   - 全屏进出后置顶状态不丢、并且重新下发过一次（见 videochrome.go 的
 //     View：DWM / AppKit / GTK 在状态切换时可能清掉顶层窗口等级）；
 //   - 置顶「失败」（Wayland 合成器忽略 keep-above）不影响播放与其它按钮。
@@ -184,11 +184,12 @@ func TestVideoPinKeyMatchesMini(t *testing.T) {
 }
 
 // TestVideoTitleBarKeyOrder 钉住顶栏顺序与键数：置顶是**第一颗**（最左），
-// 后面依次是弹幕 / 最小化 / 退出视频播放，且这一行只有这四颗键 —— 没有多冒出
-// 来的第五颗。
+// 后面依次是弹幕 / 视频设置（齿轮） / 最小化 / 退出视频播放，且这一行只有这
+// 五颗键 —— 窗口级动作（设置 / 最小化 / 退出）排在弹幕之后，设置是 2026-11
+// 新增的（视频窗内置设置面板的入口，见 videosettings.go）。
 func TestVideoTitleBarKeyOrder(t *testing.T) {
 	_, _, _, tt := videoPinProbe(t, false)
-	names := []string{"置顶", "弹幕", "最小化", "退出视频播放"}
+	names := []string{"置顶", "弹幕", "视频设置", "最小化", "退出视频播放"}
 	rects := make([]ui.Rect, len(names))
 	for i, n := range names {
 		r, ok := tt.Find(n)
@@ -206,7 +207,7 @@ func TestVideoTitleBarKeyOrder(t *testing.T) {
 		}
 	}
 
-	// 这一行里的**全部**按钮/开关：只有这四颗（顺序也一致）。
+	// 这一行里的**全部**按钮/开关：只有这五颗（顺序也一致）。
 	inBar := titleBarKeys(tt)
 	var got []string
 	for _, k := range inBar {
@@ -224,13 +225,14 @@ func TestVideoTitleBarKeyOrder(t *testing.T) {
 }
 
 // titleBarKeys 返回顶栏那一行（videoChromePad 起、高 videoChromeTitleH）里的
-// 按钮 / 开关类无障碍节点，按 x 从左到右排好。
+// 按钮 / 开关 / 展开键（设置那颗是 disclosure）类无障碍节点，按 x 从左到右排好。
 func titleBarKeys(tt *ui.Tester) []ui.AccessInfo {
 	top := float32(videoChromePad) - 1
 	bottom := float32(videoChromePad+videoChromeTitleH) + 1
 	var out []ui.AccessInfo
 	for _, info := range tt.AccessAll() {
-		if info.Role != ui.RoleButton && info.Role != ui.RoleToggleButton {
+		if info.Role != ui.RoleButton && info.Role != ui.RoleToggleButton &&
+			info.Role != ui.RoleDisclosure {
 			continue
 		}
 		if info.Bounds.Y < top || info.Bounds.Y > bottom {

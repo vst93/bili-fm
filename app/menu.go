@@ -53,8 +53,13 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			{Label: "全选", Role: mygo.RoleSelectAll},
 		}},
 		// 原版的「设置」子菜单：四个动作条目 + Cmd+Q 退出。macOS 没有
-		// 窗口内自绘设置下拉，所以三个播放偏好必须在这里以原生复选框出现；
-		// Windows / Linux 由 settingsmenu.go 的手绘菜单承担。
+		// 窗口内自绘设置下拉，所以主窗自己的偏好（桌面字幕 / 穿透 / 热力 /
+		// 顺着听 / 隐身）必须在这里以原生复选框出现；Windows / Linux 由
+		// settingsmenu.go 的手绘菜单承担。
+		//
+		// **视频相关项（弹幕 5 项 / 原生视频播放）不在菜单栏里**：用户要求
+		// 「播放页面的设置不要放在菜单栏下」，入口统一在视频窗顶栏的齿轮键
+		// （见 internal/view/videosettings.go）。
 		{Label: "设置", Submenu: []*mygo.MenuItem{
 			{Label: "关于应用", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuAbout() }},
 			{Label: "快捷键", Click: func(*mygo.MenuItem, *mygo.Window) { c.menuShortcuts() }},
@@ -67,9 +72,6 @@ func appMenuTemplate(goos string, c *controller) []*mygo.MenuItem {
 			// lyrics_clickthrough.go 的 lyricsApplyClickThrough）。
 			c.menuCheckbox("字幕鼠标穿透", c.app != nil && c.app.LyricsClickThrough, c.menuToggleLyricsClickThrough),
 			c.menuCheckbox("弹幕热力", c.app != nil && c.app.HeatOn, c.menuToggleHeat),
-			// 视频窗弹幕总开关：与视频窗控件条、主窗设置菜单里的「弹幕」是
-			// 同一个事实源（danmakuOn 键）。
-			c.menuCheckbox("弹幕", c.app != nil && c.app.DanmakuStyle.On, c.menuToggleDanmaku),
 			c.menuCheckbox("顺着听", c.app != nil && c.app.RadioOn, c.menuToggleRadio),
 			mygo.Separator(),
 			// 隐身入口上移（见 app/internal/view/settingsmenu.go）：它影响所有
@@ -96,8 +98,6 @@ func (c *controller) menuCheckbox(label string, checked bool, click func(*mygo.M
 		c.menuLyricsClickThrough = it
 	case "弹幕热力":
 		c.menuHeat = it
-	case "弹幕":
-		c.menuDanmaku = it
 	case "顺着听":
 		c.menuRadio = it
 	}
@@ -122,20 +122,6 @@ func (c *controller) syncMenuToggles() {
 	if c.menuRadio != nil {
 		c.menuRadio.SetChecked(c.app.RadioOn)
 	}
-	if c.menuDanmaku != nil {
-		c.menuDanmaku.SetChecked(c.app.DanmakuStyle.On)
-	}
-}
-
-// menuToggleDanmaku 是 macOS 原生菜单里的弹幕总开关。
-func (c *controller) menuToggleDanmaku(it *mygo.MenuItem) {
-	if c.app == nil {
-		return
-	}
-	s := c.app.DanmakuStyle
-	s.On = !s.On
-	c.setDanmakuStyle(s)
-	it.SetChecked(c.app.DanmakuStyle.On)
 }
 
 // menuToggleLyrics / menuToggleLyricsClickThrough / menuToggleHeat /

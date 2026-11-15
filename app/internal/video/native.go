@@ -95,6 +95,13 @@ type nativeWindow struct {
 	dmOn            bool
 	dmSettings      danmaku.Settings
 	onDanmakuToggle func(bool)
+	onDanmakuStyle  func(danmaku.Settings)
+
+	// nativeVideo 是设置面板「播放引擎」里那一行开关的当前值：开窗时是
+	// 主窗落盘的 nativeVideoPlayer（能在原生路径里就一定是开的），之后由
+	// 主窗 SetNativeEnabled / 面板里的点击改它。
+	nativeVideo    bool
+	onNativeToggle func(bool)
 
 	// pinned 是视频窗的置顶状态（顶栏最左那颗图钉）。它是窗口属性，不落盘在
 	// 这里：点一下就回到主窗存 videoPinned（见 chromeFor 的 OnPinToggle）。
@@ -200,6 +207,9 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		dmOn:       true,
 		dmSettings: danmaku.DefaultSettings(),
 		pinned:     o.VideoPinned,
+		// 能走到 newNativeWindow 就说明原生路径可用（Manager.tryNative 的
+		// 判定），面板里那一行默认是开的。
+		nativeVideo: true,
 	}
 	n.dm.SetItems(o.Danmaku)
 	n.win = mygo.NewWindow(mygo.WindowOptions{
@@ -209,8 +219,8 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		MinWidth:  320,
 		MinHeight: 200,
 		// 与 webview 弹窗同一套无边框外观：标题栏自绘（见 view），
-		// 顶栏四颗键：置顶 / 弹幕 / 最小化 / 退出视频播放；底部控件条没有关闭键。
-		// 顶部 34px 是拖动区。
+		// 顶栏五颗键：置顶 / 弹幕 / 设置（齿轮，弹出内置设置面板）/ 最小化 /
+		// 退出视频播放；底部控件条没有关闭键。顶部 34px 是拖动区。
 		Frameless: true,
 		// 起播前那一帧是黑的（视频自己的底色），显式给黑色避免白闪。
 		BackgroundColor: "#000000",
@@ -425,9 +435,11 @@ func (n *nativeWindow) view(c *ui.Context) {
 	ch.DanmakuSettings = n.dmSettings
 	ch.SponsorSegments = n.segments
 	ch.Pinned = n.pinned
+	ch.NativeVideo = n.nativeVideo
 	ch.View(c)
 	n.dmOn = ch.Danmaku
 	n.pinned = ch.Pinned
+	n.nativeVideo = ch.NativeVideo
 	n.report()
 }
 
@@ -485,6 +497,23 @@ func (n *nativeWindow) chromeFor() *view.VideoChrome {
 		OnDanmakuToggle: func(on bool) {
 			n.dmOn = on
 			if cb := n.onDanmakuToggle; cb != nil {
+				cb(on)
+			}
+		},
+		// 设置面板里改弹幕基本设置：先落窗口（这一帧就按新值排版），再回
+		// 主窗落盘 + 同步（主窗的 SetDanmakuSettings 会再把值送回来）。
+		OnDanmakuSettings: func(s danmaku.Settings) {
+			n.dmSettings = s
+			if cb := n.onDanmakuStyle; cb != nil {
+				cb(s)
+			}
+		},
+		// 设置面板里的「原生视频播放」：这个开关的唯一入口。翻的是窗口
+		// 本地状态 + 主窗落盘（Manager 的开关随即生效，下一集起播按新值）。
+		NativeVideo: n.nativeVideo,
+		OnNativeToggle: func(on bool) {
+			n.nativeVideo = on
+			if cb := n.onNativeToggle; cb != nil {
 				cb(on)
 			}
 		},

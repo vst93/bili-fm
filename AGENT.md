@@ -72,6 +72,18 @@
   两处：`controller.subtitlesAvailable()` 与 `controller.cloudProgressOn()`
   （后者 = `LoggedIn && !Incognito`）。未登录时**一个请求都不发**、不记失败日志、
   不写 `SubtitleError`。章节（view_points）不需要登录，别一起挡掉。
+- **视频 / 弹幕设置的唯一入口是视频窗顶栏的齿轮键**（`view.VideoChrome`
+  的 `settingsGearKey` → `internal/view/videosettings.go` 的 `ui.PopoverBase`
+  面板）。弹幕 5 项（总开关 / 不透明度 / 字号 / 显示区域 / 同屏上限）、播放
+  3 项（倍速 / 音量均衡 / 广告跳过 —— 与主窗**同一个** `PlayerSettings`
+  指针，双向同步）与「原生视频播放」都只在这里；主窗设置下拉与 macOS 原生
+  菜单里一处都不留（用户 2026-11：「播放页面的设置不要放在菜单栏下」，明确
+  不要两处入口）。落盘仍是既有入口与既有键：弹幕走 `Act.SetDanmakuStyle`
+  （`danmaku*`），原生开关走 `setNativeVideo`（`nativeVideoPlayer`）。面板
+  打开期间控件条不自动隐藏（`holdChrome` 里的 `showSettings`）；高度按窗口
+  封顶、内部 `ui.Scroll` —— 320×200 最小窗口也能开、能滚、能关（关闭键在
+  固定头部）。Esc 在面板开着时只关面板（`do()` 的 `videoKeyExit*`），全屏
+  同理。
 - **隐身模式 = 不续播**：`resolveResume` 在隐身时返回 0（云端不读、本地断点也
   不跳）。本地断点仍然照写，关掉隐身后能续上。用户 2026-11-10 明确要求。
 - **`--liquid-chromatic` 色散边（下暖 / 上冷）**（`paintPlayerChromatic`）：

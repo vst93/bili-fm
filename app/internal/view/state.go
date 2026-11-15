@@ -622,12 +622,9 @@ type Actions struct {
 	// ToggleHeat 开启 / 关闭弹幕热力。
 	ToggleHeat func()
 	// SetDanmakuStyle 把视频窗弹幕的基本设置（含总开关）落盘并同步给已开着
-	// 的视频窗。设置菜单里的每一档、视频窗控件条的开关都走它。
+	// 的视频窗。视频窗设置面板里的每一档、顶栏那颗开关都走它（主窗菜单里
+	// 已没有这些入口，见 videosettings.go）。
 	SetDanmakuStyle func(s danmaku.Settings)
-	// ToggleNativeVideo 开启 / 关闭原生视频播放（ui/video）。关掉后视频弹窗
-	// 走 webview：给「系统有 GStreamer 但播得不好」或需要浏览器画中画的用户
-	// 一条明确退路。
-	ToggleNativeVideo func()
 	// PersistFollow 把弹幕/字幕跟随开关落盘（手动滚动自动关闭时也调用）。
 	PersistFollow func()
 	// SelectSubtitle 选中第 index 条字幕轨（多语言 / 多版本）。
@@ -939,8 +936,8 @@ type App struct {
 	HeatCid     int64
 	HeatOn      bool
 	// DanmakuStyle 是视频窗弹幕的基本设置（开关 / 不透明度 / 字号 / 显示
-	// 区域 / 同屏上限）。主窗设置菜单与视频窗控件条共用这一个事实源，
-	// 落盘键见 app/prefs.go 的 danmaku* 一组。
+	// 区域 / 同屏上限）。视频窗顶栏的弹幕键与内置设置面板共用这一个事实源
+	// （主窗菜单里不再有这些入口），落盘键见 app/prefs.go 的 danmaku* 一组。
 	DanmakuStyle danmaku.Settings
 	// NativeVideo 是「视频弹窗用系统媒体框架（ui/video）播放」的开关，
 	// 默认开。关掉、或本机判定不可用（缺 GStreamer 等）时走 webview。
@@ -1125,9 +1122,6 @@ type App struct {
 	ShowSettings   bool
 	ShowAppearance bool
 	appearanceHeld bool
-	// SettingsDanmaku 表示设置下拉里切到了「弹幕设置」子面板。菜单收起时
-	// 复位，下次打开仍从主菜单开始。
-	SettingsDanmaku bool
 
 	// Mini 表示处于迷你模式（400×155 置顶小窗）。
 	Mini bool

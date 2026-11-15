@@ -189,8 +189,14 @@ type Manager struct {
 	dmItems    []danmaku.Item
 	dmOn       bool
 	dmSettings danmaku.Settings
-	// onDanmakuToggle 在视频窗控件条点弹幕键时调用（主窗落盘并同步回来）。
+	// onDanmakuToggle 在视频窗内点弹幕键时调用（主窗落盘并同步回来）。
 	onDanmakuToggle func(bool)
+	// onDanmakuStyle 在视频窗设置面板里改不透明度 / 字号 / 显示区域 /
+	// 同屏上限时调用（主窗落盘 + 同步回所有入口）。
+	onDanmakuStyle func(danmaku.Settings)
+	// onNativeToggle 在视频窗设置面板里点「原生视频播放」时调用（主窗落盘
+	// + 作用到本 Manager 的开关上）。这是这个开关的**唯一**入口。
+	onNativeToggle func(bool)
 	// onPinToggle 在视频窗顶栏点「置顶」键时调用（主窗落盘 videoPinned）。
 	onPinToggle func(bool)
 }
@@ -281,6 +287,20 @@ func (m *Manager) OnPinToggle(fn func(bool)) {
 	m.mu.Unlock()
 }
 
+// OnDanmakuStyle 设置视频窗设置面板里「改弹幕基本设置」的回调。
+func (m *Manager) OnDanmakuStyle(fn func(danmaku.Settings)) {
+	m.mu.Lock()
+	m.onDanmakuStyle = fn
+	m.mu.Unlock()
+}
+
+// OnNativeToggle 设置视频窗设置面板里「原生视频播放」开关的回调。
+func (m *Manager) OnNativeToggle(fn func(bool)) {
+	m.mu.Lock()
+	m.onNativeToggle = fn
+	m.mu.Unlock()
+}
+
 // SetNativeEnabled 开关原生视频路径（设置项「原生视频播放」）。
 // 关掉后所有 Open 直接走 webview —— 给「GStreamer 装是装了但播得不好」或
 // 需要弹幕覆盖层 / 画中画的用户一条明确的退路，也正好是「切换到 WebView
@@ -291,7 +311,13 @@ func (m *Manager) OnPinToggle(fn func(bool)) {
 func (m *Manager) SetNativeEnabled(on bool) {
 	m.mu.Lock()
 	m.nativeOK = on
+	n := m.native
 	m.mu.Unlock()
+	// 已开着的原生窗也要跟着变：设置面板里那一行的按压态读它（面板里自己
+	// 点的那一下已经翻过本地状态，这里管的是主窗 / 另一条入口改的情况）。
+	if n != nil {
+		n.apply(func() { n.nativeVideo = on })
+	}
 }
 
 // NativeEnabled 报告设置项当前是否允许走原生路径。
@@ -605,7 +631,11 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	m.mu.Lock()
 	n.dmOn, n.dmSettings = m.dmOn, m.dmSettings
 	n.onDanmakuToggle = m.onDanmakuToggle
+	n.onDanmakuStyle = m.onDanmakuStyle
+	n.onNativeToggle = m.onNativeToggle
 	n.onPinToggle = m.onPinToggle
+	// 能在原生路径里，说明这个开关是开的（关掉的话上面就 return 了）。
+	n.nativeVideo = true
 	if m.dmCid == o.DanmakuCid {
 		n.dm.SetItems(m.dmItems)
 	}

@@ -22,12 +22,16 @@ package view
 //   - 原版关闭键是右上角 38px 圆形按钮；这里按本应用的键族（28×28）放进
 //     标题栏右端，位置与主窗的窗控键对齐。**只此一颗**：控件条不再有关闭键
 //     （用户 2026-11 报「上下各有一个关闭按钮」，重复且顶上那颗曾经退出应用）。
+//   - 原版把播放设置放在页面自己的控件里；原生版统一收进顶栏齿轮键弹出的
+//     **设置面板**（videosettings.go）—— 弹幕 5 项 + 播放 3 项（共享设置）+
+//     原生视频播放，主窗菜单里一处都不留（用户 2026-11 的要求）。
 //
 // 视频窗的两种「离开」（语义见 PLAN.md 的「视频窗关闭语义」一节）：
 //
-//   - **退出视频播放**（顶栏第四颗键 / 窗口态 Esc）：关视频窗回主窗，是否
-//     续播音频按 video.RelayOnClose 判定。**不退应用。**
-//   - **最小化**（顶栏第二颗键 / Ctrl+W）：窗口最小化，播放与声音继续
+//   - **退出视频播放**（顶栏第五颗键 / 窗口态 Esc）：关视频窗回主窗，是否
+//     续播音频按 video.RelayOnClose 判定。**不退应用。**（设置面板开着时
+//     Esc 只关面板，见 do()。）
+//   - **最小化**（顶栏第四颗键 / Ctrl+W）：窗口最小化，播放与声音继续
 //     （最小化 ≠ 暂停），恢复后画面与进度接续。
 //
 // 退出应用只能从主窗发起：视频窗里**没有任何一颗按钮**能走到 quit()。
@@ -44,7 +48,7 @@ import (
 )
 
 // 尺寸（DIP）。控件条与主窗播放栏同一套节奏：播放键 42、工具键 32、
-// 倍速列 40、均衡/恰饭列 34、进度条 24、时间列 56、间距 8。顶栏四颗键
+// 倍速列 40、均衡/恰饭列 34、进度条 24、时间列 56、间距 8。顶栏五颗键
 // 与主窗标题栏动作键同尺寸（30×30、图标 15）。
 const (
 	VideoChromeKey    float32 = 30
@@ -183,8 +187,22 @@ type VideoChrome struct {
 	DanmakuOverlay *danmaku.Overlay
 	// DanmakuSettings 是主窗落盘的基本设置（不透明度 / 字号 / 区域 / 上限）。
 	DanmakuSettings danmaku.Settings
-	// OnDanmakuToggle 在视频窗内点弹幕键时调用（参数是点击后的开关值）。
+	// OnDanmakuToggle 在视频窗内点弹幕键（顶栏那颗 / 设置面板里的总开关）时
+	// 调用（参数是点击后的开关值）。
 	OnDanmakuToggle func(on bool)
+	// OnDanmakuSettings 在设置面板里改不透明度 / 字号 / 显示区域 / 同屏上限
+	// 时调用：主窗落盘并同步回来（总开关走 OnDanmakuToggle）。
+	OnDanmakuSettings func(s danmaku.Settings)
+
+	// NativeVideo 是「原生视频播放」开关的当前值（设置面板「播放引擎」那
+	// 一行）。与主窗 App.NativeVideo 同源：面板里改会走 OnNativeToggle 回
+	// 主窗落盘，再由 internal/video 把新值同步回这个字段。
+	//
+	// 它**始终**保留给用户自己选（用户要求：WebView 兜底与切换开关都保留）：
+	// 关掉就是固定走 WebView；开着时若本机不可用，起播会先询问（不自己切）。
+	NativeVideo bool
+	// OnNativeToggle 在面板里点「原生视频播放」时调用（参数是点击后的值）。
+	OnNativeToggle func(on bool)
 
 	// Pinned 是视频窗的「置顶」（顶栏最前面那颗图钉）。语义与主窗迷你模式
 	// 的 Pinned 完全一致：默认 false（迷你模式默认不置顶），切换只改窗口的
@@ -217,6 +235,9 @@ type VideoChrome struct {
 	showVolume bool
 	showSpeed  bool
 	wasVolHeld bool
+	// showSettings 表示顶栏齿轮键弹出的**设置面板**展开着（见
+	// videosettings.go）。展开期间控件条不自动隐藏（holdChrome）。
+	showSettings bool
 	// bubble 是进度条的悬停时间气泡（与主窗共用 seekBubbleState.draw）。
 	bubble seekBubbleState
 	// detachSettings 注销共享设置监听（关窗时调用，避免闭包挂在设置对象上）。
@@ -657,8 +678,11 @@ func (v *VideoChrome) View(c *ui.Context) {
 		v.togglePlay()
 	}
 
-	v.titleBar(c, t, alpha, full)
+	// 顶栏返回这一帧的齿轮键：设置面板的弹出位置由它定（框架按它摆平，
+	// 放不下时左右挪进窗口）。
+	gear := v.titleBar(c, t, alpha, full)
 	v.controlBar(c, t, alpha, full)
+	v.settingsPanel(c, t, gear)
 
 	// 全屏进出的黑幕（画在控件条之上，连它们一起过渡）。
 	if f := v.fs.fade(now); f > 0 {
@@ -772,23 +796,31 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	case v.Pl == nil:
 		return true
 	case !v.Pl.Playing(), v.Pl.Buffering(), v.seek.drag, v.barHover,
-		v.showVolume, v.showSpeed, v.fs.inFlight:
+		v.showVolume, v.showSpeed, v.showSettings, v.fs.inFlight:
 		return true
 	}
 	return false
 }
 
-// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 四颗键。
+// titleBar 是顶部那条：标题（单行省略）+ 拖动区 + 五颗键。
 //
-// 四颗键从左到右：**置顶 / 弹幕 / 最小化 / 退出视频播放**。置顶是窗口动作，
-// 排在整排最前面（用户本轮的要求），图标、键尺寸与激活态材质都用主窗迷你
-// 模式那颗固定键的同一份（见 pinKey）；弹幕是这一集最常用的开关（原版浮层
-// 里它在底部浏览器控件条上，原生版没有浏览器兜底，移到顶栏与标题同一行）；
-// 最小化与退出视频播放是窗口动作，位置与主窗的窗控键对齐。
+// 五颗键从左到右：**置顶 / 弹幕 / 设置 / 最小化 / 退出视频播放**。置顶是
+// 窗口动作，排在整排最前面（用户要求），图标、键尺寸与激活态材质都用主窗
+// 迷你模式那颗固定键的同一份（见 pinKey）；弹幕是这一集最常用的开关（原版
+// 浮层里它在底部浏览器控件条上，原生版没有浏览器兜底，移到顶栏与标题同一行）；
+// 设置（齿轮）弹出视频窗自己的设置面板（videosettings.go）；最小化与退出
+// 视频播放是窗口动作，位置与主窗的窗控键对齐。
 //
-// 全屏时只收掉最小化（全屏窗口没有「最小化」这回事，系统也不给），弹幕与
-// 退出视频播放仍在 —— 全屏里除了 Esc，还需要一条纯指针的出路。
-func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool) {
+// 设置键放**顶栏**而不是控件条：控件条已经是「跟这一集播放相关」的一排
+// （播放键 / 进度 / 时间 / 音量 / 倍速 / 均衡 / 跳过 / 全屏），320 宽时已经
+// 收到两行；设置是窗口级的（与置顶 / 最小化同一类），且它打开的面板要在
+// 控件条收起时也能操作 —— 放控件条右侧会把本来最满的那一行再挤掉一档。
+//
+// 全屏时只收掉最小化（全屏窗口没有「最小化」这回事，系统也不给），弹幕、
+// 设置与退出视频播放仍在 —— 全屏里除了 Esc，还需要一条纯指针的出路。
+//
+// 返回值是这一帧的齿轮键（设置面板的锚点）。
+func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool) ui.Element {
 	bar := ui.Row(c).Absolute().Left(videoChromePad).Right(videoChromePad).Top(videoChromePad).
 		Height(videoChromeTitleH).Padding(0, 8).Radius(videoChromeRadius).
 		AlignItems(ui.Center).Gap(videoChromeGap).DragWindow()
@@ -797,14 +829,17 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 	if alpha <= 0.01 {
 		bar.IgnoreInput(true)
 	}
+	var gear ui.Element
 	bar.Children(func() {
 		ui.Text(c, v.Title).FontSize(12.5).TextColor(t.Ink).
 			Grow(1).SingleLine().Ellipsis("…")
 		// 置顶排第一（最左）：它是窗口级动作，与主窗迷你模式的固定键同源。
 		v.pinKey(c, t)
-		// 弹幕：与上一轮同一个开关（同一个事实源：主窗设置菜单 /
-		// macOS 菜单 / 这里三处一致），只是位置搬到了顶栏。
+		// 弹幕：与设置面板里的「弹幕总开关」是同一个事实源（主窗落盘后
+		// 同步回来）。主窗菜单与 macOS 菜单里的入口本轮已按用户要求移除。
 		v.danmakuKey(c, t)
+		// 设置：弹出视频窗内置设置面板（同一族：30×30、齿轮、同一套悬停态）。
+		gear = v.settingsGearKey(c, t)
 		if !full {
 			if b := playerBarTitleKey(c, t, "video-min", "最小化", "最小化", iconMinus, false); b.Clicked() {
 				v.minimize()
@@ -816,6 +851,30 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 		}
 	})
 	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
+	return gear
+}
+
+// settingsGearKey 是顶栏的「设置」键（齿轮）：与置顶 / 弹幕 / 最小化 /
+// 退出视频播放**同一个** playerBarTitleKey（30×30、同一个圆角、同一条
+// 140ms 悬停过渡、按下 0.94、同样三条悬停态材质），展开时与置顶键一样给出
+// 激活态（蓝图标 + 淡蓝玻璃底）。图标与桌面字幕窗的设置键同一个字形，
+// 「设置」在这个应用里只有一个图标。
+//
+// 它是 disclosure（会弹出一块面板），读屏需要听到展开 / 收起，所以
+// RoleDisclosure + Expanded。
+func (v *VideoChrome) settingsGearKey(c *ui.Context, t Theme) ui.Element {
+	b := playerBarTitleKey(c, t, "video-settings", "视频设置", "视频设置",
+		iconLyricsGear, v.showSettings)
+	b.Role(ui.RoleDisclosure).Expanded(v.showSettings)
+	if b.Clicked() {
+		v.showSettings = !v.showSettings
+		// 两个控件条弹层与设置面板是同一类东西：同一时刻只开一个。
+		if v.showSettings {
+			v.showSpeed, v.showVolume = false, false
+		}
+		v.idle.touch(c.Now())
+	}
+	return b
 }
 
 // controlBar 是底部那条：与主窗播放栏**同一份控件代码**（playerbar_shared.go
@@ -1001,9 +1060,9 @@ func (v *VideoChrome) fullScreenKey(c *ui.Context, t Theme, full bool) {
 	}
 }
 
-// danmakuKey 是弹幕总开关（视频窗内的入口，紧跟在置顶后面）。
-// 状态回到主窗落盘，再经 internal/video 同步回这个窗口；这里先翻转本地
-// 状态，点完这一帧就见效。
+// danmakuKey 是弹幕总开关（视频窗内的入口之一，紧跟在置顶后面）。
+// 状态回到主窗落盘，再经 internal/video 同步回这个窗口；设置面板里的
+// 「弹幕总开关」是同一个方法、同一个事实源。
 func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	tip := "弹幕 · 已开"
 	if !v.Danmaku {
@@ -1011,10 +1070,7 @@ func (v *VideoChrome) danmakuKey(c *ui.Context, t Theme) {
 	}
 	b := playerBarTitleKey(c, t, "video-danmaku", "弹幕", tip, iconDanmaku, v.Danmaku)
 	if b.Clicked() {
-		v.Danmaku = !v.Danmaku
-		if v.OnDanmakuToggle != nil {
-			v.OnDanmakuToggle(v.Danmaku)
-		}
+		v.toggleDanmaku()
 	}
 }
 
@@ -1321,8 +1377,18 @@ func (v *VideoChrome) do(a videoKeyAction, now time.Time) {
 	case videoKeyFullScreen:
 		v.toggleFullScreen(now)
 	case videoKeyExitFullScreen:
+		// 设置面板开着时 Esc 先关面板（只关面板，不退全屏）。
+		if v.showSettings {
+			v.showSettings = false
+			return
+		}
 		v.fs.exit(now, v.Win)
 	case videoKeyExit:
+		// 同上：面板开着时 Esc 只关面板 —— 调设置时误关一整集的代价太高。
+		if v.showSettings {
+			v.showSettings = false
+			return
+		}
 		v.close()
 	case videoKeyMinimize:
 		v.minimize()

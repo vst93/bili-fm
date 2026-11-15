@@ -318,36 +318,46 @@ func TestSettingsMenuPlaybackToggles(t *testing.T) {
 	}
 }
 
-// TestSettingsMenuNativeVideoToggle 钉住「原生视频播放」开关：
+// TestSettingsMenuVideoItemsMoved 钉住「主窗设置菜单里不再有视频相关项」：
+// 弹幕 5 项（总开关 / 不透明度 / 字号 / 显示区域 / 同屏上限）与「原生视频
+// 播放」全部从主窗菜单移除（用户明确不要两处入口），入口统一到视频窗顶栏
+// 齿轮键弹出的设置面板（见 videosettings.go 与 videosettings_test.go）。
 //
-//   - 默认开（老版本没有这个键时也必须是开，否则升级后所有人被静默降级）；
-//   - 点一下回调触发、菜单不收起（与另外三个播放偏好同一套交互）；
-//   - 关掉后 App.NativeVideo 为假 —— 主程序据此调 vid.SetNativeEnabled。
-func TestSettingsMenuNativeVideoToggle(t *testing.T) {
+// 主窗**自己**的设置（桌面字幕 / 字幕鼠标穿透 / 弹幕热力 / 顺着听）保持不动。
+func TestSettingsMenuVideoItemsMoved(t *testing.T) {
 	a, tst := settingsProbe(t, 12)
-	if !a.NativeVideo {
-		t.Fatal("原生视频播放应默认开启")
-	}
-	got := 0
-	a.Act.ToggleNativeVideo = func() { got++; a.NativeVideo = !a.NativeVideo }
 	if err := tst.Click("设置"); err != nil {
 		t.Fatalf("点设置键失败：%v", err)
 	}
 	tst.Frame()
-	if _, ok := tst.Find("设置：原生视频播放"); !ok {
-		t.Fatalf("设置菜单里找不到「原生视频播放」开关（现有：%v）", tst.Texts())
+	gone := []string{
+		"设置：原生视频播放",
+		"设置：弹幕",
+		"弹幕设置",
+		"弹幕设置：不透明度 50%",
+		"弹幕设置：字号 大",
+		"弹幕设置：显示区域 上方 1/2",
+		"弹幕设置：同屏上限 30",
 	}
-	if err := tst.Click("设置：原生视频播放"); err != nil {
-		t.Fatalf("点原生视频播放开关失败：%v", err)
+	for _, label := range gone {
+		if _, ok := tst.Find(label); ok {
+			t.Errorf("主窗设置菜单里仍有 %q（应只在视频窗设置面板里）", label)
+		}
 	}
-	tst.Frame()
-	if got != 1 {
-		t.Fatalf("开关回调 %d 次，应为 1", got)
+	// 主窗自己的偏好还在（这一次别把它们一起删了）。
+	for _, label := range []string{"设置：桌面字幕", "设置：字幕鼠标穿透", "设置：弹幕热力", "设置：顺着听"} {
+		if _, ok := tst.Find(label); !ok {
+			t.Errorf("主窗设置菜单缺了主窗自己的开关 %q（现有：%v）", label, tst.Texts())
+		}
 	}
-	if a.NativeVideo {
-		t.Error("点一次后 NativeVideo 应为假")
+	// 弹幕设置的 5 项不再有任何主窗入口：源码里连子面板都不该留。
+	flat := flattenNoComments(t, "settingsmenu.go")
+	for _, dead := range []string{"danmakuSettingsPanel", "SettingsDanmaku", "settingsLink"} {
+		if srcHas(flat, dead) {
+			t.Errorf("settingsmenu.go 仍留着已迁走的入口 %q", dead)
+		}
 	}
-	if !a.ShowSettings {
-		t.Error("切换原生视频开关后设置菜单不应收起")
+	if a.ShowSettings != true {
+		t.Error("设置菜单应仍展开（本条只查条目）")
 	}
 }

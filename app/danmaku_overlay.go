@@ -63,9 +63,6 @@ func (c *controller) setDanmakuStyle(s danmaku.Settings) {
 		_ = c.kv.SetString(prefDanmakuArea, area)
 		_ = c.kv.SetString(prefDanmakuMaxOnScreen, strconv.Itoa(s.Max))
 	}
-	if c.menuDanmaku != nil {
-		c.menuDanmaku.SetChecked(s.On)
-	}
 	if c.app.Win != nil {
 		c.app.Win.Update(func() {})
 	}

@@ -167,10 +167,9 @@ type controller struct {
 	tray *mygo.Tray
 	// macOS 原生「设置」菜单里的三个播放偏好复选框。保存指针是为了让
 	// 抽屉 / 标题栏 / 快捷键等其它入口切换状态时，菜单勾选状态不会变旧。
-	menuLyrics  *mygo.MenuItem
-	menuHeat    *mygo.MenuItem
-	menuRadio   *mygo.MenuItem
-	menuDanmaku *mygo.MenuItem
+	menuLyrics *mygo.MenuItem
+	menuHeat   *mygo.MenuItem
+	menuRadio  *mygo.MenuItem
 	// 桌面字幕「鼠标穿透」复选框（与上面三个同一套同步）。
 	menuLyricsClickThrough *mygo.MenuItem
 	// lyricsDragging 表示正在拖动字幕窗（按下设置键后）；lyricsDraggingOwn
@@ -890,7 +889,6 @@ func (c *controller) wireActions() {
 		EndLyricsDrag:            c.endLyricsDrag,
 		ToggleHeat:               c.toggleHeat,
 		SetDanmakuStyle:          c.setDanmakuStyle,
-		ToggleNativeVideo:        c.toggleNativeVideo,
 		PersistFollow:            c.persistFollowPrefs,
 		ToggleLyricsConfig:       c.toggleLyricsConfig,
 		UpdateLyricsConfig:       c.updateLyricsConfig,
@@ -4282,6 +4280,17 @@ func (c *controller) wireVideo() {
 			s.On = on
 			c.setDanmakuStyle(s)
 		})
+	})
+	// 视频窗设置面板里改弹幕基本设置（不透明度 / 字号 / 显示区域 / 同屏上限）：
+	// 与顶栏那颗总开关走同一个落盘入口（setDanmakuStyle），已开着的窗口下一帧
+	// 就按新值排版。回调跑在窗口事件 goroutine 上，丢回界面线程。
+	c.vid.OnDanmakuStyle(func(s danmaku.Settings) {
+		runOnUI(c.app, !c.app.Hidden(), func() { c.setDanmakuStyle(s) })
+	})
+	// 视频窗设置面板里的「原生视频播放」：这个开关的**唯一入口**在视频窗
+	// （用户要求，主窗菜单里已移除）。落盘键仍是既有的 nativeVideoPlayer。
+	c.vid.OnNativeToggle(func(on bool) {
+		runOnUI(c.app, !c.app.Hidden(), func() { c.setNativeVideo(on) })
 	})
 	// 视频窗顶栏「置顶」键：落盘到新键 videoPinned（KV 只增不改）。
 	// 与主窗迷你模式的固定一致，默认 false；迷你模式那颗本身不落盘（退出
