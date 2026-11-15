@@ -2,6 +2,7 @@ package video
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
+
+	"github.com/vst93/bili-fm/app/internal/proxy"
 )
 
 // ---------------------------------------------------------------- 纯逻辑
@@ -452,5 +455,36 @@ func TestNativeViewEndedReplaysFromZero(t *testing.T) {
 	}
 	if n.endedFired {
 		t.Error("重播后 endedFired 没有复位，重播到结尾不会再报播完")
+	}
+}
+
+// TestNativeSourceIsProxyURL 钉住 mygo v0.9.1（#1754，Windows 按路径打开文件）
+// 的前提：原生路径拿到的是**本地代理的 http URL**，不是文件路径、也不是
+// `file://` —— 所以这条上游修复在本仓库没有要改的地方，中文路径也不会被
+// Media Foundation 当成系统代码页的百分号转义解码。
+//
+// 判据：给播放器的地址必须全是 ASCII（非 ASCII 已由 url.QueryEscape 转义），
+// 且代理解开后与上游一字不差（中文、空格都没坏）。
+func TestNativeSourceIsProxyURL(t *testing.T) {
+	upstream := "https://upos-sz-mirrorcos.bilivideo.com/第一集 中文名.mp4?auth_key=中文参数&x=1"
+	src := proxy.AudioURL(upstream)
+	for i := 0; i < len(src); i++ {
+		if src[i] <= 0x20 || src[i] >= 0x7f {
+			t.Fatalf("给播放器的地址里有非 ASCII/空白字节 %q（第 %d 个）：%s", src[i], i, src)
+		}
+	}
+	if !strings.HasPrefix(src, "http://127.0.0.1:") {
+		t.Fatalf("给播放器的不是本地代理 URL：%s", src)
+	}
+	// 原生判定要放行它（否则会莫名退回 webview 并弹「原生不可用」）。
+	if !nativeEligible(Options{Src: src}) {
+		t.Fatalf("本地代理 URL 没被判成可原生播放：%s", src)
+	}
+	u, err := url.Parse(src)
+	if err != nil {
+		t.Fatalf("代理 URL 解析失败：%v", err)
+	}
+	if got := u.Query().Get("url"); got != upstream {
+		t.Errorf("代理解出的上游 = %q，应为 %q", got, upstream)
 	}
 }

@@ -2064,3 +2064,82 @@ GTK 的 keep-above hint 在 window-state-event 之后可能被清掉 —— 只�
 `TestPipelineEQSwitchLatency`；视频窗那侧断言「禁用 / 不 Checked / 点击不改
 共享值」（`TestVideoEQKeyUnavailable`、`TestVideoSettingsSharedPlayback`、
 `TestPlayerBindTargetsSharedSettings`）。倍速与广告跳过的双向同步保持原样。
+
+## mygo v0.9.0 → v0.9.1（微轮 7，2026-11-15）
+
+依赖：`app/go.mod` 的 `github.com/egoist/mygo` v0.9.0 → **v0.9.1**
+（commit `13a0b3e`，2026-11-15）。`go mod tidy` 只在这一条命令上临时带代理，
+其余全部 `GOPROXY=off`。release 说「Go API 无破坏性变更」——自己
+`go build ./...` 验证过：编译、vet 全绿，**新增面**（不涉及既有签名）有三项：
+
+- `WindowOptions.IgnoreMouseEvents bool`（创建时声明整窗穿透）；
+- `Window.IgnoresMouseEvents() bool`（读回穿透状态）；
+- `Window.CornerRadius() float64`（窗口圆角半径，本轮不用）。
+
+### 三条结论表（五条变更逐条）
+
+| 变更 | 结论 | 一句依据 |
+| --- | --- | --- |
+| #1864 Linux/Wayland 无边框置顶窗压住其它窗 | **采用** | 本仓库从来没有自写 keep-above / layer-shell（置顶只有 `Window.SetAlwaysOnTop` 一条，本轮补源码级断言）；Wayland 下置顶现在由框架保证（创建时带 `AlwaysOnTop+SkipTaskbar+Frameless` 的窗直接是 overlay 层 surface），本仓库不再手写、也不需要手写。 |
+| #1758 创建时声明穿透 + 读回是否生效 | **采用（简化了两处）** | 字幕窗创建时就带 `IgnoreMouseEvents`（关掉 `ShowInactive` → 第一次下发区域之间的点击空档）；下发区域后读回 `IgnoresMouseEvents()`，仍是 true 就当后端没吃下区域、当场退回旧 API。 |
+| #1754 Windows 按路径打开文件（非 ASCII 路径） | **不采用（无路径场景）** | 我们给播放器的永远是本地代理的 **http URL**（`proxy.AudioURL`，上游地址经 `url.QueryEscape` 全 ASCII，代理解开后与上游一字不差），从不走文件路径 / `file://`；新测试钉住了这一点。 |
+| #1832/#1743 macOS 首帧唤醒、不在主线程读 asset tracks | **不采用（无需改代码，已确认）** | 起播失败判据是事件式的 `pl.Err() != nil`，没有任何「等 N 帧 / N 秒还没画面」的计时器；`openPlayer` 的 10s 超时套在「建播放器」这一步（0.9.1 之后这一步**更短**）；闩锁一次性。新测试跑 240 帧「还没就绪」不判失败、真报错只回退一次。 |
+| #499 音频免分配 / 少唤醒 + #1688 `ReadSound` 边界 | **不采用（无影响）** | 改动全在 mygo 的 `audio` 包（web 页面的 `<audio>` 那条链路），本仓库不 import 它；主窗声音走自己的 oto 管线（`internal/media`），EQ / 倍速 / 增益一条都没动。 |
+
+### 改了什么
+
+- `lyrics_clickthrough.go`：`lyricsRegionTarget` 多一个 `IgnoresMouseEvents()`
+  （读回）；`lyricsApplyClickThrough` 变成「下发区域 → 关整窗穿透 → **读回** →
+  没接住就重走回退路径」。回退路径（`SetIgnoreMouseEvents` + 指针轮询）原样保留。
+- `lyrics.go`：字幕窗的 `WindowOptions` 加 `IgnoreMouseEvents:
+  lyricsIgnoreMouse(a.LyricsClickThrough, false)`（与开关同源，不是常量）。
+- `internal/view/videochrome.go`：`applyPin` 的注释改成「Wayland 置顶由框架保证，
+  本仓库不再手写」，并写清视频窗**刻意不**进 overlay 形态的理由。
+- `internal/video/native.go`：建窗处注释写明为什么不在这里声明
+  `AlwaysOnTop / SkipTaskbar`。
+- 测试：`lyrics_clickthrough_test.go` 补「读回不一致就回退」「创建时声明穿透」
+  「仓库里没有手写平台抬窗符号」三条；`internal/video` 补「给播放器的是全 ASCII
+  的代理 URL」「首帧快慢不影响失败判定 + 闩锁一次」两条。
+
+### 为什么视频窗不进 Wayland overlay（明知能更稳）
+
+overlay 只看**创建时**的窗口选项，而且一旦成了 layer surface 就永远在上：框架里
+`SetAlwaysOnTop` 对 overlay 是空操作（`gtk-layer-shell` 没有「退出图层」的回头路）。
+视频窗的置顶是运行时可切的（顶栏图钉，落盘 `videoPinned`），把它声明成 overlay
+等于在 Wayland 上把「取消置顶」变成不可用 —— 比「置顶尽力而为（合成器可能忽略
+keep-above）」更糟。它也要留在任务栏里（overlay 的判据之一是 `SkipTaskbar`）。
+桌面字幕窗是 `Panel`（框架自己建的 layer surface），本来就吃到框架保证。
+
+### 测试口径
+
+- 置顶：`go test ./internal/view -run 'Pin|Chrome'` 全绿（改的是注释，行为不变）；
+  新增 `TestNoHandwrittenWindowRaiseFallback`（app 包，go/scanner 跳过注释扫源码：
+  不许出现 `gtk_window_set_keep_above` / `gtk_layer_*` / `HWND_TOPMOST` /
+  `setLevel:` 这类自写抬窗符号）。
+- 字幕穿透：`TestLyricsApplyClickThroughReadsBackRegion`（读回 false → 区域路径；
+  读回 true → 收回区域 + 整窗穿透；读回 true + 齿轮热区 → 回退后仍能点齿轮）、
+  `TestLyricsClickThroughDeclaredAtCreation`（源码级：选项由开关算出来）；
+  原有区域 / 回退 / 尺寸重算一组照旧全绿。
+- 视频：起播失败判定、询问式回退、广告跳过 seek、关闭语义、接力状态全绿
+  （`internal/video` 全套）。
+- 音频：主窗播放 / EQ / 倍速全绿（`internal/media` + app 的 `Loud|Eq|Player` 一组）；
+  与 v0.9.0 相比**无行为差异**（mygo 的 audio 包没进本仓库的构建图）。
+
+### 需真机确认
+
+- Linux/Wayland（Sway/Hyprland/KDE）：字幕窗（Panel，layer surface）的置顶与
+  输入区域仍然正常；GNOME（没有 layer-shell）下穿透退回整窗那条路。
+- Windows / macOS：字幕窗在创建那一刻不再截获一次点击（穿透开着时）。
+- macOS：首帧更快之后，原生窗起播到画面出现这一段观感（黑底 → 首帧）没变差。
+- 三平台中文标题的视频：`Src` 仍是 `127.0.0.1` 代理 URL，不涉及按路径打开。
+
+### 门槛（本机实跑，2026-11-15）
+
+- `GOPROXY=off go build ./...` + `go vet ./...`：**通过**。
+- `go test ./internal/video ./internal/view -run 'Video|Native|Chrome|Pin|Sponsor|Eq|Lyrics|ClickThrough|Fallback'`：**通过**
+  （video 4.96s、view 54.5s）。
+- `go test -count=1 -timeout=60m ./...`：**全绿**（app 1.0s、media 27.8s、
+  view 1544.6s、其余各包 ok）。
+- 六平台 `go build ./...`（linux/arm64 / amd64、darwin/amd64 / arm64、
+  windows/amd64 / arm64）：**全部通过**；另用 CI 的 `-tags=nethttpomithttp2`
+  + `CGO_ENABLED=0` 复核同样六个目标，也全过。

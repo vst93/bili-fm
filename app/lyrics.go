@@ -160,8 +160,10 @@ const lyricsClickThroughPollEvery = 80 * time.Millisecond
 // 再同步）。
 //
 // 实现统一走 mygo 的 `Window.SetInputRegion`：穿透时窗口只在设置键那一块收点击
-// （几何见 lyricsGearShapeRect），其余部分让给下面的窗口。`SetInputRegion` 用不了
-// 时退回整窗 `SetIgnoreMouseEvents` + 指针轮询临时取消穿透 —— 选路在
+// （几何见 lyricsGearShapeRect），其余部分让给下面的窗口。穿透在创建时就已声明
+// （WindowOptions.IgnoreMouseEvents），这里只把窗口从「整窗穿透」收窄到那一块，
+// 并读回 `IgnoresMouseEvents` 确认区域真的接住了。`SetInputRegion` 用不了时退回
+// 整窗 `SetIgnoreMouseEvents` + 指针轮询临时取消穿透 —— 选路在
 // lyricsApplyClickThrough 里，纯逻辑可测。
 func (c *controller) syncLyricsClickThrough() {
 	if c.lyricsWin == nil || c.app == nil {
@@ -517,6 +519,13 @@ func (c *controller) openDesktopLyricsIfReady() {
 		DisableMinimize:   true,
 		DisableMaximize:   true,
 		DisableFullScreen: true,
+		// 穿透在**创建时**就声明（mygo 0.9.1 的 WindowOptions.IgnoreMouseEvents，
+		// #1758）：窗口是 Hidden 创建、ShowInactive 显示之后才下发输入区域，
+		// 这段空档里用户的一次点击本来会落在这个置顶窗上（框架也来不及在
+		// create 与 SetIgnoreMouseEvents 之间拦）。声明值与开关同源
+		// （lyricsIgnoreMouse），之后 syncLyricsClickThrough 把窗口收敛到
+		// 「只有设置键那一块收点击」。
+		IgnoreMouseEvents: lyricsIgnoreMouse(a.LyricsClickThrough, false),
 		// 刻意不设 StateKey：mygo 的窗口状态会在 NewWindow 时覆盖显式
 		// 传入的 X/Y/尺寸，而 Linux Wayland 不允许创建后再定位 —— 两者
 		// 叠在一起就是「每次开关位置被重置」。位置/尺寸统一由本文件的
@@ -559,8 +568,9 @@ func (c *controller) openDesktopLyricsIfReady() {
 	win.SetBounds(mygo.Rectangle{X: x, Y: y, Width: w, Height: h})
 	c.syncLyricsWindowShadow()
 	win.ShowInactive() // 不抢当前应用焦点，桌面字幕只是被动显示
-	// 穿透要在窗口真存在之后才设得上（未 realize 的窗口由框架在 realize /
-	// map 时补上，见 mygo 的 applyIgnoreMouseEvents）。
+	// 穿透在创建时就声明了（WindowOptions.IgnoreMouseEvents），这里把它收敛到
+	// 「只有设置键那一块收点击」；下发后还要读回框架的回答（见
+	// lyricsApplyClickThrough），后端没吃下区域就退回整窗穿透。
 	c.syncLyricsClickThrough()
 	// 「指针在不在齿轮上」的轮询：齿轮永远可点（用户 2026-11-11 的要求），
 	// 而穿透窗收不到鼠标事件，只能靠屏幕坐标轮询。

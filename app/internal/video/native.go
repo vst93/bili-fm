@@ -221,6 +221,13 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		// 与 webview 弹窗同一套无边框外观：标题栏自绘（见 view），
 		// 顶栏五颗键：置顶 / 弹幕 / 设置（齿轮，弹出内置设置面板）/ 最小化 /
 		// 退出视频播放；底部控件条没有关闭键。顶部 34px 是拖动区。
+		//
+		// **刻意不在这里声明 AlwaysOnTop / SkipTaskbar**：置顶是运行时可切的窗口
+		// 属性（落盘值 VideoPinned，建窗后由外壳下发 SetAlwaysOnTop）。mygo 0.9.1
+		// 的 Wayland overlay（框架层的 layer surface）只在创建时就带
+		// `AlwaysOnTop + SkipTaskbar + Frameless` 的窗上生效，且一旦成了 layer
+		// surface 就永远在上 —— 视频窗要留在任务栏里、要能取消置顶，所以不进去。
+		// 详见 internal/view/videochrome.go 的 applyPin。
 		Frameless: true,
 		// 起播前那一帧是黑的（视频自己的底色），显式给黑色避免白闪。
 		BackgroundColor: "#000000",

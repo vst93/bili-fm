@@ -229,6 +229,44 @@ func TestNativeReportWaitsForFailure(t *testing.T) {
 	}
 }
 
+// TestNativeFailureIgnoringFirstFrameTiming 钉住「首帧快慢不影响起播失败判定」。
+//
+// mygo v0.9.1 的 macOS 两条（#1832 首帧唤醒 / #1743 不在主线程读 asset tracks）
+// 会让首帧到达的时刻变快或变慢。我们的判据是**事件式**的：只有播放器真的报错
+// （pl.Err() 非空）才算失败，没有任何「等了多少帧 / 多少秒还没画面」的计时器；
+// 而且闩锁是一次性的（onFailed 只触发一次）。所以 240 帧「还在加载」不许弹询问，
+// 真报错时正好一次。
+func TestNativeFailureIgnoringFirstFrameTiming(t *testing.T) {
+	pl := &stubPlayer{ready: false, buffering: true, dur: 60 * time.Second}
+	n := &nativeWindow{pl: pl}
+	failed := 0
+	n.onFailed = func(error) { failed++ }
+	// 慢首帧：240 帧都还没就绪（≈ 4 秒的画面帧），一帧都不许判失败。
+	for i := 0; i < 240; i++ {
+		n.report()
+	}
+	if failed != 0 {
+		t.Fatalf("首帧还没到就判了起播失败（%d 次）", failed)
+	}
+	// 快首帧：就绪也不改变什么（就绪不是「已判定成功」，失败仍按 Err 走）。
+	pl.ready, pl.buffering = true, false
+	for i := 0; i < 10; i++ {
+		n.report()
+	}
+	if failed != 0 {
+		t.Fatalf("就绪后出现了失败判定（%d 次）", failed)
+	}
+	// 真的报错：一次。之后同一错误再报也不会二次回退（闩锁）。
+	pl.err = errors.New("decoder missing")
+	n.report()
+	n.report()
+	pl.err = errors.New("decoder missing again")
+	n.report()
+	if failed != 1 {
+		t.Errorf("起播失败应只触发一次回退，实际 %d 次", failed)
+	}
+}
+
 // TestSwitchToWebViewWithoutPending 钉住边界：没有挂起请求时「切换」不建窗。
 func TestSwitchToWebViewWithoutPending(t *testing.T) {
 	m := New()

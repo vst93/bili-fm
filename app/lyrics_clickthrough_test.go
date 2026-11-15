@@ -1,6 +1,11 @@
 package main
 
 import (
+	"go/scanner"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo"
@@ -15,13 +20,26 @@ type fakeRegionWindow struct {
 	bounds  mygo.Rectangle
 	regions [][]mygo.Rectangle // 每次 SetInputRegion 的入参（nil = 收回整窗）
 	ignores []bool             // 每次 SetIgnoreMouseEvents 的入参
+	// stuck 模拟「后端没吃下输入区域」：读回永远是 true（还在整窗穿透）。
+	stuck bool
+	// ignoring 是最后一次下发的值，读回时返回它（帧架就是它自己）。
+	ignoring bool
 }
 
 func (f *fakeRegionWindow) Bounds() mygo.Rectangle { return f.bounds }
 func (f *fakeRegionWindow) SetInputRegion(rects []mygo.Rectangle) {
 	f.regions = append(f.regions, rects)
 }
-func (f *fakeRegionWindow) SetIgnoreMouseEvents(v bool) { f.ignores = append(f.ignores, v) }
+func (f *fakeRegionWindow) SetIgnoreMouseEvents(v bool) {
+	f.ignores = append(f.ignores, v)
+	f.ignoring = v
+}
+func (f *fakeRegionWindow) IgnoresMouseEvents() bool {
+	if f.stuck {
+		return true
+	}
+	return f.ignoring
+}
 
 func (f *fakeRegionWindow) lastRegion() ([]mygo.Rectangle, bool) {
 	if len(f.regions) == 0 {
@@ -262,5 +280,121 @@ func TestLyricsInputRegionMatchesGearHot(t *testing.T) {
 	text := mygo.Point{X: 100, Y: 60}
 	if lyricsGearHot(text, bounds) {
 		t.Error("字幕文字区不该判成在齿轮上")
+	}
+}
+
+// TestLyricsApplyClickThroughReadsBackRegion 钉住 mygo 0.9.1（#1758）的「读回
+// 是否生效」：设完输入区域、关掉整窗穿透之后读一次 `IgnoresMouseEvents`。
+// 框架说「这窗还在穿透」，就说明这一轮的区域没接住（后端没实现 / 库缺失 /
+// 窗口还没 realize），必须当场退回整窗穿透，而不是留一个既穿透又点不到齿轮的窗。
+func TestLyricsApplyClickThroughReadsBackRegion(t *testing.T) {
+	// 读回 false（区域接住了）：走区域路径，且先收了整窗穿透。
+	w := &fakeRegionWindow{bounds: mygo.Rectangle{Width: 560, Height: 100}}
+	region, whole := lyricsApplyClickThrough(w, true, true, false)
+	if !region || whole {
+		t.Fatalf("读回「不穿透」：region=%v whole=%v，应为 true/false", region, whole)
+	}
+	if v, ok := w.lastIgnore(); !ok || v {
+		t.Errorf("走区域前必须把整窗穿透设成 false，得到 %v（设置过：%v）", v, ok)
+	}
+
+	// 读回 true（区域没接住）：退回整窗穿透，并把区域收回。
+	w = &fakeRegionWindow{bounds: mygo.Rectangle{Width: 560, Height: 100}, stuck: true}
+	region, whole = lyricsApplyClickThrough(w, true, true, false)
+	if region || !whole {
+		t.Fatalf("读回仍穿透：region=%v whole=%v，应为 false/true", region, whole)
+	}
+	if rects, ok := w.lastRegion(); !ok || rects != nil {
+		t.Errorf("回退路径要把没生效的区域收回（nil），得到 %+v", rects)
+	}
+	if v, ok := w.lastIgnore(); !ok || !v {
+		t.Errorf("回退路径应设整窗穿透 true，得到 %v（设置过：%v）", v, ok)
+	}
+
+	// 读回 true + 指针压在齿轮上：回退后仍然临时不穿透（老 API 那条路）。
+	w = &fakeRegionWindow{bounds: mygo.Rectangle{Width: 560, Height: 100}, stuck: true}
+	region, whole = lyricsApplyClickThrough(w, true, true, true)
+	if region || whole {
+		t.Fatalf("齿轮热区 + 读回仍穿透：region=%v whole=%v，应为 false/false", region, whole)
+	}
+}
+
+// TestLyricsClickThroughDeclaredAtCreation 钉住 mygo 0.9.1（#1758）的「创建时
+// 声明穿透」：窗口选项里的 IgnoreMouseEvents 必须由穿透开关算出来（不是常量、
+// 不是默认 false）—— 否则从 ShowInactive 到第一次下发输入区域之间的那次点击
+// 会落在这个置顶窗上。真窗口在无头测试里建不出来，按本仓库既有做法核源码。
+func TestLyricsClickThroughDeclaredAtCreation(t *testing.T) {
+	src, err := os.ReadFile("lyrics.go")
+	if err != nil {
+		t.Fatalf("读 lyrics.go 失败：%v", err)
+	}
+	flat := strings.Join(strings.Fields(string(src)), "")
+	want := "IgnoreMouseEvents:lyricsIgnoreMouse(a.LyricsClickThrough,false),"
+	if !strings.Contains(flat, want) {
+		t.Fatalf("字幕窗没有在创建时声明穿透（缺 %q）：ShowInactive 与第一次同步之间的点击会落到窗口上", want)
+	}
+	// 声明值就是「此刻该不该穿透」的那一个纯函数（设置页独占时永远不穿透）。
+	if !lyricsIgnoreMouse(true, false) || lyricsIgnoreMouse(false, false) {
+		t.Error("lyricsIgnoreMouse 的语义变了：声明值应与它同源")
+	}
+}
+
+// TestNoHandwrittenWindowRaiseFallback 钉住「置顶不再手写平台兜底」：mygo
+// 0.9.1（#1864）起，Wayland 下「无边框 + 置顶 + 不进任务栏」的窗在创建时就是
+// overlay 层 surface，压不压得住由框架保证。本仓库的置顶只有一条路
+// `Window.SetAlwaysOnTop`（见 internal/view/videochrome.go 的 applyPin /
+// main.go 的迷你模式），仓库里**不许**再出现自己 dlopen / 直调平台符号去抬窗口
+// 的代码——注释里可以解释各平台语义，代码里不能再有一份。
+//
+// 用 go/scanner 读，跳过注释（解释性文字不算「手写兜底」）。
+func TestNoHandwrittenWindowRaiseFallback(t *testing.T) {
+	banned := []string{
+		"gtk_window_set_keep_above", // Linux：框架的 keep-above
+		"gtk_layer_init_for_window", // Linux：框架的 layer surface
+		"gtk_layer_shell_",          // Linux：layer-shell 任何入口
+		"HWND_TOPMOST",              // Windows：SetWindowPos 抬窗
+		"kCGFloatingWindowLevel",    // macOS：自己设窗口等级
+		"setLevel:",                 // macOS：NSWindow setLevel:
+	}
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "build", "frontend", "resources", "testdata", ".git":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fset := token.NewFileSet()
+		f := fset.AddFile(path, fset.Base(), len(src))
+		var s scanner.Scanner
+		s.Init(f, src, nil, 0)
+		for {
+			_, tok, lit := s.Scan()
+			if tok == token.EOF {
+				break
+			}
+			if tok == token.COMMENT {
+				continue
+			}
+			for _, b := range banned {
+				if strings.Contains(lit, b) {
+					t.Errorf("%s：出现手写的平台兜底符号 %q（置顶只走 Window.SetAlwaysOnTop）", path, b)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("扫描源码失败：%v", err)
 	}
 }

@@ -7,6 +7,14 @@ package main
 // 三平台都走它：输入区域 = 右上角设置键那一块（几何唯一来源是
 // lyricsGearShapeRect，与绘制出来的设置键同源）。
 //
+// mygo 0.9.1（#1758）补了两件事，本文件的形态跟着收敛：
+//
+//   - 穿透可以在**创建时**声明（`WindowOptions.IgnoreMouseEvents`）：窗口从
+//     建出来到第一次下发输入区域之间（Hidden 创建 → ShowInactive → 同步）
+//     不再有一个「整窗收点击」的空档。声明处见 lyrics.go 的窗口选项。
+//   - 穿透状态可以**读回**（`Window.IgnoresMouseEvents`）：设完区域后读一次，
+//     框架还说「这窗在穿透」，就说明这个后端没吃下区域，当场退回整窗穿透。
+//
 // 平台差异只在「输入区域能不能用」这一个布尔上：
 //
 //	Linux            X11 的 SHAPE 扩展 / Wayland 的 wl_surface 输入区域
@@ -45,6 +53,11 @@ type lyricsRegionTarget interface {
 	Bounds() mygo.Rectangle
 	SetInputRegion(rects []mygo.Rectangle)
 	SetIgnoreMouseEvents(v bool)
+	// IgnoresMouseEvents 读回框架对穿透的回答（mygo 0.9.1 的
+	// `Window.IgnoresMouseEvents`，三平台都是「最后一次下发的整窗穿透」）。
+	// 输入区域与整窗穿透同时存在时后者优先，所以设完区域后读回仍是 true，
+	// 就说明这个后端没吃下区域。
+	IgnoresMouseEvents() bool
 }
 
 var _ lyricsRegionTarget = (*mygo.Window)(nil)
@@ -104,7 +117,7 @@ func clearLyricsInputRegion(t lyricsRegionTarget) {
 	t.SetInputRegion(nil)
 }
 
-// lyricsApplyClickThrough 是穿透下发的可测内核：选路 → 下发区域 → 失败回退。
+// lyricsApplyClickThrough 是穿透下发的可测内核：选路 → 下发区域 → 读回 → 失败回退。
 //
 //   - click          此刻该不该穿透（lyricsIgnoreMouse 的结果）
 //   - regionOK       输入区域是否可用（lyricsInputRegionAvailable）
@@ -114,12 +127,18 @@ func clearLyricsInputRegion(t lyricsRegionTarget) {
 //
 // 走区域时整窗穿透**必须**显式设成 false —— mygo 文档写明
 // `SetIgnoreMouseEvents` 的优先级高于 `SetInputRegion`，留着 true 会让新 API
-// 完全失效（这正是删掉 Windows/macOS 上逐 tick 开关的原因）。
+// 完全失效（这正是删掉 Windows/macOS 上逐 tick 开关的原因）。设完再读回一次
+// （mygo 0.9.1 的 `IgnoresMouseEvents`）：读回仍是 true 就是「这个后端没吃下
+// 区域」，这一轮按回退路径走，而不是留一个既穿透又点不到齿轮的窗口。
 func lyricsApplyClickThrough(t lyricsRegionTarget, click, regionOK, gearHot bool) (region, wholeWindow bool) {
 	if lyricsClickThroughRouteFor(click, regionOK) == lyricsRouteInputRegion {
 		if setLyricsInputRegion(t, true) {
 			t.SetIgnoreMouseEvents(false)
-			return true, false
+			if !t.IgnoresMouseEvents() {
+				return true, false
+			}
+			// 读回仍是整窗穿透：区域没生效（后端没实现 / 库缺失 /
+			// 窗口还没 realize）。下面按回退路径重来一次。
 		}
 		// 下发不了（窗口还没 realize / 拿不到尺寸）：这一轮退回整窗穿透。
 	}

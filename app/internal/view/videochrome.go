@@ -1204,9 +1204,19 @@ func (v *VideoChrome) togglePin() {
 //     值本身不会被拒；
 //   - Windows：SetWindowPos(HWND_TOPMOST)；另一个进程的独占全屏会压住它，
 //     但调用本身不失败；
-//   - Linux/GTK：gtk_window_set_keep_above；X11 下由 WM 采信，**Wayland 下
-//     合成器可能直接忽略**（xdg-toplevel 没有 keep-above 协议），框架因此
-//     只记住「请求过的状态」。
+//   - Linux/GTK：gtk_window_set_keep_above，X11 下由 WM 采信。
+//
+// Wayland 下 keep-above 这条 xdg-toplevel 协议不存在，但 **mygo 0.9.1 起置顶
+// 由框架保证**（#1864）：创建时就带 `AlwaysOnTop + SkipTaskbar + Frameless`
+// 的窗在 Wayland 上直接是 layer-shell 的 overlay 层 surface，比任何顶层窗都
+// 高。本仓库**没有**、也不需要自己发 keep-above / layer-shell —— 置顶只有这
+// 一条 `SetAlwaysOnTop`（源码级断言见 app 包的
+// TestNoHandwrittenWindowRaiseFallback）。
+//
+// 视频窗刻意不把自己声明成那种 overlay：它要留在任务栏里、置顶要能随时取消，
+// 而 overlay 一旦成了 layer surface 就永远在上（框架里 `SetAlwaysOnTop` 对它是
+// 空操作），那等于把「取消置顶」在 Wayland 上变成不可用，比「置顶尽力而为」
+// 更糟。桌面字幕窗是 `Panel`（框架建的 layer surface），已经吃到这条保证。
 //
 // 所以置顶失败**不影响**播放与其它键：那颗键翻的是一个窗口属性，画面、声音、
 // 进度与控件条都不依赖它，也没有任何状态机以 IsAlwaysOnTop 为闸。
