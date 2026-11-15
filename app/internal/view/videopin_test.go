@@ -224,11 +224,11 @@ func TestVideoTitleBarKeyOrder(t *testing.T) {
 	}
 }
 
-// titleBarKeys 返回顶栏那一行（videoChromePad 起、高 videoChromeTitleH）里的
+// titleBarKeys 返回顶栏那一行（videoInset 起、高 videoChromeTitleH）里的
 // 按钮 / 开关 / 展开键（设置那颗是 disclosure）类无障碍节点，按 x 从左到右排好。
 func titleBarKeys(tt *ui.Tester) []ui.AccessInfo {
-	top := float32(videoChromePad) - 1
-	bottom := float32(videoChromePad+videoChromeTitleH) + 1
+	top := float32(videoInset) - 1
+	bottom := float32(videoInset+videoChromeTitleH) + 1
 	var out []ui.AccessInfo
 	for _, info := range tt.AccessAll() {
 		if info.Role != ui.RoleButton && info.Role != ui.RoleToggleButton &&

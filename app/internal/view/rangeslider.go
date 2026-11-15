@@ -35,6 +35,13 @@ type rangePaint struct {
 	ChapterMarks []float64
 	// Skin 非 nil 时用它替代按主题取的那套材质（视频窗的白面板要换滑块底色）。
 	Skin *rangeSkin
+	// BufferedFrom / BufferedTo 是缓冲层这一帧的颜色（零值 → 播放栏那对
+	// 青→天蓝）。视频窗换成灰蓝的中性带，与青→蓝的播放层一眼分色。
+	BufferedFrom ui.Color
+	BufferedTo   ui.Color
+	// HideIdleThumb 为真时滑块只在悬停 / 拖动中出现（视频窗：常态是一条干净
+	// 的轨道，指针压上去才浮出可拖的手柄）。
+	HideIdleThumb bool
 }
 
 // rangeGeom 是一条输入条的几何：TrackInset 是轨道相对外层矩形两端的内缩，
@@ -47,6 +54,17 @@ type rangePaint struct {
 type rangeGeom struct {
 	TrackInset  float32
 	TravelInset float32
+	// TrackH 是轨道的视觉高度（0 → timelineTrackH）。视频窗要一条更细的轨道
+	// （videoTrackH = 4），命中区仍由外层元素的高度给（timelineH = 24）。
+	TrackH float32
+}
+
+// trackH 是本几何下轨道的视觉高度。
+func (g rangeGeom) trackH() float32 {
+	if g.TrackH > 0 {
+		return g.TrackH
+	}
+	return timelineTrackH
 }
 
 var (
@@ -160,11 +178,12 @@ func rangeThumbScale(hovered, held bool) float32 {
 // rangeTrackRect 返回轨道的几何：外层矩形两端各内缩 geom.TrackInset，垂直居中。
 func rangeTrackRect(r ui.Rect, geom rangeGeom) ui.Rect {
 	cy := r.Y + r.H/2
+	h := geom.trackH()
 	return ui.Rect{
 		X: r.X + geom.TrackInset,
-		Y: cy - timelineTrackH/2,
+		Y: cy - h/2,
 		W: r.W - geom.TrackInset*2,
-		H: timelineTrackH,
+		H: h,
 	}
 }
 
@@ -197,7 +216,7 @@ func clamp01(v float32) float32 {
 // 画晚了会把轨道里的青色/红色标记压掉。
 func paintRangeShadow(p *ui.Painter, track ui.Rect, hovered bool, s rangeSkin) {
 	if hovered {
-		p.Shadow(track, timelineTrackH/2, 0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.08))
+		p.Shadow(track, track.H/2, 0, 0, 0, 2, ui.Hex("#0ea5e9").Alpha(0.08))
 		p.Shadow(track, timelineTrackH/2, 0, 2, 9, 0, ui.Hex("#0ea5e9").Alpha(0.16))
 		return
 	}
@@ -210,7 +229,7 @@ func paintRangeShadow(p *ui.Painter, track ui.Rect, hovered bool, s rangeSkin) {
 func paintRangeFill(p *ui.Painter, track ui.Rect, frac float32, c rangeColors, s rangeSkin) {
 	frac = clamp01(frac)
 	// 未播部分：半透明白（原版 --player-track-rest）。
-	p.Fill(track, c.Rest, timelineTrackH/2)
+	p.Fill(track, c.Rest, track.H/2)
 	if frac > 0.001 {
 		// 已播部分：90° 青 → 蓝（原版渐变在 --player-progress 处硬停）。
 		p.FillGradient(ui.Rect{X: track.X, Y: track.Y, W: track.W * frac, H: track.H},
@@ -218,10 +237,10 @@ func paintRangeFill(p *ui.Painter, track ui.Rect, frac float32, c rangeColors, s
 				From:  ui.Hex("#2dd4bf").Alpha(0.78),
 				To:    ui.Hex("#0284c7").Alpha(0.82),
 				Angle: 90,
-			}, timelineTrackH/2)
+			}, track.H/2)
 	}
 	paintRangeInsets(p, track, s)
-	p.Stroke(track, c.Border, timelineTrackH/2, 1)
+	p.Stroke(track, c.Border, track.H/2, 1)
 }
 
 // paintRangeInsets 画原版轨道那两条 inset 阴影：
@@ -235,7 +254,12 @@ func paintRangeFill(p *ui.Painter, track ui.Rect, frac float32, c rangeColors, s
 // mygo 的 Painter 没有 inset 阴影，用两条 1px 圆头线近似 —— 6px 高的轨道上
 // 只占最外圈各 1px，中间 4px 仍是纯底色/渐变，与原版的观感一致。
 func paintRangeInsets(p *ui.Painter, track ui.Rect, s rangeSkin) {
+	// 细轨道（≤ 4px）上两条 inset 会把中间那点底色吃掉，只留顶沿那条内高光
+	// —— 细轨道的「管壁」本来就读不出来。
 	p.Fill(ui.Rect{X: track.X + 1, Y: track.Y + 1, W: track.W - 2, H: 1}, s.TrackTop, 0.5)
+	if track.H <= 4 {
+		return
+	}
 	p.Fill(ui.Rect{X: track.X + 1, Y: track.Y + track.H - 2, W: track.W - 2, H: 1},
 		s.TrackBottom, 0.5)
 }
@@ -325,5 +349,42 @@ func paintRangeBar(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	if scale == 0 {
 		scale = rangeThumbScale(rp.Hovered, rp.Held)
 	}
+	if rp.HideIdleThumb && !rp.Hovered && !rp.Held {
+		return
+	}
 	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, scale, s)
+}
+
+// bufferedFrom / bufferedTo 是缓冲层这一帧的渐变色：主窗播放栏用原版那对
+// 青 → 天蓝；视频窗传自己的一对灰蓝（rangePaint.BufferedFrom/To），与青 → 蓝
+// 的播放层一眼分色。零值即播放栏默认。
+func (rp rangePaint) bufferedFrom() ui.Color {
+	if rp.BufferedFrom.A > 0 {
+		return rp.BufferedFrom
+	}
+	return ui.Hex("#5eead4").Alpha(0.50)
+}
+
+func (rp rangePaint) bufferedTo() ui.Color {
+	if rp.BufferedTo.A > 0 {
+		return rp.BufferedTo
+	}
+	return ui.Hex("#38bdf8").Alpha(0.46)
+}
+
+// bufferedEdge 是缓冲末端的 1px 收尾标记（原版 .player-timeline-buffered::after）。
+func (rp rangePaint) bufferedEdge() ui.Color {
+	if rp.BufferedTo.A > 0 {
+		return rp.BufferedTo
+	}
+	return ui.Hex("#7dd3fc").Alpha(0.70)
+}
+
+// timelineGeomWith 返回带指定视觉轨道高度的进度条几何（h <= 0 → 默认 6px）。
+// 视频窗用 videoTrackH = 4：轨道更细，命中区仍由外层元素的高度给（timelineH）。
+func timelineGeomWith(h float32) rangeGeom {
+	if h <= 0 {
+		return timelineGeom
+	}
+	return rangeGeom{TrackInset: timelineInset, TrackH: h}
 }

@@ -128,19 +128,18 @@ func TestVideoBarMaterialPaintsOverPicture(t *testing.T) {
 }
 
 // videoBarProbeFill 渲染一帧视频窗（背后是给定的画面色），返回标题栏内缘的
-// 一个像素。
+// 一个像素（栏的竖直中点：描边与顶沿高光之内、文字与键之外的空处）。
 func videoBarProbeFill(t *testing.T, th Theme, screen ui.Color) ui.Color {
 	t.Helper()
 	img := videoBarProbeImage(t, th, screen)
-	// 标题栏 y ∈ [10, 46)：14 是描边与高光之内、文字之上的那一行。
-	return imageColor(img.RGBAAt(320, 14))
+	return imageColor(img.RGBAAt(320, int(videoInset+videoChromeTitleH/2)))
 }
 
 // videoBarProbeBorder 返回标题栏顶沿（描边）的一个像素。
 func videoBarProbeBorder(t *testing.T, th Theme, screen ui.Color) ui.Color {
 	t.Helper()
 	img := videoBarProbeImage(t, th, screen)
-	return imageColor(img.RGBAAt(320, int(videoChromePad)))
+	return imageColor(img.RGBAAt(320, int(videoInset)))
 }
 
 // videoBarProbeImage 起一个 640×360 的无头视频窗，画面整块铺成 screen 色。

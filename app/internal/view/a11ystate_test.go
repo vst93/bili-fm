@@ -43,17 +43,19 @@ func TestPlayerBarA11yStatesWired(t *testing.T) {
 		chain string
 	}{
 		{"音量键（aria-expanded）",
-			`ui.ButtonBase(c.Key("volume")).Size(32, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(b.ShowVolume)`},
+			`ui.ButtonBase(c.Key("volume")).Size(m.Key, m.Key).Radius(m.KeyR).Center().Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(b.ShowVolume)`},
 		{"倍速键（aria-expanded）",
-			`ui.ButtonBase(c.Key("speed")).Size(40, 32).Radius(Radius).Center().Role(ui.RoleDisclosure).Label(tip).Tooltip(tip).Expanded(b.ShowSpeed)`},
+			`ui.ButtonBase(c.Key("speed")).Size(m.SpeedW, m.Key).Radius(m.KeyR).Center().Role(ui.RoleDisclosure).Label(tip).Tooltip(tip).Expanded(b.ShowSpeed)`},
 		// 均衡键的 label / 按压态不再是内联的 eqTip(set.EQ)：视频窗要按
 		// EQUnavailable 换成「不适用」说明，所以统一由 tip / on 两个变量接上。
-		// 这里钉的仍是「RoleToggleButton + Checked」这条无障碍接线（主窗
-		// 由 eqTip(set.EQ) / set.EQ 驱动，视频窗的 on 恒为 false）。
+		// 尺寸由键令牌给（m.Wide / m.Key / m.KeyR）—— 主窗与视频窗的两套取值
+		// 收在 PlayerKeyMetrics 里，这里钉的仍是「RoleToggleButton + Checked」
+		// 这条无障碍接线（主窗由 eqTip(set.EQ) / set.EQ 驱动，视频窗的 on 恒
+		// 为 false）。
 		{"均衡键（aria-pressed）",
-			`ui.ButtonBase(c.Key("eq")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)`},
+			`ui.ButtonBase(c.Key("eq")).Size(m.Wide, m.Key).Radius(m.KeyR).Center().Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)`},
 		{"恰饭键（aria-pressed）",
-			`ui.ButtonBase(c.Key("sponsor")).Size(34, 32).Radius(Radius).Center().Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(set.Sponsor)`},
+			`ui.ButtonBase(c.Key("sponsor")).Size(m.Wide, m.Key).Radius(m.KeyR).Center().Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(set.Sponsor)`},
 		{"静音键（aria-pressed）",
 			`Center().Role(ui.RoleToggleButton).Label(pick(muted, "取消静音", "静音")).Tooltip(pick(muted, "取消静音", "静音")).Checked(muted)`},
 	}

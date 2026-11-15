@@ -90,11 +90,30 @@
   封顶、内部 `ui.Scroll` —— 320×200 最小窗口也能开、能滚、能关（关闭键在
   固定头部）。Esc 在面板开着时只关面板（`do()` 的 `videoKeyExit*`），全屏
   同理。
-- **视频窗上下两条栏是「厚玻璃」**（`view.videoBar` + `videoBarFill`）：底色 =
-  `Panel` 令牌 + 不透明度下限（浅 .93 / 深 .95，原 .88 / .92）。只抬 alpha、
-  不动 RGB —— 色相层次与 1px 线 + 顶沿内高光 + 投影都得在，抬到 1.0 就成了把
-  画面切成三条的纯色块。**别让它跟窗口透明度设置变薄**：主窗玻璃背后是应用
-  自己的背景，这两条背后是视频画面。可读性口径在
+- **视频窗的视觉取值全在 `view.videotokens.go`（2026-11 排版秩序那一轮）**：
+  用户 2026-11：「视频播放的界面还需要优化，现在的 UI 看着不够正式」——不加
+  功能、不加动效，靠秩序。规则：间距只有 4/8 两档（`videoStep`/`videoStep2`），
+  顶栏与控件条共用 `videoInset`（栏与窗口边缘）与 `videoPadX`（栏内左右），所以
+  两栏同宽同缩进（内容左缘 = 24）；**全部图标键**（顶栏 5 颗 + 播放/下一集/音量/
+  倍速/均衡/跳过/全屏）同尺寸同圆角（`videoKeySize` 30 / `videoKeyRadius` 6，
+  倍速这把文字值键宽度例外 `videoSpeedKeyW` = 40）；字号只有 13/600（标题）、
+  12（正文）、11（次要）三档；时间码用 `numericText`（tnum）并固定列宽
+  `videoTimeW` = 52。**别再往视图里写字面量尺寸 / 颜色**——那正是这轮清掉的东
+  西。键的四态只有一层表达（`videoKeySurfaceColors` + `videoKeyInk`：激活 = 单一
+  accent 底 + accent 墨，不叠描边 + 彩色投影），顶栏与控件条共用唯一的画法
+  `videoKeyTitle`（旧的 `playerBarTitleKey` + 面板键那两套已删）。共享的播放栏
+  代码（`playerbar_shared.go`）只读绑定里的键令牌 `PlayerKeyMetrics`：主窗是
+  42/32/34/40 那套（`playerKeyMetricsMain`），视频窗是 `videoPanelKeys()`。
+  两条栏各在对着画面的那条边补一条 1px 低对比 hairline（`videoHairline`，
+  顶栏底 / 控件条顶），不靠更厚的玻璃建立层次。弹幕区固定夹在两条栏之间
+  （`videoDanmakuArea`，顶/底固定弹幕与滚动弹幕同一上边距），不压控件条。
+  可读性与网格口径在 `videotokens_test.go`（网格 / 中心线 / 键令牌 / 时间码
+  固定宽 / hairline 低对比 / 四尺度两态不重叠）。
+- **视频窗上下两条栏是「厚玻璃」**（`view.videoTitleBar` / `videoControlBar` +
+  `videoBarFill`）：底色 = `Panel` 令牌 + 不透明度下限（浅 .93 / 深 .95，原
+  .88 / .92）。只抬 alpha、不动 RGB —— 色相层次与 1px 线 + 顶沿内高光 + 投影
+  都得在，抬到 1.0 就成了把画面切成三条的纯色块。**别让它跟窗口透明度设置变
+  薄**：主窗玻璃背后是应用自己的背景，这两条背后是视频画面。可读性口径在
   `videobar_material_test.go`（深浅 × 黑/白画面：`Ink`/`Muted` ≥ 4.5:1，
   图标与 `Blue` ≥ 3:1；并钉「渲染像素 = 材质叠画面」而不是纯色块）。
 - **控件条自动隐藏的规则只在 `videoChromeIdle` 里**：指针坐标一变（含 1px）

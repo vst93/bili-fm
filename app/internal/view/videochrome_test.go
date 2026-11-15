@@ -179,7 +179,7 @@ func TestVideoChromeHoldOnBarHover(t *testing.T) {
 	ch, _, _, tt := videoChromeProbe(t, 640, 360)
 	w, h := float32(640), float32(360)
 	// 控件条中心（离底 10 + 44/2）。
-	tt.Move(w/2, h-videoChromePad-videoChromeBarH/2)
+	tt.Move(w/2, h-videoInset-videoChromeBarH/2)
 	tt.Frame()
 	if !ch.barHover {
 		t.Fatalf("指针在控件条上，barHover 应为真（alpha=%v）", ch.idle.alpha)
@@ -694,7 +694,7 @@ func TestVideoChromePaintsChrome(t *testing.T) {
 			return n
 		}
 		top := nonBlack(10, 10, 630, 10+int(videoChromeTitleH))
-		bottom := nonBlack(10, 360-int(videoChromePad+videoChromeBarH), 630, 350)
+		bottom := nonBlack(10, 360-int(videoInset+videoChromeBarH), 630, 350)
 		if top < 500 {
 			t.Errorf("%s 主题：标题栏几乎没有像素（%d）", mode, top)
 		}
@@ -730,47 +730,17 @@ func TestVideoChromeDanmakuState(t *testing.T) {
 
 // ---------------------------------------------------------------- 纯函数
 
-// TestVideoSpeedStep 钉住倍速档位：与主窗 speedOptions 完全一致、末档回首档、
-// 未命中档位回首档（原地不动会让人以为按键没反应）。
-func TestVideoSpeedStep(t *testing.T) {
-	if len(VideoSpeeds) != len(speedOptions) {
-		t.Fatalf("视频窗档位 %v 与主窗 %v 长度不一致", VideoSpeeds, speedOptions)
-	}
-	for i := range VideoSpeeds {
-		if VideoSpeeds[i] != speedOptions[i] {
-			t.Errorf("档位 %d：视频窗 %v ≠ 主窗 %v", i, VideoSpeeds[i], speedOptions[i])
-		}
-	}
-	for i, v := range VideoSpeeds {
-		want := VideoSpeeds[(i+1)%len(VideoSpeeds)]
-		if got := videoSpeedStep(v, VideoSpeeds); got != want {
-			t.Errorf("videoSpeedStep(%v)=%v，想要 %v", v, got, want)
-		}
-	}
-	if got := videoSpeedStep(1.9, VideoSpeeds); got != VideoSpeeds[0] {
-		t.Errorf("未命中档位应回首档，得到 %v", got)
-	}
-	if got := videoSpeedStep(1, nil); got != 1 {
-		t.Errorf("空档位应回 1，得到 %v", got)
-	}
-	if got := videoSpeedLabel(1.25); got != "1.25x" {
-		t.Errorf("倍速文案 %q，想要 1.25x", got)
-	}
-	if got := videoSpeedLabel(2); got != "2x" {
-		t.Errorf("倍速文案 %q，想要 2x", got)
-	}
-}
-
-// TestVideoClockText 钉住时间文案（与主窗播放栏同一种 m:ss / h:mm:ss）。
-func TestVideoClockText(t *testing.T) {
+// TestVideoTimeText 钉住视频窗的时间文案：与主窗播放栏同一份 fmtTime
+// （m:ss / h:mm:ss），不再各写一套字符串拼接（旧的 clockText/pad2 已删）。
+func TestVideoTimeText(t *testing.T) {
 	cases := map[float64]string{
 		0: "0:00", 9.9: "0:09", 61: "1:01", 599: "9:59",
 		3600: "1:00:00", 3725: "1:02:05",
 		-1: "0:00",
 	}
 	for in, want := range cases {
-		if got := clockText(in); got != want {
-			t.Errorf("clockText(%v)=%q，想要 %q", in, got, want)
+		if got := fmtTime(in); got != want {
+			t.Errorf("fmtTime(%v)=%q，想要 %q", in, got, want)
 		}
 	}
 }
@@ -947,10 +917,11 @@ func TestVideoChromeFollowsThemeWhileOpen(t *testing.T) {
 	if !ok {
 		t.Fatalf("设置面板没有打开（现有文字：%v）", tt.Texts())
 	}
-	// 面板底色取开关行左侧（行内缩在面板 padding 之外一点）。
+	// 面板底色取开关行左上方（面板固定头部那一带：面板填充 + 静态洗光都在，
+	// 不落在任何一行自己的底色上）。
 	panelLight := render(light)
 	panelDark := render(dark)
-	p := [2]int{int(row.X) - 6, int(row.Y + row.H/2)}
+	p := [2]int{int(row.X) - 6, int(row.Y) - int(videoSettingsHeadH)/2}
 	lc, dc := sampleRGB(panelLight, p[0], p[1]), sampleRGB(panelDark, p[0], p[1])
 	if d := distRGB(lc, dc); d < 40 {
 		t.Errorf("设置面板的底色没有跟着主题换：浅 %v / 深 %v（通道差 %d）", lc, dc, d)

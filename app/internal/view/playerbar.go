@@ -2365,21 +2365,21 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	if buffered > 0.001 {
 		bw := track.W * buffered
 		p.FillGradient(ui.Rect{X: track.X, Y: track.Y, W: bw, H: track.H}, ui.LinearGradient{
-			From:  ui.Hex("#5eead4").Alpha(0.50),
-			To:    ui.Hex("#38bdf8").Alpha(0.46),
+			From:  rp.bufferedFrom(),
+			To:    rp.bufferedTo(),
 			Angle: 90,
-		}, timelineTrackH/2)
+		}, track.H/2)
 		// 缓冲末端的 1px 收尾标记（原版 .player-timeline-buffered::after）。
 		p.Fill(ui.Rect{X: track.X + bw - 0.5, Y: track.Y, W: 1, H: track.H},
-			ui.Hex("#7dd3fc").Alpha(0.70), 0)
+			rp.bufferedEdge(), 0)
 	}
 	// 章节分界：轨道顶端的 2px 小刻线。它不是弹幕热力（热力是播放栏
-	// 底部那条面积带），画满整个 6px 轨道会被误读成另一组柱状数据。
+	// 底部那条面积带），画满整个轨道会被误读成另一组柱状数据。
 	if rp.Dur > 0 {
 		for _, at := range rp.ChapterMarks {
 			frac := clampF(at/rp.Dur, 0, 1)
 			x := track.X + track.W*float32(frac)
-			p.Fill(ui.Rect{X: x, Y: track.Y, W: 1, H: 2},
+			p.Fill(ui.Rect{X: x, Y: track.Y, W: 1, H: min(2, track.H)},
 				ui.Hex("#ffffff").Alpha(0.55), 0)
 		}
 	}
@@ -2403,6 +2403,9 @@ func paintTimeline(p *ui.Painter, r ui.Rect, rp rangePaint) {
 	}
 
 	paintRangeFill(p, track, rp.Frac, rp.Colors, s)
+	if rp.HideIdleThumb && !rp.Hovered && !rp.Held {
+		return
+	}
 	paintRangeThumb(p, rangeThumbX(track, rp.Geom, rp.Frac), r.Y+r.H/2, rp.Hovered, rp.Held, rp.ThumbScale, s)
 }
 
@@ -2444,8 +2447,10 @@ func (a *App) timelinePaint(s ui.Element, frac float32, held bool, thumbScale fl
 // grid-template-columns: 80px 56px 1fr 56px 34px 40px 34px 40px，
 // 列宽由列容器决定，**里面按钮一律 32×32**（.player-button）。
 // 返回列容器本身：音量 / 倍速弹层要挂在它上面当锚点。
-func playerSlot(c *ui.Context, width float32, build func()) ui.Element {
-	return ui.Box(c).Width(width).Height(32).Shrink(0).Children(build)
+// playerSlot 是控件条里的一列：宽 width、高 height（由键令牌给），build 在
+// 其中建键。键居中放在列里，列宽与键宽一致时两键之间就正好是行间距。
+func playerSlot(c *ui.Context, width, height float32, build func()) ui.Element {
+	return ui.Box(c).Width(width).Height(height).Shrink(0).Center().Children(build)
 }
 
 // volumeButton 是第 5 列（34px）：点开音量弹层。
