@@ -172,6 +172,12 @@ type Manager struct {
 	// 它重开同一集（进度尽量接上）；选「取消」时清掉。
 	pending *Options
 
+	// theme / hasTheme 是主窗最近一次下发的主题令牌（SetTheme）。它是视频窗
+	// 外壳的唯一事实源：建窗时优先用它，避免「快照—建窗」之间主窗换了深浅、
+	// 窗口却带着旧令牌开出来，要关掉重开才跟上。
+	theme    view.Theme
+	hasTheme bool
+
 	// onFallback 在原生路径不可用、等用户决定时调用（主窗据此弹询问对话框）。
 	onFallback func(p *FallbackPrompt)
 
@@ -629,6 +635,11 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	// 弹幕状态以管理器为准：设置可能在窗口创建期间被改过；条目只在 cid
 	// 对得上时才套用（上一集的缓存不能画到这一集）。
 	m.mu.Lock()
+	// 主题也以管理器最近一次下发的那份为准（建窗过程中主窗可能刚切了
+	// 深浅色）：它比 Options 里的建窗快照新。
+	if m.hasTheme {
+		n.setTheme(m.theme)
+	}
 	n.dmOn, n.dmSettings = m.dmOn, m.dmSettings
 	n.onDanmakuToggle = m.onDanmakuToggle
 	n.onDanmakuStyle = m.onDanmakuStyle
@@ -833,6 +844,34 @@ func (m *Manager) Close() {
 	if w != nil {
 		w.Close()
 	}
+}
+
+// SetTheme 把主窗的新主题令牌推给视频窗（App.OnThemeChange 的唯一接收方）。
+//
+// 视频窗是独立窗口，不跑主窗的 Shell，读不到 App.Theme；从前的实现只在
+// 建窗时拷一份快照，主窗切浅色 / 深色 / 按时间 / 跟随系统（含跟随系统下
+// 桌面外观变化）、高对比、减少透明度之后，视频窗仍停在开窗那一刻的深浅上，
+// 必须关掉重开才生效（用户 2026-11 报）。
+//
+// 这里只换外壳的主题令牌，**不重建窗口**：播放器实例、播放位置、弹幕、
+// 全屏与置顶都不动，下一帧标题栏 / 控件条 / 设置面板 / 弹幕区底色就按新
+// 令牌重画。主题也不进画面区：ui/video 的画面不读任何令牌。
+func (m *Manager) SetTheme(t view.Theme) {
+	m.mu.Lock()
+	m.theme, m.hasTheme = t, true
+	n := m.native
+	m.mu.Unlock()
+	if n == nil {
+		// 窗口还没建：值已记在 m.theme 上，tryNative 建窗时会套给外壳。
+		return
+	}
+	if n.win == nil {
+		// 无头测试 / 窗口还没挂上（与 Invalidate 同一判据）：直接改，
+		// 下一次 n.view 就按新令牌画。
+		n.setTheme(t)
+		return
+	}
+	n.win.Update(func() { n.setTheme(t) })
 }
 
 // Invalidate 让原生视频窗重画一帧。主窗改了共享设置（音量 / 视频窗里

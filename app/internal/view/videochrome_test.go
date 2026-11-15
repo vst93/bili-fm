@@ -7,6 +7,7 @@ package view
 // videoStubWindow），窗口是 ui.NewTester 的无头渲染。
 
 import (
+	"image"
 	"math"
 	"testing"
 	"time"
@@ -824,4 +825,189 @@ func contrastRatio(a, b ui.Color) float64 {
 		la, lb = lb, la
 	}
 	return (la + 0.05) / (lb + 0.05)
+}
+
+// ---------------------------------------------------------------- 主题跟随
+
+// sampleRGB 取一个像素（图像坐标 = DIP，Tester 默认 zoom 1）。
+func sampleRGB(img *image.RGBA, x, y int) ui.Color {
+	if x < 0 || y < 0 || x >= img.Rect.Dx() || y >= img.Rect.Dy() {
+		return ui.Color{}
+	}
+	c := img.RGBAAt(x, y)
+	return ui.RGB(c.R, c.G, c.B)
+}
+
+// distRGB 是两色之间最大的单通道差（0..255）。
+func distRGB(a, b ui.Color) int {
+	d := func(x, y uint8) int {
+		if x > y {
+			return int(x - y)
+		}
+		return int(y - x)
+	}
+	return max(d(a.R, b.R), max(d(a.G, b.G), d(a.B, b.B)))
+}
+
+// nearestRGB 在一个盒子里找与 want 最接近的像素，返回那个像素与它的通道差。
+// 用来断言「这段文字真的用主题令牌画出来了」而不需要猜字形落在哪一列。
+func nearestRGB(img *image.RGBA, box ui.Rect, want ui.Color) (ui.Color, int) {
+	best, bestD := ui.Color{}, 1<<30
+	x0, y0 := max(int(box.X), 0), max(int(box.Y), 0)
+	x1, y1 := min(int(box.X+box.W)+1, img.Rect.Dx()), min(int(box.Y+box.H)+1, img.Rect.Dy())
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			c := sampleRGB(img, x, y)
+			if d := distRGB(c, want); d < bestD {
+				best, bestD = c, d
+				if d == 0 {
+					return best, 0
+				}
+			}
+		}
+	}
+	return best, bestD
+}
+
+// TestVideoChromeFollowsThemeWhileOpen 钉住用户 2026-11 报的那条回归：视频窗
+// **开着**的时候把主题从深切到浅、浅切到深，外壳当场换一套令牌 —— 标题栏 /
+// 控件条 / 设置面板的栏底与前景都变，不需要关掉重开；切换期间播放器、进度、
+// 全屏与置顶状态一个都不许动（只换令牌，不重建窗口）。
+func TestVideoChromeFollowsThemeWhileOpen(t *testing.T) {
+	ch, pl, win, tt := videoChromeProbe(t, 640, 360)
+	ch.Pinned = true
+	// 全屏状态直接由窗口桩给出（等价于用户用系统手势进的）—— 点控件条的
+	// 全屏键会被随后打开的设置面板挡住，而这条测试要同时量面板的像素。
+	win.full = true
+	tt.Frame()
+	if !ch.fs.full {
+		t.Fatalf("外壳没有观察到窗口的全屏状态")
+	}
+
+	light := ThemeFor(PeriodAt(12))
+	dark := ThemeFor(PeriodAt(12)).withAppearance("dark", 0)
+	beforePl := *pl
+	beforeSeeks := len(pl.seeks)
+	beforeSets := win.sets
+	beforeTops := len(win.topCalls)
+
+	render := func(th Theme) *image.RGBA {
+		ch.Theme = th
+		tt.Frame()
+		return tt.Image()
+	}
+
+	// ---- 面板关着：标题栏 / 控件条（面板会盖住控件条，先量这一轮）。
+	imgLight := render(light)
+	imgDark := render(dark)
+	title, ok := tt.Find("测试稿件 · 第一部分")
+	if !ok {
+		t.Fatalf("找不到标题文字（现有文字：%v）", tt.Texts())
+	}
+	pos, ok := tt.Find("0:30")
+	if !ok {
+		t.Fatalf("找不到控件条的时间文字（现有文字：%v）", tt.Texts())
+	}
+	closed := map[string][2]int{
+		"标题栏": {16, 28},
+		"控件条": {16, 360 - 38},
+	}
+	for name, p := range closed {
+		lc, dc := sampleRGB(imgLight, p[0], p[1]), sampleRGB(imgDark, p[0], p[1])
+		if d := distRGB(lc, dc); d < 40 {
+			t.Errorf("%s 的底色没有跟着主题换：浅 %v / 深 %v（通道差 %d）", name, lc, dc, d)
+		}
+		if relativeLuminance(lc) <= relativeLuminance(dc) {
+			t.Errorf("%s 的浅色底不比深色底亮：浅 %v / 深 %v", name, lc, dc)
+		}
+	}
+	for _, ink := range []struct {
+		name string
+		box  ui.Rect
+		want ui.Color
+		img  *image.RGBA
+	}{
+		{"标题栏", title, light.Ink, imgLight},
+		{"标题栏", title, dark.Ink, imgDark},
+		{"控件条", pos, light.PlayerTime, imgLight},
+		{"控件条", pos, dark.PlayerTime, imgDark},
+	} {
+		got, d := nearestRGB(ink.img, ink.box, ink.want)
+		if d > 48 {
+			t.Errorf("%s 的前景色不是主题令牌 %v：最接近的像素是 %v（通道差 %d）", ink.name, ink.want, got, d)
+		}
+	}
+
+	// ---- 打开设置面板，再切一轮：面板的底色与文字也必须换。
+	if err := tt.Click("视频设置"); err != nil {
+		t.Fatalf("点不到顶栏设置键：%v", err)
+	}
+	tt.Frame()
+	row, ok := tt.Find("视频设置：弹幕总开关")
+	if !ok {
+		t.Fatalf("设置面板没有打开（现有文字：%v）", tt.Texts())
+	}
+	// 面板底色取开关行左侧（行内缩在面板 padding 之外一点）。
+	panelLight := render(light)
+	panelDark := render(dark)
+	p := [2]int{int(row.X) - 6, int(row.Y + row.H/2)}
+	lc, dc := sampleRGB(panelLight, p[0], p[1]), sampleRGB(panelDark, p[0], p[1])
+	if d := distRGB(lc, dc); d < 40 {
+		t.Errorf("设置面板的底色没有跟着主题换：浅 %v / 深 %v（通道差 %d）", lc, dc, d)
+	}
+	if relativeLuminance(lc) <= relativeLuminance(dc) {
+		t.Errorf("设置面板的浅色底不比深色底亮：浅 %v / 深 %v", lc, dc)
+	}
+	for _, ink := range []struct {
+		name string
+		want ui.Color
+		img  *image.RGBA
+	}{
+		{"设置面板", light.text(settingsItemInk), panelLight},
+		{"设置面板", dark.text(settingsItemInk), panelDark},
+	} {
+		got, d := nearestRGB(ink.img, row, ink.want)
+		if d > 48 {
+			t.Errorf("%s 的前景色不是主题令牌 %v：最接近的像素是 %v（通道差 %d）", ink.name, ink.want, got, d)
+		}
+	}
+	if distRGB(light.Ink, dark.Ink) < 100 {
+		t.Fatalf("判据失效：浅/深两态的 Ink 几乎一样（%v / %v）", light.Ink, dark.Ink)
+	}
+
+	// 主题只在外壳上：画面区（ui/video 的 Content）不读令牌，仍是纯黑。
+	if got := sampleRGB(panelDark, 100, 180); got.R > 8 || got.G > 8 || got.B > 8 {
+		t.Errorf("画面区被主题染色了：%v", got)
+	}
+	if got, want := sampleRGB(panelLight, 100, 180), sampleRGB(panelDark, 100, 180); distRGB(got, want) > 2 {
+		t.Errorf("画面区在切主题时变了：浅 %v / 深 %v", got, want)
+	}
+
+	// 状态：播放 / 进度 / 全屏 / 置顶 / 设置面板开合 / 倍速音量都不动。
+	if !pl.playing || pl.playing != beforePl.playing {
+		t.Errorf("切主题把播放状态改了：playing=%v（之前 %v）", pl.playing, beforePl.playing)
+	}
+	if pl.pos != beforePl.pos {
+		t.Errorf("切主题把进度改了：%v（之前 %v）", pl.pos, beforePl.pos)
+	}
+	if len(pl.seeks) != beforeSeeks {
+		t.Errorf("切主题触发了 seek：%d 次（之前 %d）", len(pl.seeks), beforeSeeks)
+	}
+	if pl.rate != beforePl.rate || pl.vol != beforePl.vol || pl.muted != beforePl.muted {
+		t.Errorf("切主题改了播放器参数：rate %v→%v vol %v→%v muted %v→%v",
+			beforePl.rate, pl.rate, beforePl.vol, pl.vol, beforePl.muted, pl.muted)
+	}
+	if !win.full {
+		t.Error("切主题退出了全屏")
+	}
+	if win.sets != beforeSets {
+		t.Errorf("切主题重新下发了全屏：SetFullScreen 调用 %d 次（之前 %d）", win.sets, beforeSets)
+	}
+	if !ch.Pinned || len(win.topCalls) != beforeTops {
+		t.Errorf("切主题动了置顶：Pinned=%v，SetAlwaysOnTop 调用 %d 次（之前 %d）",
+			ch.Pinned, len(win.topCalls), beforeTops)
+	}
+	if !ch.showSettings {
+		t.Error("切主题把设置面板关掉了")
+	}
 }

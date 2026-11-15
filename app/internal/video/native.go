@@ -353,6 +353,15 @@ func (n *nativeWindow) apply(fn func()) {
 	n.win.Update(fn)
 }
 
+// setTheme 换一份主题令牌（外壳的标题栏 / 控件条 / 设置面板 / 弹幕区底色
+// 下一帧就用新值重画）。只改界面令牌：不碰播放器、进度、弹幕、全屏与置顶。
+func (n *nativeWindow) setTheme(t view.Theme) {
+	n.theme = t
+	if n.chrome != nil {
+		n.chrome.Theme = t
+	}
+}
+
 func (n *nativeWindow) play()  { n.apply(func() { n.pl.Play() }) }
 func (n *nativeWindow) pause() { n.apply(func() { n.pl.Pause() }) }
 
@@ -427,6 +436,10 @@ func (n *nativeWindow) focus() {
 func (n *nativeWindow) view(c *ui.Context) {
 	ch := n.chromeFor()
 	ch.Title = n.title
+	// 主题令牌以 n.theme 为准：主窗切深浅 / 跟随系统变档时 Manager.SetTheme
+	// 会改写它，这里每帧同步给外壳 —— 视频窗是独立窗口，不跑主窗的 Shell，
+	// 不推就会停在开窗那一刻的深浅上（关掉重开才生效）。
+	ch.Theme = n.theme
 	// 注意别把 nil 装进接口：`ch.Win = n.win` 在 n.win 为 nil 时会得到一个
 	// 「非 nil 的接口装着 nil 指针」，外壳的 `w == nil` 判据就失效了，
 	// 接着调 IsFullScreen 会直接卡死（测试里没有真窗口）。
@@ -444,6 +457,10 @@ func (n *nativeWindow) view(c *ui.Context) {
 	ch.Pinned = n.pinned
 	ch.NativeVideo = n.nativeVideo
 	ch.View(c)
+	// 外壳自己会在 init 里把零值主题按当前时段补齐（直接构造 nativeWindow 的
+	// 测试 / 独立使用）：回写一份，下一帧「ch.Theme = n.theme」才不会把它清回
+	// 零值导致第二帧掉回无主题。
+	n.theme = ch.Theme
 	n.dmOn = ch.Danmaku
 	n.pinned = ch.Pinned
 	n.nativeVideo = ch.NativeVideo

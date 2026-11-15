@@ -873,8 +873,12 @@ type App struct {
 	SubtitleError    string
 	// SubtitleFollow / DanmakuAutoScroll 是用户跟随偏好：默认开，手动关掉
 	// 后跨抽屉/视频/重启保留（见 prefs 的 subtitleFollow / danmakuFollow）。
-	SubtitleFollow        bool
-	subtitleList          ui.ListState
+	SubtitleFollow bool
+	subtitleList   ui.ListState
+	// progressHandle 绑在主窗播放栏的进度条上（playerTimeline 的 Handle）。
+	// 弹幕热力靠它量出轨道真正布局出来的矩形 —— 宽度必须与进度条一致；
+	// 458c170 把进度条搬进 playerbar_shared.go 时漏了这行绑定，热力就退回
+	// 「整条播放栏」的宽度（用户 2026-11 报的那条回归）。
 	progressHandle        ui.Handle
 	subtitleScrollIdx     int
 	subtitleScrollPending bool
@@ -947,6 +951,10 @@ type App struct {
 	// 绘制层看到版本变化就请求一次整窗重绘，保证新热力一定显示。
 	HeatVersion uint64
 	heatPainted uint64
+	// heatTrack 是最近一帧弹幕热力实际画在哪个矩形里（与进度条轨道同宽）。
+	// 只给测试量布局几何用：宽度那条回归（热力被拉成整条播放栏）必须能用
+	// bounds 断言，而不是靠像素猜（见 playerbar_heat_test.go）。
+	heatTrack ui.Rect
 	// RadioOn / RadioLoading 是「顺着听」状态。
 	RadioOn      bool
 	RadioLoading bool
@@ -1039,6 +1047,16 @@ type App struct {
 	OnDrawerChange func()
 	// drawerWatched 是上次通知 OnDrawerChange 时的 Drawer 值（界面线程）。
 	drawerWatched string
+
+	// OnThemeChange 在主题令牌被重新计算后调用一次（界面线程），参数是
+	// 新的 Theme。主程序把它接到视频窗（video.Manager.SetTheme）。
+	//
+	// 为什么需要它：视频窗是另一个窗口，不跑主窗的 Shell，也就读不到
+	// a.Theme —— 它只在建窗时拿到一份主题快照，此后主窗切浅色 / 深色 /
+	// 按时间 / 跟随系统（含跟随系统时桌面外观变化）、高对比、减少透明度，
+	// 视频窗都停在开窗那一刻的深浅上，必须关掉重开才生效（用户 2026-11 报）。
+	// 所有改主题的路径都必须走 setTheme，漏一处就又回到那个回归。
+	OnThemeChange func(Theme)
 
 	// 封面圆盘的旋转角（度）。播放时按真实时间累加，暂停时停住
 	// （原版是 #video-cover.record-disc 的 22s CSS 动画）。
@@ -1266,6 +1284,20 @@ func NewApp(repaint func()) *App {
 	return a
 }
 
+// setTheme 是**唯一**写 a.Theme 的入口：写入后把新令牌通知给 OnThemeChange
+// （视频窗等独立窗口靠它跟上深浅色）。
+//
+// 不做「值没变就不通知」的判断：Period 里有渐变切片，整份 Theme 不可比较；
+// 而所有调用点都已经自己挡掉了每帧的重复写入（见 Shell 的 hc/rt 比较、
+// SetSystemDark / SetReduceTransparency 的返回早退），一次通知最多是一帧窗口
+// 重画，频率跟主题真的变的那一刻一样低。
+func (a *App) setTheme(t Theme) {
+	a.Theme = t
+	if a.OnThemeChange != nil {
+		a.OnThemeChange(t)
+	}
+}
+
 // SetAppearance updates the app-wide appearance and transparency tokens.
 // mode is the user preference ("light", "dark", "auto" or "system");
 // "auto" resolves against the current time-of-day period (appearanceForPeriod)
@@ -1276,7 +1308,7 @@ func NewApp(repaint func()) *App {
 func (a *App) SetAppearance(mode string, transparency float64) {
 	a.Appearance = normalizeAppearance(mode)
 	base := ThemeFor(a.Theme.Period).withPreferences(a.Theme.HighContrast, a.rt)
-	a.Theme = a.refreshAppearance(base, transparency)
+	a.setTheme(a.refreshAppearance(base, transparency))
 }
 
 // AppearancePref returns the stored preference, falling back to the resolved
@@ -1453,7 +1485,7 @@ func SectionIndex(key string) int {
 func (a *App) RefreshTheme() {
 	t := a.Theme
 	base := ThemeAt(time.Now()).withPreferences(t.HighContrast, a.rt)
-	a.Theme = a.refreshAppearance(base, t.Transparency)
+	a.setTheme(a.refreshAppearance(base, t.Transparency))
 }
 
 // ReducedTransparency 报告桌面是否要求「减少透明度」。值为 main 经
@@ -1468,7 +1500,7 @@ func (a *App) SetReduceTransparency(rt bool) bool {
 		return false
 	}
 	a.rt = rt
-	a.Theme = a.refreshAppearance(a.Theme.withPreferences(a.Theme.HighContrast, rt), a.Theme.Transparency)
+	a.setTheme(a.refreshAppearance(a.Theme.withPreferences(a.Theme.HighContrast, rt), a.Theme.Transparency))
 	return true
 }
 
@@ -1489,7 +1521,7 @@ func (a *App) SetSystemDark(dark bool) bool {
 	// 把浅色令牌换成深色，不会反方向还原 —— 直接拿当前主题重推，系统从深色
 	// 转浅色时 Mode 变了、令牌却还停在深色。
 	base := ThemeFor(a.Theme.Period).withPreferences(a.Theme.HighContrast, a.rt)
-	a.Theme = a.refreshAppearance(base, a.Theme.Transparency)
+	a.setTheme(a.refreshAppearance(base, a.Theme.Transparency))
 	return true
 }
 

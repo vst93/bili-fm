@@ -4213,6 +4213,18 @@ func (c *controller) syncPlayingFromEngine() {
 //     暂停/播完/退出都不续播（语义见 video.RelayOnClose）；
 //   - 弹窗自然播完按播放模式续播。
 func (c *controller) wireVideo() {
+	// 主题令牌变化 → 视频窗。视频窗是独立窗口，不跑主窗的 Shell，读不到
+	// a.Theme；不推这一手，主窗切浅色 / 深色 / 按时间 / 跟随系统（含跟随
+	// 系统时桌面变档）之后它就停在开窗那一刻的深浅上，要关掉重开才生效
+	// （用户 2026-11 报的那条回归）。四种外观档位都经 App.setTheme 汇到
+	// 这一个回调里，高对比 / 减少透明度也走同一条路。
+	//
+	// 先推一次当前值：视频窗建窗时优先用 Manager 手里的主题（见
+	// video.Manager.SetTheme / tryNative），这样「快照—建窗」之间主窗
+	// 刚好换了档也不会让新窗带着旧令牌开出来。
+	c.app.OnThemeChange = func(t view.Theme) { c.vid.SetTheme(t) }
+	c.vid.SetTheme(c.app.Theme)
+
 	// 共享设置（主窗播放栏 / 视频窗控件条同一份）的唯一落点：音频引擎、
 	// 媒体中心、落盘、webview 回退路径。视频窗自己的播放器由它注册的
 	// 监听落到（见 view.VideoChrome.init）。

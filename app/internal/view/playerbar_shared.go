@@ -48,6 +48,10 @@ type PlayerTimelineBind struct {
 	OnFrame func(PlayerTimelineInput) (commit bool, value float64)
 	// OnSeek 是提交 seek 的出口（主窗走 Act.Seek，视频窗直通播放器）。
 	OnSeek func(sec float64)
+	// Handle 可选：把这条滑块绑到一个 ui.Handle，调用方以后能用它查到
+	// 轨道**布局出来的**矩形（弹幕热力就靠它对齐宽度，见 heatBarPainter）。
+	// 视频窗不传，主窗传 &App.progressHandle。
+	Handle *ui.Handle
 	// Bubble 是悬停时间气泡（主窗与视频窗都挂同一份）。
 	Bubble *seekBubbleState
 	// Overlay 在轨道画完之后叠一层（视频窗的缓冲呼吸描边）。
@@ -62,6 +66,9 @@ func playerTimeline(c *ui.Context, b PlayerTimelineBind) ui.Element {
 	hi := maxF64(b.Dur, 1)
 	s := ui.SliderBase(c, b.Value, 0, hi).FillWidth().Height(timelineH).
 		PaddingX(timelineInset).Label("播放进度").Step(0.1)
+	if b.Handle != nil {
+		s = s.Bind(b.Handle)
+	}
 	s.Disabled(b.Dur <= 0).DimDisabled(false)
 	if b.Dur <= 0 {
 		s.Opacity(progressDisabledOpacity)
@@ -192,6 +199,9 @@ type PlayerBarBind struct {
 	SeekValue *float64
 	OnFrame   func(PlayerTimelineInput) (commit bool, value float64)
 	OnSeek    func(sec float64)
+	// TimelineHandle 可选：绑定主窗的进度条句柄（App.progressHandle）。
+	// 弹幕热力用它取轨道真正的布局矩形，宽度才能与进度条一致。
+	TimelineHandle *ui.Handle
 	// Bubble 是悬停时间气泡的状态（每帧复用同一份，不能新建）。
 	Bubble *seekBubbleState
 	// Timeline 允许调用方换掉材质 / 颜色 / 叠缓冲描边；零值按主窗播放栏。
@@ -326,6 +336,7 @@ func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
 		OnSeek:   b.OnSeek,
 		Overlay:  b.TimelineOverlay,
 		Bubble:   b.Bubble,
+		Handle:   b.TimelineHandle,
 	})
 	if b.ShowDur {
 		playerTimeText(c, b.Theme, b.Dur, 11, 56)

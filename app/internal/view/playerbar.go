@@ -2069,14 +2069,16 @@ func (a *App) appPlayerBind() PlayerBarBind {
 				a.Act.Seek(sec)
 			}
 		},
-		OnFrame:    a.seekFrame,
-		Segments:   a.SponsorSegments,
-		Chapters:   a.chapterMarks(),
-		NextTip:    nextTip(),
-		CanNext:    a.canNavigate(),
-		OnNext:     a.Act.Next,
-		ShowVolume: a.ShowVolume,
-		ShowSpeed:  a.ShowSpeed,
+		OnFrame: a.seekFrame,
+		// 热力对齐用的进度条句柄：不绑就取不到轨道矩形（见 heatBarPainter）。
+		TimelineHandle: &a.progressHandle,
+		Segments:       a.SponsorSegments,
+		Chapters:       a.chapterMarks(),
+		NextTip:        nextTip(),
+		CanNext:        a.canNavigate(),
+		OnNext:         a.Act.Next,
+		ShowVolume:     a.ShowVolume,
+		ShowSpeed:      a.ShowSpeed,
 		OnVolumeKey: func() {
 			a.ShowVolume = !a.ShowVolume
 			a.ShowSpeed = false
@@ -2179,20 +2181,29 @@ const progressDisabledOpacity = 0.42
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
+// heatTrackRect 是弹幕热力的横向范围：**进度条轨道**，不是整条播放栏。
+//
+// 进度条是外层 24px 盒、轨道左右各内缩 timelineInset，且起点在第一列传输键
+// / 时间之后；热力必须跟它同一段宽度（左右边界对齐），否则就是一条横跨整窗
+// 的背景带（用户 2026-11 报的「热力被拉成整个播放栏」）。
+//
+// 轨道矩形只能从**已布局**的进度条句柄上取（a.progressHandle，见
+// appPlayerBind 的 TimelineHandle）。还没有布局时返回零值，调用方跳过绘制：
+// 退回整条栏宽的那种「兜底」正是回归的成因。
+func (a *App) heatTrackRect(c *ui.Context) ui.Rect {
+	if b := a.progressHandle.Bounds(c); b.W > 0 {
+		return rangeTrackRect(b, timelineGeom)
+	}
+	return ui.Rect{}
+}
+
 // heatBarPainter 返回弹幕热力的绘制回调，交给 playerBarPaint 与顶边共用
 // 一个 Draw。只在主窗、开关打开、有热力数据与时长时生效；迷你窗保持干净。
 func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
 	if a.Mini || !a.HeatOn || a.Dur <= 0 || len(a.DanmakuHeat) == 0 {
 		return nil
 	}
-	// 热力的横向范围与进度条轨道完全一致：进度条是外层 24px 盒、轨道左右
-	// 各内缩 7px，且起点在第一列传输键/时间之后，不是整条播放栏的 x=0。
-	// 用进度条的 Handle 取上一帧已布局的盒子，再套 rangeTrackRect 得到真正
-	// 的轨道；这样拖动进度、窗口缩放时热力不会比轨道宽出一截。
-	track := ui.Rect{}
-	if b := a.progressHandle.Bounds(c); b.W > 0 {
-		track = rangeTrackRect(b, timelineGeom)
-	}
+	track := a.heatTrackRect(c)
 	points, dur, dark := a.DanmakuHeat, a.Dur, a.Theme.Dark
 	version := a.HeatVersion
 	return func(p *ui.Painter, r ui.Rect) {
@@ -2202,7 +2213,7 @@ func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
 			a.heatPainted = version
 			p.AnimationFrame()
 		}
-		paintHeatBackdrop(p, r, track, points, dur, dark)
+		a.heatTrack = paintHeatBackdrop(p, r, track, points, dur, dark)
 	}
 }
 
@@ -2220,15 +2231,16 @@ var heatEdgePool = sync.Pool{New: func() any {
 }}
 
 // paintHeatBackdrop 把弹幕热力画成一条贴底的面积带：高度 = 该时刻的
-// 弹幕密度，纯色填充 + 1px 顶边。
+// 弹幕密度，纯色填充 + 1px 顶边。返回值是实际画出的矩形（没有可画的轨道
+// 时为零值），调用方拿它做布局几何断言（见 App.heatTrack）。
 //
 // 只有一个视觉：面积本身。此前面积按热度逐条变亮、再叠一条独立的折线，
 // 看起来像「柱状图 + 折线图 + 热力图」三张图；现在面积用同一个 alpha，
 // 顶边只是它的轮廓，不再单独画线。章节分界是另一回事，见 paintTimeline
 // 的短刻线。
-func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64, dark bool) {
+func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur float64, dark bool) ui.Rect {
 	if len(points) == 0 || r.H < 12 || dur <= 0 {
-		return
+		return ui.Rect{}
 	}
 	// 深色播放栏会把青色面积吃掉；暗模式换成更亮的青，并抬高透明度。
 	fillColor := ui.Hex("#38bdf8")
@@ -2237,19 +2249,19 @@ func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur 
 		fillColor = ui.Hex("#67e8f9")
 		fillBase, fillGain = 0.045, 0.12
 	}
-	// 还没有进度条布局（第一帧）时退回整个播放栏宽度；有布局时把
-	// 轨道夹进播放栏，横向也不会画到栏外。
+	// 没有轨道矩形（进度条还没布局 / 这一帧没画）就**不画**：从前退回整条
+	// 播放栏宽度，就是用户报的「热力被拉成整个播放栏」（进度条搬进共享
+	// 控件条时漏了句柄绑定，这里就总是走那条兜底）。
 	if track.W <= 0 {
-		track = r
-	} else {
-		x0 := max32(track.X, r.X)
-		x1 := min32(track.X+track.W, r.X+r.W)
-		if x1 <= x0 {
-			track = r
-		} else {
-			track = ui.Rect{X: x0, Y: r.Y, W: x1 - x0, H: r.H}
-		}
+		return ui.Rect{}
 	}
+	// 轨道夹进播放栏：两者本应重合，窗口缩放动画中间帧也不会画到栏外。
+	x0 := max32(track.X, r.X)
+	x1 := min32(track.X+track.W, r.X+r.W)
+	if x1 <= x0 {
+		return ui.Rect{}
+	}
+	track = ui.Rect{X: x0, Y: r.Y, W: x1 - x0, H: r.H}
 	base := r.Y + r.H - 1
 	height := r.H - heatBarTopInset - 1
 	if height < 2 {
@@ -2291,6 +2303,7 @@ func paintHeatBackdrop(p *ui.Painter, r, track ui.Rect, points []HeatPoint, dur 
 		edgeAlpha = 0.55
 	}
 	p.StrokePolyline(pts, 1, fillColor.Alpha(edgeAlpha))
+	return track
 }
 
 // paintTimeline 画进度条的轨道、已播进度与滑块。轨道与滑块的画法在

@@ -66,7 +66,7 @@ func (a *App) Shell(c *ui.Context) {
 	hc := c.Preferences().HighContrast
 	rt := a.ReducedTransparency()
 	if hc != a.Theme.HighContrast || rt != a.Theme.ReducedTransparency {
-		a.Theme = a.refreshAppearance(a.Theme.withPreferences(hc, rt), a.Theme.Transparency)
+		a.setTheme(a.refreshAppearance(a.Theme.withPreferences(hc, rt), a.Theme.Transparency))
 	}
 	if a.Mini {
 		a.MiniShell(c)

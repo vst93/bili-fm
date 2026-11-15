@@ -704,3 +704,79 @@ func TestAppearanceSystemControl(t *testing.T) {
 		t.Fatalf("落盘偏好应为 system，得到 %s", a.AppearancePref())
 	}
 }
+
+// TestThemeChangeNotifiesVideoHook 钉住视频窗跟随深浅色的**接线**：主窗四档
+// 外观（浅 / 深 / 按时间 / 跟随系统）与系统外观变化、高对比、减少透明度，
+// 每一次真的换主题都要经 App.setTheme 通知 OnThemeChange —— 视频窗是独立
+// 窗口，读不到 a.Theme，全靠这一手推送（见 main.go 的 wireVideo）。
+func TestThemeChangeNotifiesVideoHook(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	var pushed []Theme
+	a.OnThemeChange = func(th Theme) { pushed = append(pushed, th) }
+	last := func() Theme {
+		t.Helper()
+		if len(pushed) == 0 {
+			t.Fatal("主题变了，但没有通知视频窗")
+		}
+		return pushed[len(pushed)-1]
+	}
+
+	// 四档外观：每一档都要推一次，且推出去的就是 a.Theme。
+	sameTheme := func(x, y Theme) bool {
+		return x.Mode == y.Mode && x.Dark == y.Dark && x.Period.Name == y.Period.Name &&
+			x.Ink == y.Ink && x.Panel == y.Panel &&
+			x.HighContrast == y.HighContrast && x.ReducedTransparency == y.ReducedTransparency
+	}
+	for _, mode := range []string{"dark", "light", "auto", "system"} {
+		pushed = nil
+		a.SetAppearance(mode, 0)
+		got := last()
+		if !sameTheme(got, a.Theme) {
+			t.Errorf("外观 %s：推给视频窗的令牌与 a.Theme 不一致", mode)
+		}
+		want := mode
+		if mode == "auto" || mode == "system" {
+			// auto / system 解析成 light 或 dark，Appearance 仍保留原档位。
+			want = got.Mode
+			if want != "light" && want != "dark" {
+				t.Errorf("外观 %s 解析出了非浅非深的 Mode %q", mode, want)
+			}
+		}
+		if got.Mode != want {
+			t.Errorf("外观 %s：推出去的 Mode 是 %q，想要 %q", mode, got.Mode, want)
+		}
+		if a.AppearancePref() != mode {
+			t.Errorf("外观 %s：偏好没有按原档位保留（%q）", mode, a.AppearancePref())
+		}
+	}
+
+	// 跟随系统：桌面外观一变，视频窗必须收到（这就是「含跟随系统下系统外观
+	// 变化」那条要求）。
+	a.SetAppearance("system", 0)
+	pushed = nil
+	if !a.SetSystemDark(true) {
+		t.Fatal("系统外观从浅变深没有生效")
+	}
+	if got := last(); got.Mode != "dark" {
+		t.Errorf("系统转深色后推给视频窗的是 %q", got.Mode)
+	}
+	pushed = nil
+	if a.SetSystemDark(true) {
+		t.Error("系统外观没变却报告变了")
+	}
+	if len(pushed) != 0 {
+		t.Errorf("系统外观没变却推了一份令牌（%d 次）", len(pushed))
+	}
+
+	// 无障碍偏好同样要走同一条推送：高对比由 Shell 每帧比较、减少透明度由
+	// 主程序在 mygo.Theme.OnUpdated 里写入。
+	pushed = nil
+	a.SetAppearance("light", 0)
+	a.Theme.HighContrast = true
+	a.Theme.ReducedTransparency = true
+	a.setTheme(a.Theme.withPreferences(true, true))
+	if got := last(); !got.HighContrast || !got.ReducedTransparency {
+		t.Errorf("无障碍偏好变化没有推给视频窗：%+v", got)
+	}
+}
