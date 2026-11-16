@@ -51,7 +51,7 @@ func New(cb Callbacks) Controller {
 			"Identity":            {Value: "bili-FM", Writable: false, Emit: prop.EmitTrue},
 			"DesktopEntry":        {Value: "bili-fm", Writable: false, Emit: prop.EmitTrue},
 			"CanQuit":             {Value: false, Writable: false, Emit: prop.EmitFalse},
-			"CanRaise":            {Value: false, Writable: false, Emit: prop.EmitFalse},
+			"CanRaise":            {Value: canRaise(cb), Writable: false, Emit: prop.EmitTrue},
 			"HasTrackList":        {Value: false, Writable: false, Emit: prop.EmitFalse},
 			"SupportedUriSchemes": {Value: []string{}, Writable: false, Emit: prop.EmitFalse},
 			"SupportedMimeTypes":  {Value: []string{}, Writable: false, Emit: prop.EmitFalse},
@@ -273,8 +273,18 @@ func (m *mpris) call(fn func()) {
 // rootIface 承接 org.mpris.MediaPlayer2 的方法。
 type rootIface struct{ m *mpris }
 
-func (r *rootIface) Raise() *dbus.Error { return nil }
-func (r *rootIface) Quit() *dbus.Error  { return nil }
+// Raise 把播放器窗口调到前台。桌面「正在播放」卡片上的跳转键、GNOME 声音
+// 菜单里的「打开 …」都走它；CanRaise 为 false 时客户端不显示这个入口。
+func (r *rootIface) Raise() *dbus.Error {
+	r.m.call(r.m.cb.Raise)
+	return nil
+}
+
+func (r *rootIface) Quit() *dbus.Error { return nil }
+
+// canRaise 报告播放器窗口能不能被外部调到前台：没有 Raise 回调就等于做不到，
+// 此时 CanRaise 必须是 false（否则客户端给一个按了没反应的键）。
+func canRaise(cb Callbacks) bool { return cb.Raise != nil }
 
 // ---------------------------------------------------------------- introspection
 

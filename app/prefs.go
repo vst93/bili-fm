@@ -421,6 +421,9 @@ func (c *controller) installUpdate(up *mygo.Update) {
 				a.Modal = updateFailedModal(updateFailText(err, false), "更新失败")
 				return
 			}
+			// 重启交回框架：mygo 0.9.2 起单实例锁持有到进程退出，Relaunch 起的
+			// 新进程会等这次退出完成再接手（旧版本可能在旧进程还没退干净时就
+			// 抢到了锁，变成两个实例）。不要换成自拼启动命令。
 			a.Modal = updateReadyModal(func() { mygo.App.Relaunch() })
 		})
 	}()

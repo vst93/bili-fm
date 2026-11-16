@@ -50,6 +50,14 @@ func (c *controller) setupMediaCenter() {
 		SetShuffle: func(on bool) {
 			c.mediaOnMain(func() { c.setMediaShuffle(on) })
 		},
+		// 桌面媒体控制卡片上的跳转键（MPRIS 的 Raise）：和托盘「显示主窗口」
+		// 同一条路 —— 关窗只是隐藏到后台，要先把后台标记关掉再 Show。
+		Raise: func() {
+			c.mediaOnMain(func() {
+				log.Printf("媒体中心：把主窗口调到前台")
+				c.showWindow()
+			})
+		},
 	})
 }
 

@@ -145,10 +145,10 @@ func (c *controller) trayAction(name string, fn func()) {
 	mygo.RunOnMain(fn)
 }
 
-// showWindow 从托盘恢复主窗口。除了 Show/Focus，还要处理「窗口最小化」
-// 的状态：只 Show 不会把最小化的窗口恢复出来。
+// showWindow 把主窗口从后台/最小化恢复到前台。托盘菜单、MPRIS 的 Raise
+// （桌面「正在播放」卡片上的跳转键）都走它。除了 Show/Focus，还要处理
+// 「窗口最小化」的状态：只 Show 不会把最小化的窗口恢复出来。
 func (c *controller) showWindow() {
-	log.Printf("托盘菜单：显示主窗口")
 	// 先把「后台」关掉再 Show，避免首帧还走 Shell 的 early-return 而闪一下空白。
 	c.setBackground(false)
 	w := c.app.Win

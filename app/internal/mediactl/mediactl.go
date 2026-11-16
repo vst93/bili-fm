@@ -49,6 +49,9 @@ type Callbacks struct {
 	SetLoop func(loop string)
 	// SetShuffle 是外部开了随机播放。
 	SetShuffle func(on bool)
+	// Raise 把播放器窗口调到前台（MPRIS 的 Raise：GNOME 的媒体控制卡片
+	// 有个跳转键，CanRaise 为 true 时才显示）。
+	Raise func()
 }
 
 // WindowAttacher 是需要在窗口创建后注册的平台实现（Windows SMTC）。

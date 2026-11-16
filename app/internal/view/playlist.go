@@ -152,6 +152,10 @@ func (a *App) playlistBody(c *ui.Context) {
 	st := &l.Rows
 	// 行键取记录 ID：拖拽排序 / 删除后，行状态跟着记录走。
 	st.Key = func(i int) any { return items[i].ID }
+	// 删除一条、或拖着一条换位置之后，其余行滑到新位置而不是一帧跳过去
+	// （mygo 0.9.2 的 ListState.MoveAnimation，要求行键稳定 —— 上面那行就是）。
+	// 滚动与系统「减少动态效果」由框架处理成瞬移，这里不做判断。
+	st.MoveAnimation = &playlistRowMoveAnim
 	// 定位当前：屏外的行不构建，把目标行交给 ListState 让它布局时滚过去。
 	if a.locateNow && a.Index >= 0 && a.Index < len(items) {
 		st.ScrollTo(a.Index, ui.Start)
@@ -462,6 +466,12 @@ func playlistRowPaintAt(rest, hover playlistPaint, k float32) playlistPaint {
 	out.ShadowBlur = lerp(rest.ShadowBlur, hover.ShadowBlur)
 	return out
 }
+
+// playlistRowMoveAnim 是「删掉一条 / 拖着一条换位置」之后，其余记录行滑到
+// 新位置的动画（ListState.MoveAnimation）。200ms 与框架自己的行移动测试同一
+// 时长；不传 Ease 时按 EaseOut 收尾，删除时下面一片行“跟上来”的观感最接近
+// 原版列表的过渡。
+var playlistRowMoveAnim = ui.Animation{Duration: 200 * time.Millisecond}
 
 // playlistDeleteFadeAnim 是记录行删除键的淡入淡出：原版那颗键是
 // `opacity-0 group-hover:opacity-100 transition-opacity`，Tailwind 的

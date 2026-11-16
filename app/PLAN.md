@@ -2145,3 +2145,78 @@ keep-above）」更糟。它也要留在任务栏里（overlay 的判据之一�
 - 六平台 `go build ./...`（linux/arm64 / amd64、darwin/amd64 / arm64、
   windows/amd64 / arm64）：**全部通过**；另用 CI 的 `-tags=nethttpomithttp2`
   + `CGO_ENABLED=0` 复核同样六个目标，也全过。
+
+## mygo v0.9.1 → v0.9.2（微轮 8，2026-11-16）
+
+依赖：`app/go.mod` 的 `github.com/egoist/mygo` v0.9.1 → **v0.9.2**
+（commit `25ce62f4`，2026-11-16）。`go mod tidy` 只在这一条命令上临时带代理
+（`GOPROXY=https://goproxy.cn,direct`，proxy.golang.org 本机不通），其余全部
+`GOPROXY=off`。release 说「Go API 无破坏性变更」——自己 `go build ./...` +
+`go vet ./...` 复核过，编译零改动；`ui/api_gen.go` 的既有签名一处没动，只多出
+新增面（见下）。
+
+### 逐条结论表（23 个 commit，按「能不能用上」归类）
+
+| 变更 | 结论 | 一句依据 |
+| --- | --- | --- |
+| #1909 单实例锁持有到进程退出 | **采用（写进约定 + 源码断言）** | 我们只有一条重启路径 `mygo.App.Relaunch()`（`prefs.go` 的 `updateReadyModal`），本来就吃这条；但语义变了：以前锁在 OnQuit 就放，现在跟到进程退出，自己拼启动会撞上仍持锁的旧进程。新增 `single_instance_test.go`（go/parser 读 AST）钉住「prefs/update_*/main 里不许出现 `os.StartProcess` / `exec.Command` / `syscall.Exec`，且必须还有一条 `mygo.App.Relaunch`」。 |
+| #1904 `ListState.MoveAnimation` 行滑动 | **采用（播放列表）** | 播放列表的 `ListState.Key` 早就是记录 ID（拖拽排序要它稳定），正好是这条的硬前提。删一条 / 拖一条换位置后其余行滑到新位置，不再是硬跳。动画令牌 `playlistRowMoveAnim` = 200ms 曲线（不用弹簧：连续删两条会攒速度、越滑越远）。滚动与系统「减少动态效果」由框架自己降级成瞬移，这里不判。 |
+| #1924 Now Playing 列出每位艺术家 + MPRIS 可抬窗 | **部分采用（抬窗）** | 艺术家：我们用**自己的** `internal/mediactl`（MPRIS / SMTC / MPNowPlayingInfoCenter 全自己实现），不 import `mygo.NowPlaying`，`Artists` 字段无从用起 —— 我们本来就是一个 UP 主一个 `Artist`，无「多艺术家」场景。抬窗：MPRIS 的 `CanRaise` 以前**恒 false**（rootIface.Raise 是空实现），GNOME 的媒体卡片因此不显示跳转键；本轮补 `Callbacks.Raise` → `CanRaise` 与回调同源，接到 `c.showWindow()`（与托盘「显示主窗口」同一条路，先把后台标记关掉再 Show）。 |
+| #1793 半透明 web view 的页面跟着元素淡出 | **不采用（本仓库没有 web view）** | 原生版没有 `ui.WebView`（视频走 `ui/video` 原生窗，不是 HTML `<video>`）。 |
+| #1781 页面用 AbortSignal 取消绑定调用 | **不采用（没有前端桥）** | 同上：没有 `frontendDist` 页面在跑绑定调用（`bindings` 只在旧 WebView 版存在，原生版不加载）。 |
+| #1884/#1907 多点触控 `Element.Touches` + `Tester.TouchDown` | **不采用（无手势需求）** | 本应用没有白板 / 多指手势；单指点击与滚动仍走框架默认的指针事件。将来要做「双指调音量」再回来看。 |
+| #1889 `PopoverMenu` 接 `PopoverMenuOptions` | **不采用（无右键菜单）** | 仓库里没有 `PopoverMenu` / `ContextMenu` 的调用点（唯一的 `ui.Menu` 是 `home.go` 的 `ContextMenu`，用的是框架默认主题样式，本来就与 ⋯ 菜单一致）。 |
+| #741/#1913 macOS 菜单 `KeepOpen` + 彩色角标 | **不采用（macOS 菜单栏无此场景）** | 我们的菜单（`menu.go` / `tray.go`）没有「连续点几项不关闭」的交互，也没有延迟角标。 |
+| #1882 macOS 托盘标题等宽 | **不采用（托盘无文字标题）** | `TrayOptions` 只有 ID/Icon/ToolTip，没有 Title。 |
+| #1883 macOS 视频每帧精确时长 | **不采用（影响在框架内）** | 修在 mygo 的 `plugins/render`（macOS 视频 sink）里，本仓库不 import 该插件；`ui/video` 的对外 API 没变，帧率正确的收益自动吃到。 |
+| #1896/#1897 Windows 退出前销毁窗口 | **采用（无需改代码）** | 我们在 `quit()` 里自己先 Close 视频窗 / 字幕窗再 `mygo.App.Quit`，框架这层是兜底；输入法（豆包等）钉住进程导致 exe 换不掉的老问题从此由框架兜住。 |
+| #1908 `mygo dev` 只同步变化的资源 | **采用（开发体验）** | 只用 `mygo dev` 时的行为，不影响产物。 |
+| #1890/#1891/#1892 Linux 原生菜单 / 快捷键对话框 / `Shell.*` 打开的应用到前台 | **采用（无需改代码）** | 我们调 `Shell.OpenExternal`（`main.go` 的「在浏览器打开」）在 GNOME 下现在会真的到前台；菜单与快捷键对话框同理由框架修好。 |
+| #1898 macOS 公证打两次包 | **不采用（发布流程差异）** | `mygo.json` 没有 `macos.notarize`（我们走 CI 的 `release-mygo.yml` + 自己的签名流程），本轮不变。 |
+| #1914 自定义 scheme 的跨源 iframe | **不采用（无 iframe）** | 没有 WebView。 |
+
+### 改了什么
+
+- `app/go.mod` / `app/go.sum`：v0.9.1 → v0.9.2（tidy 只动这两行 mygo 记录）。
+- `app/internal/mediactl/mediactl.go`：`Callbacks` 加 `Raise func()`。
+- `app/internal/mediactl/mpris_linux.go`：`CanRaise` 改成 `canRaise(cb)`（与回调
+  同源，没有回调必须 false），`rootIface.Raise` 真的转给回调。
+- `app/mediacenter.go`：`Raise` 接到 `c.showWindow()`（界面线程）。
+- `app/tray.go`：`showWindow` 的注释扩到「托盘 + MPRIS Raise 共用」，日志挪到
+  两个调用点（`trayAction` 已打一条，媒体中心那条自带）。
+- `app/internal/view/playlist.go`：`playlistBody` 设 `st.MoveAnimation =
+  &playlistRowMoveAnim`（200ms 曲线，声明成 var 便于测试反证）。
+- `app/main.go` / `app/prefs.go`：单实例锁与 `Relaunch` 的注释写清 0.9.2 的新语义。
+- 测试：
+  - `app/single_instance_test.go`（新）：go/parser 扫 AST —— 更新/启动路径不许
+    自拼启动、必须走 `mygo.App.Relaunch`（注释里提到那些名字不算）。
+  - `app/internal/mediactl/mpris_test.go`：`TestCanRaise`（同源）、
+    `TestRootRaiseCallsCallback`（真的调回调 + 无回调不 panic）。
+  - `app/internal/view/playlist_test.go`：`TestPlaylistRowMoveAnimationTokens`
+    （200ms 曲线、不是弹簧）、`TestPlaylistRowMoveGlides`（无头实测：删除当帧行
+    仍在旧位置，300ms 后落在被删那一行的位置）。
+- `AGENT.md`：依赖版本、单实例锁语义、`MoveAnimation` 两条约定。
+
+### 踩到的坑（测试侧）
+
+`ListState.MoveAnimation` 只在「这一帧布局」里认得出「行变了」。`tt.Frame()`
+会 settle（连跑到不再请求帧），所以「删掉一行 → `tt.Frame()` → 采样」读到的是
+**动画走完**的位置，断言会假红。正确写法是 `tt.Frame()`（记下删除当帧）后
+`tt.Advance(300ms)` 再采样；反证时把 `MoveAnimation` 摘掉，第一帧就跳到新位置。
+
+### 测试口径
+
+- `GOPROXY=off go build ./...` + `go vet ./...`：**通过**。
+- focused：`go test ./internal/mediactl`（全绿）、`./internal/view -run
+  'TestPlaylist'`（140.5s 全绿）、`go test . -run 'TestRelaunch|TestStartup'`
+  （通过）。
+- 门槛见 `.pending-bugs.md` 同名一节（全量 `go test ./...` 与六平台编译）。
+
+### 需真机确认
+
+- Linux（GNOME / KDE）：媒体控制卡片上的「打开播放器」键出现了，点了能把主窗
+  从托盘 / 最小化调回前台（`CanRaise` 从 false 变 true 是这条的前提）。
+- 更新装好后点「立即重启」：新版本起得来、旧进程不留残影（0.9.2 的锁语义是
+  这条的保证）；Windows 上顺带确认输入法没把进程钉住。
+- 播放列表删一条 / 拖一条换位置：其余行滑上来而不是跳；系统开了「减少动态效果」
+  时应是瞬移。

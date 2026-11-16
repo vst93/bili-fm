@@ -266,6 +266,13 @@ func main() {
 
 	// 单实例：第二个实例会把参数交给第一个（并自己退出），第一个把主窗调到前台。
 	// 与旧版（Tauri 的 single-instance 插件）一致。
+	//
+	// mygo 0.9.2 起（#1909）锁由框架持有到**进程退出**：本进程退出期间起来的
+	// 新实例（更新后的「立即重启」、用户快速再点一次图标）会等旧进程真正退出
+	// 再接手，不再出现「两个实例并排跑」。所以重启只能走
+	// `mygo.App.Relaunch()`（见 prefs.go 的 updateReadyModal）——自己拼
+	// os.StartProcess / exec.Command 会撞上仍持锁的旧进程（见
+	// single_instance_test.go 的源码断言）。
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}

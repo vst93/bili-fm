@@ -710,3 +710,65 @@ func TestPlaylistPrefetchTouchesVisibleAndCancelsOffscreen(t *testing.T) {
 		t.Fatal("滚出预取窗口后 cover0 应被 Cancel（否则屏外缩略图仍会下载/解码）")
 	}
 }
+
+// TestPlaylistRowMoveAnimationTokens 钉住行移动动画的形态：走时长曲线而不是
+// 弹簧（弹簧在「连续删两条」时会攒速度、越滑越远），时长 200ms 与框架自己的
+// 行移动测试一致。反证：把 Duration 改成 0 → 框架按 Smooth 弹簧算，本测试红。
+func TestPlaylistRowMoveAnimationTokens(t *testing.T) {
+	if playlistRowMoveAnim.Spring != (ui.SpringOptions{}) {
+		t.Errorf("行移动不该用弹簧：%+v", playlistRowMoveAnim.Spring)
+	}
+	if playlistRowMoveAnim.Duration != 200*time.Millisecond {
+		t.Errorf("行移动时长 = %v，应为 200ms", playlistRowMoveAnim.Duration)
+	}
+}
+
+// TestPlaylistRowMoveGlides 无头实测「删掉一条后，下面一片行滑上来」：
+// 删除当帧其余行仍画在**旧位置**（mygo 0.9.2 的 ListState.MoveAnimation，
+// #1904 要求行键稳定；播放列表的行键是记录 ID），动画走完后落在新位置
+// —— 与「一开始就只有三条」时同一行的位置一致。
+//
+// 反证：删掉 playlistBody 里的 st.MoveAnimation → 第一帧 y 就跳到新位置，
+// 第一条断言红。
+func TestPlaylistRowMoveGlides(t *testing.T) {
+	a := NewApp(func() {})
+	a.Playlist = []PlayItem{
+		{ID: "a", Part: "P0", Title: "T0"},
+		{ID: "b", Part: "P1", Title: "T1"},
+		{ID: "c", Part: "P2", Title: "T2"},
+		{ID: "d", Part: "P3", Title: "T3"},
+	}
+	a.PlayingPlaylist = ListUser
+	a.Index = 0
+	a.Drawer = DrawerPlaylist
+	tt := shellTester(t, a)
+
+	rowOf := func(text string) ui.Rect {
+		t.Helper()
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("找不到 %q", text)
+		}
+		return r
+	}
+	before := rowOf("T3")
+	slot := rowOf("T2") // 删掉 b 之后，d 应该落在 c 原来的位置
+
+	// 删掉第二条记录（等价于点它的删除键：列表内容变了，行键不变）。
+	a.Playlist = append(a.Playlist[:1], a.Playlist[2:]...)
+	tt.Frame()
+	if y := rowOf("T3").Y; y < before.Y-0.5 || y > before.Y+0.5 {
+		t.Fatalf("删除当帧行就跳了：%v → %v（应从旧位置开始滑，200ms 后才落位）", before.Y, y)
+	}
+
+	tt.Advance(300 * time.Millisecond) // 推过 200ms 行移动
+	tt.Frame()
+	after := rowOf("T3")
+	t.Logf("d 行 y：删除前 %v，动画后 %v（c 行原在 %v）", before.Y, after.Y, slot.Y)
+	if after.Y >= before.Y-1 {
+		t.Fatalf("行没有滑到新位置：%v → %v", before.Y, after.Y)
+	}
+	if after.Y < slot.Y-0.5 || after.Y > slot.Y+0.5 {
+		t.Fatalf("行落位 = %v，应落在被删的那一行 %v", after.Y, slot.Y)
+	}
+}
