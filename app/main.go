@@ -4336,6 +4336,9 @@ func (c *controller) openVideo() {
 	theme := c.app.Theme
 	// 恰饭分段也在界面线程上取一份快照（c.sponsor 由 UI 线程改写）。
 	sponsorSegs := toViewSegments(c.sponsor)
+	// 弹幕热力同样是 UI 线程写的数据：快照一份交给视频窗（与主窗同一份
+	// 数据、同一个 cid 缓存，视频窗不再自己请求）。
+	heat, heatOn := c.app.DanmakuHeat, c.app.HeatOn
 	go func() {
 		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
 		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
@@ -4368,6 +4371,10 @@ func (c *controller) openVideo() {
 			Shared: &c.app.PlayerSettings,
 			// 恰饭分段：视频窗进度条画标记，开关打开时也按它跳过。
 			SponsorSegments: sponsorSegs,
+			// 弹幕热力：与主窗同一份（同一个 cid 缓存），控件条上那条热力带
+			// 与主窗同一个 painter、同一段轨道宽度。
+			DanmakuHeat: heat,
+			HeatOn:      heatOn,
 			// 视频窗置顶：开窗时用主窗落盘的值（默认 false，与迷你模式的
 			// 固定一致），窗口里点图钉会经 OnPinToggle 落回同一键。
 			VideoPinned: c.app.VideoPinned,

@@ -28,6 +28,10 @@ func (a *App) playerBar(c *ui.Context) {
 	// 后四列里音量 / 倍速两列的句柄：弹层要挂在它们上面（见 playerBar 末尾）。
 	var volumeSlot, speedSlot ui.Element
 	playerBarEdge(t, c)
+	// 控件本身来自 playerbar_shared.go：与视频窗控件条是同一份代码，只是这里
+	// 的绑定目标是音频引擎（见 appPlayerBind）。热力条也是同一份（playerHeatPainter
+	// + paintHeatBackdrop），数据是本窗的热力桶。
+	b := a.appPlayerBind()
 
 	// 播放栏：原版这里是 backdrop-filter: blur(20px) saturate(1.4) 的一层玻璃。
 	// 用框架的 Liquid Glass 而不是自铺半透明白 —— 玻璃自带边缘折射与 1px 描光
@@ -49,7 +53,7 @@ func (a *App) playerBar(c *ui.Context) {
 			playerBarShadowInsets(t, false)),
 		// 原版 --player-shadow 的第三层：向**上**投到内容区的一道淡影，
 		// 随时段变化（深色更淡）。见 playerBarShadowSpec。
-		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder, a.heatBarPainter(c))
+		[]shadowSpec{playerBarShadowSpec(t, false)}), t.PlayerBorder, playerHeatPainter(c, b.Heat))
 	// `background-image` 的整面洗光 + 顶边 1px（原版 border-top）都由
 	// playerBarPaint 的 Draw 画：Draw 在元素自身的背景/材质之后、**所有子
 	// 元素之前**；Absolute 子盒却在本元素的所有流式子元素之后绘制。进度条
@@ -58,7 +62,6 @@ func (a *App) playerBar(c *ui.Context) {
 	// Draw 同样不占布局，内容区保持完整 56px。
 	// 控件本身来自 playerbar_shared.go：与视频窗控件条是同一份代码，
 	// 只是这里的绑定目标是音频引擎（见 appPlayerBind）。
-	b := a.appPlayerBind()
 	bar.Children(func() {
 		ui.Row(c).FillWidth().Grow(1).Padding(0, 18).Gap(8).
 			AlignItems(ui.Center).Children(func() {
@@ -431,6 +434,9 @@ const (
 	toolSpeed
 	toolEq
 	toolSponsor
+	// toolFullScreen 是视频窗控件条的最后那颗全屏键（主窗没有）。它走与
+	// 其它工具键完全相同的材质 / 墨色 / 悬停过渡，不另开一套颜色。
+	toolFullScreen
 )
 
 // hcBlueActive 报告这颗键的激活态在原版高对比块里被单独重声明为蓝调。
@@ -913,11 +919,16 @@ var playerDisabledIconOpacityFor = func(off bool) float32 {
 
 // 播放栏图标尺寸（原版 player.tsx 的 icon-park size 属性）：播放/暂停 24、
 // 下一集 18、音量 20、均衡 17、恰饭 17。集中一处便于测试钉住。
+//
+// 视频窗控件条用的也是这一套（用户 2026-11：「下一首的图标被改了，要和之前
+// 一样」—— 上一轮视频窗把图标统一成 16，下一集因此比主窗小一档）。全屏键是
+// 视频窗唯一多出来的键，图标取与下一集同档的 18。
 const (
-	playIconSize   = 24
-	nextIconSize   = 18
-	volumeIconSize = 20
-	eqIconSize     = 17
+	playIconSize       = 24
+	nextIconSize       = 18
+	volumeIconSize     = 20
+	eqIconSize         = 17
+	fullScreenIconSize = nextIconSize
 )
 
 // ---------------------------------------------------------------- 聚光描边 / 图标压印
@@ -2070,7 +2081,7 @@ func (a *App) appPlayerBind() PlayerBarBind {
 			}
 		},
 		OnFrame: a.seekFrame,
-		// 热力对齐用的进度条句柄：不绑就取不到轨道矩形（见 heatBarPainter）。
+		// 热力对齐用的进度条句柄：不绑就取不到轨道矩形（见 playerHeatPainter）。
 		TimelineHandle: &a.progressHandle,
 		Segments:       a.SponsorSegments,
 		Chapters:       a.chapterMarks(),
@@ -2089,6 +2100,7 @@ func (a *App) appPlayerBind() PlayerBarBind {
 		},
 		ShowPos: true, ShowDur: true, ShowNext: true, ShowEQ: true, ShowSponsor: true,
 		Bubble: &a.seekBubbleState,
+		Heat:   a.heatBarBind(),
 	}
 }
 
@@ -2181,39 +2193,56 @@ const progressDisabledOpacity = 0.42
 // sponsorTolerance 是广告段标记与实际媒体时长的允许差（原版同名常量）。
 const sponsorTolerance = 2.0
 
-// heatTrackRect 是弹幕热力的横向范围：**进度条轨道**，不是整条播放栏。
+// playerHeatPainter 返回控件条上弹幕热力的绘制回调，交给栏的 Draw（在栏
+// 底色之后、全部子元素之前）。主窗与视频窗共用这一份实现：数据（Points /
+// On / Dur）来自各自的绑定，绘制只有 paintHeatBackdrop 一处。
 //
-// 进度条是外层 24px 盒、轨道左右各内缩 timelineInset，且起点在第一列传输键
-// / 时间之后；热力必须跟它同一段宽度（左右边界对齐），否则就是一条横跨整窗
-// 的背景带（用户 2026-11 报的「热力被拉成整个播放栏」）。
-//
-// 轨道矩形只能从**已布局**的进度条句柄上取（a.progressHandle，见
-// appPlayerBind 的 TimelineHandle）。还没有布局时返回零值，调用方跳过绘制：
-// 退回整条栏宽的那种「兜底」正是回归的成因。
-func (a *App) heatTrackRect(c *ui.Context) ui.Rect {
-	if b := a.progressHandle.Bounds(c); b.W > 0 {
-		return rangeTrackRect(b, timelineGeom)
+// 几何只量一次：热力的横向范围是**进度条轨道**，不是整条栏。进度条是外层
+// 24px 盒、轨道左右各内缩 timelineInset，且起点在第一列传输键 / 时间之后；
+// 热力必须跟它同一段宽度（左右边界对齐），否则就是一条横跨整窗的背景带
+// （用户 2026-11 报的「热力被拉成整个播放栏」）。轨道矩形只能从**已布局**
+// 的进度条句柄上取（绑定里的 Track）；还没有布局时就不画 —— 退回整条栏宽
+// 的那种「兜底」正是那次回归的成因。
+func playerHeatPainter(c *ui.Context, h *PlayerHeatBind) func(*ui.Painter, ui.Rect) {
+	if h == nil || !h.On || h.Dur <= 0 || len(h.Points) == 0 || h.Track == nil {
+		return nil
 	}
-	return ui.Rect{}
+	track := ui.Rect{}
+	if b := h.Track.Bounds(c); b.W > 0 {
+		track = rangeTrackRect(b, timelineGeom)
+	}
+	points, dur, dark := h.Points, h.Dur, h.Dark
+	version, seen, painted := h.Version, h.Seen, h.Painted
+	return func(p *ui.Painter, r ui.Rect) {
+		// 0.7.0 的局部重绘可能漏掉 Draw 里的热力层：数据版本一变就请一次
+		// 整窗重绘，确保新热力画出来。版本不变时不做任何额外请求。
+		if seen != nil && *seen != version {
+			*seen = version
+			p.AnimationFrame()
+		}
+		out := paintHeatBackdrop(p, r, track, points, dur, dark)
+		if painted != nil {
+			*painted = out
+		}
+	}
 }
 
-// heatBarPainter 返回弹幕热力的绘制回调，交给 playerBarPaint 与顶边共用
-// 一个 Draw。只在主窗、开关打开、有热力数据与时长时生效；迷你窗保持干净。
-func (a *App) heatBarPainter(c *ui.Context) func(*ui.Painter, ui.Rect) {
+// heatBarBind 是主窗这一帧的热力绑定：只在主窗、开关打开、有数据与时长时
+// 存在（迷你窗保持干净）。视频窗在 videochrome.go 里用同一份结构体装它自己
+// 的进度条句柄与同一份热力数据。
+func (a *App) heatBarBind() *PlayerHeatBind {
 	if a.Mini || !a.HeatOn || a.Dur <= 0 || len(a.DanmakuHeat) == 0 {
 		return nil
 	}
-	track := a.heatTrackRect(c)
-	points, dur, dark := a.DanmakuHeat, a.Dur, a.Theme.Dark
-	version := a.HeatVersion
-	return func(p *ui.Painter, r ui.Rect) {
-		// 0.7.0 的局部重绘可能漏掉 Draw 里的热力层：数据版本一变就请
-		// 一次整窗重绘，确保新热力画出来。版本不变时不做任何额外请求。
-		if a.heatPainted != version {
-			a.heatPainted = version
-			p.AnimationFrame()
-		}
-		a.heatTrack = paintHeatBackdrop(p, r, track, points, dur, dark)
+	return &PlayerHeatBind{
+		On:      true,
+		Points:  a.DanmakuHeat,
+		Dur:     a.Dur,
+		Dark:    a.Theme.Dark,
+		Track:   &a.progressHandle,
+		Painted: &a.heatTrack,
+		Version: a.HeatVersion,
+		Seen:    &a.heatPainted,
 	}
 }
 

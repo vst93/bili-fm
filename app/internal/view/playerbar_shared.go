@@ -9,11 +9,13 @@ package view
 //
 //   - 一个 PlayerSettings 指针（共享设置：音量/静音/倍速/均衡/广告跳过）；
 //   - 传输状态（播放中、位置、时长、缓冲、seek 回调）—— 各绑各的引擎；
-//   - 少量开关（这一帧显示哪些键、键下是薄玻璃还是面板、弹层开着没有）。
+//   - 少量开关（这一帧显示哪些键、弹层开着没有、有没有全屏键、热力数据）。
 //
-// 唯一按底材分叉的是键的**底色**：主窗播放栏是半透明玻璃（浅色下白 .22），
-// 视频窗控件条是 Panel（浅色下白 .88）——白压白看不见。所以浅色面板上换成
-// 墨色淡底；深色面板与播放栏同一套玻璃值，直接复用。
+// **键的材质只有一套**（playerToolSurface / playerPlaySurface / playerRim）：
+// 视频窗控件条压在 Panel 上也照用这套，hover 只换色值、不换层。唯一按底材
+// 分叉的是「图标要不要那层白色 drop-shadow 副本」（OnPanel 时不要）——玻璃
+// 播放栏背后是应用的背景，面板背后是视频画面；面板上那层白副本会变成一圈
+// 白边，且 hover 时图标墨色在过渡、副本不动，看起来就是图标在闪。
 
 import (
 	"fmt"
@@ -49,16 +51,10 @@ type PlayerTimelineBind struct {
 	// OnSeek 是提交 seek 的出口（主窗走 Act.Seek，视频窗直通播放器）。
 	OnSeek func(sec float64)
 	// Handle 可选：把这条滑块绑到一个 ui.Handle，调用方以后能用它查到
-	// 轨道**布局出来的**矩形（弹幕热力就靠它对齐宽度，见 heatBarPainter）。
-	// 视频窗不传，主窗传 &App.progressHandle。
+	// 轨道**布局出来的**矩形（弹幕热力就靠它对齐宽度，见 playerHeatPainter）。
+	// 主窗传 &App.progressHandle，视频窗传 &VideoChrome.progressHandle ——
+	// 两窗都绑，热力才都能量到自己的轨道。
 	Handle *ui.Handle
-	// TrackH 是轨道的视觉高度（0 → timelineTrackH）。视频窗要细轨道（4）。
-	TrackH float32
-	// BufferedFrom / BufferedTo 是缓冲层的颜色（零值 → 原版那对青→天蓝）。
-	BufferedFrom ui.Color
-	BufferedTo   ui.Color
-	// HideIdleThumb 让滑块只在悬停 / 拖动中出现（视频窗）。
-	HideIdleThumb bool
 	// Bubble 是悬停时间气泡（主窗与视频窗都挂同一份）。
 	Bubble *seekBubbleState
 	// Overlay 在轨道画完之后叠一层（视频窗的缓冲呼吸描边）。
@@ -106,21 +102,18 @@ func playerTimeline(c *ui.Context, b PlayerTimelineBind) ui.Element {
 		skin = &sk
 	}
 	rp := rangePaint{
-		Frac:          frac,
-		Dark:          b.Dark,
-		Buffered:      bufferedFrac(b.Buffered, b.Dur),
-		Segs:          b.Segments,
-		Dur:           b.Dur,
-		ChapterMarks:  b.Chapters,
-		Hovered:       s.Hovered(),
-		Held:          held,
-		Colors:        b.Colors,
-		Geom:          timelineGeomWith(b.TrackH),
-		ThumbScale:    s.AnimateTo("player-thumb-scale", rangeThumbScale(s.Hovered(), held), thumbScaleAnim),
-		Skin:          skin,
-		BufferedFrom:  b.BufferedFrom,
-		BufferedTo:    b.BufferedTo,
-		HideIdleThumb: b.HideIdleThumb,
+		Frac:         frac,
+		Dark:         b.Dark,
+		Buffered:     bufferedFrac(b.Buffered, b.Dur),
+		Segs:         b.Segments,
+		Dur:          b.Dur,
+		ChapterMarks: b.Chapters,
+		Hovered:      s.Hovered(),
+		Held:         held,
+		Colors:       b.Colors,
+		Geom:         timelineGeom,
+		ThumbScale:   s.AnimateTo("player-thumb-scale", rangeThumbScale(s.Hovered(), held), thumbScaleAnim),
+		Skin:         skin,
 	}
 	s.Draw(func(p *ui.Painter, r ui.Rect) {
 		paintTimeline(p, r, rp)
@@ -192,57 +185,39 @@ func (st *seekBubbleState) draw(c *ui.Context, s ui.Element, dur float64) {
 	})
 }
 
-// PlayerKeyMetrics 是一帧里控件条键的尺寸令牌。零值 = 主窗播放栏（原版 #player
-// 的 grid 列：播放 42 正圆、工具键 32、均衡 34、倍速列 40）；视频窗传
-// videoKeyMetrics()，于是顶栏与控件条的全部键同尺寸同圆角（30×30 / 圆角 6）。
+// PlayerKeyMetrics 是控件条键的尺寸令牌（原版 #player 的 grid 列：播放 42
+// 正圆、工具键 32、均衡/恰饭 34、倍速列 40、时间列 56）。
 //
-// 这是「两个窗口共用一份控件代码」与「各自一套视觉令牌」之间的接缝：共享代码
-// 只读令牌，不再写字面量；哪个窗口用哪套由绑定目标决定。
+// 只有**一套**，主窗与视频窗共用：视频窗控件条就是这条播放栏，两窗的键不可能
+// 再漂开（视频窗旧的 videoPanelKeys 已删）。结构体留着是为了把「原版 grid」
+// 收在一处文档化，绘制函数只读它、不写字面量。
 type PlayerKeyMetrics struct {
-	Key      float32 // 方形图标键的边长
-	KeyR     float32 // 方形图标键的圆角
-	Wide     float32 // 算法/过滤类键的宽度（主窗 34）
-	Play     float32 // 播放键边长（直径）
-	PlayR    float32 // 播放键圆角（主窗 RadiusPill 正圆；视频窗与图标键同档）
-	Icon     float32 // 图标的光学尺寸（0 → 各键自己的原版值）
-	PlayIcon float32 // 播放图标的尺寸
-	SpeedW   float32 // 倍速（文字值键）的宽度
-	// 列宽：键居中放在这一列里。视频窗把列宽收成键宽，键与键之间因此正好
-	// 是行间距；主窗保留原版 grid 的 34/40。
+	Key    float32 // 方形图标键的边长
+	KeyR   float32 // 方形图标键的圆角
+	Wide   float32 // 算法/过滤类键的宽度（主窗 34）
+	Play   float32 // 播放键边长（直径）
+	PlayR  float32 // 播放键圆角（RadiusPill 正圆）
+	SpeedW float32 // 倍速（文字值键）的宽度
+	// 列宽：键居中放在这一列里（原版 grid 的 34/40）。
 	ToolSlot     float32
 	SpeedSlot    float32
 	SponsorSlot  float32
 	TransportGap float32
 	TimeW        float32 // 时间码列宽（固定宽度）
 	TimeSize     float32 // 时间码字号
-	TrackH       float32 // 进度条视觉轨道高度（0 → timelineTrackH）
 }
 
-// playerKeyMetricsMain 是主窗播放栏那套尺寸（原版 #player 的 grid 列）。
-func playerKeyMetricsMain() PlayerKeyMetrics {
-	return PlayerKeyMetrics{
-		Key: 32, KeyR: Radius, Wide: 34,
-		Play: 42, PlayR: RadiusPill, PlayIcon: playIconSize,
-		SpeedW: 40, ToolSlot: 34, SpeedSlot: 40, SponsorSlot: 40,
-		TransportGap: 6, TimeW: 56, TimeSize: 11, TrackH: timelineTrackH,
-	}
-}
-
-// keyMetrics 返回这一帧的键尺寸令牌。
-func (b PlayerBarBind) keyMetrics() PlayerKeyMetrics {
-	if b.Metrics != nil {
-		return *b.Metrics
-	}
-	return playerKeyMetricsMain()
-}
-
-// icon 返回某一枚图标的光学尺寸：令牌给了统一值就用它，否则沿用各键自己的
-// 原版取值（主窗播放栏的图标本来就不是同一个尺寸）。
-func (m PlayerKeyMetrics) icon(def float32) float32 {
-	if m.Icon > 0 {
-		return m.Icon
-	}
-	return def
+// playerBarKeyMetrics 是播放栏那套尺寸（原版 #player 的 grid 列）。
+//
+// 这是**唯一**一套：主窗底部播放栏与视频窗控件条共用（用户 2026-11：
+// 「视频窗控件条 == 主窗播放栏，只多一个全屏按钮」）。视频窗不再有自己的
+// 键令牌（旧的 videoPanelKeys 已删）—— 两窗的键尺寸、列宽、时间列、图标
+// 尺寸因此不可能再漂开。
+var playerBarKeyMetrics = PlayerKeyMetrics{
+	Key: 32, KeyR: Radius, Wide: 34,
+	Play: 42, PlayR: RadiusPill,
+	SpeedW: 40, ToolSlot: 34, SpeedSlot: 40, SponsorSlot: 40,
+	TransportGap: 6, TimeW: 56, TimeSize: 11,
 }
 
 // PlayerBarBind 是一次播放栏渲染的绑定目标快照。主窗与视频窗每帧各建一份，
@@ -262,8 +237,9 @@ type PlayerBarBind struct {
 	SeekValue *float64
 	OnFrame   func(PlayerTimelineInput) (commit bool, value float64)
 	OnSeek    func(sec float64)
-	// TimelineHandle 可选：绑定主窗的进度条句柄（App.progressHandle）。
-	// 弹幕热力用它取轨道真正的布局矩形，宽度才能与进度条一致。
+	// TimelineHandle 可选：绑定该窗口的进度条句柄（主窗 App.progressHandle /
+	// 视频窗 VideoChrome.progressHandle）。弹幕热力用它取轨道真正的布局矩形，
+	// 宽度才能与进度条一致。
 	TimelineHandle *ui.Handle
 	// Bubble 是悬停时间气泡的状态（每帧复用同一份，不能新建）。
 	Bubble *seekBubbleState
@@ -271,12 +247,6 @@ type PlayerBarBind struct {
 	TimelineSkinFor func(hovered bool) rangeSkin
 	TimelineColors  *rangeColors
 	TimelineOverlay func(p *ui.Painter, r ui.Rect, rp rangePaint)
-	// TimelineBufferedFrom / To 是缓冲层的颜色（零值 → 播放栏那对青→天蓝）。
-	// 视频窗换成灰蓝的中性带，与青→蓝的播放层一眼分色。
-	TimelineBufferedFrom ui.Color
-	TimelineBufferedTo   ui.Color
-	// TimelineThumbOnHover 让滑块只在悬停 / 拖动时出现（视频窗）。
-	TimelineThumbOnHover bool
 
 	// 进度条上的数据。主窗有章节与预读；视频窗只有恰饭段。
 	Segments []Segment
@@ -306,10 +276,45 @@ type PlayerBarBind struct {
 	// 显示 —— 那会让人以为视频的声音真被均衡了（见 eqVideoUnavailableTip）。
 	EQUnavailable bool
 
-	// OnPanel 表示键压在视频窗的 Panel 上（浅色下换墨色淡底）。
+	// OnPanel 表示这条控件条压在视频窗的 Panel 上（浅色面板，不是播放栏那层
+	// 半透明玻璃）。它只影响一件事：**不**在图标下再画一层播放栏的白色
+	// drop-shadow 副本 —— 面板上那层白副本会变成一圈白边，hover 时图标墨
+	// 色在 140ms 里过渡、白副本不动，看起来就是「图标在闪」。一颗键只画
+	// 一层图标（用户 2026-11 报的播放 / 全屏键悬浮闪烁）。
 	OnPanel bool
-	// Metrics 是这一帧键的尺寸令牌（nil → 主窗播放栏那套）。
-	Metrics *PlayerKeyMetrics
+
+	// Heat 是弹幕热力条（nil 或 On=false 不画）。数据来自**同一个** cid 缓存，
+	// 绘制只有 paintHeatBackdrop 一份：主窗与视频窗都传这一项。
+	Heat *PlayerHeatBind
+	// FullScreen 是控件条最后那颗全屏键（只有视频窗有；nil = 没有这一颗）。
+	FullScreen *PlayerFullScreenBind
+}
+
+// PlayerFullScreenBind 是「视频窗唯一多出来的那颗键」的绑定：
+// 主窗不传，视频窗传自己的全屏状态与切换回调。键本身（材质 / 尺寸 /
+// 图标档 / 悬停与按压手感 / 焦点环）全部走播放栏那套，不另画。
+type PlayerFullScreenBind struct {
+	Full     bool
+	OnToggle func()
+}
+
+// PlayerHeatBind 是一条弹幕热力条的绑定。
+//
+// 主窗与视频窗用的是同一个 painter（playerHeatPainter → paintHeatBackdrop），
+// 几何也只量一次：热力的横向范围 = 进度条**轨道**矩形，不是整条栏。
+type PlayerHeatBind struct {
+	On     bool
+	Points []HeatPoint
+	Dur    float64
+	Dark   bool
+	// Track 是这一帧进度条滑块的句柄：热力从它量出轨道矩形。
+	Track *ui.Handle
+	// Painted 在绘制回调里写入实际画出的矩形（测试拿它断言几何）。
+	Painted *ui.Rect
+	// Version 变化时请一次整窗重绘（0.7.0 的局部重绘可能漏掉 Draw 层）。
+	// Seen 是上一次请求对应的版本。
+	Version uint64
+	Seen    *uint64
 }
 
 // playerTimeText 画一枚播放栏时间标签（主窗与视频窗同一份字号/字重/颜色）。
@@ -323,11 +328,10 @@ func playerTimeText(c *ui.Context, t Theme, sec float64, size, width float32) {
 // playerTransportItems 画传输键：播放 + 下一集。视频窗的下一集没有目标
 // （没有换集能力）时由 CanNext=false 置灰并给说明。
 //
-// 尺寸全部来自绑定目标的键令牌（b.keyMetrics）：主窗是 42 正圆 + 32，视频窗
-// 是两颗同尺寸的 30×30 圆角 6 —— 同一份接线，两套令牌。
+// 尺寸全部来自 playerBarKeyMetrics：主窗与视频窗是同一套（42 正圆 + 32）。
 func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	width := m.Play
 	if b.ShowNext {
 		width += m.TransportGap + m.Key
@@ -336,26 +340,20 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 		play := ui.ButtonBase(c.Key("play")).Size(m.Play, m.Play).Radius(m.PlayR).Center().
 			Label(playTip(b.Playing)).Tooltip(playTip(b.Playing))
 		disablePlayerButton(play, !b.HasSrc)
-		if b.OnPanel {
-			videoPlaySurface(t, play, play.Hovered(), play.Pressed())
-		} else {
-			playerPlaySurface(t, play, b.Playing, play.Hovered(), play.Pressed())
-		}
+		playerPlaySurface(t, play, b.Playing, play.Hovered(), play.Pressed())
 		playerPressPose(play)
-		if !b.OnPanel {
-			playerRim(t, play, m.PlayR, false, sheenKindPlay, b.Playing, play.Hovered())
-		}
+		playerRim(t, play, m.PlayR, false, sheenKindPlay, b.Playing, play.Hovered())
 		play.Children(func() {
 			ic := pick(b.Playing, iconPause, iconPlayOne)
 			ink := playerPlayInk(t, b.Playing, play.Hovered())
-			if b.OnPanel {
-				ink = videoPlayInk(t, play.Hovered())
-			}
-			icon := ui.Icon(c, ic).Size(m.PlayIcon, m.PlayIcon).
+			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
 				TextColor(playerFadeColor(c, play, "player-play-ink", ink)).
 				Opacity(playerDisabledIconOpacityFor(!b.HasSrc)).
 				Translate(0.5, 0)
-			playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
+			if !b.OnPanel {
+				// 玻璃播放栏才有这层白色压印；面板上它会让一颗键出现两层图标。
+				playerIconShadowFn(icon, ic, 0, 1, playerPlayIconShadowInk)
+			}
 		})
 		if play.Clicked() && b.OnPlay != nil {
 			b.OnPlay()
@@ -371,24 +369,17 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 		next := ui.ButtonBase(c.Key("next")).Size(m.Key, m.Key).Radius(m.KeyR).Center().
 			Label(tip).Tooltip(tip)
 		disablePlayerButton(next, !b.CanNext)
-		if b.OnPanel {
-			videoKeyShape(c, t, next, headerState{Hovered: next.Hovered(), Pressed: next.Pressed()})
-		} else {
-			playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
-		}
+		playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
-		if !b.OnPanel {
-			playerRim(t, next, m.KeyR, true, sheenKindStatic, false, false)
-		}
+		playerRim(t, next, m.KeyR, true, sheenKindStatic, false, false)
 		next.Children(func() {
 			ink := playerButtonInk(t, next.Hovered())
-			if b.OnPanel {
-				ink = videoKeyInk(t, false, next.Hovered())
-			}
-			icon := ui.Icon(c, iconNext).Size(m.icon(nextIconSize), m.icon(nextIconSize)).
+			icon := ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
 				TextColor(playerFadeColor(c, next, "player-next-ink", ink)).
 				Opacity(playerDisabledIconOpacityFor(!b.CanNext))
-			playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
+			if !b.OnPanel {
+				playerIconShadowFn(icon, iconNext, 0, 1, playerIconShadowInk)
+			}
 		})
 		if next.Clicked() && b.CanNext && b.OnNext != nil {
 			b.OnNext()
@@ -397,10 +388,11 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 }
 
 // playerTimelineItems 画「当前时间 + 进度条 + 总时长」三列。主窗一行布局与
-// 视频窗两行布局的第一行都调它；窄窗只收时间列，进度条始终在。时间列宽度由
-// 令牌给（主窗 56、视频窗 52）—— 固定宽度 + 等宽数字，播放时不左右跳。
+// 视频窗两行布局的第一行都调它；窄窗只收时间列，进度条始终在。时间列宽度与
+// 字号由 playerBarKeyMetrics 给（56 / 11）—— 固定宽度 + 等宽数字，播放时
+// 不左右跳。
 func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	if b.ShowPos {
 		playerTimeText(c, b.Theme, b.Pos, m.TimeSize, m.TimeW)
 	}
@@ -409,38 +401,37 @@ func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
 		colors = *b.TimelineColors
 	}
 	playerTimeline(c, PlayerTimelineBind{
-		Value:         b.SeekValue,
-		Dark:          b.Theme.Dark,
-		Dur:           b.Dur,
-		Buffered:      b.Buffered,
-		Segments:      b.Segments,
-		Chapters:      b.Chapters,
-		Colors:        colors,
-		SkinFor:       b.TimelineSkinFor,
-		OnFrame:       b.OnFrame,
-		OnSeek:        b.OnSeek,
-		Overlay:       b.TimelineOverlay,
-		Bubble:        b.Bubble,
-		Handle:        b.TimelineHandle,
-		TrackH:        m.TrackH,
-		BufferedFrom:  b.TimelineBufferedFrom,
-		BufferedTo:    b.TimelineBufferedTo,
-		HideIdleThumb: b.TimelineThumbOnHover,
+		Value:    b.SeekValue,
+		Dark:     b.Theme.Dark,
+		Dur:      b.Dur,
+		Buffered: b.Buffered,
+		Segments: b.Segments,
+		Chapters: b.Chapters,
+		Colors:   colors,
+		SkinFor:  b.TimelineSkinFor,
+		OnFrame:  b.OnFrame,
+		OnSeek:   b.OnSeek,
+		Overlay:  b.TimelineOverlay,
+		Bubble:   b.Bubble,
+		Handle:   b.TimelineHandle,
 	})
 	if b.ShowDur {
 		playerTimeText(c, b.Theme, b.Dur, m.TimeSize, m.TimeW)
 	}
 }
 
-// playerSettingsItems 画四颗「设置类」键：音量 / 倍速 / 均衡 / 跳过广告。
-// 音量与倍速两列的句柄回填给调用方（弹层挂在列上）。四颗键都读写
-// PlayerSettings，由各自窗口的监听把值下发到引擎 —— 这就是「改一边另一边
-// 立刻反映」的接线点。
+// playerSettingsItems 画「设置类」键：音量 / 倍速 / 均衡 / 跳过广告，再在
+// 最后接上全屏键（只有视频窗的绑定里有它）。音量与倍速两列的句柄回填给
+// 调用方（弹层挂在列上）。这些键都读写 PlayerSettings，由各自窗口的监听把
+// 值下发到引擎 —— 这就是「改一边另一边立刻反映」的接线点。
 //
 // 例外：EQUnavailable（原生视频窗）时均衡键置灰不可点 —— 那一窗口的声音
 // 不经过本仓库的 DSP 管线，eqVideoUnavailableTip 写明了原因与主窗当前值。
+//
+// 全屏键是**两个窗口控件集合的唯一差别**：它在同一个函数里、用同一套键材质
+// 画出来（见 playerFullScreenKey），主窗不传绑定就没有它。
 func playerSettingsItems(c *ui.Context, b PlayerBarBind, volumeSlot, speedSlot *ui.Element) {
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	*volumeSlot = playerSlot(c, m.ToolSlot, m.Key, func() { playerVolumeKey(c, b) })
 	*speedSlot = playerSlot(c, m.SpeedSlot, m.Key, func() { playerSpeedKey(c, b) })
 	if b.ShowEQ {
@@ -449,38 +440,65 @@ func playerSettingsItems(c *ui.Context, b PlayerBarBind, volumeSlot, speedSlot *
 	if b.ShowSponsor {
 		playerSlot(c, m.SponsorSlot, m.Key, func() { playerSponsorKey(c, b) })
 	}
+	if b.FullScreen != nil {
+		playerSlot(c, m.ToolSlot, m.Key, func() { playerFullScreenKey(c, b) })
+	}
 }
 
-// playerVolumeKey 是音量列：点开音量弹层。与主窗播放栏同一颗键，尺寸由
-// 绑定目标的键令牌给（主窗 32、视频窗 30）。
+// playerFullScreenKey 是全屏键：视频窗控件条比主窗播放栏多的**唯一**一颗键。
+//
+// 形状 / 材质 / 悬停与按压手感 / 焦点环 / 图标档全部与主窗的工具键同一套
+// （playerToolSurface + playerPressPose + playerRim）；全屏时换「退出全屏」
+// 图标并给出激活态。图标取自应用那套 icon-park 定义（state.go 的
+// iconFullScreen / iconExitFullScreen），不在视频窗里另画。
+func playerFullScreenKey(c *ui.Context, b PlayerBarBind) {
+	t := b.Theme
+	m := playerBarKeyMetrics
+	fs := b.FullScreen
+	ic, tip := iconFullScreen, "全屏"
+	if fs.Full {
+		ic, tip = iconExitFullScreen, "退出全屏"
+	}
+	btn := ui.ButtonBase(c.Key("fullscreen")).Size(m.Key, m.Key).Radius(m.KeyR).Center().
+		Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(fs.Full)
+	playerToolSurface(c, t, toolFullScreen, btn, fs.Full, btn.Hovered(), btn.Pressed())
+	playerPressPose(btn)
+	playerRim(t, btn, m.KeyR, true, sheenKindStatic, fs.Full, btn.Hovered())
+	btn.Children(func() {
+		ink := playerToolInk(t, toolFullScreen, fs.Full, btn.Hovered())
+		icon := ui.Icon(c, ic).Size(fullScreenIconSize, fullScreenIconSize).
+			TextColor(playerFadeColor(c, btn, "player-fullscreen-ink", ink))
+		if !b.OnPanel {
+			playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
+		}
+	})
+	if btn.Clicked() && fs.OnToggle != nil {
+		fs.OnToggle()
+	}
+}
+
+// playerVolumeKey 是音量列：点开音量弹层。与主窗播放栏同一颗键（尺寸 32、
+// 圆角 Radius、图标 20）。
 func playerVolumeKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	set := b.Set
 	btn := ui.ButtonBase(c.Key("volume")).Size(m.Key, m.Key).Radius(m.KeyR).Center().
 		Role(ui.RoleDisclosure).Label("音量").Tooltip("音量").Expanded(b.ShowVolume)
 	disablePlayerButton(btn, !b.HasSrc)
-	if b.OnPanel {
-		videoKeyShape(c, t, btn, headerState{Selected: b.ShowVolume, Hovered: btn.Hovered(), Pressed: btn.Pressed()})
-	} else {
-		playerToolSurface(c, t, toolVolume, btn, b.ShowVolume, btn.Hovered(), btn.Pressed())
-	}
+	playerToolSurface(c, t, toolVolume, btn, b.ShowVolume, btn.Hovered(), btn.Pressed())
 	playerPressPose(btn)
-	if !b.OnPanel {
-		playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
-	}
+	playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
 	muted := set.Muted || set.Volume <= 0
 	btn.Children(func() {
 		ic := volumeIconFor(muted)
 		ink := playerToolInk(t, toolVolume, b.ShowVolume, btn.Hovered())
-		if b.OnPanel {
-			ink = videoKeyInk(t, b.ShowVolume, btn.Hovered())
-		}
-		sz := m.icon(volumeIconSize)
-		icon := ui.Icon(c, ic).Size(sz, sz).
+		icon := ui.Icon(c, ic).Size(volumeIconSize, volumeIconSize).
 			TextColor(playerFadeColor(c, btn, "player-volume-ink", ink)).
 			Opacity(playerDisabledIconOpacityFor(!b.HasSrc))
-		playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
+		if !b.OnPanel {
+			playerIconShadowFn(icon, ic, 0, 1, playerIconShadowInk)
+		}
 	})
 	if btn.Clicked() && b.OnVolumeKey != nil {
 		b.OnVolumeKey()
@@ -491,26 +509,17 @@ func playerVolumeKey(c *ui.Context, b PlayerBarBind) {
 // SpeedW（文字值键放得下 1.25x），高度与圆角与图标键同档。
 func playerSpeedKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	set := b.Set
 	tip := speedTip(set.Speed)
 	btn := ui.ButtonBase(c.Key("speed")).Size(m.SpeedW, m.Key).Radius(m.KeyR).Center().
 		Role(ui.RoleDisclosure).Label(tip).Tooltip(tip).Expanded(b.ShowSpeed)
 	disablePlayerButton(btn, !b.HasSrc)
-	if b.OnPanel {
-		videoKeyShape(c, t, btn, headerState{Selected: b.ShowSpeed, Hovered: btn.Hovered(), Pressed: btn.Pressed()})
-	} else {
-		playerToolSurface(c, t, toolSpeed, btn, b.ShowSpeed, btn.Hovered(), btn.Pressed())
-	}
+	playerToolSurface(c, t, toolSpeed, btn, b.ShowSpeed, btn.Hovered(), btn.Pressed())
 	playerPressPose(btn)
-	if !b.OnPanel {
-		playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
-	}
+	playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
 	btn.Children(func() {
 		ink := playerToolInk(t, toolSpeed, b.ShowSpeed, btn.Hovered())
-		if b.OnPanel {
-			ink = videoKeyInk(t, b.ShowSpeed, btn.Hovered())
-		}
 		numericText(c, speedLabel(set.Speed)).FontSize(11).FontWeight(700).
 			TextColor(playerFadeColor(c, btn, "player-speed-ink", ink))
 	})
@@ -528,7 +537,7 @@ func playerSpeedKey(c *ui.Context, b PlayerBarBind) {
 // 主窗当前值。主窗的这颗键行为不变（照常读写共享设置与 internal/media）。
 func playerEQKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	set := b.Set
 	tip := eqTip(set.EQ)
 	// 不可用时**不**画成「已开」：共享值只以文字出现在 tooltip 里，避免把
@@ -541,25 +550,17 @@ func playerEQKey(c *ui.Context, b PlayerBarBind) {
 	btn := ui.ButtonBase(c.Key("eq")).Size(m.Wide, m.Key).Radius(m.KeyR).Center().
 		Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)
 	disablePlayerButton(btn, !b.HasSrc || b.EQUnavailable)
-	if b.OnPanel {
-		videoKeyShape(c, t, btn, headerState{Selected: on, Hovered: btn.Hovered(), Pressed: btn.Pressed()})
-	} else {
-		playerToolSurface(c, t, toolEq, btn, on, btn.Hovered(), btn.Pressed())
-	}
+	playerToolSurface(c, t, toolEq, btn, on, btn.Hovered(), btn.Pressed())
 	playerPressPose(btn)
-	if !b.OnPanel {
-		playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
-	}
+	playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
 	btn.Children(func() {
 		ink := playerToolInk(t, toolEq, on, btn.Hovered())
-		if b.OnPanel {
-			ink = videoKeyInk(t, on, btn.Hovered())
-		}
-		sz := m.icon(eqIconSize)
-		icon := ui.Icon(c, iconEQ).Size(sz, sz).
+		icon := ui.Icon(c, iconEQ).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(c, btn, "player-eq-ink", ink)).
 			Opacity(playerDisabledIconOpacityFor(!b.HasSrc))
-		playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
+		if !b.OnPanel {
+			playerIconShadowFn(icon, iconEQ, 0, 1, playerIconShadowInk)
+		}
 	})
 	if btn.Clicked() {
 		set.SetEQ(!set.EQ)
@@ -570,28 +571,20 @@ func playerEQKey(c *ui.Context, b PlayerBarBind) {
 // 读共享设置里的 SponsorStatus / Count / Reason —— 视频窗与主窗同一份。
 func playerSponsorKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
-	m := b.keyMetrics()
+	m := playerBarKeyMetrics
 	set := b.Set
 	btn := ui.ButtonBase(c.Key("sponsor")).Size(m.Wide, m.Key).Radius(m.KeyR).Center().
 		Role(ui.RoleToggleButton).Label(sponsorTip()).Tooltip(sponsorTip()).Checked(set.Sponsor)
-	if b.OnPanel {
-		videoKeyShape(c, t, btn, headerState{Selected: set.Sponsor})
-	} else {
-		playerToolSurface(c, t, toolSponsor, btn, set.Sponsor, false, false)
-	}
+	playerToolSurface(c, t, toolSponsor, btn, set.Sponsor, false, false)
 	playerPressPose(btn)
-	if !b.OnPanel {
-		playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
-	}
+	playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)
 	btn.Children(func() {
 		ink := playerToolInk(t, toolSponsor, set.Sponsor, false)
-		if b.OnPanel {
-			ink = videoKeyInk(t, set.Sponsor, false)
-		}
-		sz := m.icon(eqIconSize)
-		icon := ui.Icon(c, iconSponsor).Size(sz, sz).
+		icon := ui.Icon(c, iconSponsor).Size(eqIconSize, eqIconSize).
 			TextColor(playerFadeColor(c, btn, "player-sponsor-ink", ink))
-		playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
+		if !b.OnPanel {
+			playerIconShadowFn(icon, iconSponsor, 0, 1, playerIconShadowInk)
+		}
 		dot := ui.Box(c).Size(6, 6).Radius(RadiusPill).Absolute().Right(3).Top(3).
 			Background(sponsorDotColor(set.SponsorStatus)).
 			Border(1, ui.Hex("#ffffff").Alpha(0.75)).
@@ -603,13 +596,6 @@ func playerSponsorKey(c *ui.Context, b PlayerBarBind) {
 		set.SetSponsor(!set.Sponsor)
 	}
 }
-
-// ---------------------------------------------------------------- 视频窗面板键
-//
-// 视频窗控件条上的工具键（音量 / 倍速 / 均衡 / 跳过）不再各写一套：
-// 它们与顶栏五颗键共用 videotokens.go 的 videoKeyShape / videoKeyInk
-//（四态只叠一层 accent，不发光、不叠描边+投影）。共享代码里只剩一个
-// `b.OnPanel` 分支指向那套令牌。
 
 // ---------------------------------------------------------------- 弹层
 

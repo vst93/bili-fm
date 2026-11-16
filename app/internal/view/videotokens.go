@@ -58,52 +58,40 @@ const (
 	// videoChromeBarH 是控件条单行高度：与主窗播放栏同一个 56（两处共用
 	// 一份控件代码，高度跟着走，两栏的键才在同一档节奏上）。
 	videoChromeBarH float32 = PlayerBarHeight
-	// videoChromeBarTwoH 是窄窗两行控件条的高度：4 + 24（进度条）+ 4 +
-	// 30（键行）+ 4 = 66。全部由网格与键尺寸推出，不再是手写的 76。
-	videoChromeBarTwoH float32 = 3*videoStep + timelineH + videoKeySize
 	// videoChromeRadius 是两条栏的圆角，videoPanelRadius 是设置面板的圆角
 	// —— 同一档浮层，同一个值（面板挂在栏下面，圆角不一致会读成两块东西）。
 	videoChromeRadius float32 = 12
 	videoPanelRadius  float32 = videoChromeRadius
 )
 
-// ---------------------------------------------------------------- 键
+// videoChromeBarTwoH 是窄窗两行控件条的高度：上内边距 + 进度条命中高(24) +
+// 行间距 + 键行 + 下内边距。键行高度是共享播放栏的播放键直径（42）—— 控件条
+// 用的是主窗那套键，所以这里跟着它走，不再手写。
+//
+// var 而不是 const：这一档由共享键令牌与进度条命中高度算出。
+var videoChromeBarTwoH = 3*videoRowGap + timelineH + playerBarKeyMetrics.Play
+
+// ---------------------------------------------------------------- 键（只服务顶栏）
 
 const (
-	// videoKeySize / videoKeyRadius 是**这一窗全部图标键**的尺寸与圆角：
-	// 顶栏五颗（置顶 / 弹幕 / 设置 / 最小化 / 退出）与控件条里的播放、下一集、
-	// 音量、倍速、均衡、跳过、全屏都是 30×30、圆角 6。此前顶栏 30、工具键
-	// 32、均衡列 34、播放 42 —— 同一排里四种尺寸，视觉上就是「拼的」。
+	// videoKeySize / videoKeyRadius 是**顶栏那五颗键**（置顶 / 弹幕 / 设置 /
+	// 最小化 / 退出视频播放）的尺寸与圆角。
+	//
+	// 控件条的键**不**在这里：它用的是共享播放栏那套 playerBarKeyMetrics
+	// （播放 42、工具键 32、倍速列 40、时间列 56）与主窗同一套图标尺寸 ——
+	// 用户 2026-11：「视频窗控件条 == 主窗播放栏，只多一个全屏按钮」。
 	//
 	// VideoChromeKey 是它的导出名：主窗迷你模式的固定键也是 30×30，两处必须
 	// 取同一个值（TestVideoPinKeyMatchesMini 钉住）。
-	videoKeySize      float32 = 30
-	videoKeyRadius    float32 = 6
-	VideoChromeKey    float32 = videoKeySize
-	videoKeyTransport float32 = videoKeySize // 播放 / 下一集与图标键同档
+	videoKeySize   float32 = 30
+	videoKeyRadius float32 = 6
+	VideoChromeKey float32 = videoKeySize
 
-	// videoIconSize 是全部线性图标的统一尺寸（16）。icon-park 的 48 画布字形
-	// 占 4..44：缩到 16 时墨迹约 13.3px、描边 1.33px；视频窗自己的两枚图标
-	//（全屏 / 退出全屏）也画在同一条 48/4 网格上，所以一排键里每枚图标的
-	// 描边与墨迹都在同一档。16 画布的自绘字形（iconEQ / iconLyricsGear）描边
-	// 是 1.4px，与 1.33px 差 0.07px（不足一像素）—— 光学对齐靠的是**同一条
-	// 网格**，不是逐枚挑几何尺寸。
+	// videoIconSize 是顶栏五颗键的线性图标尺寸（16）。icon-park 的 48 画布
+	// 字形占 4..44：缩到 16 时墨迹约 13.3px、描边 1.33px。16 画布的自绘字形
+	// （iconEQ / iconLyricsGear）描边是 1.4px，与 1.33px 差 0.07px（不足一
+	// 像素）—— 光学对齐靠的是**同一条网格**，不是逐枚挑几何尺寸。
 	videoIconSize float32 = 16
-	// videoPlayIconSize 是播放 / 暂停的**实心**字形尺寸：实心图形在同样的
-	// 盒子里读起来比描边小一档，给它 18（光学对齐，不是几何对齐）。
-	videoPlayIconSize float32 = 18
-	// videoSpeedKeyW 是「文字值键」（倍速 1.25x）的宽度：它显示 5 个字形，
-	// 30 放不下；高度与圆角仍与图标键同档。
-	videoSpeedKeyW float32 = 40
-	// videoTimeW 是时间码列的固定宽度（4 的倍数）：容纳最长的 h:mm:ss
-	// （"12:34:56" 在 11px / 600 / tnum 下量得 45.9），且宽度固定 + 等宽
-	// 数字 ⇒ 播放时时间码不会左右跳。
-	videoTimeW float32 = 52
-	// videoVolW 是宽窗内联音量滑块的宽度。
-	videoVolW float32 = 68
-	// videoTrackH 是进度条 / 音量条的**视觉**轨道高度（4）。命中区仍是
-	// timelineH = 24，远大于要求的 16。
-	videoTrackH float32 = 4
 )
 
 // ---------------------------------------------------------------- 字号
@@ -117,9 +105,8 @@ const (
 	videoFontBody float32 = 12
 	// videoFontMeta 是次要信息：分组标题、说明小字、档位按钮。
 	videoFontMeta float32 = 11
-	// videoFontTime 是时间码字号；videoTimeLineH 是它的行盒。字重沿用主窗
-	// 播放栏那一档（playerTimeWeight = 600），不另开一个。
-	videoFontTime  float32 = 11
+	// videoTimeLineH 是设置面板里行文字的行盒高度（18）—— 面板自己的排版
+	// 令牌，不是控件条的（控件条的时间码走共享播放栏那一档）。
 	videoTimeLineH float32 = 18
 )
 
@@ -302,61 +289,4 @@ func videoKeyTitle(c *ui.Context, t Theme, key, label, tip string, ic *ui.SVG, a
 	})
 	focusOutline(b, videoKeyRadius, t.headerFocusRing())
 	return b
-}
-
-// videoPlaySurface / videoPlayInk 是视频窗播放键的材质与图标色：播放键是主
-// 操作，常态就带一层淡 accent 底（否则白面板上的白键认不出来），三态只在
-// accent 的浓度上走 —— 不叠描边、不叠发光、不叠彩色投影。
-func videoPlaySurface(t Theme, b ui.Element, hovered, pressed bool) ui.Element {
-	fill := t.Blue.Alpha(0.14)
-	switch {
-	case pressed:
-		fill = t.Blue.Alpha(0.10)
-	case hovered:
-		fill = t.Blue.Alpha(0.22)
-	}
-	return b.Background(fill).Border(1, ui.Transparent)
-}
-
-func videoPlayInk(t Theme, hovered bool) ui.Color {
-	if t.HighContrast {
-		return playerHCInk
-	}
-	if hovered {
-		return ui.Hex("#0369a1")
-	}
-	return t.Blue
-}
-
-// videoPanelKeys 是视频窗控件条这一帧的键尺寸令牌（顶栏与控件条共用）。
-func videoPanelKeys() PlayerKeyMetrics {
-	return PlayerKeyMetrics{
-		Key:  videoKeySize,
-		KeyR: videoKeyRadius,
-		Wide: videoKeySize,
-		Play: videoKeyTransport, PlayR: videoKeyRadius,
-		Icon: videoIconSize, PlayIcon: videoPlayIconSize,
-		SpeedW: videoSpeedKeyW,
-		// 列宽 = 键宽：键与键之间因此正好是 videoGap。
-		ToolSlot: videoKeySize, SpeedSlot: videoSpeedKeyW, SponsorSlot: videoKeySize,
-		TransportGap: videoGap,
-		TimeW:        videoTimeW, TimeSize: videoFontTime,
-		TrackH: videoTrackH,
-	}
-}
-
-// videoBufferedFrom / videoBufferedTo 是视频窗进度条缓冲层的颜色：一对中性
-// 灰蓝，与青→蓝的播放层一眼分色（浅色面板上再深一档，深色面板上再亮一档）。
-func videoBufferedFrom(t Theme) ui.Color {
-	if t.Dark {
-		return ui.Hex("#cbd5e1").Alpha(0.30)
-	}
-	return ui.Hex("#94a3b8").Alpha(0.42)
-}
-
-func videoBufferedTo(t Theme) ui.Color {
-	if t.Dark {
-		return ui.Hex("#94a3b8").Alpha(0.26)
-	}
-	return ui.Hex("#64748b").Alpha(0.36)
 }

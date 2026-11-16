@@ -60,6 +60,11 @@ type Options struct {
 	Shared *view.PlayerSettings
 	// SponsorSegments 是当前这一集的恰饭分段（进度条标记 + 视频窗跳过）。
 	SponsorSegments []view.Segment
+	// DanmakuHeat / HeatOn 是弹幕热力：与主窗**同一份数据**（主窗 App 的
+	// DanmakuHeat / HeatOn，本身来自那条 cid 缓存）。视频窗只是把它画到
+	// 自己的控件条上（同一个 painter），不另拉一次请求。
+	DanmakuHeat []view.HeatPoint
+	HeatOn      bool
 	// VideoPinned 是视频窗开窗时的置顶状态（主窗落盘的 videoPinned）。
 	// 默认 false：与主窗迷你模式的固定一致；窗口创建后那颗图钉可以改它。
 	// 只对原生窗生效 —— webview 回退路径没有自绘顶栏，也就没有改动它的
@@ -205,6 +210,11 @@ type Manager struct {
 	onNativeToggle func(bool)
 	// onPinToggle 在视频窗顶栏点「置顶」键时调用（主窗落盘 videoPinned）。
 	onPinToggle func(bool)
+
+	// heat / heatOn 是弹幕热力（主窗同一份数据的镜像，见 SetDanmakuHeat）。
+	// 建窗时取自 Options，之后由主窗推送。
+	heat   []view.HeatPoint
+	heatOn bool
 }
 
 // New 建一个管理器。
@@ -237,6 +247,28 @@ func (m *Manager) SetSponsorSegments(segs []view.Segment) {
 		n.segments = segs
 		if n.chrome != nil {
 			n.chrome.SponsorSegments = segs
+		}
+	})
+}
+
+// SetDanmakuHeat 把弹幕热力同步给视频窗（控件条上那条热力带）。
+//
+// 数据是主窗**同一份**（同一个 cid 缓存聚出来的桶），这里只转发引用：视频窗
+// 不自己请求、不自己聚合，两窗的热力因此不可能对不上。热力是可选增强：没有
+// 原生窗（webview / 未开窗）时什么都不做。
+func (m *Manager) SetDanmakuHeat(pts []view.HeatPoint, on bool) {
+	m.mu.Lock()
+	m.heat, m.heatOn = pts, on
+	n := m.native
+	m.mu.Unlock()
+	if n == nil || n.win == nil {
+		return
+	}
+	n.win.Update(func() {
+		n.heat, n.heatOn = pts, on
+		if n.chrome != nil {
+			n.chrome.DanmakuHeat = pts
+			n.chrome.HeatOn = on
 		}
 	})
 }
@@ -395,6 +427,13 @@ func (m *Manager) openNativePlayer(src string) (playerAPI, error) {
 
 // makeNativeWindow 建原生视频窗（默认 newNativeWindow，测试可换桩）。
 func (m *Manager) makeNativeWindow(o Options, pl playerAPI) *nativeWindow {
+	// 热力以 Manager 收到的最后一次为准：建窗期间可能刚好有新数据到达
+	// （Options 里那份只是开窗那一刻的快照）。同一份数据，不复制第二份。
+	m.mu.Lock()
+	if m.heat != nil || m.heatOn {
+		o.DanmakuHeat, o.HeatOn = m.heat, m.heatOn
+	}
+	m.mu.Unlock()
 	if fn := m.newNativeWin; fn != nil {
 		return fn(o, pl)
 	}

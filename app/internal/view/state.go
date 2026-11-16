@@ -1758,6 +1758,13 @@ var (
 	iconCloseSmall = iconPark(parkCloseSmall)
 	// 标题栏自绘的最小化键图标（原版 titleBar.tsx 的 Minus，48 画布正中一横）。
 	iconMinus = iconPark(parkMinus)
+	// 全屏 / 退出全屏：icon-park 的四角括号（FullScreenOne / OffScreenOne），
+	// 与上面这批同一份 48 画布 / 描边 4 的定义。视频窗控件条的全屏键与主窗
+	// 其它键共用这一套图标 —— 上一轮曾把它们画在另一份网格上、控件条其余键
+	// 又统一成 16，一排键里描边与尺寸都不一样（用户 2026-11：「下一首的图标
+	// 被改了，要和之前一样」）。现在只有这一份定义，控件条不再自带 SVG。
+	iconFullScreen     = iconPark(`<path d="M4 17V4h13"/><path d="M31 4h13v13"/><path d="M44 31v13H31"/><path d="M17 44H4V31"/>`)
+	iconExitFullScreen = iconPark(`<path d="M17 4v13H4"/><path d="M31 4v13h13"/><path d="M44 17H31v13"/><path d="M4 17h13v13"/>`)
 	// 互动：icon-park 的 ThumbsUp / HandleB（投币，圆形钱币）/ Star。
 	// 收藏键的 active 态是 Star 的 filled 变体（原版
 	// `theme={isFavorite ? "filled" : "outline"}`），所以两枚都留着。

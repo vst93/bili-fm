@@ -90,25 +90,38 @@
   封顶、内部 `ui.Scroll` —— 320×200 最小窗口也能开、能滚、能关（关闭键在
   固定头部）。Esc 在面板开着时只关面板（`do()` 的 `videoKeyExit*`），全屏
   同理。
-- **视频窗的视觉取值全在 `view.videotokens.go`（2026-11 排版秩序那一轮）**：
-  用户 2026-11：「视频播放的界面还需要优化，现在的 UI 看着不够正式」——不加
-  功能、不加动效，靠秩序。规则：间距只有 4/8 两档（`videoStep`/`videoStep2`），
-  顶栏与控件条共用 `videoInset`（栏与窗口边缘）与 `videoPadX`（栏内左右），所以
-  两栏同宽同缩进（内容左缘 = 24）；**全部图标键**（顶栏 5 颗 + 播放/下一集/音量/
-  倍速/均衡/跳过/全屏）同尺寸同圆角（`videoKeySize` 30 / `videoKeyRadius` 6，
-  倍速这把文字值键宽度例外 `videoSpeedKeyW` = 40）；字号只有 13/600（标题）、
-  12（正文）、11（次要）三档；时间码用 `numericText`（tnum）并固定列宽
-  `videoTimeW` = 52。**别再往视图里写字面量尺寸 / 颜色**——那正是这轮清掉的东
-  西。键的四态只有一层表达（`videoKeySurfaceColors` + `videoKeyInk`：激活 = 单一
-  accent 底 + accent 墨，不叠描边 + 彩色投影），顶栏与控件条共用唯一的画法
-  `videoKeyTitle`（旧的 `playerBarTitleKey` + 面板键那两套已删）。共享的播放栏
-  代码（`playerbar_shared.go`）只读绑定里的键令牌 `PlayerKeyMetrics`：主窗是
-  42/32/34/40 那套（`playerKeyMetricsMain`），视频窗是 `videoPanelKeys()`。
-  两条栏各在对着画面的那条边补一条 1px 低对比 hairline（`videoHairline`，
-  顶栏底 / 控件条顶），不靠更厚的玻璃建立层次。弹幕区固定夹在两条栏之间
-  （`videoDanmakuArea`，顶/底固定弹幕与滚动弹幕同一上边距），不压控件条。
-  可读性与网格口径在 `videotokens_test.go`（网格 / 中心线 / 键令牌 / 时间码
-  固定宽 / hairline 低对比 / 四尺度两态不重叠）。
+- **视频窗控件条 == 主窗播放栏，只多一颗全屏键**（用户 2026-11）：
+  控件条的播放/下一集/进度/时间/音量/倍速/均衡/跳过/**全屏**全部来自
+  `playerbar_shared.go`（绑定目标是视频播放器），视频窗**不许再写第二套控件**：
+  `videoPanelKeys`、内联音量条（`volumeSlider`）、自绘全屏键、
+  `videoPlaySurface/videoPlayInk` 都已删。键尺寸只有一份
+  `playerBarKeyMetrics`（播放 42 / 工具键 32 / 均衡·恰饭 34 / 倍速 40 / 时间列
+  56），图标尺寸只有 `playIconSize/nextIconSize/volumeIconSize/eqIconSize`
+  （+ 全屏键的 `fullScreenIconSize`）—— 视频窗若再出现一套 16/18 的图标令牌，
+  就是用户报的「下一首的图标被改了」。图标本身只有 `state.go` 那一份 icon-park
+  定义（全屏键的 `iconFullScreen/iconExitFullScreen` 也在那里），`videochrome.go`
+  里**不许**再出现 `iconPark(` / `<path d=`。
+  热力条与主窗同一份数据（`App.DanmakuHeat`，同一个 cid 缓存，经
+  `video.Options.DanmakuHeat` + `Manager.SetDanmakuHeat` 推过来）、同一个
+  `playerHeatPainter`；横向范围永远是**进度条轨道矩形**（两窗都绑
+  `TimelineHandle`），不许退回整条栏宽。
+  弹出式而非平铺：音量/倍速在任何宽度都只在弹层里（`videoChromeLayout` 没有
+  「内联音量条」这一档）。
+  悬浮闪烁的根因：视频窗的播放键曾同时画两层图标（玻璃播放栏那层白色
+  drop-shadow 副本 + 真图标），全屏键则来自顶栏那套键（hover 才加一层
+  `InsetShadow` + 描边），hover 时图标墨色在 140ms 里过渡、另一层不动 →
+  看起来在闪。现在控件条按键只画**一层**图标（`PlayerBarBind.OnPanel` 时跳过
+  `playerIconShadowFn`），材质层序在 hover 前后不变。
+- **视频窗的其余视觉取值在 `view.videotokens.go`**：网格（`videoStep`/
+  `videoStep2`）、两栏共用的 `videoInset`/`videoPadX`、顶栏 5 颗键的
+  `videoKeySize`(30)/`videoKeyRadius`(6)/`videoIconSize`(16)、字号 13/600、12、
+  11、面板行高与内边距、hairline 与两条栏的厚玻璃材质（`videoTitleBar` /
+  `videoControlBar` / `videoBarFill`）。**控件条的键与时间码不在这里**（它们走
+  共享播放栏）。视频窗两条栏各在对着画面的那条边补一条 1px 低对比 hairline
+  （`videoHairline`），弹幕区固定夹在两条栏之间（`videoDanmakuArea`）。
+  口径在 `videotokens_test.go`（顶栏网格 / 中心线 / hairline / 四尺度两态不
+  重叠）与 `videobar_sync_test.go`（控件集合 == 主窗 + 全屏 / 尺寸一致 / 图标
+  同源 / 单层图标 / 热力几何 / 弹出式 / 拖动）。
 - **视频窗上下两条栏是「厚玻璃」**（`view.videoTitleBar` / `videoControlBar` +
   `videoBarFill`）：底色 = `Panel` 令牌 + 不透明度下限（浅 .93 / 深 .95，原
   .88 / .92）。只抬 alpha、不动 RGB —— 色相层次与 1px 线 + 顶沿内高光 + 投影

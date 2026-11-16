@@ -39,7 +39,7 @@ type rangePaint struct {
 	// 青→天蓝）。视频窗换成灰蓝的中性带，与青→蓝的播放层一眼分色。
 	BufferedFrom ui.Color
 	BufferedTo   ui.Color
-	// HideIdleThumb 为真时滑块只在悬停 / 拖动中出现（视频窗：常态是一条干净
+	// HideIdleThumb 为真时滑块只在悬停 / 拖动中出现（旧视频窗的细轨道用过；
 	// 的轨道，指针压上去才浮出可拖的手柄）。
 	HideIdleThumb bool
 }
@@ -54,8 +54,9 @@ type rangePaint struct {
 type rangeGeom struct {
 	TrackInset  float32
 	TravelInset float32
-	// TrackH 是轨道的视觉高度（0 → timelineTrackH）。视频窗要一条更细的轨道
-	// （videoTrackH = 4），命中区仍由外层元素的高度给（timelineH = 24）。
+	// TrackH 是轨道的视觉高度（0 → timelineTrackH）。两窗现在都用默认的
+	// 6px（视频窗曾经用 4，那一档已随视频窗的键令牌一起删掉）；命中区仍由
+	// 外层元素的高度给（timelineH = 24）。
 	TrackH float32
 }
 
@@ -356,7 +357,8 @@ func paintRangeBar(p *ui.Painter, r ui.Rect, rp rangePaint) {
 }
 
 // bufferedFrom / bufferedTo 是缓冲层这一帧的渐变色：主窗播放栏用原版那对
-// 青 → 天蓝；视频窗传自己的一对灰蓝（rangePaint.BufferedFrom/To），与青 → 蓝
+// 青 → 天蓝；rangePaint.BufferedFrom/To 可换（视频窗曾用一对灰蓝，现在两窗
+// 同一份），与青 → 蓝
 // 的播放层一眼分色。零值即播放栏默认。
 func (rp rangePaint) bufferedFrom() ui.Color {
 	if rp.BufferedFrom.A > 0 {
@@ -381,7 +383,7 @@ func (rp rangePaint) bufferedEdge() ui.Color {
 }
 
 // timelineGeomWith 返回带指定视觉轨道高度的进度条几何（h <= 0 → 默认 6px）。
-// 视频窗用 videoTrackH = 4：轨道更细，命中区仍由外层元素的高度给（timelineH）。
+// 两窗现在都用 timelineGeom（6px）；保留这个函数给弹层里更细的轨道。
 func timelineGeomWith(h float32) rangeGeom {
 	if h <= 0 {
 		return timelineGeom

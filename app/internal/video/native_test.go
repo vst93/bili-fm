@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui/video"
 
 	"github.com/vst93/bili-fm/app/internal/proxy"
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // ---------------------------------------------------------------- 纯逻辑
@@ -486,5 +487,43 @@ func TestNativeSourceIsProxyURL(t *testing.T) {
 	}
 	if got := u.Query().Get("url"); got != upstream {
 		t.Errorf("代理解出的上游 = %q，应为 %q", got, upstream)
+	}
+}
+
+// TestNativeHeatFollowsMainWindow 钉住弹幕热力的接线：视频窗控件条上的热力
+// 与主窗**同一份数据**（同一个 cid 缓存聚出来的桶），经 Options 开窗时注入、
+// 之后由 Manager.SetDanmakuHeat 推送；视频窗不会自己再拉一次。
+//
+// 反证：把 view(n) 里 ch.DanmakuHeat / ch.HeatOn 两行删掉，这条变红。
+func TestNativeHeatFollowsMainWindow(t *testing.T) {
+	pts := []view.HeatPoint{{At: 0, Value: 0.2}, {At: 60, Value: 0.9}, {At: 120, Value: 0.5}}
+	pl := &stubPlayer{playing: true, ready: true, dur: 120 * time.Second, pos: 10 * time.Second, rate: 1, vol: 1}
+	set := &view.PlayerSettings{Volume: 1, LastVolume: 1, Speed: 1}
+	set.Ensure()
+	n := &nativeWindow{
+		pl:       pl,
+		title:    "测试稿件",
+		settings: set,
+		heat:     pts,
+		heatOn:   true,
+	}
+	tt := ui.NewTester(n.view, 640, 360)
+	tt.Frame()
+	ch := n.chromeFor()
+	if ch == nil {
+		t.Fatal("原生窗没有建出外壳")
+	}
+	if !ch.HeatOn || len(ch.DanmakuHeat) != len(pts) {
+		t.Fatalf("外壳没拿到热力：HeatOn=%v points=%d", ch.HeatOn, len(ch.DanmakuHeat))
+	}
+	if &ch.DanmakuHeat[0] != &pts[0] {
+		t.Errorf("视频窗复制了一份热力数据（应与主窗同一份切片）")
+	}
+	// 主窗把开关关掉：下一帧就跟着关（同一份数据、同一个开关）。
+	n.heatOn = false
+	ch.HeatOn = false
+	tt.Frame()
+	if ch.HeatOn {
+		t.Errorf("关掉热力开关后视频窗还开着")
 	}
 }

@@ -44,6 +44,10 @@ func (c *controller) clearPlaybackExtras() {
 	a.DanmakuHeat = nil
 	a.HeatVersion++
 	a.HeatCid = 0
+	// 视频窗可能开着：热力跟着清掉（与主窗同一条数据）。
+	if c.vid != nil {
+		c.vid.SetDanmakuHeat(nil, a.HeatOn)
+	}
 	// 当前观看人数也是「某一集」的属性：换集先清掉，起播那一枪在
 	// startCurrent 里重打（见 viewers.go）。
 	c.clearOnlineViewers()
@@ -577,6 +581,11 @@ func (c *controller) startDanmakuHeat(cid int64) {
 			a.DanmakuHeat = pts
 			a.HeatVersion++
 			a.HeatCid = cid
+			// 视频窗控件条上的热力带与主窗同一个 painter：直接把同一份
+			// 数据推过去（不另发请求）。
+			if c.vid != nil {
+				c.vid.SetDanmakuHeat(pts, a.HeatOn)
+			}
 		})
 	}()
 }
@@ -698,6 +707,10 @@ func (c *controller) setHeatOn(on bool) {
 	a := c.app
 	a.HeatOn = on
 	a.HeatVersion++
+	// 视频窗开着时跟着开关走（同一条数据、同一个开关）。
+	if c.vid != nil {
+		c.vid.SetDanmakuHeat(a.DanmakuHeat, on)
+	}
 	_ = c.kv.SetString(prefHeatOn, strconv.FormatBool(on))
 	if c.menuHeat != nil {
 		c.menuHeat.SetChecked(on)

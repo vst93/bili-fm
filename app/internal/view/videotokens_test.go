@@ -106,10 +106,6 @@ func TestVideoTokensOnGrid(t *testing.T) {
 		{"videoChromeTitleH", videoChromeTitleH},
 		{"videoChromeBarH", videoChromeBarH},
 		{"videoChromeRadius", videoChromeRadius},
-		{"videoSpeedKeyW", videoSpeedKeyW},
-		{"videoTimeW", videoTimeW},
-		{"videoVolW", videoVolW},
-		{"videoTrackH", videoTrackH},
 		{"videoSettingsRowH", videoSettingsRowH},
 		{"videoSettingsHeadH", videoSettingsHeadH},
 		{"videoChoiceH", videoChoiceH},
@@ -126,26 +122,32 @@ func TestVideoTokensOnGrid(t *testing.T) {
 	if videoInset != videoInset {
 		t.Errorf("videoInset = %v ≠ videoInset %v（两栏必须同缩进）", videoInset, videoInset)
 	}
-	// 键：顶栏与控件条同尺寸同圆角；播放键与图标键同档。
-	if VideoChromeKey != videoKeySize || videoKeyTransport != videoKeySize {
-		t.Errorf("键尺寸不统一：VideoChromeKey=%v videoKeyTransport=%v videoKeySize=%v",
-			VideoChromeKey, videoKeyTransport, videoKeySize)
+	// 顶栏键：导出的 VideoChromeKey 与令牌同一个值（主窗迷你模式的固定键
+	// 也取它，两处必须一致）。控件条的键**不**在这里 —— 它走共享播放栏的
+	// playerBarKeyMetrics（见 TestVideoBarControlSizesMatchMainBar）。
+	if VideoChromeKey != videoKeySize {
+		t.Errorf("顶栏键尺寸不统一：VideoChromeKey=%v videoKeySize=%v",
+			VideoChromeKey, videoKeySize)
+	}
+	// 两行控件条的高度由网格 + 进度条命中高 + 共享播放键直径推出。
+	if want := 3*videoRowGap + timelineH + playerBarKeyMetrics.Play; videoChromeBarTwoH != want {
+		t.Errorf("videoChromeBarTwoH = %v，应为 3*videoRowGap+timelineH+Play = %v", videoChromeBarTwoH, want)
 	}
 	// 字号只有三档，且标题是 semibold。
 	if videoFontTitle != 13 || videoTitleWeight != 600 {
 		t.Errorf("标题字号/字重 = %v/%d，应为 13/600", videoFontTitle, videoTitleWeight)
 	}
-	if videoFontBody != 12 || videoFontMeta != 11 || videoFontTime != 11 {
-		t.Errorf("正文字号档 = %v / %v / %v，应为 12 / 11 / 11",
-			videoFontBody, videoFontMeta, videoFontTime)
+	if videoFontBody != 12 || videoFontMeta != 11 {
+		t.Errorf("正文字号档 = %v / %v，应为 12 / 11", videoFontBody, videoFontMeta)
 	}
 	// 面板头部与行同高（「头部高度统一」）。
 	if videoSettingsHeadH != videoSettingsRowH {
 		t.Errorf("面板头部 %v ≠ 行高 %v", videoSettingsHeadH, videoSettingsRowH)
 	}
 	// 时间码列宽必须装得下最长的 h:mm:ss（固定宽度是「不左右跳」的前提）。
-	if videoTimeW < 48 {
-		t.Errorf("时间列宽 %v 装不下 12:34:56（需 ≥ 48）", videoTimeW)
+	// 这一档现在是共享播放栏的令牌（视频窗不再有自己的 52）。
+	if playerBarKeyMetrics.TimeW < 48 {
+		t.Errorf("时间列宽 %v 装不下 12:34:56（需 ≥ 48）", playerBarKeyMetrics.TimeW)
 	}
 }
 
@@ -167,17 +169,15 @@ func TestVideoChromeGridAlignment(t *testing.T) {
 				t.Fatalf("%s %dx%d：键太少（顶栏 %d / 控件条 %d）",
 					name, tc.w, tc.h, len(title), len(bar))
 			}
-			// 一行内全部键共用一条视觉中心线（同一 y、同一高）。
-			for _, row := range [][]ui.AccessInfo{title, bar} {
-				cy := row[0].Bounds.Y + row[0].Bounds.H/2
-				for _, k := range row[1:] {
-					if got := k.Bounds.Y + k.Bounds.H/2; !videoNear(got, cy, 0.6) {
-						t.Errorf("%s %dx%d：%q 的中心线 %v 与 %q 的 %v 不在一条线上",
-							name, tc.w, tc.h, k.Name, got, row[0].Name, cy)
-					}
+			// 顶栏：一行内全部键共用一条视觉中心线（同一 y、同一高），
+			// 键与键之间正好 videoGap。
+			cy := title[0].Bounds.Y + title[0].Bounds.H/2
+			for _, k := range title[1:] {
+				if got := k.Bounds.Y + k.Bounds.H/2; !videoNear(got, cy, 0.6) {
+					t.Errorf("%s %dx%d：%q 的中心线 %v 与 %q 的 %v 不在一条线上",
+						name, tc.w, tc.h, k.Name, got, title[0].Name, cy)
 				}
 			}
-			// 键与键之间的间距是 8 的倍数（顶栏全是正好 videoGap）。
 			for i := 1; i < len(title); i++ {
 				gap := title[i].Bounds.X - (title[i-1].Bounds.X + title[i-1].Bounds.W)
 				if !videoNear(gap, videoGap, 0.6) {
@@ -185,20 +185,19 @@ func TestVideoChromeGridAlignment(t *testing.T) {
 						name, tc.w, tc.h, title[i-1].Name, title[i].Name, gap, videoGap)
 				}
 			}
-			minGap := float32(1e9)
-			for i := 1; i < len(bar); i++ {
-				gap := bar[i].Bounds.X - (bar[i-1].Bounds.X + bar[i-1].Bounds.W)
-				if gap <= 0 {
-					t.Errorf("%s %dx%d：控件条 %q 与 %q 重叠（间距 %v）",
-						name, tc.w, tc.h, bar[i-1].Name, bar[i].Name, gap)
-					continue
+			// 控件条：键是共享播放栏那套（42/32/34/40 + 6/8 的行间距），
+			// 只要求同一条视觉中心线、互不重叠（尺寸与主窗一致由
+			// TestVideoBarControlSizesMatchMainBar 钉住）。
+			barCY := bar[0].Bounds.Y + bar[0].Bounds.H/2
+			for i, k := range bar {
+				if got := k.Bounds.Y + k.Bounds.H/2; !videoNear(got, barCY, 0.6) {
+					t.Errorf("%s %dx%d：控件条 %q 的中心线 %v 与 %q 的 %v 不在一条线上",
+						name, tc.w, tc.h, k.Name, got, bar[0].Name, barCY)
 				}
-				if gap < minGap {
-					minGap = gap
+				if i > 0 && bar[i].Bounds.X < bar[i-1].Bounds.X+bar[i-1].Bounds.W {
+					t.Errorf("%s %dx%d：控件条 %q 与 %q 重叠",
+						name, tc.w, tc.h, bar[i-1].Name, bar[i].Name)
 				}
-			}
-			if !videoNear(minGap, videoGap, 0.6) {
-				t.Errorf("%s %dx%d：控件条最小键间距 %v，应为 %v", name, tc.w, tc.h, minGap, videoGap)
 			}
 			// 两栏左右缘一致，且都等于 videoInset（像素级：画面留黑，栏是会亮起来的那块）。
 			img := tt.Image()
@@ -240,29 +239,20 @@ func barEdges(img *image.RGBA, w, y int) (left, right int) {
 	return left, right
 }
 
-// TestVideoChromeKeyTokens 钉住「顶栏键与控件条键取同一令牌」：每一颗键都是
-// videoKeySize 见方、圆角 videoKeyRadius；唯一的宽度例外是倍速这颗文字值键
-// （videoSpeedKeyW）。不允许 28 / 32 / 34 / 40 / 42 这类离群尺寸。
+// TestVideoChromeKeyTokens 钉住**顶栏**那五颗键：每一颗都是 videoKeySize
+// 见方。控件条的键不再属于这套令牌 —— 它走共享播放栏的
+// playerBarKeyMetrics（播放 42 / 工具 32 / 倍速 40），尺寸由
+// TestVideoBarControlSizesMatchMainBar 与主窗逐颗对齐。
 func TestVideoChromeKeyTokens(t *testing.T) {
 	for name, th := range videoOrderThemes() {
 		for _, tc := range []struct{ w, h int }{{320, 200}, {640, 360}, {900, 500}} {
 			_, tt := videoOrderProbe(t, th, tc.w, tc.h, 100*time.Second, 30*time.Second, false)
-			titleH, barH := videoBarSpan(float32(tc.w))
-			keys := append(
-				videoKeysIn(tt, videoInset-1, videoInset+titleH+1),
-				videoKeysIn(tt, float32(tc.h)-videoInset-barH-1, float32(tc.h)-videoInset+1)...)
-			for _, k := range keys {
-				if !videoNear(k.Bounds.H, videoKeySize, 0.6) {
-					t.Errorf("%s %dx%d：键 %q 高 %v，应为 %v（同一令牌）",
-						name, tc.w, tc.h, k.Name, k.Bounds.H, videoKeySize)
-				}
-				switch {
-				case videoNear(k.Bounds.W, videoKeySize, 0.6):
-				case videoNear(k.Bounds.W, videoSpeedKeyW, 0.6):
-					// 倍速这把文字值键按令牌给宽度。
-				default:
-					t.Errorf("%s %dx%d：键 %q 宽 %v 是离群尺寸（只允许 %v 或 %v）",
-						name, tc.w, tc.h, k.Name, k.Bounds.W, videoKeySize, videoSpeedKeyW)
+			titleH, _ := videoBarSpan(float32(tc.w))
+			for _, k := range videoKeysIn(tt, videoInset-1, videoInset+titleH+1) {
+				if !videoNear(k.Bounds.H, videoKeySize, 0.6) ||
+					!videoNear(k.Bounds.W, videoKeySize, 0.6) {
+					t.Errorf("%s %dx%d：顶栏键 %q 尺寸 %v×%v，应为 %v×%v",
+						name, tc.w, tc.h, k.Name, k.Bounds.W, k.Bounds.H, videoKeySize, videoKeySize)
 				}
 			}
 		}
@@ -345,8 +335,9 @@ func TestVideoTimeColumnFixedWidth(t *testing.T) {
 			if !ok {
 				t.Fatalf("找不到时间码 %q（现有：%v）", s, tt.Texts())
 			}
-			if !videoNear(r.W, videoTimeW, 0.6) {
-				t.Errorf("时间码 %q 宽 %v，应为固定的 %v", s, r.W, videoTimeW)
+			if !videoNear(r.W, playerBarKeyMetrics.TimeW, 0.6) {
+				t.Errorf("时间码 %q 宽 %v，应为固定的 %v（共享播放栏的时间列）",
+					s, r.W, playerBarKeyMetrics.TimeW)
 			}
 		}
 	}
@@ -537,48 +528,32 @@ func TestVideoSettingsRhythm(t *testing.T) {
 	}
 }
 
-// TestVideoIconsShareOneToken 钉住「一排键里的图标同一条网格」：线性图标全部
-// 取 videoIconSize（播放/暂停是 videoPlayIconSize）、视频窗自己的两枚图标与
-// icon-park 走同一条 48 画布 / 描边 4（不是 16 画布手抄），控件条的图标尺寸
-// 也只从键令牌来（不再逐键写死）。
-func TestVideoIconsShareOneToken(t *testing.T) {
-	chrome, err := os.ReadFile("videochrome.go")
-	if err != nil {
-		t.Fatalf("读 videochrome.go 失败：%v", err)
-	}
-	if body := string(chrome); !strings.Contains(body, "iconFullScreen     = iconPark(") ||
-		!strings.Contains(body, "iconExitFullScreen = iconPark(") {
-		t.Errorf("视频窗的全屏图标不在 icon-park 的 48 画布网格上（描边会与其它键不一致）")
-	}
-	for _, f := range []string{"playerbar_shared.go", "videotokens.go"} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("读 %s 失败：%v", f, err)
-		}
-		_ = b
-	}
+// TestVideoTitleIconsShareOneToken 钉住顶栏那排键的图标：全部取
+// videoIconSize，两枚视频窗自带图标（全屏 / 退出全屏）与其它图标走同一条
+// icon-park 48 画布 / 描边 4 网格，且定义在 state.go 那份图标集里。
+//
+// 控件条的图标**不**在这里：它们与主窗播放栏同一套（同一图标源、同一视觉
+// 尺寸），见 TestVideoBarIconsFromMainSet。
+func TestVideoTitleIconsShareOneToken(t *testing.T) {
 	tokens, err := os.ReadFile("videotokens.go")
 	if err != nil {
 		t.Fatalf("读 videotokens.go 失败：%v", err)
 	}
-	shared, err := os.ReadFile("playerbar_shared.go")
-	if err != nil {
-		t.Fatalf("读 playerbar_shared.go 失败：%v", err)
+	if !strings.Contains(strings.Join(strings.Fields(string(tokens)), ""),
+		`ui.Icon(c,ic).Size(videoIconSize,videoIconSize)`) {
+		t.Errorf("顶栏键的图标没有走 videoIconSize 这一个令牌")
 	}
-	for _, want := range []struct {
-		body string
-		frag string
-	}{
-		// 顶栏键的唯一画法：
-		{string(tokens), `ui.Icon(c,ic).Size(videoIconSize,videoIconSize)`},
-		// 控件条的图标尺寸：统一值来自令牌，缺省值才是各键的原版取值。
-		{string(shared), `m.icon(volumeIconSize)`},
-		{string(shared), `m.icon(nextIconSize)`},
-		{string(shared), `m.icon(eqIconSize)`},
-		{string(shared), `Size(m.PlayIcon,m.PlayIcon)`},
+	state, err := os.ReadFile("state.go")
+	if err != nil {
+		t.Fatalf("读 state.go 失败：%v", err)
+	}
+	body := string(state)
+	for _, want := range []string{
+		"iconFullScreen     = iconPark(",
+		"iconExitFullScreen = iconPark(",
 	} {
-		if !strings.Contains(strings.Join(strings.Fields(want.body), ""), want.frag) {
-			t.Errorf("键令牌没有接在图标尺寸上：找不到 %q", want.frag)
+		if !strings.Contains(body, want) {
+			t.Errorf("全屏图标不在 state.go 的 icon-park 图标集里：找不到 %q", want)
 		}
 	}
 	// 渲染层面：每枚图标在 videoIconSize 下的墨迹都留得住键边（不会顶到圆角）。
@@ -587,16 +562,16 @@ func TestVideoIconsShareOneToken(t *testing.T) {
 		ic   *ui.SVG
 	}{
 		{"图钉", iconPin}, {"弹幕", iconDanmaku}, {"设置齿轮", iconLyricsGear}, {"最小化", iconMinus},
-		{"关闭", iconClose}, {"下一集", iconNext}, {"音量", iconVolume}, {"均衡", iconEQ},
-		{"恰饭", iconSponsor}, {"全屏", iconFullScreen}, {"退出全屏", iconExitFullScreen},
+		{"关闭", iconClose}, {"全屏", iconFullScreen}, {"退出全屏", iconExitFullScreen},
 	} {
 		w, h := iconRenderedInk(c.ic, videoIconSize)
+		if w == 0 || h == 0 {
+			t.Errorf("%s 图标没画出墨迹", c.name)
+			continue
+		}
 		if w > int(videoKeySize*2/3) || h > int(videoKeySize*2/3) {
 			t.Errorf("%s 图标在 %vpx 下墨迹 %dx%d 顶到键边（键 %v）",
 				c.name, videoIconSize, w, h, videoKeySize)
-		}
-		if w == 0 || h == 0 {
-			t.Errorf("%s 图标没画出墨迹", c.name)
 		}
 	}
 }

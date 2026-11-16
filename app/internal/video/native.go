@@ -87,6 +87,10 @@ type nativeWindow struct {
 	// segments 是当前这一集的恰饭分段（主窗查询后同步进来）：进度条画标记，
 	// 开关打开时视频窗也会真的跳过。
 	segments []view.Segment
+	// heat / heatOn 是弹幕热力（主窗同一份数据，见 Options.DanmakuHeat /
+	// Manager.SetDanmakuHeat）：控件条上那条热力带与主窗同一个 painter。
+	heat   []view.HeatPoint
+	heatOn bool
 
 	// 弹幕层：条目 / 开关 / 基本设置与视频管理器同源（Manager 每次变化都
 	// 通过 win.Update 落到这里）。dm 永远非 nil，关掉开关时只是不画。
@@ -202,6 +206,8 @@ func newNativeWindow(o Options, pl playerAPI) *nativeWindow {
 		startAt:    o.StartAt,
 		settings:   set,
 		segments:   o.SponsorSegments,
+		heat:       o.DanmakuHeat,
+		heatOn:     o.HeatOn,
 		dm:         &danmaku.Overlay{},
 		dmCid:      o.DanmakuCid,
 		dmOn:       true,
@@ -454,6 +460,10 @@ func (n *nativeWindow) view(c *ui.Context) {
 	ch.Danmaku = n.dmOn
 	ch.DanmakuSettings = n.dmSettings
 	ch.SponsorSegments = n.segments
+	// 弹幕热力：主窗同一份数据（同一个 cid 缓存），控件条上那条带子与主窗
+	// 同一个 painter / 同一段轨道宽度。
+	ch.DanmakuHeat = n.heat
+	ch.HeatOn = n.heatOn
 	ch.Pinned = n.pinned
 	ch.NativeVideo = n.nativeVideo
 	ch.View(c)
