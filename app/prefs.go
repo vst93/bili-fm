@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -341,20 +340,34 @@ func (c *controller) checkUpdate() {
 
 // runUpdateCheck 是检查更新流程的共同入口。user 为真时（用户主动点）先弹
 // 「正在检查更新…」的加载框，并在结果是最新版 / 失败时也给反馈；user 为假时
-// （后台自动检查）静默跑，只在真的发现新版本时才弹框。
+// （后台自动检查）静默跑，只在真的发现新版本、且不打断用户时才弹框（见
+// update_auto.go 的每日门禁 / 只提示一次 / 挂起逻辑）。
 func (c *controller) runUpdateCheck(user bool) {
 	a := c.app
-	if a == nil || a.Win == nil {
+	if a == nil {
 		return
 	}
-	// Store 版只能由 Microsoft Store 更新；不要再碰 GitHub 更新包。
-	if isStoreInstall() {
+	// Store 版只能由 Microsoft Store 更新；不要再碰 GitHub 更新包。整条自动
+	// 链路（含两个门禁 KV 键）都不走。
+	if c.storeBuild() {
 		if user {
 			a.Modal = updateStoreModal()
-			a.Win.Update(func() {})
+			c.repaint()
 		}
 		return
 	}
+	// 不能自更新的构建（开发构建 / 包管理器安装）连自动检查都不发起 —— 与
+	// main.go 启动处的门禁同一个判断，放在这里让无头测试也能覆盖。
+	if !user && !c.updaterOn() {
+		return
+	}
+	today := c.updateDay()
+	// 每日一次：自动检查当天已查过就跳过。手动检查不受这道门禁限制。
+	if !user && c.updatePref(prefUpdateCheckedOn) == today {
+		return
+	}
+	// 新一轮检查取代所有旧的检查与挂起结果（旧结果不再有资格弹框）。
+	c.updatePending.Store(nil)
 	c.updateGen++
 	gen := c.updateGen
 	c.cancelUpdateCtx()
@@ -363,35 +376,14 @@ func (c *controller) runUpdateCheck(user bool) {
 
 	if user {
 		a.Modal = updateCheckingModal(func() { c.cancelUpdate(gen) })
-		a.Win.Update(func() {})
+		c.repaint()
 	}
 
+	check := c.updateCheck()
 	go func() {
-		up, err := mygo.Updater.Check(ctx)
-		a.Win.Update(func() {
-			if c.updateGen != gen {
-				return
-			}
-			c.updateCancel = nil
-			switch {
-			case err != nil && errors.Is(err, mygo.ErrUpdatesDisabled):
-				if user {
-					a.Modal = updateDisabledModal()
-				}
-			case err != nil:
-				if user {
-					a.Modal = updateFailedModal(updateFailText(err, true), "检查更新失败")
-				}
-			case up == nil:
-				if user {
-					a.Modal = updateUpToDateModal()
-				}
-			default:
-				a.Modal = updateAvailableModal(up.Version,
-					func() { c.installUpdate(up) },
-					func() { c.closeModal() })
-			}
-		})
+		up, err := check(ctx)
+		// 结果落到界面线程（与用户点菜单同一条路径），界面线程从不等待网络。
+		c.onUI(func() { c.finishUpdateCheck(user, gen, today, up, err) })
 	}()
 }
 
@@ -457,8 +449,9 @@ func (c *controller) cancelUpdateCtx() {
 func (c *controller) closeModal() {
 	c.updateGen++
 	c.cancelUpdateCtx()
+	c.updateManual = false
 	c.app.Modal = nil
-	c.app.Win.Update(func() {})
+	c.repaint()
 }
 
 // ---------------------------------------------------------------- 更新对话框

@@ -195,10 +195,9 @@ func TestVideoChromeTransportKeysRound(t *testing.T) {
 		name string
 		tt   *ui.Tester
 		next string
-		eq   string
 	}{
-		{"主窗", mainTT, nextTip(), eqTip(false)},
-		{"视频窗", vidTT, "视频窗没有换集：回主窗用播放列表", eqVideoUnavailableTip(false)},
+		{"主窗", mainTT, nextTip()},
+		{"视频窗", vidTT, "视频窗没有换集：回主窗用播放列表"},
 	}
 	rects := map[string]map[string]ui.Rect{}
 	for _, w := range wins {
@@ -215,11 +214,10 @@ func TestVideoChromeTransportKeysRound(t *testing.T) {
 				t.Errorf("%s的 %s 键四角有键面（墨量 %d，应为 ≤ %d）：%+v", w.name, c.key, got, cornerInkRound, r)
 			}
 		}
-		// 方的：音量 / 倍速 / 均衡 / 恰饭（视频窗的均衡键置灰，仍是方块）。
+		// 方的：音量 / 倍速 / 恰饭（视频窗没有均衡键，主窗那颗见下）。
 		for _, c := range []struct{ key, label string }{
 			{"volume", "音量"},
 			{"speed", speedTip(1)},
-			{"eq", w.eq},
 			{"sponsor", sponsorTip()},
 		} {
 			r := mustKey(t, w.tt, w.name, c.label)
@@ -228,6 +226,11 @@ func TestVideoChromeTransportKeysRound(t *testing.T) {
 				t.Errorf("%s的 %s 键四角是空的（墨量 %d，应为 ≥ %d）：%+v", w.name, c.key, got, cornerInkSquare, r)
 			}
 		}
+	}
+
+	// 主窗仍有均衡键，且走同一套方键材质（视频窗没有它）。
+	if r := mustKey(t, mainTT, "主窗", eqTip(false)); keyCornerInk(mainTT.Image(), r) < cornerInkSquare {
+		t.Errorf("主窗均衡键四角是空的：%+v", r)
 	}
 
 	// 视频窗多出来的全屏键也走工具键那套（8px 方角）。

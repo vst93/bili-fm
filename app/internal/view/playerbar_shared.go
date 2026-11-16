@@ -288,12 +288,6 @@ type PlayerBarBind struct {
 	ShowEQ      bool
 	ShowSponsor bool
 
-	// EQUnavailable 表示这个窗口的声音不经过本仓库的 DSP 管线（原生视频由
-	// 系统媒体框架直接解码出声）：音量均衡键置灰、不可点，tooltip 说明原因
-	// 并报出主窗那条链路的当前值。**不**把共享的 EQ 当成本窗口的「开」态
-	// 显示 —— 那会让人以为视频的声音真被均衡了（见 eqVideoUnavailableTip）。
-	EQUnavailable bool
-
 	// OnPanel 表示这条控件条压在视频窗的 Panel 上（浅色面板，不是播放栏那层
 	// 半透明玻璃）。它只影响一件事：**不**在图标下再画一层播放栏的白色
 	// drop-shadow 副本 —— 面板上那层白副本会变成一圈白边，hover 时图标墨
@@ -446,11 +440,14 @@ func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
 // 调用方（弹层挂在列上）。这些键都读写 PlayerSettings，由各自窗口的监听把
 // 值下发到引擎 —— 这就是「改一边另一边立刻反映」的接线点。
 //
-// 例外：EQUnavailable（原生视频窗）时均衡键置灰不可点 —— 那一窗口的声音
-// 不经过本仓库的 DSP 管线，eqVideoUnavailableTip 写明了原因与主窗当前值。
+// 均衡键由 ShowEQ 控制：主窗传 true；视频窗**不传**（false），因为原生视频的
+// PCM 在系统媒体框架内部就送去声卡，本仓库的均衡器拿不到那路采样 —— 一颗
+// 永远不生效的键在控件条里就是死入口（用户 2026-11 裁决：直接去掉）。
+// 共享的 EQ 值本身不动，主窗照常读写。
 //
-// 全屏键是**两个窗口控件集合的唯一差别**：它在同一个函数里、用同一套键材质
-// 画出来（见 playerFullScreenKey），主窗不传绑定就没有它。
+// 全屏键是**两个窗口控件集合的唯一差别**：视频窗 = 主窗 + 全屏 − 均衡。它
+// 在同一个函数里、用同一套键材质画出来（见 playerFullScreenKey），主窗不传
+// 绑定就没有它。
 func playerSettingsItems(c *ui.Context, b PlayerBarBind, volumeSlot, speedSlot *ui.Element) {
 	m := playerBarKeyMetrics
 	*volumeSlot = playerSlot(c, m.ToolSlot, m.Key, func() { playerVolumeKey(c, b) })
@@ -549,28 +546,18 @@ func playerSpeedKey(c *ui.Context, b PlayerBarBind) {
 	}
 }
 
-// playerEQKey 是第 7 列（34px）：音量均衡开关。视频窗没有自己的 EQ 引擎，
-// 这颗键改的是共享设置，由主窗的监听落到音频引擎。
-//
-// 但「视频窗没有自己的 EQ 引擎」不是「视频的声音会被均衡」：原生视频的
-// 音频由系统媒体框架直接输出，本仓库拿不到那路 PCM。所以视频窗传
-// EQUnavailable=true —— 键置灰、点击不写共享设置，tooltip 说明不适用并报出
-// 主窗当前值。主窗的这颗键行为不变（照常读写共享设置与 internal/media）。
+// playerEQKey 是第 7 列（34px）：音量均衡开关。只在主窗出现（视频窗的
+// ShowEQ 为 false，见 playerSettingsItems）：这颗键改的是共享设置，由主窗的
+// 监听落到 internal/media 的音频引擎。
 func playerEQKey(c *ui.Context, b PlayerBarBind) {
 	t := b.Theme
 	m := playerBarKeyMetrics
 	set := b.Set
 	tip := eqTip(set.EQ)
-	// 不可用时**不**画成「已开」：共享值只以文字出现在 tooltip 里，避免把
-	// 主窗那条链路的开启态误读成「这个窗口的均衡已生效」。
 	on := set.EQ
-	if b.EQUnavailable {
-		tip = eqVideoUnavailableTip(set.EQ)
-		on = false
-	}
 	btn := ui.ButtonBase(c.Key("eq")).Size(m.Wide, m.Key).Radius(m.KeyR).Center().
 		Role(ui.RoleToggleButton).Label(tip).Tooltip(tip).Checked(on)
-	disablePlayerButton(btn, !b.HasSrc || b.EQUnavailable)
+	disablePlayerButton(btn, !b.HasSrc)
 	playerToolSurface(c, t, toolEq, btn, on, btn.Hovered(), btn.Pressed())
 	playerPressPose(btn)
 	playerRim(t, btn, m.KeyR, true, sheenKindStatic, false, false)

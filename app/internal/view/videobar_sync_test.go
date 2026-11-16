@@ -57,9 +57,10 @@ func newSyncChrome(t *testing.T) *VideoChrome {
 	}
 }
 
-// keyName 返回一颗键在「控件集合」比较里用的身份。视频窗的下一集没有目标、
-// 均衡不可用，这两颗键的 label 因此不同 —— 它们仍是**同一颗键**（同一个
-// c.Key、同一列、同一种 role），归一后再比。
+// keyName 返回一颗键在「控件集合」比较里用的身份。视频窗的下一集没有目标，
+// label 因此不同 —— 它们仍是**同一颗键**（同一个 c.Key、同一列、同一种
+// role），归一后再比。视频窗**没有**均衡键（视频的声音不经过本仓库的 DSP
+// 管线），所以这里也不再需要均衡键的归一。
 func keyName(info ui.AccessInfo) string {
 	switch info.Name {
 	case "播放", "暂停":
@@ -67,8 +68,6 @@ func keyName(info ui.AccessInfo) string {
 		return "播放键"
 	case "视频窗没有换集：回主窗用播放列表":
 		return "下一个视频"
-	case eqVideoUnavailableTip(true), eqVideoUnavailableTip(false):
-		return eqTip(false)
 	}
 	return info.Name
 }
@@ -81,10 +80,12 @@ func keyNames(keys []ui.AccessInfo) []string {
 	return out
 }
 
-// TestVideoBarControlSetEqualsMainBar 钉住「视频窗控件条 == 主窗播放栏 + 全屏键」：
-// 键的类型与顺序完全一致，唯一多出来的是最后那颗全屏键。
+// TestVideoBarControlSetEqualsMainBar 钉住「视频窗控件条 == 主窗播放栏 +
+// 全屏键 − 均衡键」：键的类型与顺序完全一致，多出来的是最后那颗全屏键，
+// 少掉的是均衡键（视频窗的均衡键是死入口，用户 2026-11 裁决删掉）。
 //
-// 反证：把视频窗改回自写控件（少一颗、多一颗、换顺序）这条立刻变红。
+// 反证：把视频窗改回自写控件（少一颗、多一颗、换顺序），或把均衡键加回
+// 视频窗，这条立刻变红。
 func TestVideoBarControlSetEqualsMainBar(t *testing.T) {
 	_, mainTT := playerBarProbe(t, nil)
 	mainKeys := videoKeysIn(mainTT, float32(700-PlayerBarHeight), 700)
@@ -95,16 +96,36 @@ func TestVideoBarControlSetEqualsMainBar(t *testing.T) {
 	ch := newSyncChrome(t)
 	vidTT, _ := videoSyncProbe(t, ch, 900, 500)
 	vidKeys := videoKeysIn(vidTT, videoBarYFor(900), 500)
-	if len(vidKeys) < len(mainKeys)+1 {
-		t.Fatalf("视频窗控件条键太少（%d < 主窗 %d + 全屏）：%v",
-			len(vidKeys), len(mainKeys), keyNames(vidKeys))
+	// 视频窗 = 主窗 − 均衡 + 全屏，数量与主窗相同。
+	if len(vidKeys) != len(mainKeys) {
+		t.Fatalf("视频窗控件条键数 %d，应为「主窗 %d − 均衡 + 全屏」= %d：%v",
+			len(vidKeys), len(mainKeys), len(mainKeys), keyNames(vidKeys))
 	}
 
 	mainNames := keyNames(mainKeys)
+	eqName := eqTip(false)
+	var want []string
+	eqs := 0
+	for _, n := range mainNames {
+		if n == eqName || n == eqTip(true) {
+			eqs++
+			continue
+		}
+		want = append(want, n)
+	}
+	if eqs != 1 {
+		t.Fatalf("主窗播放栏应有且只有一颗均衡键，实际 %d 颗：%v", eqs, mainNames)
+	}
+	want = append(want, "全屏")
 	vidNames := keyNames(vidKeys)
-	want := append(append([]string{}, mainNames...), "全屏")
 	if strings.Join(vidNames, " | ") != strings.Join(want, " | ") {
-		t.Fatalf("视频窗控件条的键与「主窗 + 全屏」不一致：\n 视频 = %v\n 主窗 = %v", vidNames, mainNames)
+		t.Fatalf("视频窗控件条的键与「主窗 + 全屏 − 均衡」不一致：\n 视频 = %v\n 想要 = %v", vidNames, want)
+	}
+	// 视频窗里不许再出现均衡键（不是置灰，是没有）。
+	for _, k := range vidKeys {
+		if k.Name == eqTip(false) || k.Name == eqTip(true) || strings.Contains(k.Name, "音量均衡") {
+			t.Errorf("视频窗不该有均衡键，出现了 %q", k.Name)
+		}
 	}
 	// 全屏键是**唯一**多出来的那一颗，且排在最后。
 	if last := vidKeys[len(vidKeys)-1]; last.Name != "全屏" {

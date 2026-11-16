@@ -545,7 +545,7 @@ func TestVideoChromeWithoutWindow(t *testing.T) {
 // 收纳阶梯（见 videoChromeLayoutFor）：
 //
 //	< 720 收起总时长
-//	< 560 收起下一集 / 均衡 / 跳过广告
+//	< 560 收起下一集 / 跳过广告（均衡键不在视频窗的控件集合里）
 //	< 520 进度条独占一行
 //	< 400 收起当前时间
 //
@@ -558,16 +558,16 @@ func TestVideoChromeNarrowLayout(t *testing.T) {
 	}{
 		{320, 200,
 			[]string{"暂停", "播放进度", "音量", "1.0x", "全屏", "弹幕", "最小化", "退出视频播放"},
-			[]string{"0:30", "1:40", eqVideoUnavailableTip(false), "自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "音量滑块"}},
+			[]string{"0:30", "1:40", eqTip(false), "自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "音量滑块"}},
 		{480, 270,
 			[]string{"暂停", "播放进度", "0:30", "音量", "1.0x", "全屏"},
-			[]string{"1:40", eqVideoUnavailableTip(false), "自动跳过恰饭片段（SponsorBlock）", "音量滑块"}},
+			[]string{"1:40", eqTip(false), "自动跳过恰饭片段（SponsorBlock）", "音量滑块"}},
 		{720, 400,
-			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x", eqVideoUnavailableTip(false),
+			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x",
 				"自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "全屏"},
 			[]string{"音量滑块"}},
 		{900, 500,
-			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x", eqVideoUnavailableTip(false),
+			[]string{"暂停", "播放进度", "0:30", "1:40", "音量", "1.0x",
 				"自动跳过恰饭片段（SponsorBlock）", "视频窗没有换集：回主窗用播放列表", "全屏"},
 			[]string{"音量滑块"}},
 	}
@@ -622,7 +622,7 @@ func TestVideoChromeNarrowLayout(t *testing.T) {
 // TestVideoChromeLayoutRules 钉住排布的纯函数：收纳阶梯与两行阈值。
 func TestVideoChromeLayoutRules(t *testing.T) {
 	lo := videoChromeLayoutFor(480)
-	if !lo.TwoRows || lo.TimeDur || !lo.TimePos || lo.Next || lo.EQ || lo.Sponsor {
+	if !lo.TwoRows || lo.TimeDur || !lo.TimePos || lo.Next || lo.Sponsor {
 		t.Errorf("480 宽应从宽到窄收掉总时长/次要键，保留当前时间与两行，得到 %+v", lo)
 	}
 	lo = videoChromeLayoutFor(380)
@@ -630,11 +630,11 @@ func TestVideoChromeLayoutRules(t *testing.T) {
 		t.Errorf("380 宽应两行且两枚时间都收起，得到 %+v", lo)
 	}
 	lo = videoChromeLayoutFor(600)
-	if lo.TwoRows || lo.TimeDur || !lo.TimePos || !lo.Next || !lo.EQ || !lo.Sponsor {
+	if lo.TwoRows || lo.TimeDur || !lo.TimePos || !lo.Next || !lo.Sponsor {
 		t.Errorf("600 宽应一行、总时长收起、次要键保留，得到 %+v", lo)
 	}
 	lo = videoChromeLayoutFor(900)
-	if lo.TwoRows || !lo.TimeDur || !lo.TimePos || !lo.Next || !lo.EQ || !lo.Sponsor {
+	if lo.TwoRows || !lo.TimeDur || !lo.TimePos || !lo.Next || !lo.Sponsor {
 		t.Errorf("900 宽应是完整一档，得到 %+v", lo)
 	}
 }

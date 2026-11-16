@@ -5,9 +5,9 @@ package view
 //   - 齿轮键开合：再点一次 / Esc / 点面板外都能关，Esc 只关面板不关窗口；
 //   - 弹幕 5 项：点一下立刻落到 VideoChrome 的弹幕设置（同一帧就影响渲染
 //     参数）并回传主窗落盘（OnDanmakuSettings / OnDanmakuToggle）；
-//   - 播放 3 项：倍速 / 广告跳过读写的是**共享的 PlayerSettings**（面板改
-//     主窗读到、主窗改面板读到）；音量均衡在原生视频里**不适用**（PCM 在系统
-//     媒体框架内部），面板里是不可用行，只能报出主窗当前值，不能改它；
+//   - 播放 2 项：倍速 / 广告跳过读写的是**共享的 PlayerSettings**（面板改
+//     主窗读到、主窗改面板读到）；音量均衡**不在**面板里（原生视频的 PCM 在
+//     系统媒体框架内部，点了也不生效，主窗的均衡键与共享值不受影响）；
 //   - 播放引擎：原生视频播放开关仍在面板里，翻转回传主窗；
 //   - 面板打开时控件条不自动隐藏，关闭后恢复原来的 2.5s 静默淡出；
 //   - 320×200 最小窗口：面板不撑破窗口、内部可滚、关闭键始终可达。
@@ -15,7 +15,6 @@ package view
 // 播放器与窗口都是纯逻辑桩（见 videochrome_test.go），不碰媒体框架。
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -254,20 +253,18 @@ func TestVideoSettingsSharedPlayback(t *testing.T) {
 	if pl.rate != 1.5 {
 		t.Errorf("播放器倍速 = %v，想要 1.5", pl.rate)
 	}
-	// 音量均衡：原生视频的 PCM 在系统媒体框架内部，这一行是「不适用」——
-	// 点了不许改共享设置（否则就是「只改状态、不改声音」的伪造）。
-	clickVideoSetting(t, tt, "视频设置：音量均衡")
+	// 音量均衡：视频窗的声音不经过本仓库的 DSP 管线，点了也不生效 —— 面板里
+	// **没有这一项**（不是禁用行，是不画）。共享 EQ 值不因视频窗的改动而变。
+	if _, ok := tt.Find("视频设置：音量均衡"); ok {
+		t.Errorf("面板里仍有「音量均衡」项：%v", tt.Texts())
+	}
+	if tt.HasText("音量均衡") {
+		t.Errorf("面板里仍出现「音量均衡」文案：%v", tt.Texts())
+	}
 	if set.EQ {
-		t.Error("「音量均衡」在原生视频里不适用，点击却改了共享 EQ")
+		t.Error("视频设置面板不该改共享 EQ")
 	}
-	if !tt.HasText("不适用") {
-		t.Errorf("面板里没有写清音量均衡不适用：%v", tt.Texts())
-	}
-	if info, ok := tt.Access("视频设置：音量均衡"); !ok || !info.Disabled || info.Checked {
-		t.Errorf("音量均衡行应为「禁用且未按下」：ok=%v info=%+v", ok, info)
-	} else if !strings.Contains(info.Description, "不适用于原生视频") {
-		t.Errorf("音量均衡行的说明没有讲原因：%q", info.Description)
-	}
+	// 播放组剩下的两项保持原样（倍速在上面点过、广告跳过在这里点）。
 	clickVideoSetting(t, tt, "视频设置：广告跳过")
 	if !set.Sponsor {
 		t.Error("广告跳过没有打开（共享设置）")
@@ -303,20 +300,13 @@ func TestVideoSettingsSharedPlayback(t *testing.T) {
 	if info, ok := tt.AccessByRole(ui.RoleSwitch, "视频设置：广告跳过"); !ok || info.Checked {
 		t.Errorf("主窗关掉「视频设置：广告跳过」后面板的按压态没跟上（ok=%v info=%+v）", ok, info)
 	}
-	// 音量均衡：主窗打开后，面板仍然没有可按压的开关 —— 不把共享 EQ
-	// 画成这个窗口的「开」；主窗当前值只出现在禁用行的说明里。
-	if info, ok := tt.Access("视频设置：音量均衡"); !ok {
-		t.Error("面板里找不到音量均衡行")
-	} else {
-		if info.Checked {
-			t.Error("主窗打开音量均衡后，视频窗把它报成了本窗口已开（伪造状态）")
-		}
-		if !info.Disabled {
-			t.Error("音量均衡行应始终禁用（原生视频不适用）")
-		}
-		if !strings.Contains(info.Description, "主窗：开") {
-			t.Errorf("音量均衡行没有报出主窗当前值：%q", info.Description)
-		}
+	// 音量均衡：主窗打开 / 关闭时，视频窗的面板既不出现这一项、也不把共享
+	// EQ 画成这个窗口的「开」—— 共享值本身仍由主窗照常读写。
+	if set.EQ != true {
+		t.Fatal("主窗打开音量均衡后共享 EQ 没变")
+	}
+	if _, ok := tt.Find("视频设置：音量均衡"); ok {
+		t.Error("主窗打开音量均衡后，视频窗面板冒出了这一项")
 	}
 	set.SetEQ(false)
 }

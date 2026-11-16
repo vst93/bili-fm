@@ -1,114 +1,217 @@
 package view
 
-// 视频窗（view.VideoChrome）这一层的两条断言：
+// 视频窗去掉「音量均衡」入口的回归断言（用户 2026-11 裁决：「先不动吧，
+// 视频窗口去掉 音量均衡 按钮。」）。
 //
-//  1. 广告跳过到点**真的 seek 播放器**（不是只画进度条上的标记），关掉共享
-//     开关时一次都不 seek；判据与主窗 maybeSkipSponsor 同值（lead 0.25s、
-//     落点 end+0.05s、时长容差 2s）。
-//  2. 音量均衡在原生视频里**不适用**：键置灰、不可点，不把共享的 EQ 画成
-//     这个窗口的「已开」，tooltip 说明原因并报出主窗当前值。
+// 背景（已查清，不再论证）：EQ 挂在 Go 的 PCM 管线（internal/media/eq.go），
+// 原生视频的 PCM 由系统媒体框架解码后直接送去声卡，ui/video 没有任何音频
+// tap 接口 —— 视频窗里那颗键永远不生效。此前的做法是「置灰 + 不适用说明」，
+// 但一个点了也不会生效的入口仍然是死入口，所以这一轮直接删掉：
 //
-// 为什么音量均衡不适用：原生视频的声音由系统媒体框架（AVFoundation /
-// Media Foundation / GStreamer）解码后直接送给声卡，PCM 在框架内部；本仓库
-// 的均衡器（internal/media.Compressor）挂在 oto 解码后的自己的流水线上，
-// 拿不到视频那路采样。ui/video 的导出面只有 Play/Pause/Seek/SetRate/
-// SetVolume/SetMuted/Position/Duration/Size，没有任何音频数据或输出钩子
-// （见 PLAN.md「原生视频里的广告跳过 / 音量均衡」）。
+//  1. 控件条：视频窗**没有**均衡键（不是置灰），控件集合 =
+//     主窗控件集合 + 全屏键 − 均衡键；
+//  2. 设置面板：播放组里**没有**「音量均衡」这一项，剩下的倍速 / 广告跳过
+//     保持原样；
+//  3. 共享的 PlayerSettings 与主窗的均衡键一律不动：主窗仍可切换 EQ，
+//     主窗改音量 / 倍速仍与视频窗双向同步（同一个指针 + OnChange 监听）。
+//
+// 反证：把 ShowEQ 给视频窗打开、或把均衡行加回 settingsBody，对应断言立即
+// 变红；把共享同步改成视频窗自己存一份，最后一条变红。
 
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// TestVideoChromeSkipsSponsorSegment 是视频窗路径的「到点 seek」断言。
-func TestVideoChromeSkipsSponsorSegment(t *testing.T) {
-	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 15 * time.Second, rate: 1, vol: 1}
-	set := &PlayerSettings{Volume: 1, LastVolume: 1, Speed: 1, Sponsor: true}
-	set.Ensure()
-	ch := &VideoChrome{
-		Theme:           ThemeFor(PeriodAt(12)),
-		Title:           "测试稿件",
-		Pl:              pl,
-		Win:             newVideoStubWindow(),
-		Set:             set,
-		SponsorSegments: []Segment{{Start: 10, End: 20}},
-	}
-	tt := ui.NewTester(ch.View, 640, 360)
-	tt.Frame()
-	if len(pl.seeks) != 1 {
-		t.Fatalf("到点后应 seek 一次，实际 %v", pl.seeks)
-	}
-	want := 20*time.Second + 50*time.Millisecond
-	if d := pl.seeks[0] - want; d < -time.Millisecond || d > time.Millisecond {
-		t.Errorf("seek 到 %v，想要 %v（分段末尾 + 0.05s）", pl.seeks[0], want)
-	}
-	// 时间闩：seek 还没落地的那几帧不许连发。
-	tt.Frame()
-	if len(pl.seeks) != 1 {
-		t.Errorf("同一段被重复 seek：%v", pl.seeks)
-	}
-}
-
-// TestVideoChromeSponsorOffNoSeek 是上一条的反证：共享开关关闭时不 seek。
-func TestVideoChromeSponsorOffNoSeek(t *testing.T) {
-	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 15 * time.Second, rate: 1, vol: 1}
-	set := &PlayerSettings{Volume: 1, LastVolume: 1, Speed: 1, Sponsor: false}
-	set.Ensure()
-	ch := &VideoChrome{
-		Theme:           ThemeFor(PeriodAt(12)),
-		Title:           "测试稿件",
-		Pl:              pl,
-		Win:             newVideoStubWindow(),
-		Set:             set,
-		SponsorSegments: []Segment{{Start: 10, End: 20}},
-	}
-	tt := ui.NewTester(ch.View, 640, 360)
-	tt.Frame()
-	if len(pl.seeks) != 0 {
-		t.Errorf("广告跳过关闭时不该 seek，实际 %v", pl.seeks)
-	}
-}
-
-// TestVideoEQKeyUnavailable 钉住视频窗均衡键的不可用态：
-// 共享 EQ 为开时也不画成「已开」，点击不改共享设置，说明里写明原因与主窗值。
-func TestVideoEQKeyUnavailable(t *testing.T) {
+// TestVideoEQKeyGone 钉住「视频窗控件条里没有均衡键」：不是禁用，是根本
+// 不在无障碍树里，也没有「音量均衡」文案。
+func TestVideoEQKeyGone(t *testing.T) {
 	set := &PlayerSettings{Volume: 1, LastVolume: 1, Speed: 1, EQ: true}
 	set.Ensure()
 	_, _, tt := playerBindVideo(t, set)
+	tt.Frame()
 
-	label := eqVideoUnavailableTip(true)
-	info, ok := tt.AccessByRole(ui.RoleToggleButton, label)
-	if !ok {
-		t.Fatalf("视频窗里找不到音量均衡键（现有：%v）", tt.Texts())
-	}
-	if !info.Disabled {
-		t.Error("视频窗的音量均衡键应禁用（原生视频不适用）")
-	}
-	if info.Checked {
-		t.Error("视频窗把共享 EQ 画成了本窗口「已开」（伪造生效）")
-	}
-	for _, want := range []string{"不适用于原生视频", "系统媒体框架", "主窗：开"} {
-		if !strings.Contains(info.Description, want) {
-			t.Errorf("均衡键说明里缺少 %q：%q", want, info.Description)
+	for _, label := range []string{eqTip(false), eqTip(true)} {
+		if info, ok := tt.AccessByRole(ui.RoleToggleButton, label); ok {
+			t.Errorf("视频窗仍画着均衡键（%q）：%+v", label, info)
 		}
 	}
-	// 点一下：不能改共享设置（禁用节点不接收命中）。
-	if err := tt.Click(label); err != nil {
-		t.Fatalf("点不到均衡键：%v", err)
+	if tt.HasText("音量均衡") {
+		t.Errorf("视频窗控件条仍出现「音量均衡」文案：%v", tt.Texts())
 	}
-	tt.Frame()
+	// 共享值没有被视频窗的渲染改写。
 	if !set.EQ {
-		t.Error("视频窗的均衡键不可用，点击却改了共享 EQ（伪造生效）")
+		t.Error("渲染视频窗把共享 EQ 改掉了")
+	}
+}
+
+// TestVideoBarEqualsMainPlusFullscreenMinusEQ 是交付 A 的总断言：
+// 视频窗控件集合 == 主窗控件集合 + 全屏键 − 均衡键。
+//
+// 这里不复用 videobar_sync_test 的像素采样，只按角色 + 文案比较集合，
+// 这样「删掉均衡」与「多出全屏」两件事同时被钉住。
+func TestVideoBarEqualsMainPlusFullscreenMinusEQ(t *testing.T) {
+	a, mainTT := playerBindApp(t)
+	_, _, vidTT := playerBindVideo(t, &a.PlayerSettings)
+	mainTT.Frame()
+	vidTT.Frame()
+
+	mainKeys := videoKeysIn(mainTT, float32(700-PlayerBarHeight), 700)
+	vidKeys := videoKeysIn(vidTT, videoBarYFor(900), 500)
+
+	mainNames := keyNames(mainKeys)
+	vidNames := keyNames(vidKeys)
+	var want []string
+	removed := 0
+	for _, n := range mainNames {
+		if n == eqTip(false) || n == eqTip(true) {
+			removed++
+			continue
+		}
+		want = append(want, n)
+	}
+	if removed != 1 {
+		t.Fatalf("主窗控件集合里应有且只有一颗均衡键，实际 %d：%v", removed, mainNames)
+	}
+	want = append(want, "全屏")
+	if strings.Join(vidNames, " | ") != strings.Join(want, " | ") {
+		t.Fatalf("视频窗控件集合 != 主窗 + 全屏 − 均衡：\n 视频 = %v\n 想要 = %v", vidNames, want)
+	}
+	// 再明确一次：视频窗里没有任何名字像均衡的键。
+	for _, n := range vidNames {
+		if n == eqTip(false) || n == eqTip(true) || strings.Contains(n, "均衡") {
+			t.Errorf("视频窗出现了均衡键 %q", n)
+		}
+	}
+}
+
+// TestMainEQKeyStillWorks 是上一条的反证：主窗仍有均衡键，且点击真的切换
+// 共享的 PlayerSettings.EQ（视频窗的删改没有把主窗的入口一起带走）。
+func TestMainEQKeyStillWorks(t *testing.T) {
+	a, mainTT := playerBindApp(t)
+	if a.EQ {
+		t.Fatal("初始 EQ 应为关")
+	}
+	if info, ok := mainTT.AccessByRole(ui.RoleToggleButton, eqTip(false)); !ok {
+		t.Fatalf("主窗找不到均衡键：%v", mainTT.Texts())
+	} else if info.Checked {
+		t.Error("初始状态均衡键不应按下")
+	}
+	if err := mainTT.Click(eqTip(false)); err != nil {
+		t.Fatalf("点主窗均衡键失败：%v", err)
+	}
+	mainTT.Frame()
+	if !a.EQ {
+		t.Fatal("主窗点均衡键没有打开共享 EQ")
+	}
+	if info, ok := mainTT.AccessByRole(ui.RoleToggleButton, eqTip(true)); !ok || !info.Checked {
+		t.Errorf("主窗均衡键没有变成按下态：ok=%v info=%+v", ok, info)
+	}
+	if err := mainTT.Click(eqTip(true)); err != nil {
+		t.Fatalf("再点主窗均衡键失败：%v", err)
+	}
+	mainTT.Frame()
+	if a.EQ {
+		t.Error("主窗再点均衡键没有关闭共享 EQ")
+	}
+}
+
+// TestVideoSettingsNoEQLine 钉住设置面板的枚举里没有均衡项，且播放组剩下
+// 的倍速 / 广告跳过还在（不是把整组删了）。
+func TestVideoSettingsNoEQLine(t *testing.T) {
+	ch, _, tt := videoSettingsProbe(t, 700, 900)
+	openVideoSettings(t, tt)
+
+	if _, ok := tt.Find("视频设置：音量均衡"); ok {
+		t.Errorf("视频设置面板里仍有「音量均衡」项：%v", tt.Texts())
+	}
+	if tt.HasText("音量均衡") {
+		t.Errorf("视频设置面板里仍出现「音量均衡」文案：%v", tt.Texts())
+	}
+	for _, want := range []string{"视频设置：倍速 1.0x", "视频设置：广告跳过"} {
+		if _, ok := tt.Find(want); !ok {
+			t.Errorf("播放组少了 %q（剩下的项应保持原样）：%v", want, tt.Texts())
+		}
+	}
+	// 面板里也没有「不适用」这种残留说明（那是上一版禁用行的措辞）。
+	if tt.HasText("不适用") {
+		t.Errorf("设置面板里残留「不适用」文案：%v", tt.Texts())
+	}
+	// 面板打开 / 关闭不影响共享 EQ 值。
+	if ch.settings().EQ {
+		t.Error("打开设置面板不该改共享 EQ")
+	}
+}
+
+// TestSharedVolumeSpeedStillSyncAfterEQRemoval 是第三条断言：删掉视频窗的
+// 均衡入口后，共享值双向同步逻辑不因这个改动断裂 —— 主窗改音量 / 倍速，
+// 视频窗下一帧读到同一个值并下发到自己的播放器；反向也一样。
+func TestSharedVolumeSpeedStillSyncAfterEQRemoval(t *testing.T) {
+	a, mainTT := playerBindApp(t)
+	ch, pl, vidTT := playerBindVideo(t, &a.PlayerSettings)
+	if ch.settings() != &a.PlayerSettings {
+		t.Fatal("视频窗拿到的不是主窗那份 PlayerSettings")
 	}
 
-	// 主窗关掉后，视频窗的说明跟着报「主窗：关」——共享值仍是同一份，
-	// 只是不以可按压的开关形式出现在视频窗。
-	set.SetEQ(false)
-	tt.Frame()
-	if _, ok := tt.AccessByRole(ui.RoleToggleButton, eqVideoUnavailableTip(false)); !ok {
-		t.Errorf("主窗关掉均衡后视频窗的说明没跟上：%v", tt.Texts())
+	// 主窗 → 视频窗：音量。
+	mainTT.Frame()
+	if err := mainTT.Click("音量"); err != nil {
+		t.Fatalf("主窗音量键失败：%v", err)
+	}
+	mainTT.Frame()
+	r, ok := mainTT.Find("音量滑块")
+	if !ok {
+		t.Fatalf("主窗音量弹层里找不到滑杆：%v", mainTT.Texts())
+	}
+	mainTT.ClickAt(r.X+r.W*0.6, r.Y+r.H/2)
+	mainTT.Frame()
+	if a.Volume <= 0 || a.Muted {
+		t.Fatalf("主窗拖音量没生效：Volume %v / Muted %v", a.Volume, a.Muted)
+	}
+	vidTT.Frame()
+	if want := a.Volume; pl.vol != want || pl.muted {
+		t.Errorf("主窗音量 %v 没同步到视频：vol=%v muted=%v", want, pl.vol, pl.muted)
+	}
+
+	// 主窗 → 视频窗：倍速。
+	a.SetSpeed(1.5)
+	vidTT.Frame()
+	if pl.rate != 1.5 {
+		t.Errorf("主窗倍速 1.5 没同步到视频：rate=%v", pl.rate)
+	}
+	if _, ok := vidTT.Find("1.5x"); !ok {
+		t.Errorf("视频窗倍速键没有显示 1.5x：%v", vidTT.Texts())
+	}
+
+	// 视频窗 → 主窗：音量（静音键）与倍速（弹层）。
+	if err := vidTT.Click("音量"); err != nil {
+		t.Fatalf("视频音量键失败：%v", err)
+	}
+	vidTT.Frame()
+	if err := vidTT.Click("静音"); err != nil {
+		t.Fatalf("视频静音键失败：%v", err)
+	}
+	vidTT.Frame()
+	if a.Volume != 0 || !a.Muted {
+		t.Errorf("视频窗静音后主窗 = Volume %v / Muted %v", a.Volume, a.Muted)
+	}
+	if !pl.muted || pl.vol != 0 {
+		t.Errorf("视频窗静音没有落到自己的播放器：muted=%v vol=%v", pl.muted, pl.vol)
+	}
+	if err := vidTT.Click("1.5x"); err != nil {
+		t.Fatalf("视频倍速键失败：%v", err)
+	}
+	vidTT.Frame()
+	if err := vidTT.Click("2.0x"); err != nil {
+		t.Fatalf("视频选 2.0x 失败：%v", err)
+	}
+	vidTT.Frame()
+	if a.Speed != 2.0 {
+		t.Errorf("视频窗选 2.0x 后主窗 Speed = %v", a.Speed)
+	}
+	if pl.rate != 2.0 {
+		t.Errorf("视频窗选 2.0x 后自己的播放器 rate = %v", pl.rate)
 	}
 }

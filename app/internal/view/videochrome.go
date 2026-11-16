@@ -54,7 +54,8 @@ import (
 const (
 	// 渐进收纳的宽度档（从宽到窄）：
 	//   < 720 收起总时长
-	//   < 560 收起下一集 / 均衡 / 跳过广告（下一集在视频窗本来就没有目标）
+	//   < 560 收起下一集 / 跳过广告（下一集在视频窗本来就没有目标；均衡键
+	//         不在视频窗的控件集合里）
 	//   < 520 进度条独占一行（两行布局）
 	//   < 400 收起当前时间（只留进度条）
 	//
@@ -670,9 +671,9 @@ type videoChromeLayout struct {
 	// TimePos / TimeDur 是两枚时间标签是否显示。
 	TimePos bool
 	TimeDur bool
-	// Next / EQ / Sponsor 是次要键是否显示。
+	// Next / Sponsor 是次要键是否显示。均衡键不在视频窗的控件集合里
+	// （视频的声音不经过本仓库的 DSP 管线，见 playerSettingsItems）。
 	Next    bool
-	EQ      bool
 	Sponsor bool
 }
 
@@ -681,7 +682,6 @@ func videoChromeLayoutFor(w float32) videoChromeLayout {
 		TimePos: w >= videoChromeTimePos,
 		TimeDur: w >= videoChromeTimeDur,
 		Next:    w >= videoChromeKeysNarrow,
-		EQ:      w >= videoChromeKeysNarrow,
 		Sponsor: w >= videoChromeKeysNarrow,
 		TwoRows: w < videoChromeTwoRows,
 	}
@@ -804,10 +804,10 @@ func (v *VideoChrome) init(now time.Time) {
 	// 共享设置一变就落到这个窗口的播放器上：主窗改音量 / 倍速，下一帧
 	// 视频窗就是新值；视频窗自己改，也是同一条路。
 	// 音量均衡（SettingEQ）**不**在这里下发：原生视频的音频由系统媒体
-	// 框架直接解码输出，ui/video 的导出面没有任何 PCM 钩子（见
-	// eqVideoUnavailableTip），下发了也没有东西可落。SettingSponsor 同理
-	// 由跳过逻辑直接读共享值（View → skipSponsor → 播放器 Seek），不需要
-	// 监听。
+	// 框架直接解码输出，ui/video 的导出面没有任何 PCM 钩子，下发了也没有
+	// 东西可落（视频窗也因此没有均衡键与设置项，见 playerSettingsItems）。
+	// SettingSponsor 同理由跳过逻辑直接读共享值（View → skipSponsor →
+	// 播放器 Seek），不需要监听。
 	v.detachSettings = set.OnChange(func(k PlayerSettingKind) {
 		switch k {
 		case SettingVolume:
@@ -1085,12 +1085,10 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 		ShowPos:  lo.TimePos,
 		ShowDur:  lo.TimeDur,
 		ShowNext: lo.Next,
-		ShowEQ:   lo.EQ,
-		// 音量均衡对原生视频**不生效**：PCM 在系统媒体框架内部就送去声卡，
-		// 本仓库的 oto 均衡器拿不到那路采样（见 eqVideoUnavailableTip）。
-		// 这颗键因此在视频窗里置灰并说明原因，而不是照抄主窗的开关状态。
-		EQUnavailable: true,
-		ShowSponsor:   lo.Sponsor,
+		// ShowEQ 不传（false）：原生视频的 PCM 在系统媒体框架内部就送去
+		// 声卡，本仓库的均衡器拿不到那路采样 —— 视频窗不出现均衡键，也
+		// 不在设置面板里留一个不生效的配置项（用户 2026-11 的裁决）。
+		ShowSponsor: lo.Sponsor,
 		// 压在视频窗的 Panel 上（不是播放栏那层玻璃）：图标只画一层。
 		OnPanel: true,
 		// 全屏键：控件条比主窗多出来的唯一一颗键。

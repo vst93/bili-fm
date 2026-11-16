@@ -75,23 +75,22 @@
 - **视频 / 弹幕设置的唯一入口是视频窗顶栏的齿轮键**（`view.VideoChrome`
   的 `settingsGearKey` → `internal/view/videosettings.go` 的 `ui.PopoverBase`
   面板）。弹幕 5 项（总开关 / 不透明度 / 字号 / 显示区域 / 同屏上限）、播放
-  3 项（倍速 / 音量均衡 / 广告跳过）与「原生视频播放」都只在这里；主窗设置
+  2 项（倍速 / 广告跳过）与「原生视频播放」都只在这里；主窗设置
   下拉与 macOS 原生菜单里一处都不留（用户 2026-11：「播放页面的设置不要放在
-  菜单栏下」，明确不要两处入口）。**音量均衡是唯一例外**：原生视频的 PCM 在
-  系统媒体框架内部就送去声卡，`internal/media` 的 `Compressor` 只挂在 oto
+  菜单栏下」，明确不要两处入口）。**视频窗没有音量均衡入口**：原生视频的 PCM
+  在系统媒体框架内部就送去声卡，`internal/media` 的 `Compressor` 只挂在 oto
   解码后的自己的流水线上，`ui/video` 的导出面也没有音频数据钩子 —— 这一项
-  在视频窗里**不生效**，按不可用呈现（控件条键置灰、面板行写「不适用」，见
-  `eqVideoUnavailableTip` / `videoSettingsUnavailable`），点击不改共享设置，
-  也不把主窗的 EQ 画成「本窗口已开」。原因与上游待补写在 `app/PLAN.md` 的
-  「原生视频里的广告跳过 / 音量均衡」。
+  在视频窗里**不生效**，用户 2026-11 裁决直接去掉（控件条不画键、设置面板
+  不留项，主窗的均衡键与共享 `PlayerSettings.EQ` 一律不动）。原因与上游待补
+  写在 `app/PLAN.md` 的「原生视频里的广告跳过 / 音量均衡」。
   落盘仍是既有入口与既有键：弹幕走 `Act.SetDanmakuStyle`
   （`danmaku*`），原生开关走 `setNativeVideo`（`nativeVideoPlayer`）。面板
   打开期间控件条不自动隐藏（`holdChrome` 里的 `showSettings`）；高度按窗口
   封顶、内部 `ui.Scroll` —— 320×200 最小窗口也能开、能滚、能关（关闭键在
   固定头部）。Esc 在面板开着时只关面板（`do()` 的 `videoKeyExit*`），全屏
   同理。
-- **视频窗控件条 == 主窗播放栏，只多一颗全屏键**（用户 2026-11）：
-  控件条的播放/下一集/进度/时间/音量/倍速/均衡/跳过/**全屏**全部来自
+- **视频窗控件条 == 主窗播放栏 + 全屏键 − 均衡键**（用户 2026-11）：
+  控件条的播放/下一集/进度/时间/音量/倍速/跳过/**全屏**全部来自
   `playerbar_shared.go`（绑定目标是视频播放器），视频窗**不许再写第二套控件**：
   `videoPanelKeys`、内联音量条（`volumeSlider`）、自绘全屏键、
   `videoPlaySurface/videoPlayInk` 都已删。键尺寸只有一份

@@ -59,12 +59,19 @@ var audioHeaders = map[string]string{
 	"Referer":    "https://www.bilibili.com/",
 }
 
+// prefKV 是 controller 用到的 KV 子集：生产是 *store.KV（internal/store），
+// 测试可以注入内存替身。只收 String / SetString，够用且不让测试碰磁盘。
+type prefKV interface {
+	String(key string) string
+	SetString(key, value string) error
+}
+
 type controller struct {
 	bl *bilibili.BL
 	// dm 是弹幕的可复用数据层：抽屉 / 热力条 / 视频覆盖层共用同一次请求
 	// 与同一份缓存（见 internal/danmaku.Store）。
 	dm  *danmaku.Store
-	kv  *store.KV
+	kv  prefKV
 	app *view.App
 	mp  *media.Player
 	vid *video.Manager
@@ -88,6 +95,22 @@ type controller struct {
 	// 用户关掉面板或重新检查会让旧的检查/下载自尽（与 loginGen 同一手法）。
 	updateGen    int
 	updateCancel context.CancelFunc
+
+	// 自动检查更新的注入点（nil = 生产实现）：测试用固定时钟 / 假网络结果 /
+	// 假的「是否可更新」「是否 Store 版」判断，无头跑门禁与挂起逻辑。
+	now            func() time.Time
+	checkUpdateFn  func(context.Context) (*mygo.Update, error)
+	updaterEnabled func() bool
+	storeInstall   func() bool
+	// updateManual 表示在途的检查是用户手动发起的：自动检查不能抢它的
+	// 代号（否则手动那张「正在检查更新…」会永远转下去，因为结果被代号
+	// 丢弃、又没人负责收框）。手动检查结束后由 finishUpdateCheck 清掉，
+	// 取消 / 关框由 closeModal 清掉。
+	updateManual bool
+	// updatePending 是「自动检查发现新版本，但当时有模态框 / 视频窗开着」
+	// 挂起的那一份结果：内存里等着回到主窗且没有模态框时再弹，退出即丢弃。
+	// 界面线程写、观察循环读，用原子指针避免跨线程读界面字段。
+	updatePending atomic.Pointer[mygo.Update]
 
 	// 进度同步的节流时间点（见 progress.go）。
 	resumeWroteAt time.Time
@@ -775,8 +798,12 @@ func main() {
 			go func() {
 				time.Sleep(10 * time.Second)
 				// 检查流程读写界面状态，放回主线程跑（与用户点菜单同一条路径）。
+				// 每日一次的门禁在 runUpdateCheck 里（updateCheckedOn）。
 				app.Win.Update(func() { c.runUpdateCheck(false) })
 			}()
+			// 自动检查命中新版本但当时有模态框 / 视频窗开着时，结果挂在
+			// updatePending；这个循环等回到主窗且没有模态框时再弹一次。
+			go c.watchPendingUpdate()
 		}
 
 		// 时段变化时换主题（原版也按小时切背景）。

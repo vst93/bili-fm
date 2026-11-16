@@ -202,37 +202,22 @@ func TestPlayerSettingsSharedTwoWay(t *testing.T) {
 		t.Errorf("主窗倍速 1.25x 没同步到视频：rate=%v", pl.rate)
 	}
 
-	// —— 均衡：视频窗这颗键**不可用**（原生视频的 PCM 在系统媒体框架内部，
-	// 本仓库的均衡器拿不到），置灰、点击不改共享状态，也不把自己画成「已开」。
-	// 主窗那颗照常读写同一个 PlayerSettings —— 双向同步在其余共享项上不变。
-	videoEQ := eqVideoUnavailableTip(a.EQ)
-	if err := vidTT.Click(videoEQ); err != nil {
-		t.Fatalf("视频均衡键失败：%v", err)
-	}
+	// —— 均衡：视频窗**没有这颗键**（原生视频的 PCM 在系统媒体框架内部，
+	// 本仓库的均衡器拿不到那一路采样，留一个不生效的入口就是死入口）。
+	// 主窗那颗照常读写同一个 PlayerSettings —— 共享值本身不动。
 	vidTT.Frame()
-	if a.EQ {
-		t.Error("视频窗的均衡键不可用，点击却改了共享 EQ（伪造生效）")
+	if info, ok := vidTT.AccessByRole(ui.RoleToggleButton, "音量均衡: 关"); ok {
+		t.Errorf("视频窗仍画着均衡键：%+v", info)
 	}
-	if info, ok := vidTT.AccessByRole(ui.RoleToggleButton, videoEQ); !ok || !info.Disabled || info.Checked {
-		t.Errorf("视频均衡键应为「禁用且未按下」：ok=%v info=%+v", ok, info)
+	if vidTT.HasText("音量均衡") {
+		t.Errorf("视频窗仍出现「音量均衡」文案：%v", vidTT.Texts())
 	}
-	if !vidTT.HasText("不适用") && !vidTT.HasText("不经过本应用的音频管线") {
-		t.Logf("视频窗的工具条文案：%v", vidTT.Texts())
-	}
-
-	// 主窗：照常打开 / 关闭均衡，视频窗只如实报出「主窗：开」。
 	if err := mainTT.Click("音量均衡: 关"); err != nil {
 		t.Fatalf("主窗均衡键失败：%v", err)
 	}
 	mainTT.Frame()
 	if !a.EQ {
 		t.Fatal("主窗打开音量均衡失败")
-	}
-	vidTT.Frame()
-	if info, ok := vidTT.AccessByRole(ui.RoleToggleButton, eqVideoUnavailableTip(true)); !ok {
-		t.Errorf("视频窗没有报出主窗当前值（主窗：开）：%v", vidTT.Texts())
-	} else if info.Checked {
-		t.Errorf("视频窗把共享 EQ 画成了本窗口「已开」：%+v", info)
 	}
 	if err := mainTT.Click("音量均衡: 开"); err != nil {
 		t.Fatalf("主窗再点均衡失败：%v", err)
