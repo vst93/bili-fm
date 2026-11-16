@@ -192,12 +192,16 @@ func (st *seekBubbleState) draw(c *ui.Context, s ui.Element, dur float64) {
 // 再漂开（视频窗旧的 videoPanelKeys 已删）。结构体留着是为了把「原版 grid」
 // 收在一处文档化，绘制函数只读它、不写字面量。
 type PlayerKeyMetrics struct {
-	Key    float32 // 方形图标键的边长
-	KeyR   float32 // 方形图标键的圆角
-	Wide   float32 // 算法/过滤类键的宽度（主窗 34）
-	Play   float32 // 播放键边长（直径）
-	PlayR  float32 // 播放键圆角（RadiusPill 正圆）
-	SpeedW float32 // 倍速（文字值键）的宽度
+	Key   float32 // 方形图标键的边长
+	KeyR  float32 // 方形图标键的圆角
+	Wide  float32 // 算法/过滤类键的宽度（主窗 34）
+	Play  float32 // 播放键边长（直径）
+	PlayR float32 // 播放键圆角（RadiusPill 正圆）
+	// TransportR 是传输键（上一集 / 下一集）的圆角：与播放键一样是 RadiusPill
+	// 正圆，**不是**工具键那 8px 方角。458c170 把控件条抽到这里时，工具键统一
+	// 成 KeyR，把传输键一起带成了方块（原版 #player 的 32×32 换集键是正圆）。
+	TransportR float32
+	SpeedW     float32 // 倍速（文字值键）的宽度
 	// 列宽：键居中放在这一列里（原版 grid 的 34/40）。
 	ToolSlot     float32
 	SpeedSlot    float32
@@ -215,9 +219,23 @@ type PlayerKeyMetrics struct {
 // 尺寸因此不可能再漂开。
 var playerBarKeyMetrics = PlayerKeyMetrics{
 	Key: 32, KeyR: Radius, Wide: 34,
-	Play: 42, PlayR: RadiusPill,
+	Play: 42, PlayR: RadiusPill, TransportR: RadiusPill,
 	SpeedW: 40, ToolSlot: 34, SpeedSlot: 40, SponsorSlot: 40,
 	TransportGap: 6, TimeW: 56, TimeSize: 11,
+}
+
+// playerTransportRadius 是传输键（上一集 / 下一集）的圆角：两键同族、同尺寸
+// （32×32），形状也只有**一个**来源 —— 键自己的 .Radius 与描边玩家 playerRim
+// 都取这里的值，不会出现「键是圆的、描边还是方的」。
+//
+// 界面这一版传输列只画下一集（上一集是同一族的另一半，iconPrev 保留未上键）；
+// 按名字取值是为了让测试能把两键一起钉住，也提醒后来者：加回上一集键时直接用
+// 这个函数，不要再自己写圆角。
+func playerTransportRadius(key string) float32 {
+	if key == "prev" || key == "next" {
+		return playerBarKeyMetrics.TransportR
+	}
+	return playerBarKeyMetrics.KeyR
 }
 
 // PlayerBarBind 是一次播放栏渲染的绑定目标快照。主窗与视频窗每帧各建一份，
@@ -366,12 +384,15 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 		if tip == "" {
 			tip = nextTip()
 		}
-		next := ui.ButtonBase(c.Key("next")).Size(m.Key, m.Key).Radius(m.KeyR).Center().
+		// 传输键是正圆（原版 32×32 + border-radius: 999px）：圆角与描边同取
+		// playerTransportRadius，键面与 rim 不会是两种形状。
+		r := playerTransportRadius("next")
+		next := ui.ButtonBase(c.Key("next")).Size(m.Key, m.Key).Radius(r).Center().
 			Label(tip).Tooltip(tip)
 		disablePlayerButton(next, !b.CanNext)
 		playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)
-		playerRim(t, next, m.KeyR, true, sheenKindStatic, false, false)
+		playerRim(t, next, r, true, sheenKindStatic, false, false)
 		next.Children(func() {
 			ink := playerButtonInk(t, next.Hovered())
 			icon := ui.Icon(c, iconNext).Size(nextIconSize, nextIconSize).
