@@ -349,3 +349,63 @@ func TestIssue42BusyShots(t *testing.T) {
 		}
 	}
 }
+
+// TestIssue42PlayerBusyVideoOpening 钉住「点了播放到视频窗开出来」这段的忙态。
+//
+// 这一段的特殊性：VideoOpen 还是假、没有任何播放器存在，取地址 + 建窗却要
+// 几百毫秒到几秒。以前这段时间界面完全静止，用户看到的是「点了没反应」。
+func TestIssue42PlayerBusyVideoOpening(t *testing.T) {
+	a := &App{VideoOpening: true}
+	if got := a.playerBusy(); got != PlayerLoading {
+		t.Fatalf("开窗中应显示加载中，得到 %v", got)
+	}
+	// 与音频起播/欠载的优先级：开窗中优先，不能被旧一集的收尾状态改掉。
+	a.Buffering = true
+	a.Waiting = true
+	a.Playing = true
+	if got := a.playerBusy(); got != PlayerLoading {
+		t.Fatalf("开窗中应保持加载中，得到 %v", got)
+	}
+	// 窗口开出来之后由视频自己的状态接管。
+	a.VideoOpen = true
+	a.VideoBusy = PlayerBuffering
+	if got := a.playerBusy(); got != PlayerBuffering {
+		t.Fatalf("窗口开出后应看 VideoBusy，得到 %v", got)
+	}
+	a.VideoOpen = false
+	a.VideoOpening = false
+	a.Buffering = false
+	if got := a.playerBusy(); got != PlayerBuffering {
+		t.Fatalf("回到音频欠载应显示缓冲中，得到 %v", got)
+	}
+}
+
+// TestIssue42VideoOpeningRendersRing 钉住开窗中主窗与迷你窗都画那颗圆环
+// （两处都读同一个 playerBusy，这里做行为断言防止某一路自己判状态）。
+func TestIssue42VideoOpeningRendersRing(t *testing.T) {
+	for _, mini := range []bool{false, true} {
+		label := "主窗"
+		w, h := 800, 600
+		size := float32(42)
+		if mini {
+			label = "迷你窗"
+			w, h = miniWidth, miniHeight
+			size = 28
+		}
+		t.Run(label, func(t *testing.T) {
+			a := issue42App(PlayerIdle, true)
+			a.Mini = mini
+			a.VideoOpening = true
+			tt := shellTesterSize(t, a, w, h)
+			if !issue42Access(t, tt, "加载中…", size).Busy {
+				t.Errorf("%s：开窗中播放键没有置 busy", label)
+			}
+			a.VideoOpening = false
+			tt.Frame()
+			// Playing=true，忙态结束后文案回到「暂停」。
+			if after := issue42Access(t, tt, "暂停", size); after.Busy {
+				t.Errorf("%s：开窗结束后播放键仍是 busy", label)
+			}
+		})
+	}
+}

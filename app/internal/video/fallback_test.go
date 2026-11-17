@@ -279,3 +279,231 @@ func TestSwitchToWebViewWithoutPending(t *testing.T) {
 		t.Error("没有挂起请求却建了 webview 窗")
 	}
 }
+
+// --- SrcFallback：DASH 分片起播失败时自动退回合流一次 ---
+
+// failingPlayer 是「起播就报错」的播放器替身。
+func failingPlayer() *stubPlayer { return &stubPlayer{err: errors.New("decode failed")} }
+
+// TestSrcFallbackRetriedOnceWithoutPrompt 钉住自动降级：Src（DASH 分片）起播
+// 失败时用 SrcFallback（合流 MP4）重开一次，**不**弹「改用 WebView」的询问。
+func TestSrcFallbackRetriedOnceWithoutPrompt(t *testing.T) {
+	m := New()
+	var tried []string
+	m.openNative = func(src string) (playerAPI, error) {
+		tried = append(tried, src)
+		if len(tried) == 1 {
+			return failingPlayer(), nil // 分片地址起播失败
+		}
+		return &stubPlayer{playing: true, ready: true, dur: 100 * time.Second}, nil
+	}
+	m.newNativeWin = stubNativeWindow
+	m.openWebViewFn = func(Options) error {
+		t.Error("自动降级成功时不该走 webview")
+		return nil
+	}
+	prompts := 0
+	m.OnFallback(func(*FallbackPrompt) { prompts++ })
+
+	o := Options{
+		Src:         "http://127.0.0.1:1/master.m3u8",
+		SrcFallback: "http://127.0.0.1:4654/audio-proxy?url=combined",
+		Title:       "一集",
+		Speed:       1,
+	}
+	if err := m.Open(o); err != nil {
+		t.Fatalf("打开失败：%v", err)
+	}
+	// 触发一次失败上报（原生窗每帧调 report）。
+	n := m.native
+	if n == nil {
+		t.Fatal("原生窗没建起来")
+	}
+	n.report()
+
+	waitFor(t, func() bool { return len(tried) == 2 })
+	if tried[0] != o.Src || tried[1] != o.SrcFallback {
+		t.Fatalf("重试顺序不对：%v", tried)
+	}
+	if prompts != 0 {
+		t.Errorf("自动降级不该问用户（问了 %d 次）", prompts)
+	}
+	if !m.NativeActive() {
+		t.Error("自动降级后原生窗不该关掉")
+	}
+}
+
+// TestSrcFallbackAsksWhenRetryAlsoFails 钉住「退完还是不行才问人」。
+func TestSrcFallbackAsksWhenRetryAlsoFails(t *testing.T) {
+	m := New()
+	var tried []string
+	m.openNative = func(src string) (playerAPI, error) {
+		tried = append(tried, src)
+		return failingPlayer(), nil
+	}
+	m.newNativeWin = stubNativeWindow
+	m.openWebViewFn = func(Options) error { return nil }
+	prompts := make(chan *FallbackPrompt, 4)
+	m.OnFallback(func(p *FallbackPrompt) { prompts <- p })
+
+	o := Options{Src: "http://x/master.m3u8", SrcFallback: "http://x/combined.mp4", Title: "一集", Speed: 1}
+	if err := m.Open(o); err != nil {
+		t.Fatalf("打开失败：%v", err)
+	}
+	m.native.report() // 第一次失败 → 重试
+	waitFor(t, func() bool { return len(tried) == 2 })
+	// 重试换上的新播放器也要报一次错才会问人（switchNative 会把 onFailed
+	// 重新挂到新窗口上）。
+	waitFor(t, func() bool { return m.native != nil && m.native.onFailed != nil })
+	m.native.report()
+
+	select {
+	case p := <-prompts:
+		if p == nil || p.Reason == "" {
+			t.Error("询问里应当带原因")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("两次都失败却没问用户")
+	}
+}
+
+// TestSrcFallbackNotRetriedTwice 钉住「只退一次」。
+func TestSrcFallbackNotRetriedTwice(t *testing.T) {
+	m := New()
+	var tried []string
+	m.openNative = func(src string) (playerAPI, error) {
+		tried = append(tried, src)
+		return failingPlayer(), nil
+	}
+	m.newNativeWin = stubNativeWindow
+	m.OnFallback(func(*FallbackPrompt) {})
+
+	o := Options{Src: "http://x/a.m3u8", SrcFallback: "http://x/b.mp4", Title: "一集", Speed: 1}
+	if err := m.Open(o); err != nil {
+		t.Fatal(err)
+	}
+	m.native.report()
+	waitFor(t, func() bool { return len(tried) == 2 })
+	waitFor(t, func() bool { return m.native != nil })
+	// 第二次失败不该再退（b.mp4 就是最后一条了）。
+	m.native.report()
+	time.Sleep(150 * time.Millisecond)
+	if len(tried) != 2 {
+		t.Errorf("重试了不止一次：%v", tried)
+	}
+}
+
+// TestSrcFallbackNotRetriedOnUnsupported 钉住：平台缺解码器（ErrUnsupported）
+// 时**不**重试 —— 换地址救不了，仍然问用户要不要用 WebView。
+func TestSrcFallbackNotRetriedOnUnsupported(t *testing.T) {
+	m := New()
+	var tried []string
+	m.openNative = func(src string) (playerAPI, error) {
+		tried = append(tried, src)
+		return nil, video.ErrUnsupported
+	}
+	m.openWebViewFn = func(Options) error { return nil }
+
+	o := Options{Src: "http://x/a.m3u8", SrcFallback: "http://x/b.mp4", Title: "一集", Speed: 1}
+	var prompt *FallbackPrompt
+	if err := m.Open(o); !errors.As(err, &prompt) {
+		t.Fatalf("平台不支持时应当问用户：%v", err)
+	}
+	if len(tried) != 1 {
+		t.Errorf("ErrUnsupported 不该用备用地址重试：%v", tried)
+	}
+}
+
+// TestSrcFallbackResetsPerEpisode 钉住：换集后新一集有它自己的重试机会。
+func TestSrcFallbackResetsPerEpisode(t *testing.T) {
+	m := New()
+	var tried []string
+	m.openNative = func(src string) (playerAPI, error) {
+		tried = append(tried, src)
+		return failingPlayer(), nil
+	}
+	m.newNativeWin = stubNativeWindow
+	m.OnFallback(func(*FallbackPrompt) {})
+
+	first := Options{Src: "http://x/e1.m3u8", SrcFallback: "http://x/e1.mp4", Title: "第一集", Speed: 1}
+	if err := m.Open(first); err != nil {
+		t.Fatal(err)
+	}
+	m.native.report() // 用掉第一集的降级机会
+	waitFor(t, func() bool { return len(tried) == 2 })
+
+	second := Options{Src: "http://x/e2.m3u8", SrcFallback: "http://x/e2.mp4", Title: "第二集", Speed: 1}
+	if err := m.Open(second); err != nil {
+		t.Fatal(err)
+	}
+	// 换集复位 fallbackTried（switchNative 里做），新一集失败时应当再次降级。
+	// 这里直接 report 而不是先等「fallbackTried==false」：复位发生在换集
+	// 的同一段逻辑里，等那个条件会和「重试已把它置真」赛跑。
+	m.native.report()
+	waitFor(t, func() bool { return len(tried) >= 4 })
+	if tried[len(tried)-1] != second.SrcFallback {
+		t.Errorf("第二集没用自己的备用地址：%v", tried)
+	}
+}
+
+// TestSrcFallbackIgnoredWhenEmpty 钉住：没有备用地址时行为不变（直接问人）。
+func TestSrcFallbackIgnoredWhenEmpty(t *testing.T) {
+	m := New()
+	m.openNative = func(string) (playerAPI, error) { return failingPlayer(), nil }
+	m.newNativeWin = stubNativeWindow
+	m.openWebViewFn = func(Options) error { return nil }
+	prompts := make(chan *FallbackPrompt, 1)
+	m.OnFallback(func(p *FallbackPrompt) { prompts <- p })
+
+	if err := m.Open(Options{Src: "http://x/a.mp4", Title: "一集", Speed: 1}); err != nil {
+		t.Fatal(err)
+	}
+	m.native.report()
+	select {
+	case <-prompts:
+	case <-time.After(2 * time.Second):
+		t.Fatal("没有备用地址时应当直接问用户")
+	}
+}
+
+// waitFor 等一个条件成立（最多 2 秒）。自动降级跑在 goroutine 上。
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("等待超时")
+}
+
+// TestWebViewUsesCombinedSource 钉住：webview 回退路径拿到的是合流地址，
+// 不是本地 HLS 播放列表（页面里的 <video> 播不了 m3u8 + 分片）。
+func TestWebViewUsesCombinedSource(t *testing.T) {
+	m := New()
+	var got Options
+	m.openNative = func(string) (playerAPI, error) { return nil, video.ErrUnsupported }
+	m.openWebViewFn = func(o Options) error { got = o; return nil }
+
+	o := Options{
+		Src:         "http://127.0.0.1:9/master.m3u8",
+		SrcFallback: "http://127.0.0.1:4654/audio-proxy?url=combined",
+		Title:       "一集",
+		Speed:       1,
+	}
+	var prompt *FallbackPrompt
+	if err := m.Open(o); !errors.As(err, &prompt) {
+		t.Fatalf("平台不支持时应先问用户：%v", err)
+	}
+	if err := m.SwitchToWebView(); err != nil {
+		t.Fatal(err)
+	}
+	if got.Src != o.SrcFallback {
+		t.Errorf("webview 的源 = %q，想要合流地址 %q", got.Src, o.SrcFallback)
+	}
+	if got.SrcFallback != "" {
+		t.Error("webview 路径不该还带着 SrcFallback")
+	}
+}

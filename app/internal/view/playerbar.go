@@ -2569,6 +2569,12 @@ func (a *App) playerBusy() PlayerBusy {
 	if a.VideoOpen {
 		return a.VideoBusy
 	}
+	// 视频窗正在开（取地址 + 建窗）：这段时间音频已经让位，只有这一颗键能
+	// 说明「点了播放，正在准备」。它必须排在音频之前 —— 此刻 app.Buffering
+	// 也可能为真（上一集的收尾），那不代表用户这次点击的状态。
+	if a.VideoOpening {
+		return PlayerLoading
+	}
 	if a.Buffering {
 		return PlayerLoading
 	}

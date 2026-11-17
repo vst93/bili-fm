@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -36,6 +37,7 @@ import (
 
 	"github.com/vst93/bili-fm/app/internal/bilibili"
 	"github.com/vst93/bili-fm/app/internal/danmaku"
+	"github.com/vst93/bili-fm/app/internal/dashhls"
 	"github.com/vst93/bili-fm/app/internal/imagecache"
 	"github.com/vst93/bili-fm/app/internal/media"
 	"github.com/vst93/bili-fm/app/internal/mediactl"
@@ -133,6 +135,15 @@ type controller struct {
 	// videoDmReqID 保护「给视频窗换这一集弹幕」的异步结果：快速换集时旧
 	// 响应不得盖到新一集上。openVideo 在 goroutine 里起播，所以用原子量。
 	videoDmReqID atomic.Int64
+	// videoOpenID 保护「开视频窗」这次异步准备：取播放地址 + 取 DASH 索引 +
+	// 建窗要走几百毫秒到几秒。这期间用户可能切集、又点了一次播放、或者把
+	// 窗口关了 —— 旧的那次必须整条作废（不能开上一集、不能清掉新一次的忙态）。
+	videoOpenID atomic.Int64
+	// hls 是当前视频会话的本地 HLS 服务（见 internal/dashhls）。它跟着视频窗
+	// 的生命周期走：关窗 / 切集 / 退出都要 Close，否则监听端口与上游连接
+	// 会一直挂着。用互斥保护是因为它在后台 goroutine 里建、在界面线程里关。
+	hlsMu sync.Mutex
+	hls   *dashhls.Session
 
 	// extrasReqID / subtitleReqID 分别保护章节+字幕轨 / 字幕正文的异步结果：
 	// 换集或重新打开抽屉时，旧响应不得覆盖新视频的数据。
@@ -1162,6 +1173,7 @@ func (c *controller) quit() {
 		c.media.Close()
 	}
 	c.vid.Close()
+	c.closeHLSSession()
 	c.mp.Close()
 	// 退出路径也不允许「关窗后状态还挂着播放中」：两个引擎都已经关了，
 	// 主窗状态跟着落地（OnClose 可能已经写过一次，这里幂等收尾）。
@@ -3401,6 +3413,11 @@ func (c *controller) startCurrent() {
 		c.app.VideoOpen = false
 		c.app.VideoBusy = view.PlayerIdle
 	}
+	// 切集也要作废「正在开窗」的那一次：否则旧一集的地址回来之后会把窗口
+	// 开成上一集（用户点的是下一集）。代号一变，后台那次自己就退出了。
+	c.videoOpenID.Add(1)
+	c.finishVideoOpen()
+	c.closeHLSSession()
 	c.app.Buffering = true
 	c.app.Waiting = false
 	c.app.Buffered = 0
@@ -4281,6 +4298,9 @@ func (c *controller) applyVideoClose(st video.State) {
 	// Playing 马上按引擎重读，Waiting 由下一次引擎心跳重新判定。
 	a.VideoBusy = view.PlayerIdle
 	a.Waiting = false
+	// 分片源只服务这个窗口：窗口关了，本地服务与上游连接一起收掉。
+	c.finishVideoOpen()
+	c.closeHLSSession()
 	// 退出与切歌都不做音视接力：前者进程要没了，后者这一集马上被换掉。
 	// 但两者的引擎归属不一样，不能一起 Pause：
 	//
@@ -4461,43 +4481,83 @@ func (c *controller) openVideo() {
 	// 由 OnState 回传；开窗失败时 restoreAudioAfterVideo 会清掉）。
 	c.app.Waiting = false
 	c.app.VideoBusy = view.PlayerIdle
+	// 从这里到窗口真正开出来（videoOpened）是一段没有播放器的等待：取地址、
+	// 取 DASH 索引、建窗。播放键靠这个位转圈，否则用户看到的是「点了没反应」。
+	c.app.VideoOpening = true
 	c.app.Win.Update(func() {})
-	// 主题令牌在 UI 线程上取一份快照交给弹窗：a.Theme 由 RefreshTheme 在 UI
-	// 线程改写，后台 goroutine 直接读就是数据竞争（与 Pos/Speed 那几项同一
-	// 处理方式）。
+	// 下面这几项都是**界面线程**写的字段（a.Theme / c.sponsor / 热力 /
+	// 播放位置与设置）：必须在起 goroutine 之前取好快照。以前 Pos / Speed /
+	// Muted / Volume / VideoPinned 是在 goroutine 里直接读的，那是数据竞争
+	// （用户切歌或拖进度条时后台正在读同一块内存）。
 	theme := c.app.Theme
-	// 恰饭分段也在界面线程上取一份快照（c.sponsor 由 UI 线程改写）。
 	sponsorSegs := toViewSegments(c.sponsor)
-	// 弹幕热力同样是 UI 线程写的数据：快照一份交给视频窗（与主窗同一份
-	// 数据、同一个 cid 缓存，视频窗不再自己请求）。
 	heat, heatOn := c.app.DanmakuHeat, c.app.HeatOn
+	startAt, speed := c.app.Pos, c.app.Speed
+	muted := c.app.Muted || c.app.Volume <= 0
+	pinned := c.app.VideoPinned
+	// 打开代号：用户切集 / 关窗 / 再点一次之后，旧的这次取地址结果必须作废，
+	// 不能把上一集开出来（也不能清掉新一次的状态）。
+	c.videoOpenID.Add(1)
+	openID := c.videoOpenID.Load()
+	stale := func() bool { return c.videoOpenID.Load() != openID }
+	aid, cid := int(t.Aid), int(t.Cid)
+	cid64 := t.Cid
+	title, cover := t.Title, t.Cover
 	go func() {
-		// 弹窗要的是渐进式 MP4 地址，走本地代理（带 Referer）。
-		u := c.bl.GetUrlByCid(int(t.Aid), int(t.Cid))
+		// 合流地址是**兜底**，也是 webview 回退路径唯一能播的源，所以两条
+		// 路径都要先拿到它。它与 DASH 轨道是同一个接口的不同参数，不能省。
+		u := c.bl.GetUrlByCid(aid, cid)
+		if stale() {
+			return
+		}
 		if u.URL == "" {
 			runOnUI(c.app, !c.app.Hidden(), func() {
+				if stale() {
+					return
+				}
+				c.finishVideoOpen()
 				c.app.NotifyType("error", "取播放地址失败")
 				c.restoreAudioAfterVideo(wasPlaying)
 			})
 			return
 		}
+		combined := proxy.AudioURL(u.URL)
+
+		// 视频源优先 DASH 分片（见 internal/dashhls）：旧合流 MP4 的 moov
+		// 索引有几 MB 且在文件头，长视频起播要先读完才出第一帧。分片方案
+		// 首帧前只读 init + sidx + 头几个分片。
+		//
+		// 任何一步不成立（接口没给 DASH、索引坏了、端口起不来）都静默退回
+		// 合流，不打扰用户 —— 画质相同，没有功能差别。
+		src, fallback := combined, ""
+		session := c.startVideoHLS(aid, cid)
+		if stale() {
+			if session != nil {
+				_ = session.Close()
+			}
+			return
+		}
+		if session != nil {
+			src, fallback = session.URL(), combined
+		}
 		opts := video.Options{
-			Src:     proxy.AudioURL(u.URL),
-			Title:   t.Title,
-			Poster:  proxy.ImageURL(t.Cover),
-			StartAt: c.app.Pos,
-			Speed:   c.app.Speed,
+			Src:         src,
+			SrcFallback: fallback,
+			Title:       title,
+			Poster:      proxy.ImageURL(cover),
+			StartAt:     startAt,
+			Speed:       speed,
 			// 弹窗起播就跟随主窗的静音状态；主窗有声音时弹窗也应有声音
 			// （无手势时引擎只放行静音起播，页面在第一次交互时再取消静音，
 			// 见 frontend/video.html 的起播策略）。
-			Muted:  c.app.Muted || c.app.Volume <= 0,
+			Muted:  muted,
 			Parent: c.app.Win,
 			// 原生窗的标题栏与控件条按主窗这一帧的令牌画（深浅两态、高对比、
 			// 减少透明度都跟着主窗走），见 internal/view/videochrome.go。
 			Theme: theme,
 			// 视频窗知道自己是哪一集：弹幕条目随后由 startVideoDanmaku
 			// 从 Store 取（可能与抽屉 / 热力共用缓存）。
-			DanmakuCid: t.Cid,
+			DanmakuCid: cid64,
 			// 设置类状态与主窗**同一份内存**：视频窗里调音量/倍速/均衡/
 			// 广告跳过，主窗立刻看见；反之亦然。
 			Shared: &c.app.PlayerSettings,
@@ -4509,27 +4569,51 @@ func (c *controller) openVideo() {
 			HeatOn:      heatOn,
 			// 视频窗置顶：开窗时用主窗落盘的值（默认 false，与迷你模式的
 			// 固定一致），窗口里点图钉会经 OnPinToggle 落回同一键。
-			VideoPinned: c.app.VideoPinned,
+			VideoPinned: pinned,
 		}
 		if err := c.vid.Open(opts); err != nil {
 			// 原生不可用（Linux 缺 GStreamer 等）：不替用户回退，问他要不要
 			// 改用 WebView。视频没开成，音频先接回主窗（用户还在听）。
 			if prompt := videoOpenErrorPrompt(err); prompt != nil {
 				runOnUI(c.app, !c.app.Hidden(), func() {
+					if stale() {
+						return
+					}
+					c.finishVideoOpen()
 					c.restoreAudioAfterVideo(wasPlaying)
 					c.showVideoFallbackPrompt(prompt)
 				})
 				return
 			}
 			runOnUI(c.app, !c.app.Hidden(), func() {
+				if stale() {
+					return
+				}
+				c.finishVideoOpen()
 				c.app.NotifyType("error", actionFailText("打开视频窗口", err))
 				c.restoreAudioAfterVideo(wasPlaying)
 			})
 			return
 		}
-		c.startVideoDanmaku(t.Cid)
-		runOnUI(c.app, !c.app.Hidden(), c.videoOpened)
+		c.startVideoDanmaku(cid64)
+		runOnUI(c.app, !c.app.Hidden(), func() {
+			if stale() {
+				// 窗口已经开出来了但这次请求已作废（用户在这期间切了集 /
+				// 又点了一次）：关掉它，别让上一集顶掉新一集。
+				c.vid.Close()
+				return
+			}
+			c.videoOpened()
+		})
 	}()
+}
+
+// finishVideoOpen 收掉「正在开窗」这个忙态。
+//
+// 单独一个函数是为了每条出口都走同一句：开成、取地址失败、Open 失败、
+// 用户提前关窗、切集。漏一条的表现是播放键永远转圈（用户会以为卡死了）。
+func (c *controller) finishVideoOpen() {
+	c.app.VideoOpening = false
 }
 
 // videoOpened 把「视频窗已经开着」这段时间的状态钉住：音频引擎暂停，主窗
@@ -4545,10 +4629,15 @@ func (c *controller) videoOpened() {
 		// 开窗结果落定之前用户已经把它关掉了（关窗回调可能已经跑过）：
 		// 不能再把 VideoOpen 置真，否则主窗永远以为视频还开着，
 		// 空格 / 进度条都会一直发给一个不存在的弹窗。
+		c.finishVideoOpen()
+		c.closeHLSSession()
 		c.app.Playing = c.audioPlaying()
 		return
 	}
 	c.app.VideoOpen = true
+	// 窗口已经开出来：「正在开」这一段结束，忙态交给 OnState 回传的
+	// VideoBusy（首帧之前先按空闲，避免没有依据的转圈）。
+	c.finishVideoOpen()
 	// 视频占着声音：音频引擎的等待位不再代表播放栏，清掉残留；视频的忙态
 	// 由 OnState 每秒回传（首帧之前先按空闲，避免没有依据的转圈）。
 	c.app.Waiting = false
@@ -4575,6 +4664,8 @@ func (c *controller) closeVideo() {
 	c.app.VideoOpen = false
 	c.app.VideoBusy = view.PlayerIdle
 	c.app.Waiting = false
+	c.finishVideoOpen()
+	c.closeHLSSession()
 	c.app.Win.Update(func() {})
 	trimMemory()
 }
@@ -4638,4 +4729,64 @@ func sectionIndex(key string) int {
 		}
 	}
 	return 0
+}
+
+// startVideoHLS 给这一集起一个本地 HLS 服务（见 internal/dashhls）。
+//
+// 返回 nil 表示「这次没有分片源」：接口没给 DASH、轨道缺 SegmentBase、索引
+// 取不下来、端口起不来…… 任何一种都静默退回旧的合流 MP4。这里**不**报错
+// 也不 toast：用户要的是「看视频」，走哪条取流路径是内部实现。
+//
+// 起出来的服务由 c.hls 持有，随视频窗关闭 / 切集 / 退出一起关掉。
+func (c *controller) startVideoHLS(aid, cid int) *dashhls.Session {
+	v, a, dur, ok := c.bl.GetDashAVByCid(aid, cid)
+	if !ok {
+		return nil
+	}
+	session, err := dashhls.Start(
+		dashhls.Track{
+			BaseURL:    v.BaseURL,
+			BackupURLs: v.BackupURL,
+			InitRange:  v.SegmentBase.Initialization,
+			IndexRange: v.SegmentBase.IndexRange,
+			Codecs:     v.Codecs,
+			MimeType:   v.MimeType,
+			Bandwidth:  v.Bandwidth,
+			Width:      v.Width,
+			Height:     v.Height,
+		},
+		dashhls.Track{
+			BaseURL:    a.BaseURL,
+			BackupURLs: a.BackupURL,
+			InitRange:  a.SegmentBase.Initialization,
+			IndexRange: a.SegmentBase.IndexRange,
+			Codecs:     a.Codecs,
+			MimeType:   a.MimeType,
+			Bandwidth:  a.Bandwidth,
+		},
+		dur,
+	)
+	if err != nil {
+		// 只记一行、不带地址：签名 URL 会过期，进日志就是泄漏。
+		log.Printf("视频分片源不可用，改用合流 MP4: %v", err)
+		return nil
+	}
+	c.setHLSSession(session)
+	return session
+}
+
+// setHLSSession 换上一份新的 HLS 会话，并关掉上一份（切集时）。
+func (c *controller) setHLSSession(s *dashhls.Session) {
+	c.hlsMu.Lock()
+	old := c.hls
+	c.hls = s
+	c.hlsMu.Unlock()
+	if old != nil {
+		_ = old.Close()
+	}
+}
+
+// closeHLSSession 关掉当前的 HLS 会话（关窗 / 切集 / 退出）。可重复调用。
+func (c *controller) closeHLSSession() {
+	c.setHLSSession(nil)
 }

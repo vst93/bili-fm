@@ -2363,3 +2363,105 @@ keep-above）」更糟。它也要留在任务栏里（overlay 的判据之一�
   自身是完整覆盖的。
 - 视频窗 `OnState` 的位置 / 时长仍约每秒一次；忙态状态位已改为变化即报。
   原生视频窗自己的控件条每帧直读播放器。
+
+## issue #42 后续：视频起播（DASH 分片 → 本地 HLS，2026-11-17）
+
+接着上一节（音频优先 DASH + 三窗忙态）做**视频**那一半。上一节的结论里
+「视频源仍是合流」这一条到此结束。
+
+### 瓶颈（实测，不是推测）
+
+BV1BFsA6TERt（aid 117624373577490 / cid 43646192976，5252s）的
+`platform=html5` 合流 MP4 是 179,509,885B，`ftyp` 32B、`moov` 在 offset 32、
+**6,546,892B**，第一个视频包在 6,546,940。GStreamer 的顺序拉流要先把这块
+索引读完才解得第一帧：
+
+| 路径 | 首帧前 CDN 字节 | 首帧（无窗口探针） |
+|---|---:|---:|
+| 合流 MP4 | 6,884,770 | 776.7ms（3 次中位） |
+| 合流 MP4 @1MiB/s | 6,643,106 | 6,565ms |
+| 本地 HLS（本轮） | 476–593KB | 568 / 569 / 994ms |
+
+### 为什么是 HLS，不是「自己封装成一个 fMP4」
+
+先做过的原型（`/tmp/bili-proto`，未进产品）证明单文件虚拟 fMP4 能跑通：首帧
+630ms、230,821B、seek 稀疏。但它有三条代价：
+
+1. **Linux 上要自写 pull 源**。qtdemux 在 push 模式下**忽略**分片 MP4 的 seek
+   （日志 `ignoring seek in push mode in current state`），而 mygo 的 Linux
+   视频是 `playbin` + `souphttpsrc`（push）。原型靠一个临时 C 的 `GstBaseSrc`
+   才拿到 pull 模式 —— 那东西进不了产品。没有它，单个 fMP4 在 Linux 上拖不动。
+2. **要手写 muxer**：合并 moov、改 tkhd/trex 的 track ID、重算 sidx、生成
+   mfra/tfra，约 600 行二进制改写；出错的表现是静默花屏或音画漂移。
+3. 只在 Linux 验证过。
+
+HLS 把这三条全绕开：分片字节**原样**转发，seek 与音画同步由平台框架负责，
+三个平台的播放器都原生支持。代价是首帧字节比单文件多一倍（~500KB vs ~230KB），
+相对现状仍是 20 倍节省。
+
+### 实现要点（`internal/dashhls`）
+
+- `Start(video, audio Track, duration)`：并发取两条轨道的 init+sidx，解析出
+  分片表，算好两份播放列表放内存，然后监听 `127.0.0.1:0`。
+- master：`#EXT-X-MEDIA:TYPE=AUDIO` + `#EXT-X-STREAM-INF`（带 `CODECS` 与
+  `RESOLUTION`；AVPlayer 靠 `CODECS` 挑解码器）。
+- 媒体播放列表：`#EXT-X-MAP` 指 init 区间，每个分片一行 `#EXTINF` + 一条
+  `seg?k=v&r=<start>-<end>`。
+- 分片 handler：按查询串的区间去上游要那一段，回 `200` + 精确 `Content-Length`。
+  上游 `Range`、UA、Referer 全带；失败退备用地址。
+- 时长取 `max(视频, 音频)` 的 sidx 累计；接口给的值只兜底。
+
+### 三个踩过的坑
+
+1. **`#EXT-X-BYTERANGE` 无效**。hlsdemux 忽略它，请求回来不带 `Range`，代理
+   只好把整条流吐出来 —— 首帧 11s、读了 187MB。区间必须编进 URL。
+2. **分片必须复用连接**。每次新建 TLS 时握手成本直接进首帧：实测视频那台 CDN
+   主机握手 3.5s，把首帧推到 11s（比旧路径还慢）。修掉后 568ms。
+3. **`#EXT-X-MAP` 会被越界检查拒掉**。init 区间（0-933）在媒体区间之前，
+   按「分片必须在 media 区间内」判就回 416，hlsdemux 直接
+   `Requested Range Not Satisfiable`。init 要单独放行。
+
+### 接线
+
+- `main.openVideo`：先取合流地址（兜底 + webview 用），再
+  `startVideoHLS(aid, cid)`；成功则 `Src=session.URL()`、
+  `SrcFallback=合流`；任何一步不成立都静默退回合流。
+- 会话随窗口走：`c.hls` 在关窗 / 切集 / 退出时 `Close`（`closeHLSSession`）。
+- `video.Options.SrcFallback`：分片源起播失败时自动用合流重开**一次**，仍失败
+  才弹「要不要改用 WebView」；`ErrUnsupported` 不重试。换集复位。
+- webview 回退：`openWeb` 进去之前把 `Src` 换成 `SrcFallback`（页面播不了
+  m3u8 + 分片）。
+
+### 顺手修的两个既有缺陷
+
+1. `openVideo` 的 goroutine 直接读 `a.Pos / Speed / Muted / Volume /
+   VideoPinned`（界面线程写的字段）→ 数据竞争。改为界面线程取快照。
+2. 「点击播放 → 窗口开出来」没有忙态（`VideoOpen` 还是假，没有播放器能回传）
+   → 新增 `App.VideoOpening`，`playerBusy()` 优先级 VideoOpen > VideoOpening >
+   音频；五条出口统一 `finishVideoOpen()`；`videoOpenID` 代号防止切集后旧请求
+   把上一集开出来。
+
+### 验证
+
+- 新包 `internal/dashhls` 单测：sidx v0/v1、分层引用拒绝、截断、timescale 0、
+  区间解析、播放列表文本 / TARGETDURATION 向上取整、分片越界 416、init 放行、
+  备用地址、**keep-alive 连接计数**、`Close` 幂等。
+- `internal/bilibili`：AVC 优先、绝不选 HEVC/AV1、360P 优先、缺 SegmentBase
+  不选、AAC-LC 判据。
+- `internal/video`：SrcFallback 只重试一次 / ErrUnsupported 不重试 / 成功后不
+  问人 / 两次都失败才问 / 换集复位 / webview 用合流源。
+- `app`：VideoOpening 五条出口、stale 代号、界面字段快照的源码契约。
+- `internal/view`：playerBusy 优先级、主窗 + 迷你窗都画圆环。
+- 真实 CDN 端到端（临时测试，用后删除）：Go 服务 + `gst-launch playbin`
+  首帧 568/569/994ms、211–252 视频帧 + 307–371 音频样本、时长 5251.37s、
+  seek 60s/3000s 落点正确、无管线错误。
+- 门禁：`go vet ./...` 通过；除 `internal/view` 外全包通过；
+  `internal/view` 单进程 30m 超时（**改动前同样超时**，已 `git stash` 对照），
+  947 项分 318/311/318 三批全过（730s / 557s / 973s）；六平台编译通过。
+
+### 未验证
+
+- Windows（IMFMediaEngine）与 macOS（AVPlayer）上的真实播放：无 GUI 权限。
+  设计上两者都原生支持 HLS（含音轨分离的 master 播放列表），但没有实测数据。
+- 真机限速下的首帧（探针是同一台机器的一次实测，受网络影响）。
+- 视频窗内拖动进度条的手感：只验证了 seek 返回 true 与落点正确。

@@ -128,6 +128,13 @@
   谓词**：terminal/stopped 时返回 false 但**不回写** waiting（否则并发 seek
   的新信号会被读掉），清位都在 `p.mu` 临界区内完成。
   暂停时 `Player.Buffering()` 恒 false。
+  **「点击播放 → 窗口开出来」这段也有忙态**：此刻 `VideoOpen` 还是假、没有
+  播放器能回传，靠 `App.VideoOpening`（`playerBusy()` 优先级 VideoOpen >
+  VideoOpening > 音频）。开成 / 取地址失败 / Open 失败 / 提前关窗 / 切集五条
+  出口都走 `finishVideoOpen()`，漏一条就是播放键永远转圈。同一处的
+  `videoOpenID` 代号保证切集后旧的那次取地址不会把上一集开出来；
+  `openVideo` 的 goroutine **不许**直接读 `a.Pos/Speed/Muted/Volume/VideoPinned`
+  （界面线程写的字段），一律在界面线程取快照。
   播放键的忙态是共享 `PlayerBusy`（`PlayerLoading` / `PlayerBuffering`），
   图标复用 `ringSpinner`（42px 键 18/2、mini 28px 键 16/2），文案分别是
   「加载中…」「缓冲中 · 点击暂停」；主窗/迷你窗/视频窗同一套，不占额外布局。
@@ -156,7 +163,29 @@
   179,509,885B、moov 6,546,892B，首块 PCM 9.72s / 203 次 Range / 26.3MB；
   DASH 30280 54,383,143B，首块 PCM 0.26s / 3 次 Range（第 3 次为预取）/ 131KB。Range 预取、
   块大小、sidx、WSOLA/EQ/重采样/200ms 队列与分段均未改；视频源仍是合流。
-- **视频窗的其余视觉取值在 `view.videotokens.go`**：网格（`videoStep`/
+- **视频源优先 DASH 分片（本地 HLS）**（issue #42 视频那一半，2026-11-17）：
+  视频窗不再直接播 360P 合流 MP4。合流的长视频 `moov` 在文件头且有几 MB
+  （BV1BFsA6TERt 是 6,546,892B），解第一帧前必须先读完 —— 实测首帧前 6.88MB，
+  1MiB/s 下 6.57s。`internal/dashhls` 把 DASH 的 `moof+mdat` 分片**原样**当
+  本地 HLS 播：sidx 给精确字节区间，编进分片 URL 查询串，音画同步 / 拖动 /
+  倍速交给平台媒体框架。**不改写任何字节**（没有 muxer）。
+  三条硬规矩：
+  1. **不能用 `#EXT-X-BYTERANGE`**：GStreamer 的 `hlsdemux` 忽略它，请求回来
+     是不带 Range 的整条流，等于把文件下完（实测首帧 11s）。区间放查询串。
+  2. **分片必须复用 keep-alive 连接**：每个分片新建 TLS 时握手成本直接进首帧
+     （实测某台 CDN 主机握手 3.5s → 首帧 11s，比旧路径还慢）。
+     `newClient` 的 `MaxIdleConnsPerHost` 与测试里的连接计数就是钉这条。
+  3. **`#EXT-X-MAP`（init 段）在 media 区间之前**，分片越界检查要放行它，
+     否则 hlsdemux 取 init 就 416，整份列表起不来。
+  实测（Linux GStreamer，音频 fakesink 无窗口）：首帧中位 569ms（旧路径 1380ms），
+  首帧前 476–593KB（旧 12.3MB）；时长 / seek / 2 倍速正常。**Windows 与 macOS
+  未实测**。
+  自动降级：`video.Options.SrcFallback` 在分片源起播失败时用合流地址重开一次，
+  仍失败才问用户要不要 WebView；`ErrUnsupported` 不重试（换地址救不了）。
+  **换播放器必须重新挂 `onFailed`**（`wireNativeFail`）：`report` 触发后会把它
+  置 nil，`switchNative` 换了播放器不重挂，降级后再失败就没人接手。
+  webview 回退路径拿的是合流地址（页面里的 `<video>` 播不了 m3u8）。
+  视频窗的其余视觉取值在 `view.videotokens.go`：网格（`videoStep`/
   `videoStep2`）、两栏共用的 `videoInset`/`videoPadX`、顶栏 5 颗键的
   `videoKeySize`(30)/`videoKeyRadius`(6)/`videoIconSize`(16)、字号 13/600、12、
   11、面板行高与内边距、hairline 与两条栏的厚玻璃材质（`videoTitleBar` /

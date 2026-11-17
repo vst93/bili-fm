@@ -7,6 +7,7 @@ package main
 //   - 视频→主窗回传忙态，关窗/失败时清掉。
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vst93/bili-fm/app/internal/media"
@@ -211,5 +212,123 @@ func TestIssue42VideoCloseClearsBusy(t *testing.T) {
 	}
 	if c.app.Playing != eng.Playing() {
 		t.Fatalf("关窗后 Playing=%v 与引擎 %v 不一致", c.app.Playing, eng.Playing())
+	}
+}
+
+// --- 开窗忙态（点击 → 取地址 → 建窗） ---
+
+// TestIssue42VideoOpeningFlagLifecycle 钉住 VideoOpening 的每条出口都清干净。
+//
+// 漏清的表现是播放键永远转圈：用户点了播放、窗口开失败（或他提前关掉），
+// 界面却一直停在「加载中…」，看起来像卡死。
+func TestIssue42VideoOpeningFlagLifecycle(t *testing.T) {
+	t.Run("开成时清掉", func(t *testing.T) {
+		c, _ := newVideoCloseController(t, false)
+		c.app.VideoOpen = false
+		c.app.VideoOpening = true
+		c.videoOpened()
+		if c.app.VideoOpening {
+			t.Error("窗口开出来后 VideoOpening 没清")
+		}
+		if !c.app.VideoOpen {
+			t.Error("VideoOpen 没置真")
+		}
+	})
+	t.Run("窗口在结果落定前被关掉时清掉", func(t *testing.T) {
+		c, _ := newVideoCloseController(t, false)
+		c.app.VideoOpen = false
+		c.app.VideoOpening = true
+		// vid 为 nil 时 videoOpened 不会走「已经关掉」那一条（那条要求
+		// c.vid != nil），所以这里用关窗收尾覆盖「用户提前关窗」：
+		// 它同样必须把忙态清掉。
+		c.applyVideoClose(video.State{Time: 0, Duration: 300, Paused: true, Ready: 0})
+		if c.app.VideoOpening {
+			t.Error("用户提前关窗后 VideoOpening 没清")
+		}
+		if c.app.VideoOpen {
+			t.Error("窗口已经关了却把 VideoOpen 置真")
+		}
+	})
+	t.Run("关窗时清掉", func(t *testing.T) {
+		c, _ := newVideoCloseController(t, false)
+		c.app.VideoOpening = true
+		c.applyVideoClose(video.State{Time: 10, Duration: 300, Paused: true, Ready: 4})
+		if c.app.VideoOpening {
+			t.Error("关窗后 VideoOpening 没清")
+		}
+	})
+	t.Run("切集时清掉", func(t *testing.T) {
+		c, _ := newVideoCloseController(t, false)
+		c.app.VideoOpening = true
+		c.videoOpenID.Add(1)
+		c.finishVideoOpen()
+		if c.app.VideoOpening {
+			t.Error("切集后 VideoOpening 没清")
+		}
+	})
+}
+
+// TestIssue42VideoOpeningStaleOpenCancelled 钉住「切集之后旧的那次开窗作废」。
+//
+// 取地址 + 取索引要几百毫秒：这期间用户点下一集，旧结果回来时不能把窗口
+// 开成上一集（用户看到的是「点了下一集，播放的却是上一集」）。
+func TestIssue42VideoOpeningStaleOpenCancelled(t *testing.T) {
+	c, _ := newVideoCloseController(t, false)
+	c.app.VideoOpen = false
+
+	// 第一次开窗拿到的代号。
+	c.videoOpenID.Add(1)
+	openID := c.videoOpenID.Load()
+	stale := func() bool { return c.videoOpenID.Load() != openID }
+	if stale() {
+		t.Fatal("刚取的代号不该已经过期")
+	}
+	// 用户切集：代号往前走一格。
+	c.videoOpenID.Add(1)
+	if !stale() {
+		t.Fatal("切集之后旧代号必须过期（否则会开成上一集）")
+	}
+}
+
+// TestIssue42VideoOpeningSnapshotsUIFields 钉住 openVideo 的 goroutine 不直接
+// 读界面字段。
+//
+// a.Pos / a.Speed / a.Muted / a.Volume / a.VideoPinned 都是界面线程写的；
+// 后台 goroutine 读同一块内存就是数据竞争（用户拖进度条 / 调音量时后台正在
+// 读）。这里做源码级契约：仓库既有的做法（见 TestBackdropUpdatesGateOnHidden）。
+func TestIssue42VideoOpeningSnapshotsUIFields(t *testing.T) {
+	flat := flattenCode(t, "main.go")
+	// 起 goroutine 之前必须先取好这几份快照。
+	for _, want := range []string{
+		"startAt,speed:=c.app.Pos,c.app.Speed",
+		"muted:=c.app.Muted||c.app.Volume<=0",
+		"pinned:=c.app.VideoPinned",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("openVideo 没有在界面线程取快照：%q", want)
+		}
+	}
+	// goroutine 体内不许再出现这些界面字段（快照之后只准用局部变量）。
+	// flattenCode 会剥注释，所以锚点只能用代码本身。
+	body := flat
+	if i := strings.Index(flat, "gofunc(){u:=c.bl.GetUrlByCid(aid,cid)"); i >= 0 {
+		body = flat[i:]
+		if j := strings.Index(body, "}()"); j > 0 {
+			body = body[:j]
+		}
+	} else {
+		t.Fatal("找不到 openVideo 的后台 goroutine（接线改了？）")
+	}
+	for _, bad := range []string{
+		"StartAt:c.app.Pos",
+		"Speed:c.app.Speed",
+		"c.app.Muted",
+		"c.app.Volume",
+		"VideoPinned:c.app.VideoPinned",
+		"DanmakuCid:t.Cid",
+	} {
+		if strings.Contains(body, bad) {
+			t.Errorf("后台 goroutine 仍在直接读界面字段：%q", bad)
+		}
 	}
 }

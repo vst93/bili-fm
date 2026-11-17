@@ -824,6 +824,14 @@ type App struct {
 	// 主窗/迷你窗的播放栏拿不到那个播放器，只能由 OnState 回传后放在这里）。
 	// VideoOpen 为真时播放栏只看它，不看音频引擎的 Waiting。
 	VideoBusy PlayerBusy
+	// VideoOpening 表示「点了播放到视频窗真正开出来」这一段（取播放地址 +
+	// 建窗 / 起播放器）。它和 VideoBusy 是两个阶段：此刻 VideoOpen 还是假，
+	// 窗口还不存在，没有任何播放器能回传忙态 —— 但用户已经点了播放、音频
+	// 也已经让位，界面上什么都不转就是「点了没反应」。
+	//
+	// 播放栏的忙态优先级见 playerBusy：VideoOpen（真在放）> VideoOpening
+	// （正在开）> 音频的起播 / 欠载。开窗失败、关窗、切歌都要清掉它。
+	VideoOpening bool
 
 	// 分集 / 弹幕 / 评论 / 详情
 	//

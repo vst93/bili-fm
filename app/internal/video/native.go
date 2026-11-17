@@ -107,6 +107,11 @@ type nativeWindow struct {
 	nativeVideo    bool
 	onNativeToggle func(bool)
 
+	// fallbackTried 表示这一集已经用过 SrcFallback 自动重试了。每次换集
+	// （switchNative）都会复位：新一集有它自己的机会。用「一次性标记」而不是
+	// 靠 onFailed=nil 来判，是因为重试会重新挂一个 onFailed。
+	fallbackTried bool
+
 	// pinned 是视频窗的置顶状态（顶栏最左那颗图钉）。它是窗口属性，不落盘在
 	// 这里：点一下就回到主窗存 videoPinned（见 chromeFor 的 OnPinToggle）。
 	pinned      bool
@@ -369,8 +374,13 @@ func (n *nativeWindow) report() {
 }
 
 // apply 在主线程上改播放器状态（外部调用都走这里）。
+//
+// 没有窗口时（无头测试里的桩窗）直接执行：否则「换播放器」这类只改内部
+// 状态的操作在测试里永远是空操作，测不到真实路径。生产路径一定有窗口，
+// 这段的语义与从前一致。
 func (n *nativeWindow) apply(fn func()) {
 	if n.win == nil {
+		fn()
 		return
 	}
 	n.win.Update(fn)

@@ -2423,3 +2423,142 @@ func firstNonEmpty(vals ...string) string {
 	}
 	return ""
 }
+
+// ----------- begin - getDashAVByCid -----------
+
+// DashTrack 是 DASH 音画分片的一条轨道（video[] / audio[] 的公共形状）。
+//
+// 与 DashAudio 的区别：这里带上 SegmentBase（init 与 sidx 的字节区间）和
+// 备用地址 —— 视频窗要把分片当 HLS 播（见 internal/dashhls），必须知道索引
+// 在哪一段、第一条地址挂了还有哪几条可退。
+type DashTrack struct {
+	ID        int      `json:"id"`
+	CodecID   int      `json:"codecid"`
+	BaseURL   string   `json:"baseUrl"`
+	BackupURL []string `json:"backupUrl"`
+	Codecs    string   `json:"codecs"`
+	MimeType  string   `json:"mimeType"`
+	Bandwidth int      `json:"bandwidth"`
+	Width     int      `json:"width"`
+	Height    int      `json:"height"`
+	// SegmentBase 的字段在接口里是首字母大写的（"Initialization" /
+	// "indexRange"），json tag 必须照抄。
+	SegmentBase struct {
+		Initialization string `json:"Initialization"`
+		IndexRange     string `json:"indexRange"`
+	} `json:"SegmentBase"`
+}
+
+// Usable 报告这条轨道能不能拿去做 HLS：地址、init 区间、索引区间都得在。
+func (t DashTrack) Usable() bool {
+	return t.BaseURL != "" && t.SegmentBase.Initialization != "" && t.SegmentBase.IndexRange != ""
+}
+
+// GetDashAVByCid 取 DASH 的视频 + 音频轨道，供视频窗按分片播放。
+//
+// 视频只挑 **AVC（avc1.）**：HEVC / AV1 在三个平台的原生播放器上能不能播
+// 没有实测过，而视频窗要跨 Windows（Media Foundation）/ macOS（AVPlayer）/
+// Linux（GStreamer）三条完全不同的解码栈。360P（id=16）优先 —— 它正是现在
+// platform=html5 合流给出的清晰度，换轨不该顺手改变画质。
+//
+// 音频沿用既有规则（只认 mp4a.40.2 的 AAC-LC，取码率最高）：与
+// pickDashAudioURL 同一个判据，这里只是同时把整条轨道交出去。
+//
+// ok 为 false 时调用方应当退回旧的合流地址，不要报错 —— 缺 DASH（老稿件 /
+// 接口降级）本来就是正常情况。
+func (bl *BL) GetDashAVByCid(aid int, cid int) (video, audio DashTrack, duration float64, ok bool) {
+	if cid == 0 {
+		return
+	}
+	url := fmt.Sprintf("https://api.bilibili.com/x/player/playurl?avid=%d&cid=%d&qn=0&fnval=16&fourk=1&type=json", aid, cid)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("Host", "api.bilibili.com")
+
+	resp, err := fetchImageClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Dash struct {
+				Duration float64     `json:"duration"`
+				Video    []DashTrack `json:"video"`
+				Audio    []DashTrack `json:"audio"`
+			} `json:"dash"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return
+	}
+	if result.Code != 0 {
+		return
+	}
+	video = pickDashVideoTrack(result.Data.Dash.Video)
+	audio = pickDashAudioTrack(result.Data.Dash.Audio)
+	if !video.Usable() || !audio.Usable() {
+		return DashTrack{}, DashTrack{}, 0, false
+	}
+	return video, audio, result.Data.Dash.Duration, true
+}
+
+// pickDashVideoTrack 从候选里挑一条 AVC 视频轨：360P（id=16）优先，否则取
+// 分辨率最小的 AVC（少下一点是一点），再否则取 id 最小的。
+//
+// 纯函数，便于脱网钉住「不选 HEVC / AV1」这条判据。
+func pickDashVideoTrack(list []DashTrack) DashTrack {
+	var best DashTrack
+	found := false
+	for _, v := range list {
+		if !strings.HasPrefix(v.Codecs, "avc1.") || !v.Usable() {
+			continue
+		}
+		if !found {
+			best, found = v, true
+			continue
+		}
+		if betterVideo(v, best) {
+			best = v
+		}
+	}
+	return best
+}
+
+// betterVideo 报告 a 是否比 b 更该被选。
+func betterVideo(a, b DashTrack) bool {
+	// 360P 优先：与 platform=html5 合流给出的清晰度一致。
+	if (a.ID == 16) != (b.ID == 16) {
+		return a.ID == 16
+	}
+	pa, pb := a.Width*a.Height, b.Width*b.Height
+	if pa != pb {
+		return pa < pb
+	}
+	return a.ID < b.ID
+}
+
+// pickDashAudioTrack 挑 AAC-LC 音轨（码率最高），判据与 pickDashAudioURL 一致。
+func pickDashAudioTrack(list []DashTrack) DashTrack {
+	var best DashTrack
+	found := false
+	for _, a := range list {
+		if !strings.HasPrefix(a.Codecs, "mp4a.40.2") || !a.Usable() {
+			continue
+		}
+		if !found || a.Bandwidth > best.Bandwidth {
+			best, found = a, true
+		}
+	}
+	return best
+}
+
+// ----------- end - getDashAVByCid -----------

@@ -30,6 +30,15 @@ import (
 type Options struct {
 	// Src 是播放地址，应当是本地代理 URL（webview 带不了 Referer）。
 	Src string
+	// SrcFallback 是 Src 起播失败时**自动**再试一次的那条地址（当前是
+	// platform=html5 的 360P 合流）。它只用于原生路径：视频窗优先播 DASH
+	// 分片（见 internal/dashhls），而分片地址/索引在极少数稿件上可能不被
+	// 系统播放器接受 —— 那种情况下退回合流比弹一个「改用 WebView」的询问
+	// 好得多（用户没做错任何事，画质也一样）。
+	//
+	// 空串表示没有可退的地址。**不**在 ErrUnsupported 时重试：那是平台
+	// 缺解码器，换地址救不了，仍然走既有的「问用户要不要用 WebView」。
+	SrcFallback string
 	// Title 显示在弹窗标题栏。
 	Title string
 	// Poster 是封面（可选）。
@@ -447,7 +456,18 @@ func (m *Manager) makeNativeWindow(o Options, pl playerAPI) *nativeWindow {
 }
 
 // openWeb 用 webview 打开 o（默认 openWebView，测试可换桩）。
+//
+// 走 webview 之前一定把源换成 SrcFallback（合流 MP4）：
+//   - 本地 HLS 是给原生播放器用的（分片 + 音轨分离），页面里的 <video>
+//     要一条完整的渐进式 MP4，喂它 HLS 播放列表播不出来；
+//   - SrcFallback 正是同一条合流地址，也是 webview 一直以来的源。
+//
+// 没有 SrcFallback（本来就是合流）时不动 o.Src。
 func (m *Manager) openWeb(o Options) error {
+	if o.SrcFallback != "" {
+		o.Src = o.SrcFallback
+		o.SrcFallback = ""
+	}
 	if fn := m.openWebViewFn; fn != nil {
 		return fn(o)
 	}
@@ -750,14 +770,7 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	//
 	// 不设置 suppressClose：关窗走「退出视频播放」的既有收尾（主窗
 	// VideoOpen 复位、位置接回），用户就停在那里看到这条询问。
-	n.onFailed = func(err error) {
-		p := nativeFallbackPrompt(err)
-		go func() {
-			m.holdFallback(o)
-			m.CloseNative()
-			m.reportFallback(p)
-		}()
-	}
+	m.wireNativeFail(n, o)
 
 	m.mu.Lock()
 	m.native, m.win, m.minimize = n, nil, n.minimize
@@ -781,22 +794,90 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	return nil, true
 }
 
+// wireNativeFail 给一个原生窗挂上「起播失败」的处理：先自动降级一次，再问人。
+//
+// 为什么单独成一个函数：换集（switchNative）会把播放器换成新的，而
+// nativeWindow.report 在回调触发后会把 onFailed 置 nil（防重复）。所以每次
+// 换播放器都必须**重新挂一遍**，否则新播放器失败时没有任何人接手 —— 表现
+// 就是「退回合流之后又失败了，界面卡在那里什么也不说」。
+func (m *Manager) wireNativeFail(n *nativeWindow, o Options) {
+	n.onFailed = func(err error) {
+		// 第一层自动降级：Src 是 DASH 分片（见 internal/dashhls），个别稿件
+		// 的索引/分片可能不被系统播放器接受；这时退回合流 MP4 重开一次，
+		// 用户什么都看不见 —— 比弹「要不要改用 WebView」合适得多（画质相同，
+		// 用户也没做错任何事）。只退一次，退完再失败才问人。
+		//
+		// 判据用 n.fallbackTried 而不是 onFailed=nil：重试要重新挂一个
+		// onFailed（新的播放器），靠「回调只挂一次」记不住这件事。
+		if o.SrcFallback != "" && !n.fallbackTried {
+			n.fallbackTried = true
+			next := o
+			next.Src, next.SrcFallback = o.SrcFallback, ""
+			go m.retryNative(o, next)
+			return
+		}
+		p := nativeFallbackPrompt(err)
+		go func() {
+			m.holdFallback(o)
+			m.CloseNative()
+			m.reportFallback(p)
+		}()
+	}
+}
+
+// retryNative 用 next 就地重开一次（Src 起播失败的自动降级）。
+//
+// 为什么不用 Manager.Open：那会重新走一遍「复用 / 新建 / 原生 / webview」
+// 的全套判定，还会被 opening 闸门与 CancelFallback 影响；这里只做一件事
+// —— 把同一集的播放器换到备用地址上，窗口、弹幕、共享设置、进度全部保留。
+//
+// stale 的两道闸：调用方传进来的 orig 是**失败那一刻**的请求快照；如果这期间
+// 用户已经换了集（Manager.native 不再是原来那个窗）或关了窗，就什么都不做，
+// 免得把新一集顶掉。
+func (m *Manager) retryNative(orig, next Options) {
+	m.mu.Lock()
+	n := m.native
+	if n == nil {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+	// 窗口已经不在（用户关掉了）：备用地址也不必再试。win 为 nil 是测试里的
+	// 桩窗（没有真窗口），那条路径要照常走，否则测不到重试。
+	if n.win != nil && n.win.IsDestroyed() {
+		return
+	}
+	if err := m.switchNative(n, next); err != nil {
+		// 换不了（窗口在换的途中被关掉）：仍然按「这一集播不了」问用户。
+		p := nativeFallbackPrompt(err)
+		go func() {
+			m.holdFallback(orig)
+			m.CloseNative()
+			m.reportFallback(p)
+		}()
+	}
+}
+
 // switchNative 在已开着的原生窗里原地换集。
 func (m *Manager) switchNative(n *nativeWindow, o Options) error {
-	if n.win == nil || n.win.IsDestroyed() {
+	if n.win != nil && n.win.IsDestroyed() {
 		return fmt.Errorf("video: 原生视频窗已消失")
 	}
 	pl, err := m.openNativePlayer(o.Src)
 	if err != nil {
 		return err
 	}
-	n.win.Update(func() {
+	// 用 n.apply（不是 n.win.Update）：桩窗没有真窗口，直接执行同一段逻辑，
+	// 换集的真实路径才测得到（生产有窗口时行为不变）。
+	n.apply(func() {
 		old := n.pl
 		n.pl = pl
 		n.title, n.startAt = o.Title, o.StartAt
 		n.segments = o.SponsorSegments
 		n.endedFired = false
 		n.reported = time.Time{}
+		// 新一集有它自己的自动降级机会（上一集用掉的那次不能顺延过来）。
+		n.fallbackTried = false
 		// 换集先清掉上一集的弹幕；这一集的条目由主窗随后 SetDanmaku 补上。
 		n.dmCid = o.DanmakuCid
 		n.dm.SetItems(o.Danmaku)
@@ -810,9 +891,15 @@ func (m *Manager) switchNative(n *nativeWindow, o Options) error {
 		if old != nil {
 			old.Close()
 		}
+		// 换了播放器就要重新挂失败处理（见 wireNativeFail 的说明）。
+		m.wireNativeFail(n, o)
 	})
-	n.win.SetTitle(o.Title)
-	n.focus()
+	// 没有窗口（无头测试里的桩窗）时跳过窗口操作：mygo 的 SetTitle 会走
+	// onMain 的 chan，nil 窗口上调用就是永久阻塞（AGENT.md 记过同一个坑）。
+	if n.win != nil {
+		n.win.SetTitle(o.Title)
+		n.focus()
+	}
 	m.mu.Lock()
 	m.st = State{Speed: o.Speed}
 	m.ended = false

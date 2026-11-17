@@ -121,7 +121,10 @@ func TestVideoPinnedSourceWiring(t *testing.T) {
 	}
 	flat := strings.Join(strings.Fields(string(src)), "")
 	for _, want := range []string{
-		"VideoPinned:c.app.VideoPinned,",
+		// 置顶值在界面线程上取快照（后台 goroutine 直接读 c.app.VideoPinned
+		// 是数据竞争），再交给视频窗。
+		"pinned:=c.app.VideoPinned",
+		"VideoPinned:pinned,",
 		"c.vid.OnPinToggle(func(onbool){",
 		"c.setVideoPinned(on)",
 		`_=c.kv.SetString(prefVideoPinned,strconv.FormatBool(on))`,

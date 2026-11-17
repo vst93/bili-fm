@@ -2289,8 +2289,11 @@ func TestBackdropUpdatesGateOnHidden(t *testing.T) {
 	// 关视频窗 / 开视频窗的收尾也走同一道门：它们同样从后台 goroutine 写
 	// 界面状态（app.Playing 与引擎对齐），直写就是数据竞争。
 	for _, want := range []string{
-		"runOnUI(c.app,!c.app.Hidden(),func(){c.app.NotifyType(\"error\",\"取播放地址失败\")",
-		"runOnUI(c.app,!c.app.Hidden(),c.videoOpened)",
+		"runOnUI(c.app,!c.app.Hidden(),func(){ifstale(){return}c.finishVideoOpen()c.app.NotifyType(\"error\",\"取播放地址失败\")",
+		// 开窗收尾仍然走同一道门；里面先复查打开代号（切集后旧的那次不许
+		// 把窗口开成上一集）。
+		"runOnUI(c.app,!c.app.Hidden(),func(){ifstale(){",
+		"c.videoOpened()",
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("视频窗收尾没走 runOnUI：%s", want)
