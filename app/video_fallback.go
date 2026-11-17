@@ -24,8 +24,8 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/vst93/bili-fm/app/internal/view"
 	"github.com/vst93/bili-fm/app/internal/video"
+	"github.com/vst93/bili-fm/app/internal/view"
 )
 
 // videoOpenErrorPrompt 把 video.Manager.Open 的错误分成两类：
@@ -83,6 +83,8 @@ func (c *controller) cancelVideoFallback() {
 		c.vid.CancelFallback()
 	}
 	c.app.VideoOpen = false
+	c.app.VideoBusy = view.PlayerIdle
+	c.app.Waiting = false
 	c.app.Playing = c.audioPlaying()
 	c.app.Win.Update(func() {})
 }
@@ -103,6 +105,8 @@ func (c *controller) switchVideoToWebView() {
 	wasPlaying := c.audioPlaying()
 	c.audio().Pause()
 	c.app.Playing = c.audioPlaying()
+	c.app.Waiting = false
+	c.app.VideoBusy = view.PlayerIdle
 	c.app.Win.Update(func() {})
 	t := c.app.Current()
 	go func() {

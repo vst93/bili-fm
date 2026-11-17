@@ -746,26 +746,6 @@ func TestVideoTimeText(t *testing.T) {
 	}
 }
 
-// TestVideoBufferingPulse 钉住缓冲呼吸：不缓冲时恒 0（不画），缓冲时在
-// 0.25~0.60 之间随时间变化。
-func TestVideoBufferingPulse(t *testing.T) {
-	now := time.Unix(1700000000, 0)
-	if got := videoBufferingPulse(now, false); got != 0 {
-		t.Errorf("不缓冲时脉冲应为 0，得到 %v", got)
-	}
-	lo, hi := float32(1), float32(0)
-	for i := 0; i < 20; i++ {
-		v := videoBufferingPulse(now.Add(time.Duration(i)*80*time.Millisecond), true)
-		if v < 0.24 || v > 0.61 {
-			t.Fatalf("脉冲 %v 越界（应在 0.25~0.60）", v)
-		}
-		lo, hi = minF(lo, v), maxFloat32(hi, v)
-	}
-	if hi-lo < 0.2 {
-		t.Errorf("脉冲几乎不动（%v~%v），看不出在缓冲", lo, hi)
-	}
-}
-
 // ---------------------------------------------------------------- 工具
 
 // composite 把半透明色叠在不透明底上。

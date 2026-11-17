@@ -2220,3 +2220,146 @@ keep-above）」更糟。它也要留在任务栏里（overlay 的判据之一�
   这条的保证）；Windows 上顺带确认输入法没把进程钉住。
 - 播放列表删一条 / 拖一条换位置：其余行滑上来而不是跳；系统开了「减少动态效果」
   时应是瞬移。
+
+## issue #42：起播 / 缓冲的真实反馈（2026-11-17）
+
+用户要的是「播放键上能看出到底在等什么」；反馈之外，本轮只改了**音轨起点选择**
+（见下），`internal/media` 的 Range / fMP4 sidx / WSOLA / EQ / 重采样 /
+200ms ready 队列与所有调参都**没动**。
+
+### 状态怎么分
+
+- `App.Buffering` 仍是**起播初始化**（取地址、建流水线）的唯一闸门。`c.seek`
+  只在 `Buffering && !VideoOpen` 时排队：初始化期间记 PendingSeek，初始化完成
+  补一次；视频窗占着输出时 seek 归视频。**不能**拿它表示播放中的欠载，否则
+  正常缓冲期间用户一拖进度条就会被永久排住。
+- 新增 `App.Waiting`：播放中的等待。`media.pipeline` 增加只读原子 `waiting`：
+  创建流水线、`seek` 清空就绪队列、`Read` 等满 `readWait` 仍没有数据时为真；
+  `take` 取到**任意** PCM 字节（全零的安静段也算）即为假。`media.Player.Buffering()`
+  = oto `IsPlaying()` && 当前流水线 waiting，暂停/播完/出错恒 false。它只拿
+  `p.mu` 读指针 + 原子位，不碰 `procMu`/`outMu`，界面线程不会被网络读卡住。
+  流水线另有原子 `terminal`（EOF / error / close 置真，seek 复位）：
+  `waitingForData` 是**只读谓词**，先看 `stopped()` 与 `terminal`，但**不回写**
+  waiting —— 并发 seek 可能刚在 `p.mu` 里复位 terminal 并置上 waiting，界面
+  观察不能把这个新信号清掉。seek 的复位与 `take` 的清位都在 `p.mu` 临界区内，
+  顺序不会反转。
+- `main.wirePlayer` 的 500ms 心跳把 `Player.Buffering()` 写进 `App.Waiting`；
+  起播收尾、暂停、恢复、seek 完成、切歌、出错、播完都显式复位。起播收尾的
+  闭包里补了**第二次 stale 复核**（`finishPlaybackInit`）：旧请求的成功/失败
+  不能把新请求刚置上的 Buffering/Waiting 清掉。
+
+### 音轨选择（issue #42 后续证据）
+
+- 复现样本：BV1BFsA6TERt（v3.1.19，aid 117624373577490 / cid 43646192976，
+  duration 5252s）。合流 html5 MP4 179,509,885B，moov 在 offset 32、
+  6,546,892B；旧路径先由 `newFMP4Stream` 读完整 moov，再退回 go-m4a 重读一次，
+  首块 PCM 前读约 26MB。DASH 最高 AAC-LC audio 30280 是 54,383,143B
+  （ftyp 32 / moov 805 / sidx 12616 / 首个 moof 964 + mdat 57087，首分片
+  止于 71504）。
+- `startCurrent` 现在先 `GetDashAudioByCid`（沿用既有 AAC-LC 挑轨与 sidx
+  流水线）；没有可用 URL 或首次 Play 失败才回退一次 `GetUrlByCid`。同一个
+  URL 不重播，stale / `ErrSuperseded` 在每次查找和 Play 前后立即退出。两条
+  都空只报本地空地址哨兵（沿用旧的「暂时无法播放」warning），有实际 Play
+  错误则报最后一条。合流报 HE-AAC 时不再重复查 DASH（DASH 已经先试过），
+  直接走既有 `audioErrorMessage`。视频窗源选择仍是合流 `GetUrlByCid`。
+- 实测探针（临时、已删）：DASH 首块 PCM 0.26s / 3 次 Range（第 3 次为预取）/ 131KB；合流
+  首块 PCM 9.72s / 203 次 Range / 26.3MB。数字受网络影响，只证明量级与重复
+  读，不当作固定延迟。
+
+### 视觉
+
+- `App.playerBusy` 先看 `VideoOpen`（输出归属），再看音频 `Buffering` /
+  `Waiting`：视频占着声音时，后台残留的音频初始化不能把播放键卡在「加载中」。
+- 播放键忙态是共享 `view.PlayerBusy`：主窗/迷你窗/原生视频窗都只换**这一颗
+  42px（mini 28px）键里的图标与 tooltip**，不铺遮罩、不加行、不伪造百分比。
+  图标复用原版 `ringSpinner`（细环 + 顶弧，42px 键 18/2、mini 16/2）；文案
+  「加载中…」/「缓冲中 · 点击暂停」，同时置 accessibility busy。普通播放/暂停
+  文案与图标在忙态结束后立即恢复。
+- 视频窗直接读播放器：`Playing` 且 `Buffering()` → 缓冲中；`Playing` 且还没
+  `Ready()` → 加载中；暂停/片尾不忙。`view.VideoPlayer` 没有 Err：原生错误
+  由 `internal/video` 的 `onFailed` 走失败/回退路径，忙态不负责检测错误。
+  缓冲/未就绪时控件条不自动隐藏。
+  旧的全轨道呼吸描边 `videoBufferingPulse` 删除（不再有「圆环 + 呼吸」双提示）。
+- 视频窗 `View` 先问 `Context.WindowHidden`；隐藏时**仍构建 Content**（生产
+  路径是 `ui.Video`，框架要靠它每帧 `advance` 去轮询 State、更新
+  Ready/Buffering，并保留框架自己的媒体推进 / hold（遮挡暂停）处理）。这只
+  保证框架的处理照常发生，**不**承诺隐藏后 muted 视频会继续播（框架会故意
+  hold 被遮挡的 muted 视频）。隐藏分支只跳过控件条 / 忙态圆环 / 弹幕 / 点击层。
+  忙态圆环的 Loop 不会驱动隐藏窗口重画；视频引擎自己的帧请求保留。
+  ReduceMotion 沿用既有 spinner 策略（Loop 是「还在忙」的指示，照常转）。
+
+### 接线
+
+- `video.State` 新增 `Buffering bool`：原生路径来自 `ui.VideoPlayer.Buffering()`；
+  webview 回退路径只回传 `readyState`，保持 false，`Ready` 语义不变（原生
+  0/1、webview 0..4 不能混用）。主窗在视频占用声音期间用 `OnState` 回传的
+  `Playing` / `Buffering` / `Ready` 落到 `App.Playing` / `App.VideoBusy`；关窗、
+  静默切歌、开窗失败、取消回退都清掉。音频引擎的 500ms 心跳在 `VideoOpen`
+  时本来就早退，不会覆盖视频状态。
+- 起播初始化期间播放键直接忽略（`togglePlay` 的 `App.Buffering` 守卫）：新
+  流水线还没装上时 `Resume()` 只会去恢复旧/空 oto player。起播收尾在**界面
+  线程**读当前的 Speed / EQ / Volume 再下发（`applyCurrentPlaybackSettings`），
+  不再用起播开始时抓的快照覆盖加载中做的改动；音量复用 `c.applyVolume`，
+  静音时统一折成 0。启动时 `loadPrefs` 只把音量下发到引擎，所以在
+  `startCurrent` 派生后台工作**之前**也先用同一个函数把保存的 Speed/EQ/Volume
+  补进 Player，第一声起播就是保存的设置（UI 字段只在界面线程读）。
+- 原生 `report` 的位置 / 时长仍按 1s 心跳节流；暂停 / Buffering / Ready 一变
+  就立刻回传（比较上一次快照），主窗播放键不用再等 1s。错误不走 `onState`：
+  先交给 `onFailed` 的失败/回退路径。
+
+### 测试与证据
+
+- `internal/media/pipeline_test.go`：欠载→signal、取到数据→clear、全零 PCM 是
+  数据、EOF/error/close/stopped 不忙且观察 terminal 不清 waiting（复位后
+  waiting 重新可见）、seek 清队列后 waiting、零长度 Read、拿住
+  `procMu`/`outMu` 读等待位不阻塞、`bufferingNow` 的暂停/无流水线闸门。
+- `busy_test.go`（app）：初始化期间点播放不 Resume 旧引擎、初始化 vs 运行中
+  等待的 seek 行为、视频占输出时的 seek 判据、stale 收尾保护、视频→主窗忙态
+  回传、关窗复位、起播收尾用当前 Speed/EQ/Volume、静音时记住的非零音量仍下发 0。
+- `audio_start_test.go`（app）：DASH 成功不取合流、DASH 缺失/失败回退一次、
+  两条都失败保留最后错误、stale / `ErrSuperseded` 不查找/不播放回退、同一
+  URL 不重播、两条都空用本地哨兵；`main_test.go` 的接线反证改为 DASH 优先
+  + 合流回退。
+- `internal/video`：原生 `State.Buffering` 回传；webview `Report` 保持
+  `Buffering=false`、`Ready` 原值；状态位变化即时回传、未变化仍按 1s 节流。
+- `internal/view/issue42_busy_test.go`：主窗/迷你窗加载与缓冲文案、accessibility
+  busy、播放键几何不变、缓冲中仍可暂停、设置键不变、视频输出优先于音频初始化；
+  视频窗加载/缓冲/暂停/片尾判据、忙态保持控件条、隐藏时 Content 仍构建但
+  不画忙态控件、ReduceMotion 沿用 spinner 策略。
+- `internal/view/view_test.go`：唱片在 Waiting / VideoBusy 时停转。
+- 人工对照图（env 开关，默认跳过）：
+  `BILI_ISSUE42_SHOTS=/tmp/bili-fm-issue42-shots go test ./internal/view -run TestIssue42BusyShots`
+  导出 800×600 主窗、400×155 迷你窗、320×200 原生视频窗的
+  normal/loading/buffering × light/dark 对照图（18 张，父级核对了主窗浅色
+  loading、mini 深色 loading、视频窗深色 buffering）。
+
+### 独立复验（父级）
+
+- 最新音轨选择补丁后 `go vet ./...` 通过；`go test . ./internal/bilibili
+  ./internal/media ./internal/video -count=1` 通过。
+- 完整 `./check.sh`（/tmp/bili-fm-issue42-check.log）：vet 通过、view 之外
+  全部包通过；view 单进程到 30m 超时（`TestUpFollowButtonDisabledWhilePending`，
+  无断言失败）；六平台 linux/windows/darwin × amd64/arm64 用 `CGO_ENABLED=0
+  -tags=nethttpomithttp2` 全部编译通过。脚本整体 exit 1 只来自 view 超时。
+- view 套件共 945 项顶层测试（超时前已跑 820 项，包内无 `t.Parallel`）；
+  剩余 125 项（含被中断的那条）按 60/60/5 分 3 批独立重跑全过
+  （/tmp/bili-fm-issue42-view-batch-{1,2,3}.jsonl，含子测试的通过计数
+  66/78/5）：**view 单进程 30m 超时，剩余 125 项分 3 批全过，已补齐覆盖**，
+  不算作常规门禁全绿。
+- `go test -race ./internal/media -count=1 -timeout=5m` 通过（249.653s，同一份
+  media 代码；Range/fMP4/WSOLA/EQ 源码模块未改，waiting 只在 player.go，
+  音轨顺序改动在 app/audio_start.go）。
+- 未启动真实 GUI / 音频设备。
+
+### 已知限制
+
+- 本轮解决的是**已知大 moov 的起播浪费**：优先 DASH 音轨，合流只在 DASH
+  不可用/失败时回退。绝对网络耗时仍取决于 CDN；探针是同一台机器上的一次
+  实测，含 HTTP 取流、解复用与解码，**不是 UI 完整起播延迟**，只证明大 moov
+  的重复读与量级，不声称对所有视频固定提速。流式 Range 预取、块大小、
+  WSOLA/EQ/seek 与调参均未改。
+- webview 回退路径页面只回传 `readyState`，运行中 `readyState 1/2` 不会让
+  主窗播放栏转圈（初始 `0` 与原生 `Ready=0` 一样显示加载中）。原生视频窗
+  自身是完整覆盖的。
+- 视频窗 `OnState` 的位置 / 时长仍约每秒一次；忙态状态位已改为变化即报。
+  原生视频窗自己的控件条每帧直读播放器。

@@ -118,6 +118,44 @@
   `InsetShadow` + 描边），hover 时图标墨色在 140ms 里过渡、另一层不动 →
   看起来在闪。现在控件条按键只画**一层**图标（`PlayerBarBind.OnPanel` 时跳过
   `playerIconShadowFn`），材质层序在 hover 前后不变。
+- **「加载中 / 缓冲中」只有播放键上一套指示器**（issue #42）：`App.Buffering`
+  仍是**起播初始化**的唯一闸门（`c.seek` 的音频排队只认它，且视频窗占着输出
+  时不排队）；播放中的欠载另走 `App.Waiting`，由 `media.Player.Buffering()`
+  （oto 在播 + 流水线原子 waiting 位）经 reportLoop 500ms 心跳写回。流水线的
+  waiting 在创建、seek 清队列、`Read` 等满 `readWait` 时为真，取到**任意**
+  PCM 字节（含全零静音）即为假；EOF/error/close 置原子 `terminal`，seek 在
+  `p.mu` 里复位 terminal 并置 waiting。界面读的 `waitingForData` 是**只读
+  谓词**：terminal/stopped 时返回 false 但**不回写** waiting（否则并发 seek
+  的新信号会被读掉），清位都在 `p.mu` 临界区内完成。
+  暂停时 `Player.Buffering()` 恒 false。
+  播放键的忙态是共享 `PlayerBusy`（`PlayerLoading` / `PlayerBuffering`），
+  图标复用 `ringSpinner`（42px 键 18/2、mini 28px 键 16/2），文案分别是
+  「加载中…」「缓冲中 · 点击暂停」；主窗/迷你窗/视频窗同一套，不占额外布局。
+  视频窗直接读播放器（`VideoChrome.playerBusy`：Playing 且 Buffering / 未
+  Ready 才算忙，暂停/片尾不转；`view.VideoPlayer` 没有 Err，原生错误走
+  `onFailed` 的失败/回退路径），主窗播放栏用 `video.State.Buffering`
+  经 `App.VideoBusy` 回传。视频窗进度条上旧的呼吸描边 `videoBufferingPulse`
+  已删。窗口 `WindowHidden` 时 `View` **不能**整棵早退：`Content` 就是生产
+  路径的 `ui.Video`，框架要靠它每帧 `advance` 去轮询 State、更新
+  Ready/Buffering，并保留框架自己的媒体推进 / hold（遮挡暂停）处理；隐藏分支
+  只跳过控件条 / 忙态圆环 / 弹幕 / 点击层，`Content` 照建。这里只保证框架
+  的处理照常发生，**不**承诺隐藏后 muted 视频继续播（框架会故意 hold 被遮挡的
+  muted 视频）。`App.playerBusy` 先看 `VideoOpen`
+  再看音频 `Buffering`（视频占着输出时，后台残留的音频初始化不能把播放键卡在
+  「加载中」）；`c.seek` 只在 `Buffering && !VideoOpen` 时排队。起播初始化期间
+  播放键直接忽略（不许 Resume 旧/空引擎），起播收尾在界面线程读**当前**
+  Speed/EQ/Volume 下发（不能用起播开始时的快照；音量复用 `c.applyVolume`
+  以尊重静音）。
+- **音频起播先取 DASH AAC-LC**（issue #42 后续，2026-11-17）：`startCurrent`
+  不再先取 360P 合流、等 HE-AAC 才换轨。`startAudioSource`（app/audio_start.go）
+  先 `GetDashAudioByCid`，没有可用 URL 或首次 Play 失败才回退**一次**
+  `GetUrlByCid`；同一 URL 不重播，`ErrSuperseded` / stale 在每次查找/Play
+  前后立即退出。两条都空只报本地空地址哨兵（沿用「暂时无法播放」warning），
+  有实际 Play 错误则报最后一条；合流报 HE-AAC 时不再重复查 DASH。实测
+  BV1BFsA6TERt（aid 117624373577490 / cid 43646192976）：合流 MP4
+  179,509,885B、moov 6,546,892B，首块 PCM 9.72s / 203 次 Range / 26.3MB；
+  DASH 30280 54,383,143B，首块 PCM 0.26s / 3 次 Range（第 3 次为预取）/ 131KB。Range 预取、
+  块大小、sidx、WSOLA/EQ/重采样/200ms 队列与分段均未改；视频源仍是合流。
 - **视频窗的其余视觉取值在 `view.videotokens.go`**：网格（`videoStep`/
   `videoStep2`）、两栏共用的 `videoInset`/`videoPadX`、顶栏 5 颗键的
   `videoKeySize`(30)/`videoKeyRadius`(6)/`videoIconSize`(16)、字号 13/600、12、

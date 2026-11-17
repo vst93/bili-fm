@@ -738,3 +738,18 @@ func TestOpenFallsBackWhenSwitchFails(t *testing.T) {
 		t.Fatal("复用分支必须排在新建窗口之前（换源失败才回落新建）")
 	}
 }
+
+// TestWebviewReportKeepsBufferingFalse 钉住回退路径的兼容语义：页面只回传
+// HTMLMediaElement.readyState（0..4），没有原生路径的 Buffering 字段。新增
+// 的 State.Buffering 必须保持 false，不能把 readyState 误当原生 0/1 解释。
+func TestWebviewReportKeepsBufferingFalse(t *testing.T) {
+	m := New()
+	NewService(m).Report(12, 300, false, false, 1, 3, "")
+	st := m.State()
+	if st.Buffering {
+		t.Fatal("webview 回传不该产生原生 Buffering=true")
+	}
+	if st.Ready != 3 {
+		t.Fatalf("readyState 被改动：Ready=%d，想 3", st.Ready)
+	}
+}

@@ -57,7 +57,7 @@ type PlayerTimelineBind struct {
 	Handle *ui.Handle
 	// Bubble 是悬停时间气泡（主窗与视频窗都挂同一份）。
 	Bubble *seekBubbleState
-	// Overlay 在轨道画完之后叠一层（视频窗的缓冲呼吸描边）。
+	// Overlay 在轨道画完之后叠一层（可选钩子，默认不叠）。
 	Overlay func(p *ui.Painter, r ui.Rect, rp rangePaint)
 }
 
@@ -238,6 +238,51 @@ func playerTransportRadius(key string) float32 {
 	return playerBarKeyMetrics.KeyR
 }
 
+// PlayerBusy 是播放键上的「忙」提示（issue #42）。它只影响播放键自己的
+// 图标 / 文案 / accessibility busy 态，不占额外布局、不加遮罩或横幅。
+//
+// 主窗、迷你窗与原生视频窗共用这一套：主窗/迷你窗的值来自 App.playerBusy，
+// 视频窗来自 VideoChrome.playerBusy（直接读播放器）。「加载中」是起播/首帧
+// 还没到，「缓冲中」是播放已经建立、声卡/画面在等数据。
+type PlayerBusy uint8
+
+const (
+	PlayerIdle PlayerBusy = iota
+	PlayerLoading
+	PlayerBuffering
+)
+
+// playerBusyTip 是忙态下播放键的 tooltip / accessibility 名称。加载中点击
+// 不会「播放」（起播已经在路上），缓冲中点击仍然可以暂停，所以两条文案不同。
+func playerBusyTip(b PlayerBusy) string {
+	switch b {
+	case PlayerLoading:
+		return "加载中…"
+	case PlayerBuffering:
+		return "缓冲中 · 点击暂停"
+	default:
+		return ""
+	}
+}
+
+// playerTip 是播放键这一帧的 tooltip / accessibility 名称：忙态优先，闲时
+// 回到普通播放/暂停。主窗、迷你窗、视频窗都从这里取，避免各自再拼一遍。
+func playerTip(playing bool, busy PlayerBusy) string {
+	if busy != PlayerIdle {
+		return playerBusyTip(busy)
+	}
+	return playTip(playing)
+}
+
+// 忙态圆环沿用 ringSpinner（原版 dialog-spin 的细环 + 顶弧，0.7s linear
+// infinite），只换尺寸：播放键 42px 里用 18/2，迷你窗 28px 里用 16/2。
+// 图标位本来就是固定尺寸的居中盒子，换成圆环不会改变播放键的几何。
+const (
+	playerBusyRingSize   float32 = 18
+	playerBusyRingStroke float32 = 2
+	miniBusyRingSize     float32 = 16
+)
+
 // PlayerBarBind 是一次播放栏渲染的绑定目标快照。主窗与视频窗每帧各建一份，
 // 然后调用同一组 playerTransportItems / playerTimelineItems /
 // playerSettingsItems。字段全是值或回调，方便无头测试直接构造。
@@ -246,7 +291,12 @@ type PlayerBarBind struct {
 	Set   *PlayerSettings
 
 	// 传输（各自独立，互不镜像）
-	Playing   bool
+	Playing bool
+	// Busy 是播放键的忙态（见 PlayerBusy）。PlayerIdle 时播放键与以前完全
+	// 一样；忙时只把图标换成细圆环、把文案换成「加载中… / 缓冲中 · 点击暂停」，
+	// 点击仍然下发 OnPlay（缓冲中必须能暂停；加载中由控制器忽略，避免去
+	// Resume 旧引擎）。
+	Busy      PlayerBusy
 	OnPlay    func()
 	HasSrc    bool
 	Pos       float64
@@ -261,7 +311,7 @@ type PlayerBarBind struct {
 	TimelineHandle *ui.Handle
 	// Bubble 是悬停时间气泡的状态（每帧复用同一份，不能新建）。
 	Bubble *seekBubbleState
-	// Timeline 允许调用方换掉材质 / 颜色 / 叠缓冲描边；零值按主窗播放栏。
+	// Timeline 允许调用方换掉材质 / 颜色；零值按主窗播放栏。
 	TimelineSkinFor func(hovered bool) rangeSkin
 	TimelineColors  *rangeColors
 	TimelineOverlay func(p *ui.Painter, r ui.Rect, rp rangePaint)
@@ -349,13 +399,22 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 		width += m.TransportGap + m.Key
 	}
 	ui.Row(c).Width(width).Shrink(0).Gap(m.TransportGap).AlignItems(ui.Center).Children(func() {
+		tip := playerTip(b.Playing, b.Busy)
 		play := ui.ButtonBase(c.Key("play")).Size(m.Play, m.Play).Radius(m.PlayR).Center().
-			Label(playTip(b.Playing)).Tooltip(playTip(b.Playing))
+			Label(tip).Tooltip(tip).Busy(b.Busy != PlayerIdle)
 		disablePlayerButton(play, !b.HasSrc)
 		playerPlaySurface(t, play, b.Playing, play.Hovered(), play.Pressed())
 		playerPressPose(play)
 		playerRim(t, play, m.PlayR, false, sheenKindPlay, b.Playing, play.Hovered())
 		play.Children(func() {
+			if b.Busy != PlayerIdle {
+				// 一颗键里只放一个指示器：忙时是细圆环，闲时才是播放/暂停图标。
+				// ringSpinner 的 Loop 在「减少动态效果」下照常转（框架的既有
+				// 策略：还在转＝还在忙，见 reduce.go）。
+				ringSpinner(c, t.Blue, playerBusyRingSize, playerBusyRingStroke,
+					"player-busy", 0, 0, 0, 0)
+				return
+			}
 			ic := pick(b.Playing, iconPause, iconPlayOne)
 			ink := playerPlayInk(t, b.Playing, play.Hovered())
 			icon := ui.Icon(c, ic).Size(playIconSize, playIconSize).
@@ -374,15 +433,15 @@ func playerTransportItems(c *ui.Context, b PlayerBarBind) {
 		if !b.ShowNext {
 			return
 		}
-		tip := b.NextTip
-		if tip == "" {
-			tip = nextTip()
+		nextText := b.NextTip
+		if nextText == "" {
+			nextText = nextTip()
 		}
 		// 传输键是正圆（原版 32×32 + border-radius: 999px）：圆角与描边同取
 		// playerTransportRadius，键面与 rim 不会是两种形状。
 		r := playerTransportRadius("next")
 		next := ui.ButtonBase(c.Key("next")).Size(m.Key, m.Key).Radius(r).Center().
-			Label(tip).Tooltip(tip)
+			Label(nextText).Tooltip(nextText)
 		disablePlayerButton(next, !b.CanNext)
 		playerToolSurface(c, t, toolNext, next, false, next.Hovered(), next.Pressed())
 		playerPressPose(next)

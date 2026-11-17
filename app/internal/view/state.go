@@ -812,8 +812,18 @@ type App struct {
 
 	// SponsorSegments 是当前曲目的跳过分段（进度条上的广告段标记）。
 	SponsorSegments []Segment
-	// Buffering 表示正在起播（网络 + 解码初始化）。
+	// Buffering 表示正在起播（网络 + 解码初始化）。它是 seek 的排队闸门
+	//（c.seek 在起播期间只记 PendingSeek），**不能**拿来表示播放中的欠载：
+	// 那样会把正常缓冲期间的用户 seek 永久排住。运行中的等待看 Waiting。
 	Buffering bool
+	// Waiting 是播放中的「声卡在等数据」（欠载 / seek 清空队列后尚未拿到
+	// 第一块 PCM），由音频引擎每 500ms 心跳推进（main.wirePlayer 的
+	// OnProgress → Player.Buffering）。暂停、播完、出错都不是 Waiting。
+	Waiting bool
+	// VideoBusy 是视频窗占用声音期间的忙态（原生窗每帧直接读播放器；
+	// 主窗/迷你窗的播放栏拿不到那个播放器，只能由 OnState 回传后放在这里）。
+	// VideoOpen 为真时播放栏只看它，不看音频引擎的 Waiting。
+	VideoBusy PlayerBusy
 
 	// 分集 / 弹幕 / 评论 / 详情
 	//

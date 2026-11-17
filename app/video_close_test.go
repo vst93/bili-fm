@@ -16,14 +16,16 @@ import (
 // stubAudio 是音频引擎的桩替身：只记「暂停 / 继续 / 是否在放」。
 // 关视频窗的每条路径都要断言 app.Playing 与它一致（真引擎要声卡，无头跑不了）。
 type stubAudio struct {
-	playing bool
-	pauses  int
-	resumes int
+	playing   bool
+	buffering bool
+	pauses    int
+	resumes   int
 }
 
-func (s *stubAudio) Pause()        { s.pauses++; s.playing = false }
-func (s *stubAudio) Resume()       { s.resumes++; s.playing = true }
-func (s *stubAudio) Playing() bool { return s.playing }
+func (s *stubAudio) Pause()          { s.pauses++; s.playing = false }
+func (s *stubAudio) Resume()         { s.resumes++; s.playing = true }
+func (s *stubAudio) Playing() bool   { return s.playing }
+func (s *stubAudio) Buffering() bool { return s.buffering }
 
 // newVideoCloseController 建一个只够跑「关视频窗」的最小 controller：
 // 一条已选中的曲目、一个可写的 KV（断点会落盘）、一个引擎桩。
@@ -463,6 +465,7 @@ func (s *lateAudio) Playing() bool {
 	}
 	return s.playing
 }
+func (s *lateAudio) Buffering() bool { return false }
 
 // TestVideoCloseFollowsLateEngineStart 钉住接力的**落地**：Resume 之后引擎
 // 晚一步才真的出声时，主窗按钮不能永远停在暂停 —— 跟随窗口里下一次引擎

@@ -457,6 +457,35 @@ func TestAdvanceDiscContinuous(t *testing.T) {
 	}
 }
 
+// TestAdvanceDiscWaitsForDisplayedBusy 钉住唱片跟随**播放键显示的忙态**：
+// 音频运行中等待与视频窗忙态都不推进；忙态结束后继续。
+func TestAdvanceDiscWaitsForDisplayedBusy(t *testing.T) {
+	a := &App{Playing: true, Waiting: true}
+	base := time.Unix(0, 0)
+	a.advanceDisc(base)
+	a.Pos = 10
+	a.advanceDisc(base.Add(time.Second))
+	if a.discAngle != 0 {
+		t.Fatalf("音频缓冲中唱片推进了 %v°，应为 0", a.discAngle)
+	}
+
+	a.Waiting = false
+	a.VideoOpen = true
+	a.VideoBusy = PlayerBuffering
+	a.Pos = 11
+	a.advanceDisc(base.Add(2 * time.Second))
+	if a.discAngle != 0 {
+		t.Fatalf("视频缓冲中唱片推进了 %v°，应为 0", a.discAngle)
+	}
+
+	a.VideoBusy = PlayerIdle
+	a.Pos = 12
+	a.advanceDisc(base.Add(3 * time.Second))
+	if a.discAngle <= 0 {
+		t.Fatal("忙态结束后唱片应继续转")
+	}
+}
+
 // TestCoverToggleActive 钉住封面三个小开关的激活态判据：原版 CSS 只给
 // 「封面背景」（.cover-background-toggle）与「高级质感」（.cover-premium-toggle）
 // 定义了 is-active；模式切换键（.cover-mode-toggle）从来没有 is-active。

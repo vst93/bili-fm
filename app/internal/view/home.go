@@ -683,7 +683,8 @@ func discAdvance(dt, posDelta, speed float64) float32 {
 	return float32(deg)
 }
 
-// advanceDisc 把唱片角度按经过的时间推进；暂停 / 缓冲时不推，停在原地。
+// advanceDisc 把唱片角度按经过的时间推进；播放键显示忙态（加载中 / 缓冲中，
+// 包括视频窗占着声音时的 VideoBusy）或暂停时不推，停在原地。
 //
 // 角度不取模（一直累加）：取模会让帧间目标突然倒退一整圈——看起来就是
 // 「唱片在倒转」，而且每一圈都会发生一次。
@@ -692,7 +693,7 @@ func (a *App) advanceDisc(now time.Time) {
 		a.discLast, a.discLastPos = now, a.Pos
 		return
 	}
-	if dt := now.Sub(a.discLast); dt > 0 && a.Playing && !a.Buffering {
+	if dt := now.Sub(a.discLast); dt > 0 && a.Playing && a.playerBusy() == PlayerIdle {
 		a.discAngle += discAdvance(dt.Seconds(), a.Pos-a.discLastPos, a.Speed)
 	}
 	a.discLast, a.discLastPos = now, a.Pos

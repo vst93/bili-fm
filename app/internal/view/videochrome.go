@@ -695,6 +695,13 @@ func videoChromeLayoutFor(w float32) videoChromeLayout {
 func (v *VideoChrome) View(c *ui.Context) {
 	now := c.Now()
 	v.init(now)
+	// 先问隐藏状态（框架靠视图第一次问它来决定隐藏/重现时各给一帧构建）。
+	// 隐藏时**不能**整棵早退：Content 就是生产路径里的 ui.Video，框架要靠
+	// 它每帧 advance 去轮询 State、更新 Ready/Buffering，并保留框架自己的
+	// 媒体推进 / hold（遮挡暂停）处理。这里只保证这些处理照常发生，**不**
+	// 承诺隐藏后 muted 视频会继续播——框架会故意 hold 被遮挡的 muted 视频。
+	// 所以隐藏分支只保留 Content，跳过控件条 / 忙态圆环 / 弹幕 / 点击层。
+	hidden := c.WindowHidden()
 	t := v.Theme
 	c.SetTheme(t.uiTheme())
 
@@ -720,18 +727,22 @@ func (v *VideoChrome) View(c *ui.Context) {
 		v.applyPin()
 	}
 
-	px, py, over := root.PointerPosition()
-	frame := v.idle.observe(now, px, py, over, v.holdChrome(full))
-	alpha := frame.Alpha
-	// 上一帧的悬停结论已经用掉，这一帧的两条栏重新读。
-	v.barHover = false
-
 	// 画面。Content 为 nil 时留一块黑底（无头测试与「播放器还没起来」）。
+	// 隐藏时也照常建它：见上面的说明，引擎的推进不能停。
 	if v.Content != nil {
 		v.Content(c)
 	} else {
 		ui.Box(c).Fill().Background(ui.Hex("#000000"))
 	}
+	if hidden {
+		return
+	}
+
+	px, py, over := root.PointerPosition()
+	frame := v.idle.observe(now, px, py, over, v.holdChrome(full))
+	alpha := frame.Alpha
+	// 上一帧的悬停结论已经用掉，这一帧的两条栏重新读。
+	v.barHover = false
 
 	// 弹幕覆盖层画在画面上、控件条之下。它自己 IgnoreInput，点击照常穿到
 	// 下面那块「视频画面」上。
@@ -775,12 +786,8 @@ func (v *VideoChrome) View(c *ui.Context) {
 	if v.clicks.pending {
 		c.After(videoDoubleClick)
 	}
-	if v.Pl.Buffering() {
-		// 缓冲中的呼吸描边要逐帧重画。
-		c.AnimationFrame()
-	}
 	// 弹幕在播放时是连续运动：不请求逐帧重绘的话，只有别的动画（控件条
-	// 过渡、缓冲描边）带着画面刷新时弹幕才动一下。
+	// 过渡）带着画面刷新时弹幕才动一下。
 	if v.Danmaku && v.DanmakuOverlay != nil && v.DanmakuOverlay.HasItems() && v.Pl.Playing() {
 		c.AnimationFrame()
 	}
@@ -882,7 +889,7 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	switch {
 	case v.Pl == nil:
 		return true
-	case !v.Pl.Playing(), v.Pl.Buffering(), v.seek.drag, v.barHover,
+	case !v.Pl.Playing(), v.playerBusy() != PlayerIdle, v.seek.drag, v.barHover,
 		v.showVolume, v.showSpeed, v.showSettings, v.fs.inFlight:
 		return true
 	}
@@ -1056,6 +1063,7 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 		Theme:   t,
 		Set:     set,
 		Playing: v.Pl.Playing(),
+		Busy:    v.playerBusy(),
 		OnPlay: func() {
 			// 控件条上的播放键也算交互（暂停 → 播放时不让栏当场淡出）。
 			v.idle.touch(c.Now())
@@ -1115,13 +1123,6 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 		TimelineColors: &colors,
 		TimelineSkinFor: func(hovered bool) rangeSkin {
 			return videoRangeSkin(t, hovered)
-		},
-		// 视频窗独有的信息：缓冲呼吸（主窗没有缓冲态）。
-		TimelineOverlay: func(p *ui.Painter, r ui.Rect, rp rangePaint) {
-			if pulse := videoBufferingPulse(c.Now(), v.Pl.Buffering()); pulse > 0 {
-				track := rangeTrackRect(r, rp.Geom)
-				p.Stroke(track, t.Blue.Alpha(pulse), track.H/2, 1)
-			}
 		},
 		Bubble: &v.bubble,
 	}
@@ -1246,9 +1247,9 @@ func (v *VideoChrome) danmaku(c *ui.Context) {
 		tw, _ := c.MeasureText(0, ui.Span{Text: text, Size: size})
 		return tw
 	})
-	// 缓冲中位置不动，但 Playing() 可能仍为真：这时按暂停处理，弹幕不能
-	// 自己往前跑（否则每次缓冲回来都要被 resync 拽回去）。
-	playing := v.Pl.Playing() && !v.Pl.Buffering()
+	// 加载 / 缓冲中位置不动，但 Playing() 可能仍为真：这时按暂停处理，
+	// 弹幕不能自己往前跑（否则每次缓冲回来都要被 resync 拽回去）。
+	playing := v.Pl.Playing() && v.playerBusy() == PlayerIdle
 	// 弹幕区固定在两条栏**之间**：顶栏下沿与控件条上沿各留一个间距，上下
 	// 边距一致（顶/底固定弹幕与滚动弹幕因此共用同一条起跑线），弹幕也不会
 	// 压在控件条的视觉重量上。
@@ -1324,13 +1325,28 @@ func videoRangeSkin(t Theme, hovered bool) rangeSkin {
 	return s
 }
 
-// videoBufferingPulse 是缓冲描边的呼吸不透明度（0.25 ~ 0.60，约 1.4s 一周期）。
-func videoBufferingPulse(now time.Time, buffering bool) float32 {
-	if !buffering {
-		return 0
+// playerBusy 是视频窗播放键的忙态（与主窗/迷你窗共用 PlayerBusy 与
+// ringSpinner）。只看「正在播」的播放器：暂停、播完都不忙 —— 这样片尾不会
+// 留下一个永远转的圆环。view.VideoPlayer 没有 Err：原生错误由
+// internal/video 的 onFailed 走失败/回退路径（关原生窗或转 webview），
+// 这里不负责检测错误。
+//
+//   - Buffering：系统媒体框架明确在等数据（原生 ui/video 的 media.Buffering）。
+//   - Loading：还没出第一帧（Ready=false），但播放意图仍在（Playing=true）。
+//
+// 主窗的播放栏拿不到这个播放器，忙态由 internal/video 的 OnState 回传
+// （State.Buffering / State.Ready）落到 App.VideoBusy。
+func (v *VideoChrome) playerBusy() PlayerBusy {
+	if v.Pl == nil || v.Pl.Ended() || !v.Pl.Playing() {
+		return PlayerIdle
 	}
-	phase := float64(now.UnixNano()%int64(1400*time.Millisecond)) / float64(1400*time.Millisecond)
-	return 0.25 + 0.35*float32(0.5+0.5*math.Sin(phase*2*math.Pi))
+	if v.Pl.Buffering() {
+		return PlayerBuffering
+	}
+	if !v.Pl.Ready() {
+		return PlayerLoading
+	}
+	return PlayerIdle
 }
 
 // skipSponsor 按共享设置里的广告跳过开关与主窗同步来的分段，把播放位置

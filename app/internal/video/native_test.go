@@ -527,3 +527,63 @@ func TestNativeHeatFollowsMainWindow(t *testing.T) {
 		t.Errorf("关掉热力开关后视频窗还开着")
 	}
 }
+
+// TestNativeStateCarriesBuffering 钉住 issue #42 的原生状态回传：主窗要知道
+// 视频窗是否在等数据（State.Buffering），同时保留 Ready 0/1 的既有语义。
+func TestNativeStateCarriesBuffering(t *testing.T) {
+	pl := &stubPlayer{ready: true, playing: true, buffering: true, dur: 60 * time.Second}
+	n := &nativeWindow{pl: pl}
+	st := n.state()
+	if !st.Buffering {
+		t.Fatal("原生播放器 Buffering=true 时 State.Buffering 应为真")
+	}
+	if st.Ready != 1 || st.Paused {
+		t.Fatalf("既有字段被改动：Ready=%d Paused=%v", st.Ready, st.Paused)
+	}
+
+	pl.buffering, pl.ready = false, false
+	st = n.state()
+	if st.Buffering || st.Ready != 0 {
+		t.Fatalf("未就绪且不在缓冲：Buffering=%v Ready=%d，想 false/0", st.Buffering, st.Ready)
+	}
+}
+
+// TestNativeReportImmediateOnStateChange 钉住 issue #42 的即时回传：暂停 /
+// 缓冲 / Ready 一变就报，不跟位置心跳一起等 1s；状态没变时仍按 1s 节流。
+func TestNativeReportImmediateOnStateChange(t *testing.T) {
+	pl := &stubPlayer{ready: true, playing: true, dur: 60 * time.Second}
+	n := &nativeWindow{pl: pl}
+	var got []State
+	n.onState = func(st State) { got = append(got, st) }
+
+	n.report()
+	if len(got) != 1 {
+		t.Fatalf("首帧应回传一次，得到 %d", len(got))
+	}
+	n.report()
+	if len(got) != 1 {
+		t.Fatalf("状态未变时应按 1s 节流，得到 %d 次回传", len(got))
+	}
+
+	pl.playing = false
+	n.report()
+	if len(got) != 2 || !got[1].Paused {
+		t.Fatalf("暂停应立即回传，得到 %d 次：%+v", len(got), got)
+	}
+	n.report()
+	if len(got) != 2 {
+		t.Fatalf("暂停状态未变时不应重复回传，得到 %d", len(got))
+	}
+
+	pl.buffering = true
+	n.report()
+	if len(got) != 3 || !got[2].Buffering {
+		t.Fatalf("缓冲变化应立即回传，得到 %d 次：%+v", len(got), got)
+	}
+
+	pl.ready = false
+	n.report()
+	if len(got) != 4 || got[3].Ready != 0 {
+		t.Fatalf("Ready 变化应立即回传，得到 %d 次：%+v", len(got), got)
+	}
+}

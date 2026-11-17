@@ -115,6 +115,10 @@ type nativeWindow struct {
 	// 界面态（只在主线程 / 视图构建里读写）。
 	reported   time.Time
 	endedFired bool
+	// lastState / haveState 是上一次回传的状态快照：暂停 / 缓冲 / Ready
+	// 一变就立刻回传（播放键的忙态不能等 1s 心跳），位置仍按 1s 节流。
+	lastState State
+	haveState bool
 	// suppressClose 关窗时不回传 onClose（回退到 webview 时用：那一集马上要在
 	// 另一个窗口里继续播，不能让主窗以为「视频关了」去做音视接力）。
 	suppressClose bool
@@ -306,12 +310,13 @@ func (n *nativeWindow) ensureSettings() *view.PlayerSettings {
 func (n *nativeWindow) state() State {
 	n.ensureSettings()
 	st := State{
-		Duration: n.pl.Duration().Seconds(),
-		Time:     n.pl.Position().Seconds(),
-		Paused:   !n.pl.Playing(),
-		Muted:    n.settings.Muted,
-		Speed:    n.settings.Speed,
-		Ready:    1,
+		Duration:  n.pl.Duration().Seconds(),
+		Time:      n.pl.Position().Seconds(),
+		Paused:    !n.pl.Playing(),
+		Muted:     n.settings.Muted,
+		Speed:     n.settings.Speed,
+		Ready:     1,
+		Buffering: n.pl.Buffering(),
 	}
 	if !n.pl.Ready() {
 		st.Ready = 0
@@ -322,8 +327,14 @@ func (n *nativeWindow) state() State {
 	return st
 }
 
-// report 把状态回传主窗（约每秒一次），并处理「自然播完」。
-// 只在视图构建（主线程）里调用。
+// report 把状态回传主窗，并处理「自然播完」。只在视图构建（主线程）里调用。
+//
+// 位置 / 时长按 1s 心跳节流；暂停、缓冲、Ready 这些**状态位**一变就立刻
+// 回传 —— 否则本地点暂停已经清掉播放键圆环，主窗还要再转 1s。比较的是上一次
+// 实际回传的快照，不会额外制造帧（report 本来就在每帧末尾跑）。
+//
+// 错误不走 onState：上面的 Err 检查先交给 onFailed（回退/失败路径），所以
+// 这里不比较 Err，也不承诺「错误会立刻变成一次状态回传」。
 func (n *nativeWindow) report() {
 	if n.pl == nil {
 		return
@@ -342,12 +353,18 @@ func (n *nativeWindow) report() {
 			cb()
 		}
 	}
-	if time.Since(n.reported) < time.Second {
+	st := n.state()
+	changed := !n.haveState ||
+		st.Paused != n.lastState.Paused ||
+		st.Buffering != n.lastState.Buffering ||
+		st.Ready != n.lastState.Ready
+	if !changed && time.Since(n.reported) < time.Second {
 		return
 	}
+	n.lastState, n.haveState = st, true
 	n.reported = time.Now()
 	if cb := n.onState; cb != nil {
-		cb(n.state())
+		cb(st)
 	}
 }
 

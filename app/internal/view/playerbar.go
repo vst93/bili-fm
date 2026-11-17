@@ -2069,6 +2069,7 @@ func (a *App) appPlayerBind() PlayerBarBind {
 		Theme:     a.Theme,
 		Set:       &a.PlayerSettings,
 		Playing:   a.Playing,
+		Busy:      a.playerBusy(),
 		OnPlay:    a.Act.TogglePlay,
 		HasSrc:    a.hasSource(),
 		Pos:       a.shownPos(),
@@ -2558,6 +2559,23 @@ func sponsorStatusTitle(status string, count int, reason string) string {
 // TogglePlay：Current() 为空时走 resumePlaylist）。
 func (a *App) hasSource() bool {
 	return a.Current() != nil || playlistPlayable(len(a.Playlist), len(a.SeriesPlaylist))
+}
+
+// playerBusy 是主窗/迷你窗播放键的忙态。**输出归属优先于音频初始化**：
+// 视频窗占着声音时只看 OnState 回传的 VideoBusy，哪怕后台还有一次音频起播
+// 没收尾（旧初始化不能把视频已经就绪/暂停的播放键卡在「加载中」）。
+// 没有视频时才轮到音频：起播初始化优先于运行中的欠载。
+func (a *App) playerBusy() PlayerBusy {
+	if a.VideoOpen {
+		return a.VideoBusy
+	}
+	if a.Buffering {
+		return PlayerLoading
+	}
+	if a.Waiting && a.Playing {
+		return PlayerBuffering
+	}
+	return PlayerIdle
 }
 
 // playlistPlayable 报告「播放列表里有没有可播的东西」：我的列表与合集列表

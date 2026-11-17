@@ -79,8 +79,14 @@ type State struct {
 	Paused   bool
 	Muted    bool
 	Speed    float64
-	Ready    int
-	Err      string
+	// Ready 是「有没有第一帧画面」：原生路径只有 0 / 1，webview 回退路径
+	// 回传的是 HTMLMediaElement.readyState（0..4）。两者语义不同，新增字段
+	// 不要拿它当通用的「就绪」判据（见 Buffering）。
+	Ready int
+	// Buffering 是原生播放器报告的「正在等数据」。webview 路径没有同名字段
+	// （页面只回传 readyState），保持 false；主窗对回退路径仍按 Ready 判加载。
+	Buffering bool
+	Err       string
 }
 
 // FallbackPrompt 是「原生播放不可用，等你决定要不要改用 WebView」的询问。

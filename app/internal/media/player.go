@@ -298,6 +298,13 @@ func (p *Player) EQ() bool {
 	return p.eqOn
 }
 
+// Volume 返回当前音量 0..1。
+func (p *Player) Volume() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.vol
+}
+
 // SetVolume 设置音量 0..1。
 func (p *Player) SetVolume(v float64) {
 	p.mu.Lock()
@@ -329,6 +336,24 @@ func (p *Player) Duration() float64 {
 		return 0
 	}
 	return cur.duration()
+}
+
+// Buffering 报告声卡此刻是否在等数据（起播、seek 后、或播放中欠载）。
+// 暂停、播完、出错与已停止都不算：只问 oto player 是否还在播，并且只读
+// 流水线的原子等待位，不碰网络/解码锁。
+func (p *Player) Buffering() bool {
+	// 与 Playing 一样握着 p.mu 读 op：Stop/Play 会在锁外 Close 旧 player，
+	// 把 op.IsPlaying 放到锁外就有与 Close 并发调用的风险。p.mu 只保护指针
+	// 与标量（不是网络/解码锁），这里等的是微秒级。
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return bufferingNow(p.op != nil && p.op.IsPlaying(), p.cur)
+}
+
+// bufferingNow 把「oto 在播」与「流水线在等数据」合成一个只读结论。
+// 抽成纯函数便于单测：暂停（playing=false）永远不忙，没有流水线也不忙。
+func bufferingNow(playing bool, cur *pipeline) bool {
+	return playing && cur != nil && cur.waitingForData()
 }
 
 // Buffered 返回当前曲目已预读到本地的媒体秒数（0 表示未知或还没开始）。
@@ -472,6 +497,15 @@ type pipeline struct {
 	err     error
 	done    bool
 	under   int
+	// waiting 表示声卡此刻在等数据：起播后尚未拿到第一块 PCM、seek 清空
+	// 队列之后、或 Read 等到 readWait 仍没取到数据（欠载）。它是**只读状态**
+	// 供界面显示，不参与播放/seek 的决策，也不拿 procMu/outMu —— 那两把锁
+	// 会在网络读时被长期持有，界面线程等它们会卡住（见 PLAN 的锁模型）。
+	waiting atomic.Bool
+	// terminal 在流到末尾 / 出错 / 关闭后置真：界面读等待位时用它把残留的
+	// waiting 收掉，不需要拿 procMu/outMu 去读 eof/err。它只作为只读闸门，
+	// 观察 terminal 不会回写 waiting（见 waitingForData）。
+	terminal atomic.Bool
 
 	stop chan struct{}
 	// wake 用来把生产者从「队列已满」的等待里叫醒（seek 之后要立刻续产）。
@@ -553,6 +587,9 @@ func newPipeline(rf *remoteFile, outRate int, speed float64, eqOn bool, ensure f
 		p.eq.SetEnabled(true)
 	}
 	p.stop, p.wake = make(chan struct{}), make(chan struct{}, 1)
+	// 起播时队列是空的：在拿到第一块真正的 PCM 之前都算等待（不是按
+	// 「样本是否为零」判断——静音音频也是有效数据）。
+	p.waiting.Store(true)
 	go p.pump()
 	go p.finish()
 	return p, nil
@@ -639,6 +676,7 @@ func (p *pipeline) pump() {
 			// KindNetwork（WrapKind 会保留根因，不会被这里盖掉）。
 			// aacProfileErr 只给 HE-AAC 挂标记，其他错误不动。
 			p.err, p.rawEOF = WrapKind(KindDecode, aacProfileErr(err)), true
+			p.terminal.Store(true)
 			p.mu.Unlock()
 			p.procMu.Unlock()
 			p.nudgeEQ()
@@ -680,6 +718,7 @@ func (p *pipeline) finish() {
 			(pending == 0 && rawEOF && wsFlushed) {
 			if pending == 0 && rawEOF && wsFlushed {
 				p.eof = true
+				p.terminal.Store(true)
 			}
 			p.mu.Unlock()
 			if p.stopped() {
@@ -796,6 +835,9 @@ func (p *pipeline) close() {
 	// 先叫停生产者：它可能在网络读里，等它把 procMu 让出来再动解码器；
 	// 输出链也停下来，避免 close 之后 finish 还在推进 WSOLA。
 	p.once.Do(func() { close(p.stop) })
+	// 已关闭的流水线不再「等数据」：旧界面的转圈不能挂在这里。
+	p.terminal.Store(true)
+	p.waiting.Store(false)
 	// 取消远端在途请求要放在等 procMu 之前：pump 可能正卡在一次 HTTP
 	// 读里，先取消才能让它立即返回，而不是最多等 30 秒超时。
 	if p.rf != nil {
@@ -867,6 +909,17 @@ func (p *pipeline) position() float64 {
 		return 0
 	}
 	return float64(ws.SourcePosition()) / float64(p.info.SampleRate)
+}
+
+// waitingForData 是界面线程读的等待位：原子量 + stop channel 的非阻塞读，
+// 不拿 procMu/outMu/mu。它是**只读谓词**：关闭 / EOF / 出错之后返回 false，
+// 但不清 waiting —— 并发 seek 可能刚在 p.mu 里复位 terminal 并置上 waiting，
+// 这里回写就会把新 seek 的信号吃掉。状态清理由各写点在 p.mu 里完成。
+func (p *pipeline) waitingForData() bool {
+	if !p.waiting.Load() {
+		return false
+	}
+	return !p.stopped() && !p.terminal.Load()
 }
 
 func (p *pipeline) state() (ended bool, err error) {
@@ -1032,6 +1085,12 @@ func (p *pipeline) seek(seconds float64) error {
 	p.raw, p.rawAt = p.raw[:0], 0
 	p.wsFlushed = false
 	p.eof, p.done, p.err, p.rawEOF = false, false, nil, false
+	p.terminal.Store(false)
+	// 队列已清空：在下一块真正的 PCM 被取走之前，界面应显示等待。
+	// terminal 与 waiting 必须在同一个 p.mu 临界区里改：take 在锁内清
+	// waiting，锁外写会让「清掉后又置真」的顺序反过来，丢掉这次 seek 的
+	// 等待信号。
+	p.waiting.Store(true)
 	p.mu.Unlock()
 	p.nudge()
 	p.nudgeEQ()
@@ -1049,6 +1108,10 @@ const readWait = 120 * time.Millisecond
 
 // Read 实现 io.Reader，供 oto 拉取。**只碰就绪队列，绝不做 I/O。**
 func (p *pipeline) Read(b []byte) (int, error) {
+	// 零长度读不是「等数据」：直接返回，别白等一个 readWait 再补零。
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if n := p.take(b); n > 0 {
 		return n, nil
 	}
@@ -1060,6 +1123,10 @@ func (p *pipeline) Read(b []byte) (int, error) {
 		if eof {
 			p.mu.Lock()
 			p.done = true
+			// 播完 / 出错不是缓冲：转圈必须立刻收掉。与 done 同一个临界区，
+			// 免得并发的 seek 在中间复位 terminal / 置上 waiting 又被这里清掉。
+			p.terminal.Store(true)
+			p.waiting.Store(false)
 			p.mu.Unlock()
 			if err != nil {
 				return 0, err
@@ -1074,11 +1141,15 @@ func (p *pipeline) Read(b []byte) (int, error) {
 		}
 		select {
 		case <-p.stop:
+			p.waiting.Store(false)
 			return 0, io.EOF
 		case <-time.After(4 * time.Millisecond):
 		}
 	}
 	// 欠载：补静音。这样声卡的节奏不被打断，网络恢复后声音自然接上。
+	// 到这里才标记「在等数据」：普通缓冲边界上 finish 会在 readWait 内补上，
+	// 不会闪一下转圈。
+	p.waiting.Store(true)
 	for i := range b {
 		b[i] = 0
 	}
@@ -1094,6 +1165,10 @@ func (p *pipeline) take(b []byte) int {
 	defer p.mu.Unlock()
 	n := copy(b, p.ready[p.readyAt:])
 	p.readyAt += n
+	if n > 0 {
+		// 真正的 PCM 字节被取走（哪怕全是零样本）就不再等待。
+		p.waiting.Store(false)
+	}
 	// 队列读完就归零；长期运行则偶尔压缩一次，避免底层数组无限增长。
 	switch {
 	case p.readyAt >= len(p.ready):

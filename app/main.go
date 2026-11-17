@@ -1003,6 +1003,12 @@ func (c *controller) wirePlayer() {
 			// 刚离开视频窗：用引擎的这声心跳把主窗 Playing 对平（见
 			// applyVideoClose 末尾的跟随窗口 / PLAN 的「接力状态怎么同步」）。
 			c.syncPlayingFromEngine()
+			// 运行中的等待（起播初始化由 app.Buffering 表示，两者不混用）：
+			// 引擎的 Buffering 只看 oto 是否在播 + 流水线原子等待位，暂停时
+			// 恒 false。起播尚未收尾时不动它，由 startCurrent 的收尾统一写。
+			if !c.app.Buffering {
+				c.app.Waiting = c.audioBuffering()
+			}
 			// 拖动中：跳过全部进度副作用（原版 handleTimeUpdate 里
 			// isSeekingRef 直接 return 的语义）——只记 Pos，
 			// 不让 DBus/KV 写和 sponsor 判定挤占拖动的帧。
@@ -1022,6 +1028,8 @@ func (c *controller) wirePlayer() {
 		// 播完这一笔必须让界面知道（要续播下一集 / 切歌），所以无条件走
 		// Win.Update：它每集只发生一次，不差这一帧。
 		c.app.Win.Update(func() {
+			// 播完不是缓冲：先收掉忙态，再决定续播（续播会重新置 Buffering）。
+			c.app.Waiting = false
 			// 自然播完：补一次「已看完」（progress = -1）并清掉本地断点，与
 			// 原版 <audio> 的 onEnded 一致。不补这一笔的话每条视频都会停在最后
 			// 一点（服务端记成未看完，下次加载又从末端续播）。续播决策在
@@ -1035,6 +1043,7 @@ func (c *controller) wirePlayer() {
 		c.app.Win.Update(func() {
 			c.app.Playing = false
 			c.app.Buffering = false
+			c.app.Waiting = false
 			// 原版 <audio> 的 error 事件会弹一条 toast（player.tsx 的 onError）。
 			// 此前原生版只写日志：用户看到的就是「放着放着停了」，进度条不动、
 			// 也没有任何提示，只能自己去翻日志。
@@ -3390,8 +3399,10 @@ func (c *controller) startCurrent() {
 		c.videoSilent = true
 		c.vid.Close()
 		c.app.VideoOpen = false
+		c.app.VideoBusy = view.PlayerIdle
 	}
 	c.app.Buffering = true
+	c.app.Waiting = false
 	c.app.Buffered = 0
 	c.app.Status = "起播中…"
 	// 起播时**不关抽屉**（用户 2026-11-11：在抽屉里翻东西时按下一首，整个抽屉
@@ -3417,8 +3428,6 @@ func (c *controller) startCurrent() {
 		Title: t.Title, Pic: t.Cover, OwnerName: t.Up,
 	}
 	c.syncMediaTrack()
-	// 倍速/均衡/音量也在主线程取好，goroutine 里不读界面状态。
-	speed, eq, vol := c.app.Speed, c.app.EQ, c.app.Volume
 	// 弹幕预取该拉哪条 videoInfo：抽屉跟的是「浏览中」那条（danmakuTarget），
 	// 预取也跟着它走（见 danmakuPrefetchCid）。同样在主线程取好，goroutine
 	// 里不读界面状态。
@@ -3431,6 +3440,11 @@ func (c *controller) startCurrent() {
 	c.app.PlaybackRequestID++
 	reqID := c.app.PlaybackRequestID
 	stale := func() bool { return c.app.PlaybackRequestID != reqID }
+	// 启动时 loadPrefs 只把音量下发到引擎（c.applyVolume），倍速 / 均衡要等
+	// 用户第一次改才进 Player。Play 会用 Player 里**当前**的倍速/均衡建流水线，
+	// 所以这里先在 UI 线程把保存的设置补齐，第一声就是对的。起播期间用户改了
+	// 设置仍由收尾的 applyCurrentPlaybackSettings 覆盖（两次用途不同）。
+	c.applyCurrentPlaybackSettings()
 
 	go func() {
 		cid := t.Cid
@@ -3454,10 +3468,9 @@ func (c *controller) startCurrent() {
 		}
 		if cid == 0 {
 			c.app.Win.Update(func() {
-				if stale() {
+				if !c.finishPlaybackInit(stale) {
 					return
 				}
-				c.app.Buffering = false
 				c.app.NotifyType("warning", "取分集失败")
 			})
 			return
@@ -3481,62 +3494,45 @@ func (c *controller) startCurrent() {
 			return
 		}
 
-		u := c.bl.GetUrlByCid(int(playAid), int(cid))
-		if u.URL == "" {
-			c.app.Win.Update(func() {
+		// 音轨优先 DASH 的 AAC-LC：合流 MP4 的 moov 可能有几 MB，起播要先
+		// 把整块读下来（随后 go-m4a 还会再读一遍）；DASH 是独立音轨，只读
+		// ftyp/moov/sidx 与第一个分片。DASH 不可用或 Play 失败时由
+		// startAudioSource 回退一次到既有合流地址。
+		//
+		// 曲目信息在第一次真正 Play 之前回填：章节 / 字幕 / 热力 / 观看人数
+		// 都要用新的 cid，且它们的请求闭包必须在同一个主线程更新里发出。
+		announced := false
+		play := func(url string) error {
+			if !announced {
+				announced = true
+				c.app.Win.Update(func() {
+					if stale() {
+						return
+					}
+					t.Aid = playAid
+					t.Bvid = playBvid
+					t.Cid = cid
+					c.app.Track = t
+					c.app.Pos, c.app.Dur = 0, 0
+					c.loadPlaybackExtras(playAid, cid, playBvid)
+					c.startDanmakuHeat(cid)
+					// 当前观看人数：起播先拉一次（不等 30s 轮询），之后由 viewers.go
+					// 的定时器接着刷。Track 已回填，同一个更新回合里跑。
+					c.refreshOnlineViewers()
+				})
+				// 回填期间用户可能已经切走：不要把旧请求的 Play 发出去。
 				if stale() {
-					return
+					return media.ErrSuperseded
 				}
-				c.app.Buffering = false
-				c.app.NotifyType("warning", "该视频暂时无法播放，可能已失效或受限")
-			})
-			return
-		}
-
-		// 回填 cid / aid / bvid，并在同一个主线程更新里发起章节、字幕和
-		// 热力请求。分成两个 Win.Update 时，请求闭包可能先于 Track 回填
-		// 执行，回调看到旧 cid 就把本次字幕结果丢掉（快速切集时尤其明显）。
-		c.app.Win.Update(func() {
-			if stale() {
-				return
 			}
-			t.Aid = playAid
-			t.Bvid = playBvid
-			t.Cid = cid
-			c.app.Track = t
-			c.app.Pos, c.app.Dur = 0, 0
-			c.loadPlaybackExtras(playAid, cid, playBvid)
-			c.startDanmakuHeat(cid)
-			// 当前观看人数：起播先拉一次（不等 30s 轮询），之后由 viewers.go
-			// 的定时器接着刷。Track 已回填，同一个更新回合里跑。
-			c.refreshOnlineViewers()
-		})
-
-		// 真正起播前再校验一次：这期间用户可能已经点了别的。
-		if stale() {
-			log.Printf("起播取消（已切到别的曲目）")
-			return
+			return c.mp.Play(url, audioHeaders)
 		}
-		err := c.mp.Play(u.URL, audioHeaders)
-		if err != nil && errors.Is(err, media.ErrHEAAC) {
-			// 360P 合流的音频是 HE-AAC（SBR），纯 Go 解码器解不了。
-			// 同一集在 DASH 里通常还有 AAC-LC 音轨（audio-only m4s），
-			// 换过去静默重试：界面还停在「起播中…」，用户不会先看到
-			// 一次「音频解码失败」再开始播。
-			if stale() {
-				return
-			}
-			if alt := c.bl.GetDashAudioByCid(int(playAid), int(cid)); alt.URL != "" {
-				// 取地址也要发 HTTP（几百 ms），期间用户可能又切了一集；
-				// 不复查就会把新那一集顶掉（旧请求的 Play 代号更新）。
-				if stale() {
-					return
-				}
-				log.Printf("360P 音频为 HE-AAC，改播 DASH AAC-LC 音轨（bvid=%s cid=%d）", playBvid, cid)
-				err = c.mp.Play(alt.URL, audioHeaders)
-			}
-		}
-		if err != nil {
+		res := startAudioSource(int(playAid), int(cid),
+			func(aid, cid int) bilibili.PlayURLInfo { return c.bl.GetDashAudioByCid(aid, cid) },
+			func(aid, cid int) bilibili.PlayURLInfo { return c.bl.GetUrlByCid(aid, cid) },
+			play, stale)
+		if res.Err != nil {
+			err := res.Err
 			// 起播被更新的起播取代不是失败：弹「起播失败」是误报，而且会把
 			// 新那一次正在进行的缓冲状态抹掉。
 			if errors.Is(err, media.ErrSuperseded) {
@@ -3551,16 +3547,21 @@ func (c *controller) startCurrent() {
 			}
 			log.Printf("起播失败: %v", err)
 			c.app.Win.Update(func() {
-				c.app.Buffering = false
+				// 闭包里再查一次：取地址/Play 可能跑了几秒，期间用户已经切到
+				// 新的一集（新请求的 Buffering 不能被旧失败清掉）。
+				if !c.finishPlaybackInit(stale) {
+					return
+				}
+				if errors.Is(err, errNoAudioSource) {
+					c.app.NotifyType("warning", "该视频暂时无法播放，可能已失效或受限")
+					return
+				}
 				// 文案对齐原版 <audio> 的分类（此前直接把 Go 的错误串贴给用户：
 				// 「起播失败：media: 上游返回 403」）。
 				c.app.NotifyType("error", audioErrorMessage(err))
 			})
 			return
 		}
-		c.mp.SetSpeed(speed)
-		c.mp.SetEQ(eq)
-		c.mp.SetVolume(vol)
 		// 上一首的 pipeline 刚被 Player.Play 换掉：它的解码缓冲、512KB 取块
 		// 与 WSOLA 队列都已在 media.close 里主动清空。这里再把 Go 已经不再
 		// 引用的页还给系统（异步、有 400ms 冷却），避免连续切歌时旧缓冲
@@ -3568,7 +3569,18 @@ func (c *controller) startCurrent() {
 		trimMemory()
 
 		c.app.Win.Update(func() {
-			c.app.Buffering = false
+			// 旧请求的成功收尾不能清掉新请求的「起播中」：Play 的代号只能
+			// 拦住更新的 Play，拦不住「新请求还在取地址」这一段。
+			if !c.finishPlaybackInit(stale) {
+				return
+			}
+			// 起播期间用户可能调过倍速 / 均衡 / 音量：在界面线程上读**当前**
+			// 值再下发。不能沿用起播开始时抓的快照（那会把加载中做的改动
+			// 覆盖掉），也不能在后台 goroutine 里读 App 的界面字段。
+			c.applyCurrentPlaybackSettings()
+			// 第一块 PCM 可能还没到声卡（Play 先返回、oto 后取数）：把引擎
+			// 的运行中等待接上，别让「起播中」刚消失就显示成在播。
+			c.app.Waiting = c.audioBuffering()
 			// 视频窗在这一枪里被打开了：音频引擎不该出声。openVideo 的 Pause
 			// 可能落在 oto player 装上之前（那时是空操作），这一抢结束后引擎
 			// 才真正开始放 —— 所以这里看 VideoOpen 再钉一次，并把 Playing
@@ -3708,6 +3720,12 @@ func (c *controller) togglePlay() {
 		c.resumePlaylist()
 		return
 	}
+	// 起播初始化期间不碰音频引擎：新流水线还没装上，Resume 只会去恢复
+	// 旧/空的 oto player（旧实现会把「起播中」误变成「已暂停」）。初始化
+	// 的排队 seek 也不受影响（c.seek 只看 Buffering）。
+	if c.app.Buffering {
+		return
+	}
 	// 主音频引擎自然播完后 oto 已经 EOF：直接 Resume 会被 oto 的 mux 拒绝
 	//（eof 且缓冲为空），进度条卡在末尾、状态却显示在播放。此时重建解码位置
 	//并换一个新的 oto player，从头播。
@@ -3794,7 +3812,11 @@ func (c *controller) step(delta int) {
 func (c *controller) seek(seconds float64) {
 	// 起播中（Buffering）不立即 seek：解码器还在初始化，与 safeSeek 的
 	// readyState 保护同理——记下目标，等起播完成后执行（排队不丢弃）。
-	if c.app.Buffering {
+	// 只认「起播初始化」这一个闸门：运行中的欠载（app.Waiting）不排队，
+	// 否则正常缓冲期间用户一拖进度条就会把 seek 永久卡住。视频窗占着输出
+	// 时也不排队：这时 seek 必须发给视频（runSeek 的 VideoOpen 分支），
+	// 后台残留的音频初始化与它无关。
+	if seekWaitsForInit(c.app.Buffering, c.app.VideoOpen) {
 		c.app.PendingSeek = seconds
 		c.app.HasPendingSeek = true
 		c.app.SeekValue = seconds
@@ -3808,6 +3830,12 @@ func (c *controller) seek(seconds float64) {
 	}
 	c.app.SeekBusy = true
 	c.runSeek(seconds)
+}
+
+// seekWaitsForInit 是 seek 的排队判据：只有「音频起播初始化」且输出不在
+// 视频窗时才排队。视频窗占着声音时，seek 归视频；运行中欠载从不排队。
+func seekWaitsForInit(buffering, videoOpen bool) bool {
+	return buffering && !videoOpen
 }
 
 // runSeek 真正执行一次 seek；完成后若有排队的/期间新来的目标，补一次。
@@ -3842,6 +3870,8 @@ func (c *controller) runSeek(seconds float64) {
 		c.app.Win.Update(func() {
 			c.app.SeekBusy = false
 			c.app.SeekStableAt = time.Now() // seek 完成，可以恢复跟随
+			// seek 会清空就绪队列：在下一块真正的 PCM 被取走前显示等待。
+			c.app.Waiting = c.audioBuffering()
 			if err != nil {
 				log.Printf("跳转失败: %v", err)
 				return
@@ -3864,6 +3894,20 @@ func (c *controller) toggleEQ() {
 
 func (c *controller) toggleSponsor() {
 	c.app.PlayerSettings.SetSponsor(!c.app.Sponsor)
+}
+
+// applyCurrentPlaybackSettings 把**此刻**的共享设置下发到音频引擎。
+// 只允许在界面线程调用：App.Speed/EQ/Volume 是 UI 状态，后台 goroutine
+// 直接读就是数据竞争。起播成功收尾用它，覆盖「加载中改了设置」的情况。
+func (c *controller) applyCurrentPlaybackSettings() {
+	if c.mp == nil {
+		return
+	}
+	c.mp.SetSpeed(c.app.Speed)
+	c.mp.SetEQ(c.app.EQ)
+	// 音量走共享的落点，静音时由它统一折成 0（不能直接下发 app.Volume，
+	// 否则启动时记住的非零音量会在静音状态下出声）。
+	c.applyVolume()
 }
 
 // applyPlayerSetting 是共享设置（主窗播放栏 / 视频窗控件条）的落点。
@@ -4123,14 +4167,16 @@ type audioCtl interface {
 	Pause()
 	Resume()
 	Playing() bool
+	Buffering() bool
 }
 
 // silentAudio 在 c.mp 未初始化时兜底（测试 / 启动极早期）。
 type silentAudio struct{}
 
-func (silentAudio) Pause()        {}
-func (silentAudio) Resume()       {}
-func (silentAudio) Playing() bool { return false }
+func (silentAudio) Pause()          {}
+func (silentAudio) Resume()         {}
+func (silentAudio) Playing() bool   { return false }
+func (silentAudio) Buffering() bool { return false }
 
 // audio 返回音频引擎。测试可以用 audioStub 换掉。
 func (c *controller) audio() audioCtl {
@@ -4146,6 +4192,66 @@ func (c *controller) audio() audioCtl {
 // audioPlaying 读引擎的实际播放状态。主窗的 Playing 是它在界面上的镜像，
 // 任何「离开视频窗」的路径都要从它读回来，而不是手写 true / false。
 func (c *controller) audioPlaying() bool { return c.audio().Playing() }
+
+// audioBuffering 读引擎的运行中等待（暂停时恒 false，见 media.Player.Buffering）。
+// 与 audioPlaying 一样只读状态，不碰网络/解码锁。
+func (c *controller) audioBuffering() bool { return c.audio().Buffering() }
+
+// finishPlaybackInit 收尾一次起播初始化，并再次核对请求代号。返回 false 表示
+// 这次起播已经被更新的请求取代 —— 调用方必须原样退出，不能把新请求刚置上的
+// Buffering 清掉（旧代码有 stale 检查只在闭包外，慢闭包会误清新状态）。
+//
+// 只改「初始化」这一组状态：运行中的 Waiting 在这里一并清零，成功路径随后
+// 用 audioBuffering() 按引擎重新判定。
+func (c *controller) finishPlaybackInit(stale func() bool) bool {
+	if stale != nil && stale() {
+		return false
+	}
+	c.app.Buffering = false
+	c.app.Waiting = false
+	return true
+}
+
+// videoBusyFor 把弹窗回传的状态翻成播放键忙态。Ready 的语义两条路径不同
+// （原生 0/1，webview 是 readyState 0..4），所以这里只把 Ready==0 当作
+// 「还没开始」；运行中的缓冲只看 State.Buffering（原生才有）。暂停、出错、
+// 片尾一律不忙，避免错误/播完留下一个永远转的圆环。
+func videoBusyFor(st video.State) view.PlayerBusy {
+	if st.Err != "" || st.Paused {
+		return view.PlayerIdle
+	}
+	if st.Buffering {
+		return view.PlayerBuffering
+	}
+	if st.Ready == 0 {
+		return view.PlayerLoading
+	}
+	return view.PlayerIdle
+}
+
+// applyVideoState 把弹窗状态落到主窗（OnState 的界面线程部分）。视频占着
+// 声音时，主窗/迷你窗播放栏的播放键、进度与忙态都以这里为准；音频引擎虽然
+// 暂停，它的 reportLoop 心跳在 OnProgress 里已被 VideoOpen 挡掉，不会覆盖。
+func (c *controller) applyVideoState(st video.State) {
+	if !c.app.VideoOpen {
+		c.trackResume(st.Time)
+		return
+	}
+	if st.Duration > 0 {
+		c.app.Dur = st.Duration
+	}
+	// 拖动进度条期间不要用回传的旧时间覆盖滑块绑定值；恢复后跟随视频时间，
+	// 并同步系统媒体中心的 Position。
+	if !c.app.Seeking() {
+		c.app.Pos = st.Time
+		c.syncMediaPosition(st.Time)
+		c.trackResume(st.Time)
+	} else {
+		c.app.Pos = st.Time
+	}
+	c.app.Playing = !st.Paused && st.Err == ""
+	c.app.VideoBusy = videoBusyFor(st)
+}
 
 // videoPlayingSettle 是「离开视频窗」之后跟随引擎的时长。
 //
@@ -4171,6 +4277,10 @@ const videoPlayingSettle = 2 * time.Second
 func (c *controller) applyVideoClose(st video.State) {
 	a := c.app
 	a.VideoOpen = false
+	// 视频窗的忙态与音频的运行中等待都不是「离开视频窗」之后的持久状态；
+	// Playing 马上按引擎重读，Waiting 由下一次引擎心跳重新判定。
+	a.VideoBusy = view.PlayerIdle
+	a.Waiting = false
 	// 退出与切歌都不做音视接力：前者进程要没了，后者这一集马上被换掉。
 	// 但两者的引擎归属不一样，不能一起 Pause：
 	//
@@ -4208,6 +4318,7 @@ func (c *controller) applyVideoClose(st video.State) {
 		c.audio().Pause()
 	}
 	a.Playing = c.audioPlaying()
+	a.Waiting = c.audioBuffering()
 	// 接力这条路上，上面那一次采样可能读到过渡态（引擎流水线还在重建 /
 	// oto player 还没装上）：记一段跟随窗口，接下来几次引擎心跳把 Playing
 	// 继续往引擎上对（见 syncPlayingFromEngine）。
@@ -4274,24 +4385,7 @@ func (c *controller) wireVideo() {
 	c.vid.OnState(func(st video.State) {
 		// 与音频进度同一套：主窗不可见时只更新状态、不请求重绘（视频弹窗
 		// 每秒回传一次，主窗在后台时那些重绘都是白建）。
-		runOnUI(c.app, !c.app.Hidden(), func() {
-			if c.app.VideoOpen {
-				if st.Duration > 0 {
-					c.app.Dur = st.Duration
-				}
-				// 拖动进度条期间不要用回传的旧时间覆盖滑块绑定值；恢复后
-				// 跟随视频时间，并同步系统媒体中心的 Position。
-				if !c.app.Seeking() {
-					c.app.Pos = st.Time
-					c.syncMediaPosition(st.Time)
-					c.trackResume(st.Time)
-				} else {
-					c.app.Pos = st.Time
-				}
-				return
-			}
-			c.trackResume(st.Time)
-		})
+		runOnUI(c.app, !c.app.Hidden(), func() { c.applyVideoState(st) })
 	})
 	c.vid.OnClose(func(st video.State) {
 		// 关窗回调跑在窗口事件 goroutine 上，界面状态的收尾统一回主线程。
@@ -4363,6 +4457,10 @@ func (c *controller) openVideo() {
 	wasPlaying := c.audioPlaying()
 	c.audio().Pause()
 	c.app.Playing = c.audioPlaying()
+	// 音频已停：它的运行中等待不能继续挂在主窗播放键上（视频窗自己的忙态
+	// 由 OnState 回传；开窗失败时 restoreAudioAfterVideo 会清掉）。
+	c.app.Waiting = false
+	c.app.VideoBusy = view.PlayerIdle
 	c.app.Win.Update(func() {})
 	// 主题令牌在 UI 线程上取一份快照交给弹窗：a.Theme 由 RefreshTheme 在 UI
 	// 线程改写，后台 goroutine 直接读就是数据竞争（与 Pos/Speed 那几项同一
@@ -4451,6 +4549,10 @@ func (c *controller) videoOpened() {
 		return
 	}
 	c.app.VideoOpen = true
+	// 视频占着声音：音频引擎的等待位不再代表播放栏，清掉残留；视频的忙态
+	// 由 OnState 每秒回传（首帧之前先按空闲，避免没有依据的转圈）。
+	c.app.Waiting = false
+	c.app.VideoBusy = view.PlayerIdle
 	// 新的一次视频会话：上一次「离开视频窗」的跟随窗口到此为止。
 	c.playingSettle = time.Time{}
 	c.audio().Pause()
@@ -4464,11 +4566,15 @@ func (c *controller) restoreAudioAfterVideo(wasPlaying bool) {
 		c.audio().Resume()
 	}
 	c.app.Playing = c.audioPlaying()
+	c.app.VideoBusy = view.PlayerIdle
+	c.app.Waiting = c.audioBuffering()
 }
 
 func (c *controller) closeVideo() {
 	c.vid.Close()
 	c.app.VideoOpen = false
+	c.app.VideoBusy = view.PlayerIdle
+	c.app.Waiting = false
 	c.app.Win.Update(func() {})
 	trimMemory()
 }

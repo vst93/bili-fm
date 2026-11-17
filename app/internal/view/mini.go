@@ -300,8 +300,10 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 				ui.Row(c).Width(59).Shrink(0).Gap(3).AlignItems(ui.Center).Children(func() {
 					// mini 下按钮一律 28×28 正圆（原版 body.mini-mode .player-button）。
 					// 禁用态与文案与主窗同一套（原版 mini 用的是同一个 Player 组件）。
+					busy := a.playerBusy()
+					tip := playerTip(a.Playing, busy)
 					play := ui.ButtonBase(c.Key("mini-play")).Size(28, 28).Radius(RadiusPill).Center().
-						Label(playTip(a.Playing)).Tooltip(playTip(a.Playing))
+						Label(tip).Tooltip(tip).Busy(busy != PlayerIdle)
 					disablePlayerButton(play, !a.hasSource())
 					// 原版 body.mini-mode #player .player-play-button：浅蓝填充
 					// #bae6fd .35 + 蓝描边 + 蓝调内外投影，**与是否播放无关**
@@ -324,6 +326,12 @@ func (a *App) miniPlayerBar(c *ui.Context) ui.Element {
 					// 深色统一 --player-sheen（见 playerSheenFor）。
 					playerRim(t, play, RadiusPill, false, sheenKindMiniPlay, a.Playing, play.Hovered())
 					play.Children(func() {
+						if busy != PlayerIdle {
+							// 与主窗/视频窗同一颗细圆环，只按 28px 键收到 16/2。
+							ringSpinner(c, t.Blue, miniBusyRingSize, playerBusyRingStroke,
+								"mini-play-busy", 0, 0, 0, 0)
+							return
+						}
 						ic := pick(a.Playing, iconPause, iconPlayOne)
 						icon := ui.Icon(c, ic).Size(16, 16).
 							TextColor(a.Theme.text(playInk)).
