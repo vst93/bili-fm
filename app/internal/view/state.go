@@ -1782,7 +1782,7 @@ var (
 	// 又统一成 16，一排键里描边与尺寸都不一样（用户 2026-11：「下一首的图标
 	// 被改了，要和之前一样」）。现在只有这一份定义，控件条不再自带 SVG。
 	iconFullScreen     = iconPark(`<path d="M4 17V4h13"/><path d="M31 4h13v13"/><path d="M44 31v13H31"/><path d="M17 44H4V31"/>`)
-	iconExitFullScreen = iconPark(`<path d="M17 4v13H4"/><path d="M31 4v13h13"/><path d="M44 17H31v13"/><path d="M4 17h13v13"/>`)
+	iconExitFullScreen = iconPark(`<path d="M17 4v13H4 M31 4v13h13 M44 31H31v13 M4 31h13v13"/>`)
 	// 互动：icon-park 的 ThumbsUp / HandleB（投币，圆形钱币）/ Star。
 	// 收藏键的 active 态是 Star 的 filled 变体（原版
 	// `theme={isFavorite ? "filled" : "outline"}`），所以两枚都留着。

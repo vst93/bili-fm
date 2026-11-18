@@ -13,6 +13,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  mac-video:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Check native 3x playback with AVFoundation
+        working-directory: app
+        run: go test -v -count=1 -run 'Test(FastPlaybackSources|ProgressiveThreeTimesPlayback)$' ./internal/video
+
   build:
     name: ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest

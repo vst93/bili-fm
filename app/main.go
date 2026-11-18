@@ -4530,7 +4530,7 @@ func (c *controller) openVideo() {
 		// 任何一步不成立（接口没给 DASH、索引坏了、端口起不来）都静默退回
 		// 合流，不打扰用户 —— 画质相同，没有功能差别。
 		src, fallback := combined, ""
-		session := c.startVideoHLS(aid, cid)
+		session := c.startVideoHLS(aid, cid, speed)
 		if stale() {
 			if session != nil {
 				_ = session.Close()
@@ -4738,7 +4738,10 @@ func sectionIndex(key string) int {
 // 也不 toast：用户要的是「看视频」，走哪条取流路径是内部实现。
 //
 // 起出来的服务由 c.hls 持有，随视频窗关闭 / 切集 / 退出一起关掉。
-func (c *controller) startVideoHLS(aid, cid int) *dashhls.Session {
+func (c *controller) startVideoHLS(aid, cid int, speed float64) *dashhls.Session {
+	if video.PreferProgressive(runtime.GOOS, speed) {
+		return nil
+	}
 	v, a, dur, ok := c.bl.GetDashAVByCid(aid, cid)
 	if !ok {
 		return nil

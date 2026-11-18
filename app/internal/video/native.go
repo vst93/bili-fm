@@ -110,7 +110,8 @@ type nativeWindow struct {
 	// fallbackTried 表示这一集已经用过 SrcFallback 自动重试了。每次换集
 	// （switchNative）都会复位：新一集有它自己的机会。用「一次性标记」而不是
 	// 靠 onFailed=nil 来判，是因为重试会重新挂一个 onFailed。
-	fallbackTried bool
+	fallbackTried   bool
+	openProgressive func() (playerAPI, error)
 
 	// pinned 是视频窗的置顶状态（顶栏最左那颗图钉）。它是窗口属性，不落盘在
 	// 这里：点一下就回到主窗存 videoPinned（见 chromeFor 的 OnPinToggle）。
@@ -468,6 +469,7 @@ func (n *nativeWindow) focus() {
 //  2. 每帧把状态回传主窗（约每秒一次，见 report）。
 func (n *nativeWindow) view(c *ui.Context) {
 	ch := n.chromeFor()
+	n.prepareFastPlayback()
 	ch.Title = n.title
 	// 主题令牌以 n.theme 为准：主窗切深浅 / 跟随系统变档时 Manager.SetTheme
 	// 会改写它，这里每帧同步给外壳 —— 视频窗是独立窗口，不跑主窗的 Shell，

@@ -24,6 +24,21 @@ import (
 	"github.com/vst93/bili-fm/app/internal/danmaku"
 )
 
+func TestExitFullScreenInwardCorners(t *testing.T) {
+	img := renderIconAt(iconExitFullScreen, 48)
+	pad := (img.Bounds().Dx() - 48) / 2
+	for _, tip := range []image.Point{{17, 17}, {31, 17}, {17, 31}, {31, 31}} {
+		if img.RGBAAt(pad+tip.X, pad+tip.Y).R > 128 {
+			t.Errorf("缺少朝内的角 %v", tip)
+		}
+	}
+	for _, tip := range []image.Point{{4, 4}, {44, 4}, {4, 44}, {44, 44}, {24, 24}} {
+		if img.RGBAAt(pad+tip.X, pad+tip.Y).R < 240 {
+			t.Errorf("退出全屏图标 %v 应留白", tip)
+		}
+	}
+}
+
 // videoNear 报告两个尺寸是否在 tol 之内（浮点布局的取整余量）。
 func videoNear(a, b, tol float32) bool {
 	d := a - b

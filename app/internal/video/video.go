@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"sync"
 	"time"
 
@@ -770,8 +771,6 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	//
 	// 不设置 suppressClose：关窗走「退出视频播放」的既有收尾（主窗
 	// VideoOpen 复位、位置接回），用户就停在那里看到这条询问。
-	m.wireNativeFail(n, o)
-
 	m.mu.Lock()
 	m.native, m.win, m.minimize = n, nil, n.minimize
 	m.st = State{Speed: set.Speed}
@@ -783,6 +782,7 @@ func (m *Manager) tryNative(o Options) (prompt *FallbackPrompt, ok bool) {
 	// 用 n.apply（不是 n.win.Update）：测试里的桩窗没有 win，但还要验到
 	// 「起播参数下发」这条路径。
 	n.apply(func() {
+		m.wireNativeSource(n, o, runtime.GOOS)
 		pl.SetRate(set.Speed)
 		pl.SetMuted(set.Muted)
 		pl.SetVolume(set.Volume)
@@ -892,7 +892,7 @@ func (m *Manager) switchNative(n *nativeWindow, o Options) error {
 			old.Close()
 		}
 		// 换了播放器就要重新挂失败处理（见 wireNativeFail 的说明）。
-		m.wireNativeFail(n, o)
+		m.wireNativeSource(n, o, runtime.GOOS)
 	})
 	// 没有窗口（无头测试里的桩窗）时跳过窗口操作：mygo 的 SetTitle 会走
 	// onMain 的 chan，nil 窗口上调用就是永久阻塞（AGENT.md 记过同一个坑）。

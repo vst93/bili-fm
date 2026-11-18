@@ -9,3 +9,5 @@ AAC：0.4 秒红、再绿、再蓝，无 B 帧。
 
 它只用于无头验证「原生视频路径能起播、能 seek、能改倍速」——真实的 B 站流由
 `TestNativeRealBiliURL` 在给出环境变量时验证（见 native_test.go）。
+
+`fastplay.mp4` 是合成的 8 秒 H.264/AAC 测试片，每秒 30 帧，亮度逐帧变化，每 4 秒一个关键帧。`TestProgressiveThreeTimesPlayback` 从本地 HTTP 播放它，同时检查媒体时钟和解码出的不同画面数。
