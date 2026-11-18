@@ -23,7 +23,7 @@ jobs:
           cache-dependency-path: app/go.sum
       - name: Check native 3x playback with AVFoundation
         working-directory: app
-        run: go test -v -count=1 -run 'Test(FastPlaybackSources|ProgressiveThreeTimesPlayback)$' ./internal/video
+        run: go test -v -count=1 -run 'Test(FastPlaybackSources|ProgressiveThreeTimesPlayback|ProgressiveRateChangeKeepsFrames)$' ./internal/video
 
   build:
     name: ${{ matrix.goos }}/${{ matrix.goarch }}
