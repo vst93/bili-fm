@@ -1661,7 +1661,7 @@ func (a *App) skeletonGrid(c *ui.Context) {
 					n++
 					// 原版是 1.4s 的 opacity 脉冲（.list-skeleton-pulse：
 					// 0.55 ↔ 1，ease-in-out）。用 Loop 的线性进度驱动。
-					item := ui.Column(c).Key(fmt.Sprintf("skel-%d-%d", row, j)).
+					item := ui.Column(c.Key(fmt.Sprintf("skel-%d-%d", row, j))).
 						Grow(1).Basis(0).Padding(8).Radius(12).Background(card).Gap(0)
 					ph := float64(item.Loop("skel", 1400*time.Millisecond, ui.Linear))
 					item.Opacity(float32(skeletonPulse(ph)))
@@ -2020,7 +2020,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 	// 原版抽屉卡片（globals.css 的 [role=button][class*=bg-content]）：
 	// 圆角 12、半透明填充（近似玻璃底）、封面通栏（.img-container 高 100）、
 	// 页脚另有一层浅底。
-	box := ui.Column(c).Key(spec.Key).Grow(1).Basis(0).
+	box := ui.Column(c.Key(spec.Key)).Grow(1).Basis(0).
 		Radius(12).Clip()
 	// 滚动锁：滚动进行中把 hover 视觉一起冻住，而不只是锁上浮位移。
 	// 每帧都要在算 hover 之前定下（比较 renderCard 内的 lift/glow 也用它）。
@@ -2254,7 +2254,7 @@ func (a *App) renderCard(c *ui.Context, spec cardSpec) {
 // 宽度取**上一帧的真实布局宽度**（Element.Bounds）；首帧还没有布局，
 // 按窗口宽度估一个。
 func (a *App) cardMeta(c *ui.Context, key string, fields []cardField) {
-	row := ui.Row(c).Key(key + "-meta").FillWidth().AlignItems(ui.Center)
+	row := ui.Row(c.Key(key + "-meta")).FillWidth().AlignItems(ui.Center)
 	w := row.Bounds().W
 	if w <= 0 {
 		w = estimateCardWidth(c)
@@ -3477,7 +3477,7 @@ func (a *App) danmakuBody(c *ui.Context) {
 // .danmaku-message-list 的 calc(80dvh - 20px) 内滚动高度。
 // 由 danmakuBody 的虚拟列表按需构建。
 func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme, l danmakuRowLayout, linux bool, viewportH float32) {
-	box := ui.Row(c).Key(fmt.Sprintf("dmg-%d", g.Second)).FillWidth().
+	box := ui.Row(c.Key(fmt.Sprintf("dmg-%d", g.Second))).FillWidth().
 		Margin(2, 0).
 		Padding(11, l.PadInline, 13).Gap(l.Gap).AlignItems(ui.Start)
 	// 原版 `.danmaku-time-group` 是 `max-height:80dvh; overflow:hidden`：
@@ -3549,7 +3549,7 @@ func (a *App) danmakuGroupRow(c *ui.Context, g danmakuGroup, isCur bool, t Theme
 					if a.Theme.Mode == "dark" {
 						paint.BG, paint.Border, paint.Inset = a.Theme.Glass, a.Theme.GlassBorder, a.Theme.Highlight
 					}
-					chip := ui.Row(c).Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text)).
+					chip := ui.Row(c.Key(fmt.Sprintf("dmg-%d-%s", g.Second, e.Text))).
 						Height(27).MinWidth(32).Padding(3, 7, 3, 9).Gap(5).
 						Radius(8).AlignItems(ui.Center)
 					// 原版是白色半透明小胶囊（无 backdrop-filter）：填充而非真玻璃。
@@ -3848,7 +3848,7 @@ func canLoadMoreComments(hasMore, loading bool, first, last, rows int) bool {
 // 原生版探到 -6px）。外层盒吃内边距、卡片 FillWidth，宽度就与原版一致，
 // 垂直间距不变（4 + 卡片 + 4）。
 func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
-	ui.Column(c).Key(fmt.Sprintf("cm-%d", i)).FillWidth().Padding(4, 6).
+	ui.Column(c.Key(fmt.Sprintf("cm-%d", i))).FillWidth().Padding(4, 6).
 		Children(func() { a.commentCard(c, cm, i) })
 }
 
@@ -3934,7 +3934,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 				ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
 					Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
 					for j, rp := range cm.Replies {
-						ui.Row(c).Key(fmt.Sprintf("cm-%d-r%d", i, j)).
+						ui.Row(c.Key(fmt.Sprintf("cm-%d-r%d", i, j))).
 							FillWidth().Gap(replyFirstLinePad).AlignItems(ui.Start).Children(func() {
 							// .text-primary-500 同时覆写成 600 字重。昵称有 Shrink(0)、
 							// 不参与换行（自然宽即单行），可以安全地压行盒；正文可换行，

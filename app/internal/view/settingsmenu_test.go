@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -360,4 +361,112 @@ func TestSettingsMenuVideoItemsMoved(t *testing.T) {
 	if a.ShowSettings != true {
 		t.Error("设置菜单应仍展开（本条只查条目）")
 	}
+}
+
+// TestSettingsMenuShortWindowScrolls 钉住 mygo v0.10.0 #1958 之后的矮窗行为。
+//
+// v0.10.0 起附着式弹层的外框被夹进窗口（`attachTo` 里的
+// `h = min(h, roomAlong(...))` 对所有 AttachTo 元素生效，不再只对滚动容器），
+// 但框架**只夹外框、不替你滚**。设置菜单此前是一个普通 Column，实测 800×300
+// 的窗口里面板被裁到 256，最末两项（弹幕热力 / 顺着听）落在面板外 ——
+// 看不见也点不到，滚轮怎么滚都不动。
+//
+// 修法：面板自己 MaxHeight，内容包进 ui.Scroll().Shrink(1)。这条测试在矮窗里
+// 滚到底，要求最后一项完整落在面板内。
+//
+// 量法用 AccessAll（提交的、未裁剪的矩形）：Tester.Find 给的是**裁剪后**的
+// 矩形，被裁掉的元素在那里报 h=0，分不清「能滚到」与「根本到不了」。
+//
+// 反证：把 ui.Scroll 去掉（回到普通 Column），h=300 那一档变红。
+func TestSettingsMenuShortWindowScrolls(t *testing.T) {
+	for _, h := range []int{300, 340} {
+		a := NewApp(func() {})
+		a.Theme = ThemeFor(PeriodAt(12))
+		tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 800, h)
+		tst.Frame()
+		if err := tst.Click("设置"); err != nil {
+			t.Fatalf("h=%d 点设置键失败：%v", h, err)
+		}
+		tst.Frame()
+		panel, ok := popupCommitBounds(tst)
+		if !ok {
+			t.Fatalf("h=%d 找不到设置面板", h)
+		}
+		// 面板不许超出窗口（v0.10.0 的夹取保证这条）。
+		if panel.Y < 0 || panel.Y+panel.H > float32(h)+0.5 {
+			t.Errorf("h=%d 面板超出窗口：%+v", h, panel)
+		}
+		if panel.H > settingsMenuMaxH(float32(h))+0.5 {
+			t.Errorf("h=%d 面板高 %v 超过上限 %v", h, panel.H, settingsMenuMaxH(float32(h)))
+		}
+		// 滚动前最后一项在面板外 —— 否则这条测试测不到滚动。
+		before, ok := accessRect(tst, "设置：顺着听")
+		if !ok {
+			t.Fatalf("h=%d 找不到「设置：顺着听」", h)
+		}
+		if insidePanel(before, panel) {
+			t.Fatalf("h=%d 菜单本来就全在面板里（%+v 面板 %+v），这条测不到滚动",
+				h, before, panel)
+		}
+		// 滚到底。
+		tst.Move(panel.X+panel.W/2, panel.Y+panel.H/2)
+		tst.Frame()
+		for i := 0; i < 8; i++ {
+			tst.Wheel(panel.X+panel.W/2, panel.Y+panel.H/2, 0, 100)
+			tst.Advance(200 * time.Millisecond)
+		}
+		last, ok := accessRect(tst, "设置：顺着听")
+		if !ok {
+			t.Fatalf("h=%d 滚到底后找不到「设置：顺着听」", h)
+		}
+		if !insidePanel(last, panel) {
+			t.Errorf("h=%d 滚到底后「设置：顺着听」仍不在面板里：%+v（面板 %+v）",
+				h, last, panel)
+		}
+	}
+}
+
+// TestSettingsMenuHeightNotCapped 钉住「窗高够时上限不生效」：面板仍是自然
+// 高度，几何与 v0.9.2 一致（不让封顶改动把正常窗口的观感改掉）。
+func TestSettingsMenuHeightNotCapped(t *testing.T) {
+	_, tst := settingsProbe(t, 12) // 1000×700
+	items := menuRects(t, tst)     // 这个 helper 自己点开设置键
+	panel, ok := settingsPanelBounds(tst)
+	if !ok {
+		t.Fatal("找不到设置面板")
+	}
+	last := items[len(items)-1]
+	// 最后一项完整可见（没有被滚动区裁掉），且面板高就是内容的自然高度。
+	if last.H < settingsItemH-1 {
+		t.Errorf("最后一项高 %v，窗高 700 时应完整显示（%d）", last.H, settingsItemH)
+	}
+	if panel.H >= settingsMenuMaxH(700) {
+		t.Errorf("面板高 %v 顶到了上限 %v，窗高 700 不该封顶", panel.H, settingsMenuMaxH(700))
+	}
+}
+
+// popupCommitBounds 找面板那一块（RolePopup）的**提交矩形**（未裁剪）。
+func popupCommitBounds(tt *ui.Tester) (ui.Rect, bool) {
+	for _, info := range tt.AccessAll() {
+		if info.Role == ui.RolePopup {
+			return info.Bounds, true
+		}
+	}
+	return ui.Rect{}, false
+}
+
+// accessRect 找某个无障碍名字的提交矩形（未裁剪，与 Tester.Find 不同）。
+func accessRect(tt *ui.Tester, name string) (ui.Rect, bool) {
+	for _, info := range tt.AccessAll() {
+		if info.Name == name {
+			return info.Bounds, true
+		}
+	}
+	return ui.Rect{}, false
+}
+
+// insidePanel 报告 r 是否完整落在 panel 里（半像素容差）。
+func insidePanel(r, panel ui.Rect) bool {
+	return r.Y >= panel.Y-0.5 && r.Y+r.H <= panel.Y+panel.H+0.5 &&
+		r.X >= panel.X-0.5 && r.X+r.W <= panel.X+panel.W+0.5
 }

@@ -528,7 +528,7 @@ func (a *App) playlistRow(c *ui.Context, index int, item PlayItem) {
 	// playlistRowPaint），左内边距却没收回来——当前项的缩略图直接贴在行左缘
 	// （用户报「当前播放项的左侧图片贴边了」）。既然不画强调条，当前项就与
 	// 普通项一样吃 8px 左内边距（内容起点 1px 边框 + 8 = 9），封面不再贴边。
-	row := ui.Row(c).Key("pl-"+item.ID).FillWidth().Padding(8, 8, 8, playlistRowPadL).
+	row := ui.Row(c.Key("pl-"+item.ID)).FillWidth().Padding(8, 8, 8, playlistRowPadL).
 		Radius(playlistRowRadius).Gap(8).AlignItems(ui.Center)
 
 	// 拖拽排序：拖自己（值=记录 id），放到别的行上就插入到那个位置。

@@ -2465,3 +2465,153 @@ HLS 把这三条全绕开：分片字节**原样**转发，seek 与音画同步�
   设计上两者都原生支持 HLS（含音轨分离的 master 播放列表），但没有实测数据。
 - 真机限速下的首帧（探针是同一台机器的一次实测，受网络影响）。
 - 视频窗内拖动进度条的手感：只验证了 seek 返回 true 与落点正确。
+
+## mygo v0.9.2 → v0.10.0（微轮 9，2026-11-18）
+
+依赖：`app/go.mod` 的 `github.com/egoist/mygo` v0.9.2 → **v0.10.0**
+（2026-11-17 发布）。`go get` / `go mod tidy` 只在这两条命令上临时带代理
+（`GOPROXY=https://goproxy.cn,direct`，proxy.golang.org 本机不通），其余全部
+`GOPROXY=off`。release 说「Go API 无破坏性变更」—— 复核属实：`ui/api_gen.go`
+的既有签名一处没动，**没有删除任何导出符号**，只多出新增面（手机端 / 触摸 /
+安全区 / `DecodeBitmapScaled` / `KeepState` / `App.OnMemoryWarning`）。
+
+这一版的主轴是 **iPhone / iPad / Android**（#940）：整个 `ui` 包的构建标签都加了
+`!android` / `!ios`，新增 `ui/mobile`、`ui/netimage`、`Touch*` 一族、`SafeArea`、
+`Router` 的系统栈、`PullToRefresh`、`Element.LongPressed` 等。桌面端的可见变化
+只有下面几条，其中**只有一条把我们弄坏了**。
+
+### 逐条结论表（按「能不能用上」归类）
+
+| 变更 | 结论 | 一句依据 |
+| --- | --- | --- |
+| **#1958 附着式弹层永不高过窗口** | **采用（并修好副作用）** | 唯一真正影响我们的一条，详见下节。框架把 `attachTo` 的 `h = min(h, roomAlong(...))` 从「只对 `flagScrollY` 元素」放开到**所有 AttachTo 元素**。设置菜单因此被裁到窗口内、但内容不会滚 —— 最末两项变成点不到。已改成「面板自己 `MaxHeight` + 内容 `ui.Scroll().Shrink(1)`」。 |
+| #1943 三击选中整段 | 采用（无需改代码） | 我们只有一处 `.Selectable()`（`home.go` 的简介），多行文本三击选中整段正是用户期望；`ui/richtext` / 代码编辑器同规则。 |
+| #1911 Windows 触摸屏单指滚动 | 采用（无需改代码） | 框架内部按 `ev.Touch` 分流；我们用 `DragWindow()` 的标题栏 / 迷你窗标题行 / 字幕面板仍在 `dragRegionAt` 里优先判为拖窗，行为不变。 |
+| #1934 Linux 托盘按程序名 + 序号命名 | **不采用（我们本来就给了 ID）** | `tray.go` 显式 `TrayOptions.ID = "bili-fm"`，正是这条要的「稳定身份」，无需改动。 |
+| #1919 指针斜向移向子菜单不收起 | 不采用（没有子菜单） | 我们不用 `PopoverMenu` / `MenuBase` / `ContextMenuBase`。 |
+| #1929 阿拉伯/波斯附加符号、`BaselineShift` 抬升 | 采用（无需改代码） | 我们不做 RTL 也不做 `BaselineShift`；渲染层修正在框架内，中文/拉丁不受影响。 |
+| #1921 抓帧时字形图集被别的窗口挤掉 | 采用（无需改代码） | 修在 `windowHost.capture`（按 `atlasGenerations` 决定是否重画）。我们用 `Win.CapturePage()`（`main.go` 的 `-shot`）直接受益。 |
+| #1975/#1928 布局快 12–20% | 采用（无需改代码） | 框架内部（`resolveFlexible` 单遍求和、`layoutStyle` 重排缓存行、自动外边距缓存在 `flexItem`）。我们的每帧预算直接变好。 |
+| #1965/#1971/#1966 编辑器 `ScrollMargin` / `DiffState` / 标题行高 | 不采用（不用这些控件） | 仓库里没有 `ui/editor`、`ui/richtext`、`DiffState`。 |
+| #1918 粘贴含孤立 `\r` 的多行文本 | 采用（无需改代码） | 搜索框 / 评论输入都是单行或多行 `ui.TextInput`，修正在框架内。 |
+| #1941 页面从 bfcache 回来重发事件 / 半个 emoji 的调用 / 自定义 scheme panic | **不采用（本仓库没有 WebView 页面）** | 原生版没有 `frontendDist` 页面在跑绑定；`internal/video` 的 webview 回退只 `Eval` 不 `Call`。`protocol.go` 的 panic 兜底在框架内。 |
+| #1957 `Page.Eval` 在导航离开时立即返回 | 采用（无需改代码） | 视频窗 webview 回退会 `Eval`，以前那次可能一直挂着。 |
+| #1932 macOS 关窗时内容一起淡出 | 采用（无需改代码） | 修在框架的 macOS 后端。 |
+| #1922 macOS 非活动应用的弹层仍可悬停 / tooltip | 采用（无需改代码） | 我们所有面板都是原生 UI 弹层。 |
+| #1935 macOS 菜单角标留白 / 整行高亮 | 不采用（菜单项没有角标） | 我们的菜单（`menu.go` / `tray.go`）没有 badge。 |
+| #1917 Windows `Shell.OpenExternal` 打开 `file://` 卡住 | 采用（无需改代码） | 我们只用 `Shell.OpenExternal` 开 https（`main.go` 的「在浏览器打开」），但同一条路径被修好，将来开本地文件不会踩。 |
+| #1927 Windows Media Foundation 偶发崩溃（`plugins/render` + `ui/video`） | **采用（无需改代码，但价值最高之一）** | `ui/video` 的 `call` 补了 `//go:uintptrescapes`：`args ...uintptr` 里的 COM 指针在调用期间不会被 GC 挪走/回收。Windows 视频窗的偶发崩溃就来自这里。 |
+| `App.OnMemoryWarning` / `App.OnSaveState` / `KeepState` | 不采用（桌面不触发） | 三者的价值都在手机上；桌面上 `OnMemoryWarning` 永不调用、`OnSaveState` 只在 `mygo dev` 里每秒跑。我们的内存治理走自己的 `memory.go`（`Purge` / `trimMemory`）。 |
+| `ui/netimage` | **不采用（有意）** | 它的缓存策略（按服务端 `Cache-Control`）替不了我们的 `internal/imagecache`：我们需要 **Referer** 头（B 站图床防盗链）、`@<n>w.webp` 服务端下采样、氛围光派生图、按窗口可见性 `Purge`。`netimage.SetClient` 可以塞自定义 client，但缓存目录与淘汰策略仍由它说了算，收益抵不上重写成本。 |
+| `DecodeBitmapScaled(data, maxSide)` | **不采用（我们已经有更合适的路）** | 我们从 `image.Decode` 出来的 `image.Image` 直接 `ui.NewBitmap` + 自己 `downscale`（`imagecache/ambient.go`），一次解码派生出位图与氛围光小图。`DecodeBitmapScaled` 只接受压缩字节、且不保留 data，正好是我们**不用**的形态。 |
+| `ui/mobile`、`Element.Keyboard/ReturnKey/Autofill/Capitalize/Autocorrect`、`Tester.Finger*`、`SetInsets`、`PullToRefresh`、`Element.LongPressed`、`Element.Touches` | 不采用（桌面无手势需求） | 与 v0.9.2 的评估一致：本应用没有白板 / 双指手势 / 触摸屏滚动需求。将来做「双指调音量」再回来。 |
+| `ui/golden` | 不采用（我们已有像素口径） | 仓库里的断言是「采样几个点 / 比差异像素数」（`inkLeft` / `darkestIn` / `videobar_material_test.go`），比整图 golden 更抗字体差异。`internal/view` 的像素测试本来就依赖 Noto Sans CJK SC，整图比对会在别的机器上假红。 |
+| `mygo vet` 的 UI 生命周期检查（`go tool mygo vet`） | **采用（本机复核过）** | `go tool mygo vet .` 与 `go tool mygo vet ./internal/view` 都零输出 —— 我们没有把 `ui.Element` 存进结构体字段、也没有跨帧持有。`check.sh` 保持 `go vet`（CI 无 `mygo` CLI 的构建依赖），这条只作为本地复核。 |
+| `go tool mygo migrate-ui`（`Element.Key` → `Context.Key`、`*ui.Element` → `ui.Element`） | **采用（只挑有意义的）** | 见下节。 |
+
+### 改了什么
+
+- `app/go.mod` / `app/go.sum`：v0.9.2 → v0.10.0（tidy 只动这两行 mygo 记录）。
+- `app/internal/view/settingsmenu.go`：设置菜单自己封顶 + 内容进滚动区（#1958 的
+  副作用修复）。新增 `settingsMenuMaxH(windowH)` 与 `settingsMenuAnchorBottom`，
+  把原来的条目循环抽成 `settingsMenuBody`。
+- `app/internal/view/settingsmenu_test.go`：新增
+  `TestSettingsMenuShortWindowScrolls`（矮窗滚到底，量法用 `AccessAll` 的提交
+  矩形）与 `TestSettingsMenuHeightNotCapped`（窗高够时上限不生效、几何不变）。
+
+### #1958 的副作用：唯一真正弄坏我们的一条
+
+v0.10.0 之前，`attachTo` 只给**滚动容器**封顶：
+
+```go
+if c.flags&flagScrollY != 0 {
+    h = min(h, roomAlong(...))
+}
+```
+
+v0.10.0 去掉了这个条件，**所有** `AttachTo` 元素都封顶。release notes 的说法是
+「面板不会高过窗口，长列表在内部滚」—— 但那个「内部滚」是**你的责任**：框架只
+把外框裁到窗口里，内容不会跟着滚。
+
+我们的设置菜单是一个普通 `Column`（`MinWidth(268)` + 四个条目 + 四条分隔 + 四个
+开关行，自然高 322），于是：
+
+| 窗口高 | v0.9.2 面板高 | v0.10.0 面板高 | 末项「顺着听」 |
+| --- | --- | --- | --- |
+| 300 | 322（越出窗口底） | **256（被夹）** | y=319，**在面板外** |
+| 340 | 322 | **296（被夹）** | y=319，**在面板外** |
+| 600 | 322 | 322 | 正常 |
+
+主窗最小高是 155（`main.go` 的 `MinHeight`），用户把窗口拉矮就会撞上。被夹掉的
+那两项**既看不见也点不到**，滚轮也不动 —— 因为它不是滚动容器。
+
+修法两条一起上（缺一条都不行）：
+
+1. 面板 `MaxHeight(settingsMenuMaxH(winH))` —— 让框架的夹取与我们的上限一致，
+   几何可预测；
+2. 内容包进 `ui.Scroll(c).FillWidth().Shrink(1)` —— **`Shrink(1)` 是硬需求**：
+   列里的子元素默认 `shrink:1`，滚动区不显式 `Shrink(1)` 就不会跟着缩，也就
+   滚不动。
+
+窗高够（≥360）时上限不生效，面板仍是自然 322，几何与原版一致 —— 这条由
+`TestSettingsMenuHeightNotCapped` 钉住。
+
+**同一类排查过的其它弹层**（都**没有**受影响，不需要改）：
+
+- 视频窗设置面板（`videosettings.go`）：早就是 `MaxHeight(videoSettingsScrollH(h))`
+  + 内部 `ui.Scroll`，v0.9.2 与 v0.10.0 实测一致（320×200 滚得到最后一项）。
+- 合作 UP 主下拉（`collabpicker.go`）：早就是 `MaxHeight(220)` + 内部 `ui.Scroll`。
+- 外观弹层（`appearance.go`）：自然高 253，`attachTo` 的 `alongTarget` 在放不下时
+  会翻到上方，实测 420~700 窗高下都完整可见。
+- 播放栏的倍速 / 音量弹层（`playerbar_shared.go` / `playerbar.go` 的裸 `AttachTo`）：
+  都很矮（≤44），且挂在窗口底部那一列上，`alongTarget` 的翻转让它们始终在窗内。
+
+### 踩到的坑（测试侧）
+
+**`Tester.Find` 给的是裁剪后的矩形，`Tester.AccessAll` 给的是提交矩形。** 用
+`Find` 量「被夹掉的内容」会得到 `h=0`，既分不清「滚不到」与「根本没画」，也让
+「滚到底后可见」这类断言永远红（元素 y 不变、h 恒 0）。凡是验证「面板内的可达性」
+一律走 `AccessAll`（新加的 `popupCommitBounds` / `accessRect` / `insidePanel` 三个
+小助手就是干这个的）。
+
+另一个坑：`tt.Wheel()` 只发给**指针下面**的滚动容器，而 `Tester` 的指针默认在
+(0,0)。矮窗里必须先把指针 `Move` 到滚动区里（`AccessAll` 量出来的第一行中心最
+稳），否则滚轮事件落到别处，`ScrollState.Y` 一直是 0。
+
+### codemod 的结果（`go tool mygo migrate-ui`）
+
+`go tool mygo migrate-ui .` 报了 16 个文件，`-write` 之后的差异分三类，只采纳
+第三类：
+
+1. **`ui.X(c).Key(k)` → `ui.X(c.Key(k))`**（`drawer.go` / `playlist.go` /
+   `playerbar.go` / `playerbar_shared.go`）：v0.10.0 的文档说 `Key` 要在控件
+   **构造前**给（`Context.Key`），`Element.Key` 对已初始化状态的控件会 panic。
+   我们这些调用点都是 `Row` / `Column` / `Box`（无状态容器），**两种写法等价**，
+   采纳只是跟上推荐写法、省一次 `rekey`。
+2. **`*ui.Element` → `ui.Element`**（`playerSettingsItems` 的
+   `volumeSlot, speedSlot`）：`Element` 现在是 16 字节的受检句柄，传值即可。
+   采纳（去掉 `&`）。
+3. **纯 gofmt 噪音**（`linebox.go` / `ownerface.go` / `mini.go` 的注释缩进与
+   复合字面量对齐）：**不采纳** —— 那是 codemod 自带的 formatter 版本差异，
+   与升级无关，留着只会让 diff 变脏。
+
+### 测试口径
+
+- `go vet ./...`：**通过**。
+- `go test ./...`：除 `internal/view` 外全绿。`internal/view` 单进程 40m 超时 ——
+  **改动前同样超时**（本轮开工第一件事就是拿 v0.10.0 未改代码跑了一遍，1300s 处
+  卡在 `TestReplyBodyHangingIndent`，与 v0.9.2 的既有记录一致）。放宽到 40m 后
+  全量 813 passed / 0 failed。
+- focused：`go test ./internal/view -run 'TestSettingsMenu|TestVideoSettings|TestVideoBar|TestVideoChrome|TestAppearance|TestCollab'`
+  全绿（108 + 22 项）。
+- 反证：把 `settingsmenu.go` 的 `ui.Scroll` 去掉，`TestSettingsMenuShortWindowScrolls`
+  在 h=300 / h=340 两档都变红（「顺着听」停在 y=319，面板 256 / 296）。
+- 六平台 linux/windows/darwin × amd64/arm64 用 `CGO_ENABLED=0
+  -tags=nethttpomithttp2` 全部编译通过。
+
+### 需真机确认
+
+- 主窗拉矮到 ~300 高时点设置键：菜单贴着窗口底、能在里面滚到最后一项；关闭
+  设置后窗口恢复原样。
+- Windows 视频窗的偶发崩溃（#1927 的 `go:uintptrescapes`）：长时间播放 / 反复
+  开合视频窗，看还会不会掉。

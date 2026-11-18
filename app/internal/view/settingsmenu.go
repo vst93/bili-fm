@@ -37,6 +37,29 @@ const (
 	settingsItemPadX   = 16  // px-4
 )
 
+// settingsMenuMaxH 是面板这一帧的高度上限：窗口高减去「标题栏 + 设置键 4px
+// 间距 + 上下各 4px 边距」。
+//
+// 为什么要自己封顶（mygo v0.10.0 #1958 之后仍然要）：
+//
+//	v0.10.0 起 PopoverBase 的面板**永远不高过窗口剩下的空间**（attachTo 里
+//	`h = min(h, roomAlong(...))` 对每个 AttachTo 元素生效，不再只对滚动容器）。
+//	那条改动的本意是「放不下就在内部滚」，但**前提是面板自己是个滚动容器**：
+//	框架只是把外框裁到窗口里，内容不会跟着滚。设置菜单此前是一个普通 Column
+//	—— 实测 800×300 的窗口里面板被裁到 260，最末两项（顺着听）高度为 0，
+//	既看不见也点不到，滚轮怎么滚都不动。
+//
+// 所以面板自己算高度、自己滚：这里给出上限，内容包进 ui.Scroll().Shrink(1)。
+// 窗口够高时面板仍是自然高度（上限不生效），几何与原版一致。
+func settingsMenuMaxH(windowH float32) float32 {
+	top := settingsMenuAnchorBottom + settingsMenuGap + settingsMenuPadY
+	return maxFloat32(windowH-top-settingsMenuPadY, settingsItemH)
+}
+
+// settingsMenuAnchorBottom 是设置键下缘的估计高度：标题栏内边距 4 + 键高 28
+// （原版 .app-title-bar-btn 的 28×28）。面板最多只能到窗口底，从这里开始算。
+const settingsMenuAnchorBottom float32 = 32
+
 // settingsItemInk 是菜单条目的文案色（原版 #settings-menu button 的 #334155）。
 var settingsItemInk = ui.Hex("#334155")
 
@@ -68,11 +91,13 @@ func settingsItemPaint(t Theme, hovered, pressed bool) (bg ui.Color, inset bool,
 // Esc 关与焦点归还，面板本身由这里照原版上材质。
 func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 	t := a.Theme
+	_, winH := c.Size()
 	ui.PopoverBase(c, anchor, &a.ShowSettings, func(panel ui.Element) {
 		// 原版 #settings-menu：min-w 120、圆角 8、py-1、玻璃底 + 白边 + 两层投影。
 		// 材质用框架玻璃（与原版同一种液态玻璃，自带边缘聚光），外投影按原版
 		// 的 --glass-specular + 0 18px 44px 补上。
-		panel.MinWidth(settingsMenuMinW).Padding(settingsMenuPadY, 0).
+		panel.MinWidth(settingsMenuMinW).MaxHeight(settingsMenuMaxH(winH)).
+			Padding(settingsMenuPadY, 0).
 			Radius(settingsMenuRadius).Margin(settingsMenuGap, 0, 0, 0).
 			// 材质：原版 #settings-menu 是 `background-color: var(--glass-bg)`
 			// （白 .24）+ `backdrop-filter: var(--liquid-blur)`（blur 20px）。
@@ -94,68 +119,81 @@ func (a *App) settingsMenu(c *ui.Context, anchor ui.Element) {
 			InsetShadow(0, -1, 1, 0, ui.Hex("#0f172a").Alpha(0.06)).
 			Shadow(0, 18, 44, 0, ui.Hex("#0f172a").Alpha(0.10))
 		panel.Children(func() {
-			// 动作条目保持原版顺序；三个播放偏好接在下面，用一条淡线隔开。
-			// 开关行不关闭菜单，方便连续调整。
-			for _, label := range settingsItems() {
-				label := label
-				item := ui.ButtonBase(c.Key("settings-"+label)).
-					FillWidth().Height(settingsItemH).Padding(0, settingsItemPadX).
-					Justify(ui.Start).Radius(0).Label(label)
-				bg, inset, scale := settingsItemPaint(a.Theme, item.Hovered(), item.Pressed())
-				item.Background(bg)
-				if inset {
-					item.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
-				}
-				// 按下缩到 .97（原版 #settings-menu button:active scale(.97)）。
-				p := ui.Pose{}
-				if scale != 1 {
-					p.Scale = scale
-				}
-				item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
-				item.Children(func() {
-					ui.Text(c, label).FontSize(14).TextColor(a.Theme.text(settingsItemInk))
-				})
-				if item.Clicked() {
-					a.ShowSettings = false
-					a.chooseSettingsItem(label)
-				}
-			}
-			ui.Box(c).FillWidth().Height(1).Margin(4, 0).Shrink(0).
-				Background(ui.Hex("#64748b").Alpha(0.16))
-			a.settingsToggle(c, "桌面字幕", a.LyricsEnabled, func() {
-				if a.Act.ToggleDesktopLyrics != nil {
-					a.Act.ToggleDesktopLyrics()
-				}
+			// 内容包进 ui.Scroll().Shrink(1)：面板被窗口高夹住时（矮窗），
+			// 剩下的部分在内部滚动，而不是被裁掉（v0.10.0 #1958 只夹外框，
+			// 不替你滚 —— 见 settingsMenuMaxH 的说明）。窗口够高时滚动区
+			// 就是自然高度，滚动条不出现，几何与原版一致。
+			ui.Scroll(c).FillWidth().Shrink(1).Children(func() {
+				settingsMenuBody(c, a)
 			})
-			// 鼠标穿透：字幕窗盖住下面窗口的鼠标手势时用得上。入口只放在
-			// 主窗（穿透后字幕窗只剩设置键可点）。三平台统一走 mygo 的
-			// Window.SetInputRegion：窗口只在设置键那一块收点击，其余部分
-			// 让给下面的窗口（见 app/lyrics_clickthrough.go）。
-			a.settingsToggle(c, "字幕鼠标穿透", a.LyricsClickThrough, func() {
-				if a.Act.ToggleLyricsClickThrough != nil {
-					a.Act.ToggleLyricsClickThrough()
-				}
-			})
-			a.settingsToggle(c, "弹幕热力", a.HeatOn, func() {
-				if a.Act.ToggleHeat != nil {
-					a.Act.ToggleHeat()
-				}
-			})
-			// 一句话说明播放栏里的两种图形：底部面积是弹幕密度，进度条
-			// 上的短竖线是章节分界，不是第二组热力数据。
-			ui.Text(c, "面积=弹幕密度；短竖线=章节分界").
-				FontSize(11).TextColor(a.Theme.text(settingsItemInk.Alpha(0.65))).
-				Padding(0, settingsItemPadX).Margin(0, 0, 6, 0)
-			a.settingsToggle(c, "顺着听", a.RadioOn, func() {
-				if a.Act.ToggleRadio != nil {
-					a.Act.ToggleRadio()
-				}
-			})
-			// 视频相关项（弹幕 5 项 + 原生视频播放）**不在**这里：它们跟着
-			// 画面走 —— 视频窗顶栏的齿轮键弹出内置设置面板（videosettings.go）。
-			// 用户明确不要两处入口：主窗菜单只管主窗自己的东西（桌面字幕 /
-			// 穿透 / 弹幕热力 / 顺着听），视频怎么播、弹幕怎么画都在视频窗里。
 		})
+	})
+}
+
+// settingsMenuBody 是设置菜单的滚动内容：原版四个动作条目，接一条淡线，
+// 再接本 fork 的四颗开关（开关行不关闭菜单，方便连续调整）。
+func settingsMenuBody(c *ui.Context, a *App) {
+	ui.Column(c).FillWidth().Children(func() {
+		// 动作条目保持原版顺序。
+		for _, label := range settingsItems() {
+			label := label
+			item := ui.ButtonBase(c.Key("settings-"+label)).
+				FillWidth().Height(settingsItemH).Padding(0, settingsItemPadX).
+				Justify(ui.Start).Radius(0).Label(label)
+			bg, inset, scale := settingsItemPaint(a.Theme, item.Hovered(), item.Pressed())
+			item.Background(bg)
+			if inset {
+				item.InsetShadow(0, 1, 1, 0, a.Theme.Highlight)
+			}
+			// 按下缩到 .97（原版 #settings-menu button:active scale(.97)）。
+			p := ui.Pose{}
+			if scale != 1 {
+				p.Scale = scale
+			}
+			item.AnimatePose(p, ui.Animation{Duration: 100 * time.Millisecond, Ease: ui.EaseOut})
+			item.Children(func() {
+				ui.Text(c, label).FontSize(14).TextColor(a.Theme.text(settingsItemInk))
+			})
+			if item.Clicked() {
+				a.ShowSettings = false
+				a.chooseSettingsItem(label)
+			}
+		}
+		ui.Box(c).FillWidth().Height(1).Margin(4, 0).Shrink(0).
+			Background(ui.Hex("#64748b").Alpha(0.16))
+		a.settingsToggle(c, "桌面字幕", a.LyricsEnabled, func() {
+			if a.Act.ToggleDesktopLyrics != nil {
+				a.Act.ToggleDesktopLyrics()
+			}
+		})
+		// 鼠标穿透：字幕窗盖住下面窗口的鼠标手势时用得上。入口只放在
+		// 主窗（穿透后字幕窗只剩设置键可点）。三平台统一走 mygo 的
+		// Window.SetInputRegion：窗口只在设置键那一块收点击，其余部分
+		// 让给下面的窗口（见 app/lyrics_clickthrough.go）。
+		a.settingsToggle(c, "字幕鼠标穿透", a.LyricsClickThrough, func() {
+			if a.Act.ToggleLyricsClickThrough != nil {
+				a.Act.ToggleLyricsClickThrough()
+			}
+		})
+		a.settingsToggle(c, "弹幕热力", a.HeatOn, func() {
+			if a.Act.ToggleHeat != nil {
+				a.Act.ToggleHeat()
+			}
+		})
+		// 一句话说明播放栏里的两种图形：底部面积是弹幕密度，进度条
+		// 上的短竖线是章节分界，不是第二组热力数据。
+		ui.Text(c, "面积=弹幕密度；短竖线=章节分界").
+			FontSize(11).TextColor(a.Theme.text(settingsItemInk.Alpha(0.65))).
+			Padding(0, settingsItemPadX).Margin(0, 0, 6, 0)
+		a.settingsToggle(c, "顺着听", a.RadioOn, func() {
+			if a.Act.ToggleRadio != nil {
+				a.Act.ToggleRadio()
+			}
+		})
+		// 视频相关项（弹幕 5 项 + 原生视频播放）**不在**这里：它们跟着
+		// 画面走 —— 视频窗顶栏的齿轮键弹出内置设置面板（videosettings.go）。
+		// 用户明确不要两处入口：主窗菜单只管主窗自己的东西（桌面字幕 /
+		// 穿透 / 弹幕热力 / 顺着听），视频怎么播、弹幕怎么画都在视频窗里。
 	})
 }
 

@@ -162,7 +162,7 @@ func (st *seekBubbleState) draw(c *ui.Context, s ui.Element, dur float64) {
 	left := st.seekBubbleLeft
 	th, tsh := textLineBox(seekBubbleFont, seekBubbleLH)
 	s.Children(func() {
-		box := ui.Box(c).Key("seek-bubble").
+		box := ui.Box(c.Key("seek-bubble")).
 			Absolute().Left(left).Bottom(timelineH+6).
 			Width(bw).Height(seekBubbleH).Center().PassThrough().
 			Padding(seekBubblePadY, seekBubblePadX).Radius(seekBubbleRadius).
@@ -507,6 +507,10 @@ func playerTimelineItems(c *ui.Context, b PlayerBarBind) {
 // 全屏键是**两个窗口控件集合的唯一差别**：视频窗 = 主窗 + 全屏 − 均衡。它
 // 在同一个函数里、用同一套键材质画出来（见 playerFullScreenKey），主窗不传
 // 绑定就没有它。
+//
+// volumeSlot / speedSlot 是**回填出口**（列元素，弹层挂在列上），所以是
+// `*ui.Element` 而不是值：`go tool mygo migrate-ui` 会建议改成值，但这里要的
+// 是「把这一帧建出来的列交回去」，传值拿不到。
 func playerSettingsItems(c *ui.Context, b PlayerBarBind, volumeSlot, speedSlot *ui.Element) {
 	m := playerBarKeyMetrics
 	*volumeSlot = playerSlot(c, m.ToolSlot, m.Key, func() { playerVolumeKey(c, b) })

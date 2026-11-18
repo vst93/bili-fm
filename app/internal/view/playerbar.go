@@ -3110,7 +3110,7 @@ func (a *App) seekBubble(c *ui.Context, s ui.Element, dur float64) {
 	// 直接建在这里会以「播放栏那一行」为父级，整块位置会偏掉。
 	// PassThrough：气泡只是显示，不能把进度条的指针事件吃掉。
 	s.Children(func() {
-		box := ui.Box(c).Key("seek-bubble").
+		box := ui.Box(c.Key("seek-bubble")).
 			Absolute().Left(left).Bottom(timelineH+6).
 			Width(bw).Height(seekBubbleH).Center().PassThrough().
 			Padding(seekBubblePadY, seekBubblePadX).Radius(seekBubbleRadius).
