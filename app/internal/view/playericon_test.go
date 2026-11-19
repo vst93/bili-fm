@@ -301,7 +301,10 @@ func TestPlayerControlIconWiring(t *testing.T) {
 		{"drawer.go", "icon := iconViews", "列表卡片 meta 的播放量图标"},
 		{"home.go", "pick(a.Faved, iconStarFilled, iconStar)", "收藏键的实心星"},
 		{"home.go", "\"浏览器打开\", iconBrowser, iconOpticalSize", "浏览器的光学尺寸 20"},
-		{"home.go", "\"视频播放\", iconVideo, iconOpticalSize", "视频的光学尺寸 20"},
+		// 视频键的 label 会随窗口开关切换（"视频播放" ↔ "关闭视频播放"），
+		// 这里钉住图标与光学尺寸这一对，label 由 TestVideoOpenButtonHighlights
+		// 钉住。
+		{"home.go", "iconVideo, iconOpticalSize", "视频的光学尺寸 20"},
 		{"home.go", "\"弹幕、评论、章节与字幕\", iconText, iconOpticalSize", "弹幕的光学尺寸 20"},
 	}
 	for _, c := range cases {

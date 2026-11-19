@@ -1302,15 +1302,20 @@ func (a *App) contentActions(c *ui.Context) {
 				a.Act.OpenBrowser()
 			}
 		})
-		a.contentIconButton(c, "video", "视频播放", iconVideo, iconOpticalSize, bvid == "", func() {
-			if a.VideoOpen {
-				if a.Act.CloseVideo != nil {
-					a.Act.CloseVideo()
+		// 视频窗开着时这颗键高亮（与「顺着听」同一个高亮范式：GlassActive 底
+		// + 蓝色图标 + Checked），关掉窗口自动恢复灰色 —— 用户一眼能看出
+		// 当前是不是在视频窗里播（原版 WebView 弹窗时代没有这个状态可读）。
+		vb := a.contentIconButton(c, "video", pick(a.VideoOpen, "关闭视频播放", "视频播放"),
+			iconVideo, iconOpticalSize, bvid == "", func() {
+				if a.VideoOpen {
+					if a.Act.CloseVideo != nil {
+						a.Act.CloseVideo()
+					}
+				} else if a.Act.OpenVideo != nil {
+					a.Act.OpenVideo()
 				}
-			} else if a.Act.OpenVideo != nil {
-				a.Act.OpenVideo()
-			}
-		})
+			})
+		videoOpenHighlight(c, a, vb)
 		// 这里是弹幕 / 评论 / 章节 / 字幕的统一入口，不再是「弹幕/评论」
 		// 两件套；图标也换成文字稿图标，避免继续暗示只有评论和弹幕。
 		a.contentIconButton(c, "danmaku", "弹幕、评论、章节与字幕", iconText, iconOpticalSize, cid == 0, a.openDanmaku)
@@ -1658,6 +1663,24 @@ func (a *App) contentIconButton(c *ui.Context, key, label string, ic *ui.SVG, si
 		fn()
 	}
 	return b
+}
+
+// videoOpenHighlight 给内容操作行的「视频播放」键加「视频窗开着」的高亮：
+// GlassActive 底 + 蓝色图标 + Checked（与「顺着听」同一个范式）。关闭窗口
+// 后下一帧自动回到灰色（App.VideoOpen 是唯一事实源，主窗与视频窗共享）。
+func videoOpenHighlight(c *ui.Context, a *App, b ui.Element) {
+	if !a.VideoOpen {
+		return
+	}
+	t := a.Theme
+	if !b.Hovered() && !b.Pressed() {
+		b.Background(t.GlassActive)
+	}
+	b.Checked(true)
+	b.Children(func() {
+		ui.Icon(c, iconVideo).Size(iconOpticalSize, iconOpticalSize).
+			TextColor(t.text(ui.Hex("#3b82f6")))
+	})
 }
 
 // radioContentButton 是主页播放详情里的「顺着听」开关。

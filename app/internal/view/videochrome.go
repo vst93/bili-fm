@@ -747,10 +747,17 @@ func (v *VideoChrome) View(c *ui.Context) {
 	}
 
 	px, py, over := root.PointerPosition()
-	frame := v.idle.observe(now, px, py, over, v.holdChrome(full))
+	// 指针是不是落在两条栏（或它们弹出的弹层）的矩形里，**按几何算**，
+	// 不看命中测试。原因是一个正反馈环：alpha 一降 → 栏被 IgnoreInput →
+	// Hovered 变假 → 不再 hold → alpha 继续降 → 冲到 0（按钮与滑块全部
+	// 收不到输入，拖不动），随后指针事件又把 alpha 拉满 —— 看到的正是
+	// 「整个 UI 闪 + 控件失效」。几何判定与 alpha 无关，环就断了。
+	winW, winH := c.Size()
+	inChrome := over && v.pointerInChrome(px, py, float32(winW), float32(winH))
+	frame := v.idle.observe(now, px, py, over, v.holdChrome(full) || inChrome)
 	alpha := frame.Alpha
 	// 上一帧的悬停结论已经用掉，这一帧的两条栏重新读。
-	v.barHover = false
+	v.barHover = inChrome
 
 	// 弹幕覆盖层画在画面上、控件条之下。它自己 IgnoreInput，点击照常穿到
 	// 下面那块「视频画面」上。
@@ -800,8 +807,13 @@ func (v *VideoChrome) View(c *ui.Context) {
 	if v.barHover || v.showSpeed || v.showVolume || v.showSettings {
 		v.hoverAt = now
 	}
-	if !v.hoverAt.IsZero() && now.Sub(v.hoverAt) < videoHoverTail {
-		c.AnimationFrame()
+	if !v.hoverAt.IsZero() {
+		// 用 After 排「过渡走完」的那一拍，而不是无限 AnimationFrame：
+		// AnimationFrame 会让 Tester.Frame() 永远有待处理帧（整包测试卡死），
+		// 真实窗口里也只是白烧 CPU。排一次唤醒就够把过渡推到终点。
+		if left := videoHoverTail - now.Sub(v.hoverAt); left > 0 {
+			c.After(left)
+		}
 	}
 	// 弹幕在播放时是连续运动：不请求逐帧重绘的话，只有别的动画（控件条
 	// 过渡）带着画面刷新时弹幕才动一下。
@@ -963,7 +975,9 @@ func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool)
 			v.close()
 		}
 	})
-	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
+	// 键盘焦点也算「在这条栏上」；指针位置已由 pointerInChrome 的几何判定
+	// 计入（不再用 Hovered：那条路依赖 alpha，会与淡出互相拽着抖）。
+	v.barHover = v.barHover || bar.FocusWithin()
 	return gear
 }
 
@@ -1057,7 +1071,9 @@ func (v *VideoChrome) controlBar(c *ui.Context, t Theme, alpha float32, full boo
 				!b.ShowVolume, func() { b.Set.PersistVolume() })
 		}
 	})
-	v.barHover = v.barHover || bar.Hovered() || bar.FocusWithin()
+	// 键盘焦点也算「在这条栏上」；指针位置已由 pointerInChrome 的几何判定
+	// 计入（不再用 Hovered：那条路依赖 alpha，会与淡出互相拽着抖）。
+	v.barHover = v.barHover || bar.FocusWithin()
 }
 
 // videoPlayerBind 把视频窗的控件条绑到视频播放器：播放/暂停、进度、时间
@@ -1542,4 +1558,40 @@ func maxF64(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// pointerInChrome 判断指针是否落在两条栏或它们的弹层里（窗口坐标）。
+//
+// 这是「不许淡出」的几何判据，替代 Hovered：Hovered 依赖 alpha（alpha 低于
+// 0.01 时栏 IgnoreInput），而 alpha 又依赖 hold —— 两者互相拽会形成正反馈，
+// 淡出途中按钮忽然收不到输入、滑块拖不动、整个 UI 闪烁。几何判定只看指针
+// 与栏的位置关系，与当前不透明度无关。
+//
+// 留一圈外扩：栏的边缘是圆角 + 阴影，指针停在边缘上应该算「在里面」，
+// 不然贴边悬停会反复进出。
+func (v *VideoChrome) pointerInChrome(px, py, w, h float32) bool {
+	if w <= 0 || h <= 0 {
+		return false
+	}
+	lo := videoChromeLayoutFor(w)
+	const slack float32 = 6
+	near := func(x, y, bw, bh float32) bool {
+		return px >= x-slack && px <= x+bw+slack && py >= y-slack && py <= y+bh+slack
+	}
+	// 顶栏
+	if near(videoInset, videoInset, w-2*videoInset, videoChromeTitleH) {
+		return true
+	}
+	// 控件条（两行布局更高）
+	barH := videoChromeBarH
+	if lo.TwoRows {
+		barH = videoChromeBarTwoH
+	}
+	if near(videoInset, h-videoInset-barH, w-2*videoInset, barH) {
+		return true
+	}
+	// 弹层（倍速 / 音量挂在控件条上方，设置面板挂在顶栏下方）的矩形由框架
+	// 按 anchor 摆位，这里不去猜：它们开着时由 holdChrome 的 showSpeed /
+	// showVolume / showSettings 兜住「不淡出」，本函数只管两条栏本身。
+	return false
 }
