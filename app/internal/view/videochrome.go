@@ -80,6 +80,9 @@ const (
 	// 的注意力）。
 	videoChromeShowFade = 110 * time.Millisecond
 	videoChromeHideFade = 220 * time.Millisecond
+	// videoHoverTail 是悬停过渡的尾巴：指针离开键之后过渡还要走完 140ms，
+	// 这段时间也得逐帧重建（见 View 的结尾）。
+	videoHoverTail = 200 * time.Millisecond
 	// videoChromeSample 是**指针采样兜底**的周期：控件条收起之后，没有指针
 	// 事件的平台 / 场景靠它把坐标重读一遍（坐标一变就当场浮出）。
 	//
@@ -234,6 +237,11 @@ type VideoChrome struct {
 	fs       videoFullScreen
 	seek     videoSeek
 	barHover bool
+	// hoverAt 是上一次「指针在控件条 / 弹层上」的时刻。悬停与按压的材质色是
+	// 构建期算的（Hovered + AnimateColor 140ms 过渡），而视频窗的帧大多由
+	// 视频驱动、只重绘不重建：不在这里逐帧请求重建的话，过渡只在偶发的重建
+	// 帧里跳一格，画面就在新旧两色之间闪（用户报的「悬停闪烁」）。
+	hoverAt time.Time
 
 	// 控件条上的两个弹层（与主窗同一份实现）与音量拖动提交的上一帧状态。
 	showVolume bool
@@ -785,6 +793,15 @@ func (v *VideoChrome) View(c *ui.Context) {
 	}
 	if v.clicks.pending {
 		c.After(videoDoubleClick)
+	}
+	// 悬停 / 按压的材质色是构建期算的（140ms 过渡），而视频窗的帧大多由
+	// 视频驱动、只重绘不重建。指针在控件条 / 弹层上（或刚离开的一小段）时
+	// 逐帧请求重建，否则过渡只在偶发重建帧里跳一格，看着就是闪。
+	if v.barHover || v.showSpeed || v.showVolume || v.showSettings {
+		v.hoverAt = now
+	}
+	if !v.hoverAt.IsZero() && now.Sub(v.hoverAt) < videoHoverTail {
+		c.AnimationFrame()
 	}
 	// 弹幕在播放时是连续运动：不请求逐帧重绘的话，只有别的动画（控件条
 	// 过渡）带着画面刷新时弹幕才动一下。
