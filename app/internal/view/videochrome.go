@@ -573,6 +573,12 @@ type videoSeek struct {
 	// 弹回原处，用户看到的就是「拖不动」。
 	target    float64
 	hasTarget bool
+	// lastSeekAt / dragPending 是拖动中的限频：精确 seek 要从关键帧解码到
+	// 目标点，长视频上一次就可能几十毫秒；每个指针位移都发会把绘制线程堵死
+	// （用户报的「长视频拖不动」）。按 videoSeekDragInterval 限频，松手时把
+	// 攒下的最后一次补发，落点仍然准。
+	lastSeekAt  time.Time
+	dragPending bool
 }
 
 // videoSeekSettle 是松手（或 held 掉帧）之后仍显示滑块值的时长：seek 落地
@@ -586,6 +592,10 @@ const videoSeekReached = 1.5
 // videoSeekWait 是等播放器追上的上限：超过它认为这次 seek 被丢弃了，
 // 交还控制权，滑块不会永久卡在目标值上。
 const videoSeekWait = 3 * time.Second
+
+// videoSeekDragInterval 是拖动中下发 seek 的最小间隔。精确 seek 在长视频上
+// 很贵（要从前一个关键帧解码到目标点），逐位移下发会让界面卡住。
+const videoSeekDragInterval = 120 * time.Millisecond
 
 // ---------------------------------------------------------------- 快捷键
 
@@ -1199,8 +1209,19 @@ func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, fl
 			v.seek.wasHeld = in.Held
 		}
 		v.seek.drag = in.Held
+		heldBefore := v.seek.wasHeld
 		if in.Changed {
 			v.seek.target, v.seek.hasTarget = v.seek.value, true
+			if now.Sub(v.seek.lastSeekAt) >= videoSeekDragInterval {
+				v.seek.lastSeekAt, v.seek.dragPending = now, false
+				return true, v.seek.value
+			}
+			v.seek.dragPending = true
+			return false, v.seek.value
+		}
+		// 松手：把拖动中限频攒下的最后一次补发，落点才准。
+		if heldBefore && !in.Held && v.seek.dragPending {
+			v.seek.dragPending, v.seek.lastSeekAt = false, now
 			return true, v.seek.value
 		}
 		// 按住中，或刚按住 / 刚松手的一小段：滑块停在用户放下的位置。

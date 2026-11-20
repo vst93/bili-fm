@@ -213,28 +213,34 @@ func TestVideoChromeSeekSurvivesHeldGaps(t *testing.T) {
 	if commit, next := f(PlayerTimelineInput{Held: false, Changed: false}); commit || next != 70 {
 		t.Fatalf("held 掉帧把滑块打回 %v（应为 70，commit=%v）", next, commit)
 	}
-	// 继续拖。
+	// 继续拖：限频窗口内的变化先不提交（值仍然立刻更新到滑块上）。
 	v.seek.value = 80
-	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 80 {
-		t.Fatalf("恢复拖动后应继续提交：commit=%v next=%v", commit, next)
+	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); commit || next != 80 {
+		t.Fatalf("限频窗口内不该重复下发 seek：commit=%v next=%v", commit, next)
 	}
-	// 松手：seek 还没落地，滑块仍停在 80（不能弹回播放位置 30）。
-	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
-		t.Errorf("松手瞬间滑块被拽回 %v（应为 80）", next)
+	// 窗口过后再拖一下就补上。
+	time.Sleep(videoSeekDragInterval + 20*time.Millisecond)
+	v.seek.value = 85
+	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 85 {
+		t.Fatalf("限频窗口过后应继续提交：commit=%v next=%v", commit, next)
+	}
+	// 松手：seek 还没落地，滑块仍停在 85（不能弹回播放位置 30）。
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 85 {
+		t.Errorf("松手瞬间滑块被拽回 %v（应为 85）", next)
 	}
 	// settle 过去、但播放器还没追上：仍然停在 80（见 TestVideoChromeSeekWaitsForPlayer）。
 	time.Sleep(videoSeekSettle + 20*time.Millisecond)
-	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
-		t.Errorf("seek 未落地时滑块被打回 %v（应为 80）", next)
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 85 {
+		t.Errorf("seek 未落地时滑块被打回 %v（应为 85）", next)
 	}
 	// 播放器追上后交还控制权。
-	pl.pos = 80 * time.Second
-	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
-		t.Errorf("追上后应显示 80，实际 %v", next)
+	pl.pos = 85 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 85 {
+		t.Errorf("追上后应显示 85，实际 %v", next)
 	}
-	pl.pos = 82 * time.Second
-	if _, next := f(PlayerTimelineInput{Held: false}); next != 82 {
-		t.Errorf("追上后应跟随播放位置 82，实际 %v", next)
+	pl.pos = 87 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 87 {
+		t.Errorf("追上后应跟随播放位置 87，实际 %v", next)
 	}
 }
 
@@ -291,5 +297,50 @@ func TestVideoChromeSeekGivesUpEventually(t *testing.T) {
 	v.seek.heldAt = time.Now().Add(-videoSeekWait - time.Second)
 	if _, next := f(PlayerTimelineInput{Held: false}); next != 30 {
 		t.Errorf("等太久之后应交还控制权（播放位置 30），实际 %v", next)
+	}
+}
+
+// TestVideoChromeSeekThrottledWhileDragging 钉住拖动中的下发频率：
+// 长视频上一次精确 seek 要几十毫秒，逐位移下发会把绘制线程堵死（用户报的
+// 「长视频拖不动」）。拖动 1 秒、每 8ms 位移一次，下发次数必须远少于位移
+// 次数；松手必须补发最终落点。
+func TestVideoChromeSeekThrottledWhileDragging(t *testing.T) {
+	pl := &videoStubPlayer{playing: true, ready: true, dur: 3600 * time.Second, pos: 100 * time.Second, rate: 1, vol: 1}
+	v := &VideoChrome{Pl: pl}
+	f := v.seekFrame(3600)
+
+	seeks := 0
+	// 按下并位移 125 次（8ms 一次 ≈ 1 秒）。
+	for i := 0; i < 125; i++ {
+		v.seek.value = 100 + float64(i)
+		commit, _ := f(PlayerTimelineInput{Held: true, Changed: true})
+		if commit {
+			seeks++
+		}
+		time.Sleep(videoSeekDragInterval / 15)
+	}
+	// 松手：最后落点必须补发。
+	last := v.seek.value
+	commit, next := f(PlayerTimelineInput{Held: false})
+	if commit {
+		seeks++
+		if next != last {
+			t.Errorf("松手补发的落点 %v 不是最终值 %v", next, last)
+		}
+	}
+	if seeks == 0 {
+		t.Fatal("拖动期间一次 seek 都没下发")
+	}
+	if seeks > 15 {
+		t.Errorf("1 秒的拖动下发了 %d 次 seek（应 ≤15，逐位移会堵住绘制线程）", seeks)
+	}
+	t.Logf("125 次位移 → %d 次 seek，最后落点 %v", seeks, last)
+}
+
+// TestVideoChromeSeekIntervalBound 钉住限频常量本身在合理区间：太小会堵住
+// 绘制线程（长视频拖不动），太大拖动会显得一格一格跳。
+func TestVideoChromeSeekIntervalBound(t *testing.T) {
+	if videoSeekDragInterval < 60*time.Millisecond || videoSeekDragInterval > 250*time.Millisecond {
+		t.Errorf("拖动限频 %v 不在 60~250ms 的合理区间", videoSeekDragInterval)
 	}
 }
