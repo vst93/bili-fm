@@ -558,7 +558,20 @@ func (f *videoFullScreen) fading(now time.Time) bool { return f.fade(now) > 0 }
 type videoSeek struct {
 	value float64
 	drag  bool
+	// wasHeld / heldAt 是「上一帧是否按住」与「按住状态最后一次变化的时刻」。
+	//
+	// 拖动时不能只看这一帧的 held：真实事件流里按住移动时 held 会偶尔掉一帧
+	// （GTK 只把真正移动的帧算作拖动）。掉的那一帧若按「没按住」处理，值会被
+	// 播放器的旧位置打回去，下一帧再被拖回来 —— 表现就是「滑块拖不动，只有
+	// 点一下能跳」。主窗靠 progressPlan 的 settle 状态机兜住这一点，视频窗
+	// 这条直通路径也得有同样的宽容。
+	wasHeld bool
+	heldAt  time.Time
 }
+
+// videoSeekSettle 是松手（或 held 掉帧）之后仍显示滑块值的时长：seek 落地
+// 要一点时间，这段里用播放器位置回填会把滑块拽回去。
+const videoSeekSettle = 250 * time.Millisecond
 
 // ---------------------------------------------------------------- 快捷键
 
@@ -1166,14 +1179,20 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 // 但输入接线与绘制是同一份 playerTimeline。
 func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, float64) {
 	return func(in PlayerTimelineInput) (bool, float64) {
+		now := time.Now()
+		if in.Held != v.seek.wasHeld {
+			v.seek.heldAt = now
+			v.seek.wasHeld = in.Held
+		}
 		v.seek.drag = in.Held
 		if in.Changed {
 			return true, v.seek.value
 		}
-		if !in.Held {
-			return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+		// 按住中，或刚按住 / 刚松手的一小段：滑块停在用户放下的位置。
+		if in.Held || now.Sub(v.seek.heldAt) < videoSeekSettle {
+			return false, v.seek.value
 		}
-		return false, v.seek.value
+		return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
 	}
 }
 

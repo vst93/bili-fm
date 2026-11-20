@@ -1,6 +1,7 @@
 package view
 
 import (
+	"image"
 	"testing"
 	"time"
 
@@ -139,21 +140,91 @@ func TestVideoChromeIdleHoldsWhilePointerInside(t *testing.T) {
 // TestVideoOpenButtonHighlights 钉住主页「视频播放」键的状态可读性：
 // 视频窗开着时它是高亮（GlassActive 底 + 蓝色图标 + Checked），关掉后
 // 回到常态灰。判据是同一份 App.VideoOpen，不另立状态。
+//
+// 同时钉住**只画一个图标**：高亮态早期实现是在键上再 Children 一次补一个
+// 蓝图标，结果并排出现两个（用户实测到的那条）。这里数「蓝色墨迹在水平
+// 方向有几团」，多画一个立刻红。
 func TestVideoOpenButtonHighlights(t *testing.T) {
-	a := &App{}
 	t.Setenv("HOME", t.TempDir())
-	probe := func(videoOpen bool) (uint8, bool) {
+	probe := func(videoOpen bool) (*image.RGBA, int) {
+		a := &App{Theme: ThemeFor(PeriodAt(12))}
 		a.VideoOpen = videoOpen
 		tt := ui.NewTester(func(c *ui.Context) {
-			a.Theme = ThemeFor(PeriodAt(12))
-			videoOpenHighlight(c, a, ui.ButtonBase(c.Key("icon-video")).Size(ContentIcon, ContentIcon))
+			a.contentIconButtonInk(c, "video", "视频播放", iconVideo, iconOpticalSize,
+				pick(videoOpen, ui.Hex("#3b82f6"), ui.Color{}), videoOpen, false, nil)
 		}, 60, 60)
 		tt.Frame()
-		return tt.Image().RGBAAt(int(ContentIcon/2), int(ContentIcon/2)).B, a.VideoOpen
+		return tt.Image(), blueClusters(tt.Image())
 	}
-	off, _ := probe(false)
-	on, _ := probe(true)
-	if on == off {
-		t.Fatalf("视频窗开/关时按钮看起来一样（B 通道 %d）", on)
+	_, offBlue := probe(false)
+	_, onBlue := probe(true)
+	if offBlue != 0 {
+		t.Errorf("常态键上不该有蓝色墨迹（%d 团）", offBlue)
+	}
+	if onBlue != 1 {
+		t.Errorf("高亮态应有且只有 1 团蓝色图标墨迹，实际 %d 团", onBlue)
+	}
+}
+
+// blueClusters 数「蓝色墨迹」在水平方向的连续团数。
+func blueClusters(img *image.RGBA) int {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	isBlue := func(x int) bool {
+		for y := 0; y < h; y++ {
+			c := img.RGBAAt(x, y)
+			if c.B > 150 && int(c.B)-int(c.R) > 40 { // 明显偏蓝
+				return true
+			}
+		}
+		return false
+	}
+	n, in := 0, false
+	for x := 0; x < w; x++ {
+		if isBlue(x) {
+			if !in {
+				n++
+				in = true
+			}
+		} else {
+			in = false
+		}
+	}
+	return n
+}
+
+// TestVideoChromeSeekSurvivesHeldGaps 钉住「拖动中 held 偶尔掉一帧也不能把
+// 滑块打回播放位置」。
+//
+// 真实事件流里按住移动时 held 会偶尔掉帧（GTK 只把真正移动的帧算作拖动）。
+// 掉的那一帧若按「没按住」处理，值会被播放器旧位置覆盖，下一帧再被拖回来
+// —— 用户看到的就是「滑块拖不动，只有点一下能跳」。主窗靠 progressPlan 的
+// settle 状态机兜住，视频窗这条直通路径同样要有。
+func TestVideoChromeSeekSurvivesHeldGaps(t *testing.T) {
+	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 30 * time.Second, rate: 1, vol: 1}
+	v := &VideoChrome{Pl: pl}
+	f := v.seekFrame(100)
+
+	// 按下并拖动到 70s。
+	v.seek.value = 70
+	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 70 {
+		t.Fatalf("拖动中的变化应立即提交：commit=%v next=%v", commit, next)
+	}
+	// 拖动中夹一帧 held 掉了（没有 changed）：值必须仍是 70，不能回到 30。
+	if commit, next := f(PlayerTimelineInput{Held: false, Changed: false}); commit || next != 70 {
+		t.Fatalf("held 掉帧把滑块打回 %v（应为 70，commit=%v）", next, commit)
+	}
+	// 继续拖。
+	v.seek.value = 80
+	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 80 {
+		t.Fatalf("恢复拖动后应继续提交：commit=%v next=%v", commit, next)
+	}
+	// 松手：settle 期内仍显示 80（seek 还没落地）。
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
+		t.Errorf("松手瞬间滑块被拽回 %v（应为 80）", next)
+	}
+	// settle 过去后回落到播放位置。
+	time.Sleep(videoSeekSettle + 20*time.Millisecond)
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 30 {
+		t.Errorf("settle 之后应回落到播放位置 30，实际 %v", next)
 	}
 }
