@@ -567,11 +567,25 @@ type videoSeek struct {
 	// 这条直通路径也得有同样的宽容。
 	wasHeld bool
 	heldAt  time.Time
+	// target / hasTarget 是「已经下发、但播放器还没追上的位置」。AVPlayer 的
+	// seek 是异步的，currentTime 在落地前一直是旧值（mac 上实测常超过
+	// 250ms，>2 倍速还要重建时间轴）：这段时间里用播放器位置回填，滑块就会
+	// 弹回原处，用户看到的就是「拖不动」。
+	target    float64
+	hasTarget bool
 }
 
 // videoSeekSettle 是松手（或 held 掉帧）之后仍显示滑块值的时长：seek 落地
 // 要一点时间，这段里用播放器位置回填会把滑块拽回去。
 const videoSeekSettle = 250 * time.Millisecond
+
+// videoSeekReached 是「播放器已经追上目标」的判据（秒）：差在这个以内就
+// 交还控制权，滑块重新跟着播放位置走。
+const videoSeekReached = 1.5
+
+// videoSeekWait 是等播放器追上的上限：超过它认为这次 seek 被丢弃了，
+// 交还控制权，滑块不会永久卡在目标值上。
+const videoSeekWait = 3 * time.Second
 
 // ---------------------------------------------------------------- 快捷键
 
@@ -1186,13 +1200,28 @@ func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, fl
 		}
 		v.seek.drag = in.Held
 		if in.Changed {
+			v.seek.target, v.seek.hasTarget = v.seek.value, true
 			return true, v.seek.value
 		}
 		// 按住中，或刚按住 / 刚松手的一小段：滑块停在用户放下的位置。
 		if in.Held || now.Sub(v.seek.heldAt) < videoSeekSettle {
 			return false, v.seek.value
 		}
-		return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+		pos := clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+		if v.seek.hasTarget {
+			switch {
+			case abs(v.seek.target-pos) <= videoSeekReached:
+				// 播放器追上了：交还控制权。
+				v.seek.hasTarget = false
+			case now.Sub(v.seek.heldAt) < videoSeekWait:
+				// 还没追上（seek 在路上）：滑块停在目标位置，别被旧位置拽回。
+				return false, v.seek.target
+			default:
+				// 等太久，认为这次 seek 被丢弃：交还控制权，不永久卡住。
+				v.seek.hasTarget = false
+			}
+		}
+		return false, pos
 	}
 }
 

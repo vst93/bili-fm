@@ -218,13 +218,78 @@ func TestVideoChromeSeekSurvivesHeldGaps(t *testing.T) {
 	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 80 {
 		t.Fatalf("恢复拖动后应继续提交：commit=%v next=%v", commit, next)
 	}
-	// 松手：settle 期内仍显示 80（seek 还没落地）。
+	// 松手：seek 还没落地，滑块仍停在 80（不能弹回播放位置 30）。
 	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
 		t.Errorf("松手瞬间滑块被拽回 %v（应为 80）", next)
 	}
-	// settle 过去后回落到播放位置。
+	// settle 过去、但播放器还没追上：仍然停在 80（见 TestVideoChromeSeekWaitsForPlayer）。
 	time.Sleep(videoSeekSettle + 20*time.Millisecond)
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
+		t.Errorf("seek 未落地时滑块被打回 %v（应为 80）", next)
+	}
+	// 播放器追上后交还控制权。
+	pl.pos = 80 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 80 {
+		t.Errorf("追上后应显示 80，实际 %v", next)
+	}
+	pl.pos = 82 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 82 {
+		t.Errorf("追上后应跟随播放位置 82，实际 %v", next)
+	}
+}
+
+// TestVideoChromeSeekWaitsForPlayer 钉住「seek 在路上时滑块不能被旧位置拽回」。
+//
+// AVPlayer 的 seek 是异步的：currentTime 在落地前一直是旧值。视频窗的
+// seekFrame 若在松手后立刻用播放位置回填，滑块就弹回原处 —— 用户看到的是
+// 「进度条拖不动」（音量条没有位置回读，所以它是正常的）。
+func TestVideoChromeSeekWaitsForPlayer(t *testing.T) {
+	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 30 * time.Second, rate: 1, vol: 1}
+	v := &VideoChrome{Pl: pl}
+	f := v.seekFrame(100)
+
+	// 拖到 70 并松手：seek 已下发，但播放器位置仍是 30（异步落地）。
+	v.seek.value = 70
+	if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); !commit || next != 70 {
+		t.Fatalf("拖动变化应立即提交：commit=%v next=%v", commit, next)
+	}
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 70 {
+		t.Fatalf("松手瞬间滑块被拽回 %v（应为 70）", next)
+	}
+	// 超过 settle 但仍没落地：滑块必须停在 70，不能回到 30。
+	time.Sleep(videoSeekSettle + 30*time.Millisecond)
+	for i := 0; i < 3; i++ {
+		if _, next := f(PlayerTimelineInput{Held: false}); next != 70 {
+			t.Fatalf("seek 还没落地，第 %d 帧滑块被打回 %v（应为 70）", i, next)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// 播放器追上了：交还控制权，滑块跟着播放位置。
+	pl.pos = 70 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 70 {
+		t.Fatalf("追上后应显示播放位置 70，实际 %v", next)
+	}
+	if v.seek.hasTarget {
+		t.Error("追上后仍挂着未落地的目标")
+	}
+	// 之后正常跟随播放。
+	pl.pos = 72 * time.Second
+	if _, next := f(PlayerTimelineInput{Held: false}); next != 72 {
+		t.Errorf("追上后应跟随播放位置 72，实际 %v", next)
+	}
+}
+
+// TestVideoChromeSeekGivesUpEventually 钉住「seek 一直被丢弃时不会永久卡住」。
+func TestVideoChromeSeekGivesUpEventually(t *testing.T) {
+	pl := &videoStubPlayer{playing: true, ready: true, dur: 100 * time.Second, pos: 30 * time.Second, rate: 1, vol: 1}
+	v := &VideoChrome{Pl: pl}
+	f := v.seekFrame(100)
+	v.seek.value = 70
+	f(PlayerTimelineInput{Held: true, Changed: true})
+	f(PlayerTimelineInput{Held: false})
+	// 把「按住状态最后一次变化」推到超过 videoSeekWait 之前。
+	v.seek.heldAt = time.Now().Add(-videoSeekWait - time.Second)
 	if _, next := f(PlayerTimelineInput{Held: false}); next != 30 {
-		t.Errorf("settle 之后应回落到播放位置 30，实际 %v", next)
+		t.Errorf("等太久之后应交还控制权（播放位置 30），实际 %v", next)
 	}
 }
