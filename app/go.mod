@@ -30,4 +30,4 @@ require (
 
 tool github.com/egoist/mygo/cmd/mygo
 
-replace github.com/egoist/mygo => github.com/vst93/mygo v0.10.1-avf.7
+replace github.com/egoist/mygo => github.com/vst93/mygo v0.10.1-avf.8

@@ -423,6 +423,10 @@ func TestNativeViewSeek(t *testing.T) {
 	tt.Frame()
 	tt.Release(x, rect.Y+rect.H/2)
 	tt.Frame()
+	// 进度条是「松手才生效」，而且松手后要过确认窗口（press 抖一帧不能当
+	// 松手 —— 那会让视频在用户没放开时跳走）。确认窗口按真实时间算。
+	time.Sleep(200 * time.Millisecond)
+	tt.Frame()
 	if len(pl.seeks) == 0 {
 		t.Fatal("改进度条没有 seek 播放器")
 	}

@@ -683,8 +683,19 @@ func TestVideoBarDragUsesSharedSlider(t *testing.T) {
 		prev = got
 	}
 	landing := ch.seek.value
+	// 拖动中一次 seek 都不该下发（长视频上一次几十毫秒，逐位移会堵住绘制
+	// 线程）；松手后才提交，而且要过确认窗口（press 抖一帧不能当松手）。
+	if n := len(pl.seeks); n != 0 {
+		t.Errorf("拖动过程中下发了 %d 次 seek（应一次都不发）", n)
+	}
 	tt.Release(x0+span*0.75, y)
 	tt.Frame()
+	// 确认窗口按真实时间算（seekFrame 用 time.Now，不是 Tester 的时钟）。
+	time.Sleep(videoSeekConfirm + 40*time.Millisecond)
+	tt.Frame()
+	if len(pl.seeks) == 0 {
+		t.Fatalf("松手确认后没有下发 seek")
+	}
 	last := pl.seeks[len(pl.seeks)-1].Seconds()
 	if absF32(float32(last-landing)) > 1 {
 		t.Errorf("松手 seek 到 %.2f，滑块停在 %.2f（应落在同一个值）", last, landing)

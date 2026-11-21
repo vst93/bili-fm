@@ -558,12 +558,15 @@ func (f *videoFullScreen) fading(now time.Time) bool { return f.fade(now) > 0 }
 type videoSeek struct {
 	value float64
 	drag  bool
-	// wasHeld 是上一帧是否按着进度条：提交只看「上一帧按着、这一帧松了」，
-	// 与主窗 progressPlan 同一条语义 —— 拖动过程中一次 seek 都不下发，
-	// 松手才生效。
-	wasHeld bool
-	// heldAt 是按住状态最后一次变化的时刻，用于松手后那一小段的宽容。
-	heldAt time.Time
+	// pressed 是上一帧「指针是否按在进度条上」。滑块的值每帧都会被框架写，
+	// 而 press 状态偶尔会抖一帧；只要把抖动当成「松手」，就会在用户没松手
+	// 的时候提交一次 seek —— 视频当场跳走（用户实测到的 bug）。
+	pressed bool
+	// released / releasedAt / releasedValue 是一次待确认的松手：松手后等
+	// videoSeekConfirm 再提交，这期间又按回来就作废。
+	released      bool
+	releasedAt    time.Time
+	releasedValue float64
 	// target / hasTarget 是「已经下发、但播放器还没追上的位置」。AVPlayer
 	// 的 seek 是异步的，currentTime 在落地前一直是旧值：这段时间里用播放器
 	// 位置回填，滑块就会弹回原处，用户看到的就是「拖不动」。
@@ -571,8 +574,16 @@ type videoSeek struct {
 	hasTarget bool
 }
 
-// videoSeekReached 是「播放器已经追上目标」的判据（秒）：差在这个以内就
-// 交还控制权，滑块重新跟着播放位置走。
+// videoSeekConfirm 是松手后的确认窗口：press 抖一帧不算松手，真松手也要
+// 等这么久才提交（人松手后不会立刻再按，抖帧会）。
+const videoSeekConfirm = 150 * time.Millisecond
+
+// videoSeekMinTravel 是「这次拖动真的移动过」的判据（秒）：松手时滑块与
+// 播放位置差得比它近，说明用户只是点了一下、或者只是 press 抖动后值被回填，
+// 不提交 seek（提交了就是一次没头没脑的跳转）。
+const videoSeekMinTravel = 2.0
+
+// videoSeekReached 是「播放器已经追上目标」的判据（秒）。
 const videoSeekReached = 1.5
 
 // videoSeekWait 是等播放器追上的上限：超过它认为这次 seek 被丢弃了，
@@ -1192,44 +1203,55 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 //
 // 视频窗这条路径与主窗的差别只有「不做 seek 落地等待的 busy 判定」：
 // 视频的 Position 由 AVPlayer 给，落地后自然追上。
+// seekFrame 是视频窗进度条的状态机。语义照主窗 progressPlan 的「松手才
+// 生效」，但多了两道防抖 —— 视频窗的 press 状态会抖帧，一次误判就是一次
+// 真实的跳转：
+//
+//	拖动中      一次 seek 都不发，滑块只跟手
+//	松手        等 videoSeekConfirm 确认（期间又按回来就作废），确认后提交
+//	            一次，且要求这次真的移动过（videoSeekMinTravel）
+//	没在拖动    跟随播放位置；seek 还没落地时停在目标值，别被旧位置拽回
 func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, float64) {
 	return func(in PlayerTimelineInput) (bool, float64) {
 		now := time.Now()
-		heldBefore := v.seek.wasHeld
-		if in.Held != v.seek.wasHeld {
-			v.seek.heldAt = now
-			v.seek.wasHeld = in.Held
-		}
+		wasPressed := v.seek.pressed
+		v.seek.pressed = in.Held
 		v.seek.drag = in.Held
-		// 取消（系统拿走指针）：等同一次没发生的拖动，回落到播放位置。
+		pos := clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+
+		// 系统拿走指针：等同一次没发生的拖动。
 		if in.Cancel {
-			v.seek.hasTarget = false
-			return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+			v.seek.released, v.seek.hasTarget = false, false
+			return false, pos
 		}
-		commit := false
-		switch {
-		case heldBefore && !in.Held:
-			// 松手：拖动结束（也覆盖「点一下」的按下-松开）。
-			commit = true
-			v.seek.target, v.seek.hasTarget = v.seek.value, true
-		case in.Changed && !in.Held && !heldBefore:
-			// 键盘方向键改值：没有按住过程，直接提交。
-			commit = true
-			v.seek.target, v.seek.hasTarget = v.seek.value, true
-		}
-		if commit {
-			return true, v.seek.value
-		}
-		// 按住中：滑块停在用户拖到的位置，不下发、不回填。
+		// 还按着：拖动中，不下发。若这是「确认窗口内又按回来」，作废那次松手。
 		if in.Held {
+			v.seek.released = false
 			return false, v.seek.value
 		}
-		pos := clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
+		// 松手的那一帧：记下待确认的落点。
+		if wasPressed && !in.Held {
+			v.seek.released, v.seek.releasedAt, v.seek.releasedValue = true, now, v.seek.value
+		}
+		// 待确认：先别提交，等 press 抖动的那几帧过去。
+		if v.seek.released {
+			if now.Sub(v.seek.releasedAt) < videoSeekConfirm {
+				return false, v.seek.releasedValue
+			}
+			v.seek.released = false
+			// 确认松手：只有真的移动过才提交，否则视为「点了一下没动」。
+			if abs(v.seek.releasedValue-pos) > videoSeekMinTravel {
+				v.seek.target, v.seek.hasTarget = v.seek.releasedValue, true
+				return true, v.seek.releasedValue
+			}
+			v.seek.hasTarget = false
+			return false, pos
+		}
 		if v.seek.hasTarget {
 			switch {
 			case abs(v.seek.target-pos) <= videoSeekReached:
 				v.seek.hasTarget = false // 播放器追上了：交还控制权
-			case now.Sub(v.seek.heldAt) < videoSeekWait:
+			case now.Sub(v.seek.releasedAt) < videoSeekWait:
 				return false, v.seek.target // seek 还在路上，别被旧位置拽回
 			default:
 				v.seek.hasTarget = false // 等太久，认为被丢弃
