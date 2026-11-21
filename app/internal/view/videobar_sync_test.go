@@ -440,9 +440,13 @@ func TestVideoBarSingleIconLayerOnHover(t *testing.T) {
 	vidTT.Move(play.X+play.W/2, play.Y+play.H/2)
 	vidTT.Advance(300 * time.Millisecond)
 	hov := iconSilhouette(vidTT.Image(), play)
-	diff := silhouetteDiff(rest, hov)
-	if diff > 6 {
-		t.Errorf("播放键 hover 时图标轮廓变了 %d 个像素（只允许换材质，不允许动图标层）", diff)
+	// hover 只换材质与墨色（原版 `transition: color`），字形几何必须不变：
+	// 多画一层图标（并排两个）才会把包围盒撑宽。
+	rx, ry, rw, rh := silhouetteBounds(rest)
+	hx, hy, hw, hh := silhouetteBounds(hov)
+	if absInt(rw-hw) > 1 || absInt(rh-hh) > 1 || absInt(rx-hx) > 1 || absInt(ry-hy) > 1 {
+		t.Errorf("播放键 hover 时图标几何变了：静息 %d,%d %d×%d → 悬停 %d,%d %d×%d（只允许换材质与墨色）",
+			rx, ry, rw, rh, hx, hy, hw, hh)
 	}
 	first := iconSilhouette(vidTT.Image(), play)
 	img1 := vidTT.Image()
@@ -461,9 +465,11 @@ func TestVideoBarSingleIconLayerOnHover(t *testing.T) {
 	vidTT.Move(full.X+full.W/2, full.Y+full.H/2)
 	vidTT.Advance(300 * time.Millisecond)
 	hovFull := iconSilhouette(vidTT.Image(), full)
-	diff = silhouetteDiff(restFull, hovFull)
-	if diff > 6 {
-		t.Errorf("全屏键 hover 时图标轮廓变了 %d 个像素（只允许换材质）", diff)
+	fx, fy, fw, fh := silhouetteBounds(restFull)
+	ux, uy, uw, uh := silhouetteBounds(hovFull)
+	if absInt(fw-uw) > 1 || absInt(fh-uh) > 1 || absInt(fx-ux) > 1 || absInt(fy-uy) > 1 {
+		t.Errorf("全屏键 hover 时图标几何变了：静息 %d,%d %d×%d → 悬停 %d,%d %d×%d（只允许换材质）",
+			fx, fy, fw, fh, ux, uy, uw, uh)
 	}
 	f1 := vidTT.Image()
 	vidTT.Advance(16 * time.Millisecond)
@@ -474,6 +480,36 @@ func TestVideoBarSingleIconLayerOnHover(t *testing.T) {
 }
 
 // silhouetteDiff 数两个轮廓不同的像素数。
+// silhouetteBounds 是轮廓里墨迹的包围盒。用它判「图标层的字形几何有没有
+// 变」比逐像素轮廓稳：图标颜色在 hover 时按原版 `transition: color` 过渡，
+// 归一化亮度会把抗锯齿边缘翻过 0.5 的阈值（几十个像素），但字形本身就那么
+// 大、就那么居中 —— 多画一层（并排两个图标）才会把包围盒撑宽。
+func silhouetteBounds(s silhouette) (x, y, w, h int) {
+	minX, minY, maxX, maxY := s.w, s.h, -1, -1
+	for i, on := range s.on {
+		if !on {
+			continue
+		}
+		cx, cy := i%s.w, i/s.w
+		if cx < minX {
+			minX = cx
+		}
+		if cy < minY {
+			minY = cy
+		}
+		if cx > maxX {
+			maxX = cx
+		}
+		if cy > maxY {
+			maxY = cy
+		}
+	}
+	if maxX < 0 {
+		return 0, 0, 0, 0
+	}
+	return minX, minY, maxX - minX + 1, maxY - minY + 1
+}
+
 func silhouetteDiff(a, b silhouette) int {
 	if a.w != b.w || a.h != b.h {
 		return 1 << 20
@@ -720,4 +756,35 @@ func absF32(v float32) float32 {
 		return -v
 	}
 	return v
+}
+
+// TestSilhouetteBoundsCatchesTwoIcons 验证 silhouetteBounds 这把这个判据
+// 真的能抓住「并排两个图标」：同样两个图标分开摆，包围盒必须明显宽于一个。
+// 它是 TestVideoBarSingleIconLayerOnHover 那条「图标几何不变」断言的灵敏度
+// 依据 —— 判据不灵敏的话，那条断言等于没写。
+func TestSilhouetteBoundsCatchesTwoIcons(t *testing.T) {
+	one := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Size(40, 30).Children(func() {
+			ui.Icon(c, iconPause).Size(16, 16).TextColor(ui.Hex("#0f172a"))
+		})
+	}, 40, 30)
+	one.Frame()
+	_, _, w1, h1 := silhouetteBounds(iconSilhouette(one.Image(), ui.Rect{X: 0, Y: 0, W: 40, H: 30}))
+
+	two := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Size(40, 30).Children(func() {
+			ui.Icon(c, iconPause).Size(16, 16).TextColor(ui.Hex("#0f172a"))
+			ui.Icon(c, iconPause).Size(16, 16).TextColor(ui.Hex("#0f172a"))
+		})
+	}, 40, 30)
+	two.Frame()
+	_, _, w2, _ := silhouetteBounds(iconSilhouette(two.Image(), ui.Rect{X: 0, Y: 0, W: 40, H: 30}))
+
+	if w1 == 0 || w2 == 0 {
+		t.Fatalf("没量到图标墨迹：一个 %d×%d，两个 %d×%d", w1, h1, w2, h1)
+	}
+	if w2 <= w1 {
+		t.Errorf("并排两个图标的包围盒宽 %d 不大于单个的 %d —— 判据抓不住两层图标", w2, w1)
+	}
+	t.Logf("单个 %d×%d，并排两个宽 %d", w1, h1, w2)
 }

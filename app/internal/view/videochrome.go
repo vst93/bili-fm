@@ -558,32 +558,18 @@ func (f *videoFullScreen) fading(now time.Time) bool { return f.fade(now) > 0 }
 type videoSeek struct {
 	value float64
 	drag  bool
-	// wasHeld / heldAt 是「上一帧是否按住」与「按住状态最后一次变化的时刻」。
-	//
-	// 拖动时不能只看这一帧的 held：真实事件流里按住移动时 held 会偶尔掉一帧
-	// （GTK 只把真正移动的帧算作拖动）。掉的那一帧若按「没按住」处理，值会被
-	// 播放器的旧位置打回去，下一帧再被拖回来 —— 表现就是「滑块拖不动，只有
-	// 点一下能跳」。主窗靠 progressPlan 的 settle 状态机兜住这一点，视频窗
-	// 这条直通路径也得有同样的宽容。
+	// wasHeld 是上一帧是否按着进度条：提交只看「上一帧按着、这一帧松了」，
+	// 与主窗 progressPlan 同一条语义 —— 拖动过程中一次 seek 都不下发，
+	// 松手才生效。
 	wasHeld bool
-	heldAt  time.Time
-	// target / hasTarget 是「已经下发、但播放器还没追上的位置」。AVPlayer 的
-	// seek 是异步的，currentTime 在落地前一直是旧值（mac 上实测常超过
-	// 250ms，>2 倍速还要重建时间轴）：这段时间里用播放器位置回填，滑块就会
-	// 弹回原处，用户看到的就是「拖不动」。
+	// heldAt 是按住状态最后一次变化的时刻，用于松手后那一小段的宽容。
+	heldAt time.Time
+	// target / hasTarget 是「已经下发、但播放器还没追上的位置」。AVPlayer
+	// 的 seek 是异步的，currentTime 在落地前一直是旧值：这段时间里用播放器
+	// 位置回填，滑块就会弹回原处，用户看到的就是「拖不动」。
 	target    float64
 	hasTarget bool
-	// lastSeekAt / dragPending 是拖动中的限频：精确 seek 要从关键帧解码到
-	// 目标点，长视频上一次就可能几十毫秒；每个指针位移都发会把绘制线程堵死
-	// （用户报的「长视频拖不动」）。按 videoSeekDragInterval 限频，松手时把
-	// 攒下的最后一次补发，落点仍然准。
-	lastSeekAt  time.Time
-	dragPending bool
 }
-
-// videoSeekSettle 是松手（或 held 掉帧）之后仍显示滑块值的时长：seek 落地
-// 要一点时间，这段里用播放器位置回填会把滑块拽回去。
-const videoSeekSettle = 250 * time.Millisecond
 
 // videoSeekReached 是「播放器已经追上目标」的判据（秒）：差在这个以内就
 // 交还控制权，滑块重新跟着播放位置走。
@@ -592,10 +578,6 @@ const videoSeekReached = 1.5
 // videoSeekWait 是等播放器追上的上限：超过它认为这次 seek 被丢弃了，
 // 交还控制权，滑块不会永久卡在目标值上。
 const videoSeekWait = 3 * time.Second
-
-// videoSeekDragInterval 是拖动中下发 seek 的最小间隔。精确 seek 在长视频上
-// 很贵（要从前一个关键帧解码到目标点），逐位移下发会让界面卡住。
-const videoSeekDragInterval = 120 * time.Millisecond
 
 // ---------------------------------------------------------------- 快捷键
 
@@ -1201,45 +1183,56 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 // seekFrame 是视频窗的进度条状态机：拖动中停在目标值，松手跟随播放位置。
 // 与主窗的 progressPlan 不同（那边有 seek 未落地 / 拖动预览的等待），
 // 但输入接线与绘制是同一份 playerTimeline。
+// seekFrame 是视频窗进度条的状态机，语义照主窗 progressPlan：
+//
+//	拖动中      一次 seek 都不发（长视频的精确 seek 很贵，逐位移下发会把
+//	            绘制线程堵死 —— 用户报的「长视频拖不动」）
+//	松手        提交一次，落点就是滑块停的值
+//	没在拖动    跟随播放位置；但 seek 还没落地时停在目标值，别被旧位置拽回
+//
+// 视频窗这条路径与主窗的差别只有「不做 seek 落地等待的 busy 判定」：
+// 视频的 Position 由 AVPlayer 给，落地后自然追上。
 func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, float64) {
 	return func(in PlayerTimelineInput) (bool, float64) {
 		now := time.Now()
+		heldBefore := v.seek.wasHeld
 		if in.Held != v.seek.wasHeld {
 			v.seek.heldAt = now
 			v.seek.wasHeld = in.Held
 		}
 		v.seek.drag = in.Held
-		heldBefore := v.seek.wasHeld
-		if in.Changed {
-			v.seek.target, v.seek.hasTarget = v.seek.value, true
-			if now.Sub(v.seek.lastSeekAt) >= videoSeekDragInterval {
-				v.seek.lastSeekAt, v.seek.dragPending = now, false
-				return true, v.seek.value
-			}
-			v.seek.dragPending = true
-			return false, v.seek.value
+		// 取消（系统拿走指针）：等同一次没发生的拖动，回落到播放位置。
+		if in.Cancel {
+			v.seek.hasTarget = false
+			return false, clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
 		}
-		// 松手：把拖动中限频攒下的最后一次补发，落点才准。
-		if heldBefore && !in.Held && v.seek.dragPending {
-			v.seek.dragPending, v.seek.lastSeekAt = false, now
+		commit := false
+		switch {
+		case heldBefore && !in.Held:
+			// 松手：拖动结束（也覆盖「点一下」的按下-松开）。
+			commit = true
+			v.seek.target, v.seek.hasTarget = v.seek.value, true
+		case in.Changed && !in.Held && !heldBefore:
+			// 键盘方向键改值：没有按住过程，直接提交。
+			commit = true
+			v.seek.target, v.seek.hasTarget = v.seek.value, true
+		}
+		if commit {
 			return true, v.seek.value
 		}
-		// 按住中，或刚按住 / 刚松手的一小段：滑块停在用户放下的位置。
-		if in.Held || now.Sub(v.seek.heldAt) < videoSeekSettle {
+		// 按住中：滑块停在用户拖到的位置，不下发、不回填。
+		if in.Held {
 			return false, v.seek.value
 		}
 		pos := clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
 		if v.seek.hasTarget {
 			switch {
 			case abs(v.seek.target-pos) <= videoSeekReached:
-				// 播放器追上了：交还控制权。
-				v.seek.hasTarget = false
+				v.seek.hasTarget = false // 播放器追上了：交还控制权
 			case now.Sub(v.seek.heldAt) < videoSeekWait:
-				// 还没追上（seek 在路上）：滑块停在目标位置，别被旧位置拽回。
-				return false, v.seek.target
+				return false, v.seek.target // seek 还在路上，别被旧位置拽回
 			default:
-				// 等太久，认为这次 seek 被丢弃：交还控制权，不永久卡住。
-				v.seek.hasTarget = false
+				v.seek.hasTarget = false // 等太久，认为被丢弃
 			}
 		}
 		return false, pos
