@@ -8,36 +8,28 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestVideoChromeHoverKeepsFramesComing 钉住「悬停期间帧要一直来」。
+// TestVideoChromeHoverDoesNotStealTimer 钉住「悬停不排帧」这条纪律。
 //
-// 悬停 / 按压的材质色是构建期算的（Hovered + AnimateColor 的 140ms 过渡），
-// 而视频窗的帧大多由视频驱动、只重绘不重建：不主动排帧，过渡就只在偶发的
-// 重建帧里跳一格，画面在新旧两色之间闪（用户报的「悬停闪烁」）。
-//
-// 用 After 排「过渡走完」那一拍，而不是无限 AnimationFrame —— 后者会让
-// Tester.Frame() 永远有待处理帧（整包测试卡死过）。
-func TestVideoChromeHoverKeepsFramesComing(t *testing.T) {
+// mygo 一个窗口只有一个 After 定时器（先到先得）。悬停过渡如果在 View 里
+// 排 After，就会把控件条自动隐藏的计时反复顶掉：alpha 一抖，整片 UI 都在
+// 闪（用户实测「之前闪烁的问题又出来了」）。所以这里要求：指针停在按钮上
+// 时不排任何帧，控件条该淡出就照常淡出。
+func TestVideoChromeHoverDoesNotStealTimer(t *testing.T) {
 	ch, _, _, tt := videoChromeProbe(t, 640, 360)
 	r, ok := tt.Find("视频设置")
 	if !ok {
 		t.Fatalf("找不到设置键")
 	}
+	// 指针停在按钮上（悬停材质过渡靠别的帧带着推进，这里不排帧）。
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
 	tt.Frame()
-	if ch.hoverAt.IsZero() {
-		t.Fatal("指针停在按钮上，没有记下悬停时刻（过渡不会被推进）")
-	}
-	// 指针离开控件条：尾巴（140ms）内仍要有唤醒排队。
-	tt.Move(320, 200)
+	// 指针离开控件条、静止超过阈值：控件条必须能正常淡出到底。
+	tt.Move(320, 120)
 	tt.Frame()
-	if !tt.FramePending() {
-		t.Error("指针刚离开，过渡尾巴内没有排下一次唤醒（过渡会停在半路）")
-	}
-	// 尾巴走完后不再空转。
-	tt.Advance(videoHoverTail + 100*time.Millisecond)
+	tt.Advance(videoChromeIdleDelay + videoChromeHideFade + 100*time.Millisecond)
 	tt.Frame()
-	if tt.FramePending() {
-		t.Error("悬停尾巴已过，仍在排队帧（白烧 CPU）")
+	if ch.idle.alpha != 0 {
+		t.Errorf("指针离开后控件条没有淡出到底（alpha=%v）—— 定时器被顶掉了", ch.idle.alpha)
 	}
 }
 
