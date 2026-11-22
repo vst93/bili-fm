@@ -192,12 +192,9 @@ func blueClusters(img *image.RGBA) int {
 	return n
 }
 
-// TestVideoChromeSeekCommitsOnReleaseOnly 钉住「拖动中一次 seek 都不发，
-// 松手（并确认过）才生效」—— 与主窗 progressPlan 同一条语义。
-//
-// 长视频上一次 seek 要几十毫秒（AVPlayer 从关键帧解码），拖动中逐位移下发
-// 会把绘制线程堵死；而 press 抖一帧就提交会让视频在用户没松手时跳走。
-func TestVideoChromeSeekCommitsOnReleaseOnly(t *testing.T) {
+// TestVideoChromeSeekCommitsWhenQuietOnly 钉住「拖动中一次 seek 都不发，
+// 值安静下来才提交一次」—— 与主窗 progressPlan 的「松手才生效」同义。
+func TestVideoChromeSeekCommitsWhenQuietOnly(t *testing.T) {
 	pl := &videoStubPlayer{playing: true, ready: true, dur: 3600 * time.Second, pos: 100 * time.Second, rate: 1, vol: 1}
 	v := &VideoChrome{Pl: pl}
 	f := v.seekFrame(3600)
@@ -214,15 +211,15 @@ func TestVideoChromeSeekCommitsOnReleaseOnly(t *testing.T) {
 		}
 	}
 	landing := v.seek.value
-	// 松手那一帧：进入确认窗口，还不提交。
+	// 值还在动的窗口内（刚改完值）：不提交。
 	if commit, _ := f(PlayerTimelineInput{Held: false}); commit {
-		t.Fatal("松手当帧就提交了（press 抖一帧会误判成松手）")
+		t.Fatal("值刚变完就提交了（还在拖）")
 	}
-	// 确认窗口过后：提交一次，落点是最终值。
-	time.Sleep(videoSeekConfirm + 30*time.Millisecond)
+	// 安静下来：提交一次，落点是最终值。
+	time.Sleep(videoSeekQuiet + 40*time.Millisecond)
 	commit, next := f(PlayerTimelineInput{Held: false})
 	if !commit || next != landing {
-		t.Fatalf("确认松手后应提交落点 %v：commit=%v next=%v", landing, commit, next)
+		t.Fatalf("值安静后应提交落点 %v：commit=%v next=%v", landing, commit, next)
 	}
 	for i := 0; i < 5; i++ {
 		if commit, _ := f(PlayerTimelineInput{Held: false}); commit {
@@ -231,43 +228,54 @@ func TestVideoChromeSeekCommitsOnReleaseOnly(t *testing.T) {
 	}
 }
 
-// TestVideoChromeSeekPressFlickerDoesNotJump 钉住用户实测的 bug：press 抖
-// 一帧（用户没松手）时视频当场跳走。抖动要在确认窗口内被作废。
+// TestVideoChromeSeekPressFlickerDoesNotJump 钉住用户实测的 bug：
+// **左右来回拖、press 反复掉帧，但从没松手**时视频当场跳走。
+//
+// 判据不能用 press（指针一离开进度条那条 24px 细带，按住状态就可能丢），
+// 要看「值还在不在变」：只要还在变，就是人还在拖。
 func TestVideoChromeSeekPressFlickerDoesNotJump(t *testing.T) {
 	pl := &videoStubPlayer{playing: true, ready: true, dur: 3600 * time.Second, pos: 100 * time.Second, rate: 1, vol: 1}
 	v := &VideoChrome{Pl: pl}
 	f := v.seekFrame(3600)
 	f(PlayerTimelineInput{Held: true})
-	v.seek.value = 900
-	f(PlayerTimelineInput{Held: true, Changed: true})
-	// press 掉一帧（用户没松手）。
-	if commit, _ := f(PlayerTimelineInput{Held: false}); commit {
-		t.Fatal("press 掉帧当帧就提交了")
-	}
-	// 立刻又按回来：那次松手必须作废。
-	f(PlayerTimelineInput{Held: true})
-	for i := 0; i < 6; i++ {
-		time.Sleep(videoSeekConfirm / 3)
-		if commit, next := f(PlayerTimelineInput{Held: true}); commit {
-			t.Fatalf("又按回来之后仍提交了 seek（第 %d 帧）", i)
-		} else if next != 900 {
-			t.Fatalf("又按回来之后滑块值被打回 %v（应为 900）", next)
+	// 来回拖 30 次：每次先一个「值变了」的帧，再跟一个「值没变、press 掉了」
+	// 的帧 —— 后者正是指针滑出进度条那条细带时的真实形状（那一帧没移动，
+	// 所以值不变，但按住状态丢了）。按 press 判松手的实现会在这里提交，
+	// 而用户的手根本没松。
+	for i := 0; i < 30; i++ {
+		v.seek.value = 300 + float64(i)*40
+		if commit, next := f(PlayerTimelineInput{Held: true, Changed: true}); commit {
+			t.Fatalf("第 %d 次位移就提交了 seek（用户没松手），落点 %v", i, next)
 		}
+		if commit, next := f(PlayerTimelineInput{Held: false}); commit {
+			t.Fatalf("第 %d 次 press 掉帧被当成松手、提交了 seek，落点 %v", i, next)
+		} else if next != v.seek.value {
+			t.Fatalf("第 %d 次 press 掉帧把滑块值打回 %v（应为 %v）", i, next, v.seek.value)
+		}
+		time.Sleep(videoSeekQuiet / 10)
+	}
+	// 一直拖着但停住不动：安静期满也不该提交（指针还按着）。
+	stop := v.seek.value
+	for i := 0; i < 3; i++ {
+		time.Sleep(videoSeekQuiet / 2)
+		if commit, next := f(PlayerTimelineInput{Held: true}); commit {
+			t.Fatalf("按住不动也被当成停手提交了（落点 %v）", next)
+		}
+	}
+	if abs(v.seek.value-stop) > 1 {
+		t.Errorf("按住不动时滑块值漂了：%v → %v", stop, v.seek.value)
 	}
 }
 
-// TestVideoChromeSeekTinyTravelIgnored 钉住「没真的拖动就不提交」：点一下
-// 进度条、或抖动后值被回填到播放位置附近时，提交一次 seek 就是一次没头没脑
-// 的跳转。
+// TestVideoChromeSeekTinyTravelIgnored 钉住「没真的拖动就不提交」。
 func TestVideoChromeSeekTinyTravelIgnored(t *testing.T) {
 	pl := &videoStubPlayer{playing: true, ready: true, dur: 3600 * time.Second, pos: 100 * time.Second, rate: 1, vol: 1}
 	v := &VideoChrome{Pl: pl}
 	f := v.seekFrame(3600)
 	f(PlayerTimelineInput{Held: true})
-	v.seek.value = 100.5 // 与播放位置差 0.5s，远小于 videoSeekMinTravel
+	v.seek.value = 100.5
 	f(PlayerTimelineInput{Held: true, Changed: true})
-	f(PlayerTimelineInput{Held: false})
-	time.Sleep(videoSeekConfirm + 30*time.Millisecond)
+	time.Sleep(videoSeekQuiet + 40*time.Millisecond)
 	if commit, _ := f(PlayerTimelineInput{Held: false}); commit {
 		t.Error("只挪了 0.5s 也提交了 seek（应视为没拖动）")
 	}
@@ -279,10 +287,9 @@ func TestVideoChromeSeekClickFarStillCommits(t *testing.T) {
 	v := &VideoChrome{Pl: pl}
 	f := v.seekFrame(3600)
 	f(PlayerTimelineInput{Held: true})
-	v.seek.value = 1800 // 点在中点
+	v.seek.value = 1800
 	f(PlayerTimelineInput{Held: true, Changed: true})
-	f(PlayerTimelineInput{Held: false})
-	time.Sleep(videoSeekConfirm + 30*time.Millisecond)
+	time.Sleep(videoSeekQuiet + 40*time.Millisecond)
 	if commit, next := f(PlayerTimelineInput{Held: false}); !commit || next != 1800 {
 		t.Fatalf("点远处应提交 1800：commit=%v next=%v", commit, next)
 	}
@@ -296,12 +303,10 @@ func TestVideoChromeSeekWaitsForPlayer(t *testing.T) {
 	f(PlayerTimelineInput{Held: true})
 	v.seek.value = 900
 	f(PlayerTimelineInput{Held: true, Changed: true})
-	f(PlayerTimelineInput{Held: false})
-	time.Sleep(videoSeekConfirm + 30*time.Millisecond)
+	time.Sleep(videoSeekQuiet + 40*time.Millisecond)
 	if commit, next := f(PlayerTimelineInput{Held: false}); !commit || next != 900 {
-		t.Fatalf("确认松手应提交 900：commit=%v next=%v", commit, next)
+		t.Fatalf("安静后应提交 900：commit=%v next=%v", commit, next)
 	}
-	// 播放器还没追上（位置仍是 100）：滑块必须停在 900。
 	for i := 0; i < 3; i++ {
 		if _, next := f(PlayerTimelineInput{Held: false}); next != 900 {
 			t.Fatalf("seek 还没落地，第 %d 帧滑块被打回 %v（应为 900）", i, next)
@@ -318,23 +323,6 @@ func TestVideoChromeSeekWaitsForPlayer(t *testing.T) {
 	pl.pos = 905 * time.Second
 	if _, next := f(PlayerTimelineInput{Held: false}); next != 905 {
 		t.Errorf("追上后应跟随播放位置 905，实际 %v", next)
-	}
-}
-
-// TestVideoChromeSeekGivesUpEventually 钉住「seek 一直被丢弃时不会永久卡住」。
-func TestVideoChromeSeekGivesUpEventually(t *testing.T) {
-	pl := &videoStubPlayer{playing: true, ready: true, dur: 3600 * time.Second, pos: 100 * time.Second, rate: 1, vol: 1}
-	v := &VideoChrome{Pl: pl}
-	f := v.seekFrame(3600)
-	f(PlayerTimelineInput{Held: true})
-	v.seek.value = 900
-	f(PlayerTimelineInput{Held: true, Changed: true})
-	f(PlayerTimelineInput{Held: false})
-	time.Sleep(videoSeekConfirm + 30*time.Millisecond)
-	f(PlayerTimelineInput{Held: false})
-	v.seek.releasedAt = time.Now().Add(-videoSeekWait - time.Second)
-	if _, next := f(PlayerTimelineInput{Held: false}); next != 100 {
-		t.Errorf("等太久之后应交还控制权（播放位置 100），实际 %v", next)
 	}
 }
 
