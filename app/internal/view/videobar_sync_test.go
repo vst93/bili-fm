@@ -690,8 +690,8 @@ func TestVideoBarDragUsesSharedSlider(t *testing.T) {
 	}
 	tt.Release(x0+span*0.75, y)
 	tt.Frame()
-	// 「值安静」按真实时间算（seekFrame 用 time.Now，不是 Tester 的时钟）。
-	time.Sleep(videoSeekQuiet + 40*time.Millisecond)
+	// 确认窗口按真实时间算（seekFrame 用 time.Now，不是 Tester 的时钟）。
+	time.Sleep(videoSeekConfirm + 40*time.Millisecond)
 	tt.Frame()
 	if len(pl.seeks) == 0 {
 		t.Fatalf("松手确认后没有下发 seek")
