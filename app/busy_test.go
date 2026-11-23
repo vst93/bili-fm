@@ -7,6 +7,7 @@ package main
 //   - 视频→主窗回传忙态，关窗/失败时清掉。
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -309,13 +310,32 @@ func TestIssue42VideoOpeningSnapshotsUIFields(t *testing.T) {
 		}
 	}
 	// goroutine 体内不许再出现这些界面字段（快照之后只准用局部变量）。
-	// flattenCode 会剥注释，所以锚点只能用代码本身。
-	body := flat
-	if i := strings.Index(flat, "gofunc(){u:=c.bl.GetUrlByCid(aid,cid)"); i >= 0 {
-		body = flat[i:]
-		if j := strings.Index(body, "}()"); j > 0 {
-			body = body[:j]
+	//
+	// 锚点不再用「goroutine 的第一句」：openVideo 现在并发取合流地址与 DASH
+	// 轨道，goroutine 开头是 var 声明 + 两个内部 goroutine，按第一句切会把
+	// 后半段漏掉。这里直接取整个 openVideo 函数体（快照那几句用的是局部变量
+	// 赋值，不会命中下面的 bad 模式）。
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("读 main.go 失败：%v", err)
+	}
+	flatFn := strings.Join(strings.Fields(stripComments(
+		sourceBlock(t, src, "func (c *controller) openVideo() {"))), "")
+	// 并发取地址：两条接口都必须在 fetchWait 的两个 goroutine 里，起播延迟
+	// 只等较慢的那一个（串行时是两次 RTT）。
+	for _, want := range []string{
+		"fetchWait.Add(2)",
+		"u=c.bl.GetUrlByCid(aid,cid)",
+		"dashV,dashA,dashDur,dashOK=c.bl.GetDashAVByCid(aid,cid)",
+	} {
+		if !strings.Contains(flatFn, want) {
+			t.Errorf("openVideo 没有并发取地址：%q", want)
 		}
+	}
+	// 只检查后台 goroutine 体内（快照那几句在 go 之前，用的是界面字段本身）。
+	body := flatFn
+	if i := strings.Index(flatFn, "gofunc(){"); i >= 0 {
+		body = flatFn[i:]
 	} else {
 		t.Fatal("找不到 openVideo 的后台 goroutine（接线改了？）")
 	}

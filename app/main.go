@@ -4504,9 +4504,28 @@ func (c *controller) openVideo() {
 	cid64 := t.Cid
 	title, cover := t.Title, t.Cover
 	go func() {
-		// 合流地址是**兜底**，也是 webview 回退路径唯一能播的源，所以两条
-		// 路径都要先拿到它。它与 DASH 轨道是同一个接口的不同参数，不能省。
-		u := c.bl.GetUrlByCid(aid, cid)
+		// 合流地址与 DASH 轨道是同一个接口的**两个不同参数**（platform=html5
+		// 与 fnval=16），谁也不能省。它们过去是串行的：先等合流回来、再等
+		// DASH 索引回来，两次 RTT 全部落在「点了播放到窗口开出来」这段空等里。
+		// 现在并发取，起播只等较慢的那一个。
+		var (
+			u         bilibili.PlayURLInfo
+			dashV     bilibili.DashTrack
+			dashA     bilibili.DashTrack
+			dashDur   float64
+			dashOK    bool
+			fetchWait sync.WaitGroup
+		)
+		fetchWait.Add(2)
+		go func() {
+			defer fetchWait.Done()
+			u = c.bl.GetUrlByCid(aid, cid)
+		}()
+		go func() {
+			defer fetchWait.Done()
+			dashV, dashA, dashDur, dashOK = c.bl.GetDashAVByCid(aid, cid)
+		}()
+		fetchWait.Wait()
 		if stale() {
 			return
 		}
@@ -4530,7 +4549,7 @@ func (c *controller) openVideo() {
 		// 任何一步不成立（接口没给 DASH、索引坏了、端口起不来）都静默退回
 		// 合流，不打扰用户 —— 画质相同，没有功能差别。
 		src, fallback := combined, ""
-		session := c.startVideoHLS(aid, cid, speed)
+		session := c.startVideoHLSFrom(dashV, dashA, dashDur, dashOK, speed)
 		if stale() {
 			if session != nil {
 				_ = session.Close()
@@ -4739,10 +4758,18 @@ func sectionIndex(key string) int {
 //
 // 起出来的服务由 c.hls 持有，随视频窗关闭 / 切集 / 退出一起关掉。
 func (c *controller) startVideoHLS(aid, cid int, speed float64) *dashhls.Session {
+	// 兼容入口（测试 / 命令行探针）：自己取一次 DASH 轨道。
+	v, a, dur, ok := c.bl.GetDashAVByCid(aid, cid)
+	return c.startVideoHLSFrom(v, a, dur, ok, speed)
+}
+
+// startVideoHLSFrom 用已经取好的 DASH 轨道起本地 HLS 服务。openVideo 把
+// GetUrlByCid 与 GetDashAVByCid 并发跑，结果在这里落地 —— 起播延迟只等
+// 较慢的那一个接口，而不是两次串行的 RTT。
+func (c *controller) startVideoHLSFrom(v, a bilibili.DashTrack, dur float64, ok bool, speed float64) *dashhls.Session {
 	if video.PreferProgressive(runtime.GOOS, speed) {
 		return nil
 	}
-	v, a, dur, ok := c.bl.GetDashAVByCid(aid, cid)
 	if !ok {
 		return nil
 	}

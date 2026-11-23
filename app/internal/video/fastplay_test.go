@@ -16,7 +16,10 @@ func TestFastPlaybackSources(t *testing.T) {
 	for _, platform := range []string{"darwin", "linux", "windows"} {
 		t.Run(platform, func(t *testing.T) {
 			for _, rate := range []float64{1, 2, 3} {
-				if got, want := PreferProgressive(platform, rate), platform == "darwin" && rate == 3; got != want {
+				// >2 倍速在 macOS（AVFoundation 不给画面）与 Windows（MF 的
+				// 流式源拒绝 >2 倍速）都改用合流 MP4；Linux 继续用分片源。
+				want := rate == 3 && (platform == "darwin" || platform == "windows")
+				if got := PreferProgressive(platform, rate); got != want {
 					t.Fatalf("开窗倍速 %v：合流=%v，预期 %v", rate, got, want)
 				}
 			}
@@ -42,9 +45,9 @@ func TestFastPlaybackSources(t *testing.T) {
 				}
 				n.settings.SetSpeed(3)
 				tester.Frame()
-				if platform != "darwin" {
+				if platform == "linux" {
 					if n.pl != old || old.rate != 3 || len(opened) != 0 {
-						t.Fatal("3 倍速应在当前播放器生效")
+						t.Fatal("Linux 的 3 倍速应在当前分片播放器上生效")
 					}
 					continue
 				}

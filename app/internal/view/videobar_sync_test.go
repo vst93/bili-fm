@@ -690,11 +690,9 @@ func TestVideoBarDragUsesSharedSlider(t *testing.T) {
 	}
 	tt.Release(x0+span*0.75, y)
 	tt.Frame()
-	// 确认窗口按真实时间算（seekFrame 用 time.Now，不是 Tester 的时钟）。
-	time.Sleep(videoSeekConfirm + 40*time.Millisecond)
-	tt.Frame()
+	// 与主窗 progressPlan 同一条：松手当帧提交，没有确认窗口 / 最小位移阈值。
 	if len(pl.seeks) == 0 {
-		t.Fatalf("松手确认后没有下发 seek")
+		t.Fatalf("松手后没有下发 seek")
 	}
 	last := pl.seeks[len(pl.seeks)-1].Seconds()
 	if absF32(float32(last-landing)) > 1 {

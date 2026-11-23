@@ -274,8 +274,8 @@ func TestVideoChromeSeekDragHolds(t *testing.T) {
 	tt.Press(pos.X+pos.W/2, pos.Y+pos.H/2)
 	tt.Move(320, 150)
 	tt.Frame()
-	if !ch.seek.drag {
-		t.Fatalf("先决条件：应处于拖动中（seek.drag=%v）", ch.seek.drag)
+	if !ch.seek.wasHeld {
+		t.Fatalf("先决条件：应处于拖动中（seek.wasHeld=%v）", ch.seek.wasHeld)
 	}
 	tt.Advance(4 * time.Second)
 	if ch.idle.alpha != 1 {
@@ -283,7 +283,7 @@ func TestVideoChromeSeekDragHolds(t *testing.T) {
 	}
 	tt.Release(320, 150)
 	tt.Frame()
-	if ch.seek.drag {
+	if ch.seek.wasHeld {
 		t.Error("松手后应退出拖动状态")
 	}
 	if !ch.barHover {

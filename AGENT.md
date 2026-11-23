@@ -165,6 +165,35 @@
   播放键直接忽略（不许 Resume 旧/空引擎），起播收尾在界面线程读**当前**
   Speed/EQ/Volume 下发（不能用起播开始时的快照；音量复用 `c.applyVolume`
   以尊重静音）。
+- **视频窗进度条 == 主窗进度条（同一份 `progressPlan`）**（2026-11-23）：
+  `VideoChrome.seekFrame` 只做「取 pos / 调 `progressPlan` / 记 busy」三件事，
+  与 `App.seekFrame` 同一组输入与同一个 `seekSettle`(250ms)。**不许**再加视频窗
+  私有的确认窗口 / 最小位移阈值（曾经有 150ms + 2s，用户拖 1 秒松手等于没拖，
+  报的就是「拖了没反应」）。busy 的来源不同（视频没有 seek 完成回调）：
+  `videoSeek.observe` 在「位置追上目标 1.5s」或「超时 3s」时收掉，然后
+  `progressPlan` 的 settle 再挡 250ms。`holdChrome` 与「显示哪个位置」用
+  `wasHeld || busy`，与主窗 `App.Seeking()/shownPos()` 同义。
+- **视频窗忙态必须迟滞**（2026-11-23）：HLS 的 `Buffering` 位会一两帧地翻。
+  `videoBusyState` 进入缓冲要连续 180ms、离开要非缓冲稳定 600ms；**暂停 / 片尾
+  立刻放行**（`observe` 的 `playing` 参数）。`internal/video` 回传主窗的
+  `State.Buffering` 取 `chrome.Busy()`（迟滞后），否则主窗播放键与 `VideoBusy`
+  会跟着闪 —— 用户报的「3 倍速时按钮闪动」。
+- **`internal/dashhls` 会预取分片**（2026-11-23）：`Start` 后 `warm()` 头两个
+  分片；每回完一个分片 `maybePrefetch` 后台拉后 3 个；缓存按分片起点索引、
+  封顶 6MiB、FIFO 淘汰，**只缓存完整分片**（长度不符就走上游），init 不进缓存。
+  每条轨道同一时刻只有一个预取 goroutine（CAS），`Close` 通过 `stop` channel
+  收掉。分片响应 `Cache-Control: public, max-age=3600`，播放列表仍 `no-store`。
+  master 只写**一条** `#EXT-X-STREAM-INF`（两条同 URI 会让播放器当两个清晰度挑）。
+- **`openVideo` 并发取两条地址**（2026-11-23）：`GetUrlByCid`（合流 / webview
+  兜底）与 `GetDashAVByCid`（DASH 轨道）用 `fetchWait` 并发，`startVideoHLSFrom`
+  接收取好的轨道。串行时两次 RTT 全落在「点播放 → 窗口开出来」这段空等里。
+  `startVideoHLS(aid,cid,speed)` 仍是兼容入口（测试 / 探针）。
+- **>2 倍速在 darwin 与 windows 都改用合流 MP4**（2026-11-23）：
+  `PreferProgressive = rate > 2 && progressivePlatform(platform)`，后者是
+  darwin || windows。Windows 的理由是 MF 的流式源不保证 `SetPlaybackRate` >2
+  （mygo 的 `mfEngine.SetRate` 不检查 HRESULT，表现就是「点了没反应」）；
+  Linux 保持分片源（GStreamer 实测正常）。开窗选源与播放中提速（`wireNativeSource`
+  的 `openProgressive`）必须同一条判据。
 - **音频起播先取 DASH AAC-LC**（issue #42 后续，2026-11-17）：`startCurrent`
   不再先取 360P 合流、等 HE-AAC 才换轨。`startAudioSource`（app/audio_start.go）
   先 `GetDashAudioByCid`，没有可用 URL 或首次 Play 失败才回退**一次**

@@ -31,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -64,6 +65,18 @@ const maxSegmentBytes = 8 << 20
 // 余量；不能设成 0（无限等），否则关窗时 goroutine 会挂住。
 const fetchTimeout = 30 * time.Second
 
+// 分片预取（read-ahead）。播放器按顺序往下播，下一个分片几乎总是紧接着
+// 就要；在把当前分片回完之后顺手把后面几个也拉下来，上游 RTT 就不再落在
+// 播放器身上 —— 3 倍速这种吃数据的速度下，这是「卡一下缓冲一下」的主要
+// 来源之一。
+//
+// 缓存只放**媒体分片**（init 段很小，不值得走缓存路径），总量封顶 6MiB：
+// B 站 360P 单分片约 100~370KB，够放十几个，回拖 / seek 回来也能命中。
+const (
+	prefetchSegments = 3
+	maxPrefetchBytes = 6 << 20
+)
+
 // sidx 的一条 reference：分片字节数与时长（timescale 单位）。
 type reference struct {
 	size uint32
@@ -83,7 +96,28 @@ type track struct {
 	media  [2]int64 // 媒体数据区间 [start, end]（闭区间）
 	dur    float64  // 这条轨道按 sidx 算出来的时长（秒）
 
+	// starts 是每个分片在整条轨道里的字节起点，顺序与 refs 一致。预取要用
+	// 它把「播放器请求的区间」映射回分片号（区间是原样编进 URL 的，不能反解）。
+	// 生产路径在 load 里一次算好；直接构造 track 的测试靠 startsOnce 懒算。
+	starts     []int64
+	startsOnce sync.Once
+
 	client *http.Client
+
+	// 分片读缓存与预取状态（见 prefetchSegments）。cache 只被 serveSegment
+	// 与预取 goroutine 访问，全部在 cacheMu 下。
+	cacheMu     sync.Mutex
+	cache       map[int64][]byte
+	cacheOrder  []int64
+	cacheBytes  int
+	prefetching atomic.Bool
+	// fetches 是这条轨道真正回上游的次数（预取与播放器请求都算）。缓存命中
+	// 不加。测试用它钉「第二个请求不再走上游」，不会被另一条轨道的预取干扰
+	// （两条轨道常常指向同一个上游地址、区间也一样）。
+	fetches atomic.Int64
+	// stop 在 Session.Close 时关闭，预取 goroutine 见到就退出（它可能在
+	// 关窗后还挂在一次上游请求上，靠 fetchTimeout 收尾）。
+	stop chan struct{}
 }
 
 // Session 是一个视频的本地 HLS 服务。用完必须 Close，否则监听端口和上游
@@ -104,8 +138,8 @@ type Session struct {
 //
 // duration 是接口给的秒数，只用来兜底（sidx 的时长更准，优先用它）。
 func Start(video, audio Track, duration float64) (*Session, error) {
-	v := &track{name: "video", kind: 'v', src: video, client: newClient()}
-	a := &track{name: "audio", kind: 'a', src: audio, client: newClient()}
+	v := &track{name: "video", kind: 'v', src: video, client: newClient(), stop: make(chan struct{})}
+	a := &track{name: "audio", kind: 'a', src: audio, client: newClient(), stop: make(chan struct{})}
 
 	// init 与 sidx 是两条独立的请求，并发取：串行时那一个 RTT 会直接落在
 	// 起播延迟上（实测两次各 ~50ms，但慢网下差别更大）。
@@ -153,6 +187,10 @@ func Start(video, audio Track, duration float64) (*Session, error) {
 			s.err = err
 		}
 	}()
+	// 提前加载头两个分片：播放器解析完播放列表就要它们，等它来要再回上游
+	// 就是一次白等的 RTT（首帧前那几百毫秒里最值钱的一段）。
+	v.warm()
+	a.warm()
 	return s, nil
 }
 
@@ -175,6 +213,9 @@ func (s *Session) Close() error {
 		}
 		for _, t := range []*track{s.vid, s.aud} {
 			if t != nil {
+				if t.stop != nil {
+					close(t.stop)
+				}
 				t.client.CloseIdleConnections()
 			}
 		}
@@ -247,6 +288,14 @@ func (t *track) load() error {
 	}
 	t.media = [2]int64{t.origin, t.origin + total - 1}
 	t.dur = float64(ticks) / float64(scale)
+	// 分片起点表：mediaPlaylist 与预取共用同一份顺序，避免两处各算一遍
+	// 漂开（预取错一个分片就是白白多下一段）。
+	t.starts = make([]int64, len(refs))
+	off := t.origin
+	for i, r := range refs {
+		t.starts[i] = off
+		off += int64(r.size)
+	}
 	return nil
 }
 
@@ -267,6 +316,7 @@ func (t *track) fetch(start, end int64) ([]byte, error) {
 		}
 		body, err := t.fetchOne(u, start, end)
 		if err == nil {
+			t.fetches.Add(1)
 			return body, nil
 		}
 		lastErr = err
@@ -322,11 +372,14 @@ func (s *Session) serveMaster(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n")
 	b.WriteString("#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"aac\",DEFAULT=YES,AUTOSELECT=YES,URI=\"audio.m3u8\"\n")
-	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,AUDIO=\"aud\",CODECS=\"%s\"\n", bw, codecs)
+	// 只写**一条** variant：以前写了「有 RESOLUTION / 没有 RESOLUTION」两条
+	// 指向同一个 video.m3u8，部分播放器会把它当成两个清晰度去挑，挑中哪条
+	// 全看实现；对本地单码率源没有任何意义，只会增加解析歧义。
+	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d", bw)
 	if s.vid.src.Width > 0 && s.vid.src.Height > 0 {
-		fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d,CODECS=\"%s\",AUDIO=\"aud\"\n",
-			bw, s.vid.src.Width, s.vid.src.Height, codecs)
+		fmt.Fprintf(&b, ",RESOLUTION=%dx%d", s.vid.src.Width, s.vid.src.Height)
 	}
+	fmt.Fprintf(&b, ",CODECS=\"%s\",AUDIO=\"aud\"\n", codecs)
 	b.WriteString("video.m3u8\n")
 	writePlaylist(w, b.String())
 }
@@ -340,6 +393,156 @@ func (s *Session) serveMedia(kind byte) http.HandlerFunc {
 		}
 		writePlaylist(w, mediaPlaylist(t))
 	}
+}
+
+// segmentStarts 返回每个分片的字节起点。load 会把它算好放进 starts；
+// 直接构造 track 的单元测试没有这一步，这里按 origin + refs 现算一份，
+// 保证播放列表与预取用的是同一套顺序。
+func (t *track) segmentStarts() []int64 {
+	t.startsOnce.Do(func() {
+		if len(t.starts) == len(t.refs) {
+			return
+		}
+		out := make([]int64, len(t.refs))
+		off := t.origin
+		for i, r := range t.refs {
+			out[i] = off
+			off += int64(r.size)
+		}
+		t.starts = out
+	})
+	return t.starts
+}
+
+// indexOf 返回以 start 开头的分片序号；start 不是分片起点时返回 -1
+// （init 段、播放器自己拼出来的区间都不进预取）。
+func (t *track) indexOf(start int64) int {
+	starts := t.segmentStarts()
+	lo, hi := 0, len(starts)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if starts[mid] < start {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo < len(starts) && starts[lo] == start {
+		return lo
+	}
+	return -1
+}
+
+// cached 取一份已经预取 / 回过的分片。
+func (t *track) cached(start int64) ([]byte, bool) {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	body, ok := t.cache[start]
+	return body, ok
+}
+
+// store 缓存一份分片；超过 maxPrefetchBytes 时按写入顺序淘汰最旧的
+// （FIFO 足够：播放是顺序的，最旧的就是最不可能再回看的）。
+func (t *track) store(start int64, body []byte) {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	if _, ok := t.cache[start]; ok {
+		return
+	}
+	if t.cache == nil {
+		t.cache = map[int64][]byte{}
+	}
+	t.cache[start] = body
+	t.cacheOrder = append(t.cacheOrder, start)
+	t.cacheBytes += len(body)
+	for t.cacheBytes > maxPrefetchBytes && len(t.cacheOrder) > 0 {
+		old := t.cacheOrder[0]
+		t.cacheOrder = t.cacheOrder[1:]
+		if b, ok := t.cache[old]; ok {
+			t.cacheBytes -= len(b)
+			delete(t.cache, old)
+		}
+	}
+}
+
+// stopped 报告会话是否已经关闭。
+func (t *track) stopped() bool {
+	if t.stop == nil {
+		return false
+	}
+	select {
+	case <-t.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// warm 在起服务时就把头两个分片拉下来（见 Start）。与 maybePrefetch 共用
+// 同一个 CAS：播放器已经开始要分片时不再重复预取。
+func (t *track) warm() {
+	if !t.prefetching.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer t.prefetching.Store(false)
+		starts := t.segmentStarts()
+		for i := 0; i < 2 && i < len(t.refs); i++ {
+			if t.stopped() {
+				return
+			}
+			s := starts[i]
+			if _, ok := t.cached(s); ok {
+				continue
+			}
+			e := s + int64(t.refs[i].size) - 1
+			body, err := t.fetch(s, e)
+			if err != nil {
+				return
+			}
+			if t.stopped() {
+				return
+			}
+			t.store(s, body)
+		}
+	}()
+}
+
+// maybePrefetch 在当前分片回完之后，后台把后面 prefetchSegments 个拉下来。
+//
+// 同一时刻每条轨道最多一个预取 goroutine（CAS）：播放器一秒可能要几个分片，
+// 不能每个请求都再开一条。预取失败就停，不重试 —— 播放器自己马上会来要
+// 这一段，到时的失败路径与没有预取完全一样。
+func (t *track) maybePrefetch(start int64) {
+	if !t.prefetching.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer t.prefetching.Store(false)
+		starts := t.segmentStarts()
+		idx := t.indexOf(start)
+		if idx < 0 {
+			return
+		}
+		for i := idx + 1; i <= idx+prefetchSegments && i < len(t.refs); i++ {
+			if t.stopped() {
+				return
+			}
+			s := starts[i]
+			if _, ok := t.cached(s); ok {
+				continue
+			}
+			e := s + int64(t.refs[i].size) - 1
+			body, err := t.fetch(s, e)
+			if err != nil {
+				return
+			}
+			if t.stopped() {
+				return
+			}
+			t.store(s, body)
+		}
+	}()
 }
 
 // mediaPlaylist 把一条轨道渲染成 HLS 媒体播放列表。
@@ -363,11 +566,11 @@ func mediaPlaylist(t *track) string {
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
 	fmt.Fprintf(&b, "#EXT-X-MAP:URI=\"seg?k=%c&r=%d-%d\"\n", t.kind, t.init[0], t.init[1])
 
-	off := t.origin
-	for _, r := range t.refs {
+	starts := t.segmentStarts()
+	for i, r := range t.refs {
+		off := starts[i]
 		fmt.Fprintf(&b, "#EXTINF:%.6f,\n", float64(r.dur)/float64(t.scale))
 		fmt.Fprintf(&b, "seg?k=%c&r=%d-%d\n", t.kind, off, off+int64(r.size)-1)
-		off += int64(r.size)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String()
@@ -407,18 +610,38 @@ func (s *Session) serveSegment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
-	body, err := t.fetch(start, end)
-	if err != nil {
-		// 不把上游错误原文回给播放器（里面可能有签名 URL 的片段）。
-		http.Error(w, "upstream failed", http.StatusBadGateway)
-		return
+	// 只接受**整段命中**：播放器偶尔会要一段区间里的一部分，缓存里那份是
+	// 完整分片，长度对不上就不能拿它冒充（Content-Length 会与请求不符）。
+	body, ok := t.cached(start)
+	if ok && int64(len(body)) != end-start+1 {
+		ok = false
+	}
+	if !ok {
+		var err error
+		body, err = t.fetch(start, end)
+		if err != nil {
+			// 不把上游错误原文回给播放器（里面可能有签名 URL 的片段）。
+			http.Error(w, "upstream failed", http.StatusBadGateway)
+			return
+		}
+		if !inInit && t.indexOf(start) >= 0 {
+			// 只缓存完整分片（见上：缓存按分片起点索引）。
+			t.store(start, body)
+		}
 	}
 	h := w.Header()
 	h.Set("Content-Type", ctype)
 	h.Set("Content-Length", strconv.Itoa(len(body)))
-	h.Set("Cache-Control", "no-store")
+	// 分片在一次会话里是不可变的：允许播放器 / 中间层缓存，回拖与 seek
+	// 回来就不用再走一趟上游。播放列表仍是 no-store（它带的是本次会话的
+	// 签名地址）。
+	h.Set("Cache-Control", "public, max-age=3600")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+	if !inInit {
+		// 回完这一段再预取后面几个：不占播放器这条请求的时间。
+		t.maybePrefetch(start)
+	}
 }
 
 // writePlaylist 输出一份 m3u8。

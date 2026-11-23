@@ -313,8 +313,17 @@ func (n *nativeWindow) ensureSettings() *view.PlayerSettings {
 }
 
 // state 是给主窗回传的播放状态（与 webview 路径同一结构）。
+//
+// Buffering 取视频窗外壳**迟滞后**的忙态（videoChrome.Busy）：播放器自己
+// 的 buffering 位会在 HLS / 网络播放里一两帧地翻，直接回传会让主窗的播放键
+// 与 VideoBusy 跟着闪（用户报的「按钮闪动」）。外壳没有算过（关窗 / 测试）时
+// 退回播放器的原值。
 func (n *nativeWindow) state() State {
 	n.ensureSettings()
+	buffering := n.pl.Buffering()
+	if n.chrome != nil {
+		buffering = n.chrome.Busy() == view.PlayerBuffering
+	}
 	st := State{
 		Duration:  n.pl.Duration().Seconds(),
 		Time:      n.pl.Position().Seconds(),
@@ -322,7 +331,7 @@ func (n *nativeWindow) state() State {
 		Muted:     n.settings.Muted,
 		Speed:     n.settings.Speed,
 		Ready:     1,
-		Buffering: n.pl.Buffering(),
+		Buffering: buffering,
 	}
 	if !n.pl.Ready() {
 		st.Ready = 0

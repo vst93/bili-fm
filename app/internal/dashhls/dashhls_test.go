@@ -357,6 +357,9 @@ func TestSessionPlaylistsAndSegments(t *testing.T) {
 func TestSegmentHonoursUpstreamRangeAndKeepsConnection(t *testing.T) {
 	up := newUpstream(t, 64*1024)
 	s := startWith(t, up, 16000, [][2]uint32{{1000, 80000}, {2000, 80000}})
+	// 起服务时会 warm 头两个分片（见 Start）；先等它落定，再接管 DialContext，
+	// 否则量到的是预取那次握手，而不是「播放器取分片」这条路径。
+	waitPrefetch(t, s)
 	base := strings.TrimSuffix(s.URL(), "master.m3u8")
 
 	// 记录我们自己的 client → upstream 之间新建了几条连接。
@@ -542,3 +545,115 @@ func segmentRanges(pl string) []string {
 }
 
 var _ = time.Second
+
+// TestMasterPlaylistHasSingleVariant 钉住 master 只写一条 #EXT-X-STREAM-INF：
+// 以前同一份 video.m3u8 被写成「有 RESOLUTION / 没有 RESOLUTION」两条，
+// 播放器会当成两个清晰度去挑，对本地单码率源没有意义。
+func TestMasterPlaylistHasSingleVariant(t *testing.T) {
+	up := newUpstream(t, 64*1024)
+	s := startWith(t, up, 16000, [][2]uint32{{1000, 80000}, {2000, 80000}})
+	master := get(t, s.URL())
+	if n := strings.Count(master, "#EXT-X-STREAM-INF"); n != 1 {
+		t.Fatalf("master 有 %d 条 variant（应只有 1 条）：\n%s", n, master)
+	}
+}
+
+// countRange 数某个 Range 被上游收到过几次（按具体区间，不被预取的其他
+// 分片干扰）。
+func (u *upstream) countRange(rng string) int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	n := 0
+	for _, r := range u.ranges {
+		if r == rng {
+			n++
+		}
+	}
+	return n
+}
+
+// waitPrefetch 等到两条轨道的后台预取都停下来（测试里要量「上游被访问了
+// 几次」时必须先让起服务时的 warm 落定）。
+func waitPrefetch(t *testing.T, s *Session) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !s.vid.prefetching.Load() && !s.aud.prefetching.Load() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("预取一直没有结束")
+}
+
+// TestSegmentPrefetchServesNextFromCache 钉住分片预取：取完一个分片后，后面
+// 几个会被后台拉下来；播放器紧接着要下一个分片时直接命中缓存，这条轨道不再
+// 回上游（3 倍速下每一段都少一个 RTT）。
+func TestSegmentPrefetchServesNextFromCache(t *testing.T) {
+	up := newUpstream(t, 64*1024)
+	var refs [][2]uint32
+	for i := 0; i < 8; i++ {
+		refs = append(refs, [2]uint32{1000, 80000})
+	}
+	s := startWith(t, up, 16000, refs)
+	waitPrefetch(t, s)
+	base := strings.TrimSuffix(s.URL(), "master.m3u8")
+	rngs := segmentRanges(get(t, base+"video.m3u8"))
+	if len(rngs) != len(refs) {
+		t.Fatalf("分片数=%d，想 %d", len(rngs), len(refs))
+	}
+	starts := s.vid.segmentStarts()
+	// 取第 4 段（warm 只覆盖头两段）：它自己回上游，然后触发对 5..7 的预取。
+	_ = getBytes(t, base+"seg?k=v&r="+rngs[3])
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := s.vid.cached(starts[4]); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := s.vid.cached(starts[4]); !ok {
+		t.Fatalf("预取没有把下一个分片存进缓存（上游 %d 次）", s.vid.fetches.Load())
+	}
+	// 用**这个区间**在上游出现的次数判定：两条轨道常常指向同一个上游地址、
+	// 区间也一样，按轨道计的 fetch 计数会被另一条轨道的预取干扰。
+	before := up.countRange("bytes=" + rngs[4])
+	_ = getBytes(t, base+"seg?k=v&r="+rngs[4])
+	if after := up.countRange("bytes=" + rngs[4]); after != before {
+		t.Errorf("第二个分片又走了一趟上游（%d → %d），预取缓存没命中", before, after)
+	}
+}
+
+// TestSegmentCacheServesRepeat 钉住回拖 / 重播：同一个分片第二次请求必须
+// 直接命中缓存（这条轨道只回过一次上游）。
+func TestSegmentCacheServesRepeat(t *testing.T) {
+	up := newUpstream(t, 64*1024)
+	s := startWith(t, up, 16000, [][2]uint32{{1000, 80000}})
+	waitPrefetch(t, s)
+	base := strings.TrimSuffix(s.URL(), "master.m3u8")
+	rngs := segmentRanges(get(t, base+"video.m3u8"))
+	_ = getBytes(t, base+"seg?k=v&r="+rngs[0])
+	before := up.countRange("bytes=" + rngs[0])
+	_ = getBytes(t, base+"seg?k=v&r="+rngs[0])
+	if after := up.countRange("bytes=" + rngs[0]); after != before {
+		t.Errorf("重复请求又走了上游（%d → %d）", before, after)
+	}
+}
+
+// TestStartWarmsFirstSegments 钉住「起服务时提前加载头两个分片」：播放器
+// 解析完播放列表就要它们，等它来要再回上游就是一次白等的 RTT。
+func TestStartWarmsFirstSegments(t *testing.T) {
+	up := newUpstream(t, 64*1024)
+	s := startWith(t, up, 16000, [][2]uint32{{1000, 80000}, {2000, 80000}, {3000, 80000}})
+	starts := s.vid.segmentStarts()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		_, c0 := s.vid.cached(starts[0])
+		_, c1 := s.vid.cached(starts[1])
+		if c0 && c1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("起服务后头两个分片没有预取进缓存（%d/%d）", len(s.vid.cache), len(starts))
+}

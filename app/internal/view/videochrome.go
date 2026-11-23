@@ -233,6 +233,7 @@ type VideoChrome struct {
 	clicks   videoClickArbiter
 	fs       videoFullScreen
 	seek     videoSeek
+	busy     videoBusyState
 	barHover bool
 
 	// 控件条上的两个弹层（与主窗同一份实现）与音量拖动提交的上一帧状态。
@@ -546,41 +547,106 @@ func (f *videoFullScreen) fading(now time.Time) bool { return f.fade(now) > 0 }
 
 // ---------------------------------------------------------------- 进度
 
-// videoSeek 是进度条的状态：拖动期间滑块停在用户手上的值，松手后跟随播放。
+// videoSeek 是视频窗进度条的状态。字段与主窗 App 的 SeekValue / wasHeld /
+// SeekBusy / SeekStableAt 一一对应，决策也走同一个 progressPlan —— 两个窗口
+// 的进度条语义必须一样（用户 2026-11 的明确要求）。
+//
+// 视频窗与主窗的唯一差别是 busy 的来源：音频引擎的 seek 有完成回调，视频的
+// seek 没有。这里用「播放位置追上目标」或超时来收 busy（见 observe）。
 type videoSeek struct {
-	value float64
-	drag  bool
-	// pressed 是上一帧「指针是否按在进度条上」。滑块的值每帧都会被框架写，
-	// 而 press 状态偶尔会抖一帧；只要把抖动当成「松手」，就会在用户没松手
-	// 的时候提交一次 seek —— 视频当场跳走（用户实测到的 bug）。
-	pressed bool
-	// released / releasedAt / releasedValue 是一次待确认的松手：松手后等
-	// videoSeekConfirm 再提交，这期间又按回来就作废。
-	released      bool
-	releasedAt    time.Time
-	releasedValue float64
-	// target / hasTarget 是「已经下发、但播放器还没追上的位置」。AVPlayer
-	// 的 seek 是异步的，currentTime 在落地前一直是旧值：这段时间里用播放器
-	// 位置回填，滑块就会弹回原处，用户看到的就是「拖不动」。
+	value     float64
+	wasHeld   bool
+	busy      bool
 	target    float64
 	hasTarget bool
+	seekAt    time.Time
+	stableAt  time.Time
 }
-
-// videoSeekConfirm 是松手后的确认窗口：press 抖一帧不算松手，真松手也要
-// 等这么久才提交（人松手后不会立刻再按，抖帧会）。
-const videoSeekConfirm = 150 * time.Millisecond
-
-// videoSeekMinTravel 是「这次拖动真的移动过」的判据（秒）：松手时滑块与
-// 播放位置差得比它近，说明用户只是点了一下、或者只是 press 抖动后值被回填，
-// 不提交 seek（提交了就是一次没头没脑的跳转）。
-const videoSeekMinTravel = 2.0
 
 // videoSeekReached 是「播放器已经追上目标」的判据（秒）。
 const videoSeekReached = 1.5
 
 // videoSeekWait 是等播放器追上的上限：超过它认为这次 seek 被丢弃了，
-// 交还控制权，滑块不会永久卡在目标值上。
+// 交还控制权（与主窗音频引擎 seek 失败时清 SeekBusy 同一个语义）。
 const videoSeekWait = 3 * time.Second
+
+// observe 在每一帧开头收掉已经落地的 seek：位置追上目标，或等得太久。
+// 收掉时要记一次交接点，progressPlan 的 settle 会再挡一小段，避免滑块
+// 在「落地那一帧」被播放位置拽一下。
+func (s *videoSeek) observe(pos float64) {
+	if !s.hasTarget {
+		return
+	}
+	if abs(s.target-pos) <= videoSeekReached || time.Since(s.seekAt) >= videoSeekWait {
+		s.hasTarget, s.busy = false, false
+		s.stableAt = time.Now()
+	}
+}
+
+// videoBusyConfirm / videoBusyRelease 是忙态的迟滞窗口。
+//
+// 为什么要迟滞：HLS / 网络播放的 buffering 位会在一两帧里来回翻（尤其 3 倍
+// 速这种吃数据的场景）。忙态直接跟随它有两个可见后果 —— 播放键的图标在
+// 「暂停」与圆环之间闪、控件条因为 holdChrome 反复淡入淡出（用户报的
+// 「3 倍速时按钮闪动」）。进入要连续这么久才算，离开也要稳定这么久才放行。
+const (
+	videoBusyConfirm = 180 * time.Millisecond
+	videoBusyRelease = 600 * time.Millisecond
+)
+
+// videoBusyState 把播放器报的忙态变成界面上稳定的一个值（迟滞，见上）。
+type videoBusyState struct {
+	shown PlayerBusy
+	raw   PlayerBusy
+	since time.Time
+}
+
+// wake 报告忙态迟滞还需要多少时间才该重算一次（0 表示不需要排帧）。
+//
+// 缓冲开始 / 结束都不一定带来新帧（卡住时画面不动），没有这一拍就会出现
+// 「其实在缓冲、播放键却一直不转」或者「缓冲早就结束、圆环还在转」。
+func (s *videoBusyState) wake(now time.Time) time.Duration {
+	switch {
+	case s.shown == PlayerBuffering && s.raw != PlayerBuffering:
+		if left := videoBusyRelease - now.Sub(s.since); left > 0 {
+			return left
+		}
+	case s.raw == PlayerBuffering && s.shown != PlayerBuffering:
+		if left := videoBusyConfirm - now.Sub(s.since); left > 0 {
+			return left
+		}
+	}
+	return 0
+}
+
+// observe 推进一帧：raw 是播放器这一刻的状态（见 rawPlayerBusy），playing
+// 表示播放器是否仍在播。暂停 / 片尾是**用户明确的意图**，忙态必须立刻放行
+// （与 issue #42「暂停时 Player.Buffering() 恒 false」同一条），不能因为
+// 上一段缓冲的迟滞再挂一个圆环；只有「还在播、缓冲位又抖回去」才走 release
+// 窗口。进入缓冲则一律要连续 videoBusyConfirm。
+func (s *videoBusyState) observe(now time.Time, raw PlayerBusy, playing bool) PlayerBusy {
+	if raw != s.raw {
+		s.raw, s.since = raw, now
+	}
+	if !playing {
+		s.shown = raw
+		return s.shown
+	}
+	if s.shown == PlayerBuffering {
+		if raw != PlayerBuffering && now.Sub(s.since) >= videoBusyRelease {
+			s.shown = raw
+		}
+		return s.shown
+	}
+	if raw == PlayerBuffering {
+		if now.Sub(s.since) >= videoBusyConfirm {
+			s.shown = PlayerBuffering
+		}
+		return s.shown
+	}
+	s.shown = raw
+	return s.shown
+}
 
 // ---------------------------------------------------------------- 快捷键
 
@@ -725,6 +791,9 @@ func videoChromeLayoutFor(w float32) videoChromeLayout {
 func (v *VideoChrome) View(c *ui.Context) {
 	now := c.Now()
 	v.init(now)
+	// 忙态先算：控件条的 holdChrome、播放键的圆环、以及回传主窗的
+	// VideoBusy 都用这一份（迟滞在 videoBusyState 里，见上面的说明）。
+	v.busy.shown = v.busy.observe(now, v.rawPlayerBusy(), v.Pl.Playing())
 	// 先问隐藏状态（框架靠视图第一次问它来决定隐藏/重现时各给一帧构建）。
 	// 隐藏时**不能**整棵早退：Content 就是生产路径里的 ui.Video，框架要靠
 	// 它每帧 advance 去轮询 State、更新 Ready/Buffering，并保留框架自己的
@@ -817,8 +886,16 @@ func (v *VideoChrome) View(c *ui.Context) {
 	switch {
 	case frame.Animating || v.fs.fading(now):
 		c.AnimationFrame()
-	case frame.Wake > 0:
-		c.After(frame.Wake)
+	default:
+		// 取「自动隐藏」与「忙态迟滞」里更早的那一拍：缓冲开始 / 结束时
+		// 画面可能不动，没有这一拍就看不到圆环、或者圆环下不来。
+		wake := frame.Wake
+		if b := v.busy.wake(now); b > 0 && (wake == 0 || b < wake) {
+			wake = b
+		}
+		if wake > 0 {
+			c.After(wake)
+		}
 	}
 	if v.clicks.pending {
 		c.After(videoDoubleClick)
@@ -923,8 +1000,11 @@ func (nopVideoPlayer) SetMuted(bool)           {}
 //
 //	暂停 / 播完 / 缓冲中  用户在看状态（暂停就藏等于把进度藏了）
 //	指针停在控件条上      barHover（两条栏及其内嵌弹层）
-//	正在拖进度条          seek.drag（松手后指针还在栏上，自然接 barHover）
+//	正在拖进度条          seek.wasHeld（松手后指针还在栏上，自然接 barHover）
 //	设置面板 / 弹层开着   showSettings / showVolume / showSpeed
+//
+// 忙态用的是**迟滞后**的 v.busy（见 videoBusyState）：缓冲位一两帧的抖动
+// 不能把控件条反复淡入淡出。
 //
 // 再加全屏切换还没落定（fs.inFlight）：那一下尺寸在变，藏了就像闪一下。
 // hold 为真时静止计时不走，控件条一直亮着；hold 一解除，若已经静止超过 2.5s
@@ -933,7 +1013,7 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 	switch {
 	case v.Pl == nil:
 		return true
-	case !v.Pl.Playing(), v.playerBusy() != PlayerIdle, v.seek.drag, v.barHover,
+	case !v.Pl.Playing(), v.playerBusy() != PlayerIdle, v.seek.wasHeld, v.barHover,
 		v.showVolume, v.showSpeed, v.showSettings, v.fs.inFlight:
 		return true
 	}
@@ -1103,7 +1183,8 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 	dur := v.Pl.Duration().Seconds()
 	pos := v.Pl.Position().Seconds()
 	shown := pos
-	if v.seek.drag {
+	if v.seek.wasHeld || v.seek.busy {
+		// 与主窗 App.shownPos 同一条：操作中 / seek 未落地时显示滑块的值。
 		shown = v.seek.value
 	}
 	colors := videoRangeColors(t)
@@ -1176,73 +1257,43 @@ func (v *VideoChrome) videoPlayerBind(c *ui.Context, t Theme, lo videoChromeLayo
 	}
 }
 
-// seekFrame 是视频窗的进度条状态机：拖动中停在目标值，松手跟随播放位置。
-// 与主窗的 progressPlan 不同（那边有 seek 未落地 / 拖动预览的等待），
-// 但输入接线与绘制是同一份 playerTimeline。
-// seekFrame 是视频窗进度条的状态机，语义照主窗 progressPlan：
+// seekFrame 是视频窗进度条的状态机 —— 与主窗**同一份** progressPlan，
+// 包括同一个 seekSettle 与同一组输入（held / changed / cancel / busy / pos）：
 //
-//	拖动中      一次 seek 都不发（长视频的精确 seek 很贵，逐位移下发会把
-//	            绘制线程堵死 —— 用户报的「长视频拖不动」）
-//	松手        提交一次，落点就是滑块停的值
-//	没在拖动    跟随播放位置；但 seek 还没落地时停在目标值，别被旧位置拽回
+//	拖动中      一次 seek 都不发，滑块只跟手（长视频的精确 seek 很贵，
+//	            逐位移下发会把绘制线程堵死 —— 用户报的「长视频拖不动」）
+//	松手        当帧提交一次，落点就是滑块停的值（与主窗一样，没有确认窗口、
+//	            也没有「挪得太少就不算拖动」这种私有规则）
+//	没在拖动    跟随播放位置；seek 还没落地时停在目标值，别被旧位置拽回；
+//	            落地（或超时）后再等 seekSettle 才恢复跟随
 //
-// 视频窗这条路径与主窗的差别只有「不做 seek 落地等待的 busy 判定」：
-// 视频的 Position 由 AVPlayer 给，落地后自然追上。
-// seekFrame 是视频窗进度条的状态机。语义照主窗 progressPlan 的「松手才
-// 生效」，但多了两道防抖 —— 视频窗的 press 状态会抖帧，一次误判就是一次
-// 真实的跳转：
-//
-//	拖动中      一次 seek 都不发，滑块只跟手
-//	松手        等 videoSeekConfirm 确认（期间又按回来就作废），确认后提交
-//	            一次，且要求这次真的移动过（videoSeekMinTravel）
-//	没在拖动    跟随播放位置；seek 还没落地时停在目标值，别被旧位置拽回
+// 唯一的差别是 busy 的来源：音频引擎的 seek 有完成回调，视频的 seek 没有，
+// 所以用视频进度条自己的 observe 判定「位置追上了」。语义与主窗
+// c.runSeek 的 done 回调一致。
 func (v *VideoChrome) seekFrame(dur float64) func(PlayerTimelineInput) (bool, float64) {
 	return func(in PlayerTimelineInput) (bool, float64) {
-		now := time.Now()
-		wasPressed := v.seek.pressed
-		v.seek.pressed = in.Held
-		v.seek.drag = in.Held
 		pos := clampF(v.Pl.Position().Seconds(), 0, maxF64(dur, 0))
-
-		// 系统拿走指针：等同一次没发生的拖动。
-		if in.Cancel {
-			v.seek.released, v.seek.hasTarget = false, false
-			return false, pos
+		// 先收掉上一帧已经落地的 seek：busy 一变，progressPlan 才能恢复跟随。
+		v.seek.observe(pos)
+		if in.Held != v.seek.wasHeld {
+			v.seek.stableAt = time.Now() // 交接点：按下 / 松手
 		}
-		// 还按着：拖动中，不下发。若这是「确认窗口内又按回来」，作废那次松手。
-		if in.Held {
-			v.seek.released = false
-			return false, v.seek.value
+		seek, next := progressPlan(progressInput{
+			held:    in.Held,
+			changed: in.Changed,
+			cancel:  in.Cancel,
+			busy:    v.seek.busy,
+			settle:  time.Since(v.seek.stableAt),
+			pos:     pos,
+		}, v.seek.value, v.seek.wasHeld, seekSettle)
+		v.seek.value = next
+		v.seek.wasHeld = in.Held
+		if seek {
+			// 提交：滑块停在落点，直到播放器追上（或超时）。
+			v.seek.target, v.seek.hasTarget = next, true
+			v.seek.busy, v.seek.seekAt = true, time.Now()
 		}
-		// 松手的那一帧：记下待确认的落点。
-		if wasPressed && !in.Held {
-			v.seek.released, v.seek.releasedAt, v.seek.releasedValue = true, now, v.seek.value
-		}
-		// 待确认：先别提交，等 press 抖动的那几帧过去。
-		if v.seek.released {
-			if now.Sub(v.seek.releasedAt) < videoSeekConfirm {
-				return false, v.seek.releasedValue
-			}
-			v.seek.released = false
-			// 确认松手：只有真的移动过才提交，否则视为「点了一下没动」。
-			if abs(v.seek.releasedValue-pos) > videoSeekMinTravel {
-				v.seek.target, v.seek.hasTarget = v.seek.releasedValue, true
-				return true, v.seek.releasedValue
-			}
-			v.seek.hasTarget = false
-			return false, pos
-		}
-		if v.seek.hasTarget {
-			switch {
-			case abs(v.seek.target-pos) <= videoSeekReached:
-				v.seek.hasTarget = false // 播放器追上了：交还控制权
-			case now.Sub(v.seek.releasedAt) < videoSeekWait:
-				return false, v.seek.target // seek 还在路上，别被旧位置拽回
-			default:
-				v.seek.hasTarget = false // 等太久，认为被丢弃
-			}
-		}
-		return false, pos
+		return seek, next
 	}
 }
 
@@ -1438,7 +1489,19 @@ func videoRangeSkin(t Theme, hovered bool) rangeSkin {
 //
 // 主窗的播放栏拿不到这个播放器，忙态由 internal/video 的 OnState 回传
 // （State.Buffering / State.Ready）落到 App.VideoBusy。
+// playerBusy 返回这一帧对外显示的忙态（已过迟滞）。主窗 / 迷你窗 / 视频窗
+// 的播放键都读同一个枚举；视频窗这一份由 View 每帧推进（见 videoBusyState）。
 func (v *VideoChrome) playerBusy() PlayerBusy {
+	return v.busy.shown
+}
+
+// Busy 把这一帧的忙态交给 internal/video 回传主窗（State.Buffering 与
+// App.VideoBusy 不能与视频窗自己的播放键打架）。
+func (v *VideoChrome) Busy() PlayerBusy { return v.busy.shown }
+
+// rawPlayerBusy 是播放器这一刻的原始忙态（未过迟滞）。判据与 issue #42
+// 一致：暂停 / 片尾不忙；首帧未到是加载；等数据是缓冲。
+func (v *VideoChrome) rawPlayerBusy() PlayerBusy {
 	if v.Pl == nil || v.Pl.Ended() || !v.Pl.Playing() {
 		return PlayerIdle
 	}
@@ -1520,7 +1583,12 @@ func (v *VideoChrome) nudge(delta float64) {
 		target = dur
 	}
 	v.seek.value = clampF(target, 0, maxF64(dur, 0))
-	v.seek.drag = false
+	v.seek.wasHeld = false
+	// 键盘 seek 不走滑块：自己把 busy / 落点挂上，否则下一帧滑块会被
+	// 旧位置拽回（与拖动松手后的等待同一条）。
+	v.seek.target, v.seek.hasTarget = v.seek.value, true
+	v.seek.busy, v.seek.seekAt = true, time.Now()
+	v.seek.stableAt = time.Now()
 	v.seekTo(target)
 }
 

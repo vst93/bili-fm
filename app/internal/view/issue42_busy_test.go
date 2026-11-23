@@ -185,6 +185,9 @@ func TestIssue42VideoBusyStates(t *testing.T) {
 
 	pl.ready, pl.buffering = true, true
 	tt.Frame()
+	// 忙态有迟滞：缓冲要连续这么久才显示（HLS 的 buffering 位会抖）。
+	tt.Advance(videoBusyConfirm + 20*time.Millisecond)
+	tt.Frame()
 	issue42Access(t, tt, "缓冲中 · 点击暂停", playerBarKeyMetrics.Play)
 	if err := tt.Click("缓冲中 · 点击暂停"); err != nil {
 		t.Fatalf("缓冲中播放键点不到：%v", err)
@@ -199,6 +202,8 @@ func TestIssue42VideoBusyStates(t *testing.T) {
 
 	// 暂停但引擎仍报 buffering：不转圈（暂停不是缓冲）。
 	pl.buffering = true
+	tt.Frame()
+	tt.Advance(videoBusyRelease + 20*time.Millisecond)
 	tt.Frame()
 	if info, ok := tt.Access("缓冲中 · 点击暂停"); ok && info.Busy {
 		t.Fatal("暂停时不该显示缓冲圆环")
@@ -227,6 +232,8 @@ func TestIssue42VideoBusyHoldsChrome(t *testing.T) {
 	}
 	pl.ready, pl.buffering = true, true
 	tt.Frame()
+	tt.Advance(videoBusyConfirm + 20*time.Millisecond)
+	tt.Frame()
 	tt.Advance(6 * time.Second)
 	if ch.idle.alpha != 1 {
 		t.Fatalf("缓冲中控件条淡出了（alpha=%v）", ch.idle.alpha)
@@ -247,6 +254,8 @@ func TestIssue42HiddenVideoKeepsContentButOmitsChrome(t *testing.T) {
 		return ui.Box(c).Fill().Background(ui.Hex("#000000"))
 	}
 	pl.ready, pl.playing, pl.buffering = true, true, true
+	tt.Frame()
+	tt.Advance(videoBusyConfirm + 20*time.Millisecond)
 	tt.Frame()
 	if ch.playerBusy() != PlayerBuffering {
 		t.Fatalf("前提：应处于缓冲，得到 %v", ch.playerBusy())
@@ -407,5 +416,48 @@ func TestIssue42VideoOpeningRendersRing(t *testing.T) {
 				t.Errorf("%s：开窗结束后播放键仍是 busy", label)
 			}
 		})
+	}
+}
+
+// TestIssue42VideoBusyHysteresisStopsFlicker 钉住忙态的迟滞：HLS / 网络播放的
+// buffering 位会一两帧地翻，直接跟随它会让播放键图标在「暂停」与圆环之间闪、
+// 控件条因 holdChrome 反复淡入淡出（用户报的「3 倍速时按钮闪动」）。
+//
+// 判据：抖动期间 playerBusy 始终是 Buffering、alpha 始终是 1；真正恢复后要
+// 稳定 videoBusyRelease 才退出缓冲。
+func TestIssue42VideoBusyHysteresisStopsFlicker(t *testing.T) {
+	ch, pl, _, tt := videoChromeProbe(t, 640, 360)
+	pl.ready, pl.playing = true, true
+	tt.Frame()
+	pl.buffering = true
+	tt.Frame()
+	tt.Advance(videoBusyConfirm + 20*time.Millisecond)
+	tt.Frame()
+	if ch.playerBusy() != PlayerBuffering {
+		t.Fatalf("前提：应进入缓冲，得到 %v", ch.playerBusy())
+	}
+	for i := 0; i < 20; i++ {
+		pl.buffering = i%2 == 0
+		tt.Advance(100 * time.Millisecond)
+		tt.Frame()
+		if ch.playerBusy() != PlayerBuffering {
+			t.Fatalf("第 %d 次抖动时忙态掉回 %v（图标会闪）", i, ch.playerBusy())
+		}
+		if ch.idle.alpha != 1 {
+			t.Fatalf("第 %d 次抖动时控件条 alpha=%v（会闪）", i, ch.idle.alpha)
+		}
+	}
+	// 真正恢复：非缓冲稳定 videoBusyRelease 才放行。
+	pl.buffering = false
+	tt.Frame()
+	tt.Advance(videoBusyRelease / 2)
+	tt.Frame()
+	if ch.playerBusy() != PlayerBuffering {
+		t.Fatalf("恢复半程就退出缓冲：%v", ch.playerBusy())
+	}
+	tt.Advance(videoBusyRelease/2 + 20*time.Millisecond)
+	tt.Frame()
+	if ch.playerBusy() != PlayerIdle {
+		t.Fatalf("恢复稳定后仍在缓冲：%v", ch.playerBusy())
 	}
 }
