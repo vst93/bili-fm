@@ -394,7 +394,8 @@ jobs:
               cp build/linux-amd64/*.deb "../out/bili-FM-$VERSION-linux-x86_64.deb"
               cp build/linux-arm64/*.deb "../out/bili-FM-$VERSION-linux-arm64.deb"
               cp build/linux-amd64/bili-FM-$VERSION-linux-x86_64.rpm "../out/bili-FM-$VERSION-linux-x86_64.rpm"
-              cp build/linux-arm64/bili-FM-$VERSION-linux-arm64.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm"
+              # nfpm 按 rpm 架构名（aarch64）落盘，release 资产沿用 arm64 命名，两端不对称。
+              cp build/linux-arm64/bili-FM-$VERSION-linux-aarch64.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm"
               cp build/linux-amd64/*.pkg.tar.zst "../out/bili-FM-$VERSION-linux-x86_64.pkg.tar.zst" 2>/dev/null || true
               cp build/linux-amd64/install.sh ../out/install.sh
               # 更新归档必须用**原名**：update-<target>.json 里的 url 指的就是
