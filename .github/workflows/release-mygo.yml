@@ -10,7 +10,8 @@ name: Release
 #   macOS    bili-FM.app + .dmg
 #   Windows  bili-FM.exe + NSIS 安装包
 #   Linux    .deb + .tar.gz + install.sh
-# mygo 不产出 rpm / pacman，这里用 nfpm 和手工打包补上；MSIX 走 release-store.yml。
+# mygo v0.10 起自带 deb/rpm，不产出 pacman；rpm 仍由 nfpm 统一命名，pacman 手工
+# 打包补上；MSIX 走 release-store.yml。
 
 on:
   # 发版方式（两种都行）：
@@ -392,8 +393,8 @@ jobs:
             linux)
               cp build/linux-amd64/*.deb "../out/bili-FM-$VERSION-linux-x86_64.deb"
               cp build/linux-arm64/*.deb "../out/bili-FM-$VERSION-linux-arm64.deb"
-              cp build/linux-amd64/*.rpm "../out/bili-FM-$VERSION-linux-x86_64.rpm" 2>/dev/null || true
-              cp build/linux-arm64/*.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm" 2>/dev/null || true
+              cp build/linux-amd64/bili-FM-$VERSION-linux-x86_64.rpm "../out/bili-FM-$VERSION-linux-x86_64.rpm"
+              cp build/linux-arm64/bili-FM-$VERSION-linux-arm64.rpm "../out/bili-FM-$VERSION-linux-arm64.rpm"
               cp build/linux-amd64/*.pkg.tar.zst "../out/bili-FM-$VERSION-linux-x86_64.pkg.tar.zst" 2>/dev/null || true
               cp build/linux-amd64/install.sh ../out/install.sh
               # 更新归档必须用**原名**：update-<target>.json 里的 url 指的就是
