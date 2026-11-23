@@ -308,7 +308,7 @@ type videoChromeFrame struct {
 	Alpha float32
 	// Animating 表示这一帧在过渡中：调用方必须 c.AnimationFrame()。
 	Animating bool
-	// Wake 表示不在过渡、但在等静置计时到点：调用方 c.After(Wake) 就够。
+	// Wake 是静置到点或指针采样的下一次定时唤醒。
 	Wake time.Duration
 }
 
@@ -358,14 +358,21 @@ func (s *videoChromeIdle) observe(now time.Time, px, py float32, over, hold bool
 	if target > s.alpha {
 		dur = videoChromeShowFade
 	}
-	step := float32(1)
-	if dt > 0 && dur > 0 {
-		step = float32(dt) / float32(dur)
-	}
+	// 输入 / 布局可能在同一个 c.Now() 下重建多次。重建不消耗时间，
+	// 不能把 dt=0 当成「一步走完」，否则进度条连同按钮会瞬间消失。
+	step := float32(max(dt, 0)) / float32(dur)
 	if target > s.alpha {
 		s.alpha = minF(s.alpha+step, 1)
 	} else {
 		s.alpha = maxFloat32(s.alpha-step, 0)
+	}
+	// float32 累加可能在端点剩下一点舍入误差，导致永远保留动画 / 控件树。
+	remaining := s.alpha
+	if target == 1 {
+		remaining = 1 - s.alpha
+	}
+	if remaining < 0.000001 {
+		s.alpha = target
 	}
 	if s.alpha == target {
 		return s.rest(now, hold, target)
@@ -852,11 +859,14 @@ func (v *VideoChrome) View(c *ui.Context) {
 
 	// 弹幕覆盖层画在画面上、控件条之下。它自己 IgnoreInput，点击照常穿到
 	// 下面那块「视频画面」上。
-	v.danmaku(c)
+	// 弹幕数量每帧都可能变。把它们放在独立父节点下，避免后面的控件
+	// 按兄弟序号换身份，丢掉悬停 / 按压 / 滑块的指针捕获（倍速时更频繁）。
+	ui.Box(c.Key("video-danmaku")).Absolute().Left(0).Right(0).Top(0).Bottom(0).
+		PassThrough().Children(func() { v.danmaku(c) })
 
 	// 画面上的单击 / 双击。它铺满整窗、在控件条之下：控件条可见时点键不会
 	// 落到这里，控件条收起时（IgnoreInput）点击正好穿到画面上。
-	pic := ui.Box(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Label("视频画面")
+	pic := ui.Box(c.Key("video-picture")).Absolute().Left(0).Right(0).Top(0).Bottom(0).Label("视频画面")
 	if pic.DoubleClicked() {
 		v.clicks.double()
 		v.toggleFullScreen(now)
@@ -871,9 +881,13 @@ func (v *VideoChrome) View(c *ui.Context) {
 
 	// 顶栏返回这一帧的齿轮键：设置面板的弹出位置由它定（框架按它摆平，
 	// 放不下时左右挪进窗口）。
-	gear := v.titleBar(c, t, alpha, full)
-	v.controlBar(c, t, alpha, full)
-	v.settingsPanel(c, t, gear)
+	// 完全隐藏后不再为每一帧视频构建按钮、进度条、热力和弹层。
+	// 媒体推进、弹幕、画面点击、快捷键与自动唤醒仍照常运行。
+	if alpha > 0 {
+		gear := v.titleBar(c, t, alpha, full)
+		v.controlBar(c, t, alpha, full)
+		v.settingsPanel(c, t, gear)
+	}
 
 	// 全屏进出的黑幕（画在控件条之上，连它们一起过渡）。
 	if f := v.fs.fade(now); f > 0 {
@@ -883,30 +897,22 @@ func (v *VideoChrome) View(c *ui.Context) {
 
 	v.bindKeys(c, full)
 
-	switch {
-	case frame.Animating || v.fs.fading(now):
+	if frame.Animating || v.fs.fading(now) {
 		c.AnimationFrame()
-	default:
-		// 取「自动隐藏」与「忙态迟滞」里更早的那一拍：缓冲开始 / 结束时
-		// 画面可能不动，没有这一拍就看不到圆环、或者圆环下不来。
-		wake := frame.Wake
-		if b := v.busy.wake(now); b > 0 && (wake == 0 || b < wake) {
-			wake = b
-		}
-		if wake > 0 {
-			c.After(wake)
-		}
+	}
+	// After 取最早期限。缓冲开始 / 结束时画面可能不动，仍要按迟滞期限更新忙态。
+	wake := frame.Wake
+	if b := v.busy.wake(now); b > 0 && (wake == 0 || b < wake) {
+		wake = b
+	}
+	if wake > 0 {
+		c.After(wake)
 	}
 	if v.clicks.pending {
-		c.After(videoDoubleClick)
+		// 视频 / 动画每一帧都可能重设定时器，必须按剩余时间排，不能从
+		// 当前帧重新等 300ms（否则连续视频帧会把单击一直往后推）。
+		c.After(max(v.clicks.at.Add(videoDoubleClick).Sub(now), 0))
 	}
-	// 悬停 / 按压的材质色是构建期算的（140ms 过渡），而视频窗的帧大多由
-	// 视频驱动、只重绘不重建。指针在控件条 / 弹层上（或刚离开的一小段）时
-	// 逐帧请求重建，否则过渡只在偶发重建帧里跳一格，看着就是闪。
-	// 悬停过渡**不**在这里排帧：mygo 一个窗口只有一个 After 定时器（先到
-	// 先得），排在这里会把控件条自动隐藏的计时反复顶掉，alpha 跟着抖，整片
-	// UI 都在闪（用户实测「之前闪烁的问题又出来了」）。悬停材质的过渡因此
-	// 只在别的帧带着刷新时推进 —— 宁可停格一点，也不能闪。
 	// 弹幕在播放时是连续运动：不请求逐帧重绘的话，只有别的动画（控件条
 	// 过渡）带着画面刷新时弹幕才动一下。
 	if v.Danmaku && v.DanmakuOverlay != nil && v.DanmakuOverlay.HasItems() && v.Pl.Playing() {
@@ -1039,7 +1045,7 @@ func (v *VideoChrome) holdChrome(full bool) bool {
 //
 // 返回值是这一帧的齿轮键（设置面板的锚点）。
 func (v *VideoChrome) titleBar(c *ui.Context, t Theme, alpha float32, full bool) ui.Element {
-	bar := ui.Row(c).Absolute().Left(videoInset).Right(videoInset).Top(videoInset).
+	bar := ui.Row(c.Key("video-title-bar")).Absolute().Left(videoInset).Right(videoInset).Top(videoInset).
 		Height(videoChromeTitleH).Padding(0, videoPadX).Radius(videoChromeRadius).
 		AlignItems(ui.Center).Gap(videoGap).DragWindow()
 	// 顶栏的 hairline 在**下沿**（对着画面的那条边）：一条 1px 低对比线，
@@ -1113,11 +1119,11 @@ func (v *VideoChrome) controlBar(c *ui.Context, t Theme, alpha float32, full boo
 	lo := videoChromeLayoutFor(w)
 	var bar ui.Element
 	if lo.TwoRows {
-		bar = ui.Column(c).Absolute().Left(videoInset).Right(videoInset).Bottom(videoInset).
+		bar = ui.Column(c.Key("video-control-bar")).Absolute().Left(videoInset).Right(videoInset).Bottom(videoInset).
 			Height(videoChromeBarTwoH).Padding(videoRowGap, videoPadX).Radius(videoChromeRadius).
 			Gap(videoRowGap)
 	} else {
-		bar = ui.Row(c).Absolute().Left(videoInset).Right(videoInset).Bottom(videoInset).
+		bar = ui.Row(c.Key("video-control-bar")).Absolute().Left(videoInset).Right(videoInset).Bottom(videoInset).
 			Height(videoChromeBarH).Padding(0, videoPadX).Radius(videoChromeRadius).
 			AlignItems(ui.Center).Gap(videoGap)
 	}

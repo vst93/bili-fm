@@ -6,9 +6,8 @@ package view
 // 不在拖进度、不暂停、设置面板关着才收」，并加了两条：指针一动当场浮出、
 // 指针离开窗口当场淡出。这里的六个用例就是用户报的那六条手感，分两层钉：
 //
-//   - 纯状态机（videoChromeIdle）按 16ms 步进，不依赖渲染 —— 淡入时长这种
-//     毫秒级的东西只能在纯逻辑里量（ui.Tester 在同一时刻连帧会让 dt=0，
-//     状态机一步跳到 1，量不出时长）；
+//   - 纯状态机（videoChromeIdle）按 16ms 步进量淡入时长，不依赖渲染；
+//     同一时刻的重建不能跳过动画；
 //   - 真指针路径（ui.Tester）再走一遍「移动 1px 当场显示」「离开窗口立即
 //     隐藏」「按键重置计时」，证明外壳每一帧确实把指针读进来了。
 
@@ -40,9 +39,7 @@ func newVideoIdleRun() *videoIdleRun {
 	return r
 }
 
-// run 推进 d（按 step 逐帧），返回最后一帧的结论。d=0 也推进一帧：真机上
-// 「指针动了一下」到「画出这一帧」之间总有一帧的间隔，dt=0 的连帧才会让状态
-// 机一步跳完（那是测试脚手架的特性，不是手感）。
+// run 推进 d（按 step 逐帧），返回最后一帧的结论。d=0 也推进一个刷新周期。
 func (r *videoIdleRun) run(d time.Duration) videoChromeFrame {
 	end := r.now.Add(d)
 	var f videoChromeFrame
@@ -218,7 +215,9 @@ func TestVideoChromeLeaveWindow(t *testing.T) {
 	tt.Move(200, 200)
 	// 平台报 PointerLeave / 指针坐标跑到窗外：两种都落到 over=false。
 	tt.Move(-40, 200)
-	tt.Advance(videoChromeHideFade)
+	// 220ms 不一定正好落在显示刷新点，允许下一帧完成；不能依赖同时间戳
+	// 的额外构建把剩余动画直接跳完。
+	tt.Advance(videoChromeHideFade + time.Second/60)
 	if ch.idle.alpha != 0 {
 		t.Errorf("指针离开窗口 %v 后控件条仍可见（alpha=%v）", videoChromeHideFade, ch.idle.alpha)
 	}
@@ -301,6 +300,9 @@ func TestVideoChromeKeysResetIdle(t *testing.T) {
 			t.Fatalf("%v：先决条件不成立，控件条没收起（alpha=%v）", key, ch.idle.alpha)
 		}
 		tt.Key(0, key)
+		// 快捷键可能在本帧的视图构建后处理；等一次显示刷新，不能要求
+		// 同一时间戳的重建凭空消耗淡入时间。
+		tt.Advance(time.Second / 60)
 		if ch.idle.alpha <= 0 {
 			t.Fatalf("%v：按键后控件条没有浮出（alpha=%v）", key, ch.idle.alpha)
 		}
