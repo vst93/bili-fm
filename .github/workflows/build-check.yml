@@ -13,6 +13,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  windows-video:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: app/go.sum
+      - name: Check Media Foundation buffering recovery and native seeking
+        run: go test -v -count=1 -run 'Test(MFSeekBufferingRecoversByFrame|MFFramePreservesTerminalState|Seek|SeekWhilePlaying|Plays)$' github.com/egoist/mygo/ui/video
+      - name: Check frame-driven state recovery
+        run: go test -v -count=1 -run 'TestEngineVideo(ReadyByFrame|BufferingByFrame)$' github.com/egoist/mygo/ui
+      - name: Check playback state reporting
+        run: go test -v -count=1 -run 'Test(NativeStateCarriesBuffering|NativeReportImmediateOnStateChange|FastPlaybackSources)$' ./internal/video
+
   mac-video:
     runs-on: macos-15-intel
     steps:

@@ -590,4 +590,11 @@ func TestNativeReportImmediateOnStateChange(t *testing.T) {
 	if len(got) != 4 || got[3].Ready != 0 {
 		t.Fatalf("Ready 变化应立即回传，得到 %d 次：%+v", len(got), got)
 	}
+
+	// Windows seek 后新画面恢复，退出缓冲也必须即时通知主窗。
+	pl.ready, pl.playing, pl.buffering = true, true, false
+	n.report()
+	if len(got) != 5 || got[4].Buffering || got[4].Paused || got[4].Ready != 1 {
+		t.Fatalf("恢复播放应立即回传，得到 %d 次：%+v", len(got), got)
+	}
 }
