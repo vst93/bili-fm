@@ -40,6 +40,8 @@ github.com/vst93/mygo v0.10.1-avf.8 h1:dGVbI23o7t5SfjqmF/m1YGmg0KxqOY4qNLhOu96o0
 github.com/vst93/mygo v0.10.1-avf.8/go.mod h1:Hw9sxdSQ4tHuehHw5Q6alR1qTS8kgv3oSFxEejg+7qo=
 github.com/vst93/mygo v0.10.1-avf.8.0.20261124084044-7e24068fd1d8 h1:4dPFtrAAmcOd0aNg1zHiQQokI1hiUmHTapYzjvhyKd0=
 github.com/vst93/mygo v0.10.1-avf.8.0.20261124084044-7e24068fd1d8/go.mod h1:Hw9sxdSQ4tHuehHw5Q6alR1qTS8kgv3oSFxEejg+7qo=
+github.com/vst93/mygo v0.10.1-avf.8.0.20261124091148-4d694f73bce8 h1:TVUukitpS2LEKNCMMewm5e8J6C0sK61g/3gQBPFiLjM=
+github.com/vst93/mygo v0.10.1-avf.8.0.20261124091148-4d694f73bce8/go.mod h1:Hw9sxdSQ4tHuehHw5Q6alR1qTS8kgv3oSFxEejg+7qo=
 go.digitalxero.dev/rpm v0.3.4 h1:iq+rx7zB6wQeNhLQ1mcvW92v9ZqNaxCvuu0+nPVit4w=
 go.digitalxero.dev/rpm v0.3.4/go.mod h1:45EsEzHamzqInyWQx9vpj7OYpL0BrkbQF87VdrLn5wo=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=

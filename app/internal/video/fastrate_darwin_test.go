@@ -11,7 +11,57 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
+
+	"github.com/vst93/bili-fm/app/internal/view"
 )
+
+// TestThreeTimesAudioHandoff uses the video window's real shared settings
+// and content path, starting at the position inherited from audio playback.
+func TestThreeTimesAudioHandoff(t *testing.T) {
+	server := httptest.NewServer(http.FileServer(http.Dir("testdata")))
+	defer server.Close()
+	player, err := video.OpenURL(server.URL + "/fastplay.mp4")
+	if errors.Is(err, video.ErrUnsupported) {
+		t.Skip(err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer player.Close()
+	settings := &view.PlayerSettings{Speed: 3, Muted: true, Volume: 1, LastVolume: 1}
+	n := stubNativeWindow(Options{}, uiPlayer{p: player})
+	n.settings, n.startAt = settings, 1
+	defer n.chromeDetach()
+	player.SetMuted(true).SetRate(settings.Speed)
+	player.Seek(time.Second)
+	tester := ui.NewTester(n.view, 320, 200)
+	deadline := time.Now().Add(time.Minute)
+	for !player.Ready() || player.Position() < 1300*time.Millisecond {
+		tester.Frame()
+		if player.Err() != nil || time.Now().After(deadline) {
+			t.Fatalf("3 倍速音频切视频未自动起播：position=%v err=%v", player.Position(), player.Err())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, phase := range []string{"自动起播", "暂停再播放"} {
+		if phase == "暂停再播放" {
+			n.pause()
+			n.play()
+		}
+		start, pos := time.Now(), player.Position()
+		levels := map[uint8]bool{}
+		for time.Since(start) < 600*time.Millisecond {
+			tester.Frame()
+			levels[tester.Image().RGBAAt(160, 100).R] = true
+			time.Sleep(10 * time.Millisecond)
+		}
+		rate := float64(player.Position()-pos) / float64(time.Since(start))
+		t.Logf("%s：%.2fx，%d 个画面", phase, rate, len(levels))
+		if player.Err() != nil || rate < 2.5 || rate > 3.5 || len(levels) < 5 || n.settings.Speed != 3 {
+			t.Fatalf("%s 丢失倍速或画面：rate=%v frames=%d err=%v", phase, rate, len(levels), player.Err())
+		}
+	}
+}
 
 // TestProgressiveRateChangeKeepsFrames 钉住「播放中把 2 倍速提到 3 倍速」：
 // AVFoundation 在 >2 倍速时根本不给画面（时钟与声音照走），引擎改成压缩

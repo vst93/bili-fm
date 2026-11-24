@@ -32,16 +32,23 @@ jobs:
         run: go test -v -count=1 -run 'Test(NativeStateCarriesBuffering|NativeReportImmediateOnStateChange|FastPlaybackSources)$' ./internal/video
 
   mac-video:
-    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: app/go.mod
           cache-dependency-path: app/go.sum
+      - name: Check delayed metadata and playback intent with AVFoundation
+        working-directory: app
+        run: go test -v -count=1 -run 'Test(FastStartWaitsForMetadata|TimelineFor|SeekSlackScalesWithTimeline)$' github.com/egoist/mygo/ui/video
       - name: Check native 3x playback with AVFoundation
         working-directory: app
-        run: go test -v -count=1 -run 'Test(FastPlaybackSources|ProgressiveThreeTimesPlayback|ProgressiveRateChangeKeepsFrames|SpeedChangeDoesNotBlockUI)$' ./internal/video
+        run: go test -v -count=1 -run 'Test(ThreeTimesAudioHandoff|FastPlaybackSources|ProgressiveThreeTimesPlayback|ProgressiveRateChangeKeepsFrames|SpeedChangeDoesNotBlockUI)$' ./internal/video
 
   build:
     name: ${{ matrix.goos }}/${{ matrix.goarch }}
