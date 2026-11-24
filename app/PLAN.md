@@ -2615,3 +2615,182 @@ v0.10.0 去掉了这个条件，**所有** `AttachTo` 元素都封顶。release 
   设置后窗口恢复原样。
 - Windows 视频窗的偶发崩溃（#1927 的 `go:uintptrescapes`）：长时间播放 / 反复
   开合视频窗，看还会不会掉。
+
+
+## mygo v0.10.0 → 最新 main + 统一补丁分支（2026-11-24）
+
+上游与 fork 的 `main` 均为 `49fb992c3ae2de5b9484b5089bba945a884abc35`。
+通过普通 merge 将其并入 `bili-fm-patches`，应用固定合并提交伪版本。
+未改框架 `go.mod` / `go.sum`，本轮没有额外间接依赖升级。
+旧分支逐项处理、上游证据及维护方式见 [MYGO_PATCHES.md](MYGO_PATCHES.md)。
+
+上游这段历史共 164 个提交，按每个提交 / PR 评估如下。
+本轮保留现有应用 API 用法；视频运行时的三个文件在上游仍与 v0.10.0 相同，
+macOS 倍速 / 起播及 Windows 缓冲修复继续由唯一补丁分支提供。
+
+| 上游提交 / PR | 应用判断 | 依据 |
+| --- | --- | --- |
+| `ea632323` darwin: drops reach the page of a web view in native UI (#1946) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `fc0ae412` fix(ui): keep a canvas's glyphs and masks for renderers that draw it later (#1977) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `5be633ac` Ask WebView2 once for a web view it is creating, and free what the Linux backend left behind (#1978) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `e88574c8` ui: Painter.RichText stops re-encoding the spans of an unchanged frame (#1979) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `76516b5f` ui: flicking again and again keeps touch content scrolling (#2005) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `6b66daee` mobile: pace frames by the display rather than wait for a drawable on the main thread (#2009) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `b528dac4` mobile: the iOS display link ticks at the frame rate the content asks for (#2008) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `a1f55783` fix(dev): keep rebuilt apps' windows where they were, and behind the editor under -background (#2010) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `aad9dbc4` cli: ios.extensions embeds and signs prebuilt app extensions (#2006) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `d8fc2b07` cli: android.extractNativeLibs extracts an app's native libraries on install (#2007) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `513885ed` render: draw frames on several cores at once (Options.Workers) (#2036) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `e8aa66f0` docs: an Android executable shipped as a native library is linked for 16 KB pages (#2015) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `e1e4364c` fix(cli): sign simulator apps with their application identifier, which the keychain needs (#2014) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `ad4cba43` fix(android): register the fonts an app's main adds before App.Run (#2011) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `ffa1faf1` fix(android): keep every face registered under a family (#2012) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `992cb284` fix(ui): name the months of the date wheels in the app's language (#2013) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `24806022` ui/editor: a diff's find matches the lines it shows (#2001) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `91835a12` windows: folder dialogs no longer freeze on WSL shares (#2029) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `e75b3448` ui, text: keep parallel Testers' frame stats setting and inline objects apart (#2042) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `8d72678c` metal: give back the drawables of windows out of sight half a second after their last frame (#2040) (#2048) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `b3c62a5d` ui: clip Tester.AccessInfo.Bounds to visible rect (#1999) | 采用并适配测试 | AccessAll 的 Bounds 现与 Find 一样裁剪；矮窗设置菜单测试改用完整可见行高和边界判断，不能沿用未裁剪矩形假设 |
+| `9665e789` ui: DottedUnderline draws dots, as text resolving its style and text morphing dropped them for a solid line (#2026) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `9eec79ae` editor: cut the last line whole, and comment a blank line (#2039) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `aa1d3a10` ui: report Element.Key after state reads, panicking in Tester (#1993) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `3aab9bbc` ui: keep what the layout reads of a child in the item it makes of it (#2020) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `c805346c` editor: the horizontal scroll follows lines that get narrower (#2047) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `23b3b8d5` fix(mobile): run a script of statements in Page.Eval on iOS and Android (#2023) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `df45c969` render: frames that hold still are neither drawn nor encoded again (#2052) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `f5b6e55f` render: a video without motion blur draws on one worker (#2058) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `400ba3b1` fix(darwin): draw a popover flyout's held frame as it shows again (#2054) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `c23e036c` text: browsers get a registered font's weights, widths and style, and lay out again once it loads (#2070) (#2071) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `e20d2031` fix(editor): move what Select Smaller and a drag return to with the text (#2072) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `f168b778` fix(mobile): type a hardware keyboard's letters into native UI on iOS (#2074) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `3873650f` mobile/android: a hardware keyboard's letters type into native UI's text inputs (#2077) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `4ba6e647` fix(android): leave the text as it is when the keyboard reports a correction (#2079) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `d25ed916` ui: clip a text field's text to its rounded corners (#2069) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `0b66bc5b` mobile/android: ship gradlew.bat so Android builds run on Windows (#2063) (#2065) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `20d551d1` mobile/android: build with JDK 17 through 25 (#2064) (#2066) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `6ad8e710` mobile: Eval runs on Android in a page whose Content Security Policy forbids eval (#2035) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `119426eb` richtext: keep scrolled text inside the editor's box (#2031) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `6f1eab78` fix(build): keep delta work beside the stage, out of %TEMP% (#2046) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `61ea5567` fix(ui): follow the Mac's keys on iOS, where Cmd is Command (#2076) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `49c8bc4c` Treat an unset badge alignment as the right default, on macOS (#2038) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `1bf621c1` fix(android): ask for the next frame early, vote harder for 120 Hz, hold the splash until Go's frame shows (#2059) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `ecc89aef` fix(ui): let a Tester take the text system an ended Tester left (#2087) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `9af06548` fix(examples): take Enter from the focused input in the launcher and the flyout, and let the launcher quit (#2092) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `5da883c0` fix(windows): normalize Unicode clipboard and drag text line endings (#2021) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `e55cec57` fix(richtext): a <br> that ends a block adds no empty paragraph (#2095) (#2096) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `7d87cf65` windows: take a window full screen when its page goes full screen (#1872) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `ceb1b992` fix(darwin): let the Korean input method take Backspace back a jamo (#2100) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `9d250927` feat: PageOptions.ZoomControl, the user's zoom, off by default (#2097) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `a937351b` fix(ui): show an app-set NumberInput value on the next build (#2102) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `84c83bb7` Size a staying-open menu by its widest row, and give a boxed badge 12pt (#2049) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `641de152` Skip a menu relayout when an update changes only a check mark (#2050) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `f8a45e37` fix: write the panic that ends the app to crash.log, and show it on phones (#2116) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `9bfaa2c4` darwin: WasOpenedAtLogin tells a login item's launch (#2033) | 可选 API 暂不接入 | 现有无边框窗口、激活与焦点行为保持现有配置 |
+| `bab1ea50` windows: keep the alpha of images on the clipboard (#2032) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `5615dcaa` ui: accept FocusOptions in AutoFocus and Handle.FocusWith (#1995) | 可选 API 暂不接入 | 现有无边框窗口、激活与焦点行为保持现有配置 |
+| `993b4590` ui: show a disabled drawn menu item's tooltip, reaching it per platform (#1372) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `bf9b5cbf` test(permissionflow): expect the name macOS 27 gives Accessibility (#2086) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `89e2d883` ui: leave a button its click in a row DragRows leaves out (#2062) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `98311208` feat(editor): show a panel below the caret, and expose the caret's Rect (#1972) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `75d4e155` markdown: Options.LinkColor colors a link's text by its destination (#2022) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `f8f8a8df` ui: keep moving text locked to its resting pixel phase (#2017) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `ee97486b` ui: add SplitGap for spaced or flush Split panes without a divider line (#1997) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `17c67272` ui.Table: column virtualization and frozen columns (#1973) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `f098a223` editor: show elements between lines (#1662) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `5778d86f` text: keep one copy of an app's font, not one an engine or registration (#1948) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `3a6ad8db` darwin: a panel takes the keyboard on Show while another app is active (#1284) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `4b1aa44e` ui,terminal: pass unhandled zoom and horizontal scroll to outer handlers (#2117) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `8edef676` windows: add a thumbnail toolbar under the taskbar preview (#2084) | 暂不迁移 | 应用已有自定义任务栏工具栏，本轮保留现有路径 |
+| `7ba76ed9` text: add each app font file to fontconfig once a process on Linux (#1947) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `024dd334` terminal: report a sideways wheel to a program that takes the mouse (#2118) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `fd23e445` test(windows): find a trashed item in the recycle bin by its path, not by counting (#2119) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `71f6c08b` ui/editor: bring a fitted viewer's find and go to line into view (#2105) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `c3bc3a99` test(ui): find decorations drawn faint, as GTK draws them on Pango 1.50 (#2121) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `aa6875f0` test(d3d11): never settle the swap chain in TestUncappedHeldFrameGivenUp (#2122) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `96dcfd62` fix(page): an Eval pending in a page left returns an error (#1811) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `cf6e3605` fix(windows): a tray icon the notification area refuses stays unadded, and the log says so (#2125) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `9976b9bc` fix(text): mirror brackets in right-to-left runs in browsers and on Android (#2129) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `a87592ba` fix(ui): ask for the next frame ahead when the view animates as it builds (#2135) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `c29d682e` metal: keep two drawables on displays of 60 Hz or less (#2132) | 已被撤回 | 后续 044e6ca9 已撤回，此升级没有这项行为 |
+| `044e6ca9` Revert "metal: keep two drawables on displays of 60 Hz or less (#2132)" | 采用撤回后的状态 | 上游已撤回双 drawable 调整，不另行恢复 |
+| `1a89ba22` richtext: hit links only where their text is drawn (#2134) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `af21abe5` fix(android): toolbars follow the system's theme, and fit their title under the status bar (#2141) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `e04a7798` text: draw a variable font's weights between its named instances on Windows (#2142) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `2ca120e9` shell: report where the trash put an item on Windows and Linux (#2147) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `54bca49c` ui: Enter clicks a button inside a list's rows, and Tab reaches sortable headers (#2149) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `f7076071` fix(darwin): tray 的 flyout 开在图标下方，而不是点击落点 (#2136) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `66963e44` window: support WindowOptions.ConsumeActivationClick on Windows and macOS (#1888) (#2094) | 可选 API 暂不接入 | 现有无边框窗口、激活与焦点行为保持现有配置 |
+| `da283c39` fix: mark browser touch pointer events for UI gestures (#2133) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `8ab52a39` terminal: link a Windows path as a whole, from its drive (#2120) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `2d814ef1` ui/editor: show lines deleted after a final newline in a unified diff (#2124) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `2956c3cf` fix(examples): open the dialog the Text page's email field promises on that page (#2152) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `2ec1ac2d` linux: let a hidden title bar decorate itself on KDE Plasma (#2153) (#2154) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `3611b55b` fix(web): show ⌘D, not Ctrl+D, for Cmd+D in a browser on a Mac (#2155) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `7aaf69f5` fix(android): pause a web view that native UI doesn't show (#2156) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `00bd763d` docs: say in the native modules skill that Kotlin implements views too (#2157) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `1384cfab` fix(android): don't pause a ThrottlingOff page native UI doesn't show (#2158) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `352daf0d` fix(examples): keep the legend of Users by platform inside its card (#2159) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `11e3c673` fix(ui): preserve HoldModifiers across pointer events (#2160) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `84b3bd6d` feat(editor): split lines on multi-cursor paste (#2161) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `26a1657f` fix(web): only prevent default wheel when scroll is consumed (#2162) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `3f787aca` fix(ui,text): avoid ellipsis overflow at zero or narrow widths (#2164) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `a40c02ef` fix(android): serve Range requests of the app's schemes (video seeking) (#2166) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `b8249d84` fix(richtext): don't carry a Markdown mark closed at the end into the next list (#2167) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `f98751c6` fix(markdown): indent code blocks with tabs of 4 columns on every system (#2168) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `edf2ac39` fix(darwin,ui): accept text inserted while window is non-key (Character Viewer) (#2170) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `efb83d98` fix(android): lay a piece of a word out within the word, in its run's direction (#2173) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `8414e12d` fix(linux): give web pages a sane screen resolution when GDK has none (#2180) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `15c6cf6e` windows: round the corners of transparent Windows 10 windows (#2176) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `e6d1f440` fix(text): keep kashidas and ayah numbers in their words, ligatures on Android, and Core Text's widths of right-to-left lines (#2174) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `e1a96e8e` fix(protocol): handlers see the length of a request's body (#2181) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `93c5b897` test(updater): don't miss the download's progress in TestInstallAndRelaunch (#2182) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `abb4de88` fix(ipc): start and stop streaming calls with AbortSignal (#1960) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `6284bd92` fix(darwin): keep Dock.SetIcon's icon when the app turns regular (#2185) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `21b016d7` fix(examples): pad the Right-click me card on its start side, right to left too (#2187) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `3021dee3` d3d11: release textures of collected images when idle (#1926) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `628ce8c0` fix(linux): drop the hidden title bar's empty title, so the controls' room is the buttons (#2189) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `0802b26f` editor: highlight Astro files, their frontmatter as TypeScript (#2190) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `9b0ae9ef` markdown: escape the raw tags a browser reads to their end, as GitHub's tagfilter does (#2193) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `4628106e` platform: say what a backend cannot do, and still be ErrUnsupported (#2196) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `a665dd70` power: keep a Windows app at full speed while it runs out of sight (#2197) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `a7ffb51a` i18n: write the quarter of a date, not the letters of its pattern (#2200) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `827e680f` tray: say what an empty Bounds means (#2201) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `dc4a7ea9` fix(i18n): keep a quarter in words when a number of it is asked, as ICU does (#2202) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `15d9bc0e` fix(ui): keep the caret of a text area inside its box at the right edge (#2203) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `41f31d50` fix(ui): let a keyboard move a selection made with Shift and the arrows (#2204) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `8e5c8f9d` ui: forward Radius and Padding from inline Text elements to their spans (#2211) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `d5503941` fix(richtext): let an on-screen keyboard move the editor's selection (#2210) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `67bf9295` fix(ui): Space holds a focused button down and clicks it as it goes up (#2212) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `94fda721` fix(editor): let an on-screen keyboard move the editor's selection (#2214) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `13f2d99f` fix(darwin): a two-finger swipe between pages goes back and forward (#2218) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `ef0b2517` mobile: draw again after an Android surface resizes, on a new EGL surface (#2221) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `a0eaaaaf` fix(cli): pass the inherited environment to process.execve (#2222) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `35fe218c` fix(ui): keep End on the visual line it was pressed on in a wrapped text area (#2223) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `082eb0cc` raster: draw transformed shapes' interiors and shadows without per-pixel work they share (#2225) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `3a7c10de` fix(windows): use current monitor DPI for tray and windowless popup menus (#2226) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `ee2f2e9d` ui: handle reset list state in accessibility snapshots (#2228) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `1eea25d4` fix(ui,richtext): make a paste its own step of undo (#2232) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `c4ba0d7f` ui: links show the elements inside them in the accessibility tree (#2234) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `73ad7d67` fix(richtext): redo puts the caret where a paste over a selection left it (#2233) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `dc99135e` ui: setting a ScrollState's offset stops its ScrollTo (#2235) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `cf1e0690` e2e: say where the keys went when an Escape leaves a flyout open (#2238) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `1f690f29` raster: sample a moved layer's covered pixels inline (#2239) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `7e5c5ae7` fix(imagepicker): open the camera on Android 11 and later (#2243) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `da81e0ca` fix(ui): take Escape and back that a dialog closes on (#2242) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `c9d61147` fix(ui): Copy with nothing selected in selectable text goes to the shortcuts (#2245) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `16efab09` fix(ui): give the focus back to what opened an overlay, from a dialog too (#2246) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `e2674dac` fix(ui): keep the focus off the page behind a dialog with nothing to focus (#2247) | 随框架采用 | WebView 视频回退或框架内置页面路径受益，无应用 API 迁移 |
+| `da8a9a1a` fix(windows): uncloak native UI before window becomes a child (#2248) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `5fe46f2d` ui: hide phones' edit menu once its input goes (#2249) (#2252) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `72943b63` cli: android.abis builds an Android app for some ABIs only (#2250) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `813afb80` cli: android.v1Signing signs an Android app with the JAR signature too (#2251) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `402e8e2a` test(e2e): add BenchmarkPageEvent's listener before emitting its events (#2253) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `b602b22b` richtext: project ParseMarkdown directly without intermediate paragraphs (#2254) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `c16fc5b6` darwin: a menu shortcut with Shift and a letter takes the shifted press alone (#2258) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `f86fbd26` darwin: a titled window's CornerRadius, drawn by AppKit and widened near a display's rounded corners (#2261) | 可选 API 暂不接入 | 现有无边框窗口、激活与焦点行为保持现有配置 |
+| `245cdf91` test(d3d11): check the calls of TestUncappedResizePaced's frames, not their time (#2262) | 验证工具更新 | 测试、诊断或无头渲染隔离改善，随框架采用 |
+| `470ed78e` fix(richtext): a rich paste with no text falls back to plain text (#2259) | 本应用暂不使用 | 不依赖该控件、插件或新增可选接口，随上游保留 |
+| `3104cb79` android: toolbars keep clear of the navigation bar and cutouts at the sides (#2265) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |
+| `4f67450b` linux: take APPIMAGE for the app's own only from its own mount (#2267) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `07df0659` fix(ui): cancel active pointer press and drags on window blur (#2273) | 随框架采用 | 桌面平台、渲染、输入或构建内部修复，无需应用侧改 API |
+| `49fb992c` android: keys typed while the keyboard marks a word stay in order (#2264) (#2274) | 本应用暂不使用 | 当前仅发布 Windows / macOS / Linux 桌面原生应用 |

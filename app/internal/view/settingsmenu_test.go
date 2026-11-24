@@ -372,13 +372,18 @@ func TestSettingsMenuVideoItemsMoved(t *testing.T) {
 // 看不见也点不到，滚轮怎么滚都不动。
 //
 // 修法：面板自己 MaxHeight，内容包进 ui.Scroll().Shrink(1)。这条测试在矮窗里
-// 滚到底，要求最后一项完整落在面板内。
+// 滚到底，要求最后一项**整行**可见且真的点得到。
 //
-// 量法用 AccessAll（提交的、未裁剪的矩形）：Tester.Find 给的是**裁剪后**的
-// 矩形，被裁掉的元素在那里报 h=0，分不清「能滚到」与「根本到不了」。
+// 量法用 AccessAll，但自 mygo #1999（b3c62a5d）起它的 Bounds 与 Tester.Find
+// 一样是**裁剪后**的可见矩形：被滚动区裁掉的部分不报，完全不可见时报 h=0 并
+// 置 Offscreen，半露时只报露出的那一截。所以「完整可见」不能只看矩形落在
+// 面板内（零高矩形也落在里面），要比自然整行高 —— 高窗里同一颗开关完整露出
+// 时的高度由 lastRowFullHeight 量出。
 //
-// 反证：把 ui.Scroll 去掉（回到普通 Column），h=300 那一档变红。
+// 反证：把 ui.Scroll 去掉（回到普通 Column），h=300 那一档变红（滚不动、
+// 高度始终 0，点击也到不了开关）。
 func TestSettingsMenuShortWindowScrolls(t *testing.T) {
+	fullH := lastRowFullHeight(t)
 	for _, h := range []int{300, 340} {
 		a := NewApp(func() {})
 		a.Theme = ThemeFor(PeriodAt(12))
@@ -388,7 +393,7 @@ func TestSettingsMenuShortWindowScrolls(t *testing.T) {
 			t.Fatalf("h=%d 点设置键失败：%v", h, err)
 		}
 		tst.Frame()
-		panel, ok := popupCommitBounds(tst)
+		panel, ok := popupVisibleBounds(tst)
 		if !ok {
 			t.Fatalf("h=%d 找不到设置面板", h)
 		}
@@ -399,14 +404,15 @@ func TestSettingsMenuShortWindowScrolls(t *testing.T) {
 		if panel.H > settingsMenuMaxH(float32(h))+0.5 {
 			t.Errorf("h=%d 面板高 %v 超过上限 %v", h, panel.H, settingsMenuMaxH(float32(h)))
 		}
-		// 滚动前最后一项在面板外 —— 否则这条测试测不到滚动。
-		before, ok := accessRect(tst, "设置：顺着听")
+		// 滚动前最后一项没有完整露出（可能整颗在滚动区外 h=0，也可能只露
+		// 一截）—— 否则这条测试测不到滚动。
+		before, ok := accessVisibleRect(tst, "设置：顺着听")
 		if !ok {
 			t.Fatalf("h=%d 找不到「设置：顺着听」", h)
 		}
-		if insidePanel(before, panel) {
-			t.Fatalf("h=%d 菜单本来就全在面板里（%+v 面板 %+v），这条测不到滚动",
-				h, before, panel)
+		if fullyVisible(before, panel, fullH) {
+			t.Fatalf("h=%d 菜单本来就整行可见（%+v 面板 %+v，整行高 %v），这条测不到滚动",
+				h, before, panel, fullH)
 		}
 		// 滚到底。
 		tst.Move(panel.X+panel.W/2, panel.Y+panel.H/2)
@@ -415,15 +421,60 @@ func TestSettingsMenuShortWindowScrolls(t *testing.T) {
 			tst.Wheel(panel.X+panel.W/2, panel.Y+panel.H/2, 0, 100)
 			tst.Advance(200 * time.Millisecond)
 		}
-		last, ok := accessRect(tst, "设置：顺着听")
+		last, ok := accessVisibleRect(tst, "设置：顺着听")
 		if !ok {
 			t.Fatalf("h=%d 滚到底后找不到「设置：顺着听」", h)
+		}
+		// 整行露出：高 = 自然行高、宽非零、完整落在面板里。
+		if last.W <= 0 || last.H <= 0 {
+			t.Errorf("h=%d 滚到底后「设置：顺着听」没有可见矩形：%+v", h, last)
+		}
+		if d := last.H - fullH; d < -0.5 || d > 0.5 {
+			t.Errorf("h=%d 滚到底后「设置：顺着听」高 %v，应整行 %v 可见",
+				h, last.H, fullH)
 		}
 		if !insidePanel(last, panel) {
 			t.Errorf("h=%d 滚到底后「设置：顺着听」仍不在面板里：%+v（面板 %+v）",
 				h, last, panel)
 		}
+		// 完整可见还不够：真的要点得到那颗开关（命中测试用的也是裁剪后
+		// 的可见矩形），点一下应触发它的回调。
+		clicks := 0
+		a.Act.ToggleRadio = func() { clicks++ }
+		if err := tst.Click("设置：顺着听"); err != nil {
+			t.Fatalf("h=%d 滚到底后点「设置：顺着听」失败：%v", h, err)
+		}
+		if clicks != 1 {
+			t.Errorf("h=%d 滚到底后点「设置：顺着听」回调 %d 次，应为 1", h, clicks)
+		}
 	}
+}
+
+// lastRowFullHeight 在窗高足够（1000×700）时量「设置：顺着听」开关行的自然
+// 整行高：此时 AccessAll 的可见矩形没有被滚动区裁过，h 就是整行高。先确认
+// 这一档面板没被上限封顶、整行确实落在面板里，否则量到的仍是裁剪值。
+func lastRowFullHeight(t *testing.T) float32 {
+	t.Helper()
+	_, tst := settingsProbe(t, 12)
+	if err := tst.Click("设置"); err != nil {
+		t.Fatalf("点设置键失败：%v", err)
+	}
+	tst.Frame()
+	panel, ok := popupVisibleBounds(tst)
+	if !ok {
+		t.Fatal("窗高足够时找不到设置面板")
+	}
+	if panel.H >= settingsMenuMaxH(700) {
+		t.Fatalf("窗高 700 时面板被上限封顶（%v），量不到整行高", panel.H)
+	}
+	r, ok := accessVisibleRect(tst, "设置：顺着听")
+	if !ok {
+		t.Fatal("窗高足够时找不到「设置：顺着听」")
+	}
+	if !insidePanel(r, panel) {
+		t.Fatalf("窗高足够时「设置：顺着听」没有完整落在面板里：%+v（面板 %+v）", r, panel)
+	}
+	return r.H
 }
 
 // TestSettingsMenuHeightNotCapped 钉住「窗高够时上限不生效」：面板仍是自然
@@ -445,8 +496,9 @@ func TestSettingsMenuHeightNotCapped(t *testing.T) {
 	}
 }
 
-// popupCommitBounds 找面板那一块（RolePopup）的**提交矩形**（未裁剪）。
-func popupCommitBounds(tt *ui.Tester) (ui.Rect, bool) {
+// popupVisibleBounds 找面板那一块（RolePopup）的可见矩形（与 Find 一样已
+// 按滚动区 / 窗口裁剪；面板自身 MaxHeight，通常就是整块）。
+func popupVisibleBounds(tt *ui.Tester) (ui.Rect, bool) {
 	for _, info := range tt.AccessAll() {
 		if info.Role == ui.RolePopup {
 			return info.Bounds, true
@@ -455,8 +507,9 @@ func popupCommitBounds(tt *ui.Tester) (ui.Rect, bool) {
 	return ui.Rect{}, false
 }
 
-// accessRect 找某个无障碍名字的提交矩形（未裁剪，与 Tester.Find 不同）。
-func accessRect(tt *ui.Tester, name string) (ui.Rect, bool) {
+// accessVisibleRect 找某个无障碍名字的可见矩形（与 Tester.Find 的裁剪语义
+// 一致）：完全看不见时 W/H 为 0。
+func accessVisibleRect(tt *ui.Tester, name string) (ui.Rect, bool) {
 	for _, info := range tt.AccessAll() {
 		if info.Name == name {
 			return info.Bounds, true
@@ -465,8 +518,15 @@ func accessRect(tt *ui.Tester, name string) (ui.Rect, bool) {
 	return ui.Rect{}, false
 }
 
+// fullyVisible 报告 r 是否整行（fullH）完整落在 panel 里（半像素容差）。
+// 零宽 / 零高的矩形一律不算可见 —— 滚动区外被裁掉的元素就是这种。
+func fullyVisible(r, panel ui.Rect, fullH float32) bool {
+	return r.W > 0 && r.H > 0 && r.H >= fullH-0.5 && insidePanel(r, panel)
+}
+
 // insidePanel 报告 r 是否完整落在 panel 里（半像素容差）。
 func insidePanel(r, panel ui.Rect) bool {
-	return r.Y >= panel.Y-0.5 && r.Y+r.H <= panel.Y+panel.H+0.5 &&
+	return r.W > 0 && r.H > 0 &&
+		r.Y >= panel.Y-0.5 && r.Y+r.H <= panel.Y+panel.H+0.5 &&
 		r.X >= panel.X-0.5 && r.X+r.W <= panel.X+panel.W+0.5
 }

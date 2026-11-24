@@ -4,6 +4,7 @@ package video
 
 import (
 	"errors"
+	"image"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,18 +49,79 @@ func TestThreeTimesAudioHandoff(t *testing.T) {
 			n.pause()
 			n.play()
 		}
+		// 先等到这一轮真的出现新画面再计时：Ready 只表示「曾经有过第一帧」，
+		// 3 倍速换到压缩时间轴后它仍为真，而 Frame 在新 item 出第一帧前会继续
+		// 返回旧缓冲（changed=false）。不等这一下，600ms 可能全花在 retime/seek
+		// 的落地里，看起来就是「倍速对、只有 1 个画面」。
+		waitForVideoPicture(t, tester, player, phase)
 		start, pos := time.Now(), player.Position()
-		levels := map[uint8]bool{}
+		pictures := map[[3]uint32]bool{}
+		var last [3]uint32
 		for time.Since(start) < 600*time.Millisecond {
 			tester.Frame()
-			levels[tester.Image().RGBAAt(160, 100).R] = true
+			last = videoPicture(tester.Image())
+			pictures[last] = true
 			time.Sleep(10 * time.Millisecond)
 		}
 		rate := float64(player.Position()-pos) / float64(time.Since(start))
-		t.Logf("%s：%.2fx，%d 个画面", phase, rate, len(levels))
-		if player.Err() != nil || rate < 2.5 || rate > 3.5 || len(levels) < 5 || n.settings.Speed != 3 {
-			t.Fatalf("%s 丢失倍速或画面：rate=%v frames=%d err=%v", phase, rate, len(levels), player.Err())
+		t.Logf("%s：%.2fx，%d 个画面", phase, rate, len(pictures))
+		if player.Err() != nil || rate < 2.5 || rate > 3.5 || len(pictures) < 5 || n.settings.Speed != 3 {
+			t.Fatalf("%s 丢失倍速或画面：rate=%v pictures=%d speed=%v pos=%v ready=%v playing=%v buffering=%v last=%v err=%v",
+				phase, rate, len(pictures), n.settings.Speed, player.Position(),
+				player.Ready(), player.Playing(), player.Buffering(), last, player.Err())
 		}
+	}
+}
+
+// 320×200 的窗口里，顶栏下沿在 48（12 inset + 36 高），窄窗两行控件条
+// 上沿在 110（200 − 12 − 78），所以 y=80 一定落在画面里；96×64 的帧按
+// Contain 放进 300×200（x=10..310），三个采样点都避开了两侧留黑与两条栏。
+var videoProbeXs = [...]int{80, 160, 240}
+
+const videoProbeY = 80
+
+// videoPicture 是画面区一帧的三个 RGB 采样。静止画面（哪怕渐变跨过采样点）
+// 永远只有同一个值；只有解码出的新帧才会改变它，不会被栏的静态颜色冒充成
+// 「新画面」。
+func videoPicture(img *image.RGBA) [3]uint32 {
+	var pic [3]uint32
+	for i, x := range videoProbeXs {
+		r, g, b, _ := img.RGBAAt(x, videoProbeY).RGBA()
+		pic[i] = uint32(r>>8)<<16 | uint32(g>>8)<<8 | uint32(b>>8)
+	}
+	return pic
+}
+
+// waitForVideoPicture 等到画面区连续出现三帧不同画面再开始计时（只等一帧
+// 可能等到的还是 retime 前旧 item 的最后一帧），失败时带上播放器状态与最后
+// 一次采样，便于区分「没有新帧」和「采样点被界面挡住」。
+func waitForVideoPicture(t *testing.T, tester *ui.Tester, player *ui.VideoPlayer, phase string) {
+	t.Helper()
+	before := videoPicture(tester.Image())
+	seen := map[[3]uint32]bool{before: true}
+	start := time.Now()
+	deadline := start.Add(time.Minute)
+	for {
+		tester.Frame()
+		if err := player.Err(); err != nil {
+			t.Fatalf("%s 等新画面时出错：pos=%v ready=%v playing=%v err=%v",
+				phase, player.Position(), player.Ready(), player.Playing(), err)
+		}
+		pic := videoPicture(tester.Image())
+		if !seen[pic] {
+			seen[pic] = true
+			if len(seen) >= 3 {
+				t.Logf("%s：新画面等待 %.0fms（%d 个不同画面）",
+					phase, float64(time.Since(start).Microseconds())/1000, len(seen))
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s 没有新画面（等待 %v）：pos=%v ready=%v playing=%v buffering=%v 采样点=%v 最后画面=%v 不同画面=%d err=%v",
+				phase, time.Since(start), player.Position(), player.Ready(), player.Playing(),
+				player.Buffering(), videoProbeXs, pic, len(seen), player.Err())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
