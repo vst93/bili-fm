@@ -23,6 +23,7 @@
   "updates": {
     "publicKey": "ziZNrW3/2vAI+e+geB6RTlQ/dYvBgEiqdWAbu0cwJjY=",
     "github": "vst93/bili-fm",
-    "tagPrefix": "mygo-v"
+    "tagPrefix": "mygo-v",
+    "deltas": 2
   }
 }
