@@ -145,28 +145,6 @@ func TestDanmakuGroupsCache(t *testing.T) {
 	}
 }
 
-// TestSortedCommentsCache 同理：评论排序带拷贝，缓存按「底层数组 + 长度」失效。
-func TestSortedCommentsCache(t *testing.T) {
-	a := &App{Comments: []Comment{
-		{User: "a", SendTime: 1},
-		{User: "b", SendTime: 3},
-		{User: "c", SendTime: 2},
-	}}
-	s1 := a.sortedComments()
-	if s1[0].User != "b" || s1[1].User != "c" || s1[2].User != "a" {
-		t.Fatalf("倒序 = %s,%s,%s, want b,c,a", s1[0].User, s1[1].User, s1[2].User)
-	}
-	s2 := a.sortedComments()
-	if &s1[0] != &s2[0] {
-		t.Fatal("同一评论再次读取应复用缓存")
-	}
-	// append 新评论（长度变）→ 重算。
-	a.Comments = append(a.Comments, Comment{User: "d", SendTime: 4})
-	if s3 := a.sortedComments(); s3[0].User != "d" {
-		t.Fatalf("append 后首条 = %s, want d", s3[0].User)
-	}
-}
-
 // TestDanmakuListVirtualized 钉住弹幕列表走 mygo 的虚拟化 ui.List：几百个分组
 // 时也只构建可见的那十几行，屏外分组不建（改回 ui.Column 会让整表每帧重建，
 // 这个断言会失败）。
@@ -615,21 +593,19 @@ func TestRepliesListAnchorOnWindowSlide(t *testing.T) {
 	if first <= 0 {
 		t.Fatalf("滚动后首行应不在顶部：first=%d", first)
 	}
-	anchor := a.sortedComments()[first].Content
+	anchor := a.Comments[first].Content
 
 	// 模拟 retainComments 的滑动窗口：丢掉头部 40 条已读评论，尾部追加 20 条。
 	a.Comments = append(append([]Comment(nil), a.Comments[40:]...), newer...)
 	tst.Frame()
 
 	f2, _ := a.repliesList.Visible()
-	if got := a.sortedComments()[f2].Content; got != anchor {
+	if got := a.Comments[f2].Content; got != anchor {
 		t.Fatalf("丢头后首可见评论 = %s, want %s（视口跳了）", got, anchor)
 	}
 }
 
-// TestCanLoadMoreComments 钉住评论自动翻页的判定：还有更多、不在加载中，且已经
-// 滚到底（首行不在顶部、末行已进视野）。`first > 0` 避免首屏都还没滚动就每帧
-// 重发下一页。
+// TestCanLoadMoreComments 钉住末行可见就续页，包括首屏放得下、无法滚动的短列表。
 func TestCanLoadMoreComments(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -638,7 +614,9 @@ func TestCanLoadMoreComments(t *testing.T) {
 		want              bool
 	}{
 		{"首屏还没滚", true, false, 0, 9, 20, false},
-		{"首屏不满也不发", true, false, 0, 4, 5, false},
+		{"首屏不满继续填屏", true, false, 0, 4, 5, true},
+		{"未布局不发", true, false, 0, -1, 5, false},
+		{"空列表不发", true, false, 0, -1, 0, false},
 		{"滚到底且有更多", true, false, 3, 19, 20, true},
 		{"加载中", true, true, 3, 19, 20, false},
 		{"没有更多", false, false, 3, 19, 20, false},
@@ -1066,23 +1044,21 @@ func TestDanmakuFollowButtonActiveGlow(t *testing.T) {
 	}
 }
 
-// TestRepliesEmptyStateNotLoading 钉住评论列表空态恒显示「暂无评论」
-// （原版 renderReplies：列表为空时恒显示「暂无评论」，加载中也不换成
-// 「加载中…」——那条加载提示只在已有评论时追加在列表末尾）。
-func TestRepliesEmptyStateNotLoading(t *testing.T) {
+// 首屏请求在途不能显示「暂无评论」；只有成功的空结果才显示空态。
+func TestRepliesEmptyStateShowsLoading(t *testing.T) {
 	a := NewApp(func() {})
 	a.Drawer = DrawerDanmaku
 	a.DanmakuTab = TabReply
-	a.RepliesLoading = true // 加载中
-
+	a.RepliesLoading = true
 	tst := ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720)
 	tst.Frame()
-
-	if !tst.HasText("暂无评论") {
-		t.Error("评论空态应恒显示「暂无评论」（加载中也不切换到「加载中…」）")
+	if !tst.HasText("评论加载中…") || tst.HasText("暂无评论") {
+		t.Error("首屏加载中应显示加载提示，不能冒充空结果")
 	}
-	if tst.HasText("加载中...") {
-		t.Error("空列表加载中不应显示「加载中...」提示（原版只在已有评论时追加）")
+	a.RepliesLoading = false
+	tst.Frame()
+	if !tst.HasText("暂无评论") {
+		t.Error("成功的空结果应显示暂无评论")
 	}
 }
 
@@ -1116,5 +1092,46 @@ func TestDanmakuAutoScrollCentered(t *testing.T) {
 	// near 对齐会把它放在底部 ≈ 600+，center 对齐应在 300±80 范围内
 	if r.Y > 450 {
 		t.Errorf("当前组 y = %v，疑似 near 对齐（怼到视口下缘），应 center 对齐在 ≈331", r.Y)
+	}
+}
+
+func TestShortCommentsAutoLoadAndRetry(t *testing.T) {
+	a := NewApp(func() {})
+	a.Drawer, a.DanmakuTab = DrawerDanmaku, TabReply
+	a.Comments = []Comment{{User: "甲", Content: "短评论", SendTime: 1}}
+	a.ReplyPage, a.RepliesHasMore = 1, true
+	calls := 0
+	a.Act.LoadComments = func(page int) {
+		if page != 2 {
+			t.Fatalf("续页/重试应请求第 2 页，实际 %d", page)
+		}
+		calls++
+		a.RepliesLoading, a.RepliesLoadErr = true, false
+	}
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
+	if calls != 1 {
+		t.Fatalf("首屏不满应自动续页一次，calls=%d", calls)
+	}
+	a.RepliesLoading, a.RepliesLoadErr = false, true
+	for i := 0; i < 5; i++ {
+		tst.Frame()
+	}
+	if calls != 1 || !tst.HasText("加载失败，点击重试") {
+		t.Fatalf("失败应停住并提供重试，calls=%d", calls)
+	}
+	if err := tst.Click("加载失败，点击重试"); err != nil {
+		t.Fatal(err)
+	}
+	tst.Frame()
+	if calls != 2 || a.RepliesLoadErr {
+		t.Fatalf("手动重试状态不对：calls=%d err=%v", calls, a.RepliesLoadErr)
+	}
+	// 末页落地后，即使内容仍然不满一屏也不能继续请求。
+	a.RepliesLoading, a.RepliesHasMore = false, false
+	for i := 0; i < 3; i++ {
+		tst.Frame()
+	}
+	if calls != 2 {
+		t.Fatalf("末页后还在请求：calls=%d", calls)
 	}
 }

@@ -93,6 +93,10 @@ type controller struct {
 	// loginGen 是登录轮询的代号：关闭面板/重新登录会让旧的轮询自尽。
 	loginGen int
 
+	// 评论请求独立记代号与目标，旧视频的响应不能清掉新视频的加载态。
+	commentsRequestID  int
+	commentsLoadingAid int64
+
 	// updateGen / updateCancel 是应用内「检查更新」流程的代号与取消函数：
 	// 用户关掉面板或重新检查会让旧的检查/下载自尽（与 loginGen 同一手法）。
 	updateGen    int
@@ -1229,66 +1233,101 @@ func (c *controller) loadComments(page int) {
 	if t == nil || t.Aid == 0 {
 		return
 	}
-	a.RepliesLoading = true
-	a.Win.Update(func() {})
 	aid := t.Aid
+	requestID, ok := c.beginCommentsLoad(aid, page)
+	if !ok {
+		return
+	}
+	c.update(func() {})
 	go func() {
 		r, err := c.bl.GetReplyList(aid, page)
-		a.Win.Update(func() {
-			a.RepliesLoading = false
-			// 目标可能在拉取期间又换了（用户点了别的视频），过期结果丢掉。
-			if bt := danmakuTarget(a); bt == nil || bt.Aid != aid {
-				return
-			}
-			if err != nil || r == nil {
-				return
-			}
-			list := make([]view.Comment, 0, len(r.Items))
-			for _, it := range r.Items {
-				// 完整日期时间（原版 formatDate：`toLocaleString("zh-CN")`，
-				// 形如 2023/11/15 06:13:20；见 view.FormatCommentTime）。
-				timeText := view.FormatCommentTime(it.SendTime)
-				cm := view.Comment{
-					Content:  it.Content.Message,
-					Likes:    int64(it.Like),
-					Time:     timeText,
-					SendTime: it.SendTime,
-				}
-				if m := toMap(it.Member); m != nil {
-					cm.User = pickStr(m, "uname")
-					cm.Avatar = pickStr(m, "avatar")
-					cm.Level = int(pickInt(m, "level"))
-					if li := subMap(m, "level_info"); li != nil {
-						if lv := pickInt(li, "current_level"); lv > 0 {
-							cm.Level = int(lv)
-						}
-					}
-				}
-				// 楼中楼预览只取前 3 条（原版如此），超出显示「查看更多回复...」。
-				for i, rp := range it.Replies {
-					sub := view.Comment{Content: rp.Content.Message, SendTime: rp.SendTime}
-					if m := toMap(rp.Member); m != nil {
-						sub.User = pickStr(m, "uname")
-						sub.Level = int(pickInt(m, "level"))
-					}
-					if i < 3 {
-						cm.Replies = append(cm.Replies, sub)
-					} else {
-						cm.RepliesMore = true
-					}
-				}
-				list = append(list, cm)
-			}
-			// 上限：评论列表走虚拟化 ui.List（见 view.repliesBody），每帧只建可见
-			// 那几行；上限现在主要约束内存驻留。超上限时从**头部**释放已读的那批
-			//（见 retainComments）。
-			a.Comments = retainComments(a.Comments, list, page, maxComments)
-			a.ReplyOid = aid
-			a.ReplyPage = page
-			a.RepliesHasMore = r.HasMore
-			a.ReplyTotal = r.TotalCount
-		})
+		c.update(func() { c.finishCommentsLoad(requestID, aid, page, r, err) })
 	}()
+}
+
+// beginCommentsLoad 只拦住同一目标的重复请求，不能用全局 Loading 挡住换视频。
+func (c *controller) beginCommentsLoad(aid int64, page int) (int, bool) {
+	a := c.app
+	if aid == 0 || (a.RepliesLoading && c.commentsLoadingAid == aid) {
+		return c.commentsRequestID, false
+	}
+	if page > 1 && a.ReplyOid != aid {
+		return c.commentsRequestID, false
+	}
+	c.commentsRequestID++
+	c.commentsLoadingAid = aid
+	a.RepliesLoading, a.RepliesLoadErr = true, false
+	a.RepliesError = ""
+	if page <= 1 {
+		a.Comments = nil
+		a.ReplyOid, a.ReplyPage, a.ReplyTotal = 0, 0, 0
+		a.RepliesHasMore = false
+	}
+	return c.commentsRequestID, true
+}
+
+// finishCommentsLoad 在 UI 线程验收结果；首屏失败也保留可见错误与重试入口。
+func (c *controller) finishCommentsLoad(requestID int, aid int64, page int, r *bilibili.ReplyList, err error) {
+	if requestID != c.commentsRequestID {
+		return
+	}
+	a := c.app
+	a.RepliesLoading = false
+	if target := danmakuTarget(a); target == nil || target.Aid != aid {
+		return
+	}
+	if err == nil && r == nil {
+		err = errors.New("评论接口返回空响应，请重试")
+	}
+	if err != nil {
+		a.RepliesLoadErr = true
+		a.RepliesError = actionFailText("评论加载", err)
+		return
+	}
+	list := make([]view.Comment, 0, len(r.Items))
+	for _, it := range r.Items {
+		// 完整日期时间（原版 formatDate：`toLocaleString("zh-CN")`，
+		// 形如 2023/11/15 06:13:20；见 view.FormatCommentTime）。
+		timeText := view.FormatCommentTime(it.SendTime)
+		cm := view.Comment{
+			Content:  it.Content.Message,
+			Likes:    int64(it.Like),
+			Time:     timeText,
+			SendTime: it.SendTime,
+		}
+		if m := toMap(it.Member); m != nil {
+			cm.User = pickStr(m, "uname")
+			cm.Avatar = pickStr(m, "avatar")
+			cm.Level = int(pickInt(m, "level"))
+			if li := subMap(m, "level_info"); li != nil {
+				if lv := pickInt(li, "current_level"); lv > 0 {
+					cm.Level = int(lv)
+				}
+			}
+		}
+		// 楼中楼预览只取前 3 条（原版如此），超出显示「查看更多回复...」。
+		for i, rp := range it.Replies {
+			sub := view.Comment{Content: rp.Content.Message, SendTime: rp.SendTime}
+			if m := toMap(rp.Member); m != nil {
+				sub.User = pickStr(m, "uname")
+				sub.Level = int(pickInt(m, "level"))
+			}
+			if i < 3 {
+				cm.Replies = append(cm.Replies, sub)
+			} else {
+				cm.RepliesMore = true
+			}
+		}
+		list = append(list, cm)
+	}
+	// 上限：评论列表走虚拟化 ui.List（见 view.repliesBody），每帧只建可见
+	// 那几行；上限现在主要约束内存驻留。超上限时从**头部**释放已读的那批
+	//（见 retainComments）。
+	a.Comments = retainComments(a.Comments, list, page, maxComments)
+	a.ReplyOid = aid
+	a.ReplyPage = page
+	a.RepliesHasMore = r.HasMore
+	a.ReplyTotal = r.TotalCount
 }
 
 // retainComments 把新拉到的一页评论并入已有列表，并裁到上限 limit。
@@ -1334,7 +1373,7 @@ func (c *controller) switchDanmakuTab(tab string) {
 	a := c.app
 	switch tab {
 	case view.TabReply:
-		if needLoadComments(a) && !a.RepliesLoading {
+		if needLoadComments(a) {
 			c.loadComments(1)
 		}
 	case view.TabDanmaku:
@@ -2412,6 +2451,19 @@ func retentionDrop(n, cap int) int {
 	return min(over, n)
 }
 
+// setSectionCards 对一次性返回全集的稍后再看不裁头：它没有下一页，
+// 超过 128 条时套用滑动窗口会直接丢掉用户还没看过的条目。
+// 封面仍由虚拟网格按可见范围加载，其余分页分区保持原有内存上限。
+func setSectionCards(list *view.List, cards []view.Card, replace bool, section, histTab string) int {
+	if section != "watchlater" && !(section == "history" && histTab == view.HistWatchLater) {
+		return setCards(list, cards, replace)
+	}
+	list.Cards = dedupeCards(nil, cards)
+	list.ResetGrid()
+	list.Trimmed, list.Dropped = 0, false
+	return len(list.Cards)
+}
+
 // setCards 写入列表卡片：replace 为真时替换，否则追加；无论哪种都保持上限。
 // 返回**实际新增**的卡片数（append 时按 Bvid 去重；重复页/接口同一页返回
 // 两次时调用方据此停住翻页，避免「滚到底 → 追加重复项 → 永远还有更多」）。
@@ -2668,7 +2720,7 @@ func (c *controller) loadSection(section string, page int) {
 				c.listLoadFailed(list, page > 1, "加载", err)
 				return
 			}
-			added := setCards(list, cards, page <= 1)
+			added := setSectionCards(list, cards, page <= 1, section, histTab)
 			list.Page = page
 			// 封顶后 setCards 会裁头，必须用它的返回值（裁头前新增数）
 			// 判断有没有新内容；接口重复返回同一页时停住。
@@ -2704,14 +2756,14 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		if err != nil {
 			return nil, false, err
 		}
-		return toCardsFromRaw(l.Items), true, nil
+		return toCardsFromRaw(l.Items), l.HasMore, nil
 	case "popular":
 		if recTab == view.RecRecommend {
 			l, err := c.bl.GetBLRCMDList(page)
 			if err != nil {
 				return nil, false, err
 			}
-			return toCardsFromRaw(l.Items), true, nil
+			return toCardsFromRaw(l.Items), l.HasMore, nil
 		}
 		l, err := c.bl.GetBLPopularList(page)
 		if err != nil {
@@ -2725,12 +2777,12 @@ func (c *controller) fetchSection(section string, page int, folderID int64, recT
 		if folderID == 0 {
 			return nil, false, nil
 		}
-		items, err := c.bl.GetBLFavFolderListDetail(int(folderID), page)
+		items, more, err := c.bl.GetBLFavFolderListDetail(int(folderID), page)
 		if err != nil {
 			return nil, false, err
 		}
-		// 收藏夹接口每页 21 条；不足一页说明到底了。
-		return toCardsFromRaw(items), len(items) >= 21, nil
+		// 服务端可能返回不足请求数量的一页，是否到底必须以 has_more 为准。
+		return toCardsFromRaw(items), more, nil
 	case "history":
 		// 观看历史（HistHistory）走 loadSection 的游标分支，这里只处理稍后再看 tab。
 		l, err := c.bl.GetWatchLaterList()
@@ -2913,7 +2965,7 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 	c.update(func() {})
 
 	go func() {
-		items, err := c.bl.GetBLFavFolderListDetail(int(fid), page)
+		cards, more, err := c.fetchSection("favorite", page, fid, "", "")
 		c.update(func() {
 			if !c.acceptListResult(list, ctx, gen, browseGen, firstPage, err == nil) {
 				return
@@ -2922,10 +2974,10 @@ func (c *controller) loadFolderDetail(fid int64, page int) {
 				c.listLoadFailed(list, page > 1, "加载", err)
 				return
 			}
-			added := setCards(list, toCardsFromRaw(items), page <= 1)
+			added := setCards(list, cards, page <= 1)
 			list.Page = page
-			// 不足一页说明到底了；接口重复返回同一页（added=0）也停住。
-			list.HasMore = len(items) >= 21 && added > 0
+			// 首屏与续页都沿用接口 has_more；重复页仍停住，避免请求风暴。
+			list.HasMore = more && added > 0
 			list.LoadErr = false
 			a.Status = fmt.Sprintf("%d 条", len(list.Cards))
 		})
@@ -4024,7 +4076,7 @@ func (c *controller) toggleDanmaku() {
 	t := danmakuTarget(a)
 	switch a.DanmakuTab {
 	case view.TabReply:
-		if needLoadComments(a) && !a.RepliesLoading {
+		if needLoadComments(a) {
 			c.loadComments(1)
 		}
 		return

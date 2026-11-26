@@ -920,12 +920,9 @@ func TestCollectScrollBtnFollowsHeaderMaterial(t *testing.T) {
 	}
 }
 
-// TestCardGridAutoLoadsAtBottom 钉住「搜索 / UP 空间滚到底会触发 LoadMore」。
-// 这两个页面用户报不自动加载：搜索层是控制器的分页没接（见 main_test 的
-// TestSearchPaginationWired），UP 层则依赖这份视图触发。这里用同一套卡片网格
-// 把两种抽屉都跑到真正的列表底部，断言 Act.LoadMore 至少被调一次。
+// TestCardGridAutoLoadsAtBottom 钉住各类卡片网格滚到底会触发 LoadMore。
 func TestCardGridAutoLoadsAtBottom(t *testing.T) {
-	for _, drawer := range []string{DrawerSearch, DrawerUp} {
+	for _, drawer := range []string{DrawerSearch, DrawerUp, DrawerSeries, "favorite", "popular", "feed", "history"} {
 		t.Run(drawer, func(t *testing.T) {
 			a := NewApp(func() {})
 			a.Theme = ThemeFor(PeriodAt(12))
@@ -1218,5 +1215,48 @@ func TestCardGridHeadTrimKeepsScrolling(t *testing.T) {
 	tst.Frame()
 	if calls != 2 {
 		t.Fatalf("继续下滑到底应再翻一页，calls=%d（闩锁没有松开）", calls)
+	}
+}
+
+// 收藏连续翻页后闩锁应重新放行；末页 has_more=false 后不再请求。
+func TestFavoriteGridLoadsSuccessivePages(t *testing.T) {
+	a := NewApp(func() {})
+	a.Theme = ThemeFor(PeriodAt(12))
+	a.Drawer = "favorite"
+	l := a.ListFor("favorite")
+	appendCards := func(n int) {
+		for i := 0; i < n; i++ {
+			l.Cards = append(l.Cards, Card{Bvid: fmt.Sprintf("BV%04d", len(l.Cards)), Title: "收藏视频"})
+		}
+	}
+	appendCards(20)
+	l.HasMore = true
+	calls := 0
+	a.Act.LoadMore = func() { calls++; l.Loading = true }
+	tst := settleTester(ui.NewTester(func(c *ui.Context) { a.Shell(c) }, 980, 720))
+	for page := 2; page <= 3; page++ {
+		tst.Scroll(490, 400, 0, 100000)
+		tst.Frame()
+		if calls != page-1 {
+			t.Fatalf("第 %d 页未触发：calls=%d", page, calls)
+		}
+		// 模拟异步响应在两帧之间追加，末页只有 3 条。
+		if page == 2 {
+			appendCards(20)
+		} else {
+			appendCards(3)
+			l.HasMore = false
+		}
+		l.Loading = false
+		for i := 0; i < 3; i++ {
+			tst.Frame()
+		}
+	}
+	tst.Scroll(490, 400, 0, 100000)
+	for i := 0; i < 3; i++ {
+		tst.Frame()
+	}
+	if calls != 2 || len(l.Cards) != 43 {
+		t.Fatalf("末页后状态异常：calls=%d cards=%d", calls, len(l.Cards))
 	}
 }

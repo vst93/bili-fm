@@ -3279,21 +3279,6 @@ func (a *App) danmakuGroups() []danmakuGroup {
 	return a.dmGroups
 }
 
-// sortedComments 返回按发送时间倒序的评论，带缓存（同 danmakuGroups）。
-func (a *App) sortedComments() []Comment {
-	if a.cmSorted == nil || !sameSlice(a.cmSortedSrc, a.Comments) {
-		sorted := make([]Comment, len(a.Comments))
-		copy(sorted, a.Comments)
-		for i := 1; i < len(sorted); i++ {
-			for j := i; j > 0 && sorted[j].SendTime > sorted[j-1].SendTime; j-- {
-				sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
-			}
-		}
-		a.cmSortedSrc, a.cmSorted = a.Comments, sorted
-	}
-	return a.cmSorted
-}
-
 // danmakuInk 把弹幕颜色转成显示色：太亮/太暗时换对比色（原版 getColorStyle
 // 的 YIQ 亮度逻辑）。dark 为真时按深色底选亮字；现在是“应用外观”的深色
 // 模式，不再用只影响播放栏的 Theme.Dark。
@@ -3759,21 +3744,31 @@ func (a *App) repliesBody(c *ui.Context) {
 		// 清空（刷新 / 换视频）时把虚拟列表也复位，下一批评论从顶部开始，
 		// 不沿用上一批的行锚点。
 		a.repliesList = ui.ListState{}
+		a.repliesSrc = nil
 		l := a.ListFor(a.Drawer)
 		a.holdScrollBody(c, l)
 		// 原版 .danmaku-scroll-area 的 padding 是 8px 10px 16px 10px
 		// （上下不对称，底部多留 16 给最后一行）。
 		ui.Scroll(c).FillWidth().Grow(1).Padding(8, 10, 16, 10).TrackScroll(&l.Scroll).Children(func() {
-			// 原版 renderReplies：列表为空时恒显示「暂无评论」，加载中也不换成
-			// 「加载中…」——那条加载提示只在**已有评论**时追加在列表末尾
-			// （见下方 n+extra 的那一行）。
-			a.emptyNote(c, "暂无评论")
+			switch {
+			case a.RepliesLoading:
+				a.emptyNote(c, "评论加载中…")
+			case a.RepliesLoadErr:
+				message := a.RepliesError
+				if message == "" {
+					message = "评论加载失败，请重试"
+				}
+				a.emptyNote(c, message)
+				a.commentLoadRetry(c, 1)
+			default:
+				a.emptyNote(c, "暂无评论")
+			}
 		})
 		return
 	}
-	// 评论按时间倒序（原版 danmakuList 的 sortedReplies：b.ctime - a.ctime）。
-	// 带缓存：排序带拷贝，滚动时每帧重排会白白分配 + 吃 CPU（见 sortedComments）。
-	sorted := a.sortedComments()
+	// 接口按热度分页，必须保持它的顺序。每次追加后再按发布时间全表排序，
+	// 会把新页插到正在阅读的旧页中，也会让末行始终是同一条旧评论。
+	comments := a.Comments
 
 	// 评论数据换了来源（换集 / 浏览到另一条视频）就重置虚拟列表的滚动位置与
 	// 行锚点，否则新一集会沿用上一条的锚点。来源以 ReplyOid（已加载评论属于
@@ -3781,38 +3776,60 @@ func (a *App) repliesBody(c *ui.Context) {
 	if a.ReplyOid != 0 && a.ReplyOid != a.repliesCid {
 		a.repliesList = ui.ListState{}
 		a.repliesCid = a.ReplyOid
+		a.repliesSrc = nil
+	}
+	if !sameSlice(a.repliesSrc, comments) {
+		a.repliesSrc, a.repliesChangedAt = comments, c.Now()
+	}
+	// Visible 在布局后才更新。封顶裁头时行数不变，本帧读到的仍是旧底部，
+	// 不能据此立即再翻页；同一帧的额外 build pass 也要等下一帧。
+	layoutPending := a.repliesChangedAt.Equal(c.Now())
+	if layoutPending {
+		c.AnimationFrame()
 	}
 	st := &a.repliesList
 	st.Key = func(r int) any {
-		if r < len(sorted) {
-			cm := sorted[r]
+		if r < len(a.Comments) {
+			cm := a.Comments[r]
 			return commentKey{user: cm.User, sendTime: cm.SendTime, content: cm.Content}
 		}
-		return "comments-loading"
+		return "comments-footer"
 	}
-	// 原版没有「加载更多」按钮：滚到底自动翻页；加载中在末行提示「加载中...」。
-	n := len(sorted)
-	extra := 0
-	if a.RepliesLoading {
-		extra = 1
-	}
-	ui.List(c, st, n+extra, func(r int) {
-		if r >= n {
-			// 「加载中...」是 `.text-center.text-default-400.py-2.text-xs` → 12/16。
-			loadingH, loadingShift := textLineBox(12, textXsLH)
-			ui.Row(c).FillWidth().Padding(8, 0).Justify(ui.Center).Children(func() {
-				ui.Text(c, "加载中...").FontSize(12).TextColor(a.Theme.text(ui.Hex(replyInkMuted))).
-					Height(loadingH).Padding(loadingShift, 0, 0, 0)
+	// 底部始终保留同一高度，加载/失败/空闲只切内容。否则用户在请求期间
+	// 滚到底，提示行一消失就会缩短滚动范围，视口被向上夹回约 32px。
+	n := len(comments)
+	ui.List(c, st, n+1, func(r int) {
+		if r == n {
+			ui.Row(c).FillWidth().Height(38).Center().Children(func() {
+				if a.RepliesLoadErr {
+					a.commentLoadRetry(c, a.ReplyPage+1)
+				} else if a.RepliesLoading {
+					loadingH, loadingShift := textLineBox(12, textXsLH)
+					ui.Text(c, "加载中...").FontSize(12).TextColor(a.Theme.text(ui.Hex(replyInkMuted))).
+						Height(loadingH).Padding(loadingShift, 0, 0, 0)
+				}
 			})
 			return
 		}
-		a.commentRow(c, sorted[r], r)
+		a.commentRow(c, comments[r])
 	}).FillWidth().Grow(1).Padding(8, 10, 16, 10)
 
 	// 滚到底自动翻页（原版 handleScroll：距底 100px 内）。
 	if first, last := st.Visible(); canLoadMoreComments(a.RepliesHasMore, a.RepliesLoading, first, last, n) &&
-		a.Act.LoadComments != nil {
+		!layoutPending && !a.RepliesLoadErr && !a.drawerClosing && a.Act.LoadComments != nil {
 		a.Act.LoadComments(a.ReplyPage + 1)
+	}
+}
+
+// 首屏与续页共用重试入口；失败不再被伪装成「暂无评论」。
+func (a *App) commentLoadRetry(c *ui.Context, page int) {
+	b := ui.ButtonBase(c.Key("comments-load-retry")).FillWidth().Height(38).
+		Center().Label("加载失败，点击重试").Tooltip(a.RepliesError)
+	b.Children(func() {
+		ui.Text(c, "加载失败，点击重试").FontSize(13).TextColor(a.Theme.Blue)
+	})
+	if b.Clicked() && !a.RepliesLoading && a.Act.LoadComments != nil {
+		a.Act.LoadComments(page)
 	}
 }
 
@@ -3825,16 +3842,13 @@ type commentKey struct {
 	content  string
 }
 
-// canLoadMoreComments 报告评论列表这一帧该不该自动翻页：还有更多、不在加载中，
-// 且已经滚到底（首行不在顶部、末行已进视野）。抽成纯函数便于单测。
-//
-// `first > 0` 是这里的闸门：首屏都还没滚动（或首屏不满）时不请求，避免每帧
-// 重发下一页。
+// canLoadMoreComments 在末行可见时续页，短列表不够一屏也继续填屏。
+// Loading 拦住并发请求，调用方的 RepliesLoadErr 拦住失败后的逐帧重试。
 func canLoadMoreComments(hasMore, loading bool, first, last, rows int) bool {
-	if !hasMore || loading {
+	if !hasMore || loading || rows <= 0 {
 		return false
 	}
-	return first > 0 && last >= rows-1
+	return last >= rows-1
 }
 
 // commentRow 画一行评论（原版 danmakuList 评论 tab 的卡片行）：32 圆头像 +
@@ -3847,14 +3861,15 @@ func canLoadMoreComments(hasMore, loading bool, first, last, rows int) bool {
 // 卡片因此会比原版宽 12px、右缘探进 6px（原版右缘离滚动区内容边 6px，
 // 原生版探到 -6px）。外层盒吃内边距、卡片 FillWidth，宽度就与原版一致，
 // 垂直间距不变（4 + 卡片 + 4）。
-func (a *App) commentRow(c *ui.Context, cm Comment, i int) {
-	ui.Column(c.Key(fmt.Sprintf("cm-%d", i))).FillWidth().Padding(4, 6).
-		Children(func() { a.commentCard(c, cm, i) })
+func (a *App) commentRow(c *ui.Context, cm Comment) {
+	// 外层虚拟行已有稳定身份，不再把会随裁头变化的下标写进子树 key。
+	ui.Column(c).FillWidth().Padding(4, 6).
+		Children(func() { a.commentCard(c, cm) })
 }
 
 // commentCard 是评论行的玻璃卡片本体（原版 `.py-2.px-8.border-b` 被 globals.css
 // 覆写后的样子）：圆角 10、白 32% 底 + 32% 白边 + 顶部内高光。
-func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
+func (a *App) commentCard(c *ui.Context, cm Comment) {
 	row := ui.Column(c).FillWidth().Padding(8, 32).Gap(8).Radius(10)
 	// 悬停换底 / 换边：原版 `.py-2.px-8.border-b` 的
 	// `transition: background-color .14s ease, border-color .14s ease,
@@ -3934,7 +3949,7 @@ func (a *App) commentCard(c *ui.Context, cm Comment, i int) {
 				ui.Column(c).Margin(8, 0, 0, 0).Padding(0, 0, 0, 12).
 					Gap(8).InsetShadow(2, 0, 0, 0, ui.Hex("#64748b").Alpha(0.25)).Children(func() {
 					for j, rp := range cm.Replies {
-						ui.Row(c.Key(fmt.Sprintf("cm-%d-r%d", i, j))).
+						ui.Row(c.Key(fmt.Sprintf("reply-%d", j))).
 							FillWidth().Gap(replyFirstLinePad).AlignItems(ui.Start).Children(func() {
 							// .text-primary-500 同时覆写成 600 字重。昵称有 Shrink(0)、
 							// 不参与换行（自然宽即单行），可以安全地压行盒；正文可换行，

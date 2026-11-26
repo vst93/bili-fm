@@ -254,7 +254,8 @@ const searchPageSize = 50
 // 原版 Tauri 前端只拉第 1 页（searchList 没有无限滚动），原生版要补上
 // 「滚到底继续加载」，所以把页码作为参数透传给同一个接口。接口在 data 里
 // 返回 numPages（总页数），优先用它判断；老响应没有这个字段时，退回
-// 「本页满 50 条就认为还有下一页」，下一页真的为空时调用方会自然停住。
+// 「非空页就再试一页」。服务端可能缩小页大小，不能要求必须满 50 条；
+// 空页或重复页由调用方停止续页。
 func (bl *BL) SearchVideoPage(keyword, order string, page int) ([]SearchResult, bool, error) {
 	if page < 1 {
 		page = 1
@@ -367,7 +368,7 @@ func (bl *BL) SearchVideoPage(keyword, order string, page int) ([]SearchResult, 
 	hasMore := false
 	if apiResponse.Data.NumPages > 0 {
 		hasMore = page < apiResponse.Data.NumPages
-	} else if len(results) >= searchPageSize {
+	} else if len(results) > 0 {
 		hasMore = true
 	}
 	return results, hasMore, nil
@@ -949,7 +950,10 @@ func (bl *BL) GetBLRCMDList(page int) (*RCMDList, error) {
 
 	apiUrl := "https://api.bilibili.com/x/web-interface/wbi/index/top/feed/rcmd"
 	params := url.Values{}
-	// 由于 theParams 在原始 JavaScript 代码中为空，这里不需要添加任何参数
+	// 推荐通过刷新序号续批；不传时下一页可能仍命中相同的首批内容。
+	params.Add("fresh_idx", strconv.Itoa(page))
+	params.Add("fresh_idx_1h", strconv.Itoa(page))
+	params.Add("ps", "20")
 
 	req, err := http.NewRequest("GET", apiUrl+"?"+params.Encode(), nil)
 	if err != nil {
@@ -990,7 +994,7 @@ func (bl *BL) GetBLRCMDList(page int) (*RCMDList, error) {
 
 	rcmdList := &RCMDList{
 		Items:   apiResponse.Data.Item,
-		HasMore: page < 10,
+		HasMore: len(apiResponse.Data.Item) > 0,
 		Page:    page,
 	}
 
@@ -1060,27 +1064,28 @@ type FolderDetailResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    struct {
-		Medias []interface{} `json:"medias"`
+		Medias  []interface{} `json:"medias"`
+		HasMore bool          `json:"has_more"`
 	} `json:"data"`
 }
 
-func (bl *BL) GetBLFavFolderListDetail(fid int, page int) ([]interface{}, error) {
+func (bl *BL) GetBLFavFolderListDetail(fid int, page int) ([]interface{}, bool, error) {
 	cookie := bl.GetSESSDATA()
 	if cookie == "" {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	baseURL := "https://api.bilibili.com/x/v3/fav/resource/list"
 	params := url.Values{}
 	params.Add("media_id", fmt.Sprintf("%d", fid))
 	params.Add("type", "0")
-	params.Add("ps", "21")
+	params.Add("ps", "20")
 	params.Add("pn", fmt.Sprintf("%d", page))
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", baseURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
@@ -1088,26 +1093,26 @@ func (bl *BL) GetBLFavFolderListDetail(fid int, page int) ([]interface{}, error)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var folderDetailResponse FolderDetailResponse
 	err = json.Unmarshal(body, &folderDetailResponse)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if folderDetailResponse.Code != 0 {
-		return nil, apiError(folderDetailResponse.Code, folderDetailResponse.Message)
+		return nil, false, apiError(folderDetailResponse.Code, folderDetailResponse.Message)
 	}
 
-	return folderDetailResponse.Data.Medias, nil
+	return folderDetailResponse.Data.Medias, folderDetailResponse.Data.HasMore, nil
 }
 
 // ----------- end - getBLFavFolderListDetail -----------
@@ -1652,7 +1657,12 @@ type SeriesListResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    struct {
+		Page struct {
+			PageSize int `json:"page_size"`
+			Total    int `json:"total"`
+		} `json:"page"`
 		ItemsLists struct {
+			SeriesList  []json.RawMessage `json:"series_list"`
 			SeasonsList []struct {
 				Meta struct {
 					Cover    string `json:"cover"`
@@ -1667,7 +1677,44 @@ type SeriesListResponse struct {
 	} `json:"data"`
 }
 
+// GetSeriesList 返回完整的合集目录。目录没有滚动续页入口，两处调用方
+// （合集 tab 与视频 tab 的辅助目录）都需要在这里拉完，而不是只取前 20 个。
 func (bl *BL) GetSeriesList(mid int) ([]interface{}, error) {
+	var result []interface{}
+	seenPages := make(map[string]bool)
+	seenIDs := make(map[int]bool)
+	for page := 1; ; page++ {
+		response, err := bl.getSeriesListPage(mid, page)
+		if err != nil {
+			return nil, err
+		}
+		if response == nil {
+			return result, nil
+		}
+		data := response.Data
+		if len(data.ItemsLists.SeasonsList)+len(data.ItemsLists.SeriesList) == 0 {
+			return result, nil
+		}
+		// 包括只有旧版 series 的页：不能把「本页没有 season」误当作目录结束。
+		// 记录整页内容，防止服务端忽略页码、重复返回同一页造成无限请求。
+		key, _ := json.Marshal(data.ItemsLists)
+		if seenPages[string(key)] {
+			return result, nil
+		}
+		seenPages[string(key)] = true
+		for _, item := range data.ItemsLists.SeasonsList {
+			if !seenIDs[item.Meta.SeasonID] {
+				seenIDs[item.Meta.SeasonID] = true
+				result = append(result, item.Meta)
+			}
+		}
+		if data.Page.Total > 0 && data.Page.PageSize > 0 && page*data.Page.PageSize >= data.Page.Total {
+			return result, nil
+		}
+	}
+}
+
+func (bl *BL) getSeriesListPage(mid, page int) (*SeriesListResponse, error) {
 	cookie := bl.GetSESSDATA()
 	if cookie == "" {
 		return nil, nil
@@ -1676,7 +1723,7 @@ func (bl *BL) GetSeriesList(mid int) ([]interface{}, error) {
 	baseURL := "https://api.bilibili.com/x/polymer/web-space/seasons_series_list"
 	params := url.Values{}
 	params.Add("mid", fmt.Sprintf("%d", mid))
-	params.Add("page_num", "1")
+	params.Add("page_num", strconv.Itoa(page))
 	params.Add("page_size", "20")
 
 	client := &http.Client{}
@@ -1710,12 +1757,7 @@ func (bl *BL) GetSeriesList(mid int) ([]interface{}, error) {
 		return nil, apiError(seriesListResponse.Code, seriesListResponse.Message)
 	}
 
-	var result []interface{}
-	for _, item := range seriesListResponse.Data.ItemsLists.SeasonsList {
-		result = append(result, item.Meta)
-	}
-
-	return result, nil
+	return &seriesListResponse, nil
 }
 
 // ----------- end - getSeriesList -----------
@@ -2297,7 +2339,7 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36")
+	req.Header.Set("User-Agent", chromeUA)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	// 添加 SESSDATA cookie
@@ -2306,19 +2348,20 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 		req.Header.Set("Cookie", cookie)
 	}
 
-	resp, err := fetchImageClient.Do(req)
+	// 评论是 JSON API，不走强制 IPv4、绕过默认代理的图片客户端。
+	resp, err := extraClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("评论接口返回 %d，请稍后重试", resp.StatusCode)
+	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return nil, err
 	}
-
-	// 打印响应内容用于调试
-	fmt.Printf("Reply API Response: code=%d, body_len=%d\n", resp.StatusCode, len(body))
 
 	var apiResponse struct {
 		Code    int    `json:"code"`
@@ -2335,13 +2378,11 @@ func (bl *BL) GetReplyList(oid int64, page int) (*ReplyList, error) {
 
 	err = json.Unmarshal(body, &apiResponse)
 	if err != nil {
-		return nil, fmt.Errorf("JSON 解析失败: %v, body: %s", err, string(body))
+		return nil, fmt.Errorf("评论响应格式异常：%w", err)
 	}
 
-	fmt.Printf("Reply API: code=%d, message=%s, replies_count=%d\n", apiResponse.Code, apiResponse.Message, len(apiResponse.Data.Replies))
-
 	if apiResponse.Code != 0 {
-		return nil, fmt.Errorf("API 错误: %s", apiResponse.Message)
+		return nil, apiError(apiResponse.Code, apiResponse.Message)
 	}
 
 	hasMore := len(apiResponse.Data.Replies) > 0 && apiResponse.Data.Page.Num*apiResponse.Data.Page.Size < apiResponse.Data.Page.Count

@@ -356,6 +356,8 @@ func (l *List) ResetGrid() { l.Grid = ui.ListState{} }
 func (a *App) ResetDanmakuScroll() {
 	a.danmakuList = ui.ListState{}
 	a.repliesList = ui.ListState{}
+	a.repliesSrc = nil
+	a.repliesChangedAt = time.Time{}
 	a.subtitleList = ui.ListState{}
 	a.subtitleScrollIdx = -1
 	a.danmakuScrollIdx = -1
@@ -992,6 +994,8 @@ type App struct {
 	DanmakuAutoScroll    bool
 	DanmakuLoading       bool
 	RepliesLoading       bool
+	RepliesLoadErr       bool // 请求失败后暂停自动请求，首屏与续页都允许重试。
+	RepliesError         string
 	RepliesHasMore       bool
 	ReplyPage            int
 	ReplyTotal           int
@@ -1188,14 +1192,12 @@ type App struct {
 	// （那样入场动画就没了，见 drawerEnterStep）。
 	drawerOpenKey string
 	drawerEnterAt time.Time
-	// dmGroups / cmSorted 缓存弹幕分组与评论排序：滚动时视图每帧重建，
-	// 每帧重算这些分组 / 排序就是卡顿的来源（见 danmakuGroups）。
+	// dmGroups 缓存弹幕分组：滚动时视图每帧重建，
+	// 每帧重算分组就是卡顿的来源（见 danmakuGroups）。
 	// *Src 持有缓存依据的那份切片，既是身份判据，也防止旧数组被 GC 回收后
 	// 新切片复用同一地址造成误命中。
 	dmGroups    []danmakuGroup
 	dmGroupsSrc []Danmaku
-	cmSorted    []Comment
-	cmSortedSrc []Comment
 	// drawerShown 是当前（或正退场的）抽屉的 key；drawerClosing / drawerExitAt
 	// 记退场是否进行中、何时起步。关抽屉时 a.Drawer 先被清空，但面板要继续
 	// 下滑淡出（见 drawer），所以得把最后一个 key 留住。
@@ -1251,6 +1253,9 @@ type App struct {
 	// （见 main.go 的 retainComments）锚点行跟着挪下标，视口停在原评论上不跳。
 	repliesList ui.ListState
 	repliesCid  int64
+	// 新页先完成锚点布局，下一帧才允许再次判断是否到底。
+	repliesSrc       []Comment
+	repliesChangedAt time.Time
 
 	// grids 是每个抽屉的卡片网格状态（ui.GridView 要一个稳定的 GridState，
 	// 按抽屉分开存才能各自保留滚动位置）。
